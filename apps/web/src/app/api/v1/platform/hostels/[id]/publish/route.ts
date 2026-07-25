@@ -18,7 +18,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const result = await publishPlatformHostel(id, principal);
 
-    return successResponse(result, "Hostel published");
+    return successResponse(
+      result,
+      result.notification.sent
+        ? "Hostel published"
+        : "Hostel published, but the owner could not be emailed",
+    );
   } catch (error) {
     return handleRouteError(error);
   }

@@ -31,6 +31,7 @@ const routeMocks = vi.hoisted(() => ({
   replyToComplaint: vi.fn(),
   requireApiPrincipal: vi.fn(),
   requireGuardianPrincipal: vi.fn(),
+  requireHostelCapability: vi.fn(),
   requireHostelStaffPrincipal: vi.fn(),
   requirePlatformPrincipal: vi.fn(),
   requireResidentPrincipal: vi.fn(),
@@ -45,6 +46,7 @@ const routeMocks = vi.hoisted(() => ({
 vi.mock("@/lib/api-auth", () => ({
   requireApiPrincipal: routeMocks.requireApiPrincipal,
   requireGuardianPrincipal: routeMocks.requireGuardianPrincipal,
+  requireHostelCapability: routeMocks.requireHostelCapability,
   requireHostelStaffPrincipal: routeMocks.requireHostelStaffPrincipal,
   requirePlatformPrincipal: routeMocks.requirePlatformPrincipal,
   requireResidentPrincipal: routeMocks.requireResidentPrincipal,
@@ -191,6 +193,7 @@ describe("daily operations routes", () => {
     routeMocks.requireApiPrincipal.mockResolvedValue(residentPrincipal);
     routeMocks.requireGuardianPrincipal.mockResolvedValue(guardianPrincipal);
     routeMocks.requireHostelStaffPrincipal.mockResolvedValue(staffPrincipal);
+    routeMocks.requireHostelCapability.mockResolvedValue(staffPrincipal);
     routeMocks.requirePlatformPrincipal.mockResolvedValue(platformPrincipal);
     routeMocks.requireResidentPrincipal.mockResolvedValue(residentPrincipal);
   });

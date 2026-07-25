@@ -1,7 +1,10 @@
 import type { NextRequest } from "next/server";
 
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import {
+  requireHostelCapability,
+  requireHostelStaffPrincipal,
+} from "@/lib/api-auth";
 import {
   getHostelAdminProfile,
   updateHostelAdminProfile,
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "editHostelProfile");
     const input = hostelAdminProfileUpdateSchema.parse(await request.json());
     const result = await updateHostelAdminProfile(input, principal);
 

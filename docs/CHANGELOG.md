@@ -16,6 +16,123 @@ Format follows [Keep a Changelog](https://keepachangelog.com/) — sections per 
 
 ---
 
+## [0.5.2] - 2026-07-23 — Cook credential hand-off + dashboard visibility
+
+### Added
+- **Cook credentials visible in the dashboard.** The Food page's Cook Portal panel now shows the
+  login address, when the password was last issued, and whether the emailed hand-off password is
+  still unused — plus the password itself once, immediately after issuing or rotating.
+  `GET /api/v1/hostel-admin/cook-portal` returns `cookEmail`, `credentialIssuedAt` and
+  `initialPasswordPending`. Only the bcrypt hash is ever stored, so the current password is
+  deliberately **not** retrievable once a cook has set their own; recovery is a rotation.
+- **First-login password hand-off.** Cook accounts are created with `mustChangePassword: true`, so
+  the first cook to sign in must choose a new password. Because the account is shared, that password
+  becomes the kitchen's, and `changePassword()` already revokes every session — the other cooks sign
+  in again with the new one. No new auth code was required.
+- `HostelSettings.cookCredentialIssuedAt`.
+
+### Changed
+- Both cook emails now label the value "First-time password" and explain that the first cook to sign
+  in sets the shared password.
+
+### Fixed
+- **Warden permission flags are now enforced.** They were previously stored and rendered in the UI
+  but read by nothing at request time, so unchecking a capability changed the UI without changing
+  what the warden could call. New `requireHostelCapability(request, key)` in `lib/api-auth.ts`
+  narrows a warden's `principal.hostelIds` to the hostels granting that flag — since every service
+  already scopes queries by `principal.hostelIds`, enforcement propagates without touching a single
+  service. No grant → 403 `CAPABILITY_DENIED`. HOSTEL_ADMIN skips the check entirely.
+  - Applied across 38 hostel-admin route files. Reads stay open to all staff
+    (`GET /residents`, `GET /residents/[id]`, `GET /profile`); writes require the capability.
+  - Permissions are read per request from `HostelMember` rather than embedded in the JWT, so a
+    revoked capability applies immediately instead of at the next token refresh.
+  - Not covered by the 11 keys and therefore still plain staff gates: inquiries, referrals, reports,
+    service-providers, sos-alerts.
+  - 6 new tests in `lib/warden-capability.test.ts`, including multi-hostel narrowing.
+
+---
+
+## [0.5.1] - 2026-07-23 — Cook credentials at approval + shared-credential hardening
+
+### Added
+- **Cook credentials issued at hostel approval.** `provisionCookAccount()` extracted from the portal
+  toggle and called from `approvePlatformHostel`, so the shared kitchen login is created the moment a
+  superadmin approves — its credentials ride along in the approval email under a "Cook portal access"
+  section (PHASES.md §3.1). Provisioning failure is logged and swallowed: it can never block an
+  approval.
+- **Food-ready cooldown** (`operations.foodReadyCooldownMinutes`, default 120). A second announcement
+  for the same meal inside the window is rejected with `FOOD_READY_COOLDOWN` (429). This bounds the
+  one action a leaked cook password can abuse — spamming every resident's notifications.
+- **Rotate Cook Password** action on the admin Food page, for when staff leave or a shared password
+  is suspected to have spread. Re-running the enable path always mints a fresh password and
+  invalidates the old one.
+- `lib/cook-role-containment.test.ts` — pins the COOK blast radius: not hostel staff, not platform,
+  cannot pass resident/guardian gates, has no portal landing path or allowed redirect prefixes. Any
+  future change that widens COOK's reach fails here first.
+- `modules/hostels/approval-cook-credentials.test.ts` — proves approval provisions the account, puts
+  the credentials in the email with the shared-credential warning, and still approves if cook
+  provisioning throws.
+
+### Changed
+- Registration form copy corrected. It previously promised "a Cook App login for **each** cook" and
+  that warden credentials were generated at approval — neither was true. It now states one shared
+  kitchen login (generated at approval, rotatable) and that warden logins are created by the hostel
+  admin from their dashboard.
+- Approval email's cook section spells out that the login is shared, should be rotated when staff
+  leave, and cannot reach payments, complaints, or resident contact details.
+
+### Known gap
+- `cookCount` from the registration form is still only flattened into the free-text `ownerNote`
+  ("Cooks: 3 · Floors: 4 · …") and read by nothing. Harmless while one shared login is the model,
+  but it should become a structured `HostelSettings` field if per-cook accounts are ever revisited.
+
+---
+
+## [0.5.0] - 2026-07-23 — Phase 3: Resident system (gap completion)
+
+### Added
+- **QR activation delivery**: `qrcode` dependency; activation codes now render a QR PNG of the
+  activation link, stored via `lib/public-upload.ts` (R2 when configured, `public/uploads/activation-qr/`
+  otherwise) and embedded in a new `resident/qr-activation` email alongside the typed fallback code.
+  `/resident-activation` prefills the code from `?code=`.
+- **Operations platform settings** (`modules/platform-config/operations-config.ts`, `PlatformSetting`
+  key `operations`): `qrActivationExpiryDays` (default 7, now drives code expiry),
+  `paymentReminderDaysBefore`, `sendNoticeEmails`, `sendPaymentEmails`, `receiptNumberPrefix`. Reads
+  never throw — a missing or malformed document falls back to the shipped defaults.
+- **Payment proofs carry money**: `PaymentProof.amount` / `paymentMethod` / `referenceNote`.
+  Verification adds the proof's amount to `Payment.paidAmount` and settles to `PAID` or `PARTIAL`
+  instead of always closing the month in full.
+- **Sequential receipts**: `RCP-YYYY-MM-#####`, allocated per month with duplicate-key retry against
+  the unique `receiptNumber` index. One receipt per payment; re-verification updates its amount.
+- **Fee management**: `Resident.monthlyFee`; `PATCH /api/v1/hostel-admin/residents/fees` (bulk or
+  per-resident) and `POST /api/v1/hostel-admin/payments/generate` — an idempotent monthly fee run that
+  skips residents already billed for the month and those with no fee to bill. "Monthly Fee Run" panel
+  added to the admin payments page.
+- **Payment reminder cron**: `POST /api/v1/cron/payment-reminders` +
+  `modules/payments/payment-reminders.service.ts`. Reminds exactly `paymentReminderDaysBefore` days
+  ahead, flips past-due records to `OVERDUE`, and chases on day 1, day 3, then weekly.
+- **Six more email templates**: `payment/{payment-due-reminder,payment-overdue,proof-uploaded,
+  payment-verified,payment-rejected}` and `resident/new-notice`, plus `hostel/cook-portal-enabled`.
+- **Notice fan-out**: publishing a notice writes an in-app `Notification` for every active resident
+  and emails them when `sendNoticeEmails` is on.
+- **Resident type classification**: `Resident.residentType` (STUDENT / WORKING_PROFESSIONAL / OTHER,
+  default STUDENT) through model, validation, list filter, API and the admin registration form.
+- **Cook portal**: `HostelSettings` and `FoodReadyLog` models; `modules/food/cook.service.ts`;
+  `GET/PATCH /api/v1/hostel-admin/cook-portal` (enable → generated COOK account with a rotated
+  password, credentials emailed to the hostel admin; disable → account suspended) and
+  `GET/POST /api/v1/cook/food-ready`, which logs the announcement and notifies every active resident.
+  Toggle panel added to the admin food page. The cook's own mobile screens remain Phase 6.
+- 23 new unit tests (reminders, fee runs, partial payments, receipt sequencing, cook portal,
+  activation delivery, notice broadcast).
+
+### Changed
+- Notification side-effects across activation, payments, and notices are wrapped so a delivery
+  failure can never fail the action that has already been persisted.
+- `docs/CRON.md` documents the payment-reminder job and backfills the previously undocumented
+  nearby-places refresh job.
+
+---
+
 ## [0.4.0] - 2026-07-22 — Phase 2: Public discovery + hostel core (gap completion)
 
 ### Added

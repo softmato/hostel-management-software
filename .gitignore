@@ -47,3 +47,6 @@ Thumbs.db
 graphify-out/cache/
 graphify-out/.graphify_root
 graphify-out/manifest.json
+
+# Runtime-generated activation QR images (local fallback when R2 is unconfigured).
+apps/web/public/uploads/activation-qr/

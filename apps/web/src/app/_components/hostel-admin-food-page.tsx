@@ -22,12 +22,28 @@ import {
   type LoadState,
 } from "./hostel-admin-shared";
 
+type CookPortalSettings = {
+  cookEmail: string;
+  cookName: string;
+  cookPortalEnabled: boolean;
+  credentialIssuedAt?: string;
+  initialPasswordPending: boolean;
+};
+
 export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
   const [menus, setMenus] = useState<FoodMenu[]>([]);
   const [state, setState] = useState<LoadState>("idle");
   const [message, setMessage] = useState("");
   const [photoAssetId, setPhotoAssetId] = useState("");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [cookPortal, setCookPortal] = useState<CookPortalSettings>({
+    cookEmail: "",
+    cookName: "",
+    cookPortalEnabled: false,
+    initialPasswordPending: false,
+  });
+  // Held in memory only, never persisted: shown once right after issuing.
+  const [cookPassword, setCookPassword] = useState("");
 
   const load = useCallback(async () => {
     setState("loading");
@@ -44,13 +60,71 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
     }
   }, []);
 
+  const loadCookPortal = useCallback(async () => {
+    try {
+      const data = await browserApi<{ settings: CookPortalSettings }>(
+        "/api/v1/hostel-admin/cook-portal",
+      );
+
+      setCookPortal(data.settings);
+    } catch {
+      // Non-critical panel: leave the toggle in its default (disabled) state.
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void load();
+      void loadCookPortal();
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [load]);
+  }, [load, loadCookPortal]);
+
+  const submitCookPortal = useCallback(
+    async (enabled: boolean, cookName?: string, rotate = false) => {
+      try {
+        const result = await browserApi<{
+          credentials?: { email: string; temporaryPassword: string };
+          settings: CookPortalSettings;
+        }>("/api/v1/hostel-admin/cook-portal", {
+          body: JSON.stringify({ cookName, enabled }),
+          method: "PATCH",
+        });
+
+        setCookPortal(result.settings);
+        setCookPassword(result.credentials?.temporaryPassword ?? "");
+        setMessage(
+          result.credentials
+            ? `${rotate ? "New cook password issued" : "Cook portal enabled"} — also emailed to you. Any previous password no longer works.`
+            : "Cook portal disabled.",
+        );
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Could not update the cook portal.",
+        );
+      }
+    },
+    [],
+  );
+
+  const handleCookPortal = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+
+      await submitCookPortal(
+        !cookPortal.cookPortalEnabled,
+        optionalField(form, "cookName"),
+      );
+    },
+    [cookPortal.cookPortalEnabled, submitCookPortal],
+  );
+
+  // Rotating re-runs the enable path, which always issues a fresh password.
+  const handleRotateCookPassword = useCallback(async () => {
+    await submitCookPortal(true, undefined, true);
+  }, [submitCookPortal]);
 
   const handleCreateMenu = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -173,6 +247,83 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
           </div>
         </Panel>
         <div className="space-y-5">
+          <Panel title="Cook Portal">
+            <form className="grid gap-3" onSubmit={handleCookPortal}>
+              <p className="text-sm text-muted-foreground">
+                {cookPortal.cookPortalEnabled
+                  ? `Enabled for ${cookPortal.cookName || "your cook"}. This is one shared kitchen login — it can only announce meals, never see payments, complaints, or resident contact details.`
+                  : "Give your kitchen a shared mobile login so whoever is cooking can notify residents the moment food is ready."}
+              </p>
+
+              {cookPortal.cookPortalEnabled ? (
+                <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                  <div className="grid gap-0.5">
+                    <span className="text-xs font-semibold uppercase text-muted-foreground">
+                      Cook login
+                    </span>
+                    <code className="break-all font-mono text-sm text-foreground">
+                      {cookPortal.cookEmail || "—"}
+                    </code>
+                  </div>
+
+                  <div className="grid gap-0.5">
+                    <span className="text-xs font-semibold uppercase text-muted-foreground">
+                      Password
+                    </span>
+                    {cookPassword ? (
+                      <code className="break-all font-mono text-sm font-bold text-foreground">
+                        {cookPassword}
+                      </code>
+                    ) : cookPortal.initialPasswordPending ? (
+                      <span className="text-muted-foreground">
+                        Emailed to you, and not used yet. Rotate below if you no longer
+                        have it.
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Set by your cook — we only store it encrypted, so nobody can read
+                        it back. Rotate below to issue a new one.
+                      </span>
+                    )}
+                  </div>
+
+                  {cookPortal.credentialIssuedAt ? (
+                    <p className="text-xs text-muted-foreground">
+                      Last issued{" "}
+                      {new Date(cookPortal.credentialIssuedAt).toLocaleDateString()}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <Input
+                  defaultValue={cookPortal.cookName}
+                  label="Cook name"
+                  name="cookName"
+                />
+              )}
+
+              {cookPortal.cookPortalEnabled ? (
+                <p className="text-sm text-muted-foreground">
+                  The first cook to sign in sets a new password — that becomes the
+                  kitchen&apos;s shared password. Rotate it whenever a cook leaves.
+                </p>
+              ) : null}
+              <button className="h-11 rounded-md bg-role-admin text-sm font-semibold text-white">
+                {cookPortal.cookPortalEnabled
+                  ? "Disable Cook Portal"
+                  : "Enable Cook Portal"}
+              </button>
+              {cookPortal.cookPortalEnabled ? (
+                <button
+                  className="h-11 rounded-md border border-border text-sm font-semibold text-foreground"
+                  onClick={() => void handleRotateCookPassword()}
+                  type="button"
+                >
+                  Rotate Cook Password
+                </button>
+              ) : null}
+            </form>
+          </Panel>
           <Panel title="Create Menu">
             <form className="grid gap-3" onSubmit={handleCreateMenu}>
               <div className="grid gap-3 sm:grid-cols-2">

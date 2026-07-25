@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import {
   createHostelAdminFloor,
   listHostelAdminFloors,
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "manageRooms");
     const query = hostelScopedListQuerySchema.parse(
       Object.fromEntries(request.nextUrl.searchParams.entries()),
     );
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "manageRooms");
     const input = floorCreateSchema.parse(await request.json());
     const result = await createHostelAdminFloor(input, principal);
 

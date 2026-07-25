@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import {
   generateActivationCode,
@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const { id } = await context.params;
     const input = activationCodeGenerateSchema.parse(await request.json());
     const result = await generateActivationCode(id, input, principal);
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const { id } = await context.params;
     const input = activationCodeGenerateSchema.parse(await request.json());
     const result = await regenerateActivationCode(id, input, principal);

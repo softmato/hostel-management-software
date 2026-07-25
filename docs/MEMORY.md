@@ -51,10 +51,84 @@ This file is the project's working memory across coding sessions. Update it ever
 
 ## Current Progress
 
-- **Phase:** Phase 2 — Public Discovery + Hostel Core (all code-side deliverables done; remaining = manual/browser QA + external infra).
+- **Phase:** Phase 3 — Resident System (all code-side deliverables done; remaining = manual/browser QA + external infra).
+- **Status (2026-07-23):** build green, typecheck + lint clean, **131/131** unit tests pass. Like Phase 2, this was gap completion on an already-built surface. Delivered: QR image generation + activation email with config-driven expiry (`operations` platform setting), payment proofs that carry an amount/method/reference so a month can settle PARTIAL, sequential `RCP-YYYY-MM-#####` receipts, the 7 Phase 3 email templates, a payment reminder/overdue cron, notice fan-out (in-app + email), `Resident.residentType` + `monthlyFee` with an idempotent monthly fee run, and cook-portal setup with `/api/v1/cook/food-ready`. See CHANGELOG `[0.5.0]`.
+- **Phase 3 remaining (not code):** §3.2 acceptance pass against a seeded DB, live Resend delivery test, an R2 bucket for QR images (local-disk fallback covers dev), and a cron-job.org entry for `/api/v1/cron/payment-reminders` with `CRON_SECRET` set. Cook *mobile* screens are Phase 6 by design; the server side they call is done.
+- **Prior — Phase 2 (2026-07-22):** public discovery + hostel core.
 - **Status (2026-07-22):** typecheck + lint clean, **103/103** unit tests pass. Session of 2026-07-22 filled the Phase 2 gaps on the already-built public/hostel-admin surface: Warden Management (service+API+UI+tests), public SEO (dynamic metadata + `sitemap.ts` + `robots.ts`), TanStack Query + Zustand foundation (wired into listing/compare/residents/wardens), and the full Maps integration (Leaflet + Google embed fallback, provider detection, Nominatim geocoding w/ coarse fallback, Overpass nearby-places caching, refresh cron, "Near my college" filter). Also relocated the in-progress owner-application routes out of a `[id]` vs `[slug]` Next.js route conflict. See CHANGELOG `[0.4.0]`.
 - **Phase 2 remaining (not code):** §2.2 acceptance tests + 375px pass + Lighthouse ≥80 (browser QA), and infra — live R2, `CRON_SECRET` on deploy, optional `GOOGLE_MAPS_API_KEY`/`NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`. Public Overpass rate-limits bursts, so nearby-places fill in over cron runs.
 - **Prior — Phase 1 (2026-07-21):** Production build GREEN, audit log viewer, §3.2 safeguard, `phase*` files renamed.
+
+### Warden permissions — how enforcement works (built 2026-07-23)
+
+The 11 `WARDEN_PERMISSION_KEYS` flags (`warden.validation.ts`) live on `HostelMember.permissions`
+and **are enforced at request time** by `requireHostelCapability(request, key)` in `lib/api-auth.ts`.
+(They were display-only until this date — anything written before then is stale.)
+
+**The mechanism, which is the part to understand before changing anything:** the gate does not
+merely allow/deny. For a WARDEN it **narrows `principal.hostelIds`** to only those hostels where the
+flag is granted, then hands that principal to the service. Because every service already scopes its
+queries by `principal.hostelIds`, the restriction propagates for free — no service needed changing,
+and a multi-hostel warden is correctly limited per hostel. No grant anywhere → 403 `CAPABILITY_DENIED`.
+
+- HOSTEL_ADMIN holds every capability implicitly and skips the lookup entirely.
+- Permissions are read **per request from the DB**, not carried in the JWT, so revoking a capability
+  takes effect immediately rather than at the next token refresh. That is a deliberate trade of one
+  indexed lookup for correctness.
+- **Reads stay open to all staff; writes are gated.** `GET /residents`, `GET /residents/[id]` and
+  `GET /profile` use `requireHostelStaffPrincipal`; their POST/PATCH counterparts use a capability.
+- **Uncovered by the 11 keys** (still plain staff gates, by design — no flag exists for them):
+  inquiries, referrals, reports, service-providers, sos-alerts. Add a key first if these ever need
+  to be restricted.
+- Covered by `lib/warden-capability.test.ts`. WARDEN remains ~98% of HOSTEL_ADMIN *when every flag
+  is granted*; Warden Management itself stays HOSTEL_ADMIN-only via `requireHostelAdminPrincipal`.
+
+### Cook credentials — locked decisions (2026-07-23)
+
+- **One shared cook login per hostel**, not one per cook. Client decision, for simplicity. The
+  registration form collects `cookCount`, but it is deliberately **not** used to provision accounts —
+  per-announcement attribution comes from `FoodReadyLog.deviceInfo` instead (PHASES.md §3.1).
+  `cookCount` currently survives only as free text inside `ownerNote`; make it a structured
+  `HostelSettings` field if this is ever revisited.
+- **Issued at superadmin approval**, not on an admin toggle, and delivered in the approval email.
+  `provisionCookAccount()` in `modules/food/cook.service.ts` is the single path — approval and the
+  Food-page toggle/rotate all call it, and every call mints a fresh password.
+- **Emailed password is a hand-off credential only.** The cook account is created with
+  `mustChangePassword: true`, so the first cook to sign in must choose a new password; because the
+  account is shared, that password becomes the kitchen's, and `changePassword()` revokes all
+  sessions so the other cooks simply sign in again with it. No new code was needed for this — the
+  existing `/api/auth/change-password` flow already skips the current-password check when
+  `mustChangePassword` is set.
+- **Only the bcrypt hash is stored — never plaintext.** So the dashboard shows the login address,
+  `credentialIssuedAt`, and an `initialPasswordPending` status, plus the password *once* right after
+  issuing. After a cook sets their own, nobody (including the admin) can read it back; recovery is
+  "Rotate Cook Password", which mints a fresh hand-off password. Do not "improve" this by storing
+  the plaintext.
+- **The shared credential will leak** (kitchen turnover, written on a wall). Accepted, and bounded
+  rather than prevented: COOK can reach exactly one endpoint (`/api/v1/cook/food-ready`), has no
+  portal landing path, and cannot pass any staff/resident/guardian gate — locked by
+  `lib/cook-role-containment.test.ts`. The only abusable action, announcement spam, is capped by
+  `operations.foodReadyCooldownMinutes` (default 120). Recovery is "Rotate Cook Password" on the
+  Food page. **Do not widen COOK's API surface without re-reading this.**
+- **Wardens are NOT provisioned at approval — confirmed client decision, do not re-litigate.**
+  Two reasons. Practical: the application form collects no warden identity (no name, no email), so
+  there is nothing to create an account from. Security: unlike a cook, a warden can see residents,
+  payments and complaints, so a shared or auto-generated warden login turns a leaked password into a
+  real data-privacy incident rather than notification spam. Wardens stay admin-created via Phase 2
+  Warden Management, where each gets their own real mailbox and the §3.2 upgrade path applies.
+  Form copy was corrected to stop promising otherwise.
+
+### 2026-07-23 session — Phase 3, what was done
+1. **Operations config** — new `PlatformSetting` key `operations` (`modules/platform-config/operations-config.ts`): `qrActivationExpiryDays`, `paymentReminderDaysBefore`, `sendNoticeEmails`, `sendPaymentEmails`, `receiptNumberPrefix`. Deliberately kept separate from the public site-config sections so a website edit can never change activation/payment behaviour. Reads never throw — bad or missing document → shipped defaults.
+2. **QR activation** — added `qrcode`; `generateActivationCode` now renders the activation link as a QR PNG, stores it via the new `lib/public-upload.ts` (R2 when `R2_PUBLIC_URL` is configured, else `public/uploads/activation-qr/`), and emails the resident. Expiry defaults from config instead of a client-supplied `expiresInHours`. `/resident-activation` prefills `?code=` (wrapped in Suspense).
+3. **Payments** — `PaymentProof` gained `amount`/`paymentMethod`/`referenceNote`; approval now adds that amount to `paidAmount` and settles `PAID` **or** `PARTIAL`. Receipts moved to sequential `RCP-YYYY-MM-#####` with duplicate-key retry (the `receiptNumber` unique index is the arbiter); one receipt per payment, amount refreshed on re-verification. Emails on proof upload (to admins), verify, and reject.
+4. **Fee management** — `Resident.monthlyFee`, bulk `PATCH …/residents/fees`, and `POST …/payments/generate` (idempotent: skips residents already billed for the month and those with no fee); "Monthly Fee Run" panel on the admin payments page.
+5. **Cron** — `POST /api/v1/cron/payment-reminders`. Reminds on the *exact* day offset, not every day inside the window, and chases overdue on day 1/3/then weekly, so a stale record can't email someone every morning. Documented in `docs/CRON.md` (which also gained the previously undocumented nearby-places job).
+6. **Notices** — publishing fans out in-app `Notification`s to active residents plus emails when `sendNoticeEmails` is on.
+7. **Resident type** — `residentType` (STUDENT default) end to end, with an admin list filter.
+8. **Cook portal** — `HostelSettings` + `FoodReadyLog` models, `modules/food/cook.service.ts`, `GET/PATCH /api/v1/hostel-admin/cook-portal` and `GET/POST /api/v1/cook/food-ready`. Cook logins are generated (`cook@<slug>.hostelhub.local`) with no real mailbox, so credentials are emailed to the hostel admin and rotate on every re-enable; disabling suspends the account.
+9. **Robustness** — every notification side-effect is wrapped: a failed email or contact lookup can never fail an activation, verification, or notice publish that has already been persisted.
+10. **Tests** — 23 new unit tests (5 files); suite is 131/131. Pre-existing tests updated for the new proof `amount` and the receipt format.
 
 ### 2026-07-21 session — what was done
 1. **Build green** — re-ran `npm --prefix apps/web run build` after the prior `useSearchParams()`→Suspense fixes; exit 0, no further prerender errors.
@@ -68,7 +142,11 @@ This file is the project's working memory across coding sessions. Update it ever
 
 ## RESUME POINT (next session starts here)
 
-Code-side Phase 1 is done. What's left is **external/infra or deliberately deferred** — full list in `TODO.md`:
+**Phases 1–3 are code-complete.** Next code work is **Phase 4 — Trust, Safety & Guardian** (PHASES.md §4): complaints, night safety status, SOS, guardian dashboard, move-in/out checklists, ratings. Note that a lot of that surface already exists from the earlier codebase, so expect the same gap-completion pattern rather than greenfield building — audit what is there before writing anything.
+
+Phase 3 leftovers are all external: seeded-DB acceptance pass (§3.2), live Resend delivery, an R2 bucket so QR images get a public CDN URL instead of the local-disk fallback, and a cron-job.org entry for `/api/v1/cron/payment-reminders`.
+
+The older Phase 1 infra list below is still open and still **external/infra or deliberately deferred** — full list in `TODO.md`:
 
 1. **External infra (needs the user):**
    - Cloudflare R2 bucket + `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` in `.env` (upload helper + validation already coded).

@@ -62,6 +62,15 @@ export type PublicHostel = {
     monthlyRentMax?: number;
     monthlyRentMin?: number;
   };
+  roomConfigurations?: Array<{
+    bedsPerRoom: number;
+    id?: string;
+    mealInclusion: "Included" | "Not Included" | "Optional";
+    monthlyRent: number;
+    rooms: number;
+    roomType: string;
+    vacantBeds: number;
+  }>;
   roomTypes: string[];
   rules: string[];
   slug: string;

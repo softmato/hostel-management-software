@@ -1,7 +1,10 @@
 import type { NextRequest } from "next/server";
 
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import {
+  requireHostelCapability,
+  requireHostelStaffPrincipal,
+} from "@/lib/api-auth";
 import { getResidentById, updateResident } from "@/modules/residents/resident.service";
 import {
   residentListQuerySchema,
@@ -33,7 +36,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const { id } = await context.params;
     const input = residentUpdateSchema.parse(await request.json());
     const result = await updateResident(id, input, principal);

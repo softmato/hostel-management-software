@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import { addMaintenanceComment } from "@/modules/maintenance/maintenance.service";
 import { maintenanceCommentCreateSchema } from "@/modules/maintenance/maintenance.validation";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "manageMaintenance");
     const { id } = await context.params;
     const input = maintenanceCommentCreateSchema.parse(await request.json());
     const result = await addMaintenanceComment(id, input, principal);

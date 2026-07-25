@@ -9,6 +9,11 @@ export function hostelApprovedEmail(input: {
    * (ARCHITECTURE.md §3.2).
    */
   credentials?: { email: string; temporaryPassword: string };
+  /**
+   * The hostel's single shared cook login, issued at approval (PHASES.md §3.1:
+   * "Send cook credentials in same email as hostel admin approval").
+   */
+  cookCredentials?: { cookName: string; email: string; temporaryPassword: string };
 }): EmailContent {
   const credentialsBlock = input.credentials
     ? [
@@ -23,6 +28,25 @@ export function hostelApprovedEmail(input: {
         ),
       ];
 
+  const cookBlock = input.cookCredentials
+    ? [
+        `<hr style="margin:28px 0;border:none;border-top:1px solid #e2e8f0;" />`,
+        `<p style="margin:0 0 12px;font-size:16px;font-weight:600;">Cook portal access</p>`,
+        paragraph(
+          `We created a shared kitchen login for <strong>${escapeHtml(input.cookCredentials.cookName)}</strong>. Give it to whoever is cooking — they can announce meals to residents from their phone.`,
+        ),
+        paragraph(
+          `Login: <strong>${escapeHtml(input.cookCredentials.email)}</strong><br/>First-time password: <strong>${escapeHtml(input.cookCredentials.temporaryPassword)}</strong>`,
+        ),
+        paragraph(
+          "The first cook to sign in will be asked to choose a new password — that becomes the kitchen's shared password, and any other cook signs in with it too.",
+        ),
+        paragraph(
+          "Treat it like a key: share it only with cooking staff, and rotate it from your Food page whenever someone leaves. It can only announce meals — it cannot see payments, complaints, or resident contact details.",
+        ),
+      ]
+    : [];
+
   return {
     subject: `Your hostel is approved — ${input.hostelName}`,
     html: emailLayout({
@@ -33,6 +57,7 @@ export function hostelApprovedEmail(input: {
         ),
         ...credentialsBlock,
         ctaButton(input.loginUrl, "Go to your dashboard"),
+        ...cookBlock,
       ].join("\n"),
     }),
   };

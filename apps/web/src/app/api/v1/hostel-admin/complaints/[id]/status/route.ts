@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import { updateComplaintStatus } from "@/modules/complaints/complaint.service";
 import { complaintStatusUpdateSchema } from "@/modules/complaints/complaint.validation";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "updateComplaints");
     const { id } = await context.params;
     const input = complaintStatusUpdateSchema.parse(await request.json());
     const result = await updateComplaintStatus(id, input, principal);

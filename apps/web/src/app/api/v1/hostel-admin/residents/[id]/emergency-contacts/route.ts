@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { addEmergencyContact } from "@/modules/residents/resident.service";
 import { emergencyContactCreateSchema } from "@/modules/residents/resident.validation";
 
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const { id } = await context.params;
     const input = emergencyContactCreateSchema.parse(await request.json());
     const result = await addEmergencyContact(id, input, principal);

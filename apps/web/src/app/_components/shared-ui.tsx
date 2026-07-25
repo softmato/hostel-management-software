@@ -61,14 +61,18 @@ export function Panel({
 export function Input({
   defaultValue,
   label,
+  min,
   name,
   required,
+  step,
   type = "text",
 }: {
   defaultValue?: string | number;
   label: string;
+  min?: string;
   name: string;
   required?: boolean;
+  step?: string;
   type?: string;
 }) {
   return (
@@ -77,8 +81,10 @@ export function Input({
       <input
         className="h-11 rounded-md border border-border bg-background px-3 text-sm font-normal outline-none focus:border-role-admin"
         defaultValue={defaultValue}
+        min={min}
         name={name}
         required={required}
+        step={step}
         type={type}
       />
     </label>

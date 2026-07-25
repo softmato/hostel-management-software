@@ -15,12 +15,26 @@ import {
   serializeResidentSummary,
   type ResidentRecord,
 } from "@/modules/residents/resident-access";
+import {
+  appUrl,
+  getHostelName,
+  resolveHostelAdminContacts,
+  resolveResidentContact,
+  sendNotificationEmail,
+} from "@/modules/residents/resident-notify";
+import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import { paymentProofUploadedEmail } from "@hostel/shared/email/templates/payment/proof-uploaded";
+import { paymentRejectedEmail } from "@hostel/shared/email/templates/payment/payment-rejected";
+import { paymentVerifiedEmail } from "@hostel/shared/email/templates/payment/payment-verified";
 import type {
+  monthlyPaymentGenerateSchema,
   paymentCreateSchema,
   paymentListQuerySchema,
   paymentProofReviewSchema,
   paymentProofSubmitSchema,
   paymentUpdateSchema,
+  residentFeeUpdateSchema,
 } from "@/modules/payments/payment.validation";
 
 type PaymentCreateInput = z.infer<typeof paymentCreateSchema>;
@@ -28,6 +42,8 @@ type PaymentUpdateInput = z.infer<typeof paymentUpdateSchema>;
 type PaymentListQuery = z.infer<typeof paymentListQuerySchema>;
 type PaymentProofSubmitInput = z.infer<typeof paymentProofSubmitSchema>;
 type PaymentProofReviewInput = z.infer<typeof paymentProofReviewSchema>;
+type MonthlyPaymentGenerateInput = z.infer<typeof monthlyPaymentGenerateSchema>;
+type ResidentFeeUpdateInput = z.infer<typeof residentFeeUpdateSchema>;
 
 type PaymentStatus = "UNPAID" | "PAID" | "PARTIAL" | "OVERDUE" | "PENDING_PROOF";
 type PaymentMethod = "CASH" | "ESEWA" | "KHALTI" | "FONEPAY" | "BANK_TRANSFER" | "OTHER";
@@ -51,10 +67,13 @@ type PaymentRecord = {
 
 type PaymentProofRecord = {
   _id: Types.ObjectId;
+  amount: number;
   createdAt?: Date;
   hostelId: Types.ObjectId;
   paymentId: Types.ObjectId;
+  paymentMethod?: PaymentMethod;
   proofImageAssetId: string;
+  referenceNote?: string;
   rejectionReason?: string;
   residentId: Types.ObjectId;
   reviewedAt?: Date;
@@ -148,11 +167,14 @@ function serializePayment(payment: PaymentRecord) {
 
 function serializePaymentProof(proof: PaymentProofRecord) {
   return {
+    amount: proof.amount ?? 0,
     createdAt: proof.createdAt?.toISOString(),
     hostelId: proof.hostelId.toString(),
     id: proof._id.toString(),
     paymentId: proof.paymentId.toString(),
+    paymentMethod: proof.paymentMethod,
     proofImageAssetId: proof.proofImageAssetId,
+    referenceNote: proof.referenceNote ?? "",
     rejectionReason: proof.rejectionReason ?? "",
     residentId: proof.residentId.toString(),
     reviewedAt: proof.reviewedAt?.toISOString(),
@@ -252,27 +274,74 @@ async function findAdminPaymentProof(
   return proof;
 }
 
+/**
+ * Allocates the next sequential receipt number for a month, e.g.
+ * `RCP-2026-08-00123`. `receiptNumber` carries a unique index, so a race
+ * between two verifications surfaces as a duplicate-key error and is retried
+ * with the next free sequence rather than silently reusing a number.
+ */
+async function nextReceiptNumber(month: string, attempt = 0): Promise<string> {
+  const config = await getOperationsConfig();
+  const prefix = `${config.receiptNumberPrefix}-${month}-`;
+  const latest = await ReceiptModel.findOne({
+    receiptNumber: { $regex: `^${prefix}` },
+  })
+    .sort({ receiptNumber: -1 })
+    .lean<{ receiptNumber: string } | null>();
+
+  const lastSequence = latest
+    ? Number.parseInt(latest.receiptNumber.slice(prefix.length), 10)
+    : 0;
+  const sequence =
+    (Number.isNaN(lastSequence) ? 0 : lastSequence) + 1 + attempt;
+
+  return `${prefix}${String(sequence).padStart(5, "0")}`;
+}
+
+/**
+ * One receipt per payment. Re-verifying a partially paid month updates the
+ * existing receipt's amount instead of minting a second number, so a resident's
+ * receipt always reflects what the hostel has confirmed for that month.
+ */
 export async function generateReceipt(payment: PaymentRecord, principal: ApiPrincipal) {
-  const existingReceipt = await ReceiptModel.findOne({
-    paymentId: payment._id,
-    residentId: payment.residentId,
-  }).lean<ReceiptRecord | null>();
+  const existingReceipt = await ReceiptModel.findOneAndUpdate(
+    { paymentId: payment._id, residentId: payment.residentId },
+    { $set: { amount: payment.paidAmount } },
+    { new: true },
+  ).lean<ReceiptRecord | null>();
 
   if (existingReceipt) {
     return existingReceipt;
   }
 
-  const receiptNumber = `HH-${payment.month}-${payment._id.toString().slice(-6).toUpperCase()}`;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return (await ReceiptModel.create({
+        amount: payment.paidAmount,
+        hostelId: payment.hostelId,
+        issuedBy: principal.userId,
+        month: payment.month,
+        paymentId: payment._id,
+        receiptNumber: await nextReceiptNumber(payment.month, attempt),
+        residentId: payment.residentId,
+      })) as ReceiptRecord;
+    } catch (error) {
+      const isDuplicate =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as { code?: number }).code === 11000
+          : false;
 
-  return ReceiptModel.create({
-    amount: payment.paidAmount,
-    hostelId: payment.hostelId,
-    issuedBy: principal.userId,
-    month: payment.month,
-    paymentId: payment._id,
-    receiptNumber,
-    residentId: payment.residentId,
-  }) as Promise<ReceiptRecord>;
+      if (!isDuplicate) {
+        throw error;
+      }
+    }
+  }
+
+  throw new PaymentServiceError(
+    "Could not allocate a receipt number. Please retry.",
+    "RECEIPT_NUMBER_CONFLICT",
+    503,
+  );
 }
 
 export async function createPaymentRecord(
@@ -458,6 +527,8 @@ export async function submitPaymentProof(
     { paymentId: payment._id.toString() },
   );
 
+  await notifyAdminsOfProof(resident, payment, input);
+
   return {
     payment: updatedPayment
       ? serializePayment(updatedPayment)
@@ -465,6 +536,75 @@ export async function submitPaymentProof(
     proof: serializePaymentProof(proof as PaymentProofRecord),
     resident: serializeResidentSummary(resident),
   };
+}
+
+/** Never throws — the proof is already saved by the time this runs. */
+async function notifyAdminsOfProof(
+  resident: ResidentRecord,
+  payment: PaymentRecord,
+  input: PaymentProofSubmitInput,
+) {
+  try {
+    await deliverProofNotification(resident, payment, input);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: "payment_proof_notification_failed",
+        message: error instanceof Error ? error.message : "Unknown notification error",
+        paymentId: payment._id.toString(),
+      }),
+    );
+  }
+}
+
+async function deliverProofNotification(
+  resident: ResidentRecord,
+  payment: PaymentRecord,
+  input: PaymentProofSubmitInput,
+) {
+  const config = await getOperationsConfig();
+
+  if (!config.sendPaymentEmails) {
+    return;
+  }
+
+  const [hostelName, admins] = await Promise.all([
+    getHostelName(resident.hostelId),
+    resolveHostelAdminContacts(resident.hostelId),
+  ]);
+  const residentName = `${resident.firstName} ${resident.lastName}`.trim();
+  const email = paymentProofUploadedEmail({
+    amount: input.amount,
+    hostelName,
+    method: input.paymentMethod,
+    month: payment.month,
+    referenceNote: input.referenceNote ?? input.transactionCode,
+    residentName,
+    reviewUrl: appUrl("/hostel-admin/payments"),
+  });
+
+  await Promise.all(
+    admins.map(async (admin) => {
+      if (admin.userId) {
+        await createInAppNotification({
+          body: `${residentName} uploaded a payment proof for ${payment.month}.`,
+          category: "PAYMENT",
+          data: { paymentId: payment._id.toString() },
+          hostelId: resident.hostelId.toString(),
+          title: "Payment proof to verify",
+          userId: admin.userId,
+        });
+      }
+
+      await sendNotificationEmail({
+        action: "payment_proof_uploaded",
+        html: email.html,
+        subject: email.subject,
+        to: admin.email,
+      });
+    }),
+  );
 }
 
 export async function approvePaymentProof(
@@ -486,13 +626,20 @@ export async function approvePaymentProof(
     throw new PaymentServiceError("Payment was not found.", "PAYMENT_NOT_FOUND", 404);
   }
 
+  // Proofs carry the amount the resident actually paid, so a part-payment
+  // settles the month partially instead of closing it out in full.
+  const verifiedAmount = proof.amount ?? payment.dueAmount;
+  const paidAmount = Math.min(payment.paidAmount + verifiedAmount, payment.dueAmount);
+  const isSettled = paidAmount >= payment.dueAmount;
+
   const paidPayment = await PaymentModel.findOneAndUpdate(
     { _id: payment._id },
     {
       $set: {
-        paidAmount: payment.dueAmount,
+        paidAmount,
         paidDate: now,
-        status: "PAID",
+        paymentMethod: proof.paymentMethod ?? payment.paymentMethod,
+        status: isSettled ? "PAID" : "PARTIAL",
         updatedBy: principal.userId,
       },
     },
@@ -532,14 +679,115 @@ export async function approvePaymentProof(
     proof._id,
     "PaymentProof",
     "PAYMENT_PROOF_APPROVED",
-    { paymentId: proof.paymentId.toString() },
+    { amount: verifiedAmount, paymentId: proof.paymentId.toString() },
   );
+
+  await notifyResidentOfReview(paidPayment, {
+    kind: "verified",
+    receiptNumber: receipt.receiptNumber,
+    verifiedAmount,
+  });
 
   return {
     payment: serializePayment(paidPayment),
     proof: serializePaymentProof(reviewedProof),
     receipt: serializeReceipt(receipt),
   };
+}
+
+/**
+ * Emails and in-app-notifies the resident about a proof decision. Never throws:
+ * the verification itself has already been persisted by the time this runs, so
+ * a notification problem must not turn a successful review into an error.
+ */
+async function notifyResidentOfReview(
+  payment: PaymentRecord,
+  outcome:
+    | { kind: "verified"; receiptNumber: string; verifiedAmount: number }
+    | { kind: "rejected"; rejectionReason: string },
+) {
+  try {
+    await deliverReviewNotification(payment, outcome);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: "payment_review_notification_failed",
+        message: error instanceof Error ? error.message : "Unknown notification error",
+        paymentId: payment._id.toString(),
+      }),
+    );
+  }
+}
+
+async function deliverReviewNotification(
+  payment: PaymentRecord,
+  outcome:
+    | { kind: "verified"; receiptNumber: string; verifiedAmount: number }
+    | { kind: "rejected"; rejectionReason: string },
+) {
+  const config = await getOperationsConfig();
+
+  if (!config.sendPaymentEmails) {
+    return;
+  }
+
+  const resident = await ResidentModel.findOne({
+    _id: payment.residentId,
+    isDeleted: false,
+  }).lean<ResidentRecord | null>();
+
+  if (!resident) {
+    return;
+  }
+
+  const [hostelName, contact] = await Promise.all([
+    getHostelName(payment.hostelId),
+    resolveResidentContact(resident),
+  ]);
+  const paymentsUrl = appUrl("/resident/payments");
+
+  const email =
+    outcome.kind === "verified"
+      ? paymentVerifiedEmail({
+          amount: outcome.verifiedAmount,
+          hostelName,
+          month: payment.month,
+          paymentsUrl,
+          receiptNumber: outcome.receiptNumber,
+          remainingAmount: Math.max(payment.dueAmount - payment.paidAmount, 0),
+          residentName: contact?.name ?? resident.firstName,
+        })
+      : paymentRejectedEmail({
+          hostelName,
+          month: payment.month,
+          paymentsUrl,
+          rejectionReason: outcome.rejectionReason,
+          residentName: contact?.name ?? resident.firstName,
+        });
+
+  if (resident.userId) {
+    await createInAppNotification({
+      body:
+        outcome.kind === "verified"
+          ? `Your payment for ${payment.month} was verified. Receipt ${outcome.receiptNumber}.`
+          : `Your payment proof for ${payment.month} was not accepted: ${outcome.rejectionReason}`,
+      category: "PAYMENT",
+      data: { paymentId: payment._id.toString() },
+      hostelId: payment.hostelId.toString(),
+      title: outcome.kind === "verified" ? "Payment verified" : "Payment proof rejected",
+      userId: resident.userId.toString(),
+    });
+  }
+
+  if (contact) {
+    await sendNotificationEmail({
+      action: `payment_${outcome.kind}`,
+      html: email.html,
+      subject: email.subject,
+      to: contact.email,
+    });
+  }
 }
 
 export async function rejectPaymentProof(
@@ -606,9 +854,133 @@ export async function rejectPaymentProof(
     { paymentId: proof.paymentId.toString(), reason: input.rejectionReason },
   );
 
+  await notifyResidentOfReview(updatedPayment, {
+    kind: "rejected",
+    rejectionReason: input.rejectionReason,
+  });
+
   return {
     payment: serializePayment(updatedPayment),
     proof: serializePaymentProof(reviewedProof),
+  };
+}
+
+/**
+ * Sets the recurring fee on residents in scope. Returns how many were updated
+ * so the caller can confirm a bulk change actually landed.
+ */
+export async function setResidentMonthlyFee(
+  input: ResidentFeeUpdateInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const hostelId = resolveAdminHostelId(principal, input.hostelId);
+  const filter: Record<string, unknown> = {
+    hostelId,
+    isDeleted: false,
+    status: { $in: ["ACTIVE", "PENDING"] },
+  };
+
+  if (input.residentIds?.length) {
+    filter._id = {
+      $in: input.residentIds.map((id) => normalizeObjectId(id, "resident id")),
+    };
+  }
+
+  const result = await ResidentModel.updateMany(filter, {
+    $set: { monthlyFee: input.monthlyFee, updatedBy: principal.userId },
+  });
+
+  await auditPaymentAction(
+    principal,
+    hostelId,
+    hostelId,
+    "Resident",
+    "RESIDENT_MONTHLY_FEE_SET",
+    { monthlyFee: input.monthlyFee, residentCount: result.modifiedCount },
+  );
+
+  return { monthlyFee: input.monthlyFee, updatedCount: result.modifiedCount ?? 0 };
+}
+
+/**
+ * Creates the month's payment record for each active resident in scope.
+ * Idempotent: residents that already have a record for `month` are skipped, so
+ * a repeated fee run (or a re-run after adding residents) never double-bills.
+ */
+export async function generateMonthlyPayments(
+  input: MonthlyPaymentGenerateInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const hostelId = resolveAdminHostelId(principal, input.hostelId);
+  const filter: Record<string, unknown> = {
+    hostelId,
+    isDeleted: false,
+    status: "ACTIVE",
+  };
+
+  if (input.residentIds?.length) {
+    filter._id = {
+      $in: input.residentIds.map((id) => normalizeObjectId(id, "resident id")),
+    };
+  }
+
+  const residents = await ResidentModel.find(filter).lean<
+    (ResidentRecord & { monthlyFee?: number })[]
+  >();
+  const existing = await PaymentModel.find({
+    hostelId,
+    month: input.month,
+    residentId: { $in: residents.map((resident) => resident._id) },
+  }).lean<{ residentId: Types.ObjectId }[]>();
+  const alreadyBilled = new Set(
+    existing.map((payment) => payment.residentId.toString()),
+  );
+
+  const pending = residents.filter(
+    (resident) => !alreadyBilled.has(resident._id.toString()),
+  );
+  const billable = pending
+    .map((resident) => ({
+      dueAmount: resident.monthlyFee || input.defaultAmount || 0,
+      resident,
+    }))
+    .filter((entry) => entry.dueAmount > 0);
+
+  if (billable.length > 0) {
+    await PaymentModel.insertMany(
+      billable.map((entry) => ({
+        createdBy: principal.userId,
+        dueAmount: entry.dueAmount,
+        dueDate: input.dueDate,
+        hostelId,
+        month: input.month,
+        paidAmount: 0,
+        residentId: entry.resident._id,
+        status: "UNPAID",
+        updatedBy: principal.userId,
+      })),
+    );
+  }
+
+  await auditPaymentAction(
+    principal,
+    hostelId,
+    hostelId,
+    "Payment",
+    "MONTHLY_PAYMENTS_GENERATED",
+    { created: billable.length, month: input.month },
+  );
+
+  return {
+    createdCount: billable.length,
+    month: input.month,
+    skippedExistingCount: alreadyBilled.size,
+    /** Active residents with neither a personal fee nor a default to fall back on. */
+    skippedNoFeeCount: pending.length - billable.length,
   };
 }
 

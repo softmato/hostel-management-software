@@ -7,11 +7,20 @@ import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { NoticeModel } from "@hostel/db/models/Notice";
 import { NoticeReadStatusModel } from "@hostel/db/models/NoticeReadStatus";
+import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import {
   findCurrentResident,
   normalizeObjectId,
   serializeResidentSummary,
 } from "@/modules/residents/resident-access";
+import {
+  appUrl,
+  getHostelName,
+  resolveActiveResidentRecipients,
+  sendNotificationEmail,
+} from "@/modules/residents/resident-notify";
+import { residentNewNoticeEmail } from "@hostel/shared/email/templates/resident/new-notice";
 import type {
   noticeCreateSchema,
   noticeListQuerySchema,
@@ -144,9 +153,82 @@ export async function createNotice(input: NoticeCreateInput, principal: ApiPrinc
 
   await auditNoticeAction(principal, hostelId, notice._id, "NOTICE_CREATED");
 
+  const delivery = await broadcastNotice(notice as NoticeRecord);
+
   return {
+    delivery,
     notice: serializeNotice(notice as NoticeRecord),
   };
+}
+
+/**
+ * Fans a published notice out to the hostel's active residents: an in-app
+ * notification always, plus an email when the platform has notice emails
+ * enabled (EMAIL_SYSTEM.md). Delivery problems never fail the publish.
+ */
+async function broadcastNotice(notice: NoticeRecord) {
+  try {
+    return await deliverNoticeBroadcast(notice);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: "notice_broadcast_failed",
+        message: error instanceof Error ? error.message : "Unknown broadcast error",
+        noticeId: notice._id.toString(),
+      }),
+    );
+
+    return { emailed: 0, notified: 0 };
+  }
+}
+
+async function deliverNoticeBroadcast(notice: NoticeRecord) {
+  const config = await getOperationsConfig();
+  const [hostelName, recipients] = await Promise.all([
+    getHostelName(notice.hostelId),
+    resolveActiveResidentRecipients(notice.hostelId),
+  ]);
+  const email = residentNewNoticeEmail({
+    body: notice.content,
+    category: notice.category,
+    hostelName,
+    isUrgent: notice.isUrgent,
+    noticesUrl: appUrl("/resident/notices"),
+    title: notice.title,
+  });
+
+  let emailed = 0;
+
+  for (const recipient of recipients) {
+    if (recipient.userId) {
+      await createInAppNotification({
+        body: notice.title,
+        category: "NOTICE",
+        data: { noticeId: notice._id.toString() },
+        hostelId: notice.hostelId.toString(),
+        title: notice.isUrgent ? "Urgent notice" : "New notice",
+        userId: recipient.userId,
+      });
+    }
+
+    if (!config.sendNoticeEmails) {
+      continue;
+    }
+
+    const sent = await sendNotificationEmail({
+      action: "resident_new_notice",
+      html: email.html,
+      subject: email.subject,
+      to: recipient.email,
+    });
+
+    if (sent) {
+      emailed += 1;
+    }
+  }
+
+  return { emailed, notified: recipients.length };
 }
 
 export async function listNotices(query: NoticeListQuery, principal: ApiPrincipal) {

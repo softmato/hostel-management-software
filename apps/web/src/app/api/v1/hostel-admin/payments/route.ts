@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import { createPaymentRecord, listPayments } from "@/modules/payments/payment.service";
 import {
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "verifyPayments");
     const query = paymentListQuerySchema.parse(
       Object.fromEntries(request.nextUrl.searchParams.entries()),
     );
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "verifyPayments");
     const input = paymentCreateSchema.parse(await request.json());
     const result = await createPaymentRecord(input, principal);
 

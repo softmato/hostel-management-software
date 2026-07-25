@@ -337,47 +337,58 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 **Goal:** Residents become active users via QR activation, with visibility into fees, food, and notices. Payment proof upload + admin verification working end-to-end.
 
+> **Status note (2026-07-23):** Phase 3 code-side deliverables are complete. Build green, typecheck +
+> lint clean, **131/131** unit tests pass. As in Phase 2, most surfaces already existed from the
+> earlier codebase, so this session filled the real gaps: QR image generation + activation email,
+> config-driven expiry, partial-payment proofs (amount + method + reference), sequential receipt
+> numbers, the seven Phase 3 email templates, the payment reminder/overdue cron, notice fan-out
+> (email + in-app), resident-type classification, monthly fee runs, and cook-portal setup with
+> food-ready notifications. Remaining open items are **external infra + manual QA**: live Resend
+> delivery, an R2 bucket for QR images (a local-disk fallback covers dev), `CRON_SECRET` +
+> a cron-job.org entry for `/api/v1/cron/payment-reminders`, and the §3.2 acceptance pass against a
+> seeded database.
+
 ### 3.1 Deliverables
 
 **QR Activation System**
-- ☐ QR code generation library installed (e.g., `qrcode` npm package)
-- ☐ Hostel admin can generate QR for a pending resident:
+- ☑ QR code generation library installed (`qrcode` in `apps/web`)
+- ☑ Hostel admin can generate QR for a pending resident:
   - Creates QRActivation document with unique code (8-12 char alphanumeric)
-  - Generates QR code image, uploads to R2
+  - Generates QR code image, uploads to R2 _(falls back to `public/uploads/activation-qr/` when R2 is unconfigured, so the flow works locally)_
   - Sends QR activation email with embedded QR image + fallback code + web link
-  - Sets expiry (7 days from PlatformConfig)
-- ☐ QR activation page (`/activate` or `/resident/activate`):
+  - Sets expiry (7 days from the `operations` platform setting)
+- ☑ QR activation page (`/resident-activation`, code prefilled from the emailed link):
   - Scans QR code (Phase 6 mobile) OR enters code manually (web)
   - Verifies code is valid and not expired
   - If user not logged in: prompts to log in or create password
   - Activates account: updates Resident.status = ACTIVE, QRActivation.status = ACTIVATED
   - Upgrades User role if needed (PUBLIC → RESIDENT)
   - Redirects to resident dashboard
-- ☐ QR codes expire after configured time (PlatformConfig.qrActivationExpiryDays)
-- ☐ Can regenerate QR if expired
+- ☑ QR codes expire after configured time (`operations.qrActivationExpiryDays`)
+- ☑ Can regenerate QR if expired (`PATCH …/activation-code`; supersedes any pending code)
 
 **Resident Portal (Web Dashboard)**
-- ☐ Login redirects to `/resident` for RESIDENT role
-- ☐ **Dashboard (home)**:
+- ☑ Login redirects to `/resident` for RESIDENT role
+- ☑ **Dashboard (home)**:
   - Welcome message with hostel name, room/bed info
   - Next payment due amount + date
   - Latest notice (title + preview)
   - Today's food menu preview
   - Night status summary (current status)
-- ☐ **Profile View**:
+- ☑ **Profile View**:
   - Display personal info (name, phone, room/bed, move-in date)
   - Read-only for most fields
   - "Request Edit" button → sends request to admin (Phase 5 feature, can defer)
-- ☐ **Food Menu View**:
+- ☑ **Food Menu View**:
   - Current week's menu (breakfast, lunch, snacks, dinner per day)
   - Food photos for each meal (if uploaded by admin)
   - Calendar view or list view
-- ☐ **Notices View**:
+- ☑ **Notices View**:
   - List of all notices from own hostel (newest first)
   - Filter by category
   - Mark as read/unread
   - Urgent notices highlighted
-- ☐ **Payments View**:
+- ☑ **Payments View**:
   - List of monthly payments (amount due, amount paid, status, due date)
   - Filter by status (UNPAID, PARTIAL, PAID, OVERDUE)
   - View receipts (download PDF if available)
@@ -389,16 +400,16 @@ This document splits the entire build into **6 sequential phases**. The AI codin
     - Sends email to hostel admin
 
 **Hostel Admin - Resident Management Enhancements**
-- ☐ **Resident List**:
+- ☑ **Resident List**:
   - View all residents with status (PENDING, ACTIVE, MOVED_OUT)
   - Filter by status, room, search by name
   - Generate/regenerate QR code per resident
-- ☐ **Fee Management**:
+- ☑ **Fee Management**:
   - Set monthly fee per resident (or bulk-set for all)
   - Generate monthly payment records (manually or via scheduled job)
   - View payment due list (who owes what, due when)
   - Dashboard shows "X payments due this month"
-- ☐ **Payment Verification**:
+- ☑ **Payment Verification**:
   - View uploaded payment proofs (queue of pending proofs)
   - Open proof image/document from R2
   - Verify proof:
@@ -411,12 +422,12 @@ This document splits the entire build into **6 sequential phases**. The AI codin
     - Updates PaymentProof.verificationStatus = REJECTED
     - Requires rejectionReason text
     - Sends "payment rejected" email with reason
-- ☐ **Food Management**:
+- ☑ **Food Management**:
   - Create weekly food menu (date, mealType, description, isVeg)
   - Upload food photos (date, mealType, photo to R2)
   - Edit/delete menu entries
   - Preview what residents see
-- ☐ **Cook Portal Setup & Onboarding**:
+- ☑ **Cook Portal Setup & Onboarding**: _(one shared login per hostel, provisioned at superadmin approval and delivered in the approval email; also togglable/rotatable from the Food page)_
   - During hostel registration/onboarding flow, add step: "Enable dedicated cook portal? (Recommended)"
   - Show promotional benefits: real-time food notifications, easier updates, analytics
   - If enabled, ask for cook name (default: "[HostelName] Cook")
@@ -425,7 +436,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - Store cook config in HostelSettings (cookPortalEnabled=true, cookName)
   - Send cook credentials in same email as hostel admin approval (separate section for cook access)
   - Cook can access mobile-only portal (web shows "Please open in mobile app")
-- ☐ **Cook Portal Features (Mobile-Only)**:
+- ◐ **Cook Portal Features (Mobile-Only)**: _server side done (`/api/v1/cook/food-ready` logs the announcement and notifies residents); the mobile screens themselves land in Phase 6_
   - Simple dashboard: today's menu, resident count, recent notifications sent
   - "Food Ready" button per meal type (breakfast, lunch, snacks, dinner):
     - Cook presses button → creates FoodReadyLog with timestamp
@@ -435,18 +446,18 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - Upload food photo with current meal (simple camera → upload → auto-linked to today's meal)
   - View resident list (names + photos only, no sensitive data)
   - View food menu (read-only, for reference)
-- ☐ **Food Ready Notification System**:
+- ☑ **Food Ready Notification System**:
   - Create Notification model records when cook presses "Food Ready"
   - Send push notifications via Firebase FCM (Android) and APNS (iOS) - setup in Phase 6
   - For Phase 3 (web only): show notification in web notification center
   - Track delivery stats: sent, delivered, read
-- ☐ **Resident Type Classification**:
+- ☑ **Resident Type Classification**:
   - Add residentType dropdown to resident registration form (STUDENT, WORKING_PROFESSIONAL, OTHER)
   - Default to STUDENT
   - Store in Resident.residentType field
   - Used for QuestionCall button visibility (Phase 5)
   - Show in resident list for admin filtering
-- ☐ **Notices Management**:
+- ☑ **Notices Management**:
   - Create notice (title, body, category, isUrgent, targetAudience)
   - Target audience: all, residents, guardians
   - Send email notifications per EMAIL_SYSTEM.md (if enabled in PlatformConfig)
@@ -454,23 +465,23 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - View notice engagement (read count - Phase 5 feature)
 
 **Payment System**
-- ☐ Scheduled job (Vercel Cron): daily check for due payments
+- ☑ Scheduled job (cron-job.org, `POST /api/v1/cron/payment-reminders`): daily check for due payments
   - If payment due in X days (PlatformConfig.paymentReminderDaysBefore), send reminder email
   - If payment past due date, send overdue email
   - Creates Notification documents for in-app alerts
-- ☐ Receipt generation:
+- ☑ Receipt generation:
   - Auto-generates receiptNumber (e.g., "RCP-2026-08-00123")
   - Optionally generates PDF receipt (can defer PDF generation to Phase 5)
   - Stores Receipt document with paymentId
 
 **Email Templates (Phase 3)**
-- ☐ `resident/qr-activation.tsx` - QR code email
-- ☐ `payment/payment-due-reminder.tsx`
-- ☐ `payment/payment-overdue.tsx`
-- ☐ `payment/proof-uploaded.tsx` (to admin)
-- ☐ `payment/payment-verified.tsx` (to resident)
-- ☐ `payment/payment-rejected.tsx`
-- ☐ `resident/new-notice.tsx`
+- ☑ `resident/qr-activation.ts` - QR code email
+- ☑ `payment/payment-due-reminder.ts`
+- ☑ `payment/payment-overdue.ts`
+- ☑ `payment/proof-uploaded.ts` (to admin)
+- ☑ `payment/payment-verified.ts` (to resident)
+- ☑ `payment/payment-rejected.ts`
+- ☑ `resident/new-notice.ts`
 
 ### 3.2 Acceptance Tests
 
@@ -509,8 +520,8 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 ### 3.3 Phase 3 Definition of Done
 
-- All deliverables ☐ checked off
-- All acceptance tests ☐ passing
+- All deliverables ☑ checked off (code side; cook mobile screens deferred to Phase 6)
+- All acceptance tests ☐ passing _(§3.2 needs a seeded DB + live Resend — external infra)_
 - `MEMORY.md` and `CHANGELOG.md` updated
 - Residents can activate accounts via QR, view food/notices, upload payment proofs
 - Hostel admins can verify payments, manage food menus, send notices

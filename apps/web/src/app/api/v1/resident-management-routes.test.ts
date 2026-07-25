@@ -7,12 +7,14 @@ const routeMocks = vi.hoisted(() => ({
   createResident: vi.fn(),
   getResidentById: vi.fn(),
   listResidents: vi.fn(),
+  requireHostelCapability: vi.fn(),
   requireHostelStaffPrincipal: vi.fn(),
   updateResident: vi.fn(),
   updateResidentStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
+  requireHostelCapability: routeMocks.requireHostelCapability,
   requireHostelStaffPrincipal: routeMocks.requireHostelStaffPrincipal,
 }));
 
@@ -76,6 +78,7 @@ describe("resident management routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     routeMocks.requireHostelStaffPrincipal.mockResolvedValue(staffPrincipal);
+    routeMocks.requireHostelCapability.mockResolvedValue(staffPrincipal);
   });
 
   it("creates residents through the hostel-admin route", async () => {

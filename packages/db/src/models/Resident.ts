@@ -12,6 +12,13 @@ const residentSchema = new Schema(
     bedId: { ref: "Bed", required: true, type: Schema.Types.ObjectId },
     moveInDate: { type: Date, required: true },
     depositAmount: { min: 0, default: 0, type: Number },
+    /** Recurring fee used when monthly payment records are generated. */
+    monthlyFee: { min: 0, default: 0, type: Number },
+    residentType: {
+      type: String,
+      enum: ["STUDENT", "WORKING_PROFESSIONAL", "OTHER"],
+      default: "STUDENT",
+    },
     status: {
       type: String,
       enum: ["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"],

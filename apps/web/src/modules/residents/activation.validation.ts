@@ -3,8 +3,11 @@ import { z } from "zod";
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 export const activationCodeGenerateSchema = z.object({
-  expiresInHours: z.coerce.number().int().min(1).max(168).default(48),
+  /** Omitted → falls back to PlatformSetting `operations.qrActivationExpiryDays`. */
+  expiresInHours: z.coerce.number().int().min(1).max(1440).optional(),
   hostelId: objectIdSchema.optional(),
+  /** Set false to issue a code without emailing the resident. */
+  sendEmail: z.coerce.boolean().default(true),
 });
 
 export const activationCodeSchema = z.object({

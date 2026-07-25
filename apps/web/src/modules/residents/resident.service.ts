@@ -39,8 +39,10 @@ type ResidentRecord = {
   hostelId: Types.ObjectId;
   isDemoData?: boolean;
   lastName: string;
+  monthlyFee?: number;
   moveInDate: Date;
   phone: string;
+  residentType?: "STUDENT" | "WORKING_PROFESSIONAL" | "OTHER";
   roomId: Types.ObjectId;
   status: ResidentStatus;
   updatedAt?: Date;
@@ -158,8 +160,10 @@ function serializeResident(resident: ResidentRecord) {
     id: resident._id.toString(),
     isDemoData: Boolean(resident.isDemoData),
     lastName: resident.lastName,
+    monthlyFee: resident.monthlyFee ?? 0,
     moveInDate: resident.moveInDate.toISOString(),
     phone: resident.phone,
+    residentType: resident.residentType ?? "STUDENT",
     roomId: resident.roomId.toString(),
     status: resident.status,
     updatedAt: resident.updatedAt?.toISOString(),
@@ -362,6 +366,10 @@ export async function listResidents(query: ResidentListQuery, principal: ApiPrin
 
   if (query.status) {
     filter.status = query.status;
+  }
+
+  if (query.residentType) {
+    filter.residentType = query.residentType;
   }
 
   if (query.q) {

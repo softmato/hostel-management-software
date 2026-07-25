@@ -170,22 +170,33 @@ export function PublicHostelDetailPage() {
 
   const baseRent = hostel.pricing?.monthlyRentMin ?? hostelSummary.price;
   const maxRent = hostel.pricing?.monthlyRentMax ?? baseRent;
-  const roomTypes = hostel.roomTypes.length > 0 ? hostel.roomTypes : ["Room"];
+  const roomConfigurations = hostel.roomConfigurations ?? [];
 
-  const rooms = roomTypes.map((roomType, index) => {
-    const rent =
-      roomTypes.length <= 1
-        ? baseRent
-        : Math.round(baseRent + ((maxRent - baseRent) / (roomTypes.length - 1)) * index);
-
-    return {
-      features: hostel.facilities.slice(0, 2),
-      image: images[index % images.length],
-      rent,
-      seats: hostel.capacitySummary?.vacantBeds ?? hostelSummary.vacancy,
-      type: roomTypeLabel(roomType),
-    };
-  });
+  // Prefer the rent and vacancy the owner actually submitted per room type.
+  // Only hostels registered before roomConfigurations existed fall back to the
+  // old min→max interpolation, which is a guess and is often plain wrong (it
+  // assumes rent rises with array order — the reverse of typical sharing rates).
+  const rooms =
+    roomConfigurations.length > 0
+      ? roomConfigurations.map((config, index) => ({
+          features: hostel.facilities.slice(0, 2),
+          image: images[index % images.length],
+          rent: config.monthlyRent || baseRent,
+          seats: config.vacantBeds,
+          type: roomTypeLabel(config.roomType),
+        }))
+      : (hostel.roomTypes.length > 0 ? hostel.roomTypes : ["Room"]).map(
+          (roomType, index, list) => ({
+            features: hostel.facilities.slice(0, 2),
+            image: images[index % images.length],
+            rent:
+              list.length <= 1
+                ? baseRent
+                : Math.round(baseRent + ((maxRent - baseRent) / (list.length - 1)) * index),
+            seats: hostel.capacitySummary?.vacantBeds ?? hostelSummary.vacancy,
+            type: roomTypeLabel(roomType),
+          }),
+        );
 
   const facilities = (
     hostel.facilities.length > 0 ? hostel.facilities : ["Published profile"]

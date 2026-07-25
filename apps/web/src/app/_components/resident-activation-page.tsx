@@ -10,15 +10,18 @@ import {
   QrCode 
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { memo, useCallback, useState, type FormEvent } from "react";
 
 import { browserApi } from "@/lib/browser-api";
 import { Message } from "./resident-shared";
 
 export const ResidentActivationPageContent = memo(function ResidentActivationPageContent() {
+  const searchParams = useSearchParams();
   const [message, setMessage] = useState("");
   const [activated, setActivated] = useState(false);
-  const [code, setCode] = useState("HH-AB12-CD34-EF56");
+  // Prefilled when the resident followed the link in their activation email.
+  const [code, setCode] = useState(() => searchParams.get("code")?.trim() ?? "");
   const [activeTab, setActiveTab] = useState<"code" | "qr">("code");
 
   const handleActivate = useCallback(async (event: FormEvent<HTMLFormElement>) => {

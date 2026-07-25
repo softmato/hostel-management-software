@@ -66,9 +66,13 @@ export type Payment = {
 };
 
 export type PaymentProof = {
+  amount: number;
   id: string;
   paymentId: string;
+  paymentMethod?: string;
   proofImageAssetId: string;
+  referenceNote?: string;
+  rejectionReason?: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   transactionCode?: string;
 };

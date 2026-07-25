@@ -35,8 +35,33 @@ export const paymentUpdateSchema = paymentCreateSchema
   });
 
 export const paymentProofSubmitSchema = z.object({
+  amount: z.coerce.number().positive(),
+  paymentMethod: z
+    .enum(["CASH", "ESEWA", "KHALTI", "FONEPAY", "BANK_TRANSFER", "OTHER"])
+    .default("OTHER"),
   proofImageAssetId: z.string().trim().min(1).max(240),
+  referenceNote: z.string().trim().max(240).optional(),
   transactionCode: z.string().trim().max(120).optional(),
+});
+
+/**
+ * Bulk fee run: creates the month's payment record for every active resident
+ * that does not already have one (PHASES.md §3.1 "Fee Management").
+ */
+export const monthlyPaymentGenerateSchema = z.object({
+  /** Applied to residents with no `monthlyFee` of their own. */
+  defaultAmount: z.coerce.number().nonnegative().optional(),
+  dueDate: z.coerce.date(),
+  hostelId: objectIdSchema.optional(),
+  month: monthSchema,
+  residentIds: z.array(objectIdSchema).optional(),
+});
+
+export const residentFeeUpdateSchema = z.object({
+  hostelId: objectIdSchema.optional(),
+  monthlyFee: z.coerce.number().nonnegative(),
+  /** Omitted → applies to every active resident in scope. */
+  residentIds: z.array(objectIdSchema).optional(),
 });
 
 export const paymentProofReviewSchema = z.object({

@@ -401,7 +401,7 @@ function PortalsCard({ className }: { className?: string }) {
         ))}
       </div>
       <p className="mt-4 rounded-lg bg-brand-teal/5 px-3 py-2 text-[11px] font-medium text-brand-teal">
-        Login credentials for wardens and cooks are generated automatically once your hostel is approved.
+        Your shared cook login is generated automatically once your hostel is approved. You create warden logins yourself from your dashboard.
       </p>
     </div>
   );
@@ -1314,7 +1314,7 @@ export function PublicHostelRegistrationPage() {
                     </div>
                     <p className="mt-3 flex items-start gap-2 rounded-lg bg-brand-teal/5 px-3 py-2.5 text-[11px] font-medium text-brand-teal">
                       <ChefHat className="mt-0.5 size-3.5 shrink-0" />
-                      We generate a Cook App login for each cook after approval, so they can update the daily menu and meal proof.
+                      We generate one shared Cook App login for your kitchen after approval, so whoever is cooking can announce meals. You can rotate its password any time.
                     </p>
                   </div>
                 </section>

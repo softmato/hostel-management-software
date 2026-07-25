@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import { createGuardianAccess } from "@/modules/guardian/guardian.service";
 import { guardianAccessCreateSchema } from "@/modules/guardian/guardian.validation";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const { id } = await context.params;
     const input = guardianAccessCreateSchema.parse(await request.json());
     const result = await createGuardianAccess(id, input, principal);

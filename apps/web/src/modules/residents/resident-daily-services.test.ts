@@ -18,7 +18,13 @@ const serviceMocks = vi.hoisted(() => ({
   foodPhotoFind: vi.fn(),
   guardianFind: vi.fn(),
   hostelFindOne: vi.fn(),
+  hostelMemberFind: vi.fn(),
   issueSessionForUser: vi.fn(),
+  notificationCreate: vi.fn(),
+  platformSettingFindOne: vi.fn(),
+  sendEmail: vi.fn(),
+  userFind: vi.fn(),
+  userFindOne: vi.fn(),
   noticeCreate: vi.fn(),
   noticeFind: vi.fn(),
   noticeFindOne: vi.fn(),
@@ -39,6 +45,7 @@ const serviceMocks = vi.hoisted(() => ({
   qrActivationUpdateOne: vi.fn(),
   receiptCreate: vi.fn(),
   receiptFindOne: vi.fn(),
+  receiptFindOneAndUpdate: vi.fn(),
   residentFindOne: vi.fn(),
   residentFindOneAndUpdate: vi.fn(),
   roomFindOne: vi.fn(),
@@ -77,6 +84,8 @@ vi.mock("@hostel/db/models/Resident", () => ({
 
 vi.mock("@hostel/db/models/User", () => ({
   UserModel: {
+    find: serviceMocks.userFind,
+    findOne: serviceMocks.userFindOne,
     findOneAndUpdate: serviceMocks.userFindOneAndUpdate,
   },
 }));
@@ -103,6 +112,7 @@ vi.mock("@hostel/db/models/Receipt", () => ({
   ReceiptModel: {
     create: serviceMocks.receiptCreate,
     findOne: serviceMocks.receiptFindOne,
+    findOneAndUpdate: serviceMocks.receiptFindOneAndUpdate,
   },
 }));
 
@@ -173,6 +183,30 @@ vi.mock("@hostel/db/models/EmergencyContact", () => ({
   EmergencyContactModel: {
     find: serviceMocks.emergencyContactFind,
   },
+}));
+
+// Notification side-effects (config lookup, admin/resident contact resolution)
+// hang against unmocked models, so stub the collections they reach for.
+vi.mock("@hostel/db/models/PlatformSetting", () => ({
+  PlatformSettingModel: {
+    findOne: serviceMocks.platformSettingFindOne,
+  },
+}));
+
+vi.mock("@hostel/db/models/HostelMember", () => ({
+  HostelMemberModel: {
+    find: serviceMocks.hostelMemberFind,
+  },
+}));
+
+vi.mock("@hostel/db/models/Notification", () => ({
+  NotificationModel: {
+    create: serviceMocks.notificationCreate,
+  },
+}));
+
+vi.mock("@hostel/shared/email/sender", () => ({
+  sendEmail: serviceMocks.sendEmail,
 }));
 
 import {
@@ -284,7 +318,7 @@ function receiptRecord() {
     issuedBy: objectId(userId),
     month: "2030-01",
     paymentId: objectId(paymentId),
-    receiptNumber: "HH-2030-01-F0F0A7",
+    receiptNumber: "RCP-2030-01-00001",
     residentId: objectId(residentId),
   };
 }
@@ -292,6 +326,14 @@ function receiptRecord() {
 describe("resident daily-use services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Notification plumbing: no stored config, no reachable contacts, no sends.
+    serviceMocks.platformSettingFindOne.mockReturnValue(leanResult(null));
+    serviceMocks.hostelMemberFind.mockReturnValue(leanResult([]));
+    serviceMocks.userFind.mockReturnValue(leanResult([]));
+    serviceMocks.userFindOne.mockReturnValue(leanResult(null));
+    serviceMocks.notificationCreate.mockResolvedValue({});
+    serviceMocks.sendEmail.mockResolvedValue({ sent: false, reason: "not_configured" });
   });
 
   it("generates hashed one-time activation codes without storing plain code", async () => {
@@ -308,7 +350,7 @@ describe("resident daily-use services", () => {
 
     const result = await generateActivationCode(
       residentId,
-      { expiresInHours: 48 },
+      { expiresInHours: 48, sendEmail: false },
       staffPrincipal,
     );
 
@@ -429,13 +471,17 @@ describe("resident daily-use services", () => {
     serviceMocks.paymentProofFindOneAndUpdate.mockReturnValueOnce(
       leanResult(paymentProofRecord({ status: "APPROVED" })),
     );
-    serviceMocks.receiptFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.receiptFindOneAndUpdate.mockReturnValueOnce(leanResult(null));
+    serviceMocks.receiptFindOne.mockReturnValueOnce(queryResult(null));
     serviceMocks.receiptCreate.mockResolvedValueOnce(receiptRecord());
 
     const result = await approvePaymentProof(proofId, {}, staffPrincipal);
 
     expect(result.payment.status).toBe("PAID");
-    expect(result.receipt.receiptNumber).toBe("HH-2030-01-F0F0A7");
+    expect(result.receipt.receiptNumber).toBe("RCP-2030-01-00001");
+    expect(serviceMocks.receiptCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ receiptNumber: "RCP-2030-01-00001" }),
+    );
     expect(serviceMocks.paymentProofFindOne).toHaveBeenCalledWith(
       expect.objectContaining({ hostelId: { $in: [objectId(hostelId)] } }),
     );

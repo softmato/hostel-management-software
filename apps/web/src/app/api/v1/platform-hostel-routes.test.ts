@@ -22,6 +22,7 @@ const routeMocks = vi.hoisted(() => ({
   listPublicHostels: vi.fn(),
   publishPlatformHostel: vi.fn(),
   rejectPlatformHostel: vi.fn(),
+  requireHostelCapability: vi.fn(),
   requireHostelStaffPrincipal: vi.fn(),
   requirePlatformPrincipal: vi.fn(),
   updateHostelAdminBed: vi.fn(),
@@ -32,6 +33,7 @@ const routeMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api-auth", () => ({
+  requireHostelCapability: routeMocks.requireHostelCapability,
   requireHostelStaffPrincipal: routeMocks.requireHostelStaffPrincipal,
   requirePlatformPrincipal: routeMocks.requirePlatformPrincipal,
 }));
@@ -164,6 +166,7 @@ describe("platform hostel routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     routeMocks.requireHostelStaffPrincipal.mockResolvedValue(staffPrincipal);
+    routeMocks.requireHostelCapability.mockResolvedValue(staffPrincipal);
     routeMocks.requirePlatformPrincipal.mockResolvedValue(principal);
   });
 
@@ -308,6 +311,7 @@ describe("platform hostel routes", () => {
   it("publishes platform hostels with the authenticated principal", async () => {
     routeMocks.publishPlatformHostel.mockResolvedValue({
       hostel: { id: "64f0f0f0f0f0f0f0f0f0f0f3", status: "PUBLISHED" },
+      notification: { sent: true, to: "owner@example.com" },
     });
 
     const response = await platformPublishRoute.PATCH(
@@ -324,13 +328,16 @@ describe("platform hostel routes", () => {
     );
   });
 
-  it("unpublishes platform hostels with the authenticated principal", async () => {
+  it("unpublishes platform hostels with the reason and authenticated principal", async () => {
     routeMocks.unpublishPlatformHostel.mockResolvedValue({
       hostel: { id: "64f0f0f0f0f0f0f0f0f0f0f3", status: "APPROVED" },
+      notification: { sent: true, to: "owner@example.com" },
     });
 
     const response = await platformUnpublishRoute.PATCH(
-      patchRequest("/api/v1/platform/hostels/64f0f0f0f0f0f0f0f0f0f0f3/unpublish"),
+      patchRequest("/api/v1/platform/hostels/64f0f0f0f0f0f0f0f0f0f0f3/unpublish", {
+        reason: "Listing photos no longer match the property.",
+      }),
       routeContext({ id: "64f0f0f0f0f0f0f0f0f0f0f3" }),
     );
     const payload = await response.json();
@@ -339,8 +346,37 @@ describe("platform hostel routes", () => {
     expect(payload.data.hostel.status).toBe("APPROVED");
     expect(routeMocks.unpublishPlatformHostel).toHaveBeenCalledWith(
       "64f0f0f0f0f0f0f0f0f0f0f3",
+      { reason: "Listing photos no longer match the property." },
       principal,
     );
+  });
+
+  it("rejects an unpublish request that omits the owner-facing reason", async () => {
+    const response = await platformUnpublishRoute.PATCH(
+      patchRequest("/api/v1/platform/hostels/64f0f0f0f0f0f0f0f0f0f0f3/unpublish", {}),
+      routeContext({ id: "64f0f0f0f0f0f0f0f0f0f0f3" }),
+    );
+
+    expect(response.status).toBe(422);
+    expect(routeMocks.unpublishPlatformHostel).not.toHaveBeenCalled();
+  });
+
+  it("warns the reviewer when the owner could not be emailed", async () => {
+    routeMocks.unpublishPlatformHostel.mockResolvedValue({
+      hostel: { id: "64f0f0f0f0f0f0f0f0f0f0f3", status: "APPROVED" },
+      notification: { reason: "send_failed", sent: false, to: "owner@example.com" },
+    });
+
+    const response = await platformUnpublishRoute.PATCH(
+      patchRequest("/api/v1/platform/hostels/64f0f0f0f0f0f0f0f0f0f0f3/unpublish", {
+        reason: "Duplicate listing.",
+      }),
+      routeContext({ id: "64f0f0f0f0f0f0f0f0f0f0f3" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.message).toContain("could not be emailed");
   });
 
   it("loads public hostel listings with search and filters", async () => {

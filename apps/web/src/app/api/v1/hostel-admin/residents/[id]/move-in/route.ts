@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import {
   createMoveInChecklist,
@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const { id } = await context.params;
     const hostelId = request.nextUrl.searchParams.get("hostelId") ?? undefined;
     const result = await getMoveInChecklist(id, principal, hostelId);
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const { id } = await context.params;
     const input = moveInChecklistSchema.parse(await request.json());
     const result = await createMoveInChecklist(id, input, principal);

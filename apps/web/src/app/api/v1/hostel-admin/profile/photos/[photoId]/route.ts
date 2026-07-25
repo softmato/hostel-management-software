@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { deleteHostelAdminProfilePhoto } from "@/modules/hostels/hostel-profile.service";
 import { hostelPhotoDeleteQuerySchema } from "@/modules/hostels/hostel.validation";
 
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "editHostelProfile");
     const { photoId } = await context.params;
     const query = hostelPhotoDeleteQuerySchema.parse(
       Object.fromEntries(request.nextUrl.searchParams.entries()),

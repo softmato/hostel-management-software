@@ -122,6 +122,46 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
     [load],
   );
 
+  const handleFeeRun = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const monthlyFee = optionalField(form, "monthlyFee");
+
+      try {
+        if (monthlyFee) {
+          await browserApi("/api/v1/hostel-admin/residents/fees", {
+            body: JSON.stringify({ monthlyFee: Number(monthlyFee) }),
+            method: "PATCH",
+          });
+        }
+
+        const result = await browserApi<{
+          createdCount: number;
+          skippedExistingCount: number;
+          skippedNoFeeCount: number;
+        }>("/api/v1/hostel-admin/payments/generate", {
+          body: JSON.stringify({
+            defaultAmount: monthlyFee ? Number(monthlyFee) : undefined,
+            dueDate: field(form, "dueDate"),
+            month: field(form, "month"),
+          }),
+          method: "POST",
+        });
+
+        setMessage(
+          `${result.createdCount} payment record(s) created. ${result.skippedExistingCount} already existed, ${result.skippedNoFeeCount} skipped with no fee set.`,
+        );
+        await load();
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Could not run the monthly fee job.",
+        );
+      }
+    },
+    [load],
+  );
+
   const reviewProof = useCallback(
     async (proofId: string, action: "approve" | "reject") => {
       const rejectionReason =
@@ -281,6 +321,28 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
         </SectionCard>
       ) : null}
 
+      <SectionCard
+        description="Creates this month's record for every active resident that does not have one yet. Residents keep their own monthly fee unless you set one here."
+        title="Monthly Fee Run"
+      >
+        <form className="grid gap-3 md:grid-cols-4" onSubmit={handleFeeRun}>
+          <FormInput label="Month" name="month" required type="month" />
+          <FormInput label="Due date" name="dueDate" required type="date" />
+          <FormInput
+            label="Set fee for all (optional)"
+            min="0"
+            name="monthlyFee"
+            type="number"
+          />
+          <div className="flex items-end">
+            <RoleButton className="w-full" tone="admin" type="submit">
+              <CreditCard className="size-4" />
+              Generate Records
+            </RoleButton>
+          </div>
+        </form>
+      </SectionCard>
+
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <SectionCard>
           <Tabs
@@ -432,8 +494,12 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                         )}
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-foreground">{name}</p>
+                          <p className="text-xs font-semibold text-foreground">
+                            {currency(proof.amount)}
+                            {proof.paymentMethod ? ` · ${proof.paymentMethod}` : ""}
+                          </p>
                           <p className="text-xs text-muted-foreground">
-                            {proof.transactionCode || "No txn code"}
+                            {proof.transactionCode || proof.referenceNote || "No txn code"}
                           </p>
                           <div className="mt-2 flex gap-2">
                             <Button

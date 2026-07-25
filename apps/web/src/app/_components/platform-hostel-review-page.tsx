@@ -215,6 +215,13 @@ export const PlatformHostelReviewPageContent = memo(
             window.prompt("Optional message to the owner (leave blank to skip):") ||
             undefined;
           body = JSON.stringify({ documents, note });
+        } else if (nextAction === "unpublish") {
+          // Required: the owner is emailed this reason verbatim.
+          const reason = window
+            .prompt("Why is this listing being unpublished? The owner will see this reason.")
+            ?.trim();
+          if (!reason) return;
+          body = JSON.stringify({ reason });
         }
 
         setBusy(true);

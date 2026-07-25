@@ -75,12 +75,32 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
 
   const action = useCallback(
     async (hostelId: string, next: "publish" | "unpublish") => {
+      let body = JSON.stringify({});
+
+      if (next === "unpublish") {
+        // Required: the owner is emailed this reason verbatim.
+        const reason = window
+          .prompt("Why is this listing being unpublished? The owner will see this reason.")
+          ?.trim();
+        if (!reason) return;
+        body = JSON.stringify({ reason });
+      }
+
       try {
-        await browserApi(`${platformEndpoints.hostels}/${hostelId}/${next}`, {
-          body: JSON.stringify({}),
+        const result = await browserApi<{
+          notification?: { reason?: string; sent: boolean; to?: string };
+        }>(`${platformEndpoints.hostels}/${hostelId}/${next}`, {
+          body,
           method: "PATCH",
         });
-        setActionMessage(`Listing ${next}ed.`);
+
+        const notification = result?.notification;
+
+        setActionMessage(
+          notification && !notification.sent
+            ? `Listing ${next}ed, but the owner was NOT emailed (${notification.reason ?? "unknown error"}). Contact ${notification.to ?? "the owner"} manually.`
+            : `Listing ${next}ed.`,
+        );
         invalidate(platformEndpoints.hostels, platformEndpoints.hostelDetails);
       } catch (error) {
         setActionMessage(error instanceof Error ? error.message : "Action failed.");

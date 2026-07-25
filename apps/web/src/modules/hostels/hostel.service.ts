@@ -12,9 +12,12 @@ import { HostelVerificationModel } from "@hostel/db/models/HostelVerification";
 import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
 import { UserModel } from "@hostel/db/models/User";
+import { provisionCookAccount } from "@/modules/food/cook.service";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { hostelApprovedEmail } from "@hostel/shared/email/templates/hostel/hostel-approved";
+import { hostelPublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-published";
+import { hostelUnpublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-unpublished";
 import { hostelDocumentsRequestedEmail } from "@hostel/shared/email/templates/hostel/documents-requested";
 import { hostelRejectedEmail } from "@hostel/shared/email/templates/hostel/hostel-rejected";
 import { hostelSubmissionReceivedEmail } from "@hostel/shared/email/templates/hostel/submission-received";
@@ -22,6 +25,7 @@ import type {
   hostelRejectSchema,
   hostelRequestDocumentsSchema,
   hostelResubmitDocumentsSchema,
+  hostelUnpublishSchema,
   platformHostelCreateSchema,
   platformHostelListQuerySchema,
   publicHostelCompareQuerySchema,
@@ -38,7 +42,14 @@ type PublicHostelApplicationCreateInput = z.infer<
 type PlatformHostelListQuery = z.infer<typeof platformHostelListQuerySchema>;
 type HostelRejectInput = z.infer<typeof hostelRejectSchema>;
 type HostelRequestDocumentsInput = z.infer<typeof hostelRequestDocumentsSchema>;
-export type DocumentRequestNotification = {
+type HostelUnpublishInput = z.infer<typeof hostelUnpublishSchema>;
+
+/**
+ * Result of trying to email a hostel owner about a review decision. Delivery
+ * never fails the underlying action, so this is how the reviewer finds out the
+ * owner was (or was not) actually reached.
+ */
+export type OwnerNotification = {
   reason?: "no_owner_email" | "not_configured" | "send_failed";
   sent: boolean;
   to?: string;
@@ -100,6 +111,15 @@ export type HostelRecord = {
     monthlyRentMax?: number;
     monthlyRentMin?: number;
   };
+  roomConfigurations?: Array<{
+    _id?: Types.ObjectId;
+    bedsPerRoom?: number;
+    mealInclusion?: "Included" | "Not Included" | "Optional";
+    monthlyRent?: number;
+    rooms?: number;
+    roomType: string;
+    vacantBeds?: number;
+  }>;
   roomTypes?: string[];
   rules?: string[];
   slug: string;
@@ -186,6 +206,18 @@ async function uniqueSlug(name: string, area: string) {
   return candidate;
 }
 
+function serializeRoomConfigurations(hostel: HostelRecord) {
+  return (hostel.roomConfigurations ?? []).map((config) => ({
+    bedsPerRoom: config.bedsPerRoom ?? 0,
+    id: config._id?.toString(),
+    mealInclusion: config.mealInclusion ?? "Included",
+    monthlyRent: config.monthlyRent ?? 0,
+    rooms: config.rooms ?? 0,
+    roomType: config.roomType,
+    vacantBeds: config.vacantBeds ?? 0,
+  }));
+}
+
 export function serializeHostel(hostel: HostelRecord) {
   return {
     capacitySummary: hostel.capacitySummary ?? {},
@@ -208,6 +240,7 @@ export function serializeHostel(hostel: HostelRecord) {
       url: photo.url ?? "",
     })),
     pricing: hostel.pricing ?? {},
+    roomConfigurations: serializeRoomConfigurations(hostel),
     roomTypes: hostel.roomTypes ?? [],
     rules: hostel.rules ?? [],
     slug: hostel.slug,
@@ -254,6 +287,7 @@ export function serializePublicHostel(hostel: HostelRecord) {
       url: photo.url ?? "",
     })),
     pricing: hostel.pricing ?? {},
+    roomConfigurations: serializeRoomConfigurations(hostel),
     roomTypes: hostel.roomTypes ?? [],
     rules: hostel.rules ?? [],
     slug: hostel.slug,
@@ -522,6 +556,12 @@ function appHostelStatusUrl() {
   return `${base}/register-hostel/form`;
 }
 
+function appHostelListingUrl(slug: string) {
+  const base =
+    process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return `${base}/hostels/${slug}`;
+}
+
 async function resolveHostelOwner(hostelId: Types.ObjectId | string) {
   const hostel = await HostelModel.findOne({ _id: hostelId })
     .select("ownerId name")
@@ -546,6 +586,57 @@ async function resolveHostelOwner(hostelId: Types.ObjectId | string) {
   };
 }
 
+/**
+ * Emails a hostel owner about a review decision, without ever failing the
+ * decision itself. Both silent-failure paths (no resolvable owner, Resend
+ * rejecting the send) are logged and reported back so the reviewer is not shown
+ * a plain success when nobody was actually contacted.
+ */
+async function notifyHostelOwner(
+  hostelId: Types.ObjectId,
+  action: string,
+  buildEmail: (context: {
+    hostelName: string;
+    owner: { email: string; name?: string };
+  }) => { subject: string; html: string },
+): Promise<OwnerNotification> {
+  const ownerInfo = await resolveHostelOwner(hostelId);
+
+  if (!ownerInfo) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: `${action}_email_skipped`,
+        message: "Hostel has no resolvable owner email; owner was not notified.",
+        hostelId: hostelId.toString(),
+      }),
+    );
+    return { reason: "no_owner_email", sent: false };
+  }
+
+  const delivery = await sendEmail({
+    to: ownerInfo.owner.email,
+    ...buildEmail({ hostelName: ownerInfo.hostelName, owner: ownerInfo.owner }),
+  });
+
+  if (delivery.sent) {
+    return { sent: true, to: ownerInfo.owner.email };
+  }
+
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      action: `${action}_email_failed`,
+      message: `Owner was not notified (${delivery.reason}).`,
+      detail: delivery.detail ?? null,
+      hostelId: hostelId.toString(),
+      to: ownerInfo.owner.email,
+    }),
+  );
+
+  return { reason: delivery.reason, sent: false, to: ownerInfo.owner.email };
+}
+
 export async function createPlatformHostelApplication(
   input: PlatformHostelCreateInput,
   principal: ApiPrincipal,
@@ -568,6 +659,7 @@ export async function createPlatformHostelApplication(
     ownerId,
     photos: input.photos,
     pricing: input.pricing,
+    roomConfigurations: input.roomConfigurations,
     roomTypes: input.roomTypes,
     rules: input.rules,
     slug,
@@ -663,6 +755,7 @@ export async function registerPublicHostelApplication(
     ownerId,
     photos: input.photos,
     pricing: input.pricing,
+    roomConfigurations: input.roomConfigurations,
     roomTypes: input.roomTypes,
     rules: input.rules,
     slug,
@@ -984,6 +1077,10 @@ export async function approvePlatformHostel(hostelId: string, principal: ApiPrin
   // then the approval email carries credentials only for accounts that never
   // had a password (new/Google-only owners get a temporary one).
   const ownerInfo = await resolveHostelOwner(objectId);
+  // The hostel's shared cook login is issued at approval so the kitchen can be
+  // handed its credentials in the same email as the admin's (PHASES.md §3.1),
+  // rather than waiting for someone to find a toggle. Never fails the approval.
+  const cookAccount = await provisionApprovalCookAccount(objectId, principal.userId);
 
   if (ownerInfo) {
     const upgrade = await registerOrUpgradeUserByEmail({
@@ -1019,11 +1116,61 @@ export async function approvePlatformHostel(hostelId: string, principal: ApiPrin
               },
             }
           : {}),
+        ...(cookAccount ? { cookCredentials: cookAccount } : {}),
       }),
     });
   }
 
   return result;
+}
+
+/**
+ * Issues the hostel's shared cook login during approval. Returns `null` — and
+ * logs — if provisioning fails, because a cook account is not worth blocking an
+ * approval over; the hostel admin can still issue one from the Food page.
+ */
+async function provisionApprovalCookAccount(
+  hostelId: Types.ObjectId,
+  actorId: string,
+): Promise<{ cookName: string; email: string; temporaryPassword: string } | null> {
+  try {
+    const hostel = await HostelModel.findOne({ _id: hostelId })
+      .select("name slug")
+      .lean<{ name?: string; slug?: string } | null>();
+
+    if (!hostel) {
+      return null;
+    }
+
+    const { cookName, credentials } = await provisionCookAccount({
+      actorId,
+      hostelId,
+      hostelName: hostel.name ?? "Hostel",
+      hostelSlug: hostel.slug ?? hostelId.toString(),
+    });
+
+    await AuditLogModel.create({
+      action: "COOK_PORTAL_ENABLED",
+      actorId,
+      entityId: hostelId.toString(),
+      entityType: "HostelSettings",
+      hostelId,
+      metadata: { cookName, issuedAt: "hostel_approval" },
+    });
+
+    return { cookName, ...credentials };
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: "approval_cook_provisioning_failed",
+        message: error instanceof Error ? error.message : "Unknown cook provisioning error",
+        hostelId: hostelId.toString(),
+      }),
+    );
+
+    return null;
+  }
 }
 
 export async function rejectPlatformHostel(
@@ -1123,56 +1270,18 @@ export async function requestPlatformHostelDocuments(
     documents: input.documents.map((doc) => doc.documentType),
   });
 
-  const ownerInfo = await resolveHostelOwner(objectId);
-
-  // The request itself has already been persisted, so a failed email must not
-  // fail the call — but it must not be invisible either. The reviewer is told
-  // whether the owner was actually notified, otherwise "Documents requested"
-  // reads as success while nobody was ever contacted.
-  let notification: DocumentRequestNotification;
-
-  if (!ownerInfo) {
-    console.warn(
-      JSON.stringify({
-        level: "warn",
-        action: "hostel_documents_requested_email_skipped",
-        message: "Hostel has no resolvable owner email; owner was not notified.",
-        hostelId: objectId.toString(),
-      }),
-    );
-    notification = { reason: "no_owner_email", sent: false };
-  } else {
-    const delivery = await sendEmail({
-      to: ownerInfo.owner.email,
-      ...hostelDocumentsRequestedEmail({
+  const notification = await notifyHostelOwner(
+    objectId,
+    "hostel_documents_requested",
+    ({ hostelName, owner }) =>
+      hostelDocumentsRequestedEmail({
         documents: input.documents,
-        hostelName: ownerInfo.hostelName,
+        hostelName,
         note: input.note,
-        ownerName: ownerInfo.owner.name,
+        ownerName: owner.name,
         statusUrl: appHostelStatusUrl(),
       }),
-    });
-
-    if (delivery.sent) {
-      notification = { sent: true, to: ownerInfo.owner.email };
-    } else {
-      console.warn(
-        JSON.stringify({
-          level: "warn",
-          action: "hostel_documents_requested_email_failed",
-          message: `Owner was not notified (${delivery.reason}).`,
-          detail: delivery.detail ?? null,
-          hostelId: objectId.toString(),
-          to: ownerInfo.owner.email,
-        }),
-      );
-      notification = {
-        reason: delivery.reason,
-        sent: false,
-        to: ownerInfo.owner.email,
-      };
-    }
-  }
+  );
 
   return { hostel: serializeHostel(hostel), notification };
 }
@@ -1311,11 +1420,52 @@ export async function publishPlatformHostel(hostelId: string, principal: ApiPrin
     );
   }
 
-  return updateHostelStatus(hostelId, principal, "PUBLISHED", "HOSTEL_PUBLISHED");
+  const result = await updateHostelStatus(
+    hostelId,
+    principal,
+    "PUBLISHED",
+    "HOSTEL_PUBLISHED",
+  );
+
+  const notification = await notifyHostelOwner(
+    normalizeObjectId(hostelId),
+    "hostel_published",
+    ({ hostelName }) =>
+      hostelPublishedEmail({
+        hostelName,
+        listingUrl: appHostelListingUrl(result.hostel.slug),
+      }),
+  );
+
+  return { ...result, notification };
 }
 
-export async function unpublishPlatformHostel(hostelId: string, principal: ApiPrincipal) {
-  return updateHostelStatus(hostelId, principal, "APPROVED", "HOSTEL_UNPUBLISHED");
+export async function unpublishPlatformHostel(
+  hostelId: string,
+  input: HostelUnpublishInput,
+  principal: ApiPrincipal,
+) {
+  const result = await updateHostelStatus(
+    hostelId,
+    principal,
+    "APPROVED",
+    "HOSTEL_UNPUBLISHED",
+    undefined,
+    { reason: input.reason },
+  );
+
+  const notification = await notifyHostelOwner(
+    normalizeObjectId(hostelId),
+    "hostel_unpublished",
+    ({ hostelName }) =>
+      hostelUnpublishedEmail({
+        hostelName,
+        loginUrl: appLoginUrl(),
+        reason: input.reason,
+      }),
+  );
+
+  return { ...result, notification };
 }
 
 export async function listPublicHostels(query: PublicHostelListQuery) {

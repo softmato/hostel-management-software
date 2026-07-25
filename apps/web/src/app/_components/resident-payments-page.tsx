@@ -122,7 +122,10 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
       try {
         await browserApi(`/api/v1/resident/payments/${paymentId}/proof`, {
           body: JSON.stringify({
+            amount: Number(field(form, "amount")),
+            paymentMethod: field(form, "paymentMethod"),
             proofImageAssetId: proofAssetId,
+            referenceNote: optionalField(form, "referenceNote"),
             transactionCode: optionalField(form, "transactionCode"),
           }),
           method: "POST",
@@ -350,13 +353,29 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
               </div>
 
               <input name="proofImageAssetId" type="hidden" value={proofAssetId} />
+              <FormSelect defaultValue="ESEWA" label="Payment method" name="paymentMethod" required>
+                <option value="ESEWA">eSewa</option>
+                <option value="FONEPAY">Fonepay</option>
+                <option value="KHALTI">Khalti</option>
+                <option value="BANK_TRANSFER">Bank transfer</option>
+                <option value="CASH">Cash</option>
+                <option value="OTHER">Other</option>
+              </FormSelect>
+              <FormInput
+                label="Amount paid"
+                min="1"
+                name="amount"
+                required
+                step="0.01"
+                type="number"
+              />
               <FormInput label="Transaction code" name="transactionCode" />
               <div className="grid gap-1.5">
                 <label className="text-sm font-semibold text-foreground">Notes (Optional)</label>
                 <Textarea
                   className="min-h-20 rounded-xl"
                   maxLength={200}
-                  name="notes"
+                  name="referenceNote"
                   placeholder="Add any notes about this payment..."
                 />
               </div>

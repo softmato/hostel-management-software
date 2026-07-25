@@ -15,8 +15,10 @@ export type Resident = {
   id: string;
   isDemoData?: boolean;
   lastName: string;
+  monthlyFee?: number;
   moveInDate: string;
   phone: string;
+  residentType?: "STUDENT" | "WORKING_PROFESSIONAL" | "OTHER";
   roomId: string;
   status: "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
 };
@@ -52,9 +54,12 @@ export type Payment = {
 };
 
 export type PaymentProof = {
+  amount: number;
   id: string;
   paymentId: string;
+  paymentMethod?: string;
   proofImageAssetId: string;
+  referenceNote?: string;
   rejectionReason?: string;
   residentId: string;
   status: "PENDING" | "APPROVED" | "REJECTED";

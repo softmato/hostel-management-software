@@ -12,11 +12,20 @@ import { QRActivationModel } from "@hostel/db/models/QRActivation";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { issueSessionForUser } from "@/modules/auth/auth.service";
+import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import {
   normalizeObjectId,
   serializeResidentSummary,
   type ResidentRecord,
 } from "@/modules/residents/resident-access";
+import {
+  appUrl,
+  getHostelName,
+  resolveResidentContact,
+  sendNotificationEmail,
+} from "@/modules/residents/resident-notify";
+import { storePublicAsset } from "@/lib/public-upload";
+import { residentQrActivationEmail } from "@hostel/shared/email/templates/resident/qr-activation";
 import type {
   activationCodeGenerateSchema,
   activationCodeSchema,
@@ -157,6 +166,44 @@ async function auditActivation(
   });
 }
 
+export function activationUrl(code: string) {
+  return appUrl(`/resident-activation?code=${encodeURIComponent(code)}`);
+}
+
+/**
+ * Renders the activation link as a QR PNG and stores it where an email client
+ * can fetch it. Returns `null` when QR rendering or storage is unavailable —
+ * the email still carries the typed fallback code and link.
+ */
+async function renderActivationQr(code: string) {
+  try {
+    const { toBuffer } = await import("qrcode");
+    const png = await toBuffer(activationUrl(code), {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      type: "png",
+      width: 400,
+    });
+
+    return await storePublicAsset({
+      body: png,
+      contentType: "image/png",
+      fileName: `activation-${code}.png`,
+      prefix: "activation-qr",
+    });
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: "activation_qr_render_failed",
+        message: error instanceof Error ? error.message : "Unknown QR error",
+      }),
+    );
+
+    return null;
+  }
+}
+
 export async function generateActivationCode(
   residentId: string,
   input: ActivationCodeGenerateInput,
@@ -165,8 +212,11 @@ export async function generateActivationCode(
   await connectToDatabase();
 
   const resident = await findAdminResident(residentId, principal, input.hostelId);
+  const config = await getOperationsConfig();
   const code = generatePlainCode();
-  const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
+  const expiresInHours =
+    input.expiresInHours ?? config.qrActivationExpiryDays * 24;
+  const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
   await QRActivationModel.updateMany(
     {
@@ -193,10 +243,72 @@ export async function generateActivationCode(
     { residentId: resident._id.toString() },
   );
 
+  const delivery = input.sendEmail
+    ? await deliverActivationEmail(resident, code, expiresAt)
+    : { reason: "email_suppressed", sent: false };
+
   return {
     activation: serializeActivation(activation as QRActivationRecord, code),
+    delivery,
     resident: serializeResidentSummary(resident),
   };
+}
+
+/** Never throws — the code is already issued and returned to the admin. */
+async function deliverActivationEmail(
+  resident: ResidentRecord,
+  code: string,
+  expiresAt: Date,
+) {
+  try {
+    return await sendActivationEmail(resident, code, expiresAt);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: "resident_activation_email_failed",
+        message: error instanceof Error ? error.message : "Unknown activation email error",
+        residentId: resident._id.toString(),
+      }),
+    );
+
+    return { reason: "delivery_failed", sent: false };
+  }
+}
+
+async function sendActivationEmail(
+  resident: ResidentRecord,
+  code: string,
+  expiresAt: Date,
+) {
+  const contact = await resolveResidentContact(resident);
+
+  if (!contact) {
+    return { reason: "no_resident_email", sent: false };
+  }
+
+  const [hostelName, qrImageUrl] = await Promise.all([
+    getHostelName(resident.hostelId),
+    renderActivationQr(code),
+  ]);
+
+  const email = residentQrActivationEmail({
+    activationUrl: activationUrl(code),
+    code,
+    expiresAt,
+    hostelName,
+    qrImageUrl: qrImageUrl ?? undefined,
+    residentName: contact.name,
+  });
+
+  const sent = await sendNotificationEmail({
+    action: "resident_activation",
+    html: email.html,
+    subject: email.subject,
+    to: contact.email,
+  });
+
+  return { sent, to: contact.email, ...(sent ? {} : { reason: "delivery_failed" }) };
 }
 
 export async function regenerateActivationCode(

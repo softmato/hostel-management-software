@@ -11,9 +11,12 @@ export const residentStatusSchema = z.object({
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]),
 });
 
+export const residentTypeSchema = z.enum(["STUDENT", "WORKING_PROFESSIONAL", "OTHER"]);
+
 export const residentListQuerySchema = z.object({
   ...optionalHostelScopeSchema,
   q: z.string().trim().min(1).max(120).optional(),
+  residentType: residentTypeSchema.optional(),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).optional(),
 });
 
@@ -24,8 +27,10 @@ export const residentCreateSchema = z.object({
   email: z.string().trim().email().optional(),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
+  monthlyFee: z.coerce.number().nonnegative().default(0),
   moveInDate: z.coerce.date(),
   phone: z.string().trim().min(7).max(24),
+  residentType: residentTypeSchema.default("STUDENT"),
   roomId: objectIdSchema,
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).default("PENDING"),
 });
@@ -37,8 +42,10 @@ export const residentUpdateSchema = z.object({
   email: z.string().trim().email().optional(),
   firstName: z.string().trim().min(1).max(80).optional(),
   lastName: z.string().trim().min(1).max(80).optional(),
+  monthlyFee: z.coerce.number().nonnegative().optional(),
   moveInDate: z.coerce.date().optional(),
   phone: z.string().trim().min(7).max(24).optional(),
+  residentType: residentTypeSchema.optional(),
   roomId: objectIdSchema.optional(),
 });
 

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import { requireHostelCapability } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import { approvePaymentProof } from "@/modules/payments/payment.service";
 import { paymentProofReviewSchema } from "@/modules/payments/payment.validation";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "verifyPayments");
     const { id } = await context.params;
     const input = paymentProofReviewSchema.parse(await request.json());
     const result = await approvePaymentProof(id, input, principal);

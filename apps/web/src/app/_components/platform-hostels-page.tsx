@@ -243,15 +243,34 @@ export const PlatformHostelsPageContent = memo(function PlatformHostelsPageConte
           window.prompt("Optional message to the owner (leave blank to skip):") ||
           undefined;
         body = JSON.stringify({ documents, note });
+      } else if (nextAction === "unpublish") {
+        // Pulling a live listing is owner-visible, and the reason is quoted
+        // verbatim in the email they receive — so it is required, not optional.
+        const reason = window.prompt(
+          "Why is this listing being unpublished? The owner will see this reason.",
+        )?.trim();
+        if (!reason) return;
+        body = JSON.stringify({ reason });
       }
 
       setBusy(true);
       try {
-        await browserApi(`${platformEndpoints.hostel(hostelId)}/${nextAction}`, {
+        const result = await browserApi<{
+          notification?: { reason?: string; sent: boolean; to?: string };
+        }>(`${platformEndpoints.hostel(hostelId)}/${nextAction}`, {
           body,
           method: "PATCH",
         });
-        setActionMessage(`Hostel ${nextAction} action completed.`);
+
+        // The action is saved either way, but the owner only knows if the email
+        // actually left — surface that instead of a flat success.
+        const notification = result?.notification;
+
+        setActionMessage(
+          notification && !notification.sent
+            ? `Hostel ${nextAction} completed, but the owner was NOT emailed (${notification.reason ?? "unknown error"}). Contact ${notification.to ?? "the owner"} manually.`
+            : `Hostel ${nextAction} action completed.`,
+        );
         invalidate(platformEndpoints.hostels, platformEndpoints.hostel(hostelId));
       } catch (error) {
         setActionMessage(error instanceof Error ? error.message : "Action failed.");

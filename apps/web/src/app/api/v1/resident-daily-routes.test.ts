@@ -22,6 +22,7 @@ const routeMocks = vi.hoisted(() => ({
   regenerateActivationCode: vi.fn(),
   rejectPaymentProof: vi.fn(),
   requireApiPrincipal: vi.fn(),
+  requireHostelCapability: vi.fn(),
   requireHostelStaffPrincipal: vi.fn(),
   requireResidentPrincipal: vi.fn(),
   submitFoodFeedback: vi.fn(),
@@ -34,6 +35,7 @@ const routeMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiPrincipal: routeMocks.requireApiPrincipal,
+  requireHostelCapability: routeMocks.requireHostelCapability,
   requireHostelStaffPrincipal: routeMocks.requireHostelStaffPrincipal,
   requireResidentPrincipal: routeMocks.requireResidentPrincipal,
 }));
@@ -145,6 +147,7 @@ describe("resident daily-use routes", () => {
     vi.clearAllMocks();
     routeMocks.requireApiPrincipal.mockResolvedValue(residentPrincipal);
     routeMocks.requireHostelStaffPrincipal.mockResolvedValue(staffPrincipal);
+    routeMocks.requireHostelCapability.mockResolvedValue(staffPrincipal);
     routeMocks.requireResidentPrincipal.mockResolvedValue(residentPrincipal);
   });
 
@@ -183,7 +186,7 @@ describe("resident daily-use routes", () => {
     expect(activatePayload.data.refreshToken).toBe("refresh-next");
     expect(routeMocks.generateActivationCode).toHaveBeenCalledWith(
       "64f0f0f0f0f0f0f0f0f0f0f4",
-      { expiresInHours: 24 },
+      { expiresInHours: 24, sendEmail: true },
       staffPrincipal,
     );
     expect(routeMocks.activateResident).toHaveBeenCalledWith(
@@ -250,7 +253,12 @@ describe("resident daily-use routes", () => {
     );
     const proofResponse = await residentPaymentProofRoute.POST(
       request("/api/v1/resident/payments/64f0f0f0f0f0f0f0f0f0f0f5/proof", {
-        body: { proofImageAssetId: "asset-1", transactionCode: "TXN-1" },
+        body: {
+          amount: 8500,
+          paymentMethod: "ESEWA",
+          proofImageAssetId: "asset-1",
+          transactionCode: "TXN-1",
+        },
         method: "POST",
       }),
       routeContext({ paymentId: "64f0f0f0f0f0f0f0f0f0f0f5" }),

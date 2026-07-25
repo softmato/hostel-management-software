@@ -1,7 +1,10 @@
 import type { NextRequest } from "next/server";
 
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { requireHostelStaffPrincipal } from "@/lib/api-auth";
+import {
+  requireHostelCapability,
+  requireHostelStaffPrincipal,
+} from "@/lib/api-auth";
 import { createResident, listResidents } from "@/modules/residents/resident.service";
 import {
   residentCreateSchema,
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const principal = await requireHostelStaffPrincipal(request);
+    const principal = await requireHostelCapability(request, "registerResidents");
     const input = residentCreateSchema.parse(await request.json());
     const result = await createResident(input, principal);
 

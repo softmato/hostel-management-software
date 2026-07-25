@@ -31,6 +31,24 @@ const hostelSchema = new Schema(
     },
     facilities: [{ type: String, trim: true }],
     roomTypes: [{ type: String, trim: true }],
+    // Per-room-type pricing and vacancy as the owner submitted it. `roomTypes`
+    // above stays the flat, indexable list used by listing filters; this is the
+    // authoritative source for what each room type actually costs. Without it
+    // the public detail page has to guess rents from pricing.monthlyRentMin/Max.
+    roomConfigurations: [
+      {
+        roomType: { type: String, required: true, trim: true },
+        monthlyRent: { min: 0, type: Number },
+        bedsPerRoom: { min: 0, type: Number },
+        rooms: { min: 0, type: Number },
+        vacantBeds: { min: 0, type: Number, default: 0 },
+        mealInclusion: {
+          type: String,
+          enum: ["Included", "Not Included", "Optional"],
+          default: "Included",
+        },
+      },
+    ],
     food: {
       mealsPerDay: { min: 0, type: Number },
       hasVeg: { default: true, type: Boolean },

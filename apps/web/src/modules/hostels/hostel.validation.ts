@@ -11,6 +11,17 @@ const optionalHostelScopeSchema = {
 
 export const hostelTypeSchema = z.enum(["BOYS", "GIRLS", "CO_LIVING"]);
 
+const roomConfigurationSchema = z.object({
+  bedsPerRoom: z.coerce.number().int().nonnegative(),
+  mealInclusion: z.enum(["Included", "Not Included", "Optional"]),
+  monthlyRent: z.coerce.number().nonnegative().optional(),
+  rooms: z.coerce.number().int().nonnegative(),
+  roomType: z.string().trim().min(1).max(80),
+  vacantBeds: z.coerce.number().int().nonnegative().default(0),
+});
+
+const roomConfigurationsSchema = z.array(roomConfigurationSchema).max(30).default([]);
+
 export const platformHostelCreateSchema = z.object({
   capacitySummary: z
     .object({
@@ -75,6 +86,7 @@ export const platformHostelCreateSchema = z.object({
       monthlyRentMin: z.coerce.number().nonnegative().optional(),
     })
     .optional(),
+  roomConfigurations: roomConfigurationsSchema,
   roomTypes: textArraySchema,
   rules: textArraySchema,
 });
@@ -87,19 +99,6 @@ export const publicHostelApplicationCreateSchema = platformHostelCreateSchema
       name: z.string().trim().min(2).max(120),
       phone: z.string().trim().min(7).max(24),
     }),
-    roomConfigurations: z
-      .array(
-        z.object({
-          bedsPerRoom: z.coerce.number().int().nonnegative(),
-          mealInclusion: z.enum(["Included", "Not Included", "Optional"]),
-          monthlyRent: z.coerce.number().nonnegative().optional(),
-          rooms: z.coerce.number().int().nonnegative(),
-          roomType: z.string().trim().min(1).max(80),
-          vacantBeds: z.coerce.number().int().nonnegative().default(0),
-        }),
-      )
-      .max(30)
-      .default([]),
     selectedPlan: z.string().trim().min(2).max(80),
   });
 
@@ -113,6 +112,12 @@ export const platformHostelListQuerySchema = z.object({
 });
 
 export const hostelRejectSchema = z.object({
+  reason: z.string().trim().min(3).max(1000),
+});
+
+// Unpublishing pulls a live listing out of public search, so the owner is owed
+// an explanation — the reason is required and goes straight into their email.
+export const hostelUnpublishSchema = z.object({
   reason: z.string().trim().min(3).max(1000),
 });
 
@@ -254,6 +259,7 @@ export const hostelAdminProfileUpdateSchema = z.object({
       monthlyRentMin: z.coerce.number().nonnegative().optional(),
     })
     .optional(),
+  roomConfigurations: z.array(roomConfigurationSchema).max(30).optional(),
   roomTypes: optionalTextArraySchema.optional(),
   rules: optionalTextArraySchema.optional(),
 });

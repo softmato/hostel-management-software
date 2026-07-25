@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import { requirePlatformPrincipal } from "@/lib/api-auth";
 import { unpublishPlatformHostel } from "@/modules/hostels/hostel.service";
+import { hostelUnpublishSchema } from "@/modules/hostels/hostel.validation";
 
 type RouteContext = {
   params: Promise<{
@@ -16,9 +17,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const principal = await requirePlatformPrincipal(request);
     const { id } = await context.params;
-    const result = await unpublishPlatformHostel(id, principal);
+    const input = hostelUnpublishSchema.parse(await request.json());
+    const result = await unpublishPlatformHostel(id, input, principal);
 
-    return successResponse(result, "Hostel unpublished");
+    return successResponse(
+      result,
+      result.notification.sent
+        ? "Hostel unpublished"
+        : "Hostel unpublished, but the owner could not be emailed",
+    );
   } catch (error) {
     return handleRouteError(error);
   }

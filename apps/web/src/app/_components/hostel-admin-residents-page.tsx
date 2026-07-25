@@ -66,6 +66,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [typeFilter, setTypeFilter] = useState("ALL");
   const [showAddForm, setShowAddForm] = useState(false);
 
   const selectedResident =
@@ -104,6 +105,9 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
       if (statusFilter !== "ALL" && resident.status !== statusFilter) {
         return false;
       }
+      if (typeFilter !== "ALL" && (resident.residentType ?? "STUDENT") !== typeFilter) {
+        return false;
+      }
       if (!query) {
         return true;
       }
@@ -121,7 +125,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [bedById, residents, search, statusFilter]);
+  }, [bedById, residents, search, statusFilter, typeFilter]);
 
   const handleCreateResident = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -138,8 +142,10 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
             email: optionalField(form, "email"),
             firstName: field(form, "firstName"),
             lastName: field(form, "lastName"),
+            monthlyFee: Number(optionalField(form, "monthlyFee") || 0),
             moveInDate: field(form, "moveInDate"),
             phone: field(form, "phone"),
+            residentType: field(form, "residentType"),
             roomId: bed?.roomId,
           }),
           method: "POST",
@@ -161,16 +167,21 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     }
 
     try {
-      const result = await browserApi<{ activation: { code?: string } }>(
-        `/api/v1/hostel-admin/residents/${activeResidentId}/activation-code`,
-        {
-          body: JSON.stringify({ expiresInHours: 48 }),
-          method: "POST",
-        },
-      );
+      const result = await browserApi<{
+        activation: { code?: string };
+        delivery: { sent: boolean; to?: string };
+      }>(`/api/v1/hostel-admin/residents/${activeResidentId}/activation-code`, {
+        // Expiry is left to the platform's qrActivationExpiryDays setting.
+        body: JSON.stringify({}),
+        method: "POST",
+      });
 
       setActivationCode(result.activation.code ?? "");
-      setMessage("Activation code generated.");
+      setMessage(
+        result.delivery.sent
+          ? `Activation code generated and emailed to ${result.delivery.to}.`
+          : "Activation code generated. No email was sent — share the code below with the resident.",
+      );
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Could not generate activation code.",
@@ -313,6 +324,12 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
             </FormSelect>
             <FormInput label="Move-in date" name="moveInDate" required type="date" />
             <FormInput label="Deposit" name="depositAmount" required type="number" />
+            <FormSelect defaultValue="STUDENT" label="Resident type" name="residentType">
+              <option value="STUDENT">Student</option>
+              <option value="WORKING_PROFESSIONAL">Working professional</option>
+              <option value="OTHER">Other</option>
+            </FormSelect>
+            <FormInput label="Monthly fee" min="0" name="monthlyFee" type="number" />
             <div className="flex items-end">
               <RoleButton className="w-full" tone="admin" type="submit">
                 <UserPlus className="size-4" />
@@ -342,6 +359,17 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                   <SelectItem value="PENDING">Pending</SelectItem>
                   <SelectItem value="SUSPENDED">Suspended</SelectItem>
                   <SelectItem value="MOVED_OUT">Moved out</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select onValueChange={setTypeFilter} value={typeFilter}>
+                <SelectTrigger className="h-10 w-[190px] rounded-xl">
+                  <SelectValue placeholder="Resident type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All types</SelectItem>
+                  <SelectItem value="STUDENT">Student</SelectItem>
+                  <SelectItem value="WORKING_PROFESSIONAL">Working professional</SelectItem>
+                  <SelectItem value="OTHER">Other</SelectItem>
                 </SelectContent>
               </Select>
               <SoftBadge tone="cyan">

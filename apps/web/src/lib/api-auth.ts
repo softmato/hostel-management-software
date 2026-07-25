@@ -1,9 +1,13 @@
+import { Types } from "mongoose";
 import type { NextRequest } from "next/server";
 
 import { ACCESS_TOKEN_COOKIE, getBearerToken, verifyAccessToken } from "@/lib/auth";
+import { connectToDatabase } from "@/lib/db";
 import { HOSTEL_STAFF_ROLES, PLATFORM_ROLES, assertAllowedRole } from "@/lib/permissions";
 import { assertHostelAccess } from "@/lib/tenant";
 import { Role } from "@/lib/roles";
+import { HostelMemberModel } from "@hostel/db/models/HostelMember";
+import type { WardenPermissionKey } from "@/modules/wardens/warden.validation";
 
 export type ApiPrincipal = {
   hostelIds: string[];
@@ -116,6 +120,55 @@ export async function requireHostelStaffPrincipal(request: NextRequest) {
   assertApiRoles(principal, HOSTEL_STAFF_ROLES);
 
   return principal;
+}
+
+/**
+ * Hostel-staff gate that also enforces a warden's per-capability flags
+ * (`HostelMember.permissions`, set from Warden Management).
+ *
+ * HOSTEL_ADMIN holds every capability implicitly and passes unchanged. For a
+ * WARDEN, the returned principal's `hostelIds` is **narrowed** to just those
+ * hostels where the flag is granted — so every downstream service, which
+ * already scopes its queries by `principal.hostelIds`, is restricted without
+ * needing to know capabilities exist. No grant anywhere → 403.
+ *
+ * Permissions are read per request rather than carried in the JWT, so revoking
+ * a capability takes effect immediately instead of at the next token refresh.
+ */
+export async function requireHostelCapability(
+  request: NextRequest,
+  capability: WardenPermissionKey,
+) {
+  const principal = await requireHostelStaffPrincipal(request);
+
+  if (principal.role !== Role.WARDEN) {
+    return principal;
+  }
+
+  await connectToDatabase();
+
+  const memberships = await HostelMemberModel.find({
+    hostelId: { $in: principal.hostelIds.filter((id) => Types.ObjectId.isValid(id)) },
+    isDeleted: { $ne: true },
+    // Mongo matches a scalar against array membership.
+    permissions: capability,
+    status: "ACTIVE",
+    userId: principal.userId,
+  })
+    .select("hostelId")
+    .lean<{ hostelId: Types.ObjectId }[]>();
+
+  const allowedHostelIds = memberships.map((member) => member.hostelId.toString());
+
+  if (allowedHostelIds.length === 0) {
+    throw new ApiAuthError(
+      "Your warden account does not have permission for this action.",
+      "CAPABILITY_DENIED",
+      403,
+    );
+  }
+
+  return { ...principal, hostelIds: allowedHostelIds } satisfies ApiPrincipal;
 }
 
 /**

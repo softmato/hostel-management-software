@@ -30,8 +30,41 @@ under load). Idempotent. Returns `{ deleted: <count> }`.
 
 - Recommended schedule: daily (e.g. `0 3 * * *`).
 
-> Future phases add more cron jobs here (payment reminders, complaint SLA checks, soft-deleted
-> account purge). Each one reuses `validateCronRequest` and is added to this list.
+### Refresh nearby places
+
+`POST /api/v1/cron/refresh-nearby-places`
+
+Re-fetches stale or missing nearby-place caches for published hostels (ARCHITECTURE.md §4.5).
+Processes a small batch per run to respect the Nominatim/Overpass rate limits, so caches fill in
+over several runs. Idempotent.
+
+- Recommended schedule: hourly (e.g. `0 * * * *`).
+
+### Payment reminders and overdue chases
+
+`POST /api/v1/cron/payment-reminders`
+
+Walks open payments across every hostel (PHASES.md §3.1 "Payment System") and:
+
+- emails a reminder exactly `paymentReminderDaysBefore` days before the due date
+  (platform setting `operations`, default 3);
+- flips past-due payments to `OVERDUE` and chases them on day 1, day 3, then weekly, so a
+  forgotten record does not email a resident every morning;
+- writes an in-app `Notification` for each resident in both cases.
+
+Returns `{ scanned, reminded, overdueNotified, markedOverdue }`. Safe to run more than once a day —
+the day-offset rules mean a second run repeats at most the same day's batch.
+
+- Recommended schedule: daily, early morning local time (e.g. `0 2 * * *`).
+
+> **Note on the `operations` platform setting.** Several runtime knobs live in a single
+> `PlatformSetting` document keyed `operations`: `qrActivationExpiryDays`,
+> `paymentReminderDaysBefore`, `foodReadyCooldownMinutes`, `sendNoticeEmails`,
+> `sendPaymentEmails`, `receiptNumberPrefix`. Reads never throw — a missing or malformed document
+> falls back to the shipped defaults.
+
+> Later phases add more cron jobs here (complaint SLA checks, soft-deleted account purge). Each one
+> reuses `validateCronRequest` and is added to this list.
 
 ## cron-job.org setup (per job)
 

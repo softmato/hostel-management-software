@@ -6,6 +6,14 @@ const paymentProofSchema = new Schema(
     residentId: { ref: "Resident", required: true, type: Schema.Types.ObjectId },
     paymentId: { ref: "Payment", required: true, type: Schema.Types.ObjectId },
     proofImageAssetId: { required: true, trim: true, type: String },
+    /** Amount the resident claims to have paid with this proof. */
+    amount: { min: 0, required: true, type: Number },
+    paymentMethod: {
+      enum: ["CASH", "ESEWA", "KHALTI", "FONEPAY", "BANK_TRANSFER", "OTHER"],
+      type: String,
+    },
+    /** Free-text reference the resident adds (transaction id, bank memo…). */
+    referenceNote: { trim: true, type: String },
     transactionCode: { trim: true, type: String },
     submittedAt: { default: Date.now, type: Date },
     submittedBy: { ref: "User", required: true, type: Schema.Types.ObjectId },
