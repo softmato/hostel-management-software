@@ -1,26 +1,38 @@
 "use client";
 
-import { Bell } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { AlertTriangle, Bell, Check, Megaphone } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
+import { EmptyState } from "@/app/_components/shared-ui";
 import {
-  EmptyState,
-  LoadingRows,
-  Panel,
-  StatusBadge,
-} from "@/app/_components/shared-ui";
+  EmptyInline,
+  PortalPageHeader,
+  RoleButton,
+  SectionCard,
+  SoftBadge,
+  TabBar,
+} from "@/app/_components/portal-dashboard-ui";
 import { browserApi } from "@/lib/browser-api";
-import {
-  type LoadState,
-  type Notice,
-  ResidentHeader,
-  Message,
-} from "./resident-shared";
+import { type LoadState, type Notice, Message } from "./resident-shared";
+
+function NoticeSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          className="h-20 animate-pulse rounded-xl border border-border/60 bg-muted/30"
+          key={index}
+        />
+      ))}
+    </div>
+  );
+}
 
 export const ResidentNoticesPageContent = memo(function ResidentNoticesPageContent() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [state, setState] = useState<LoadState>("idle");
   const [message, setMessage] = useState("");
+  const [tab, setTab] = useState<"all" | "unread" | "urgent">("all");
 
   const load = useCallback(async () => {
     setState("loading");
@@ -43,60 +55,132 @@ export const ResidentNoticesPageContent = memo(function ResidentNoticesPageConte
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  const markRead = useCallback(async (noticeId: string) => {
-    try {
-      await browserApi(`/api/v1/resident/notices/${noticeId}/read`, {
-        body: JSON.stringify({}),
-        method: "PATCH",
-      });
-      await load();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not mark notice read.");
-    }
-  }, [load]);
+  const markRead = useCallback(
+    async (noticeId: string) => {
+      try {
+        await browserApi(`/api/v1/resident/notices/${noticeId}/read`, {
+          body: JSON.stringify({}),
+          method: "PATCH",
+        });
+        setNotices((current) =>
+          current.map((notice) =>
+            notice.id === noticeId ? { ...notice, isRead: true } : notice,
+          ),
+        );
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Could not mark notice read.",
+        );
+      }
+    },
+    [],
+  );
+
+  const counts = useMemo(
+    () => ({
+      all: notices.length,
+      unread: notices.filter((notice) => !notice.isRead).length,
+      urgent: notices.filter((notice) => notice.isUrgent).length,
+    }),
+    [notices],
+  );
+
+  const visible = useMemo(() => {
+    if (tab === "unread") return notices.filter((notice) => !notice.isRead);
+    if (tab === "urgent") return notices.filter((notice) => notice.isUrgent);
+    return notices;
+  }, [notices, tab]);
 
   return (
-    <div className="mx-auto max-w-[1448px] space-y-6">
-      <ResidentHeader
-        description="Read hostel notices and keep your feed up to date."
-        icon={Bell}
+    <div className="mx-auto max-w-[1100px] space-y-5">
+      <PortalPageHeader
+        breadcrumb={[{ href: "/resident", label: "Home" }, "Notices"]}
+        description="Stay up to date with announcements from your hostel."
         title="Notices"
       />
       <Message value={message} />
-      <Panel>
-        {state === "loading" ? <LoadingRows /> : null}
+
+      <SectionCard>
+        <TabBar
+          className="mb-4"
+          onChange={(key) => setTab(key as typeof tab)}
+          tabs={[
+            { key: "all", label: "All", count: counts.all },
+            { key: "unread", label: "Unread", count: counts.unread },
+            { key: "urgent", label: "Urgent", count: counts.urgent },
+          ]}
+          tone="resident"
+          value={tab}
+        />
+
+        {state === "loading" ? <NoticeSkeleton /> : null}
         {state === "error" ? <EmptyState label="Notices could not be loaded." /> : null}
-        {state === "ready" && notices.length === 0 ? (
-          <EmptyState label="No notices." />
+        {state === "ready" && visible.length === 0 ? (
+          <EmptyInline label="No notices in this view." />
         ) : null}
-        <div className="space-y-3">
-          {notices.map((notice) => (
-            <div className="rounded-lg border border-border p-4" key={notice.id}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-foreground">{notice.title}</p>
-                    {notice.isUrgent ? <StatusBadge>URGENT</StatusBadge> : null}
-                    <StatusBadge>{notice.category}</StatusBadge>
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">{notice.content}</p>
-                </div>
-                {notice.isRead ? (
-                  <StatusBadge>READ</StatusBadge>
+
+        <div className="space-y-2.5">
+          {visible.map((notice) => (
+            <div
+              className={`flex items-start gap-3 rounded-xl border p-3 transition ${
+                notice.isRead
+                  ? "border-border/60 bg-card"
+                  : "border-role-resident/25 bg-role-resident-soft/20"
+              }`}
+              key={notice.id}
+            >
+              <span
+                className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
+                  notice.isUrgent
+                    ? "bg-rose-50 text-rose-600"
+                    : "bg-role-resident-soft text-role-resident"
+                }`}
+              >
+                {notice.isUrgent ? (
+                  <AlertTriangle className="size-[17px]" />
                 ) : (
-                  <button
-                    className="rounded-md bg-role-resident px-3 py-2 text-sm font-semibold text-white"
-                    onClick={() => void markRead(notice.id)}
-                    type="button"
-                  >
-                    Mark Read
-                  </button>
+                  <Megaphone className="size-[17px]" />
                 )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[13px] font-bold text-foreground">{notice.title}</p>
+                  {notice.isUrgent ? <SoftBadge tone="rose">Urgent</SoftBadge> : null}
+                  <SoftBadge tone="slate">{notice.category}</SoftBadge>
+                  {!notice.isRead ? <SoftBadge tone="green">New</SoftBadge> : null}
+                </div>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                  {notice.content}
+                </p>
+                {notice.publishedAt ? (
+                  <p className="mt-1.5 text-[10.5px] text-muted-foreground/70">
+                    {new Date(notice.publishedAt).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </p>
+                ) : null}
               </div>
+              {notice.isRead ? (
+                <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                  <Check className="size-3.5" /> Read
+                </span>
+              ) : (
+                <RoleButton
+                  className="mt-0.5 shrink-0"
+                  onClick={() => void markRead(notice.id)}
+                  tone="resident"
+                  variant="soft"
+                >
+                  <Bell className="size-3.5" />
+                  Mark read
+                </RoleButton>
+              )}
             </div>
           ))}
         </div>
-      </Panel>
+      </SectionCard>
     </div>
   );
 });
