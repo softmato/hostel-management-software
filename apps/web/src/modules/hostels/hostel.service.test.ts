@@ -10,9 +10,8 @@ const serviceMocks = vi.hoisted(() => ({
   bedFindOne: vi.fn(),
   bedFindOneAndUpdate: vi.fn(),
   connectToDatabase: vi.fn(),
-  floorCreate: vi.fn(),
-  floorFind: vi.fn(),
-  floorFindOne: vi.fn(),
+  foodMenuFind: vi.fn(),
+  foodMenuFindOne: vi.fn(),
   hostelCreate: vi.fn(),
   hostelExists: vi.fn(),
   hostelFind: vi.fn(),
@@ -25,7 +24,6 @@ const serviceMocks = vi.hoisted(() => ({
   inquiryFindOneAndUpdate: vi.fn(),
   inquiryNoteCreate: vi.fn(),
   roomCountDocuments: vi.fn(),
-  roomCreate: vi.fn(),
   roomFind: vi.fn(),
   roomFindOne: vi.fn(),
   roomFindOneAndUpdate: vi.fn(),
@@ -42,20 +40,10 @@ vi.mock("@hostel/db/models/AuditLog", () => ({
   },
 }));
 
-vi.mock("@hostel/db/models/Bed", () => ({
-  BedModel: {
-    countDocuments: serviceMocks.bedCountDocuments,
-    find: serviceMocks.bedFind,
-    findOne: serviceMocks.bedFindOne,
-    findOneAndUpdate: serviceMocks.bedFindOneAndUpdate,
-  },
-}));
-
-vi.mock("@hostel/db/models/Floor", () => ({
-  FloorModel: {
-    create: serviceMocks.floorCreate,
-    find: serviceMocks.floorFind,
-    findOne: serviceMocks.floorFindOne,
+vi.mock("@hostel/db/models/FoodMenu", () => ({
+  FoodMenuModel: {
+    find: serviceMocks.foodMenuFind,
+    findOne: serviceMocks.foodMenuFindOne,
   },
 }));
 
@@ -108,32 +96,15 @@ vi.mock("@hostel/db/models/InquiryNote", () => ({
   },
 }));
 
-vi.mock("@hostel/db/models/Room", () => ({
-  RoomModel: {
-    countDocuments: serviceMocks.roomCountDocuments,
-    create: serviceMocks.roomCreate,
-    find: serviceMocks.roomFind,
-    findOne: serviceMocks.roomFindOne,
-    findOneAndUpdate: serviceMocks.roomFindOneAndUpdate,
-    updateOne: serviceMocks.roomUpdateOne,
-  },
-}));
-
 import {
   createPublicHostelInquiry,
   getPublicHostelBySlug,
   listPublicHostels,
 } from "@/modules/hostels/hostel.service";
-import {
-  createHostelAdminFloor,
-  createHostelAdminRoom,
-} from "@/modules/hostels/hostel-spatial.service";
 import { listHostelAdminInquiries } from "@/modules/hostels/hostel-inquiry.service";
 
 const hostelId = "64f0f0f0f0f0f0f0f0f0f0f4";
-const otherHostelId = "64f0f0f0f0f0f0f0f0f0f0f5";
 const ownerId = "64f0f0f0f0f0f0f0f0f0f0f6";
-const floorId = "64f0f0f0f0f0f0f0f0f0f0f7";
 
 const staffPrincipal = {
   hostelIds: [hostelId],
@@ -179,6 +150,9 @@ function hostelRecord(overrides: Record<string, unknown> = {}) {
 describe("hostel service phase 2 behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Public hostel detail also reads the published routine; default to none.
+    serviceMocks.foodMenuFind.mockReturnValue(queryResult([]));
+    serviceMocks.foodMenuFindOne.mockReturnValue(queryResult(null));
   });
 
   it("filters public listings to approved published hostels and requested filters", async () => {
@@ -226,7 +200,9 @@ describe("hostel service phase 2 behavior", () => {
       slug: "sunrise-hostel",
     });
     expect(result.hostel).not.toHaveProperty("ownerId");
-    expect(result.hostel).not.toHaveProperty("contact");
+    // The public payload carries the phone so a visitor can call, and nothing
+    // else from `contact` — the email stays behind the inquiry form.
+    expect(result.hostel.contact).toEqual({ phone: "9800000000" });
     expect(serviceMocks.hostelFindOne).toHaveBeenCalledWith({
       isDeleted: false,
       slug: "sunrise-hostel",
@@ -288,44 +264,4 @@ describe("hostel service phase 2 behavior", () => {
     });
   });
 
-  it("rejects floor creation outside the admin tenant", async () => {
-    await expect(
-      createHostelAdminFloor(
-        {
-          hostelId: otherHostelId,
-          level: 1,
-          name: "First Floor",
-          sortOrder: 0,
-        },
-        staffPrincipal,
-      ),
-    ).rejects.toMatchObject({
-      errorCode: "TENANT_ACCESS_DENIED",
-      status: 403,
-    });
-    expect(serviceMocks.floorCreate).not.toHaveBeenCalled();
-  });
-
-  it("rejects room creation when the floor is not in the admin hostel", async () => {
-    serviceMocks.floorFindOne.mockReturnValueOnce(leanResult(null));
-
-    await expect(
-      createHostelAdminRoom(
-        {
-          capacity: 4,
-          facilities: [],
-          floorId,
-          repairStatus: "OK",
-          roomNumber: "101",
-          roomType: "quad",
-          vacancyStatus: "VACANT",
-        },
-        staffPrincipal,
-      ),
-    ).rejects.toMatchObject({
-      errorCode: "FLOOR_NOT_FOUND",
-      status: 404,
-    });
-    expect(serviceMocks.roomCreate).not.toHaveBeenCalled();
-  });
 });

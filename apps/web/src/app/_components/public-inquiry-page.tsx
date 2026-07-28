@@ -10,11 +10,13 @@ import {
   ShieldCheck,
   Star,
   UserRound,
+  Loader2,
   Utensils,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
+import { maybePromptForResidentProfile } from "@/components/resident-identity";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 import {
@@ -52,6 +54,7 @@ function PublicInquiryPageContent() {
   const [selectedRoomType, setSelectedRoomType] = useState(preselectedRoom);
   const [message, setMessage] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     async function loadHostel() {
@@ -132,31 +135,43 @@ function PublicInquiryPageContent() {
     e.preventDefault();
     setMessage("");
 
-    const form = new FormData(e.currentTarget);
+    const formElement = e.currentTarget;
+    const form = new FormData(formElement);
     const value = (name: string) => {
       const field = form.get(name);
 
       return typeof field === "string" ? field.trim() : "";
     };
 
+    setSubmitting(true);
     try {
-      await browserApi(`/api/v1/public/hostels/${hostel.id}/inquiries`, {
-        body: JSON.stringify({
-          budgetRange: value("budgetRange") || undefined,
-          email: value("email") || undefined,
-          gender: value("gender") || undefined,
-          message: value("message") || undefined,
-          name: value("name"),
-          phone: value("phone"),
-          preferredRoomType: value("preferredRoomType") || undefined,
-          preferredVisitDate: value("preferredVisitDate") || undefined,
-        }),
-        method: "POST",
-      });
+      const result = await browserApi<{ shouldCollectProfile?: boolean }>(
+        `/api/v1/public/hostels/${hostel.id}/inquiries`,
+        {
+          body: JSON.stringify({
+            email: value("email") || undefined,
+            gender: value("gender") || undefined,
+            message: value("message") || undefined,
+            name: value("name"),
+            phone: value("phone"),
+            preferredRoomType: value("preferredRoomType") || undefined,
+            preferredVisitDate: value("preferredVisitDate") || undefined,
+          }),
+          method: "POST",
+        },
+      );
       setSubmitted(true);
-      e.currentTarget.reset();
+      formElement.reset();
+
+      // Someone who just enquired is about to be asked for these exact details
+      // by the hostel — the best possible moment to offer the one-time profile.
+      if (result.shouldCollectProfile) {
+        window.setTimeout(() => maybePromptForResidentProfile("INQUIRY"), 900);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not submit inquiry.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -408,21 +423,6 @@ function PublicInquiryPageContent() {
                       </span>
                     </label>
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-semibold text-foreground">
-                      Your Budget (Monthly) *
-                      <select
-                        className="mt-2 flex h-12 w-full items-center rounded-lg border border-border bg-surface px-3 shadow-sm outline-none focus:border-brand-teal cursor-pointer text-sm font-normal text-foreground"
-                        name="budgetRange"
-                        required
-                      >
-                        <option value="">Select your budget range</option>
-                        <option value="under-8k">Under NPR 8,000</option>
-                        <option value="8k-10k">NPR 8,000 - 10,000</option>
-                        <option value="above-10k">Above NPR 10,000</option>
-                      </select>
-                    </label>
-                  </div>
                 </div>
 
                 <label className="block text-sm font-semibold text-foreground">
@@ -456,9 +456,15 @@ function PublicInquiryPageContent() {
 
                 <button
                   type="submit"
-                  className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-brand-teal font-semibold text-white shadow hover:brightness-110 transition"
+                  disabled={submitting}
+                  className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-brand-teal font-semibold text-white shadow hover:brightness-110 transition disabled:opacity-60"
                 >
-                  <Send className="size-4" /> Submit Inquiry
+                  {submitting ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                  {submitting ? "Submitting..." : "Submit Inquiry"}
                 </button>
 
                 <p className="text-[10px] text-center text-muted-foreground mt-3">

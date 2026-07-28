@@ -109,6 +109,14 @@ export type RegisterOrUpgradeInput = {
   hostelName?: string;
   performedBy?: string;
   sendEmailNotification?: boolean;
+  /**
+   * Whether a Google-only account may be given a temporary email/password
+   * fallback on upgrade. Defaults to true. Resident linking passes false: a
+   * resident never receives credentials, so minting a password they are never
+   * told about would only strand them behind `mustChangePassword`. Ignored for
+   * high-privilege roles, whose mailbox-proof rotation is not optional.
+   */
+  issueTemporaryPassword?: boolean;
 };
 
 /**
@@ -186,8 +194,9 @@ export async function registerOrUpgradeUserByEmail(input: RegisterOrUpgradeInput
     // fallback. Lower-trust roles (RESIDENT / WARDEN / GUARDIAN) keep their
     // existing credentials — the registering admin vetted them out-of-band.
     const requiresMailboxProof = HIGH_PRIVILEGE_ROLES.has(input.role);
+    const mayIssueTempPassword = input.issueTemporaryPassword ?? true;
 
-    if (!existing.passwordHash || requiresMailboxProof) {
+    if (requiresMailboxProof || (!existing.passwordHash && mayIssueTempPassword)) {
       temporaryPassword = generateTemporaryPassword();
       existing.passwordHash = await hashPassword(temporaryPassword);
       existing.mustChangePassword = true;

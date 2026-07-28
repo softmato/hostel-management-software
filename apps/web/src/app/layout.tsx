@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Poppins } from "next/font/google";
 
+import { MediaViewerProvider } from "@/components/media-viewer";
 import { QueryProvider } from "@/components/query-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/toaster";
 import { SITE_NAME, siteUrl } from "@/lib/site";
 
 import "./globals.css";
@@ -51,7 +53,12 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
-          <QueryProvider>{children}</QueryProvider>
+          <QueryProvider>
+            {/* Any screen can open images or videos full-screen from here. */}
+            <MediaViewerProvider>{children}</MediaViewerProvider>
+          </QueryProvider>
+          {/* Global feedback surface: live upload progress + one-shot toasts. */}
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

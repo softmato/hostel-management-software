@@ -1,4 +1,5 @@
 import type { HostelSummary } from "@/app/_components/public-hostel-types";
+import { resolveHostelPhotoUrls } from "@/lib/hostel-photos";
 
 export const DEFAULT_HOSTEL_IMAGE =
   "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=1400&q=80";
@@ -36,6 +37,20 @@ export type PublicHostel = {
     mealsPerDay?: number;
     notes?: string;
   };
+  /** This week's published menu, as configured by the hostel admin. */
+  foodRoutine?: {
+    menus: Array<{
+      date: string;
+      dayOfWeek: string;
+      id: string;
+      items: string[];
+      mealType: "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
+      specialNotes?: string;
+      timing: string;
+      updatedAt?: string;
+    }>;
+    weekStartDate: string;
+  };
   hostelType: "BOYS" | "GIRLS" | "CO_LIVING";
   id: string;
   location: {
@@ -54,6 +69,9 @@ export type PublicHostel = {
   photos: Array<{
     alt?: string;
     id?: string;
+    kind?: "EXTERIOR" | "INTERIOR" | "ROOM";
+    /** Set only on ROOM photos — matches roomConfigurations[].roomType. */
+    roomType?: string;
     url?: string;
   }>;
   pricing?: {
@@ -116,7 +134,8 @@ export function mapPublicHostelToSummary(hostel: PublicHostel): HostelSummary {
     facilities: hostel.facilities,
     foodScore: hostel.comparison?.foodScore ?? 0,
     id: hostel.id,
-    image: hostel.photos.find((photo) => photo.url)?.url ?? DEFAULT_HOSTEL_IMAGE,
+    // The card is the hostel's first look, so an exterior shot leads.
+    image: resolveHostelPhotoUrls(hostel.photos, "EXTERIOR")[0] ?? DEFAULT_HOSTEL_IMAGE,
     name: hostel.name,
     owner: "Verified hostel",
     price:

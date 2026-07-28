@@ -1,5 +1,5 @@
-import { HostelAdminComplaintsPage } from "@/app/_components/hostel-admin-complaints-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function ComplaintsPage() {
-  return <HostelAdminComplaintsPage />;
+export default async function LegacyHostelAdminComplaintsPage() {
+  return redirectToWorkspaceScreen("complaints");
 }

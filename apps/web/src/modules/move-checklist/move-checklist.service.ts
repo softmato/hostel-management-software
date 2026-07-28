@@ -5,14 +5,13 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
-import { BedModel } from "@hostel/db/models/Bed";
 import { DepositRefundModel } from "@hostel/db/models/DepositRefund";
 import { MoveInChecklistModel } from "@hostel/db/models/MoveInChecklist";
 import { MoveOutChecklistModel } from "@hostel/db/models/MoveOutChecklist";
 import { PaymentModel } from "@hostel/db/models/Payment";
 import { ProvidedItemModel } from "@hostel/db/models/ProvidedItem";
 import { ResidentModel } from "@hostel/db/models/Resident";
-import { RoomModel } from "@hostel/db/models/Room";
+import { releaseBedForRoomType } from "@/modules/hostels/hostel-capacity.service";
 import {
   normalizeObjectId,
   serializeResidentSummary,
@@ -27,7 +26,6 @@ type MoveOutInput = z.infer<typeof moveOutChecklistSchema>;
 
 type ResidentRecord = {
   _id: Types.ObjectId;
-  bedId: Types.ObjectId;
   depositAmount: number;
   email?: string;
   firstName: string;
@@ -35,8 +33,9 @@ type ResidentRecord = {
   lastName: string;
   moveInDate: Date;
   phone: string;
-  roomId: Types.ObjectId;
+  roomType: string;
   status: "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
+  updatedAt?: Date;
   userId?: Types.ObjectId;
 };
 
@@ -197,26 +196,6 @@ async function pendingFeeAmount(resident: ResidentRecord) {
   );
 }
 
-async function refreshRoomVacancy(roomId: Types.ObjectId) {
-  const room = await RoomModel.findById(roomId).lean<{
-    _id: Types.ObjectId;
-    capacity: number;
-  } | null>();
-
-  if (!room) {
-    return;
-  }
-
-  const occupiedBeds = await BedModel.countDocuments({
-    isDeleted: false,
-    roomId: room._id,
-    status: { $in: ["OCCUPIED", "RESERVED"] },
-  });
-  const vacancyStatus =
-    occupiedBeds === 0 ? "VACANT" : occupiedBeds >= room.capacity ? "FULL" : "PARTIAL";
-
-  await RoomModel.updateOne({ _id: room._id }, { $set: { vacancyStatus } });
-}
 
 export async function createMoveInChecklist(
   residentId: string,
@@ -336,15 +315,9 @@ export async function createMoveOutChecklist(
       { _id: resident._id },
       { $set: { status: "MOVED_OUT", updatedBy: principal.userId } },
     ),
-    BedModel.updateOne(
-      { _id: resident.bedId },
-      {
-        $set: { status: "AVAILABLE", updatedBy: principal.userId },
-        $unset: { assignedResidentId: "" },
-      },
-    ),
   ]);
-  await refreshRoomVacancy(resident.roomId);
+  // Moving out hands the bed back to that room type's vacancy count.
+  await releaseBedForRoomType(resident.hostelId, resident.roomType);
   await auditMoveAction(
     principal,
     resident.hostelId,
@@ -359,6 +332,54 @@ export async function createMoveOutChecklist(
     checklist: serializeMoveOut(checklist),
     resident: serializeResidentSummary({ ...resident, status: "MOVED_OUT" }),
   };
+}
+
+/**
+ * Automated move ledger. Move-ins come straight from each resident's
+ * `moveInDate` (recorded at registration), move-outs from the completed
+ * move-out checklist — no manual data entry keeps this page current.
+ */
+export async function listMoveEvents(principal: ApiPrincipal, hostelId?: string) {
+  await connectToDatabase();
+
+  const scope = scopedHostelFilter(principal, hostelId);
+  const [residents, moveOuts] = await Promise.all([
+    ResidentModel.find({ isDeleted: false, ...scope }).lean<ResidentRecord[]>(),
+    MoveOutChecklistModel.find(scope).lean<MoveOutRecord[]>(),
+  ]);
+
+  const moveOutByResident = new Map(
+    moveOuts.map((checklist) => [checklist.residentId.toString(), checklist]),
+  );
+
+  const events = residents.flatMap((resident) => {
+    const base = {
+      residentId: resident._id.toString(),
+      residentName: `${resident.firstName} ${resident.lastName}`.trim(),
+      residentStatus: resident.status,
+      roomType: resident.roomType,
+    };
+    const rows: Array<
+      typeof base & { date: string; type: "MOVE_IN" | "MOVE_OUT" }
+    > = [
+      { ...base, date: resident.moveInDate.toISOString(), type: "MOVE_IN" },
+    ];
+
+    if (resident.status === "MOVED_OUT") {
+      const checklist = moveOutByResident.get(resident._id.toString());
+      const movedOutAt = checklist?.completedAt ?? resident.updatedAt;
+
+      if (movedOutAt) {
+        rows.push({ ...base, date: movedOutAt.toISOString(), type: "MOVE_OUT" });
+      }
+    }
+
+    return rows;
+  });
+
+  events.sort((a, b) => b.date.localeCompare(a.date));
+
+  return { events };
 }
 
 export async function getMoveOutChecklist(

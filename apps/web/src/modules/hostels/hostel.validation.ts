@@ -89,6 +89,8 @@ export const platformHostelCreateSchema = z.object({
   roomConfigurations: roomConfigurationsSchema,
   roomTypes: textArraySchema,
   rules: textArraySchema,
+  /** Descriptive only — rooms are a flat per-hostel list, not grouped by floor. */
+  totalFloors: z.coerce.number().int().min(0).max(50).optional(),
 });
 
 export const publicHostelApplicationCreateSchema = platformHostelCreateSchema
@@ -262,32 +264,46 @@ export const hostelAdminProfileUpdateSchema = z.object({
   roomConfigurations: z.array(roomConfigurationSchema).max(30).optional(),
   roomTypes: optionalTextArraySchema.optional(),
   rules: optionalTextArraySchema.optional(),
+  /** Descriptive only — rooms are a flat per-hostel list, not grouped by floor. */
+  totalFloors: z.coerce.number().int().min(0).max(50).optional(),
 });
 
-export const hostelPhotoCreateSchema = z.object({
+export const hostelPhotoCreateSchema = z
+  .object({
+    ...optionalHostelScopeSchema,
+    alt: z.string().trim().max(120).optional(),
+    fileAssetId: objectIdSchema.optional(),
+    kind: z.enum(["EXTERIOR", "INTERIOR", "ROOM"]).default("INTERIOR"),
+    /** Required for ROOM photos — which room type the shot belongs to. */
+    roomType: z.string().trim().min(1).max(120).optional(),
+    url: z.string().trim().url(),
+  })
+  .refine((input) => input.kind !== "ROOM" || Boolean(input.roomType), {
+    message: "A room photo must name the room type it belongs to.",
+    path: ["roomType"],
+  });
+
+/**
+ * Locked-field changes (extra renames, owner name, account email) are requested
+ * from the superadmin instead of edited directly by the hostel admin.
+ */
+export const hostelChangeRequestSchema = z.object({
   ...optionalHostelScopeSchema,
-  alt: z.string().trim().max(120).optional(),
-  fileAssetId: objectIdSchema.optional(),
-  url: z.string().trim().url(),
+  changeType: z.enum(["HOSTEL_NAME", "OWNER_NAME", "OWNER_EMAIL"]),
+  reason: z.string().trim().max(600).optional(),
+  requestedValue: z.string().trim().min(2).max(240),
 });
 
 export const hostelPhotoDeleteQuerySchema = z.object(optionalHostelScopeSchema);
-
-export const floorCreateSchema = z.object({
-  ...optionalHostelScopeSchema,
-  description: z.string().trim().max(500).optional(),
-  level: z.coerce.number().int().min(-5).max(100),
-  name: z.string().trim().min(1).max(80),
-  sortOrder: z.coerce.number().int().min(-100).max(1000).default(0),
-});
 
 export const hostelScopedListQuerySchema = z.object(optionalHostelScopeSchema);
 
 export const roomCreateSchema = z.object({
   ...optionalHostelScopeSchema,
+  /** Beds "1".."capacity" are created with the room unless disabled. */
+  autoCreateBeds: z.coerce.boolean().default(true),
   capacity: z.coerce.number().int().min(1).max(40),
   facilities: textArraySchema,
-  floorId: objectIdSchema,
   notes: z.string().trim().max(800).optional(),
   repairStatus: z.enum(["OK", "NEEDS_REPAIR", "UNDER_REPAIR"]).default("OK"),
   roomNumber: z.string().trim().min(1).max(40),
@@ -299,7 +315,6 @@ export const roomUpdateSchema = z.object({
   ...optionalHostelScopeSchema,
   capacity: z.coerce.number().int().min(1).max(40).optional(),
   facilities: optionalTextArraySchema.optional(),
-  floorId: objectIdSchema.optional(),
   notes: z.string().trim().max(800).optional(),
   repairStatus: z.enum(["OK", "NEEDS_REPAIR", "UNDER_REPAIR"]).optional(),
   roomNumber: z.string().trim().min(1).max(40).optional(),

@@ -1,17 +1,48 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
-import { useCallback, useEffect } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileText,
+  Maximize2,
+  Play,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
 
 export type LightboxItem = {
   caption?: string;
-  /** Rendered inline when it is an image; PDFs fall back to an embedded frame. */
-  kind?: "image" | "pdf";
+  /**
+   * Images and videos play inline; PDFs fall back to an embedded frame. Left
+   * unset, the extension in `src` decides.
+   */
+  kind?: "image" | "pdf" | "video";
   src: string;
   title?: string;
 };
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
+const ZOOM_STEP = 0.5;
+
+function inferKind(item: LightboxItem): NonNullable<LightboxItem["kind"]> {
+  if (item.kind) {
+    return item.kind;
+  }
+
+  const path = item.src.split(/[?#]/)[0] ?? "";
+
+  if (/\.pdf$/i.test(path)) return "pdf";
+  if (/\.(mp4|webm|ogg|ogv|mov|m4v)$/i.test(path)) return "video";
+
+  return "image";
+}
 
 /**
  * In-app viewer for hostel photos and uploaded documents.
@@ -33,6 +64,40 @@ export function MediaLightbox({
 }) {
   const total = items.length;
   const current = items[index];
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  // The origin lives in a ref (it changes per mousemove, and no render needs
+  // it); whether a drag is in progress is state, because the cursor and the
+  // transition depend on it.
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  // Stepping to another item starts it at full view. Adjusting state during
+  // render (rather than in an effect) avoids rendering the new item once at
+  // the previous item's zoom.
+  const [zoomedIndex, setZoomedIndex] = useState(index);
+
+  if (zoomedIndex !== index) {
+    setZoomedIndex(index);
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  }
+
+  const resetZoom = useCallback(() => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  }, []);
+
+  const zoomBy = useCallback((delta: number) => {
+    setZoom((previous) => {
+      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, previous + delta));
+      // Back at full view there is nothing to pan around.
+      if (next === MIN_ZOOM) {
+        setOffset({ x: 0, y: 0 });
+      }
+      return next;
+    });
+  }, []);
 
   const step = useCallback(
     (delta: number) => {
@@ -56,6 +121,21 @@ export function MediaLightbox({
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         step(-1);
+        return;
+      }
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        zoomBy(ZOOM_STEP);
+        return;
+      }
+      if (event.key === "-") {
+        event.preventDefault();
+        zoomBy(-ZOOM_STEP);
+        return;
+      }
+      if (event.key === "0") {
+        event.preventDefault();
+        resetZoom();
       }
     }
 
@@ -68,19 +148,23 @@ export function MediaLightbox({
       document.removeEventListener("keydown", handleKey);
       document.body.style.overflow = previousOverflow;
     };
-  }, [onClose, step]);
+  }, [onClose, resetZoom, step, zoomBy]);
 
-  if (!current) {
+  // The viewer only ever opens from a click, so there is nothing to render on
+  // the server — and createPortal needs a real document.
+  if (!current || typeof document === "undefined") {
     return null;
   }
 
-  const isPdf =
-    current.kind === "pdf" || /\.pdf($|\?)/i.test(current.src.split("#")[0] ?? "");
+  const kind = inferKind(current);
+  // Only a still image is worth panning around; video keeps its own controls.
+  const canZoom = kind === "image";
+  const zoomed = canZoom && zoom > MIN_ZOOM;
 
-  return (
+  return createPortal(
     <div
       aria-modal
-      className="fixed inset-0 z-[100] flex flex-col bg-slate-950/85 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex flex-col bg-slate-950/80 backdrop-blur-md"
       onClick={onClose}
       role="dialog"
     >
@@ -96,6 +180,49 @@ export function MediaLightbox({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {canZoom ? (
+            <>
+              <button
+                aria-label="Zoom out"
+                className="rounded-lg border border-white/20 p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                disabled={zoom <= MIN_ZOOM}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  zoomBy(-ZOOM_STEP);
+                }}
+                type="button"
+              >
+                <ZoomOut className="size-4" />
+              </button>
+              <span className="w-12 text-center text-[11px] tabular-nums text-white/70">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                aria-label="Zoom in"
+                className="rounded-lg border border-white/20 p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                disabled={zoom >= MAX_ZOOM}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  zoomBy(ZOOM_STEP);
+                }}
+                type="button"
+              >
+                <ZoomIn className="size-4" />
+              </button>
+              <button
+                aria-label="Reset zoom"
+                className="rounded-lg border border-white/20 p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                disabled={!zoomed}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  resetZoom();
+                }}
+                type="button"
+              >
+                <Maximize2 className="size-4" />
+              </button>
+            </>
+          ) : null}
           <a
             className="rounded-lg border border-white/20 p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
             download
@@ -117,8 +244,25 @@ export function MediaLightbox({
       </div>
 
       <div
-        className="relative flex min-h-0 flex-1 items-center justify-center px-4 pb-4"
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4 pb-4"
         onClick={(event) => event.stopPropagation()}
+        onMouseLeave={() => {
+          dragOrigin.current = null;
+          setDragging(false);
+        }}
+        onMouseMove={(event) => {
+          const origin = dragOrigin.current;
+          if (!origin) return;
+          setOffset({ x: event.clientX - origin.x, y: event.clientY - origin.y });
+        }}
+        onMouseUp={() => {
+          dragOrigin.current = null;
+          setDragging(false);
+        }}
+        onWheel={(event) => {
+          if (!canZoom) return;
+          zoomBy(event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+        }}
       >
         {total > 1 ? (
           <button
@@ -131,11 +275,18 @@ export function MediaLightbox({
           </button>
         ) : null}
 
-        {isPdf ? (
+        {kind === "pdf" ? (
           <iframe
             className="h-full w-full max-w-4xl rounded-lg bg-white"
             src={current.src}
             title={current.title ?? "Document"}
+          />
+        ) : kind === "video" ? (
+          <video
+            className="max-h-full max-w-full rounded-lg shadow-2xl"
+            controls
+            playsInline
+            src={current.src}
           />
         ) : (
           /* Remote R2 asset behind a redirecting presign route — next/image
@@ -143,8 +294,27 @@ export function MediaLightbox({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             alt={current.caption ?? current.title ?? "Attachment"}
-            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            className={cn(
+              "max-h-full max-w-full rounded-lg object-contain shadow-2xl",
+              // No transition while dragging, or the image lags the cursor.
+              dragging ? "" : "transition-transform",
+              zoomed ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
+            )}
+            draggable={false}
+            onDoubleClick={() => (zoomed ? resetZoom() : zoomBy(ZOOM_STEP * 2))}
+            onMouseDown={(event) => {
+              if (!zoomed) return;
+              event.preventDefault();
+              dragOrigin.current = {
+                x: event.clientX - offset.x,
+                y: event.clientY - offset.y,
+              };
+              setDragging(true);
+            }}
             src={current.src}
+            style={{
+              transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+            }}
           />
         )}
 
@@ -186,16 +356,28 @@ export function MediaLightbox({
               onClick={() => onIndexChange(itemIndex)}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="size-full bg-slate-800 object-cover"
-                src={item.src}
-              />
+              {inferKind(item) === "image" ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  alt=""
+                  className="size-full bg-slate-800 object-cover"
+                  src={item.src}
+                />
+              ) : (
+                // A video or PDF has no still to show, so it gets a glyph.
+                <span className="flex size-full items-center justify-center bg-slate-800 text-white/70">
+                  {inferKind(item) === "video" ? (
+                    <Play className="size-5" />
+                  ) : (
+                    <FileText className="size-5" />
+                  )}
+                </span>
+              )}
             </button>
           ))}
         </div>
       ) : null}
-    </div>
+    </div>,
+    document.body,
   );
 }

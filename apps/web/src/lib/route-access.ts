@@ -48,7 +48,18 @@ export function pathMatchesPrefix(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
+/** Tenant-scoped hostel workspace: `/{hostel-slug}/admin/...`. */
+const HOSTEL_WORKSPACE_PATTERN = /^\/[^/]+\/admin(\/|$)/;
+
+export function isHostelWorkspacePath(pathname: string) {
+  return HOSTEL_WORKSPACE_PATTERN.test(pathname);
+}
+
 export function protectedRouteRuleForPath(pathname: string) {
+  if (isHostelWorkspacePath(pathname)) {
+    return protectedRouteRules.find((rule) => rule.prefix === "/hostel-admin");
+  }
+
   return protectedRouteRules.find((rule) => pathMatchesPrefix(pathname, rule.prefix));
 }
 
@@ -65,6 +76,13 @@ export function isSafeLocalPath(value: string) {
 }
 
 export function isAllowedNextPath(role: Role, value: string) {
+  if (
+    (role === Role.HOSTEL_ADMIN || role === Role.WARDEN) &&
+    isHostelWorkspacePath(value)
+  ) {
+    return true;
+  }
+
   const allowedPrefixes = roleAllowedNextPrefixes[role] ?? [];
 
   return allowedPrefixes.some((prefix) => pathMatchesPrefix(value, prefix));

@@ -1,41 +1,39 @@
 "use client";
 
 import { Siren } from "lucide-react";
-import { memo, useCallback, useEffect, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
+import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
+import { usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
 import { field, Message, PageHeader } from "./daily-operations-shared";
 import { EmptyState, Panel, TextArea } from "@/app/_components/shared-ui";
 
+type EmergencyContact = {
+  id: string;
+  name: string;
+  phone: string;
+  relation: string;
+};
+
 export const ResidentSOSPageContent = memo(function ResidentSOSPageContent() {
-  const [contacts, setContacts] = useState<
-    Array<{ id: string; name: string; phone: string; relation: string }>
-  >([]);
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const contactsResource = usePortalResource<{ contacts: EmergencyContact[] }>(
+    residentEndpoints.emergencyContacts,
+    { errorMessage: "Could not load contacts." },
+  );
 
-  const load = useCallback(async () => {
-    try {
-      const data = await browserApi<{ contacts: typeof contacts }>(
-        "/api/v1/resident/emergency-contacts",
-      );
-
-      setContacts(data.contacts);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load contacts.");
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const contacts = useMemo(
+    () => contactsResource.data?.contacts ?? [],
+    [contactsResource.data],
+  );
+  const message = actionMessage || contactsResource.message;
 
   const trigger = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
 
     try {
       await browserApi("/api/v1/resident/sos", {
@@ -45,10 +43,10 @@ export const ResidentSOSPageContent = memo(function ResidentSOSPageContent() {
         }),
         method: "POST",
       });
-      setMessage("SOS alert triggered.");
-      event.currentTarget.reset();
+      setActionMessage("SOS alert triggered.");
+      formElement.reset();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not trigger SOS.");
+      setActionMessage(error instanceof Error ? error.message : "Could not trigger SOS.");
     }
   }, []);
 
@@ -61,16 +59,16 @@ export const ResidentSOSPageContent = memo(function ResidentSOSPageContent() {
       />
       <Message value={message} />
       <Panel title="Emergency Alert">
-        <form className="grid gap-3" onSubmit={trigger}>
+        <BusyForm className="grid gap-3" onSubmit={trigger}>
           <TextArea label="Message" name="message" />
           <label className="flex items-center gap-2 text-sm text-foreground">
             <input name="guardianAlertEnabled" type="checkbox" />
             Alert guardian if enabled
           </label>
-          <button className="h-11 rounded-md bg-rose-600 text-sm font-semibold text-white">
+          <SubmitButton className="h-11 rounded-md bg-rose-600 text-sm font-semibold text-white">
             Trigger SOS
-          </button>
-        </form>
+          </SubmitButton>
+        </BusyForm>
       </Panel>
       <Panel title="Emergency Contacts">
         {contacts.length === 0 ? <EmptyState label="No emergency contacts." /> : null}

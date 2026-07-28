@@ -15,12 +15,19 @@ type ApiPayload<T> =
 
 export class ApiRequestError extends Error {
   details?: unknown;
+  errorCode?: string;
   status?: number;
 
-  constructor(message: string, details?: unknown, status?: number) {
+  constructor(
+    message: string,
+    details?: unknown,
+    status?: number,
+    errorCode?: string,
+  ) {
     super(message);
     this.name = "ApiRequestError";
     this.details = details;
+    this.errorCode = errorCode;
     this.status = status;
   }
 }
@@ -60,6 +67,53 @@ function redirectToLogin(): void {
   window.location.assign(`/login?next=${next}`);
 }
 
+/**
+ * The account's resident profile is gone — the hostel deleted it. The server
+ * has already handed the account back its public role, but the access token in
+ * this tab still says RESIDENT, which is the only reason the resident portal
+ * still renders. So refresh to pick up the new role and drop the person on the
+ * public site, still signed in. They keep their account; they just are not a
+ * resident any more.
+ */
+let leavingResidentPortal = false;
+
+function leaveResidentPortal(): void {
+  // Several resident calls usually fail together on one screen; the first one
+  // owns the exit.
+  if (typeof window === "undefined" || leavingResidentPortal) {
+    return;
+  }
+
+  leavingResidentPortal = true;
+
+  void refreshSession()
+    .catch(() => false)
+    .then((refreshed) => {
+      // A refresh that fails leaves a RESIDENT token in place, and the portal
+      // would only break again — the session has to end in that case.
+      window.location.assign(refreshed ? "/" : "/login?error=resident_removed");
+    });
+}
+
+/**
+ * A role change (resident linked to a hostel, owner approved as hostel admin)
+ * takes effect in the database immediately, but the access token in the browser
+ * still carries the old role until it is refreshed. The symptom is nasty: pages
+ * render and /auth/me reports the new role — it reads the database — while every
+ * API call 403s, and the only cure the user could find was signing out.
+ *
+ * So a FORBIDDEN answer gets one silent refresh + replay. `refreshAccessToken`
+ * re-reads the role from the database, so a genuinely promoted user heals
+ * mid-session without noticing. Once per page load: a user who is simply not
+ * allowed must not set off a refresh on every request.
+ */
+let roleHealAttempted = false;
+
+/** Test seam — the heal is once per page load, which a test cannot reload. */
+export function resetRoleHealForTests() {
+  roleHealAttempted = false;
+}
+
 function sendRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
 
@@ -93,10 +147,19 @@ async function parseResponse<T>(
   }
 
   if (!response.ok || !payload.success) {
+    const errorCode = "errorCode" in payload ? payload.errorCode : undefined;
+
+    // Every resident screen would otherwise render its own broken empty state,
+    // so this is handled once here rather than page by page.
+    if (errorCode === "RESIDENT_PROFILE_NOT_FOUND") {
+      leaveResidentPortal();
+    }
+
     throw new ApiRequestError(
       payload.message || "Request failed",
       "details" in payload ? payload.details : undefined,
       response.status,
+      errorCode,
     );
   }
 
@@ -105,12 +168,11 @@ async function parseResponse<T>(
 
 export async function browserApi<T>(input: RequestInfo | URL, init?: RequestInit) {
   const response = await sendRequest(input, init);
+  const isAuthCall = isAuthEndpoint(requestUrl(input));
 
   // Access token expired mid-session: transparently refresh once, then replay
-  // the original request. 403 (role / tenant denied) is intentionally NOT
-  // retried — the caller is authenticated but not allowed, so refreshing the
-  // token would change nothing.
-  if (response.status === 401 && !isAuthEndpoint(requestUrl(input))) {
+  // the original request.
+  if (response.status === 401 && !isAuthCall) {
     const refreshed = await refreshSession();
 
     if (refreshed) {
@@ -125,6 +187,22 @@ export async function browserApi<T>(input: RequestInfo | URL, init?: RequestInit
       undefined,
       401,
     );
+  }
+
+  // 403 usually means "authenticated but not allowed", which no refresh fixes.
+  // The exception is a role that changed under the session — see roleHealAttempted.
+  if (response.status === 403 && !isAuthCall && !roleHealAttempted) {
+    // The flag is set only once the refresh settles, so the several requests a
+    // dashboard fires in parallel all ride the same single-flight refresh and
+    // all get replayed. Flipping it up-front would heal one panel and leave the
+    // rest showing a permission error.
+    const refreshed = await refreshSession();
+    roleHealAttempted = true;
+
+    if (refreshed) {
+      const retry = await sendRequest(input, init);
+      return parseResponse<T>(retry, input);
+    }
   }
 
   return parseResponse<T>(response, input);

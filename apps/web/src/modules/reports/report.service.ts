@@ -4,7 +4,6 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { assertHostelAccess } from "@/lib/tenant";
-import { BedModel } from "@hostel/db/models/Bed";
 import { ComplaintModel } from "@hostel/db/models/Complaint";
 import { FoodFeedbackModel } from "@hostel/db/models/FoodFeedback";
 import { HostelModel } from "@hostel/db/models/Hostel";
@@ -17,6 +16,7 @@ import { PaymentProofModel } from "@hostel/db/models/PaymentProof";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
+import { getHostelViewStats } from "@/modules/hostels/hostel-view.service";
 import type { reportQuerySchema } from "@/modules/reports/report.validation";
 
 type ReportQuery = z.infer<typeof reportQuerySchema>;
@@ -80,6 +80,29 @@ function endOfMonth(month?: string) {
   return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
 }
 
+/**
+ * Vacancy is a running count on each hostel's roomConfigurations rather than a
+ * collection of bed records, so this sums the per-room-type figures.
+ */
+async function countVacantBeds(hostelIds: Types.ObjectId[]) {
+  const hostels = await HostelModel.find({
+    _id: { $in: hostelIds },
+    isDeleted: false,
+  })
+    .select("roomConfigurations")
+    .lean<Array<{ roomConfigurations?: Array<{ vacantBeds?: number }> }>>();
+
+  return hostels.reduce(
+    (total, hostel) =>
+      total +
+      (hostel.roomConfigurations ?? []).reduce(
+        (sum, config) => sum + (config.vacantBeds ?? 0),
+        0,
+      ),
+    0,
+  );
+}
+
 async function sumPayments(filter: Record<string, unknown>) {
   const [result] = await PaymentModel.aggregate<{
     dueAmount: number;
@@ -124,8 +147,89 @@ async function countByField(
   return Object.fromEntries(rows.map((row) => [row._id ?? "UNKNOWN", row.count]));
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TREND_WINDOW_DAYS = 30;
+const SERIES_BUCKETS = 5;
+const SERIES_BUCKET_DAYS = 7;
+
+type CountingModel = {
+  countDocuments: (filter: Record<string, unknown>) => Promise<number> | { then: unknown };
+};
+
+/**
+ * Percent change of "documents created in the last 30 days" against the 30 days
+ * before that. Returned as a signed number so the client only formats it — a
+ * null `changePercent` means the previous window was empty and a ratio would be
+ * meaningless (the client shows the raw delta instead).
+ */
+async function windowTrend(
+  model: CountingModel,
+  filter: Record<string, unknown>,
+  now: Date,
+  dateField = "createdAt",
+) {
+  const currentStart = new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS);
+  const previousStart = new Date(now.getTime() - 2 * TREND_WINDOW_DAYS * DAY_MS);
+
+  const [current, previous] = await Promise.all([
+    model.countDocuments({ ...filter, [dateField]: { $gte: currentStart } }) as Promise<number>,
+    model.countDocuments({
+      ...filter,
+      [dateField]: { $gte: previousStart, $lt: currentStart },
+    }) as Promise<number>,
+  ]);
+
+  return {
+    changePercent:
+      previous > 0 ? Number((((current - previous) / previous) * 100).toFixed(1)) : null,
+    current,
+    previous,
+  };
+}
+
+function bucketBoundaries(now: Date) {
+  return Array.from({ length: SERIES_BUCKETS }, (_, index) => {
+    const end = new Date(now.getTime() - (SERIES_BUCKETS - 1 - index) * SERIES_BUCKET_DAYS * DAY_MS);
+    return { end, start: new Date(end.getTime() - SERIES_BUCKET_DAYS * DAY_MS) };
+  });
+}
+
+/** Weekly counts over the last five weeks, used by the dashboard sparklines. */
+async function weeklyCounts(
+  model: CountingModel,
+  filter: Record<string, unknown>,
+  now: Date,
+  dateField = "createdAt",
+) {
+  return Promise.all(
+    bucketBoundaries(now).map(
+      (bucket) =>
+        model.countDocuments({
+          ...filter,
+          [dateField]: { $gte: bucket.start, $lt: bucket.end },
+        }) as Promise<number>,
+    ),
+  );
+}
+
+async function weeklyPaidAmounts(now: Date) {
+  const buckets = bucketBoundaries(now);
+
+  return Promise.all(
+    buckets.map(async (bucket) => {
+      const totals = await sumPayments({
+        paidDate: { $gte: bucket.start, $lt: bucket.end },
+      });
+
+      return totals.paidAmount;
+    }),
+  );
+}
+
 export async function getPlatformDashboardReport() {
   await connectToDatabase();
+
+  const now = new Date();
 
   const [
     totalHostels,
@@ -136,6 +240,7 @@ export async function getPlatformDashboardReport() {
     complaints,
     reviews,
     openListingFlags,
+    paymentTotals,
   ] = await Promise.all([
     HostelModel.countDocuments({ isDeleted: false }),
     HostelModel.countDocuments({ isDeleted: false, status: "PENDING_APPROVAL" }),
@@ -145,7 +250,54 @@ export async function getPlatformDashboardReport() {
     ComplaintModel.countDocuments({}),
     RatingReviewModel.countDocuments({}),
     ListingFlagModel.countDocuments({ isDeleted: false, status: "OPEN" }),
+    sumPayments({}),
   ]);
+
+  const [
+    hostelTrend,
+    pendingTrend,
+    residentTrend,
+    inquiryTrend,
+    serviceProviderTrend,
+    complaintTrend,
+    revenueCurrent,
+    revenuePrevious,
+    hostelSeries,
+    inquirySeries,
+    revenueSeries,
+  ] = await Promise.all([
+    windowTrend(HostelModel, { isDeleted: false }, now),
+    windowTrend(HostelModel, { isDeleted: false, status: "PENDING_APPROVAL" }, now),
+    windowTrend(ResidentModel, { isDeleted: false, status: "ACTIVE" }, now),
+    windowTrend(InquiryModel, { isDeleted: false }, now),
+    windowTrend(ServiceProviderModel, { isDeleted: false }, now),
+    windowTrend(ComplaintModel, {}, now),
+    sumPayments({ paidDate: { $gte: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS) } }),
+    sumPayments({
+      paidDate: {
+        $gte: new Date(now.getTime() - 2 * TREND_WINDOW_DAYS * DAY_MS),
+        $lt: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS),
+      },
+    }),
+    weeklyCounts(HostelModel, { isDeleted: false }, now),
+    weeklyCounts(InquiryModel, { isDeleted: false }, now),
+    weeklyPaidAmounts(now),
+  ]);
+
+  const revenueTrend = {
+    changePercent:
+      revenuePrevious.paidAmount > 0
+        ? Number(
+            (
+              ((revenueCurrent.paidAmount - revenuePrevious.paidAmount) /
+                revenuePrevious.paidAmount) *
+              100
+            ).toFixed(1),
+          )
+        : null,
+    current: revenueCurrent.paidAmount,
+    previous: revenuePrevious.paidAmount,
+  };
 
   return {
     report: {
@@ -153,14 +305,31 @@ export async function getPlatformDashboardReport() {
       complaints,
       inquiries,
       openListingFlags,
+      outstandingPayments: Math.max(paymentTotals.dueAmount - paymentTotals.paidAmount, 0),
       pendingApprovals,
-      platformPayments: {
-        note: "Subscription/payment ledger is still outside the current pilot schema.",
-        total: 0,
-      },
+      // Real ledger roll-up: every payment residents have actually settled.
+      // Subscription billing is still outside the pilot schema.
+      platformPayments: paymentTotals.paidAmount,
       reviews,
       serviceProviders,
+      series: {
+        bucketDays: SERIES_BUCKET_DAYS,
+        hostels: hostelSeries,
+        inquiries: inquirySeries,
+        labels: bucketBoundaries(now).map((bucket) => bucket.end.toISOString()),
+        revenue: revenueSeries,
+      },
       totalHostels,
+      trends: {
+        activeResidents: residentTrend,
+        complaints: complaintTrend,
+        inquiries: inquiryTrend,
+        pendingApprovals: pendingTrend,
+        platformPayments: revenueTrend,
+        serviceProviders: serviceProviderTrend,
+        totalHostels: hostelTrend,
+      },
+      windowDays: TREND_WINDOW_DAYS,
     },
   };
 }
@@ -270,6 +439,10 @@ export async function getHostelAdminDashboardReport(
 
   const scoped = hostelFilter(principal, query.hostelId);
   const paymentFilter = { ...scoped };
+  // hostelFilter yields either `{ hostelId: ObjectId }` or `{ hostelId: { $in } }`;
+  // the view stats query needs the plain list either way.
+  const scopedHostelIds =
+    scoped.hostelId instanceof Types.ObjectId ? [scoped.hostelId] : scoped.hostelId.$in;
   const [
     residents,
     vacantBeds,
@@ -279,15 +452,17 @@ export async function getHostelAdminDashboardReport(
     maintenanceRequests,
     foodFeedback,
     nightStatusSummary,
+    viewStats,
   ] = await Promise.all([
     ResidentModel.countDocuments({ ...scoped, isDeleted: false }),
-    BedModel.countDocuments({ ...scoped, isDeleted: false, status: "AVAILABLE" }),
+    countVacantBeds(scopedHostelIds),
     sumPayments(paymentFilter),
     PaymentProofModel.countDocuments({ ...scoped, status: "PENDING" }),
     ComplaintModel.countDocuments(scoped),
     MaintenanceRequestModel.countDocuments({ ...scoped, isDeleted: false }),
     FoodFeedbackModel.countDocuments(scoped),
     countByField(NightStatusModel, scoped, "status"),
+    getHostelViewStats(scopedHostelIds),
   ]);
 
   return {
@@ -298,7 +473,10 @@ export async function getHostelAdminDashboardReport(
       monthlyDues: paymentTotals.dueAmount,
       paidAmount: paymentTotals.paidAmount,
       pendingPaymentProofs,
+      publicViewsLast30Days: viewStats.publicViewsLast30Days,
       residents,
+      totalPublicViews: viewStats.totalPublicViews,
+      uniquePublicVisitors: viewStats.uniquePublicVisitors,
       vacantBeds,
       nightStatusSummary,
     },

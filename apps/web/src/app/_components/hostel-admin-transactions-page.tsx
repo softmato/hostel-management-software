@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDownUp, BadgeDollarSign, Download, Hash, Wallet } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
 import { currency, EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
 import {
@@ -21,8 +21,9 @@ import {
   TableRow,
   Th,
 } from "@/app/_components/portal-dashboard-ui";
-import { browserApi } from "@/lib/browser-api";
-import { deferLoad, LoadState, Message } from "./core-portal-shared";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { usePortalResource } from "@/lib/portal-query";
+import { Message } from "./core-portal-shared";
 
 type Payment = {
   createdAt?: string;
@@ -61,34 +62,22 @@ function formatDate(value?: string) {
 
 export const HostelAdminTransactionsPageContent = memo(
   function HostelAdminTransactionsPageContent() {
-    const [payments, setPayments] = useState<Payment[]>([]);
-    const [state, setState] = useState<LoadState>("idle");
-    const [message, setMessage] = useState("");
     const [query, setQuery] = useState("");
     const [tab, setTab] = useState("ALL");
     const [methodFilter, setMethodFilter] = useState("");
     const [page, setPage] = useState(1);
 
-    useEffect(() => {
-      async function load() {
-        setState("loading");
-        try {
-          const data = await browserApi<{ payments: Payment[] }>(
-            "/api/v1/hostel-admin/payments",
-          );
+    const paymentsResource = usePortalResource<{ payments: Payment[] }>(
+      hostelAdminEndpoints.transactions,
+      { errorMessage: "Could not load transactions." },
+    );
 
-          setPayments(data.payments);
-          setState("ready");
-        } catch (error) {
-          setMessage(
-            error instanceof Error ? error.message : "Could not load transactions.",
-          );
-          setState("error");
-        }
-      }
-
-      return deferLoad(load);
-    }, []);
+    const payments = useMemo(
+      () => paymentsResource.data?.payments ?? [],
+      [paymentsResource.data],
+    );
+    const message = paymentsResource.message;
+    const state = paymentsResource.state;
 
     const ledger = useMemo(
       () =>

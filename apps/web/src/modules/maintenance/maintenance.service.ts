@@ -5,11 +5,9 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
-import { BedModel } from "@hostel/db/models/Bed";
 import { MaintenanceCommentModel } from "@hostel/db/models/MaintenanceComment";
 import { MaintenanceHistoryModel } from "@hostel/db/models/MaintenanceHistory";
 import { MaintenanceRequestModel } from "@hostel/db/models/MaintenanceRequest";
-import { RoomModel } from "@hostel/db/models/Room";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import type {
   maintenanceCommentCreateSchema,
@@ -32,7 +30,6 @@ type MaintenanceStatus =
 
 type MaintenanceRequestRecord = {
   _id: Types.ObjectId;
-  bedId?: Types.ObjectId;
   category: string;
   completedAt?: Date;
   costNote?: string;
@@ -43,7 +40,7 @@ type MaintenanceRequestRecord = {
   providerId?: Types.ObjectId;
   remarks?: string;
   requestedBy: Types.ObjectId;
-  roomId?: Types.ObjectId;
+  location?: string;
   scheduledFor?: Date;
   status: MaintenanceStatus;
   title: string;
@@ -76,17 +73,6 @@ type MaintenanceCommentRecord = {
 type ServiceProviderRecord = {
   _id: Types.ObjectId;
   status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "HIDDEN" | "INACTIVE";
-};
-
-type RoomRecord = {
-  _id: Types.ObjectId;
-  hostelId: Types.ObjectId;
-};
-
-type BedRecord = {
-  _id: Types.ObjectId;
-  hostelId: Types.ObjectId;
-  roomId: Types.ObjectId;
 };
 
 export class MaintenanceServiceError extends Error {
@@ -175,7 +161,6 @@ function serializeMaintenanceRequest(
   } = {},
 ) {
   return {
-    bedId: request.bedId?.toString(),
     category: request.category,
     comments: (options.comments ?? []).map(serializeComment),
     completedAt: request.completedAt?.toISOString(),
@@ -189,7 +174,7 @@ function serializeMaintenanceRequest(
     providerId: request.providerId?.toString(),
     remarks: request.remarks ?? "",
     requestedBy: request.requestedBy.toString(),
-    roomId: request.roomId?.toString(),
+    location: request.location ?? "",
     scheduledFor: request.scheduledFor?.toISOString(),
     status: request.status,
     title: request.title,
@@ -233,52 +218,6 @@ async function assertProviderApproved(providerId?: string) {
   }
 
   return provider._id;
-}
-
-async function assertRoomInHostel(roomId: string | undefined, hostelId: Types.ObjectId) {
-  if (!roomId) {
-    return undefined;
-  }
-
-  const room = await RoomModel.findOne({
-    _id: normalizeObjectId(roomId, "room id"),
-    hostelId,
-    isDeleted: false,
-  }).lean<RoomRecord | null>();
-
-  if (!room) {
-    throw new MaintenanceServiceError("Room was not found.", "ROOM_NOT_FOUND", 404);
-  }
-
-  return room._id;
-}
-
-async function assertBedInHostel(
-  bedId: string | undefined,
-  hostelId: Types.ObjectId,
-  roomId?: Types.ObjectId,
-) {
-  if (!bedId) {
-    return undefined;
-  }
-
-  const filter: Record<string, unknown> = {
-    _id: normalizeObjectId(bedId, "bed id"),
-    hostelId,
-    isDeleted: false,
-  };
-
-  if (roomId) {
-    filter.roomId = roomId;
-  }
-
-  const bed = await BedModel.findOne(filter).lean<BedRecord | null>();
-
-  if (!bed) {
-    throw new MaintenanceServiceError("Bed was not found.", "BED_NOT_FOUND", 404);
-  }
-
-  return bed._id;
 }
 
 async function addHistory(
@@ -372,23 +311,18 @@ export async function createMaintenanceRequest(
   await connectToDatabase();
 
   const hostelId = resolveAdminHostelId(principal, input.hostelId);
-  const [providerId, roomId] = await Promise.all([
-    assertProviderApproved(input.providerId),
-    assertRoomInHostel(input.roomId, hostelId),
-  ]);
-  const bedId = await assertBedInHostel(input.bedId, hostelId, roomId);
+  const providerId = await assertProviderApproved(input.providerId);
   const request = (await MaintenanceRequestModel.create({
-    bedId,
     category: input.category,
     costNote: input.costNote,
     createdBy: principal.userId,
     description: input.description,
     hostelId,
+    location: input.location,
     priority: input.priority,
     providerId,
     remarks: input.remarks,
     requestedBy: principal.userId,
-    roomId,
     scheduledFor: input.scheduledFor,
     status: "PENDING",
     title: input.title,

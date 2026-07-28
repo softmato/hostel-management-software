@@ -21,6 +21,9 @@ export function hostelApprovedEmail(input: {
           `Email: <strong>${escapeHtml(input.credentials.email)}</strong><br/>Temporary password: <strong>${escapeHtml(input.credentials.temporaryPassword)}</strong>`,
         ),
         paragraph("You will be asked to set a new password on first login."),
+        paragraph(
+          "Prefer Google? If this address is a Google account, you can simply click <strong>Continue with Google</strong> on the login page and skip the password entirely — it signs you into the same hostel admin account.",
+        ),
       ]
     : [
         paragraph(

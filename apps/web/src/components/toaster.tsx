@@ -1,0 +1,429 @@
+"use client";
+
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileText,
+  ImageIcon,
+  Info,
+  Loader2,
+  RotateCcw,
+  X,
+  XCircle,
+} from "lucide-react";
+import { memo, useEffect, useMemo, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+
+import { formatBytes } from "@/lib/uploads/accepts";
+import { cn } from "@/lib/utils";
+import { useToastStore, type ToastItem, type ToastTone } from "@/stores/toast-store";
+import {
+  canRetryUpload,
+  cancelUpload,
+  isActive,
+  retryUpload,
+  uploadRate,
+  useUploadStore,
+  type UploadItem,
+} from "@/stores/upload-store";
+
+/**
+ * The one global feedback surface: live upload progress plus one-shot toasts.
+ *
+ * Mounted once in the root layout, so any upload started anywhere — public
+ * registration, resident portal, admin portal — is reflected here without the
+ * page doing anything. Brand green (`--brand-teal`) is the progress colour
+ * throughout; red and amber are reserved for failures and warnings.
+ */
+
+/** How long a finished upload row lingers before it clears itself. */
+const SUCCESS_LINGER_MS = 2600;
+/** Rows shown before collapsing the rest into a "+N more" line. */
+const MAX_VISIBLE_UPLOADS = 3;
+
+const TOAST_TONE: Record<
+  ToastTone,
+  { accent: string; icon: typeof Info; iconTone: string }
+> = {
+  error: {
+    accent: "bg-destructive",
+    icon: XCircle,
+    iconTone: "text-destructive",
+  },
+  info: {
+    accent: "bg-muted-foreground/40",
+    icon: Info,
+    iconTone: "text-muted-foreground",
+  },
+  success: {
+    accent: "bg-brand-teal",
+    icon: CheckCircle2,
+    iconTone: "text-brand-teal",
+  },
+  warning: {
+    accent: "bg-warning",
+    icon: AlertTriangle,
+    iconTone: "text-warning",
+  },
+};
+
+function secondsLabel(seconds: number) {
+  if (seconds < 1) {
+    return "less than a second left";
+  }
+
+  if (seconds < 60) {
+    return `${Math.ceil(seconds)}s left`;
+  }
+
+  return `${Math.ceil(seconds / 60)} min left`;
+}
+
+/** "1.2 MB of 4.0 MB · 820 KB/s · 4s left" — only the parts we actually know. */
+function progressCaption(item: UploadItem) {
+  if (item.status === "processing") {
+    return "Finishing up…";
+  }
+
+  if (item.status === "queued") {
+    return "Waiting to start…";
+  }
+
+  const { bytesPerSecond, etaSeconds } = uploadRate(item);
+  const transferred = `${formatBytes(item.loadedBytes)} of ${formatBytes(item.sizeBytes)}`;
+
+  const parts = [transferred];
+
+  if (bytesPerSecond > 0) {
+    parts.push(`${formatBytes(bytesPerSecond)}/s`);
+  }
+
+  if (etaSeconds !== null && etaSeconds > 0 && Number.isFinite(etaSeconds)) {
+    parts.push(secondsLabel(etaSeconds));
+  }
+
+  return parts.join(" · ");
+}
+
+function UploadRowIcon({ item }: { item: UploadItem }) {
+  if (item.status === "success") {
+    return <CheckCircle2 className="size-4 text-brand-teal" />;
+  }
+
+  if (item.status === "error") {
+    return <XCircle className="size-4 text-destructive" />;
+  }
+
+  if (item.status === "canceled") {
+    return <X className="size-4 text-muted-foreground" />;
+  }
+
+  return <Loader2 className="size-4 animate-spin text-brand-teal" />;
+}
+
+const UploadRow = memo(function UploadRow({ item }: { item: UploadItem }) {
+  const dismiss = useUploadStore((state) => state.dismiss);
+  const active = isActive(item.status);
+  const failed = item.status === "error";
+  const FileIcon = item.mimeType.startsWith("image/") ? ImageIcon : FileText;
+
+  // Successful rows clear themselves; failures stay so the retry stays reachable.
+  useEffect(() => {
+    if (item.status !== "success" && item.status !== "canceled") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => dismiss(item.id), SUCCESS_LINGER_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [dismiss, item.id, item.status]);
+
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex items-start gap-2.5">
+        <span
+          className={cn(
+            "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
+            failed ? "bg-destructive/10 text-destructive" : "bg-brand-teal/10 text-brand-teal",
+          )}
+        >
+          <FileIcon className="size-4" />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-foreground">
+              {item.label}
+            </p>
+            {active ? (
+              <span className="shrink-0 text-[12px] font-bold tabular-nums text-brand-teal">
+                {item.percent}%
+              </span>
+            ) : (
+              <UploadRowIcon item={item} />
+            )}
+          </div>
+
+          {item.label !== item.fileName ? (
+            <p className="truncate text-[11px] text-muted-foreground">{item.fileName}</p>
+          ) : null}
+
+          {active ? (
+            <>
+              <div
+                aria-label={`Uploading ${item.fileName}`}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={item.percent}
+                className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+              >
+                <div
+                  className={cn(
+                    "h-full rounded-full bg-brand-teal transition-[width] duration-200 ease-out",
+                    item.status === "processing" && "animate-pulse",
+                  )}
+                  style={{ width: `${Math.max(item.percent, 3)}%` }}
+                />
+              </div>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                {progressCaption(item)}
+              </p>
+            </>
+          ) : (
+            <p
+              className={cn(
+                "mt-0.5 truncate text-[11px]",
+                failed ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {item.status === "success"
+                ? `Uploaded · ${formatBytes(item.sizeBytes)}`
+                : item.status === "canceled"
+                  ? "Canceled"
+                  : (item.error ?? "Upload failed")}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-0.5 flex shrink-0 items-center gap-1">
+          {active ? (
+            <button
+              aria-label={`Cancel upload of ${item.fileName}`}
+              className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={() => cancelUpload(item.id)}
+              type="button"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : (
+            <>
+              {failed && canRetryUpload(item.id) ? (
+                <button
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-brand-teal transition hover:bg-brand-teal/10"
+                  onClick={() => retryUpload(item.id)}
+                  type="button"
+                >
+                  <RotateCcw className="size-3" />
+                  Retry
+                </button>
+              ) : null}
+              <button
+                aria-label="Dismiss"
+                className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                onClick={() => dismiss(item.id)}
+                type="button"
+              >
+                <X className="size-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/**
+ * The upload card: a single panel for the whole queue with an aggregate bar on
+ * top, so five simultaneous uploads read as one clear "62% · 3 of 5 done"
+ * instead of five competing toasts.
+ */
+function UploadStack() {
+  const items = useUploadStore((state) => state.items);
+  const clearFinished = useUploadStore((state) => state.clearFinished);
+
+  const summary = useMemo(() => {
+    const activeItems = items.filter((item) => isActive(item.status));
+    const totalBytes = items.reduce((sum, item) => sum + item.sizeBytes, 0);
+    // Weight each row's own percent by its size rather than summing raw bytes,
+    // so the header never reads 100% while a row still says 99% / "Finishing up".
+    const loadedBytes = items.reduce(
+      (sum, item) =>
+        sum +
+        (item.status === "success" ? item.sizeBytes : (item.sizeBytes * item.percent) / 100),
+      0,
+    );
+
+    return {
+      activeCount: activeItems.length,
+      doneCount: items.filter((item) => item.status === "success").length,
+      failedCount: items.filter((item) => item.status === "error").length,
+      percent: totalBytes > 0 ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100)) : 0,
+    };
+  }, [items]);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  const visible = items.slice(-MAX_VISIBLE_UPLOADS);
+  const hidden = items.length - visible.length;
+  const uploading = summary.activeCount > 0;
+
+  const headline = uploading
+    ? summary.activeCount === 1
+      ? "Uploading 1 file"
+      : `Uploading ${summary.activeCount} files`
+    : summary.failedCount > 0
+      ? `${summary.failedCount} upload${summary.failedCount === 1 ? "" : "s"} failed`
+      : "All uploads complete";
+
+  return (
+    <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-in fade-in slide-in-from-bottom-2">
+      <div className="flex items-center gap-2 border-b border-border bg-surface-strong px-3 py-2">
+        {uploading ? (
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-teal" />
+        ) : summary.failedCount > 0 ? (
+          <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+        ) : (
+          <CheckCircle2 className="size-3.5 shrink-0 text-brand-teal" />
+        )}
+
+        <p className="min-w-0 flex-1 truncate text-[12px] font-bold text-foreground">
+          {headline}
+        </p>
+
+        {uploading ? (
+          <span className="shrink-0 text-[12px] font-bold tabular-nums text-brand-teal">
+            {summary.percent}%
+          </span>
+        ) : (
+          <button
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            onClick={clearFinished}
+            type="button"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Aggregate bar — the "how much, overall" read at a glance. */}
+      {uploading ? (
+        <div className="h-1 w-full bg-muted">
+          <div
+            className="h-full bg-brand-teal transition-[width] duration-200 ease-out"
+            style={{ width: `${Math.max(summary.percent, 2)}%` }}
+          />
+        </div>
+      ) : null}
+
+      <div className="max-h-[42vh] divide-y divide-border overflow-y-auto">
+        {visible.map((item) => (
+          <UploadRow item={item} key={item.id} />
+        ))}
+      </div>
+
+      {hidden > 0 ? (
+        <p className="border-t border-border px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+          +{hidden} more {hidden === 1 ? "file" : "files"} in this batch
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+const Toast = memo(function Toast({ toast: item }: { toast: ToastItem }) {
+  const dismiss = useToastStore((state) => state.dismiss);
+  const tone = TOAST_TONE[item.tone];
+  const Icon = tone.icon;
+
+  useEffect(() => {
+    if (item.duration <= 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => dismiss(item.id), item.duration);
+
+    return () => window.clearTimeout(timer);
+  }, [dismiss, item.duration, item.id]);
+
+  return (
+    <div
+      className="pointer-events-auto flex overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-in fade-in slide-in-from-bottom-2"
+      role={item.tone === "error" ? "alert" : "status"}
+    >
+      <span className={cn("w-1 shrink-0", tone.accent)} />
+      <div className="flex min-w-0 flex-1 items-start gap-2.5 px-3 py-2.5">
+        <Icon className={cn("mt-0.5 size-4 shrink-0", tone.iconTone)} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[12.5px] font-semibold text-foreground">{item.title}</p>
+          {item.description ? (
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              {item.description}
+            </p>
+          ) : null}
+        </div>
+        <button
+          aria-label="Dismiss notification"
+          className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          onClick={() => dismiss(item.id)}
+          type="button"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+});
+
+const noopSubscribe = () => () => {};
+
+/** Hydration-safe "are we on the client yet" flag — `document` only exists there. */
+function useIsHydrated() {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
+}
+
+export function Toaster() {
+  const toasts = useToastStore((state) => state.toasts);
+  const uploads = useUploadStore((state) => state.items);
+  const hydrated = useIsHydrated();
+
+  if (!hydrated || (toasts.length === 0 && uploads.length === 0)) {
+    return null;
+  }
+
+  // Portalled to <body> so the overlay escapes every ancestor's stacking
+  // context, transform and overflow clipping — it floats above the page and
+  // never takes part in its layout.
+
+  return createPortal(
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483000] flex flex-col items-end gap-2 p-3 sm:inset-x-auto sm:right-4 sm:bottom-4 sm:left-auto sm:top-auto sm:p-0"
+    >
+      <div className="flex w-full max-w-full flex-col gap-2 sm:w-[352px]">
+        {toasts.map((item) => (
+          <Toast key={item.id} toast={item} />
+        ))}
+        <UploadStack />
+      </div>
+    </div>,
+    document.body,
+  );
+}

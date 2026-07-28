@@ -32,6 +32,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 | **Phase 3** | Week 3 | Resident System | Resident, Hostel Admin |
 | **Phase 4** | Week 4 | Trust, Safety & Guardian | Resident, Guardian, Hostel Admin |
 | **Phase 5** | Week 5 | Growth, Maintenance & Polish | All portals + Service Provider |
+| **Phase 5A** | Added 27 Jul 2026 | Portable Resident Identity | Public, Hostel Admin |
 | **Phase 6** | Weeks 6-8 | Mobile App | Mobile (Resident-focused) |
 
 ---
@@ -287,7 +288,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 ### 2.2 Acceptance Tests
 
 **Public Portal**
-- ☐ A visitor (no login) can search hostels by city, filter by gender + price + facilities
+- [] A visitor (no login) can search hostels by city, filter by gender + price + facilities
 - ☐ Search returns only hostels with `status: APPROVED`
 - ☐ Opening a hostel detail page shows correct info, photos, map with nearby places
 - ☐ Inquiry form submission creates Inquiry document → appears in hostel admin's inbox (NOT in other hostels' inboxes)
@@ -935,6 +936,119 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 ---
 
+## PHASE 5A — Portable Resident Identity (Added 27 July 2026)
+
+**Goal:** A person fills in their personal details **once** on the platform and receives a portable `userResidentId` (`HH-XXXX-XXXX`) plus a QR code. Any hostel they later approach registers them by scanning that code — or typing the ID — instead of handing them another paper form.
+
+**Why it is not in Phases 1-5:** requested after the Phase 3 resident system landed. It sits on top of the existing `Resident` / `Guardian` / `EmergencyContact` models rather than replacing them.
+
+### 5A.1 Deliverables
+
+**Data model + encryption**
+- ☑ `User.userResidentId` — public, sparse-unique handle, minted lazily on first profile save
+- ☑ `UserResidentProfile` model — all personal fields held as **one** AES-256-GCM blob (`encryptedData`)
+  - No personal field is indexed or queryable on purpose: a database dump is useless without the key
+  - Tracks `shareCount`, `lastSharedAt`, `lastSharedWithHostelId`, `sharingEnabled`
+- ☑ `lib/personal-data-crypto.ts` — envelope format `v1.<iv>.<tag>.<ciphertext>`, fresh IV per write
+- ☑ `PERSONAL_DATA_ENCRYPTION_KEY` added to `.env.example` (32 bytes, base64 or hex)
+- ☑ `HostelPageView` model — one row per de-duplicated visit (30-min window per visitor per hostel)
+- ☑ `Hostel.publicViewCount` — denormalised total so the admin dashboard reads one number
+
+**Profile field set** (each field feeds something that already exists — nothing collected "just in case")
+- ☑ `fullName`, `primaryPhone`, `primaryEmail`, `occupation` → `Resident`
+- ☑ Guardian ×2 (name, relation, phone, **email**) → `Guardian`; email is how the guardian portal invite is sent
+- ☑ Emergency contact (name, relation, phone) → `EmergencyContact`; falls back to the guardian when blank
+- ☑ `governmentIdType` + `governmentIdNumber` → `MoveInChecklist.documentsCollected`
+- ☑ `bloodGroup`, `medicalNotes` → `SOSAlert` + safety handling
+- ☑ `dietaryPreference` → `Hostel.food` (veg / non-veg service planning)
+- ☑ `gender`, `budgetRange` → `Inquiry`, and BOYS / GIRLS / CO_LIVING matching
+- ☑ `institution`, `courseOrDesignation` → the "educationInfo" named in §2.1
+- ☑ `dateOfBirth` (age derived on read), address, `alternatePhone`, `backupEmail` (max 2 emails total), `interests`
+- ☑ Deliberately **excluded**: room, bed, deposit, move-in date — the warden's call, not portable facts about a person
+
+**API**
+- ☑ `GET /api/v1/users/resident-identity` — own identity + decrypted profile
+- ☑ `PUT /api/v1/users/resident-identity` — upsert profile, mints the resident ID on first save
+- ☑ `PATCH /api/v1/users/resident-identity` — toggle sharing without deleting the profile
+- ☑ `GET /api/v1/users/resident-identity/qr` — QR PNG data URL + share URL
+- ☑ `GET /api/v1/hostel-admin/resident-lookup?residentId=` — staff-only prefill
+  - Gated on the same `registerResidents` capability as creating a resident
+  - Rate limited (20/min) — the ID is short enough to be guessable otherwise
+  - Writes an `AuditLog` entry **and** an in-app `Notification` to the owner on every read
+  - Accepts `HH-4K7M-9XQ2`, `hh4k7m9xq2`, or the full scanned URL
+- ☑ `POST /api/v1/public/hostels/[slug]/views` — records the visit and returns the prompt decision in the same round trip
+- ☑ `POST /api/v1/public/hostels/[slug]/inquiries` now returns `shouldCollectProfile`
+- ☑ `GET /api/v1/auth/me` now returns `userResidentId` so the account menu needs no second call
+
+**Public portal**
+- ☑ Account menu shows **"Create resident ID"** when none exists, **"Show resident QR code"** once it does
+- ☑ QR modal: QR image, the ID in large mono type with copy, share count, sharing on/off toggle, "Edit my details"
+- ☑ One-time profile form — sectioned, explains the encryption promise up front, "Not now" snoozes for 7 days
+- ☑ `/resident-id/{ID}` — where a plain phone camera lands after a scan; shows the ID to read out, discloses **nothing**, `noindex`
+- ☑ Signed-out visitors who hit a prompt get a sign-in / sign-up choice instead
+
+**When we ask for the details**
+- ☑ Right after an inquiry is submitted — the moment the person is about to be asked for these exact fields anyway
+- ☑ On the 3rd hostel page view (`PROFILE_PROMPT_VIEW_THRESHOLD`), counting **total** de-duplicated visits, not distinct hostels — a small catalogue would otherwise never reach the threshold
+- ☑ Never on a first visit, never once a profile exists, never twice inside 7 days
+
+**Hostel Admin**
+- ☑ "Add Resident" opens on an **identify step** first: enter the resident ID → details load → review → Save
+  - "They do not have one — enter the details manually" is the fallback for walk-ins
+- ☑ Read-only summary panel for what the form has no field for: blood group, age, government ID, allergies, guardians
+- ☑ On save, `Guardian` (×2) and `EmergencyContact` records are created automatically from the imported profile
+- ☑ **Listing Views** metric card on the dashboard; report also carries `uniquePublicVisitors` + `publicViewsLast30Days`
+
+**Docs (per Cross-Phase Rules)**
+- ☑ New endpoints documented in `API.md` §18
+- ☑ `UserResidentProfile` + `HostelPageView` documented in `DATABASE.md`, plus `User.userResidentId`, `Hostel.publicViewCount` and the indexing-strategy notes
+
+### 5A.2 Acceptance Tests
+
+**Encryption** — ☑ covered by `lib/personal-data-crypto.test.ts`
+- ☑ Profile round-trips through encrypt → decrypt unchanged
+- ☑ No plaintext value appears anywhere in the stored envelope
+- ☑ Two writes of the same profile produce different ciphertexts (fresh IV)
+- ☑ A tampered ciphertext is rejected, not silently accepted (GCM auth tag)
+- ☑ The blob cannot be read with a different key
+- ☑ A missing `PERSONAL_DATA_ENCRYPTION_KEY` fails loudly rather than storing plaintext
+
+**Resident ID parsing + validation** — ☑ covered by `modules/users/resident-identity.test.ts`
+- ☑ Accepts the canonical `HH-4K7M-9XQ2`
+- ☑ Repairs lowercase, missing dashes and stray spaces to the same ID
+- ☑ Extracts the ID from a scanned share URL, including one carrying a query string
+- ☑ Rejects a phone number, a truncated ID, and a wrong prefix
+- ☑ Emails are lower-cased; the backup email must differ from the account email
+- ☑ Blank optional fields are stored as absent, not as empty strings
+- ☑ Interests are de-duplicated; a reachable guardian is mandatory
+
+**View tracking + prompt** — ☑ verified live against the dev server
+- ☑ First visit is counted, `hh_visitor` cookie set httpOnly
+- ☑ A repeat visit inside 30 minutes is **not** counted twice
+- ☑ The prompt fires at exactly 3 de-duplicated views (`shouldCollectProfile: true`, `reason: BROWSING`)
+- ☑ `/resident-id/{ID}` renders with no console errors
+- ☑ `/api/v1/users/resident-identity` returns 401 when unauthenticated
+
+**Still to verify in a browser with a signed-in account**
+- ☐ Signed-in user with no profile sees "Create resident ID"; the menu flips to "Show resident QR code" after saving
+- ☐ QR modal renders a scannable code; scanning it with a phone camera lands on `/resident-id/{ID}`
+- ☐ Warden enters the ID in Add Resident → form prefills → Save creates the resident **plus** guardian and emergency records
+- ☐ Turning sharing off makes the same lookup return `RESIDENT_PROFILE_SHARING_DISABLED`
+- ☐ Owner receives an in-app notification each time a hostel loads their profile
+- ☐ A warden **without** the `registerResidents` capability is denied the lookup
+- ☐ Hostel Admin A cannot see Hostel B's listing view counts
+- ☐ Dashboard "Listing Views" matches the number of de-duplicated visits
+
+### 5A.3 Definition of Done
+
+- ☑ All deliverables complete
+- ☑ Automated tests green: 195 tests across 33 files, typecheck clean, no new lint errors
+- ☑ `API.md` and `DATABASE.md` updated per Cross-Phase Rules
+- ☐ Browser acceptance tests above completed with a real signed-in account
+- ☐ `MEMORY.md` and `CHANGELOG.md` updated
+
+---
+
 ## PHASE 6 — Mobile App (Weeks 6-8, Post Web-Launch)
 
 **Goal:** Deliver native mobile experience (React Native + Expo) for residents with QR camera scanning and push notifications.
@@ -963,6 +1077,10 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☐ Scan QR → extract code → call `/api/qr-activation/activate`
 - ☐ On success → redirect to resident dashboard
 - ☐ Fallback: manual code entry
+- ☐ **Scan a resident ID QR when registering a resident** (Phase 5A, deferred here)
+  - The web path uses manual ID entry because `apps/mobile` has no camera/barcode dependency yet
+  - Reuse the same scanner: scan → the QR carries `{APP_URL}/resident-id/{ID}` → `GET /api/v1/hostel-admin/resident-lookup?residentId=<scanned URL>` (the endpoint already parses a full URL) → prefill the registration form
+  - No API work required — the lookup endpoint is live and capability-gated
 
 **Resident Dashboard (Mobile)**
 - ☐ Bottom tab navigation: Home, Payments, Food, Notices, More

@@ -1,71 +1,68 @@
 "use client";
 
 import { Inbox } from "lucide-react";
-import { memo, useCallback, useEffect, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { EmptyState, Panel, StatusBadge } from "@/app/_components/shared-ui";
+import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
-import {
-  deferLoad,
-  field,
-  Inquiry,
-  Message,
-  PageHeader,
-} from "./core-portal-shared";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { field, Inquiry, Message, PageHeader } from "./core-portal-shared";
 
 export const HostelAdminInquiriesPageContent = memo(function HostelAdminInquiriesPageContent() {
-  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const invalidate = useInvalidateResources();
+  const inquiriesResource = usePortalResource<{ inquiries: Inquiry[] }>(
+    hostelAdminEndpoints.inquiries,
+    { errorMessage: "Could not load inquiries." },
+  );
 
-  const load = useCallback(async () => {
-    try {
-      const data = await browserApi<{ inquiries: Inquiry[] }>(
-        "/api/v1/hostel-admin/inquiries",
-      );
-
-      setInquiries(data.inquiries);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load inquiries.");
-    }
-  }, []);
-
-  useEffect(() => deferLoad(load), [load]);
+  const inquiries = useMemo(
+    () => inquiriesResource.data?.inquiries ?? [],
+    [inquiriesResource.data],
+  );
+  const message = actionMessage || inquiriesResource.message;
 
   const updateStatus = useCallback(
     async (event: FormEvent<HTMLFormElement>, inquiryId: string) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
 
       try {
-        await browserApi(`/api/v1/hostel-admin/inquiries/${inquiryId}/status`, {
+        await browserApi(`${hostelAdminEndpoints.inquiries}/${inquiryId}/status`, {
           body: JSON.stringify({ status: field(form, "status") }),
           method: "PATCH",
         });
-        await load();
+        invalidate(hostelAdminEndpoints.inquiries);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not update inquiry.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not update inquiry.",
+        );
       }
     },
-    [load],
+    [invalidate],
   );
 
   const addNote = useCallback(
     async (event: FormEvent<HTMLFormElement>, inquiryId: string) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
 
       try {
-        await browserApi(`/api/v1/hostel-admin/inquiries/${inquiryId}/notes`, {
+        await browserApi(`${hostelAdminEndpoints.inquiries}/${inquiryId}/notes`, {
           body: JSON.stringify({ note: field(form, "note") }),
           method: "POST",
         });
-        event.currentTarget.reset();
-        await load();
+        formElement.reset();
+        invalidate(hostelAdminEndpoints.inquiries);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not add note.");
+        setActionMessage(error instanceof Error ? error.message : "Could not add note.");
       }
     },
-    [load],
+    [invalidate],
   );
 
   return (
@@ -103,7 +100,7 @@ export const HostelAdminInquiriesPageContent = memo(function HostelAdminInquirie
               </div>
               <p className="mt-3 text-sm text-foreground">{inquiry.message}</p>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <form
+                <BusyForm
                   className="flex gap-2"
                   onSubmit={(event) => updateStatus(event, inquiry.id)}
                 >
@@ -120,11 +117,11 @@ export const HostelAdminInquiriesPageContent = memo(function HostelAdminInquirie
                       ),
                     )}
                   </select>
-                  <button className="rounded-md bg-role-admin px-3 text-sm font-semibold text-white">
+                  <SubmitButton className="rounded-md bg-role-admin px-3 text-sm font-semibold text-white">
                     Save
-                  </button>
-                </form>
-                <form
+                  </SubmitButton>
+                </BusyForm>
+                <BusyForm
                   className="flex gap-2"
                   onSubmit={(event) => addNote(event, inquiry.id)}
                 >
@@ -134,10 +131,10 @@ export const HostelAdminInquiriesPageContent = memo(function HostelAdminInquirie
                     placeholder="Follow-up note"
                     required
                   />
-                  <button className="rounded-md border border-role-admin px-3 text-sm font-semibold text-role-admin">
+                  <SubmitButton className="rounded-md border border-role-admin px-3 text-sm font-semibold text-role-admin">
                     Note
-                  </button>
-                </form>
+                  </SubmitButton>
+                </BusyForm>
               </div>
             </div>
           ))}

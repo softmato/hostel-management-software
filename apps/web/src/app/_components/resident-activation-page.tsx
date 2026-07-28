@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { memo, useCallback, useState, type FormEvent } from "react";
 
+import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
 import { Message } from "./resident-shared";
 
@@ -189,7 +190,7 @@ export const ResidentActivationPageContent = memo(function ResidentActivationPag
                     </button>
                   </div>
                 ) : (
-                  <form className="space-y-6" onSubmit={handleActivate}>
+                  <BusyForm className="space-y-6" onSubmit={handleActivate}>
                     
                     {/* Activation Code Input */}
                     <div className="space-y-1.5">
@@ -280,10 +281,10 @@ export const ResidentActivationPageContent = memo(function ResidentActivationPag
                       </div>
                     </div>
 
-                    <button className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0A8A4B] text-sm font-bold text-white transition hover:brightness-105 active:scale-[0.99] shadow-md shadow-[#0A8A4B]/10">
+                    <SubmitButton className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0A8A4B] text-sm font-bold text-white transition hover:brightness-105 active:scale-[0.99] shadow-md shadow-[#0A8A4B]/10">
                       Activate Access
-                    </button>
-                  </form>
+                    </SubmitButton>
+                  </BusyForm>
                 )}
               </div>
             )}

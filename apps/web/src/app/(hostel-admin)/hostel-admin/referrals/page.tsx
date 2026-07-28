@@ -1,5 +1,5 @@
-import { HostelAdminReferralsPageContent } from "@/app/_components/hostel-admin-referrals-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function HostelAdminReferralsPage() {
-  return <HostelAdminReferralsPageContent />;
+export default async function LegacyHostelAdminReferralsPage() {
+  return redirectToWorkspaceScreen("referrals");
 }

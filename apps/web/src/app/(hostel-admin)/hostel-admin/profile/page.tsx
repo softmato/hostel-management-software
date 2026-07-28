@@ -1,5 +1,5 @@
-import { HostelAdminProfilePageContent } from "@/app/_components/hostel-admin-profile-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function HostelProfilePage() {
-  return <HostelAdminProfilePageContent />;
+export default async function LegacyHostelAdminProfilePage() {
+  return redirectToWorkspaceScreen("profile");
 }

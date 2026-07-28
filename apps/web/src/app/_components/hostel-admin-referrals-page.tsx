@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useCallback, useState, useEffect, type FormEvent } from "react";
+import React, { useCallback, useMemo, useState, type FormEvent } from "react";
 import { Gift } from "lucide-react";
 import { EmptyState, Panel, StatusBadge } from "@/app/_components/shared-ui";
+import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import {
   Message,
   PageHeader,
@@ -14,28 +17,18 @@ import {
 
 export const HostelAdminReferralsPageContent = React.memo(
   function HostelAdminReferralsPageContent() {
-    const [referrals, setReferrals] = useState<Referral[]>([]);
-    const [message, setMessage] = useState("");
+    const [actionMessage, setActionMessage] = useState("");
+    const invalidate = useInvalidateResources();
+    const referralsResource = usePortalResource<{ referrals: Referral[] }>(
+      hostelAdminEndpoints.referrals,
+      { errorMessage: "Could not load referrals." },
+    );
 
-    const load = useCallback(async () => {
-      try {
-        const data = await browserApi<{ referrals: Referral[] }>(
-          "/api/v1/hostel-admin/referrals",
-        );
-
-        setReferrals(data.referrals);
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not load referrals.");
-      }
-    }, []);
-
-    useEffect(() => {
-      const timer = window.setTimeout(() => {
-        void load();
-      }, 0);
-
-      return () => window.clearTimeout(timer);
-    }, [load]);
+    const referrals = useMemo(
+      () => referralsResource.data?.referrals ?? [],
+      [referralsResource.data],
+    );
+    const message = actionMessage || referralsResource.message;
 
     const confirm = useCallback(
       async (event: FormEvent<HTMLFormElement>, referralId: string) => {
@@ -43,20 +36,22 @@ export const HostelAdminReferralsPageContent = React.memo(
         const form = new FormData(event.currentTarget);
 
         try {
-          await browserApi(`/api/v1/hostel-admin/referrals/${referralId}/confirm`, {
+          await browserApi(`${hostelAdminEndpoints.referrals}/${referralId}/confirm`, {
             body: JSON.stringify({
               rewardAmount: optionalNumber(form, "rewardAmount"),
               rewardNotes: optionalField(form, "rewardNotes"),
             }),
             method: "PATCH",
           });
-          setMessage("Referral confirmed.");
-          await load();
+          setActionMessage("Referral confirmed.");
+          invalidate(hostelAdminEndpoints.referrals);
         } catch (error) {
-          setMessage(error instanceof Error ? error.message : "Could not confirm referral.");
+          setActionMessage(
+            error instanceof Error ? error.message : "Could not confirm referral.",
+          );
         }
       },
-      [load, setMessage],
+      [invalidate],
     );
 
     return (
@@ -79,7 +74,7 @@ export const HostelAdminReferralsPageContent = React.memo(
                   </div>
                   <StatusBadge>{referral.status}</StatusBadge>
                 </div>
-                <form
+                <BusyForm
                   className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
                   onSubmit={(event) => confirm(event, referral.id)}
                 >
@@ -94,10 +89,10 @@ export const HostelAdminReferralsPageContent = React.memo(
                     name="rewardNotes"
                     placeholder="Reward notes"
                   />
-                  <button className="h-10 rounded-md bg-role-admin px-3 text-sm font-semibold text-white">
+                  <SubmitButton className="h-10 rounded-md bg-role-admin px-3 text-sm font-semibold text-white">
                     Confirm
-                  </button>
-                </form>
+                  </SubmitButton>
+                </BusyForm>
               </div>
             ))}
           </div>

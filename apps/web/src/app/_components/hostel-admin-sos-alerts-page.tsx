@@ -1,51 +1,45 @@
 "use client";
 
 import { Siren } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { type SOSAlert, Message, PageHeader } from "./daily-operations-shared";
 import { EmptyState, Panel, StatusBadge } from "@/app/_components/shared-ui";
 
 export const HostelAdminSOSAlertsPage = memo(function HostelAdminSOSAlertsPage() {
-  const [alerts, setAlerts] = useState<SOSAlert[]>([]);
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const invalidate = useInvalidateResources();
+  const alertsResource = usePortalResource<{ alerts: SOSAlert[] }>(
+    hostelAdminEndpoints.sosAlerts,
+    { errorMessage: "Could not load SOS alerts." },
+  );
 
-  const load = useCallback(async () => {
-    try {
-      const data = await browserApi<{ alerts: SOSAlert[] }>(
-        "/api/v1/hostel-admin/sos-alerts",
-      );
-
-      setAlerts(data.alerts);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load SOS alerts.");
-    }
-  }, []);
+  const alerts = useMemo(
+    () => alertsResource.data?.alerts ?? [],
+    [alertsResource.data],
+  );
+  const message = actionMessage || alertsResource.message;
 
   const update = useCallback(
     async (alertId: string, status: string) => {
       try {
-        await browserApi(`/api/v1/hostel-admin/sos-alerts/${alertId}/status`, {
+        await browserApi(`${hostelAdminEndpoints.sosAlerts}/${alertId}/status`, {
           body: JSON.stringify({ status }),
           method: "PATCH",
         });
-        setMessage("SOS alert updated.");
-        await load();
+        setActionMessage("SOS alert updated.");
+        invalidate(hostelAdminEndpoints.sosAlerts);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not update SOS alert.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not update SOS alert.",
+        );
       }
     },
-    [load],
+    [invalidate],
   );
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">

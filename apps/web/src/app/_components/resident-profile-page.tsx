@@ -1,7 +1,7 @@
 "use client";
 
 import { BedDouble, Mail, Phone, ShieldAlert, UserRound, Users } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { memo } from "react";
 
 import { EmptyState } from "@/app/_components/shared-ui";
 import {
@@ -13,9 +13,9 @@ import {
   SoftBadge,
   statusToneFromLabel,
 } from "@/app/_components/portal-dashboard-ui";
-import { browserApi } from "@/lib/browser-api";
+import { usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
 import {
-  type LoadState,
   type ResidentDashboard,
   type ResidentSummary,
   Message,
@@ -64,26 +64,14 @@ function InfoRow({
 }
 
 export const ResidentProfilePageContent = memo(function ResidentProfilePageContent() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const profileResource = usePortalResource<{ profile: Profile }>(
+    residentEndpoints.profile,
+    { errorMessage: "Could not load profile." },
+  );
 
-  useEffect(() => {
-    async function load() {
-      setState("loading");
-      try {
-        const data = await browserApi<{ profile: Profile }>("/api/v1/resident/profile");
-
-        setProfile(data.profile);
-        setState("ready");
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not load profile.");
-        setState("error");
-      }
-    }
-
-    void load();
-  }, []);
+  const profile = profileResource.data?.profile ?? null;
+  const state = profileResource.state;
+  const message = profileResource.message;
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-5">

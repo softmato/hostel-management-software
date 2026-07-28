@@ -1,7 +1,7 @@
 "use client";
 
 import { BedDouble, Coins, PiggyBank, Receipt } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 
 import { currency, EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
 import {
@@ -15,8 +15,9 @@ import {
   TableRow,
   Th,
 } from "@/app/_components/portal-dashboard-ui";
-import { browserApi } from "@/lib/browser-api";
-import { deferLoad, LoadState, Message, RoomMapFloor } from "./core-portal-shared";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { combineResources, usePortalResource } from "@/lib/portal-query";
+import { Message, RoomConfiguration } from "./core-portal-shared";
 
 type Payment = {
   dueAmount: number;
@@ -42,56 +43,47 @@ type DerivedPlan = {
 
 export const HostelAdminFeePlansPageContent = memo(
   function HostelAdminFeePlansPageContent() {
-    const [floors, setFloors] = useState<RoomMapFloor[]>([]);
-    const [payments, setPayments] = useState<Payment[]>([]);
-    const [state, setState] = useState<LoadState>("idle");
-    const [message, setMessage] = useState("");
+    const errorMessage = "Could not load fee plans.";
+    // Both entries are shared: the profile with Profile/Rooms, the payments with
+    // Transactions — so this page usually paints from cache.
+    const profileResource = usePortalResource<{
+      hostel: { roomConfigurations: RoomConfiguration[] };
+    }>(hostelAdminEndpoints.profile, { errorMessage });
+    const paymentsResource = usePortalResource<{ payments: Payment[] }>(
+      hostelAdminEndpoints.transactions,
+      { errorMessage },
+    );
 
-    useEffect(() => {
-      async function load() {
-        setState("loading");
-        try {
-          const [map, paymentData] = await Promise.all([
-            browserApi<{ floors: RoomMapFloor[] }>("/api/v1/hostel-admin/room-map"),
-            browserApi<{ payments: Payment[] }>("/api/v1/hostel-admin/payments"),
-          ]);
-
-          setFloors(map.floors);
-          setPayments(paymentData.payments);
-          setState("ready");
-        } catch (error) {
-          setMessage(
-            error instanceof Error ? error.message : "Could not load fee plans.",
-          );
-          setState("error");
-        }
-      }
-
-      return deferLoad(load);
-    }, []);
+    const configurations = useMemo(
+      () => profileResource.data?.hostel.roomConfigurations ?? [],
+      [profileResource.data],
+    );
+    const payments = useMemo(
+      () => paymentsResource.data?.payments ?? [],
+      [paymentsResource.data],
+    );
+    const { message, state } = combineResources(profileResource, paymentsResource);
 
     const plans = useMemo<DerivedPlan[]>(() => {
       const byType = new Map<string, DerivedPlan>();
 
-      for (const floor of floors) {
-        for (const room of floor.rooms) {
-          const key = room.roomType || "STANDARD";
-          const existing = byType.get(key) ?? {
-            beds: 0,
-            billed: 0,
-            collected: 0,
-            rooms: 0,
-            roomType: key,
-          };
+      for (const config of configurations) {
+        const key = config.roomType || "STANDARD";
+        const existing = byType.get(key) ?? {
+          beds: 0,
+          billed: 0,
+          collected: 0,
+          rooms: 0,
+          roomType: key,
+        };
 
-          existing.rooms += 1;
-          existing.beds += room.beds.length;
-          byType.set(key, existing);
-        }
+        existing.rooms += config.rooms;
+        existing.beds += config.rooms * config.bedsPerRoom;
+        byType.set(key, existing);
       }
 
       return [...byType.values()].sort((a, b) => b.beds - a.beds);
-    }, [floors]);
+    }, [configurations]);
 
     const totals = useMemo(
       () => ({

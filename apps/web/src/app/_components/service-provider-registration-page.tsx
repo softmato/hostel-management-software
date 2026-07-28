@@ -60,6 +60,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
+import { FileUploaderView, useUploader } from "@/components/uploads";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 import {
@@ -84,10 +85,20 @@ import {
 function ServiceProviderRegistrationPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  // Public form — no session yet, so documents go to the rate-limited public
+  // route and come back as URLs the application record can store directly.
+  const documentUpload = useUploader({
+    kind: "document",
+    label: "Supporting document",
+    target: "public",
+  });
+  const documentUrl = documentUpload.files[0]?.url ?? "";
+  const { clear: clearDocument } = documentUpload;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const value = (name: string) => {
       const field = form.get(name);
 
@@ -105,11 +116,11 @@ function ServiceProviderRegistrationPageContent() {
           category: value("category"),
           city: value("city") || "Kathmandu",
           description: value("description") || undefined,
-          documents: value("documentUrl")
+          documents: documentUrl
             ? [
                 {
                   documentType: value("documentType") || "PROFILE_DOCUMENT",
-                  fileUrl: value("documentUrl"),
+                  fileUrl: documentUrl,
                 },
               ]
             : [],
@@ -119,7 +130,8 @@ function ServiceProviderRegistrationPageContent() {
         }),
         method: "POST",
       });
-      event.currentTarget.reset();
+      formElement.reset();
+      clearDocument();
       setMessage("Registration submitted for platform review.");
     } catch (error) {
       setMessage(
@@ -247,15 +259,15 @@ function ServiceProviderRegistrationPageContent() {
                   placeholder="5+ years serving hostels"
                 />
               </label>
-              <label className="block text-sm font-semibold text-foreground">
-                Document URL
-                <input
-                  className="mt-2 h-12 w-full rounded-lg border border-border bg-surface px-3 text-sm font-normal outline-none focus:border-brand-teal"
-                  name="documentUrl"
-                  placeholder="https://..."
-                  type="url"
+              <div className="block text-sm font-semibold text-foreground">
+                Supporting document
+                <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
+                <FileUploaderView
+                  className="mt-2"
+                  label="Upload licence, ID or certificate"
+                  uploader={documentUpload}
                 />
-              </label>
+              </div>
               <input name="documentType" type="hidden" value="PROFILE_DOCUMENT" />
             </div>
             <label className="mt-4 block text-sm font-semibold text-foreground">

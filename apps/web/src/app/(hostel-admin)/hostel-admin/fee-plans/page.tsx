@@ -1,5 +1,5 @@
-import { HostelAdminFeePlansPageContent } from "@/app/_components/hostel-admin-fee-plans-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function HostelAdminFeePlansPage() {
-  return <HostelAdminFeePlansPageContent />;
+export default async function LegacyHostelAdminFeePlansPage() {
+  return redirectToWorkspaceScreen("fee-plans");
 }

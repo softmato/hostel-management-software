@@ -44,8 +44,16 @@ export type Hostel = {
     city?: string;
   };
   name: string;
+  nameChangeCount?: number;
   ownerId: string;
-  photos: Array<{ id?: string; url?: string }>;
+  photos: Array<{
+    alt?: string;
+    id?: string;
+    kind?: "EXTERIOR" | "INTERIOR" | "ROOM";
+    /** Set only on ROOM photos — matches roomConfigurations[].roomType. */
+    roomType?: string;
+    url?: string;
+  }>;
   pricing?: {
     monthlyRentMax?: number;
     monthlyRentMin?: number;
@@ -54,6 +62,8 @@ export type Hostel = {
   rules: string[];
   slug: string;
   status: string;
+  /** Descriptive building detail — rooms are not grouped by floor. */
+  totalFloors?: number;
   verificationStatus: string;
 };
 
@@ -85,28 +95,14 @@ export type Inquiry = {
   status: string;
 };
 
-export type RoomMapBed = {
-  bedNumber: string;
-  id: string;
-  status: string;
-};
-
-export type RoomMapRoom = {
-  beds: RoomMapBed[];
-  capacity: number;
-  facilities: string[];
-  id: string;
-  repairStatus: string;
-  roomNumber: string;
+export type RoomConfiguration = {
+  bedsPerRoom: number;
+  id?: string;
+  mealInclusion?: string;
+  monthlyRent: number;
+  rooms: number;
   roomType: string;
-  vacancyStatus: string;
-};
-
-export type RoomMapFloor = {
-  id: string;
-  level: number;
-  name: string;
-  rooms: RoomMapRoom[];
+  vacantBeds: number;
 };
 
 export function field(form: FormData, name: string) {
@@ -132,20 +128,6 @@ export function numberField(form: FormData, name: string) {
   const value = Number(field(form, name));
 
   return Number.isFinite(value) ? value : 0;
-}
-
-export function deferLoad(load: () => Promise<void>) {
-  let cancelled = false;
-
-  queueMicrotask(() => {
-    if (!cancelled) {
-      void load();
-    }
-  });
-
-  return () => {
-    cancelled = true;
-  };
 }
 
 export function Message({ value }: { value: string }) {

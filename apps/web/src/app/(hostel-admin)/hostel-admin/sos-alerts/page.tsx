@@ -1,5 +1,5 @@
-import { HostelAdminSOSAlertsPage } from "@/app/_components/hostel-admin-sos-alerts-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function SOSAlertsPage() {
-  return <HostelAdminSOSAlertsPage />;
+export default async function LegacyHostelAdminSosAlertsPage() {
+  return redirectToWorkspaceScreen("sos-alerts");
 }

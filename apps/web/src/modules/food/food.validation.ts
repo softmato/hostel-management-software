@@ -6,8 +6,11 @@ export const mealTypeSchema = z.enum(["BREAKFAST", "LUNCH", "SNACKS", "DINNER"])
 
 export const foodMenuListQuerySchema = z.object({
   date: z.coerce.date().optional(),
+  /** Inclusive range bounds, for callers that read a week or a month at a time. */
+  from: z.coerce.date().optional(),
   hostelId: objectIdSchema.optional(),
   mealType: mealTypeSchema.optional(),
+  to: z.coerce.date().optional(),
   weekStartDate: z.coerce.date().optional(),
 });
 

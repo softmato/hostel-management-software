@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, LayoutDashboard, LogOut } from "lucide-react";
+import { BadgePlus, ChevronDown, LayoutDashboard, LogOut, QrCode } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,6 +10,11 @@ import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { landingPathForRole } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import {
+  ResidentIdentityCenter,
+  requestResidentProfileForm,
+  requestResidentQr,
+} from "@/components/resident-identity";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type PublicHeaderProps = {
@@ -21,6 +26,8 @@ type CurrentUser = {
   image: string | null;
   name: string;
   role: Role;
+  /** Null until they save their resident profile for the first time. */
+  userResidentId: string | null;
 };
 
 type MeResponse =
@@ -229,6 +236,29 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                         Dashboard
                       </Link>
                     )}
+                    {user.userResidentId ? (
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          requestResidentQr();
+                        }}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground transition hover:bg-muted"
+                      >
+                        <QrCode className="size-4" />
+                        Show resident QR code
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          requestResidentProfileForm("MANUAL");
+                        }}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-brand-teal transition hover:bg-brand-teal/10"
+                      >
+                        <BadgePlus className="size-4" />
+                        Create resident ID
+                      </button>
+                    )}
                     <button
                       onClick={handleLogout}
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-600 transition hover:bg-red-50"
@@ -260,6 +290,13 @@ export function PublicHeader({ active }: PublicHeaderProps) {
           )}
         </div>
       </div>
+
+      {/* Mounted here because the header is the one shell on every public page,
+          so any page can open the QR / profile modals via a window event.
+          Deliberately NOT gated on `isSessionChecked` — it resolves sign-in
+          state itself, and gating it meant the modal never opened while the
+          session check was still in flight. */}
+      <ResidentIdentityCenter onProfileSaved={loadCurrentUser} />
     </header>
   );
 }

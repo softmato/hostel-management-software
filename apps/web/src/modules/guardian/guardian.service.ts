@@ -64,7 +64,6 @@ type GuardianPermissionRecord = {
 
 type ResidentRecord = {
   _id: Types.ObjectId;
-  bedId: Types.ObjectId;
   depositAmount: number;
   email?: string;
   firstName: string;
@@ -72,7 +71,7 @@ type ResidentRecord = {
   lastName: string;
   moveInDate: Date;
   phone: string;
-  roomId: Types.ObjectId;
+  roomType: string;
   status: "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
   userId?: Types.ObjectId;
 };

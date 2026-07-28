@@ -10,7 +10,6 @@ import {
   ChevronDown,
   ClipboardList,
   CreditCard,
-  ExternalLink,
   Flag,
   FileText,
   Gift,
@@ -46,6 +45,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 
+import { HostelPreviewLink } from "@/components/hostel-preview-link";
 import { PortalAccount } from "@/components/portal-account";
 import { PortalSearch } from "@/components/portal-search";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -377,49 +377,14 @@ export function PortalShell({
   }
 
   function renderSidebarFooter(collapsed = false) {
-    const helpCopy =
-      tone === "guardian"
-        ? "Contact the hostel for any queries or assistance."
-        : tone === "resident"
-          ? "Contact hostel warden or support team."
-          : "Visit our help center or contact support.";
-
-    // The platform owner runs the product — a "Need Help?" card and a
-    // subscription upsell make no sense in their own admin, and the space is
-    // better given to the nav list.
+    // The platform owner runs the product — a subscription upsell makes no
+    // sense in their own admin, and the space is better given to the nav list.
     if (collapsed || tone === "platform") {
       return null;
     }
 
     return (
       <div className="space-y-2 border-t border-slate-100 p-2 dark:border-border">
-        <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-2 dark:border-border dark:bg-muted/30">
-          <div className="flex items-start gap-2">
-            <span
-              className={cn(
-                "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full",
-                styles.badge,
-              )}
-            >
-              <HelpCircle className="size-3" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[12px] font-semibold text-foreground">Need Help?</p>
-              <p className="mt-0.5 text-[10px] leading-[14px] text-muted-foreground">
-                {helpCopy}
-              </p>
-            </div>
-          </div>
-          <Button
-            className="mt-1.5 h-7 w-full rounded-md border-slate-200 bg-white text-[11px] font-semibold text-slate-700 shadow-sm dark:border-border dark:bg-card dark:text-foreground"
-            type="button"
-            variant="outline"
-          >
-            {tone === "guardian" ? "Contact Hostel" : "Help Center"}
-            <ExternalLink className="size-3" />
-          </Button>
-        </div>
-
         <div className="rounded-lg border border-slate-100 bg-white p-2 dark:border-border dark:bg-card">
           <p className="text-[10px] font-medium text-muted-foreground">Current Plan</p>
           <p className={cn("mt-0.5 text-[12.5px] font-bold", styles.text)}>{plan.label}</p>
@@ -544,6 +509,10 @@ export function PortalShell({
               />
 
               <div className="ml-auto flex items-center gap-1.5 md:gap-2">
+                {tone === "admin" ? (
+                  <HostelPreviewLink className="hidden lg:inline-flex" />
+                ) : null}
+
                 <ThemeToggle className="hidden size-8 sm:inline-flex" />
 
                 <Button
@@ -591,9 +560,22 @@ export function PortalShell({
       <footer className="shrink-0 border-t border-slate-200/80 bg-white px-4 py-2 text-[11px] text-slate-500 dark:border-border dark:bg-card dark:text-muted-foreground md:px-5">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <p>© 2026 HostelHub Platform. All rights reserved.</p>
-          <p>
-            Made with <span className="text-rose-500">♥</span> in Nepal 🇳🇵
-          </p>
+          <div className="flex items-center gap-4">
+            {/* Support moved out of the sidebar card — same entry point, but it
+                sits beside the credit instead of eating nav space. */}
+            {tone !== "platform" && (
+              <button
+                className="inline-flex items-center gap-1 font-medium text-slate-600 hover:text-foreground dark:text-muted-foreground"
+                type="button"
+              >
+                <HelpCircle className="size-3" />
+                {tone === "guardian" ? "Contact Hostel" : "Help & Support"}
+              </button>
+            )}
+            <p>
+              Made with <span className="text-rose-500">♥</span> in Nepal 🇳🇵
+            </p>
+          </div>
         </div>
       </footer>
     </div>

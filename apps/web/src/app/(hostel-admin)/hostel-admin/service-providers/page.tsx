@@ -1,5 +1,5 @@
-import { HostelAdminServiceProvidersPageContent } from "@/app/_components/hostel-admin-service-providers-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function HostelAdminServiceProvidersPage() {
-  return <HostelAdminServiceProvidersPageContent />;
+export default async function LegacyHostelAdminServiceProvidersPage() {
+  return redirectToWorkspaceScreen("service-providers");
 }

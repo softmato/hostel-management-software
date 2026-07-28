@@ -1,43 +1,32 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo } from "react";
 import { Gift } from "lucide-react";
 import { EmptyState, Panel, StatusBadge } from "@/app/_components/shared-ui";
-import { browserApi } from "@/lib/browser-api";
+import { usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
 import { Message, PageHeader, type Referral } from "./portal-shared";
+
+type ReferralCode = {
+  code: string;
+  joinedCount: number;
+  link: string;
+  rewardCount: number;
+};
 
 export const ResidentReferralPageContent = React.memo(
   function ResidentReferralPageContent() {
-    const [referralCode, setReferralCode] = useState<{
-      code: string;
-      joinedCount: number;
-      link: string;
-      rewardCount: number;
-    } | null>(null);
-    const [referrals, setReferrals] = useState<Referral[]>([]);
-    const [message, setMessage] = useState("");
+    const referralResource = usePortalResource<{
+      referralCode: ReferralCode;
+      referrals: Referral[];
+    }>(residentEndpoints.referral, { errorMessage: "Could not load referral." });
 
-    useEffect(() => {
-      async function load() {
-        try {
-          const data = await browserApi<{
-            referralCode: NonNullable<typeof referralCode>;
-            referrals: Referral[];
-          }>("/api/v1/resident/referral");
-
-          setReferralCode(data.referralCode);
-          setReferrals(data.referrals);
-        } catch (error) {
-          setMessage(error instanceof Error ? error.message : "Could not load referral.");
-        }
-      }
-
-      const timer = window.setTimeout(() => {
-        void load();
-      }, 0);
-
-      return () => window.clearTimeout(timer);
-    }, []);
+    const referralCode = referralResource.data?.referralCode ?? null;
+    const referrals = useMemo(
+      () => referralResource.data?.referrals ?? [],
+      [referralResource.data],
+    );
+    const message = referralResource.message;
 
     return (
       <div className="mx-auto max-w-[900px] space-y-6">

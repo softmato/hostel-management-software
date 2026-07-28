@@ -22,7 +22,6 @@ export const residentListQuerySchema = z.object({
 
 export const residentCreateSchema = z.object({
   ...optionalHostelScopeSchema,
-  bedId: objectIdSchema,
   depositAmount: z.coerce.number().nonnegative().default(0),
   email: z.string().trim().email().optional(),
   firstName: z.string().trim().min(1).max(80),
@@ -31,13 +30,12 @@ export const residentCreateSchema = z.object({
   moveInDate: z.coerce.date(),
   phone: z.string().trim().min(7).max(24),
   residentType: residentTypeSchema.default("STUDENT"),
-  roomId: objectIdSchema,
+  roomType: z.string().trim().min(1).max(80),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).default("PENDING"),
 });
 
 export const residentUpdateSchema = z.object({
   ...optionalHostelScopeSchema,
-  bedId: objectIdSchema.optional(),
   depositAmount: z.coerce.number().nonnegative().optional(),
   email: z.string().trim().email().optional(),
   firstName: z.string().trim().min(1).max(80).optional(),
@@ -46,7 +44,7 @@ export const residentUpdateSchema = z.object({
   moveInDate: z.coerce.date().optional(),
   phone: z.string().trim().min(7).max(24).optional(),
   residentType: residentTypeSchema.optional(),
-  roomId: objectIdSchema.optional(),
+  roomType: z.string().trim().min(1).max(80).optional(),
 });
 
 export const guardianCreateSchema = z.object({

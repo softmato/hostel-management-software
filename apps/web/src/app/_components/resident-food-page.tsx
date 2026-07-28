@@ -2,17 +2,10 @@
 
 import { Coffee, Cookie, Moon, Send, Soup, Upload, Utensils } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { EmptyState, Input, Select, TextArea } from "@/app/_components/shared-ui";
+import { FileUploaderView, useUploader } from "@/components/uploads";
 import {
   EmptyInline,
   PortalPageHeader,
@@ -21,10 +14,11 @@ import {
   SoftBadge,
 } from "@/app/_components/portal-dashboard-ui";
 import { browserApi } from "@/lib/browser-api";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
 import {
   type FoodMenu,
   type FoodPhoto,
-  type LoadState,
   Message,
   field,
   optionalField,
@@ -53,36 +47,28 @@ function MealSkeleton() {
 }
 
 export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
-  const [menus, setMenus] = useState<FoodMenu[]>([]);
-  const [photos, setPhotos] = useState<FoodPhoto[]>([]);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
-  const [photoAssetId, setPhotoAssetId] = useState("");
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
+  const invalidate = useInvalidateResources();
+  // Progress and upload errors surface in the global toaster; this only holds
+  // the resulting asset id for the form submit.
+  const photoUpload = useUploader({
+    accessLevel: "PRIVATE",
+    kind: "image",
+    label: "Food photo",
+    optimizeImage: true,
+  });
+  const photoAssetId = photoUpload.files[0]?.assetId ?? "";
+  const { clear: clearPhoto } = photoUpload;
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const data = await browserApi<{ menus: FoodMenu[]; photos: FoodPhoto[] }>(
-        "/api/v1/resident/food",
-      );
+  const foodResource = usePortalResource<{ menus: FoodMenu[]; photos: FoodPhoto[] }>(
+    residentEndpoints.food,
+    { errorMessage: "Could not load food." },
+  );
 
-      setMenus(data.menus);
-      setPhotos(data.photos);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load food.");
-      setState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const menus = useMemo(() => foodResource.data?.menus ?? [], [foodResource.data]);
+  const photos = useMemo(() => foodResource.data?.photos ?? [], [foodResource.data]);
+  const state = foodResource.state;
+  const message = actionMessage || foodResource.message;
 
   const sortedMenus = useMemo(
     () =>
@@ -94,10 +80,11 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
 
   const handleFeedback = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
 
     try {
-      await browserApi("/api/v1/resident/food/feedback", {
+      await browserApi(`${residentEndpoints.food}/feedback`, {
         body: JSON.stringify({
           comment: optionalField(form, "comment"),
           date: field(form, "date"),
@@ -108,42 +95,28 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
         }),
         method: "POST",
       });
-      event.currentTarget.reset();
-      setMessage("Feedback submitted. Thank you!");
+      formElement.reset();
+      setActionMessage("Feedback submitted. Thank you!");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not submit feedback.");
-    }
-  }, []);
-
-  const handlePhotoFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) return;
-    setUploadingPhoto(true);
-    try {
-      const { uploadFile, optimizeImage } = await import("@/lib/client-upload");
-      const assetId = await uploadFile(file, "PRIVATE");
-      optimizeImage(assetId).catch(() => {});
-      setPhotoAssetId(assetId);
-      setMessage("Food photo uploaded to storage.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not upload photo.");
-    } finally {
-      setUploadingPhoto(false);
+      setActionMessage(
+        error instanceof Error ? error.message : "Could not submit feedback.",
+      );
     }
   }, []);
 
   const handlePhoto = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
 
       if (!photoAssetId) {
-        setMessage("Please upload a photo first.");
+        setActionMessage("Please upload a photo first.");
         return;
       }
 
       try {
-        await browserApi("/api/v1/resident/food/photos", {
+        await browserApi(residentEndpoints.foodPhotos, {
           body: JSON.stringify({
             caption: optionalField(form, "caption"),
             date: field(form, "date"),
@@ -152,15 +125,17 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
           }),
           method: "POST",
         });
-        event.currentTarget.reset();
-        setPhotoAssetId("");
-        setMessage("Food photo uploaded.");
-        await load();
+        formElement.reset();
+        clearPhoto();
+        setActionMessage("Food photo uploaded.");
+        invalidate(residentEndpoints.food);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not upload photo.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not upload photo.",
+        );
       }
     },
-    [photoAssetId, load],
+    [clearPhoto, invalidate, photoAssetId],
   );
 
   return (
@@ -305,18 +280,11 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
             <form className="grid gap-3" onSubmit={handlePhoto}>
               <div className="grid gap-1.5">
                 <span className="text-[12.5px] font-semibold text-foreground">Photo</span>
-                <input
-                  accept="image/jpeg,image/png,image/webp"
-                  className="h-10 w-full rounded-lg border border-border bg-card px-2.5 text-[12.5px] file:mr-3 file:h-7 file:rounded-md file:border-0 file:bg-role-resident file:px-3 file:text-[11px] file:font-semibold file:text-white"
-                  disabled={uploadingPhoto}
-                  onChange={handlePhotoFile}
-                  type="file"
+                <FileUploaderView
+                  label="Upload meal photo"
+                  tone="resident"
+                  uploader={photoUpload}
                 />
-                {uploadingPhoto ? (
-                  <p className="text-[11px] text-muted-foreground">Uploading…</p>
-                ) : photoAssetId ? (
-                  <p className="text-[11px] font-medium text-emerald-600">Photo ready.</p>
-                ) : null}
               </div>
               <input name="photoAssetId" type="hidden" value={photoAssetId} />
               <Input label="Date" name="date" required type="date" />
@@ -330,7 +298,7 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
               <Input label="Caption" name="caption" />
               <RoleButton
                 className="w-full"
-                disabled={uploadingPhoto || !photoAssetId}
+                disabled={photoUpload.isUploading || !photoAssetId}
                 tone="resident"
                 type="submit"
                 variant="outline"

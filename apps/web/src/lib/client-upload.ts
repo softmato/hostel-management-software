@@ -1,10 +1,11 @@
 import { browserApi } from "@/lib/browser-api";
 
-type PresignResponse = {
-  assetId: string;
-  key: string;
-  presignedUrl: string;
-};
+/**
+ * Post-upload asset helpers.
+ *
+ * Uploading itself lives in `@/lib/uploads/uploader` (the universal uploader) —
+ * this module only covers what you do with an asset *after* it exists.
+ */
 
 type OptimizeResponse = {
   assetId: string;
@@ -22,36 +23,6 @@ type ReadUrlResponse = {
   url: string;
   variant: string;
 };
-
-export async function uploadFile(
-  file: File,
-  accessLevel: "PUBLIC" | "PRIVATE" | "PROTECTED" = "PRIVATE",
-) {
-  const { assetId, presignedUrl } = await browserApi<PresignResponse>(
-    "/api/v1/files/presign",
-    {
-      body: JSON.stringify({
-        fileName: file.name,
-        mimeType: file.type,
-        sizeBytes: file.size,
-        accessLevel,
-      }),
-      method: "POST",
-    },
-  );
-
-  const uploadResponse = await fetch(presignedUrl, {
-    body: file,
-    headers: { "Content-Type": file.type },
-    method: "PUT",
-  });
-
-  if (!uploadResponse.ok) {
-    throw new Error("File upload to storage failed.");
-  }
-
-  return assetId;
-}
 
 export async function optimizeImage(assetId: string) {
   return browserApi<OptimizeResponse>(

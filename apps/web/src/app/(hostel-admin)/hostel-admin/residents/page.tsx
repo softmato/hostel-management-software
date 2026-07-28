@@ -1,5 +1,5 @@
-import { HostelAdminResidentsPage } from "@/app/_components/hostel-admin-residents-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function ResidentsPage() {
-  return <HostelAdminResidentsPage />;
+export default async function LegacyHostelAdminResidentsPage() {
+  return redirectToWorkspaceScreen("residents");
 }

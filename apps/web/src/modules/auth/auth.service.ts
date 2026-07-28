@@ -69,6 +69,7 @@ function publicUser(user: {
   phone?: string | null;
   role: Role;
   status: string;
+  userResidentId?: string | null;
 }) {
   return {
     id: String(user._id),
@@ -82,6 +83,9 @@ function publicUser(user: {
     role: user.role,
     redirectPath: landingPathForRole(user.role) ?? "/",
     status: user.status,
+    // Only minted once a resident profile is saved, so the account menu can
+    // offer "Create resident ID" vs "Show resident QR code" without a second call.
+    userResidentId: user.userResidentId ?? null,
   };
 }
 
@@ -604,10 +608,12 @@ export async function login(input: LoginInput, context?: RequestContext) {
   await connectToDatabase();
 
   const identifier = input.identifier.trim().toLowerCase();
+  // INVITED covers admin-issued accounts (wardens, cooks, upgraded admins)
+  // logging in for the first time with their emailed temporary password.
   const user = await UserModel.findOne({
     email: identifier,
     isDeleted: { $ne: true },
-    status: "ACTIVE",
+    status: { $in: ["ACTIVE", "INVITED"] },
   }).select("+passwordHash");
 
   if (!user?.passwordHash) {
@@ -629,6 +635,9 @@ export async function login(input: LoginInput, context?: RequestContext) {
   }
 
   user.lastLoginAt = new Date();
+  if (user.status === "INVITED") {
+    user.status = "ACTIVE";
+  }
   await user.save();
 
   return issueSessionForUser(user, context);
@@ -724,6 +733,28 @@ async function revokeAllSessions(userId: unknown) {
   await SessionModel.updateMany(
     { userId, revokedAt: null },
     { $set: { revokedAt: new Date() } },
+  );
+}
+
+/**
+ * Returns an account to the plain public role it had before a hostel took it
+ * on — used when a resident profile is deleted. The account itself is
+ * untouched: still ACTIVE, still signed in, still holding its history. It
+ * simply stops being a resident, so `/resident` is no longer its to open and
+ * it lands on the public site instead.
+ *
+ * Sessions are deliberately *not* revoked and `tokenVersion` is deliberately
+ * *not* bumped — either would sign the person out, which is the opposite of
+ * the intent. `refreshAccessToken` re-reads the role from here, so the next
+ * refresh hands the browser a PUBLIC token; until then the access token in
+ * hand still claims RESIDENT, for at most ACCESS_TOKEN_TTL (15 min default).
+ */
+export async function demoteToPublicAccount(userId: unknown) {
+  await connectToDatabase();
+
+  await UserModel.updateOne(
+    { _id: userId, isDeleted: { $ne: true }, role: Role.RESIDENT },
+    { $set: { role: Role.PUBLIC } },
   );
 }
 

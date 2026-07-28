@@ -1,51 +1,46 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { BarChart3 } from "lucide-react";
 import { Panel } from "@/app/_components/shared-ui";
-import { browserApi } from "@/lib/browser-api";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { combineResources, usePortalResource } from "@/lib/portal-query";
 import { Message, PageHeader, ReportGrid, type ReportRecord } from "./portal-shared";
+
+type Report = { report: ReportRecord };
 
 export const HostelAdminReportsPageContent = React.memo(
   function HostelAdminReportsPageContent() {
-    const [dashboard, setDashboard] = useState<ReportRecord | null>(null);
-    const [payments, setPayments] = useState<ReportRecord | null>(null);
-    const [complaints, setComplaints] = useState<ReportRecord | null>(null);
-    const [maintenance, setMaintenance] = useState<ReportRecord | null>(null);
-    const [message, setMessage] = useState("");
+    const errorMessage = "Could not load reports.";
+    // The dashboard report is the same cache entry the Dashboard screen reads,
+    // so arriving here from it costs three requests, not four.
+    const dashboardResource = usePortalResource<Report>(
+      hostelAdminEndpoints.dashboardReport,
+      { errorMessage },
+    );
+    const paymentsResource = usePortalResource<Report>(
+      hostelAdminEndpoints.paymentsReport,
+      { errorMessage },
+    );
+    const complaintsResource = usePortalResource<Report>(
+      hostelAdminEndpoints.complaintsReport,
+      { errorMessage },
+    );
+    const maintenanceResource = usePortalResource<Report>(
+      hostelAdminEndpoints.maintenanceReport,
+      { errorMessage },
+    );
 
-    useEffect(() => {
-      async function load() {
-        try {
-          const [dashboardData, paymentsData, complaintsData, maintenanceData] =
-            await Promise.all([
-              browserApi<{ report: ReportRecord }>(
-                "/api/v1/hostel-admin/reports/dashboard",
-              ),
-              browserApi<{ report: ReportRecord }>("/api/v1/hostel-admin/reports/payments"),
-              browserApi<{ report: ReportRecord }>(
-                "/api/v1/hostel-admin/reports/complaints",
-              ),
-              browserApi<{ report: ReportRecord }>(
-                "/api/v1/hostel-admin/reports/maintenance",
-              ),
-            ]);
-
-          setDashboard(dashboardData.report);
-          setPayments(paymentsData.report);
-          setComplaints(complaintsData.report);
-          setMaintenance(maintenanceData.report);
-        } catch (error) {
-          setMessage(error instanceof Error ? error.message : "Could not load reports.");
-        }
-      }
-
-      const timer = window.setTimeout(() => {
-        void load();
-      }, 0);
-
-      return () => window.clearTimeout(timer);
-    }, []);
+    const dashboard = dashboardResource.data?.report ?? null;
+    const payments = paymentsResource.data?.report ?? null;
+    const complaints = complaintsResource.data?.report ?? null;
+    const maintenance = maintenanceResource.data?.report ?? null;
+    const { message } = combineResources(
+      dashboardResource,
+      paymentsResource,
+      complaintsResource,
+      maintenanceResource,
+    );
 
     return (
       <div className="mx-auto max-w-[1448px] space-y-6">

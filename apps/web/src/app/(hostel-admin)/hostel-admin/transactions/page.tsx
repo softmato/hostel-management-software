@@ -1,5 +1,5 @@
-import { HostelAdminTransactionsPageContent } from "@/app/_components/hostel-admin-transactions-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function HostelAdminTransactionsPage() {
-  return <HostelAdminTransactionsPageContent />;
+export default async function LegacyHostelAdminTransactionsPage() {
+  return redirectToWorkspaceScreen("transactions");
 }

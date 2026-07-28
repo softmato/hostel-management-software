@@ -1,5 +1,5 @@
-import { HostelAdminNightStatusPage } from "@/app/_components/hostel-admin-night-status-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function NightStatusPage() {
-  return <HostelAdminNightStatusPage />;
+export default async function LegacyHostelAdminNightStatusPage() {
+  return redirectToWorkspaceScreen("night-status");
 }

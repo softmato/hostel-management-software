@@ -30,14 +30,14 @@ export const maintenanceStatusSchema = z.enum([
 
 export const maintenanceRequestCreateSchema = z.object({
   ...optionalHostelScopeSchema,
-  bedId: objectIdSchema.optional(),
   category: maintenanceCategorySchema,
   costNote: z.string().trim().max(500).optional(),
   description: z.string().trim().max(1600).optional(),
+  /** Free text — "Room 204", "2nd floor bathroom". No room records exist. */
+  location: z.string().trim().max(160).optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   providerId: objectIdSchema.optional(),
   remarks: z.string().trim().max(800).optional(),
-  roomId: objectIdSchema.optional(),
   scheduledFor: z.coerce.date().optional(),
   title: z.string().trim().min(2).max(180),
 });

@@ -32,6 +32,11 @@ export type PortalResource<T> = {
   message: string;
   /** Force a refetch, e.g. after a mutation on this same page. */
   refresh: () => void;
+  /**
+   * Same refetch, awaitable — for the few callers that must not tear down
+   * optimistic UI until the refreshed rows are actually in hand.
+   */
+  refreshAsync: () => Promise<void>;
   /** `loading` only when there is nothing cached to show yet. */
   state: LoadState;
 };
@@ -66,9 +71,12 @@ export function usePortalResource<T>(
   });
 
   const { refetch } = query;
-  const refresh = useCallback(() => {
-    void refetch();
+  const refreshAsync = useCallback(async () => {
+    await refetch();
   }, [refetch]);
+  const refresh = useCallback(() => {
+    void refreshAsync();
+  }, [refreshAsync]);
 
   let state: LoadState = "ready";
 
@@ -85,6 +93,7 @@ export function usePortalResource<T>(
     isRefreshing: query.isFetching && !query.isPending,
     message: query.isError ? errorText(query.error, fallback) : "",
     refresh,
+    refreshAsync,
     state,
   };
 }
@@ -114,6 +123,24 @@ export function combineResources(
   }
 
   return { message, state: "ready" };
+}
+
+/**
+ * Patch one endpoint's cached payload in place, for mutations whose result is
+ * already known locally — a "mark as read" tick should land on the row the
+ * moment the request succeeds, not one refetch later.
+ */
+export function useUpdateResource() {
+  const client = useQueryClient();
+
+  return useCallback(
+    <T>(url: string, update: (current: T) => T) => {
+      client.setQueryData<T>(resourceKey(url), (current) =>
+        current === undefined ? current : update(current),
+      );
+    },
+    [client],
+  );
 }
 
 /**

@@ -26,6 +26,8 @@ type LoginResponse =
 
 const routeErrorMessages: Record<string, string> = {
   forbidden: "Your account is not allowed to open that portal.",
+  resident_removed:
+    "Your hostel has removed your resident profile. Sign in again to keep using your account as a regular user, or contact your hostel if you think this is a mistake.",
   invalid_session: "Your session could not be verified. Please login again.",
   session_expired: "Your session expired. Please login again.",
 };

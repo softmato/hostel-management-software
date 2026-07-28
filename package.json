@@ -22,6 +22,8 @@
     "web:seed:demo": "npm --prefix apps/web run seed:demo",
     "web:recover:admin": "npm --prefix apps/web run recover:admin",
     "web:check:private-documents": "npm --prefix apps/web run check:private-documents",
+    "web:backfill:resident-accounts": "npm --prefix apps/web run backfill:resident-accounts",
+    "web:repair:archived-residents": "npm --prefix apps/web run repair:archived-residents",
     "web:deploy:check": "npm --prefix apps/web run deploy:check",
     "mobile:start": "npm --prefix apps/mobile run start",
     "mobile:typecheck": "npm --prefix apps/mobile run typecheck",

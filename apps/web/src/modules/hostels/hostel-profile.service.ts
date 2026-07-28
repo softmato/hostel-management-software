@@ -1,10 +1,14 @@
 import { connectToDatabase } from "@/lib/db";
 import { buildAddressQuery } from "@/lib/maps/geocoding";
 import { geocodeAndCacheHostel } from "@/modules/hostels/hostel-geo.service";
+import { summarizeConfigurations } from "@/modules/hostels/hostel-capacity.service";
+import { sendNotificationEmail } from "@/modules/residents/resident-notify";
 import { HostelModel } from "@hostel/db/models/Hostel";
+import { UserModel } from "@hostel/db/models/User";
 import type {
   hostelAdminProfileQuerySchema,
   hostelAdminProfileUpdateSchema,
+  hostelChangeRequestSchema,
   hostelPhotoCreateSchema,
   hostelPhotoDeleteQuerySchema,
 } from "@/modules/hostels/hostel.validation";
@@ -24,6 +28,13 @@ type HostelAdminProfileQuery = z.infer<typeof hostelAdminProfileQuerySchema>;
 type HostelAdminProfileUpdateInput = z.infer<typeof hostelAdminProfileUpdateSchema>;
 type HostelPhotoCreateInput = z.infer<typeof hostelPhotoCreateSchema>;
 type HostelPhotoDeleteQuery = z.infer<typeof hostelPhotoDeleteQuerySchema>;
+type HostelChangeRequestInput = z.infer<typeof hostelChangeRequestSchema>;
+
+/** Post-approval renames allowed before the superadmin flow takes over. */
+const NAME_CHANGE_LIMIT = 2;
+/** ROOM is per room type, the others are per hostel. */
+const PHOTO_LIMITS = { EXTERIOR: 3, INTERIOR: 20, ROOM: 10 } as const;
+const LOCKED_NAME_STATUSES = new Set(["APPROVED", "PUBLISHED"]);
 
 export async function getHostelAdminProfile(
   query: HostelAdminProfileQuery,
@@ -46,6 +57,40 @@ export async function updateHostelAdminProfile(
 
   const hostel = await findScopedHostel(principal, input.hostelId);
   const profileUpdate = definedUpdate(input, ["hostelId"]);
+
+  // roomConfigurations is the source of truth for occupancy, so any edit to it
+  // has to bring the derived capacity totals along or the dashboard and the
+  // public listing start disagreeing.
+  if (input.roomConfigurations) {
+    profileUpdate.capacitySummary = summarizeConfigurations(input.roomConfigurations);
+
+    // Dropping a room type takes its photos with it — an orphaned ROOM photo
+    // would otherwise keep standing in as fallback imagery for a room type
+    // the hostel no longer offers.
+    const keptTypes = new Set(
+      input.roomConfigurations.map((config) => config.roomType),
+    );
+
+    profileUpdate.photos = (hostel.photos ?? []).filter(
+      (photo) => photo.kind !== "ROOM" || keptTypes.has(photo.roomType ?? ""),
+    );
+  }
+
+  // After approval a hostel may rename itself only NAME_CHANGE_LIMIT times;
+  // anything past that goes through the superadmin change-request flow.
+  const isRename = input.name !== undefined && input.name !== hostel.name;
+  const renameIsLocked = LOCKED_NAME_STATUSES.has(hostel.status);
+
+  if (isRename && renameIsLocked) {
+    if ((hostel.nameChangeCount ?? 0) >= NAME_CHANGE_LIMIT) {
+      throw new HostelServiceError(
+        "Hostel name change limit reached. Send a change request to the platform team instead.",
+        "NAME_CHANGE_LIMIT_REACHED",
+        403,
+      );
+    }
+  }
+
   const updatedHostel = await HostelModel.findOneAndUpdate(
     { _id: hostel._id, isDeleted: false },
     {
@@ -53,6 +98,7 @@ export async function updateHostelAdminProfile(
         ...profileUpdate,
         updatedBy: principal.userId,
       },
+      ...(isRename && renameIsLocked ? { $inc: { nameChangeCount: 1 } } : {}),
     },
     { new: true },
   ).lean<HostelRecord | null>();
@@ -96,6 +142,42 @@ export async function addHostelAdminProfilePhoto(
   await connectToDatabase();
 
   const hostel = await findScopedHostel(principal, input.hostelId);
+
+  // ROOM photos are capped per room type, not across the whole hostel, so ten
+  // shots of "Four Sharing" never eat into what "Single Room" can hold.
+  if (input.kind === "ROOM") {
+    const known = (hostel.roomConfigurations ?? []).some(
+      (config) => config.roomType === input.roomType,
+    );
+
+    if (!known) {
+      throw new HostelServiceError(
+        `"${input.roomType}" is not one of your room types.`,
+        "ROOM_TYPE_NOT_FOUND",
+        404,
+      );
+    }
+  }
+
+  const kindCount = (hostel.photos ?? []).filter(
+    (photo) =>
+      (photo.kind ?? "INTERIOR") === input.kind &&
+      (input.kind !== "ROOM" || photo.roomType === input.roomType),
+  ).length;
+
+  if (kindCount >= PHOTO_LIMITS[input.kind]) {
+    const scope =
+      input.kind === "ROOM"
+        ? `photo(s) for "${input.roomType}"`
+        : `${input.kind.toLowerCase()} photo(s)`;
+
+    throw new HostelServiceError(
+      `You can upload at most ${PHOTO_LIMITS[input.kind]} ${scope}. Remove one first.`,
+      "PHOTO_LIMIT_REACHED",
+      422,
+    );
+  }
+
   const updatedHostel = await HostelModel.findOneAndUpdate(
     { _id: hostel._id, isDeleted: false },
     {
@@ -103,6 +185,8 @@ export async function addHostelAdminProfilePhoto(
         photos: {
           alt: input.alt,
           fileAssetId: input.fileAssetId,
+          kind: input.kind,
+          roomType: input.kind === "ROOM" ? input.roomType : undefined,
           url: input.url,
         },
       },
@@ -121,6 +205,62 @@ export async function addHostelAdminProfilePhoto(
 
   return {
     hostel: serializeHostel(updatedHostel),
+  };
+}
+
+/**
+ * Emails every superadmin a locked-field change request (extra hostel renames,
+ * owner name, or account email). The superadmin verifies, applies the change in
+ * the platform portal, and the resulting notification email closes the loop.
+ */
+export async function requestHostelProfileChange(
+  input: HostelChangeRequestInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const hostel = await findScopedHostel(principal, input.hostelId);
+  const superadmins = await UserModel.find({
+    isDeleted: { $ne: true },
+    role: "SUPERADMIN",
+    status: "ACTIVE",
+  }).lean<Array<{ email: string }>>();
+
+  const changeLabel = {
+    HOSTEL_NAME: "Hostel name",
+    OWNER_EMAIL: "Owner account email",
+    OWNER_NAME: "Owner name",
+  }[input.changeType];
+
+  await auditHostelAction(principal, hostel._id, "HOSTEL_CHANGE_REQUESTED", {
+    changeType: input.changeType,
+    reason: input.reason ?? "",
+    requestedValue: input.requestedValue,
+  });
+
+  await Promise.all(
+    superadmins.map((admin) =>
+      sendNotificationEmail({
+        action: "hostel_change_request",
+        html: `
+          <h2>Hostel change request</h2>
+          <p><strong>Hostel:</strong> ${hostel.name} (${hostel.slug})</p>
+          <p><strong>Requested change:</strong> ${changeLabel}</p>
+          <p><strong>New value:</strong> ${input.requestedValue}</p>
+          ${input.reason ? `<p><strong>Reason:</strong> ${input.reason}</p>` : ""}
+          <p>Verify the request, apply it from the platform portal, and the update
+          email will acknowledge the hostel owner.</p>
+        `,
+        subject: `[HostelHub] Change request: ${changeLabel} — ${hostel.name}`,
+        to: admin.email,
+      }),
+    ),
+  );
+
+  return {
+    changeType: input.changeType,
+    notifiedAdmins: superadmins.length,
+    status: "SUBMITTED" as const,
   };
 }
 

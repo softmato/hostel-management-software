@@ -1,9 +1,20 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import type {
+  AvailableRoomType,
+  Resident,
+} from "@/app/_components/hostel-admin-shared";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { usePortalResource } from "@/lib/portal-query";
 
-import type { Resident, RoomMapFloor } from "@/app/_components/hostel-admin-shared";
-import { browserApi } from "@/lib/browser-api";
+/**
+ * Named reads for the hostel admin screens that want a hook rather than a bare
+ * `usePortalResource` call.
+ *
+ * These route through the same url-keyed cache as every other portal read, so a
+ * page that invalidates `hostelAdminEndpoints.residents` after a mutation also
+ * refreshes whatever these hooks feed — one endpoint, one cache entry.
+ */
 
 export type Warden = {
   createdAt?: string;
@@ -19,26 +30,51 @@ export type Warden = {
   userId: string;
 };
 
-/** Room + bed map for the admin's hostel (beds are nested under rooms). */
-export function useRoomMap() {
-  return useQuery({
-    queryFn: () =>
-      browserApi<{ floors: RoomMapFloor[] }>("/api/v1/hostel-admin/room-map"),
-    queryKey: ["hostel-admin", "room-map"],
-  });
+/** Room types with vacancy left, for placing a new resident. */
+export function useAvailableRoomTypes() {
+  return usePortalResource<{ roomTypes: AvailableRoomType[] }>(
+    hostelAdminEndpoints.roomTypes,
+    { errorMessage: "Could not load room types." },
+  );
 }
 
 export function useResidents() {
-  return useQuery({
-    queryFn: () =>
-      browserApi<{ residents: Resident[] }>("/api/v1/hostel-admin/residents"),
-    queryKey: ["hostel-admin", "residents"],
+  return usePortalResource<{ residents: Resident[] }>(
+    hostelAdminEndpoints.residents,
+    { errorMessage: "Could not load residents." },
+  );
+}
+
+export type ResidentGuardian = {
+  email: string;
+  firstName: string;
+  id: string;
+  isPrimary: boolean;
+  lastName: string;
+  phone: string;
+  relation: string;
+};
+
+export type ResidentEmergencyContact = {
+  id: string;
+  isPrimary: boolean;
+  name: string;
+  phone: string;
+  relation: string;
+};
+
+/** Guardian / emergency records already saved for a resident, for prefilling. */
+export function useResidentContacts(residentId: string) {
+  return usePortalResource<{
+    emergencyContacts: ResidentEmergencyContact[];
+    guardians: ResidentGuardian[];
+  }>(residentId ? hostelAdminEndpoints.residentContacts(residentId) : null, {
+    errorMessage: "Could not load resident contacts.",
   });
 }
 
 export function useHostelWardens() {
-  return useQuery({
-    queryFn: () => browserApi<{ wardens: Warden[] }>("/api/v1/hostel-admin/wardens"),
-    queryKey: ["hostel-admin", "wardens"],
+  return usePortalResource<{ wardens: Warden[] }>(hostelAdminEndpoints.wardens, {
+    errorMessage: "Could not load wardens.",
   });
 }

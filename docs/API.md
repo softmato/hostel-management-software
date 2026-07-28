@@ -68,7 +68,7 @@ List endpoints accept `?page=1&pageSize=20` and return:
 | GET | `/api/auth/google/callback` | none | `?code=` | Handles Google response, creates/finds User, sets cookies, returns redirect instructions |
 | POST | `/api/auth/refresh` | refresh token (cookie or header) | — | Rotates and reissues tokens |
 | POST | `/api/auth/logout` | access token | — | Clears cookies, bumps `tokenVersion` |
-| GET | `/api/auth/me` | access token | — | Returns `{ id, email, role, hostelId?, mustChangePassword, emailVerified }` |
+| GET | `/api/auth/me` | access token | — | Returns `{ id, email, role, hostelId?, mustChangePassword, emailVerified, userResidentId }`. `userResidentId` is `null` until the user saves a resident profile — see §18 |
 | POST | `/api/auth/change-password` | access token | `{ currentPassword?, newPassword }` | `currentPassword` optional only when `mustChangePassword = true` |
 | POST | `/api/auth/forgot-password` | none | `{ email }` | Sends password reset email |
 | POST | `/api/auth/reset-password` | none | `{ token, newPassword }` | Resets password with token from email |
@@ -83,7 +83,8 @@ List endpoints accept `?page=1&pageSize=20` and return:
 | GET | `/api/public/hostels/:id` | none | — | Full profile: photos, facilities, rooms summary, food, rules, ratings (excluding hidden), verification badge |
 | GET | `/api/public/hostels/:id/nearby` | none | — | Cached "nearby spots" (colleges, hospitals, etc.) — see ARCHITECTURE.md §4 |
 | GET | `/api/public/hostels/compare` | none | `ids=a,b,c` | Max 3 ids. Side-by-side comparison |
-| POST | `/api/public/inquiries` | none or `PUBLIC` | `{ hostelId, name, phone, email?, message? }` | Submit inquiry |
+| POST | `/api/public/inquiries` | none or `PUBLIC` | `{ hostelId, name, phone, email?, message? }` | Submit inquiry. Response also carries `shouldCollectProfile` — see §18 |
+| POST | `/api/v1/public/hostels/:slug/views` | none or any role | — | Records a page view for the hostel's listing stats and returns the resident-profile prompt decision. See §18.3 |
 | POST | `/api/public/service-providers` | none | `{ name, phone, category, area, availability?, description?, photoUrl?, documentUrl? }` | Register as service provider (always `status: PENDING`) |
 | GET | `/api/public/colleges` | none | `?search=` | For "nearby to my college" search — seeded/admin-managed reference list |
 
@@ -152,6 +153,7 @@ All routes require `role IN (HOSTEL_ADMIN, WARDEN)` **and** the resolved `hostel
 | POST | `/api/hostel-admin/rooms/:roomId/beds` | `{ bedLabel }` | `manageRooms` | Create bed |
 | PATCH | `/api/hostel-admin/beds/:id` | `{ status, maintenanceNote? }` | — | Update bed status |
 | GET | `/api/hostel-admin/residents` | `?status=, page=` | — | List residents |
+| GET | `/api/v1/hostel-admin/resident-lookup` | `?residentId=, hostelId?` | `registerResidents` | Prefill a registration from a person's portable resident ID / QR. Rate limited, audited, and notifies the owner — see §18.2 |
 | POST | `/api/hostel-admin/residents` | `{ email, fullName, phone, guardianContact?, educationInfo?, residentType: STUDENT|WORKING_PROFESSIONAL|OTHER, roomId?, bedId?, depositAmount? }` | `registerResidents` | Register resident, triggers account creation/upgrade, sends QR activation email |
 | PATCH | `/api/hostel-admin/residents/:id` | `{ ...updates }` | `registerResidents` | Update resident info |
 | POST | `/api/hostel-admin/residents/:id/qr` | — | — | (Re)generate QR activation code |
@@ -485,6 +487,113 @@ Runs on hostel create/update and as a background job. Flags get written to a rev
 | Similar hostel name in same area | Low | Levenshtein distance on name + area match |
 
 This is detection/flagging only — never auto-rejects, only surfaces for manual superadmin review.
+
+---
+
+## 18. Resident Identity (Portable Profile + QR)
+
+> **Paths in this section are as-built** (`/api/v1/...`). Earlier sections of this
+> document use the shorter `/api/...` design-time form; the implementation is
+> versioned. See PHASES.md §5A.
+
+A person fills their personal details in **once** and receives a portable
+`userResidentId` of the form `HH-XXXX-XXXX` plus a QR code. Any hostel they later
+approach registers them by scanning that code — or typing the ID — instead of
+handing them another form.
+
+**Storage:** the whole profile is a single AES-256-GCM blob in
+`UserResidentProfile.encryptedData` (see DATABASE.md). No personal field is
+indexed or queryable. The server needs `PERSONAL_DATA_ENCRYPTION_KEY` (32 bytes,
+base64 or hex); without it these endpoints fail loudly rather than storing
+plaintext.
+
+### 18.1 Own identity (any authenticated role)
+
+| Method | Path | Body/Query | Notes |
+|---|---|---|---|
+| GET | `/api/v1/users/resident-identity` | — | Returns `{ identity, profile }`. `identity` carries `residentId`, `hasProfile`, `shareUrl`, `shareCount`, `lastSharedAt`, `sharingEnabled`, `accountEmail`, `accountName`. `profile` is the decrypted payload plus a derived `age`, or `null` |
+| PUT | `/api/v1/users/resident-identity` | `{ profile, sharingEnabled }` | Upsert. **Mints `User.userResidentId` on first save** (retries on collision). Writes an `AuditLog` entry. Returns the same shape as GET |
+| PATCH | `/api/v1/users/resident-identity` | `{ sharingEnabled }` | Turn sharing on/off without deleting the profile. `404 RESIDENT_PROFILE_MISSING` if none saved |
+| GET | `/api/v1/users/resident-identity/qr` | — | `{ qrDataUrl, residentId, shareUrl }`. `qrDataUrl` is a PNG data URL; it is `null` if QR rendering is unavailable, and the typed ID remains the fallback. `404 RESIDENT_PROFILE_MISSING` before the first save |
+
+**`profile` body fields.** Required: `fullName`, `gender`, `primaryPhone`,
+`primaryEmail`, `guardianName`, `guardianRelation`, `guardianPhone`. Optional:
+`dateOfBirth` (`YYYY-MM-DD`), `bloodGroup`, `alternatePhone`, `backupEmail`,
+`permanentAddress`, `city`, `province`, `occupation`, `institution`,
+`courseOrDesignation`, `guardianEmail`, `secondGuardian{Name,Relation,Phone,Email}`,
+`emergencyContact{Name,Relation,Phone}`, `dietaryPreference`, `budgetRange`,
+`medicalNotes`, `interests[]` (max 12, de-duplicated),
+`governmentIdType`, `governmentIdNumber`.
+
+At most **two** emails are held: the account email plus one backup.
+`backupEmail` must differ from `primaryEmail` (`422 VALIDATION_ERROR`).
+
+### 18.2 Staff lookup (Hostel Admin / Warden)
+
+| Method | Path | Query | Permission Check (Warden) | Notes |
+|---|---|---|---|---|
+| GET | `/api/v1/hostel-admin/resident-lookup` | `residentId`, `hostelId?` | `registerResidents` | Returns `{ prefill, residentId, sharedAt }` |
+
+`residentId` accepts `HH-4K7M-9XQ2`, `hh4k7m9xq2`, or the full scanned share URL
+(query strings are stripped before parsing).
+
+`prefill` is shaped for the registration form, not a raw profile dump:
+
+- `prefill.resident` → `{ firstName, lastName, phone, email, residentType }` for `POST /api/hostel-admin/residents`
+- `prefill.guardians[]` → `{ firstName, lastName, phone, email?, relation, isPrimary }` for `POST /api/hostel-admin/residents/:id/guardians`
+- `prefill.emergencyContact` → `{ name, phone, relation, isPrimary }`; falls back to the primary guardian when the user left it blank
+- `prefill.details` → read-only extras the registration form has no field for (blood group, derived `age`, government ID, allergies, dietary preference, institution, address)
+
+**Guards on every call:**
+
+- Capability-gated on `registerResidents`, exactly like creating a resident
+- Rate limited to **20/min** per client — the ID is short enough to be guessable otherwise
+- Increments `shareCount` and stamps `lastSharedAt` / `lastSharedWithHostelId`
+- Writes an `AuditLog` entry (`RESIDENT_PROFILE_SHARED`)
+- Sends the **owner** an in-app `Notification` — a hostel reading someone's guardian numbers and blood group is never silent
+
+| Error code | Status | Meaning |
+|---|---|---|
+| `RESIDENT_ID_INVALID` | 422 | Not an ID — did not parse to `HH-XXXX-XXXX` |
+| `RESIDENT_PROFILE_NOT_FOUND` | 404 | No account holds that ID |
+| `RESIDENT_PROFILE_INCOMPLETE` | 404 | Account exists but the profile was never completed |
+| `RESIDENT_PROFILE_SHARING_DISABLED` | 403 | Owner turned sharing off |
+
+### 18.3 View tracking + when we ask for the profile
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/v1/public/hostels/:slug/views` | none or any role | Records the visit and returns the prompt decision in the same round trip |
+
+Response `data`:
+
+```json
+{
+  "counted": true,
+  "hostelId": "…",
+  "viewCount": 42,
+  "prompt": { "shouldCollectProfile": true, "reason": "BROWSING", "views": 3, "viewedHostels": 2 }
+}
+```
+
+- Sets an httpOnly `hh_visitor` cookie (opaque per-browser id, 1 year, not personal data)
+- **De-duplicated**: a repeat visit from the same visitor to the same hostel inside 30 minutes returns `counted: false` and does not inflate the count
+- Increments `Hostel.publicViewCount` and writes a `HostelPageView` row
+- `shouldCollectProfile` becomes `true` at **3 total de-duplicated views** (`PROFILE_PROMPT_VIEW_THRESHOLD`) — total visits, not distinct hostels, so a small catalogue still reaches the threshold
+- Always `false` once the user has a completed profile
+
+The other trigger is `POST /api/v1/public/hostels/:slug/inquiries`, whose response
+now carries `shouldCollectProfile` — someone who just enquired is about to be
+asked for these exact fields by the hostel anyway.
+
+The client snoozes a dismissed prompt for 7 days (`localStorage`), and never
+prompts on a first visit.
+
+### 18.4 Public share page
+
+`GET /resident-id/{ID}` — not an API route; this is where a plain phone camera
+lands after scanning the QR. It renders the ID in large type for reading out or
+copying and **discloses no personal data**. Marked `noindex, nofollow`.
 
 ---
 

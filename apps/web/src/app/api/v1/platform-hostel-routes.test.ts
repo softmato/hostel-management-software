@@ -5,64 +5,55 @@ const routeMocks = vi.hoisted(() => ({
   addHostelAdminInquiryNote: vi.fn(),
   addHostelAdminProfilePhoto: vi.fn(),
   approvePlatformHostel: vi.fn(),
-  createHostelAdminBed: vi.fn(),
-  createHostelAdminFloor: vi.fn(),
-  createHostelAdminRoom: vi.fn(),
   createPlatformHostelApplication: vi.fn(),
   createPublicHostelInquiry: vi.fn(),
   deleteHostelAdminProfilePhoto: vi.fn(),
   getHostelAdminProfile: vi.fn(),
-  getHostelAdminRoomMap: vi.fn(),
   getPlatformHostel: vi.fn(),
   getPublicHostelBySlug: vi.fn(),
-  listHostelAdminFloors: vi.fn(),
   listHostelAdminInquiries: vi.fn(),
-  listHostelAdminRooms: vi.fn(),
   listPlatformHostels: vi.fn(),
   listPublicHostels: vi.fn(),
+  loadApiPrincipal: vi.fn(),
   publishPlatformHostel: vi.fn(),
+  shouldPromptAfterInquiry: vi.fn(),
   rejectPlatformHostel: vi.fn(),
   requireHostelCapability: vi.fn(),
   requireHostelStaffPrincipal: vi.fn(),
   requirePlatformPrincipal: vi.fn(),
-  updateHostelAdminBed: vi.fn(),
   updateHostelAdminInquiryStatus: vi.fn(),
   updateHostelAdminProfile: vi.fn(),
-  updateHostelAdminRoom: vi.fn(),
   unpublishPlatformHostel: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
+  loadApiPrincipal: routeMocks.loadApiPrincipal,
   requireHostelCapability: routeMocks.requireHostelCapability,
   requireHostelStaffPrincipal: routeMocks.requireHostelStaffPrincipal,
   requirePlatformPrincipal: routeMocks.requirePlatformPrincipal,
+}));
+
+vi.mock("@/modules/users/resident-identity.service", () => ({
+  shouldPromptAfterInquiry: routeMocks.shouldPromptAfterInquiry,
 }));
 
 vi.mock("@/modules/hostels/hostel.service", () => ({
   addHostelAdminInquiryNote: routeMocks.addHostelAdminInquiryNote,
   addHostelAdminProfilePhoto: routeMocks.addHostelAdminProfilePhoto,
   approvePlatformHostel: routeMocks.approvePlatformHostel,
-  createHostelAdminBed: routeMocks.createHostelAdminBed,
-  createHostelAdminFloor: routeMocks.createHostelAdminFloor,
-  createHostelAdminRoom: routeMocks.createHostelAdminRoom,
   createPlatformHostelApplication: routeMocks.createPlatformHostelApplication,
   createPublicHostelInquiry: routeMocks.createPublicHostelInquiry,
   deleteHostelAdminProfilePhoto: routeMocks.deleteHostelAdminProfilePhoto,
   getHostelAdminProfile: routeMocks.getHostelAdminProfile,
-  getHostelAdminRoomMap: routeMocks.getHostelAdminRoomMap,
   getPlatformHostel: routeMocks.getPlatformHostel,
   getPublicHostelBySlug: routeMocks.getPublicHostelBySlug,
-  listHostelAdminFloors: routeMocks.listHostelAdminFloors,
   listHostelAdminInquiries: routeMocks.listHostelAdminInquiries,
-  listHostelAdminRooms: routeMocks.listHostelAdminRooms,
   listPlatformHostels: routeMocks.listPlatformHostels,
   listPublicHostels: routeMocks.listPublicHostels,
   publishPlatformHostel: routeMocks.publishPlatformHostel,
   rejectPlatformHostel: routeMocks.rejectPlatformHostel,
-  updateHostelAdminBed: routeMocks.updateHostelAdminBed,
   updateHostelAdminInquiryStatus: routeMocks.updateHostelAdminInquiryStatus,
   updateHostelAdminProfile: routeMocks.updateHostelAdminProfile,
-  updateHostelAdminRoom: routeMocks.updateHostelAdminRoom,
   unpublishPlatformHostel: routeMocks.unpublishPlatformHostel,
 }));
 
@@ -79,29 +70,12 @@ vi.mock("@/modules/hostels/hostel-profile.service", () => ({
   updateHostelAdminProfile: routeMocks.updateHostelAdminProfile,
 }));
 
-vi.mock("@/modules/hostels/hostel-spatial.service", () => ({
-  createHostelAdminBed: routeMocks.createHostelAdminBed,
-  createHostelAdminFloor: routeMocks.createHostelAdminFloor,
-  createHostelAdminRoom: routeMocks.createHostelAdminRoom,
-  getHostelAdminRoomMap: routeMocks.getHostelAdminRoomMap,
-  listHostelAdminFloors: routeMocks.listHostelAdminFloors,
-  listHostelAdminRooms: routeMocks.listHostelAdminRooms,
-  updateHostelAdminBed: routeMocks.updateHostelAdminBed,
-  updateHostelAdminRoom: routeMocks.updateHostelAdminRoom,
-}));
-
-import * as adminBedDetailRoute from "@/app/api/v1/hostel-admin/beds/[id]/route";
-import * as adminBedsRoute from "@/app/api/v1/hostel-admin/beds/route";
-import * as adminFloorsRoute from "@/app/api/v1/hostel-admin/floors/route";
 import * as adminInquiryNotesRoute from "@/app/api/v1/hostel-admin/inquiries/[id]/notes/route";
 import * as adminInquiryStatusRoute from "@/app/api/v1/hostel-admin/inquiries/[id]/status/route";
 import * as adminInquiriesRoute from "@/app/api/v1/hostel-admin/inquiries/route";
 import * as adminPhotosDetailRoute from "@/app/api/v1/hostel-admin/profile/photos/[photoId]/route";
 import * as adminPhotosRoute from "@/app/api/v1/hostel-admin/profile/photos/route";
 import * as adminProfileRoute from "@/app/api/v1/hostel-admin/profile/route";
-import * as adminRoomMapRoute from "@/app/api/v1/hostel-admin/room-map/route";
-import * as adminRoomDetailRoute from "@/app/api/v1/hostel-admin/rooms/[id]/route";
-import * as adminRoomsRoute from "@/app/api/v1/hostel-admin/rooms/route";
 import * as platformApproveRoute from "@/app/api/v1/platform/hostels/[id]/approve/route";
 import * as platformPublishRoute from "@/app/api/v1/platform/hostels/[id]/publish/route";
 import * as platformRejectRoute from "@/app/api/v1/platform/hostels/[id]/reject/route";
@@ -425,6 +399,8 @@ describe("platform hostel routes", () => {
     routeMocks.createPublicHostelInquiry.mockResolvedValue({
       inquiry: { id: "inquiry-1", status: "NEW" },
     });
+    routeMocks.loadApiPrincipal.mockResolvedValue(null);
+    routeMocks.shouldPromptAfterInquiry.mockResolvedValue(true);
 
     const response = await publicInquiryRoute.POST(
       jsonRequest("/api/v1/public/hostels/64f0f0f0f0f0f0f0f0f0f0f3/inquiries", {
@@ -438,6 +414,8 @@ describe("platform hostel routes", () => {
 
     expect(response.status).toBe(201);
     expect(payload.data.inquiry.status).toBe("NEW");
+    // Signals the client to offer the fill-once resident profile.
+    expect(payload.data.shouldCollectProfile).toBe(true);
     expect(routeMocks.createPublicHostelInquiry).toHaveBeenCalledWith(
       "64f0f0f0f0f0f0f0f0f0f0f3",
       expect.objectContaining({
@@ -569,6 +547,7 @@ describe("platform hostel routes", () => {
     expect(routeMocks.addHostelAdminProfilePhoto).toHaveBeenCalledWith(
       {
         alt: "Front gate",
+        kind: "INTERIOR",
         url: "https://assets.example.com/front.jpg",
       },
       staffPrincipal,
@@ -580,135 +559,6 @@ describe("platform hostel routes", () => {
     );
   });
 
-  it("creates and lists floors for hostel admins", async () => {
-    routeMocks.createHostelAdminFloor.mockResolvedValue({
-      floor: { id: "floor-1", level: 1, name: "First Floor" },
-    });
-    routeMocks.listHostelAdminFloors.mockResolvedValue({
-      floors: [{ id: "floor-1", level: 1, name: "First Floor" }],
-    });
 
-    const createResponse = await adminFloorsRoute.POST(
-      jsonRequest("/api/v1/hostel-admin/floors", {
-        level: 1,
-        name: "First Floor",
-      }),
-    );
-    const listResponse = await adminFloorsRoute.GET(
-      getRequest("/api/v1/hostel-admin/floors"),
-    );
 
-    expect(createResponse.status).toBe(201);
-    expect(listResponse.status).toBe(200);
-    expect(routeMocks.createHostelAdminFloor).toHaveBeenCalledWith(
-      {
-        level: 1,
-        name: "First Floor",
-        sortOrder: 0,
-      },
-      staffPrincipal,
-    );
-    expect(routeMocks.listHostelAdminFloors).toHaveBeenCalledWith({}, staffPrincipal);
-  });
-
-  it("creates, lists, and updates rooms for hostel admins", async () => {
-    routeMocks.createHostelAdminRoom.mockResolvedValue({
-      room: { id: "room-1", roomNumber: "101" },
-    });
-    routeMocks.listHostelAdminRooms.mockResolvedValue({
-      rooms: [{ id: "room-1", roomNumber: "101" }],
-    });
-    routeMocks.updateHostelAdminRoom.mockResolvedValue({
-      room: { id: "room-1", repairStatus: "NEEDS_REPAIR" },
-    });
-
-    const createResponse = await adminRoomsRoute.POST(
-      jsonRequest("/api/v1/hostel-admin/rooms", {
-        capacity: 4,
-        floorId: "64f0f0f0f0f0f0f0f0f0f0f8",
-        roomNumber: "101",
-        roomType: "quad",
-      }),
-    );
-    const listResponse = await adminRoomsRoute.GET(
-      getRequest("/api/v1/hostel-admin/rooms"),
-    );
-    const updateResponse = await adminRoomDetailRoute.PATCH(
-      patchRequest("/api/v1/hostel-admin/rooms/64f0f0f0f0f0f0f0f0f0f0f9", {
-        repairStatus: "NEEDS_REPAIR",
-      }),
-      routeContext({ id: "64f0f0f0f0f0f0f0f0f0f0f9" }),
-    );
-
-    expect(createResponse.status).toBe(201);
-    expect(listResponse.status).toBe(200);
-    expect(updateResponse.status).toBe(200);
-    expect(routeMocks.createHostelAdminRoom).toHaveBeenCalledWith(
-      expect.objectContaining({
-        capacity: 4,
-        facilities: [],
-        repairStatus: "OK",
-        vacancyStatus: "VACANT",
-      }),
-      staffPrincipal,
-    );
-    expect(routeMocks.updateHostelAdminRoom).toHaveBeenCalledWith(
-      "64f0f0f0f0f0f0f0f0f0f0f9",
-      { repairStatus: "NEEDS_REPAIR" },
-      staffPrincipal,
-    );
-  });
-
-  it("creates and updates beds for hostel admins", async () => {
-    routeMocks.createHostelAdminBed.mockResolvedValue({
-      bed: { id: "bed-1", status: "AVAILABLE" },
-    });
-    routeMocks.updateHostelAdminBed.mockResolvedValue({
-      bed: { id: "bed-1", status: "MAINTENANCE" },
-    });
-
-    const createResponse = await adminBedsRoute.POST(
-      jsonRequest("/api/v1/hostel-admin/beds", {
-        bedNumber: "A",
-        roomId: "64f0f0f0f0f0f0f0f0f0f0f9",
-      }),
-    );
-    const updateResponse = await adminBedDetailRoute.PATCH(
-      patchRequest("/api/v1/hostel-admin/beds/64f0f0f0f0f0f0f0f0f0f0fa", {
-        status: "MAINTENANCE",
-      }),
-      routeContext({ id: "64f0f0f0f0f0f0f0f0f0f0fa" }),
-    );
-
-    expect(createResponse.status).toBe(201);
-    expect(updateResponse.status).toBe(200);
-    expect(routeMocks.createHostelAdminBed).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bedNumber: "A",
-        repairStatus: "OK",
-        status: "AVAILABLE",
-      }),
-      staffPrincipal,
-    );
-    expect(routeMocks.updateHostelAdminBed).toHaveBeenCalledWith(
-      "64f0f0f0f0f0f0f0f0f0f0fa",
-      { status: "MAINTENANCE" },
-      staffPrincipal,
-    );
-  });
-
-  it("loads the hostel-admin room map", async () => {
-    routeMocks.getHostelAdminRoomMap.mockResolvedValue({
-      floors: [{ id: "floor-1", rooms: [] }],
-    });
-
-    const response = await adminRoomMapRoute.GET(
-      getRequest("/api/v1/hostel-admin/room-map"),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.data.floors).toHaveLength(1);
-    expect(routeMocks.getHostelAdminRoomMap).toHaveBeenCalledWith({}, staffPrincipal);
-  });
 });

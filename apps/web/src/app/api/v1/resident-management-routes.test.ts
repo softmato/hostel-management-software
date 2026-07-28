@@ -88,13 +88,12 @@ describe("resident management routes", () => {
 
     const response = await residentsRoute.POST(
       jsonRequest("/api/v1/hostel-admin/residents", {
-        bedId: "64f0f0f0f0f0f0f0f0f0f0f7",
         depositAmount: 5000,
         firstName: "Asha",
         lastName: "Rai",
         moveInDate: "2030-01-01",
         phone: "9800000000",
-        roomId: "64f0f0f0f0f0f0f0f0f0f0f6",
+        roomType: "Four Sharing",
       }),
     );
     const payload = await response.json();
@@ -103,7 +102,6 @@ describe("resident management routes", () => {
     expect(payload.data.resident.status).toBe("PENDING");
     expect(routeMocks.createResident).toHaveBeenCalledWith(
       expect.objectContaining({
-        bedId: "64f0f0f0f0f0f0f0f0f0f0f7",
         firstName: "Asha",
         moveInDate: expect.any(Date),
         status: "PENDING",

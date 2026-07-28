@@ -324,10 +324,10 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Hostel Profile",
       },
       {
-        description: "Floor, room, and bed map with vacancy and repair status.",
+        description: "Room and bed map with vacancy and repair status.",
         href: "/hostel-admin/rooms",
         icon: "bed",
-        keywords: ["rooms", "beds", "floors", "vacancy", "map", "allocation"],
+        keywords: ["rooms", "beds", "vacancy", "map", "allocation"],
         label: "Rooms & Beds",
       },
     ],
@@ -605,3 +605,33 @@ export const PLATFORM_SEARCH_ENTRIES = searchEntriesFromNav(PLATFORM_NAV);
 export const HOSTEL_ADMIN_SEARCH_ENTRIES = searchEntriesFromNav(HOSTEL_ADMIN_NAV);
 export const RESIDENT_SEARCH_ENTRIES = searchEntriesFromNav(RESIDENT_NAV);
 export const GUARDIAN_SEARCH_ENTRIES = searchEntriesFromNav(GUARDIAN_NAV);
+
+/* -------------------------------------------------------------------------- */
+/* Tenant-scoped hostel admin URLs                                            */
+/* -------------------------------------------------------------------------- */
+
+export const LEGACY_HOSTEL_ADMIN_PREFIX = "/hostel-admin";
+
+/** `/hostel-admin/payments` → `/green-view-hostel/admin/payments`. */
+export function hostelAdminHref(slug: string, href: string) {
+  if (!href.startsWith(LEGACY_HOSTEL_ADMIN_PREFIX)) {
+    return href;
+  }
+
+  return `/${slug}/admin${href.slice(LEGACY_HOSTEL_ADMIN_PREFIX.length)}`;
+}
+
+/** The same nav tree, pointed at one hostel's workspace. */
+export function hostelAdminNavForSlug(slug: string): PortalNavGroup[] {
+  return HOSTEL_ADMIN_NAV.map((group) => ({
+    ...group,
+    items: group.items.map((item) => ({
+      ...item,
+      children: item.children?.map((child) => ({
+        ...child,
+        href: hostelAdminHref(slug, child.href),
+      })),
+      href: hostelAdminHref(slug, item.href),
+    })),
+  }));
+}

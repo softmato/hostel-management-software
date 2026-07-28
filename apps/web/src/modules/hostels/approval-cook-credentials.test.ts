@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   hostelFindOne: vi.fn(),
   hostelFindOneAndUpdate: vi.fn(),
+  materializeRoomsFromConfigurations: vi.fn(),
   provisionCookAccount: vi.fn(),
   registerOrUpgradeUserByEmail: vi.fn(),
   sendEmail: vi.fn(),
@@ -61,6 +62,12 @@ vi.mock("@/modules/users/user.service", () => ({
 // owner in the approval email.
 vi.mock("@/modules/food/cook.service", () => ({
   provisionCookAccount: mocks.provisionCookAccount,
+}));
+
+// Approval also builds the hostel's rooms from its registration details. That
+// path has its own tests; here it only needs to stay out of the way.
+vi.mock("@/modules/hostels/hostel-capacity.service", () => ({
+  materializeRoomsFromConfigurations: mocks.materializeRoomsFromConfigurations,
 }));
 
 vi.mock("@hostel/shared/email/sender", () => ({ sendEmail: mocks.sendEmail }));

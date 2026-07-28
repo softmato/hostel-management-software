@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageSquareWarning } from "lucide-react";
-import { memo, useCallback, useEffect, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import {
   EmptyState,
@@ -9,7 +9,10 @@ import {
   Panel,
   StatusBadge,
 } from "@/app/_components/shared-ui";
+import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 
 import {
   field,
@@ -17,109 +20,98 @@ import {
   PageHeader,
   type Complaint,
   type ComplaintSummary,
-  type LoadState,
 } from "./hostel-admin-shared";
 
+const EMPTY_SUMMARY: ComplaintSummary = {
+  inProgress: 0,
+  overdue: 0,
+  pending: 0,
+  rejected: 0,
+  resolved: 0,
+  total: 0,
+};
+
 export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage() {
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [summary, setSummary] = useState<ComplaintSummary>({
-    inProgress: 0,
-    overdue: 0,
-    pending: 0,
-    rejected: 0,
-    resolved: 0,
-    total: 0,
-  });
   const [categoryFilter, setCategoryFilter] = useState("");
   const [filter, setFilter] = useState("");
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const invalidate = useInvalidateResources();
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const params = new URLSearchParams();
+  // Each filter combination is its own cache entry, so flipping back to a
+  // filter already viewed paints from cache instead of re-fetching blind.
+  const complaintsResource = usePortalResource<{
+    complaints: Complaint[];
+    summary: ComplaintSummary;
+  }>(hostelAdminEndpoints.complaints({ category: categoryFilter, status: filter }), {
+    errorMessage: "Could not load complaints.",
+  });
 
-      if (filter) {
-        params.set("status", filter);
-      }
-
-      if (categoryFilter) {
-        params.set("category", categoryFilter);
-      }
-
-      const data = await browserApi<{
-        complaints: Complaint[];
-        summary: ComplaintSummary;
-      }>(
-        `/api/v1/hostel-admin/complaints${
-          params.size > 0 ? `?${params.toString()}` : ""
-        }`,
-      );
-
-      setComplaints(data.complaints);
-      setSummary(data.summary);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load complaints.");
-      setState("error");
-    }
-  }, [categoryFilter, filter]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const complaints = useMemo(
+    () => complaintsResource.data?.complaints ?? [],
+    [complaintsResource.data],
+  );
+  const summary = complaintsResource.data?.summary ?? EMPTY_SUMMARY;
+  const state = complaintsResource.state;
+  const message = actionMessage || complaintsResource.message;
 
   const handleReply = useCallback(
     async (event: FormEvent<HTMLFormElement>, complaintId: string) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
       const reply = field(form, "message");
 
       if (!reply) {
-        setMessage("Reply message is required.");
+        setActionMessage("Reply message is required.");
         return;
       }
 
       try {
-        await browserApi(`/api/v1/hostel-admin/complaints/${complaintId}/reply`, {
-          body: JSON.stringify({ message: reply }),
-          method: "POST",
-        });
-        event.currentTarget.reset();
-        setMessage("Reply saved.");
-        await load();
+        await browserApi(
+          `${hostelAdminEndpoints.complaints()}/${complaintId}/reply`,
+          {
+            body: JSON.stringify({ message: reply }),
+            method: "POST",
+          },
+        );
+        formElement.reset();
+        setActionMessage("Reply saved.");
+        invalidate(hostelAdminEndpoints.complaintsAll);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not save reply.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not save reply.",
+        );
       }
     },
-    [load],
+    [invalidate],
   );
 
   const handleStatus = useCallback(
     async (event: FormEvent<HTMLFormElement>, complaintId: string) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
 
       try {
-        await browserApi(`/api/v1/hostel-admin/complaints/${complaintId}/status`, {
-          body: JSON.stringify({
-            response: optionalField(form, "response"),
-            status: field(form, "status"),
-          }),
-          method: "PATCH",
-        });
-        setMessage("Complaint status updated.");
-        await load();
+        await browserApi(
+          `${hostelAdminEndpoints.complaints()}/${complaintId}/status`,
+          {
+            body: JSON.stringify({
+              response: optionalField(form, "response"),
+              status: field(form, "status"),
+            }),
+            method: "PATCH",
+          },
+        );
+        setActionMessage("Complaint status updated.");
+        invalidate(hostelAdminEndpoints.complaintsAll, hostelAdminEndpoints.complaintsReport);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not update status.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not update status.",
+        );
       }
     },
-    [load],
+    [invalidate],
   );
 
   return (
@@ -236,7 +228,7 @@ export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage
               ) : null}
 
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <form
+                <BusyForm
                   className="grid gap-2"
                   onSubmit={(event) => handleReply(event, complaint.id)}
                 >
@@ -245,11 +237,11 @@ export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage
                     name="message"
                     placeholder="Reply to resident"
                   />
-                  <button className="h-10 rounded-md border border-role-admin px-3 text-sm font-semibold text-role-admin">
+                  <SubmitButton className="h-10 rounded-md border border-role-admin px-3 text-sm font-semibold text-role-admin">
                     Save Reply
-                  </button>
-                </form>
-                <form
+                  </SubmitButton>
+                </BusyForm>
+                <BusyForm
                   className="grid gap-2"
                   onSubmit={(event) => handleStatus(event, complaint.id)}
                 >
@@ -268,10 +260,10 @@ export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage
                     name="response"
                     placeholder="Optional response"
                   />
-                  <button className="h-10 rounded-md bg-role-admin px-3 text-sm font-semibold text-white">
+                  <SubmitButton className="h-10 rounded-md bg-role-admin px-3 text-sm font-semibold text-white">
                     Update Status
-                  </button>
-                </form>
+                  </SubmitButton>
+                </BusyForm>
               </div>
             </div>
           ))}

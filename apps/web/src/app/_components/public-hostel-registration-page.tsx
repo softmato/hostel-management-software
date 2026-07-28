@@ -43,6 +43,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
+import { acceptAttribute, uploadHint } from "@/lib/uploads/accepts";
+import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 
 import { PublicShell, formatMoney } from "./shared";
@@ -303,19 +305,24 @@ const PORTALS: { app: boolean; desc: string; icon: LucideIcon; title: string; we
   { app: true, desc: "Guardians track safety & attendance.", icon: Users, title: "Guardian App", web: false },
 ];
 
-async function uploadPublicFile(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append("file", file);
-  const res = await fetch("/api/v1/public/files/upload", { body: formData, method: "POST" });
-  const text = await res.text();
-  let payload: { success: boolean; message?: string; data?: { url: string } };
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new Error(`Server returned non-JSON response (${res.status}). Check that the API server is running.`);
+/**
+ * Registration happens before the owner has an account, so documents go through
+ * the rate-limited public multipart route and come back as URLs. Progress,
+ * validation and error reporting are the universal uploader's job.
+ */
+async function uploadPublicFile(file: File, label: string): Promise<string> {
+  const uploaded = await uploadFile(file, {
+    kind: "document",
+    label,
+    silent: true,
+    target: "public",
+  });
+
+  if (!uploaded?.url) {
+    throw new Error("Upload failed");
   }
-  if (!res.ok || !payload.success) throw new Error(payload.message ?? "Upload failed");
-  return payload.data!.url;
+
+  return uploaded.url;
 }
 
 function createRoom(roomType = "Single Room"): RoomConfig {
@@ -407,17 +414,24 @@ function PortalsCard({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Registration-specific file field. It keeps its own row list because the
+ * wizard persists document URLs into the saved draft, but accept rules, hint
+ * copy and the upload itself all come from the universal uploader.
+ */
 function FileUploadArea({
   files,
   onFileSelect,
+  onFilesDropped,
   onRemove,
-  accept = "image/jpeg,image/png,image/webp,application/pdf",
+  accept = acceptAttribute("document"),
   maxFiles = 1,
   label = "Upload file",
-  hint = "PDF, JPG or PNG (Max. 5MB)",
+  hint,
 }: {
   files: UploadedFile[];
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  onFilesDropped?: (files: File[]) => Promise<void>;
   onRemove: (id: string) => void;
   accept?: string;
   maxFiles?: number;
@@ -425,6 +439,7 @@ function FileUploadArea({
   hint?: string;
 }) {
   const canAdd = files.length < maxFiles;
+  const [isDragging, setIsDragging] = useState(false);
 
   return (
     <div className="space-y-2">
@@ -453,10 +468,29 @@ function FileUploadArea({
         </div>
       ))}
       {canAdd ? (
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border px-4 py-4 text-center transition hover:border-brand-teal hover:bg-brand-teal/5">
+        <label
+          className={cn(
+            "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border px-4 py-4 text-center transition hover:border-brand-teal hover:bg-brand-teal/5",
+            isDragging && "border-solid border-brand-teal bg-brand-teal/5",
+          )}
+          onDragLeave={() => setIsDragging(false)}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setIsDragging(false);
+            void onFilesDropped?.(Array.from(event.dataTransfer.files ?? []));
+          }}
+        >
           <Upload className="size-4 text-muted-foreground" />
-          <span className="text-xs font-semibold text-foreground">{label}</span>
-          <span className="text-[10px] text-muted-foreground">{hint}</span>
+          <span className="text-xs font-semibold text-foreground">
+            {isDragging ? "Drop to upload" : label}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {hint ?? uploadHint("document", accept)}
+          </span>
           <input accept={accept} className="sr-only" hidden multiple={maxFiles > 1} onChange={onFileSelect} type="file" />
         </label>
       ) : null}
@@ -465,7 +499,6 @@ function FileUploadArea({
 }
 
 export function PublicHostelRegistrationPage() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const hostelNameRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const ownerNameRef = useRef<HTMLInputElement>(null);
@@ -750,21 +783,51 @@ export function PublicHostelRegistrationPage() {
     vacantBeds: summary.vacantBeds,
   };
 
-  function handleFileSelect(setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>) {
-    return async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []);
-      if (!files.length) return;
+  /**
+   * Uploads a picked/dropped batch into one document slot. Rows appear
+   * immediately and are removed again if their upload fails — the global
+   * toaster reports the reason and offers a retry.
+   */
+  function uploadIntoSlot(
+    setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
+    label: string,
+  ) {
+    return async (files: File[]) => {
       for (const file of files) {
         const id = crypto.randomUUID();
         setter((prev) => [...prev, { id, name: file.name, url: "", uploading: true }]);
         try {
-          const url = await uploadPublicFile(file);
+          const url = await uploadPublicFile(file, label);
           setter((prev) => prev.map((f) => (f.id === id ? { ...f, url, uploading: false } : f)));
         } catch {
           setter((prev) => prev.filter((f) => f.id !== id));
         }
       }
-      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+  }
+
+  function handleFileSelect(
+    setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
+    label = "Document",
+  ) {
+    return async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const input = e.currentTarget;
+      const files = Array.from(input.files ?? []);
+      if (!files.length) return;
+      await uploadIntoSlot(setter, label)(files);
+      input.value = "";
+    };
+  }
+
+  /** Wires one document slot's pick, drop and remove handlers in one spread. */
+  function docSlot(
+    setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
+    label: string,
+  ) {
+    return {
+      onFileSelect: handleFileSelect(setter, label),
+      onFilesDropped: uploadIntoSlot(setter, label),
+      onRemove: (id: string) => setter((prev) => prev.filter((file) => file.id !== id)),
     };
   }
 
@@ -776,7 +839,7 @@ export function PublicHostelRegistrationPage() {
     setRulesDoc([{ id, name: fileName, url: "", uploading: true }]);
     try {
       const file = new File([text], fileName, { type: "text/plain" });
-      const url = await uploadPublicFile(file);
+      const url = await uploadPublicFile(file, "Rules & policies");
       setRulesDoc([{ id, name: fileName, url, uploading: false }]);
     } catch {
       setRulesDoc([]);
@@ -1575,10 +1638,8 @@ export function PublicHostelRegistrationPage() {
                         </div>
                         <FileUploadArea
                           files={ownerIdDoc}
-                          hint="PDF, JPG or PNG (Max. 5MB)"
                           label={idProofType ? `Upload ${idProofType}` : "Select an ID type first, then upload"}
-                          onFileSelect={handleFileSelect(setOwnerIdDoc)}
-                          onRemove={(id) => setOwnerIdDoc((p) => p.filter((x) => x.id !== id))}
+                          {...docSlot(setOwnerIdDoc, idProofType || "Owner ID proof")}
                         />
                       </div>
                     </div>
@@ -1588,23 +1649,23 @@ export function PublicHostelRegistrationPage() {
                     </p>
 
                     <DocRow desc="Property deed / ownership certificate (optional)" icon={FileText} title="Ownership Proof">
-                      <FileUploadArea files={ownershipDoc} label="Upload ownership document" onFileSelect={handleFileSelect(setOwnershipDoc)} onRemove={(id) => setOwnershipDoc((p) => p.filter((x) => x.id !== id))} />
+                      <FileUploadArea files={ownershipDoc} label="Upload ownership document" {...docSlot(setOwnershipDoc, "Ownership proof")} />
                     </DocRow>
                     <DocRow desc="PAN card or VAT registration certificate (optional)" icon={CreditCard} title="PAN / VAT Document">
-                      <FileUploadArea files={panDoc} label="Upload PAN / VAT" onFileSelect={handleFileSelect(setPanDoc)} onRemove={(id) => setPanDoc((p) => p.filter((x) => x.id !== id))} />
+                      <FileUploadArea files={panDoc} label="Upload PAN / VAT" {...docSlot(setPanDoc, "PAN / VAT document")} />
                     </DocRow>
                     <DocRow desc="Local authority license or registration (optional)" icon={ScrollText} title="Hostel License / Registration">
-                      <FileUploadArea files={licenseDoc} label="Upload license or registration" onFileSelect={handleFileSelect(setLicenseDoc)} onRemove={(id) => setLicenseDoc((p) => p.filter((x) => x.id !== id))} />
+                      <FileUploadArea files={licenseDoc} label="Upload license or registration" {...docSlot(setLicenseDoc, "Hostel license")} />
                     </DocRow>
                     <DocRow desc="Bank statement or cancelled cheque (optional)" icon={Landmark} title="Bank Account Details">
-                      <FileUploadArea files={bankDoc} label="Upload bank statement or cheque" onFileSelect={handleFileSelect(setBankDoc)} onRemove={(id) => setBankDoc((p) => p.filter((x) => x.id !== id))} />
+                      <FileUploadArea files={bankDoc} label="Upload bank statement or cheque" {...docSlot(setBankDoc, "Bank document")} />
                     </DocRow>
 
                     <DocRow desc="Clear photos of the hostel building exterior (optional)" icon={Image} title="Hostel Exterior Photos">
-                      <FileUploadArea accept="image/jpeg,image/png,image/webp" files={exteriorPhotos} hint="JPG or PNG (Max. 5MB each)" label="Upload 2–5 exterior photos" maxFiles={5} onFileSelect={handleFileSelect(setExteriorPhotos)} onRemove={(id) => setExteriorPhotos((p) => p.filter((x) => x.id !== id))} />
+                      <FileUploadArea accept={acceptAttribute("image")} files={exteriorPhotos} label="Upload 2–5 exterior photos" maxFiles={5} {...docSlot(setExteriorPhotos, "Exterior photo")} />
                     </DocRow>
                     <DocRow desc="Photos of rooms and common areas (optional)" icon={Image} title="Room Photos">
-                      <FileUploadArea accept="image/jpeg,image/png,image/webp" files={roomPhotos} hint="JPG or PNG (Max. 5MB each)" label="Upload 5–10 room photos" maxFiles={10} onFileSelect={handleFileSelect(setRoomPhotos)} onRemove={(id) => setRoomPhotos((p) => p.filter((x) => x.id !== id))} />
+                      <FileUploadArea accept={acceptAttribute("image")} files={roomPhotos} label="Upload 5–10 room photos" maxFiles={10} {...docSlot(setRoomPhotos, "Room photo")} />
                     </DocRow>
                     <p className="flex items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5 text-[11px] font-medium text-muted-foreground">
                       <Info className="mt-0.5 size-3.5 shrink-0 text-brand-teal" />
@@ -1658,17 +1719,19 @@ export function PublicHostelRegistrationPage() {
                         <span className="text-[11px] text-muted-foreground">or</span>
                         <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted">
                           <Upload className="size-3.5" /> Upload your own (PDF/TXT)
-                          <input accept="application/pdf,text/plain" className="sr-only" onChange={(e) => { setRulesTemplateId("custom"); void handleFileSelect(setRulesDoc)(e); }} type="file" />
+                          <input accept="application/pdf,text/plain" className="sr-only" onChange={(e) => { setRulesTemplateId("custom"); void handleFileSelect(setRulesDoc, "Rules & policies")(e); }} type="file" />
                         </label>
                       </div>
 
                       {rulesDoc.length > 0 ? (
                         <div className="mt-3">
                           <FileUploadArea
+                            accept="application/pdf,text/plain"
                             files={rulesDoc}
                             label="Replace rules & policies file"
                             maxFiles={0}
-                            onFileSelect={handleFileSelect(setRulesDoc)}
+                            onFileSelect={handleFileSelect(setRulesDoc, "Rules & policies")}
+                            onFilesDropped={uploadIntoSlot(setRulesDoc, "Rules & policies")}
                             onRemove={(id) => { setRulesDoc((p) => p.filter((x) => x.id !== id)); setRulesTemplateId(null); }}
                           />
                         </div>
@@ -2151,13 +2214,15 @@ export function HostelStatusView({
   const [error, setError] = useState("");
 
   async function handleUpload(index: number, e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const input = e.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
     const id = crypto.randomUUID();
+    const label = application.requestedDocuments[index]?.documentType ?? "Requested document";
     setError("");
     setFiles((prev) => ({ ...prev, [index]: { id, name: file.name, url: "", uploading: true } }));
     try {
-      const url = await uploadPublicFile(file);
+      const url = await uploadPublicFile(file, label);
       setFiles((prev) => ({ ...prev, [index]: { id, name: file.name, url, uploading: false } }));
     } catch {
       setFiles((prev) => {
@@ -2165,9 +2230,10 @@ export function HostelStatusView({
         delete next[index];
         return next;
       });
+      // The toaster already explains why; this keeps the inline form honest too.
       setError("Upload failed. Please try again.");
     }
-    e.target.value = "";
+    input.value = "";
   }
 
   const anyUploading = Object.values(files).some((f) => f.uploading);

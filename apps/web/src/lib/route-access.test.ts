@@ -31,6 +31,29 @@ describe("route access", () => {
     expect(protectedRouteRuleForPath("/resident-life")).toBeUndefined();
   });
 
+  it("protects tenant-scoped hostel workspace paths with the hostel-admin roles", () => {
+    expect(protectedRouteRuleForPath("/green-view-hostel/admin/payments")?.roles).toEqual(
+      [Role.HOSTEL_ADMIN, Role.WARDEN],
+    );
+    expect(protectedRouteRuleForPath("/green-view-hostel/admin")?.roles).toEqual([
+      Role.HOSTEL_ADMIN,
+      Role.WARDEN,
+    ]);
+    // "admin" has to be the second segment — public pages are unaffected.
+    expect(protectedRouteRuleForPath("/hostels/green-view-hostel")).toBeUndefined();
+    expect(protectedRouteRuleForPath("/admin")).toBeUndefined();
+  });
+
+  it("allows staff next redirects into their own hostel workspace", () => {
+    expect(
+      isAllowedNextPath(Role.HOSTEL_ADMIN, "/green-view-hostel/admin/residents"),
+    ).toBe(true);
+    expect(isAllowedNextPath(Role.WARDEN, "/green-view-hostel/admin/rooms")).toBe(true);
+    expect(
+      isAllowedNextPath(Role.RESIDENT, "/green-view-hostel/admin/residents"),
+    ).toBe(false);
+  });
+
   it("allows next redirects only inside the user's own portal", () => {
     expect(isAllowedNextPath(Role.HOSTEL_ADMIN, "/hostel-admin/residents")).toBe(true);
     expect(isAllowedNextPath(Role.HOSTEL_ADMIN, "/platform/dashboard")).toBe(false);

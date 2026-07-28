@@ -221,6 +221,10 @@ interface IUser {
   mustChangePassword: boolean;
   isActive: boolean;
   tokenVersion: number; // bump to invalidate all refresh tokens
+  // Public, shareable handle for the portable resident identity (`HH-XXXX-XXXX`).
+  // Minted lazily on the user's first UserResidentProfile save, so most accounts
+  // have none. Not personal data on its own — see UserResidentProfile.
+  userResidentId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -251,15 +255,124 @@ const UserSchema = new Schema<IUser>({
   mustChangePassword: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true, index: true },
   tokenVersion: { type: Number, default: 0 },
+  userResidentId: { type: String, trim: true, uppercase: true },
 }, { timestamps: true });
 
 // Indexes
 UserSchema.index({ email: 1 });
 UserSchema.index({ googleId: 1 }, { sparse: true });
 UserSchema.index({ role: 1, isActive: 1 });
+UserSchema.index({ userResidentId: 1 }, { sparse: true, unique: true });
 
 export const UserModel = model<IUser>('User', UserSchema);
 ```
+
+---
+
+### UserResidentProfile
+
+The "fill it once, reuse it everywhere" personal profile behind a user's
+`userResidentId` and QR code. See PHASES.md §5A and API.md §18.
+
+**Everything personal is one encrypted blob.** No personal field is stored as a
+column, indexed, or queryable — deliberately. The only lookup key is
+`User.userResidentId`, which is a random public handle, so a database dump is
+useless without `PERSONAL_DATA_ENCRYPTION_KEY`.
+
+```typescript
+interface IUserResidentProfile {
+  _id: ObjectId;
+  userId: ObjectId; // ref User, unique
+  // AES-256-GCM envelope: `v1.<iv>.<authTag>.<ciphertext>`, fresh IV per write.
+  // Decrypts to the ResidentProfileData payload below.
+  encryptedData: string;
+  payloadVersion: number; // schema version of the decrypted payload
+  completedAt?: Date; // absent until the first successful save
+  shareCount: number; // bumped each time a hostel pulls this profile
+  lastSharedAt?: Date;
+  lastSharedWithHostelId?: ObjectId; // ref Hostel
+  sharingEnabled: boolean; // user can switch sharing off without deleting
+  createdBy?: ObjectId; // ref User
+  updatedBy?: ObjectId; // ref User
+  isDeleted: boolean;
+  deletedAt?: Date;
+  deletedBy?: ObjectId; // ref User
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// The decrypted shape of `encryptedData`. Never persisted in the clear.
+// Every field feeds something that already exists downstream:
+interface ResidentProfileData {
+  // → Resident
+  fullName: string;
+  primaryPhone: string;
+  primaryEmail: string;      // the account email
+  occupation: 'STUDENT' | 'WORKING_PROFESSIONAL' | 'OTHER';
+  // → Inquiry, and BOYS/GIRLS/CO_LIVING matching
+  gender: 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY';
+  budgetRange?: string;
+  // → SOSAlert + safety handling
+  bloodGroup: 'A+'|'A-'|'B+'|'B-'|'AB+'|'AB-'|'O+'|'O-'|'UNKNOWN';
+  medicalNotes?: string;
+  // → Guardian (email is how the guardian-portal invite is sent)
+  guardianName: string;
+  guardianRelation: string;
+  guardianPhone: string;
+  guardianEmail?: string;
+  secondGuardianName?: string;
+  secondGuardianRelation?: string;
+  secondGuardianPhone?: string;
+  secondGuardianEmail?: string;
+  // → EmergencyContact (falls back to the primary guardian when blank)
+  emergencyContactName?: string;
+  emergencyContactRelation?: string;
+  emergencyContactPhone?: string;
+  // → MoveInChecklist.documentsCollected
+  governmentIdType?: 'CITIZENSHIP'|'PASSPORT'|'DRIVING_LICENSE'|'STUDENT_ID'|'NATIONAL_ID'|'OTHER';
+  governmentIdNumber?: string;
+  // → Hostel.food (veg / non-veg service planning)
+  dietaryPreference: 'NO_PREFERENCE'|'VEG'|'NON_VEG'|'EGGETARIAN'|'VEGAN';
+  // → the "educationInfo" named in PHASES.md §2.1
+  institution?: string;
+  courseOrDesignation?: string;
+  // Supporting detail
+  dateOfBirth?: string;      // YYYY-MM-DD; `age` is derived on read, never stored
+  alternatePhone?: string;
+  backupEmail?: string;      // at most two emails total, must differ from primaryEmail
+  permanentAddress?: string;
+  city?: string;
+  province?: string;
+  interests: string[];       // max 12, de-duplicated
+}
+
+const UserResidentProfileSchema = new Schema<IUserResidentProfile>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  encryptedData: { type: String, required: true },
+  payloadVersion: { type: Number, default: 1 },
+  completedAt: { type: Date },
+  shareCount: { type: Number, default: 0, min: 0 },
+  lastSharedAt: { type: Date },
+  lastSharedWithHostelId: { type: Schema.Types.ObjectId, ref: 'Hostel' },
+  sharingEnabled: { type: Boolean, default: true },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  updatedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date },
+  deletedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+}, { timestamps: true });
+
+UserResidentProfileSchema.index({ userId: 1 }, { unique: true });
+
+export const UserResidentProfileModel =
+  model<IUserResidentProfile>('UserResidentProfile', UserResidentProfileSchema);
+```
+
+**Deliberately absent:** room, bed, deposit, move-in date. Those are the warden's
+call per hostel, not portable facts about a person, and live on `Resident`.
+
+**Key rotation warning:** changing `PERSONAL_DATA_ENCRYPTION_KEY` makes every
+stored profile permanently unreadable. There is no re-encryption path yet.
 
 ---
 
@@ -310,6 +423,11 @@ interface IHostel {
   // Cached data
   nearbyPlaces: INearbyPlace[];
   nearbyPlacesLastUpdated?: Date;
+
+  // Denormalised running total of de-duplicated public-page visits, so the
+  // admin dashboard reads one number instead of aggregating HostelPageView.
+  // The event rows remain authoritative for unique/recent breakdowns.
+  publicViewCount: number;
   
   // Pricing (monthly per bed)
   rentPerBed?: number; // can vary by room, this is a display value
@@ -355,6 +473,7 @@ const HostelSchema = new Schema<IHostel>({
     }
   }],
   nearbyPlacesLastUpdated: { type: Date },
+  publicViewCount: { type: Number, default: 0, min: 0 },
   rentPerBed: { type: Number },
 }, { timestamps: true });
 
@@ -1334,6 +1453,61 @@ InquirySchema.index({ hostelId: 1, status: 1, createdAt: -1 });
 export const InquiryModel = model<IInquiry>('Inquiry', InquirySchema);
 ```
 
+### HostelPageView
+
+One row per visit to a hostel's **public** detail page (`/hostels/{slug}`). Two
+consumers, which is why the raw events are kept rather than only a counter:
+
+1. The hostel admin dashboard — "how many people looked at my listing", plus
+   unique visitors and a 30-day figure.
+2. The resident-identity prompt — a visitor who has viewed hostels 3+ times is
+   clearly room-hunting, which is when we offer the fill-once profile
+   (see API.md §18.3).
+
+Writes are **de-duplicated per visitor per hostel within 30 minutes**, so a page
+refresh or a back-navigation does not inflate the count.
+
+```typescript
+interface IHostelPageView {
+  _id: ObjectId;
+  hostelId: ObjectId; // ref Hostel
+  userId: ObjectId | null; // ref User; null for signed-out visitors
+  // Opaque per-browser id from the httpOnly `hh_visitor` cookie.
+  // Not personal data — it identifies a browser, not a person.
+  visitorKey: string;
+  referrer?: string; // truncated to 300 chars
+  userAgent?: string; // SHA-256 prefix, never the raw string
+  createdAt: Date; // no updatedAt — these rows are immutable
+}
+
+const HostelPageViewSchema = new Schema<IHostelPageView>({
+  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true },
+  userId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  visitorKey: { type: String, required: true, index: true },
+  referrer: { type: String, trim: true },
+  userAgent: { type: String, trim: true },
+}, { timestamps: { createdAt: true, updatedAt: false } });
+
+HostelPageViewSchema.index({ hostelId: 1, createdAt: -1 });
+HostelPageViewSchema.index({ hostelId: 1, visitorKey: 1, createdAt: -1 }); // dedupe window
+HostelPageViewSchema.index({ userId: 1, createdAt: -1 });
+HostelPageViewSchema.index({ visitorKey: 1, createdAt: -1 }); // prompt threshold
+
+export const HostelPageViewModel =
+  model<IHostelPageView>('HostelPageView', HostelPageViewSchema);
+```
+
+`Hostel.publicViewCount` is the denormalised running total, incremented in the
+same request. The admin dashboard reads that single number instead of
+aggregating this collection; the event rows stay authoritative for the
+unique-visitor and recent-traffic breakdowns.
+
+**Growth note:** this collection is append-only and unbounded. The 30-minute
+dedupe keeps it proportional to real sessions rather than page loads, but a TTL
+or periodic roll-up is worth adding before the platform carries serious traffic.
+
+---
+
 ### Referral
 
 ```typescript
@@ -1552,6 +1726,9 @@ export const AuditLogModel = model<IAuditLog>('AuditLog', AuditLogSchema);
 - `Resident.bedId` is unique (sparse) — enforces "a bed can only have one active resident" at the database level
 - `RatingReview` has a unique compound index on `(residentId, hostelId)` — enforces "one review per resident per hostel"
 - All timestamp-based queries (notices, complaints, payments) have compound indexes including `createdAt` or `dueDate` for efficient sorting
+- `User.userResidentId` is unique (sparse) — it is the single lookup key for a portable resident profile, and sparse because most accounts never create one
+- `UserResidentProfile` is indexed **only** on `userId`; no personal field is indexed, because every one of them lives inside the encrypted blob
+- `HostelPageView` carries `(hostelId, visitorKey, createdAt)` for the 30-minute dedupe check and `(visitorKey, createdAt)` for the profile-prompt threshold — both are per-request reads on the public detail page, so they must not table-scan
 
 ---
 

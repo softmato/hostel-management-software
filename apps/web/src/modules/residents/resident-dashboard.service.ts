@@ -2,14 +2,12 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
-import { BedModel } from "@hostel/db/models/Bed";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { FoodMenuModel } from "@hostel/db/models/FoodMenu";
 import { GuardianModel } from "@hostel/db/models/Guardian";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NoticeModel } from "@hostel/db/models/Notice";
 import { PaymentModel } from "@hostel/db/models/Payment";
-import { RoomModel } from "@hostel/db/models/Room";
 import {
   findCurrentResident,
   serializeResidentSummary,
@@ -32,18 +30,6 @@ type HostelRecord = {
     url?: string;
   }>;
   slug: string;
-};
-
-type RoomRecord = {
-  _id: Types.ObjectId;
-  roomNumber: string;
-  roomType: string;
-};
-
-type BedRecord = {
-  _id: Types.ObjectId;
-  bedNumber: string;
-  status: string;
 };
 
 type PaymentRecord = {
@@ -105,23 +91,12 @@ function serializeHostel(hostel: HostelRecord | null) {
   };
 }
 
-function serializeRoomBed(room: RoomRecord | null, bed: BedRecord | null) {
-  return {
-    bed: bed
-      ? {
-          bedNumber: bed.bedNumber,
-          id: bed._id.toString(),
-          status: bed.status,
-        }
-      : null,
-    room: room
-      ? {
-          id: room._id.toString(),
-          roomNumber: room.roomNumber,
-          roomType: room.roomType,
-        }
-      : null,
-  };
+/**
+ * Residents are placed by room type, not by room number, so this is all the
+ * accommodation detail there is to show them.
+ */
+function serializeRoomBed(roomType: string) {
+  return { roomType };
 }
 
 function serializePayment(payment: PaymentRecord) {
@@ -184,16 +159,11 @@ async function loadResidentBase(resident: ResidentRecord) {
   const todayEnd = new Date(todayStart);
   todayEnd.setDate(todayEnd.getDate() + 1);
 
-  const [hostel, room, bed, payments, notices, foodMenus] = await Promise.all([
+  const [hostel, payments, notices, foodMenus] = await Promise.all([
     HostelModel.findOne({
       _id: resident.hostelId,
       isDeleted: false,
     }).lean<HostelRecord | null>(),
-    RoomModel.findOne({
-      _id: resident.roomId,
-      isDeleted: false,
-    }).lean<RoomRecord | null>(),
-    BedModel.findOne({ _id: resident.bedId, isDeleted: false }).lean<BedRecord | null>(),
     PaymentModel.find({ residentId: resident._id, hostelId: resident.hostelId })
       .sort({ dueDate: -1 })
       .limit(6)
@@ -213,7 +183,7 @@ async function loadResidentBase(resident: ResidentRecord) {
       .lean<FoodMenuRecord[]>(),
   ]);
 
-  return { bed, foodMenus, hostel, notices, payments, room };
+  return { foodMenus, hostel, notices, payments, roomType: resident.roomType };
 }
 
 function buildFeeSummary(payments: PaymentRecord[]) {
@@ -241,7 +211,7 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
-  const { bed, foodMenus, hostel, notices, payments, room } =
+  const { foodMenus, hostel, notices, payments, roomType } =
     await loadResidentBase(resident);
 
   return {
@@ -259,7 +229,7 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
       },
       notices: notices.map(serializeNotice),
       resident: serializeResidentSummary(resident),
-      roomBed: serializeRoomBed(room, bed),
+      roomBed: serializeRoomBed(roomType),
     },
   };
 }
@@ -276,7 +246,7 @@ export async function getResidentProfile(principal: ApiPrincipal) {
       .sort({ isPrimary: -1, createdAt: 1 })
       .lean<EmergencyContactRecord[]>(),
   ]);
-  const { bed, hostel, room } = await loadResidentBase(resident);
+  const { hostel, roomType } = await loadResidentBase(resident);
 
   return {
     profile: {
@@ -284,7 +254,7 @@ export async function getResidentProfile(principal: ApiPrincipal) {
       guardians: guardians.map(serializeGuardian),
       hostel: serializeHostel(hostel),
       resident: serializeResidentSummary(resident),
-      roomBed: serializeRoomBed(room, bed),
+      roomBed: serializeRoomBed(roomType),
     },
   };
 }

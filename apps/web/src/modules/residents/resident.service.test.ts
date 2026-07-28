@@ -5,18 +5,15 @@ import { Role } from "@/lib/roles";
 
 const serviceMocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
-  bedCountDocuments: vi.fn(),
-  bedFindOne: vi.fn(),
-  bedFindOneAndUpdate: vi.fn(),
   connectToDatabase: vi.fn(),
   emergencyContactCreate: vi.fn(),
   guardianCreate: vi.fn(),
+  claimBedForRoomType: vi.fn(),
+  releaseBedForRoomType: vi.fn(),
   residentCreate: vi.fn(),
   residentFind: vi.fn(),
   residentFindOne: vi.fn(),
   residentFindOneAndUpdate: vi.fn(),
-  roomFindOne: vi.fn(),
-  roomUpdateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -26,14 +23,6 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@hostel/db/models/AuditLog", () => ({
   AuditLogModel: {
     create: serviceMocks.auditCreate,
-  },
-}));
-
-vi.mock("@hostel/db/models/Bed", () => ({
-  BedModel: {
-    countDocuments: serviceMocks.bedCountDocuments,
-    findOne: serviceMocks.bedFindOne,
-    findOneAndUpdate: serviceMocks.bedFindOneAndUpdate,
   },
 }));
 
@@ -49,6 +38,12 @@ vi.mock("@hostel/db/models/Guardian", () => ({
   },
 }));
 
+vi.mock("@/modules/hostels/hostel-capacity.service", () => ({
+  claimBedForRoomType: serviceMocks.claimBedForRoomType,
+  moveBedBetweenRoomTypes: vi.fn(),
+  releaseBedForRoomType: serviceMocks.releaseBedForRoomType,
+}));
+
 vi.mock("@hostel/db/models/Resident", () => ({
   ResidentModel: {
     create: serviceMocks.residentCreate,
@@ -58,19 +53,11 @@ vi.mock("@hostel/db/models/Resident", () => ({
   },
 }));
 
-vi.mock("@hostel/db/models/Room", () => ({
-  RoomModel: {
-    findOne: serviceMocks.roomFindOne,
-    updateOne: serviceMocks.roomUpdateOne,
-  },
-}));
-
 import { createResident, listResidents } from "@/modules/residents/resident.service";
 
 const hostelId = "64f0f0f0f0f0f0f0f0f0f0f4";
 const otherHostelId = "64f0f0f0f0f0f0f0f0f0f0f5";
-const roomId = "64f0f0f0f0f0f0f0f0f0f0f6";
-const bedId = "64f0f0f0f0f0f0f0f0f0f0f7";
+const roomType = "Four Sharing";
 const residentId = "64f0f0f0f0f0f0f0f0f0f0f8";
 
 const staffPrincipal = {
@@ -80,12 +67,6 @@ const staffPrincipal = {
   userId: "64f0f0f0f0f0f0f0f0f0f0f9",
 };
 
-function leanResult<T>(value: T) {
-  return {
-    lean: vi.fn().mockResolvedValue(value),
-  };
-}
-
 function queryResult<T>(value: T) {
   return {
     lean: vi.fn().mockResolvedValue(value),
@@ -94,35 +75,16 @@ function queryResult<T>(value: T) {
   };
 }
 
-function roomRecord() {
-  return {
-    _id: new Types.ObjectId(roomId),
-    capacity: 4,
-    hostelId: new Types.ObjectId(hostelId),
-  };
-}
-
-function bedRecord(overrides: Record<string, unknown> = {}) {
-  return {
-    _id: new Types.ObjectId(bedId),
-    hostelId: new Types.ObjectId(hostelId),
-    roomId: new Types.ObjectId(roomId),
-    status: "AVAILABLE",
-    ...overrides,
-  };
-}
-
 function residentRecord(overrides: Record<string, unknown> = {}) {
   return {
     _id: new Types.ObjectId(residentId),
-    bedId: new Types.ObjectId(bedId),
     depositAmount: 5000,
     firstName: "Asha",
     hostelId: new Types.ObjectId(hostelId),
     lastName: "Rai",
     moveInDate: new Date("2030-01-01T00:00:00.000Z"),
     phone: "9800000000",
-    roomId: new Types.ObjectId(roomId),
+    roomType,
     status: "PENDING",
     ...overrides,
   };
@@ -150,7 +112,6 @@ describe("resident management service behavior", () => {
     await expect(
       createResident(
         {
-          bedId,
           depositAmount: 5000,
           firstName: "Asha",
           hostelId: otherHostelId,
@@ -159,7 +120,7 @@ describe("resident management service behavior", () => {
           moveInDate: new Date("2030-01-01T00:00:00.000Z"),
           phone: "9800000000",
           residentType: "STUDENT" as const,
-          roomId,
+          roomType,
           status: "PENDING",
         },
         staffPrincipal,
@@ -171,21 +132,17 @@ describe("resident management service behavior", () => {
     expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
   });
 
-  it("rejects resident creation when the selected bed is not available", async () => {
-    serviceMocks.roomFindOne.mockReturnValueOnce(leanResult(roomRecord()));
-    serviceMocks.bedFindOne.mockReturnValueOnce(
-      leanResult(
-        bedRecord({
-          assignedResidentId: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa"),
-          status: "OCCUPIED",
-        }),
-      ),
+  it("refuses to admit a resident into a room type with no vacancy", async () => {
+    serviceMocks.claimBedForRoomType.mockRejectedValueOnce(
+      Object.assign(new Error("No vacant beds left."), {
+        errorCode: "ROOM_TYPE_FULL",
+        status: 409,
+      }),
     );
 
     await expect(
       createResident(
         {
-          bedId,
           depositAmount: 5000,
           firstName: "Asha",
           lastName: "Rai",
@@ -193,27 +150,45 @@ describe("resident management service behavior", () => {
           moveInDate: new Date("2030-01-01T00:00:00.000Z"),
           phone: "9800000000",
           residentType: "STUDENT" as const,
-          roomId,
+          roomType,
           status: "PENDING",
         },
         staffPrincipal,
       ),
-    ).rejects.toMatchObject({
-      errorCode: "BED_NOT_AVAILABLE",
-      status: 409,
-    });
+    ).rejects.toMatchObject({ errorCode: "ROOM_TYPE_FULL", status: 409 });
     expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
   });
 
-  it("creates residents and occupies the selected bed", async () => {
-    serviceMocks.roomFindOne.mockReturnValueOnce(leanResult(roomRecord()));
-    serviceMocks.bedFindOne.mockReturnValueOnce(leanResult(bedRecord()));
+  it("hands the bed back when creating the resident fails", async () => {
+    serviceMocks.residentCreate.mockRejectedValueOnce(new Error("duplicate phone"));
+
+    await expect(
+      createResident(
+        {
+          depositAmount: 5000,
+          firstName: "Asha",
+          lastName: "Rai",
+          monthlyFee: 0,
+          moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+          phone: "9800000000",
+          residentType: "STUDENT" as const,
+          roomType,
+          status: "PENDING",
+        },
+        staffPrincipal,
+      ),
+    ).rejects.toThrow("duplicate phone");
+    expect(serviceMocks.releaseBedForRoomType).toHaveBeenCalledWith(
+      new Types.ObjectId(hostelId),
+      roomType,
+    );
+  });
+
+  it("creates residents and claims a bed of their room type", async () => {
     serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
-    serviceMocks.bedCountDocuments.mockResolvedValueOnce(1);
 
     const result = await createResident(
       {
-        bedId,
         depositAmount: 5000,
         firstName: "Asha",
         lastName: "Rai",
@@ -221,34 +196,27 @@ describe("resident management service behavior", () => {
         moveInDate: new Date("2030-01-01T00:00:00.000Z"),
         phone: "9800000000",
         residentType: "STUDENT" as const,
-        roomId,
+        roomType,
         status: "PENDING",
       },
       staffPrincipal,
     );
 
     expect(result.resident).toMatchObject({
-      bedId,
       firstName: "Asha",
       hostelId,
-      roomId,
+      roomType,
       status: "PENDING",
     });
+    expect(serviceMocks.claimBedForRoomType).toHaveBeenCalledWith(
+      new Types.ObjectId(hostelId),
+      roomType,
+    );
     expect(serviceMocks.residentCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        bedId: new Types.ObjectId(bedId),
         createdBy: staffPrincipal.userId,
         hostelId: new Types.ObjectId(hostelId),
-        roomId: new Types.ObjectId(roomId),
-      }),
-    );
-    expect(serviceMocks.bedFindOneAndUpdate).toHaveBeenCalledWith(
-      { _id: new Types.ObjectId(bedId), isDeleted: false },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          assignedResidentId: new Types.ObjectId(residentId),
-          status: "OCCUPIED",
-        }),
+        roomType,
       }),
     );
     expect(serviceMocks.auditCreate).toHaveBeenCalledWith(

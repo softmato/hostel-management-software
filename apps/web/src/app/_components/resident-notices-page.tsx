@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Bell, Check, Megaphone } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 
 import { EmptyState } from "@/app/_components/shared-ui";
 import {
@@ -13,7 +13,9 @@ import {
   TabBar,
 } from "@/app/_components/portal-dashboard-ui";
 import { browserApi } from "@/lib/browser-api";
-import { type LoadState, type Notice, Message } from "./resident-shared";
+import { usePortalResource, useUpdateResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
+import { type Notice, Message } from "./resident-shared";
 
 function NoticeSkeleton() {
   return (
@@ -29,51 +31,43 @@ function NoticeSkeleton() {
 }
 
 export const ResidentNoticesPageContent = memo(function ResidentNoticesPageContent() {
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [tab, setTab] = useState<"all" | "unread" | "urgent">("all");
+  const updateResource = useUpdateResource();
+  const noticesResource = usePortalResource<{ notices: Notice[] }>(
+    residentEndpoints.notices,
+    { errorMessage: "Could not load notices." },
+  );
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const data = await browserApi<{ notices: Notice[] }>("/api/v1/resident/notices");
-
-      setNotices(data.notices);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load notices.");
-      setState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const notices = useMemo(
+    () => noticesResource.data?.notices ?? [],
+    [noticesResource.data],
+  );
+  const state = noticesResource.state;
+  const message = actionMessage || noticesResource.message;
 
   const markRead = useCallback(
     async (noticeId: string) => {
       try {
-        await browserApi(`/api/v1/resident/notices/${noticeId}/read`, {
+        await browserApi(`${residentEndpoints.notices}/${noticeId}/read`, {
           body: JSON.stringify({}),
           method: "PATCH",
         });
-        setNotices((current) =>
-          current.map((notice) =>
+        // Patch the cached row rather than refetching: the tick is the only
+        // thing that changed, and we already know its new value.
+        updateResource<{ notices: Notice[] }>(residentEndpoints.notices, (current) => ({
+          ...current,
+          notices: current.notices.map((notice) =>
             notice.id === noticeId ? { ...notice, isRead: true } : notice,
           ),
-        );
+        }));
       } catch (error) {
-        setMessage(
+        setActionMessage(
           error instanceof Error ? error.message : "Could not mark notice read.",
         );
       }
     },
-    [],
+    [updateResource],
   );
 
   const counts = useMemo(

@@ -12,19 +12,16 @@ import {
   WalletCards,
 } from "lucide-react";
 import Link from "next/link";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo } from "react";
 
 import {
   currency,
   EmptyState,
   LoadingRows,
 } from "@/app/_components/shared-ui";
-import { browserApi } from "@/lib/browser-api";
-import {
-  type LoadState,
-  type ResidentDashboard,
-  Message,
-} from "./resident-shared";
+import { usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
+import { type ResidentDashboard, Message } from "./resident-shared";
 import {
   EmptyInline,
   InitialsAvatar,
@@ -46,30 +43,14 @@ const quickActionTones = [
 ];
 
 export const ResidentDashboardPageContent = memo(function ResidentDashboardPageContent() {
-  const [dashboard, setDashboard] = useState<ResidentDashboard | null>(null);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const dashboardResource = usePortalResource<{ dashboard: ResidentDashboard }>(
+    residentEndpoints.dashboard,
+    { errorMessage: "Could not load dashboard." },
+  );
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const data = await browserApi<{ dashboard: ResidentDashboard }>(
-        "/api/v1/resident/dashboard",
-      );
-      setDashboard(data.dashboard);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load dashboard.");
-      setState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const dashboard = dashboardResource.data?.dashboard ?? null;
+  const state = dashboardResource.state;
+  const message = dashboardResource.message;
 
   const firstName = dashboard?.resident.firstName ?? "Resident";
   const unreadNotices =

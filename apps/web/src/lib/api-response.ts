@@ -50,7 +50,20 @@ export function errorResponse(
 
 export function handleRouteError(error: unknown) {
   if (error instanceof ZodError) {
-    return errorResponse("Validation failed", "VALIDATION_ERROR", 422, error.flatten());
+    // `flatten()` only buckets by *top-level* key, so a failure inside a nested
+    // object reads as `{ profile: [...] }` — useless for pointing a user at the
+    // input that is actually wrong. `issues` carries the full dotted path.
+    const issues = error.issues.map((issue) => ({
+      message: issue.message,
+      path: issue.path.join("."),
+    }));
+    const details = { ...error.flatten(), issues };
+
+    // A bare "422" in the dev terminal says nothing about which field was
+    // rejected, which makes form bugs needlessly hard to chase.
+    logger.warn("Request validation failed", { issues });
+
+    return errorResponse("Validation failed", "VALIDATION_ERROR", 422, details);
   }
 
   if (

@@ -60,33 +60,54 @@ export function Panel({
 
 export function Input({
   defaultValue,
+  hint,
   label,
   min,
   name,
+  onChange,
+  placeholder,
+  readOnly,
   required,
   step,
   type = "text",
+  value,
 }: {
   defaultValue?: string | number;
-  label: string;
+  /** Small helper line under the field — why it is locked, what format to use. */
+  hint?: ReactNode;
+  label: ReactNode;
   min?: string;
   name: string;
+  onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  placeholder?: string;
+  readOnly?: boolean;
   required?: boolean;
   step?: string;
   type?: string;
+  value?: string | number;
 }) {
   return (
     <label className="grid gap-2 text-sm font-semibold text-foreground">
       {label}
       <input
-        className="h-11 rounded-md border border-border bg-background px-3 text-sm font-normal outline-none focus:border-role-admin"
+        className={cn(
+          "h-11 rounded-md border border-border bg-background px-3 text-sm font-normal outline-none focus:border-role-admin",
+          readOnly && "cursor-not-allowed bg-muted/50 text-muted-foreground",
+        )}
         defaultValue={defaultValue}
         min={min}
         name={name}
+        onChange={onChange}
+        placeholder={placeholder}
+        readOnly={readOnly}
         required={required}
         step={step}
         type={type}
+        value={value}
       />
+      {hint ? (
+        <span className="text-[11px] font-normal text-muted-foreground">{hint}</span>
+      ) : null}
     </label>
   );
 }
@@ -96,13 +117,17 @@ export function Select({
   defaultValue,
   label,
   name,
+  onChange,
   required,
+  value,
 }: {
   children: ReactNode;
   defaultValue?: string;
   label: string;
   name: string;
+  onChange?: (event: React.ChangeEvent<HTMLSelectElement>) => void;
   required?: boolean;
+  value?: string;
 }) {
   return (
     <label className="grid gap-2 text-sm font-semibold text-foreground">
@@ -111,7 +136,9 @@ export function Select({
         className="h-11 rounded-md border border-border bg-background px-3 text-sm font-normal outline-none focus:border-role-admin"
         defaultValue={defaultValue}
         name={name}
+        onChange={onChange}
         required={required}
+        value={value}
       >
         {children}
       </select>

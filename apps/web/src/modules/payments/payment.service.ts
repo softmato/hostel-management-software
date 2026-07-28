@@ -31,6 +31,7 @@ import type {
   monthlyPaymentGenerateSchema,
   paymentCreateSchema,
   paymentListQuerySchema,
+  paymentMatrixQuerySchema,
   paymentProofReviewSchema,
   paymentProofSubmitSchema,
   paymentUpdateSchema,
@@ -43,6 +44,7 @@ type PaymentListQuery = z.infer<typeof paymentListQuerySchema>;
 type PaymentProofSubmitInput = z.infer<typeof paymentProofSubmitSchema>;
 type PaymentProofReviewInput = z.infer<typeof paymentProofReviewSchema>;
 type MonthlyPaymentGenerateInput = z.infer<typeof monthlyPaymentGenerateSchema>;
+type PaymentMatrixQuery = z.infer<typeof paymentMatrixQuerySchema>;
 type ResidentFeeUpdateInput = z.infer<typeof residentFeeUpdateSchema>;
 
 type PaymentStatus = "UNPAID" | "PAID" | "PARTIAL" | "OVERDUE" | "PENDING_PROOF";
@@ -607,6 +609,76 @@ async function deliverProofNotification(
   );
 }
 
+function alreadyReviewedError() {
+  return new PaymentServiceError(
+    "This payment proof has already been reviewed.",
+    "PAYMENT_PROOF_ALREADY_REVIEWED",
+    409,
+  );
+}
+
+/** Cheap pre-check so a repeat review fails before any write is attempted. */
+function assertProofIsPending(proof: PaymentProofRecord) {
+  if (proof.status !== "PENDING") {
+    throw alreadyReviewedError();
+  }
+}
+
+/**
+ * Adds a verified proof's amount to the month, never exceeding what is owed.
+ *
+ * The update is conditional on the `paidAmount` we read, so two proofs approved
+ * at the same moment cannot both write from the same starting balance — the
+ * loser re-reads the fresh total and applies its amount on top.
+ */
+async function creditVerifiedAmount(
+  payment: PaymentRecord,
+  verifiedAmount: number,
+  context: {
+    paymentMethod?: PaymentMethod;
+    principal: ApiPrincipal;
+    verifiedAt: Date;
+  },
+) {
+  let current: PaymentRecord | null = payment;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (!current) {
+      throw new PaymentServiceError("Payment was not found.", "PAYMENT_NOT_FOUND", 404);
+    }
+
+    const paidAmount = Math.min(
+      current.paidAmount + verifiedAmount,
+      current.dueAmount,
+    );
+    const updated = await PaymentModel.findOneAndUpdate(
+      { _id: current._id, paidAmount: current.paidAmount },
+      {
+        $set: {
+          paidAmount,
+          paidDate: context.verifiedAt,
+          paymentMethod: context.paymentMethod ?? current.paymentMethod,
+          status: paidAmount >= current.dueAmount ? "PAID" : "PARTIAL",
+          updatedBy: context.principal.userId,
+        },
+      },
+      { new: true },
+    ).lean<PaymentRecord | null>();
+
+    if (updated) {
+      return updated;
+    }
+
+    current = await PaymentModel.findOne({ _id: payment._id }).lean<PaymentRecord | null>();
+  }
+
+  throw new PaymentServiceError(
+    "Could not record the verified amount because the payment kept changing. Please retry.",
+    "PAYMENT_UPDATE_CONFLICT",
+    503,
+  );
+}
+
 export async function approvePaymentProof(
   proofId: string,
   input: PaymentProofReviewInput,
@@ -616,6 +688,9 @@ export async function approvePaymentProof(
 
   const proof = await findAdminPaymentProof(proofId, principal, input.hostelId);
   const now = new Date();
+
+  assertProofIsPending(proof);
+
   const payment = await PaymentModel.findOne({
     _id: proof.paymentId,
     hostelId: proof.hostelId,
@@ -626,32 +701,11 @@ export async function approvePaymentProof(
     throw new PaymentServiceError("Payment was not found.", "PAYMENT_NOT_FOUND", 404);
   }
 
-  // Proofs carry the amount the resident actually paid, so a part-payment
-  // settles the month partially instead of closing it out in full.
-  const verifiedAmount = proof.amount ?? payment.dueAmount;
-  const paidAmount = Math.min(payment.paidAmount + verifiedAmount, payment.dueAmount);
-  const isSettled = paidAmount >= payment.dueAmount;
-
-  const paidPayment = await PaymentModel.findOneAndUpdate(
-    { _id: payment._id },
-    {
-      $set: {
-        paidAmount,
-        paidDate: now,
-        paymentMethod: proof.paymentMethod ?? payment.paymentMethod,
-        status: isSettled ? "PAID" : "PARTIAL",
-        updatedBy: principal.userId,
-      },
-    },
-    { new: true },
-  ).lean<PaymentRecord | null>();
-
-  if (!paidPayment) {
-    throw new PaymentServiceError("Payment was not found.", "PAYMENT_NOT_FOUND", 404);
-  }
-
+  // Claim the proof BEFORE crediting the payment. The filter only matches while
+  // the proof is still PENDING, so a double-click (or a retried request) loses
+  // the race here instead of adding the same money to the month twice.
   const reviewedProof = await PaymentProofModel.findOneAndUpdate(
-    { _id: proof._id },
+    { _id: proof._id, status: "PENDING" },
     {
       $set: {
         reviewedAt: now,
@@ -664,12 +718,17 @@ export async function approvePaymentProof(
   ).lean<PaymentProofRecord | null>();
 
   if (!reviewedProof) {
-    throw new PaymentServiceError(
-      "Payment proof was not found.",
-      "PAYMENT_PROOF_NOT_FOUND",
-      404,
-    );
+    throw alreadyReviewedError();
   }
+
+  // Proofs carry the amount the resident actually paid, so a part-payment
+  // settles the month partially instead of closing it out in full.
+  const verifiedAmount = proof.amount ?? payment.dueAmount;
+  const paidPayment = await creditVerifiedAmount(payment, verifiedAmount, {
+    paymentMethod: proof.paymentMethod,
+    principal,
+    verifiedAt: now,
+  });
 
   const receipt = await generateReceipt(paidPayment, principal);
 
@@ -679,7 +738,13 @@ export async function approvePaymentProof(
     proof._id,
     "PaymentProof",
     "PAYMENT_PROOF_APPROVED",
-    { amount: verifiedAmount, paymentId: proof.paymentId.toString() },
+    {
+      amount: verifiedAmount,
+      paymentId: proof.paymentId.toString(),
+      // Lets an auditor tie every rupee of paidAmount back to one proof.
+      resultingPaidAmount: paidPayment.paidAmount,
+      resultingStatus: paidPayment.status,
+    },
   );
 
   await notifyResidentOfReview(paidPayment, {
@@ -807,6 +872,11 @@ export async function rejectPaymentProof(
 
   const proof = await findAdminPaymentProof(proofId, principal, input.hostelId);
   const now = new Date();
+
+  // Rejecting a proof that was already approved would reopen a settled month
+  // while its paidAmount stayed put, so only PENDING proofs may be rejected.
+  assertProofIsPending(proof);
+
   const payment = await PaymentModel.findOne({
     _id: proof.paymentId,
     hostelId: proof.hostelId,
@@ -816,33 +886,32 @@ export async function rejectPaymentProof(
     throw new PaymentServiceError("Payment was not found.", "PAYMENT_NOT_FOUND", 404);
   }
 
-  const nextStatus: PaymentStatus = payment.paidAmount > 0 ? "PARTIAL" : "UNPAID";
-  const [reviewedProof, updatedPayment] = await Promise.all([
-    PaymentProofModel.findOneAndUpdate(
-      { _id: proof._id },
-      {
-        $set: {
-          rejectionReason: input.rejectionReason,
-          reviewedAt: now,
-          reviewedBy: principal.userId,
-          status: "REJECTED",
-        },
+  const reviewedProof = await PaymentProofModel.findOneAndUpdate(
+    { _id: proof._id, status: "PENDING" },
+    {
+      $set: {
+        rejectionReason: input.rejectionReason,
+        reviewedAt: now,
+        reviewedBy: principal.userId,
+        status: "REJECTED",
       },
-      { new: true },
-    ).lean<PaymentProofRecord | null>(),
-    PaymentModel.findOneAndUpdate(
-      { _id: payment._id },
-      { $set: { status: nextStatus, updatedBy: principal.userId } },
-      { new: true },
-    ).lean<PaymentRecord | null>(),
-  ]);
+    },
+    { new: true },
+  ).lean<PaymentProofRecord | null>();
 
-  if (!reviewedProof || !updatedPayment) {
-    throw new PaymentServiceError(
-      "Payment proof was not found.",
-      "PAYMENT_PROOF_NOT_FOUND",
-      404,
-    );
+  if (!reviewedProof) {
+    throw alreadyReviewedError();
+  }
+
+  const nextStatus: PaymentStatus = payment.paidAmount > 0 ? "PARTIAL" : "UNPAID";
+  const updatedPayment = await PaymentModel.findOneAndUpdate(
+    { _id: payment._id },
+    { $set: { status: nextStatus, updatedBy: principal.userId } },
+    { new: true },
+  ).lean<PaymentRecord | null>();
+
+  if (!updatedPayment) {
+    throw new PaymentServiceError("Payment was not found.", "PAYMENT_NOT_FOUND", 404);
   }
 
   await auditPaymentAction(
@@ -982,6 +1051,172 @@ export async function generateMonthlyPayments(
     /** Active residents with neither a personal fee nor a default to fall back on. */
     skippedNoFeeCount: pending.length - billable.length,
   };
+}
+
+function monthBounds(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const start = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const end = new Date(Date.UTC(year, monthNumber, 0, 23, 59, 59, 999));
+  const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+
+  return { daysInMonth, end, start };
+}
+
+function currentMonth() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * The month's due for one resident. A mid-month move-in owes only the days
+ * from move-in to month end, pro-rated by calendar days; from the following
+ * month they owe the full fee. Residents who move in after the month ends owe
+ * nothing for it.
+ */
+export function computeMonthlyDue(
+  monthlyFee: number,
+  moveInDate: Date,
+  month: string,
+) {
+  const { daysInMonth, end, start } = monthBounds(month);
+
+  if (moveInDate > end) {
+    return 0;
+  }
+
+  if (moveInDate <= start) {
+    return monthlyFee;
+  }
+
+  const billableDays = daysInMonth - moveInDate.getUTCDate() + 1;
+
+  return Math.round((monthlyFee / daysInMonth) * billableDays);
+}
+
+/**
+ * Paid/partial/unpaid view of a month for every resident, auto-generating the
+ * missing payment rows first (current or past months only — never bills the
+ * future). Row generation is idempotent per (residentId, month).
+ */
+export async function getMonthlyPaymentMatrix(
+  query: PaymentMatrixQuery,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const hostelId = resolveAdminHostelId(principal, query.hostelId);
+  const month = query.month ?? currentMonth();
+  const { end } = monthBounds(month);
+  const now = new Date();
+
+  const residents = await ResidentModel.find({
+    hostelId,
+    isDeleted: false,
+    status: { $in: ["ACTIVE", "PENDING"] },
+  }).lean<(ResidentRecord & { monthlyFee?: number })[]>();
+
+  // Lazily create this month's rows so the matrix is always current without a
+  // manual fee run. Future months are viewable but never auto-billed.
+  if (month <= currentMonth()) {
+    const existing = await PaymentModel.find({
+      hostelId,
+      month,
+      residentId: { $in: residents.map((resident) => resident._id) },
+    }).lean<{ residentId: Types.ObjectId }[]>();
+    const billed = new Set(existing.map((payment) => payment.residentId.toString()));
+
+    const toCreate = residents
+      .map((resident) => ({
+        dueAmount: computeMonthlyDue(
+          resident.monthlyFee ?? 0,
+          resident.moveInDate,
+          month,
+        ),
+        resident,
+      }))
+      .filter(
+        (entry) =>
+          entry.dueAmount > 0 && !billed.has(entry.resident._id.toString()),
+      );
+
+    if (toCreate.length > 0) {
+      await PaymentModel.insertMany(
+        toCreate.map((entry) => ({
+          createdBy: principal.userId,
+          dueAmount: entry.dueAmount,
+          dueDate: end,
+          hostelId,
+          month,
+          paidAmount: 0,
+          residentId: entry.resident._id,
+          status: "UNPAID",
+          updatedBy: principal.userId,
+        })),
+        // Parallel matrix loads can race on the same resident+month; the
+        // unique index wins and unordered inserts keep the rest.
+        { ordered: false },
+      ).catch((error: { code?: number }) => {
+        if (error?.code !== 11000) {
+          throw error;
+        }
+      });
+    }
+  }
+
+  const payments = await PaymentModel.find({ hostelId, month }).lean<
+    PaymentRecord[]
+  >();
+  const paymentByResident = new Map(
+    payments.map((payment) => [payment.residentId.toString(), payment]),
+  );
+
+  // MOVED_OUT residents keep their historical rows visible for the month.
+  const extraResidentIds = payments
+    .map((payment) => payment.residentId)
+    .filter(
+      (id) => !residents.some((resident) => resident._id.equals(id)),
+    );
+  const extraResidents = extraResidentIds.length
+    ? await ResidentModel.find({ _id: { $in: extraResidentIds } }).lean<
+        (ResidentRecord & { monthlyFee?: number })[]
+      >()
+    : [];
+
+  const rows = [...residents, ...extraResidents].map((resident) => {
+    const payment = paymentByResident.get(resident._id.toString()) ?? null;
+    const displayStatus = payment
+      ? payment.status === "UNPAID" && payment.dueDate < now
+        ? "OVERDUE"
+        : payment.status
+      : "NOT_BILLED";
+
+    return {
+      displayStatus,
+      payment: payment ? serializePayment(payment) : null,
+      resident: serializeResidentSummary(resident),
+    };
+  });
+
+  rows.sort((a, b) =>
+    `${a.resident.firstName} ${a.resident.lastName}`.localeCompare(
+      `${b.resident.firstName} ${b.resident.lastName}`,
+    ),
+  );
+
+  const totals = {
+    collected: rows.reduce((sum, row) => sum + (row.payment?.paidAmount ?? 0), 0),
+    due: rows.reduce((sum, row) => sum + (row.payment?.dueAmount ?? 0), 0),
+    notBilled: rows.filter((row) => row.displayStatus === "NOT_BILLED").length,
+    overdue: rows.filter((row) => row.displayStatus === "OVERDUE").length,
+    paid: rows.filter((row) => row.displayStatus === "PAID").length,
+    partial: rows.filter((row) => row.displayStatus === "PARTIAL").length,
+    unpaid: rows.filter(
+      (row) =>
+        row.displayStatus === "UNPAID" || row.displayStatus === "PENDING_PROOF",
+    ).length,
+  };
+
+  return { month, rows, totals };
 }
 
 export async function getResidentReceipt(receiptId: string, principal: ApiPrincipal) {

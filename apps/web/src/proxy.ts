@@ -116,6 +116,8 @@ export const config = {
     /* Protected portals */
     "/platform/:path*",
     "/hostel-admin/:path*",
+    /* Tenant-scoped hostel workspace: /{hostel-slug}/admin/... */
+    "/:hostelSlug/admin/:path*",
     "/resident/:path*",
     "/guardian/:path*",
     /* Route aliases */

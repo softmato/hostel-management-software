@@ -1,13 +1,23 @@
-const DEFAULT_IMAGE_BYTES = 5 * 1024 * 1024;
-const DEFAULT_DOCUMENT_BYTES = 10 * 1024 * 1024;
-const DEFAULT_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const DEFAULT_DOCUMENT_MIME_TYPES = [
+export const DEFAULT_IMAGE_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_DOCUMENT_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+export const DEFAULT_DOCUMENT_MIME_TYPES = [
   "application/pdf",
   "image/jpeg",
   "image/png",
   "image/webp",
   "text/plain",
 ];
+
+/**
+ * Every MIME type the platform accepts anywhere, deduped. This is the list the
+ * browser-side universal uploader pre-validates against; the server remains
+ * authoritative via {@link validateFileAssetMetadata}, which additionally honours
+ * the `ALLOWED_*_MIME_TYPES` env overrides that a client cannot see.
+ */
+export const PLATFORM_ACCEPTED_MIME_TYPES = Array.from(
+  new Set([...DEFAULT_IMAGE_MIME_TYPES, ...DEFAULT_DOCUMENT_MIME_TYPES]),
+);
 
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number(value);

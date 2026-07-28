@@ -88,6 +88,7 @@ vi.mock("@hostel/shared/email/sender", () => ({ sendEmail: mocks.sendEmail }));
 import {
   approvePaymentProof,
   generateMonthlyPayments,
+  rejectPaymentProof,
   setResidentMonthlyFee,
 } from "@/modules/payments/payment.service";
 
@@ -301,6 +302,106 @@ describe("payment proof verification", () => {
     expect(result.payment.status).toBe("PAID");
     expect(result.payment.paidAmount).toBe(10000);
     expect(result.receipt.receiptNumber).toBe("RCP-2030-07-00001");
+  });
+
+  it("refuses to approve a proof that was already approved", async () => {
+    arrangeProof(4000);
+    mocks.paymentProofFindOne.mockReturnValue(
+      leanResult({
+        _id: new Types.ObjectId(proofId),
+        amount: 4000,
+        hostelId: new Types.ObjectId(hostelId),
+        paymentId,
+        proofImageAssetId: "asset-1",
+        residentId: residentAId,
+        status: "APPROVED",
+        submittedAt: new Date(),
+        submittedBy: new Types.ObjectId(staffPrincipal.userId),
+      }),
+    );
+
+    await expect(approvePaymentProof(proofId, {}, staffPrincipal)).rejects.toMatchObject({
+      errorCode: "PAYMENT_PROOF_ALREADY_REVIEWED",
+      status: 409,
+    });
+    // The month's balance must be untouched by the rejected second attempt.
+    expect(mocks.paymentFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not credit the month twice when the claim on the proof is lost", async () => {
+    arrangeProof(4000);
+    // Simulates a concurrent approval winning the race: the proof is no longer
+    // PENDING by the time this request tries to claim it.
+    mocks.paymentProofFindOneAndUpdate.mockReturnValue(leanResult(null));
+
+    await expect(approvePaymentProof(proofId, {}, staffPrincipal)).rejects.toMatchObject({
+      errorCode: "PAYMENT_PROOF_ALREADY_REVIEWED",
+      status: 409,
+    });
+    expect(mocks.paymentFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("credits on top of the fresh balance when another approval lands first", async () => {
+    arrangeProof(3000, 0);
+    // First conditional write misses (paidAmount moved from 0 to 3000
+    // underneath us), so the retry must add 3000 to 3000, not to 0.
+    mocks.paymentFindOneAndUpdate
+      .mockReturnValueOnce(leanResult(null))
+      .mockImplementation(
+        (_filter: unknown, update: { $set: Record<string, unknown> }) =>
+          leanResult({
+            _id: paymentId,
+            dueAmount: 10000,
+            dueDate: new Date("2030-07-05T00:00:00.000Z"),
+            hostelId: new Types.ObjectId(hostelId),
+            month: "2030-07",
+            paidAmount: update.$set.paidAmount,
+            residentId: residentAId,
+            status: update.$set.status,
+          }),
+      );
+    mocks.paymentFindOne.mockReturnValue(
+      leanResult({
+        _id: paymentId,
+        dueAmount: 10000,
+        dueDate: new Date("2030-07-05T00:00:00.000Z"),
+        hostelId: new Types.ObjectId(hostelId),
+        month: "2030-07",
+        paidAmount: 3000,
+        residentId: residentAId,
+        status: "PARTIAL",
+      }),
+    );
+
+    const result = await approvePaymentProof(proofId, {}, staffPrincipal);
+
+    expect(result.payment.paidAmount).toBe(6000);
+    expect(result.payment.status).toBe("PARTIAL");
+  });
+
+  it("refuses to reject a proof that was already reviewed", async () => {
+    arrangeProof(4000);
+    mocks.paymentProofFindOne.mockReturnValue(
+      leanResult({
+        _id: new Types.ObjectId(proofId),
+        amount: 4000,
+        hostelId: new Types.ObjectId(hostelId),
+        paymentId,
+        proofImageAssetId: "asset-1",
+        residentId: residentAId,
+        status: "APPROVED",
+        submittedAt: new Date(),
+        submittedBy: new Types.ObjectId(staffPrincipal.userId),
+      }),
+    );
+
+    await expect(
+      rejectPaymentProof(proofId, { rejectionReason: "Blurry" }, staffPrincipal),
+    ).rejects.toMatchObject({
+      errorCode: "PAYMENT_PROOF_ALREADY_REVIEWED",
+      status: 409,
+    });
+    expect(mocks.paymentFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it("continues the receipt sequence within a month", async () => {

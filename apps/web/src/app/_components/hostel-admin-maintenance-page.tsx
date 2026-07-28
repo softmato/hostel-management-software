@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState, useEffect, type FormEvent } from "react";
+import React, { useCallback, useMemo, useState, type FormEvent } from "react";
 import { Wrench } from "lucide-react";
 import {
   EmptyState,
@@ -11,60 +11,58 @@ import {
   StatusBadge,
   TextArea,
 } from "@/app/_components/shared-ui";
+import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import {
+  combineResources,
+  useInvalidateResources,
+  usePortalResource,
+} from "@/lib/portal-query";
 import {
   Message,
   PageHeader,
   field,
   optionalField,
-  type LoadState,
   type MaintenanceRequest,
   type ServiceProvider,
 } from "./portal-shared";
 
 export const HostelAdminMaintenancePageContent = React.memo(
   function HostelAdminMaintenancePageContent() {
-    const [providers, setProviders] = useState<ServiceProvider[]>([]);
-    const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
-    const [message, setMessage] = useState("");
-    const [state, setState] = useState<LoadState>("idle");
+    const [actionMessage, setActionMessage] = useState("");
+    const invalidate = useInvalidateResources();
+    // Providers are shared with the Service Provider Search screen — same cache
+    // entry, so arriving from there costs no extra request.
+    const providersResource = usePortalResource<{ providers: ServiceProvider[] }>(
+      hostelAdminEndpoints.serviceProviders,
+      { errorMessage: "Could not load maintenance." },
+    );
+    const requestsResource = usePortalResource<{ requests: MaintenanceRequest[] }>(
+      hostelAdminEndpoints.maintenanceRequests,
+      { errorMessage: "Could not load maintenance." },
+    );
 
-    const load = useCallback(async () => {
-      setState("loading");
-      try {
-        const [providerData, requestData] = await Promise.all([
-          browserApi<{ providers: ServiceProvider[] }>(
-            "/api/v1/hostel-admin/service-providers",
-          ),
-          browserApi<{ requests: MaintenanceRequest[] }>(
-            "/api/v1/hostel-admin/maintenance/requests",
-          ),
-        ]);
-
-        setProviders(providerData.providers);
-        setRequests(requestData.requests);
-        setState("ready");
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not load maintenance.");
-        setState("error");
-      }
-    }, []);
-
-    useEffect(() => {
-      const timer = window.setTimeout(() => {
-        void load();
-      }, 0);
-
-      return () => window.clearTimeout(timer);
-    }, [load]);
+    const providers = useMemo(
+      () => providersResource.data?.providers ?? [],
+      [providersResource.data],
+    );
+    const requests = useMemo(
+      () => requestsResource.data?.requests ?? [],
+      [requestsResource.data],
+    );
+    const combined = combineResources(providersResource, requestsResource);
+    const state = combined.state;
+    const message = actionMessage || combined.message;
 
     const create = useCallback(
       async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        const form = new FormData(event.currentTarget);
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
 
         try {
-          await browserApi("/api/v1/hostel-admin/maintenance/requests", {
+          await browserApi(hostelAdminEndpoints.maintenanceRequests, {
             body: JSON.stringify({
               category: field(form, "category"),
               costNote: optionalField(form, "costNote"),
@@ -75,29 +73,42 @@ export const HostelAdminMaintenancePageContent = React.memo(
             }),
             method: "POST",
           });
-          event.currentTarget.reset();
-          setMessage("Maintenance request created.");
-          await load();
+          formElement.reset();
+          setActionMessage("Maintenance request created.");
+          invalidate(
+            hostelAdminEndpoints.maintenanceRequests,
+            hostelAdminEndpoints.maintenanceReport,
+          );
         } catch (error) {
-          setMessage(error instanceof Error ? error.message : "Could not create request.");
+          setActionMessage(
+            error instanceof Error ? error.message : "Could not create request.",
+          );
         }
       },
-      [load, setMessage],
+      [invalidate],
     );
 
     const updateStatus = useCallback(
       async (requestId: string, status: string) => {
         try {
-          await browserApi(`/api/v1/hostel-admin/maintenance/requests/${requestId}/status`, {
-            body: JSON.stringify({ status }),
-            method: "PATCH",
-          });
-          await load();
+          await browserApi(
+            `${hostelAdminEndpoints.maintenanceRequests}/${requestId}/status`,
+            {
+              body: JSON.stringify({ status }),
+              method: "PATCH",
+            },
+          );
+          invalidate(
+            hostelAdminEndpoints.maintenanceRequests,
+            hostelAdminEndpoints.maintenanceReport,
+          );
         } catch (error) {
-          setMessage(error instanceof Error ? error.message : "Could not update request.");
+          setActionMessage(
+            error instanceof Error ? error.message : "Could not update request.",
+          );
         }
       },
-      [load, setMessage],
+      [invalidate],
     );
 
     return (
@@ -149,7 +160,7 @@ export const HostelAdminMaintenancePageContent = React.memo(
             </div>
           </Panel>
           <Panel title="New Request">
-            <form className="grid gap-3" onSubmit={create}>
+            <BusyForm className="grid gap-3" onSubmit={create}>
               <Input label="Title" name="title" required />
               <Select label="Category" name="category" required>
                 {[
@@ -187,10 +198,10 @@ export const HostelAdminMaintenancePageContent = React.memo(
               </Select>
               <TextArea label="Description" name="description" />
               <Input label="Cost note" name="costNote" />
-              <button className="h-11 rounded-md bg-role-admin text-sm font-semibold text-white">
+              <SubmitButton className="h-11 rounded-md bg-role-admin text-sm font-semibold text-white">
                 Create Request
-              </button>
-            </form>
+              </SubmitButton>
+            </BusyForm>
           </Panel>
         </div>
       </div>

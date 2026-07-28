@@ -64,6 +64,16 @@ export const residentFeeUpdateSchema = z.object({
   residentIds: z.array(objectIdSchema).optional(),
 });
 
+/**
+ * Month matrix: who has paid / part-paid / not paid for a month. Rows for the
+ * requested month are auto-generated (with move-in proration), so admins never
+ * have to run a manual fee run for the normal flow.
+ */
+export const paymentMatrixQuerySchema = z.object({
+  hostelId: objectIdSchema.optional(),
+  month: monthSchema.optional(),
+});
+
 export const paymentProofReviewSchema = z.object({
   hostelId: objectIdSchema.optional(),
   rejectionReason: z.string().trim().min(3).max(500).optional(),

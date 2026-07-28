@@ -2,14 +2,26 @@
 
 import {
   Download,
+  Loader2,
+  Lock,
   MoreHorizontal,
   Plus,
   QrCode,
+  ScanLine,
+  ShieldCheck,
+  Trash2,
   UserPlus,
   Users,
   X,
 } from "lucide-react";
-import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 
 import {
   currency,
@@ -21,18 +33,34 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useResidents, useRoomMap } from "@/hooks/use-hostel-admin";
+import {
+  useAvailableRoomTypes,
+  useResidentContacts,
+  useResidents,
+} from "@/hooks/use-hostel-admin";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 
-import { DemoDataBadge, field, optionalField } from "./hostel-admin-shared";
+import {
+  DemoDataBadge,
+  field,
+  optionalField,
+  type Resident,
+} from "./hostel-admin-shared";
 import {
   DataTable,
   EmptyInline,
@@ -50,16 +78,233 @@ import {
   TableRow,
 } from "./portal-dashboard-ui";
 
+/** Shape returned by /api/v1/hostel-admin/resident-lookup. */
+type ResidentPrefill = {
+  details: {
+    age: number | null;
+    alternatePhone: string | null;
+    backupEmail: string | null;
+    bloodGroup: string;
+    budgetRange: string | null;
+    city: string | null;
+    courseOrDesignation: string | null;
+    dateOfBirth: string | null;
+    dietaryPreference: string;
+    gender: string;
+    governmentIdNumber: string | null;
+    governmentIdType: string | null;
+    institution: string | null;
+    interests: string[];
+    medicalNotes: string | null;
+    permanentAddress: string | null;
+    province: string | null;
+  };
+  emergencyContact: {
+    isPrimary: boolean;
+    name: string;
+    phone: string;
+    relation: string;
+  };
+  guardians: {
+    email?: string;
+    firstName: string;
+    isPrimary: boolean;
+    lastName: string;
+    phone: string;
+    relation: string;
+  }[];
+  resident: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    residentType: string;
+  };
+};
+
+type ResidentStatus = "ACTIVE" | "MOVED_OUT" | "PENDING" | "SUSPENDED";
+
+/** Statuses the row menu can switch a resident to, in the order they read. */
+const STATUS_ACTIONS: { label: string; status: ResidentStatus }[] = [
+  { label: "Mark as active", status: "ACTIVE" },
+  { label: "Mark as pending", status: "PENDING" },
+  { label: "Suspend", status: "SUSPENDED" },
+  { label: "Mark as moved out", status: "MOVED_OUT" },
+];
+
+function humanizeValue(value: string) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/**
+ * Read-only view of everything the resident shared that the registration form
+ * itself has no field for — blood group, ID, allergies. The warden sees it here
+ * and it is carried into the resident's guardian / emergency records on save.
+ */
+function ImportedProfileSummary({ prefill }: { prefill: ResidentPrefill }) {
+  const { details } = prefill;
+  const facts: [string, string][] = [
+    ["Gender", humanizeValue(details.gender)],
+    ["Age", details.age ? `${details.age} years` : "—"],
+    ["Blood group", details.bloodGroup === "UNKNOWN" ? "—" : details.bloodGroup],
+    ["Food", humanizeValue(details.dietaryPreference)],
+    [
+      details.governmentIdType ? humanizeValue(details.governmentIdType) : "Government ID",
+      details.governmentIdNumber ?? "—",
+    ],
+    ["Institution", details.institution ?? "—"],
+    ["Course / role", details.courseOrDesignation ?? "—"],
+    [
+      "Home",
+      [details.permanentAddress, details.city, details.province]
+        .filter(Boolean)
+        .join(", ") || "—",
+    ],
+  ];
+
+  const people: { name: string; phone: string; role: string }[] = [
+    ...prefill.guardians.map((guardian) => ({
+      name: `${guardian.firstName} ${guardian.lastName}`.trim(),
+      phone: guardian.phone,
+      role: `${guardian.isPrimary ? "Guardian" : "Second guardian"} · ${guardian.relation}`,
+    })),
+    {
+      name: prefill.emergencyContact.name,
+      phone: prefill.emergencyContact.phone,
+      role: `Emergency · ${prefill.emergencyContact.relation}`,
+    },
+  ];
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-role-admin/25 bg-role-admin-soft/15">
+      <p className="flex items-center gap-2 border-b border-role-admin/20 bg-role-admin-soft/40 px-4 py-2.5 text-xs font-extrabold uppercase tracking-wide text-role-admin">
+        <ShieldCheck className="size-3.5" />
+        Shared by the resident
+      </p>
+
+      <div className="space-y-4 p-4">
+        {/* Stacked label-over-value reads far better than a wall of
+            left/right rows once there are eight of them. */}
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {label}
+              </dt>
+              <dd className="mt-0.5 break-words text-sm font-medium text-foreground">
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="grid gap-2 border-t border-role-admin/15 pt-4 sm:grid-cols-2 lg:grid-cols-3">
+          {people.map((person) => (
+            <div
+              className="rounded-lg border border-border bg-background/70 px-3 py-2"
+              key={`${person.role}-${person.phone}`}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {person.role}
+              </p>
+              <p className="text-sm font-medium text-foreground">{person.name}</p>
+              <p className="text-xs text-muted-foreground">{person.phone}</p>
+            </div>
+          ))}
+        </div>
+
+        {details.medicalNotes ? (
+          <p className="rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
+            <span className="font-bold">Medical notes: </span>
+            {details.medicalNotes}
+          </p>
+        ) : null}
+
+        <p className="text-[11px] text-muted-foreground">
+          Guardian and emergency contact records are created automatically when you
+          save this resident.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** One titled block of the registration form. */
+function FormSection({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description: string;
+  title: string;
+}) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h4 className="text-sm font-bold text-foreground">{title}</h4>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * One labelled block of the resident panel. The panel scrolls as a single
+ * column rather than hiding two thirds of a resident behind tabs.
+ */
+function PanelSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="space-y-2 border-t border-border pt-4 first:border-t-0 first:pt-0">
+      <h3 className="text-xs font-extrabold uppercase tracking-wide text-role-admin">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Read-only card for a guardian / emergency contact. The hostel never edits
+ * these — they belong to the resident's own profile, so the panel only mirrors
+ * what the resident entered.
+ */
+function ContactCard({ rows, title }: { rows: [string, string][]; title: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/15 p-3">
+      <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </p>
+      <dl className="space-y-2 text-sm">
+        {rows.map(([label, value]) => (
+          <div className="flex justify-between gap-3" key={label}>
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="text-right font-medium text-foreground">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage() {
   const residentsQuery = useResidents();
-  const roomMapQuery = useRoomMap();
+  const roomTypesQuery = useAvailableRoomTypes();
   const residents = useMemo(
     () => residentsQuery.data?.residents ?? [],
     [residentsQuery.data],
   );
-  const floors = useMemo(() => roomMapQuery.data?.floors ?? [], [roomMapQuery.data]);
-  const isPending = residentsQuery.isPending || roomMapQuery.isPending;
-  const isError = residentsQuery.isError || roomMapQuery.isError;
+  const roomTypeOptions = useMemo(
+    () => roomTypesQuery.data?.roomTypes ?? [],
+    [roomTypesQuery.data],
+  );
+  const isPending = residentsQuery.state === "loading" || roomTypesQuery.state === "loading";
+  const isError = residentsQuery.state === "error" || roomTypesQuery.state === "error";
 
   const [selectedResidentId, setSelectedResidentId] = useState("");
   const [activationCode, setActivationCode] = useState("");
@@ -68,35 +313,31 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [lookupId, setLookupId] = useState("");
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupError, setLookupError] = useState("");
+  const [prefill, setPrefill] = useState<ResidentPrefill | null>(null);
+  /** "identify" asks for the resident ID first; "form" is the actual registration. */
+  const [addStep, setAddStep] = useState<"identify" | "form">("identify");
+  /** Room type drives the monthly rent, so both are controlled in the form. */  const [roomType, setRoomType] = useState("");
+  const [monthlyFee, setMonthlyFee] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
 
   const selectedResident =
     residents.find((resident) => resident.id === selectedResidentId) ?? residents[0];
   const activeResidentId = selectedResident?.id ?? "";
 
-  const roomOptions = useMemo(
-    () =>
-      floors.flatMap((floor) =>
-        floor.rooms.map((room) => ({ ...room, floorName: floor.name })),
-      ),
-    [floors],
+  const contactsQuery = useResidentContacts(activeResidentId);
+  // Registering from a resident ID already wrote these, so the tabs show the
+  // resident's own records rather than asking the hostel to retype them.
+  const guardians = useMemo(
+    () => contactsQuery.data?.guardians ?? [],
+    [contactsQuery.data],
   );
-
-  const bedOptions = useMemo(
-    () =>
-      roomOptions.flatMap((room) =>
-        room.beds.map((bed) => ({
-          ...bed,
-          label: `${room.floorName} / Room ${room.roomNumber} / Bed ${bed.bedNumber}`,
-          roomId: room.id,
-          roomNumber: room.roomNumber,
-        })),
-      ),
-    [roomOptions],
-  );
-
-  const bedById = useMemo(
-    () => new Map(bedOptions.map((bed) => [bed.id, bed])),
-    [bedOptions],
+  const emergencyContacts = useMemo(
+    () => contactsQuery.data?.emergencyContacts ?? [],
+    [contactsQuery.data],
   );
 
   const filteredResidents = useMemo(() => {
@@ -111,66 +352,237 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
       if (!query) {
         return true;
       }
-      const bed = bedById.get(resident.bedId);
       const haystack = [
         resident.firstName,
         resident.lastName,
         resident.phone,
         resident.email,
-        bed?.roomNumber,
-        bed?.bedNumber,
+        resident.roomType,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [bedById, residents, search, statusFilter, typeFilter]);
+  }, [residents, search, statusFilter, typeFilter]);
+
+  const handleResidentLookup = useCallback(async () => {
+    const query = lookupId.trim();
+
+    if (!query) {
+      return;
+    }
+
+    setLookupBusy(true);
+    setLookupError("");
+
+    try {
+      const result = await browserApi<{ prefill: ResidentPrefill }>(
+        `/api/v1/hostel-admin/resident-lookup?residentId=${encodeURIComponent(query)}`,
+      );
+
+      setPrefill(result.prefill);
+      setShowAddForm(true);
+      setAddStep("form");
+      setMessage("");
+    } catch (error) {
+      setPrefill(null);
+      setLookupError(
+        error instanceof Error ? error.message : "Could not load that resident ID.",
+      );
+    } finally {
+      setLookupBusy(false);
+    }
+  }, [lookupId]);
+
+  const clearPrefill = useCallback(() => {
+    setPrefill(null);
+    setLookupId("");
+    setLookupError("");
+  }, []);
+
+  /**
+   * Picking a room type fills in that type's rent. The fee field is read-only —
+   * rent is a property of the room type, not something typed per resident.
+   */
+  const handleRoomTypeChange = useCallback(
+    (value: string) => {
+      setRoomType(value);
+      const option = roomTypeOptions.find((entry) => entry.roomType === value);
+      setMonthlyFee(option ? String(option.monthlyRent) : "");
+    },
+    [roomTypeOptions],
+  );
+
+  const handleDeleteResident = useCallback(
+    async (resident: Resident) => {
+      const fullName = `${resident.firstName} ${resident.lastName}`.trim();
+
+      if (
+        !window.confirm(
+          `Remove ${fullName} from this hostel? Their bed is freed and they disappear from every list.`,
+        )
+      ) {
+        return;
+      }
+
+      setDeleteBusy(true);
+
+      try {
+        await browserApi(`/api/v1/hostel-admin/residents/${resident.id}`, {
+          method: "DELETE",
+        });
+        setSelectedResidentId("");
+        setActivationCode("");
+        setMessage(`${fullName} was removed from this hostel.`);
+        // The freed bed changes vacancy, so the room-type dropdown refetches too.
+        await Promise.all([residentsQuery.refreshAsync(), roomTypesQuery.refreshAsync()]);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Could not remove resident.");
+      } finally {
+        setDeleteBusy(false);
+      }
+    },
+    [residentsQuery, roomTypesQuery],
+  );
+
+  const handleStatusChange = useCallback(
+    async (resident: Resident, status: ResidentStatus) => {
+      const fullName = `${resident.firstName} ${resident.lastName}`.trim();
+
+      // Moving out is the one status that hands the bed back, so it gets a
+      // confirmation the reversible ones do not need.
+      if (
+        status === "MOVED_OUT" &&
+        !window.confirm(`Mark ${fullName} as moved out? Their bed is freed.`)
+      ) {
+        return;
+      }
+
+      try {
+        const result = await browserApi<{
+          accountLink: { linked: boolean; reason?: string };
+        }>(`/api/v1/hostel-admin/residents/${resident.id}/status`, {
+          body: JSON.stringify({ status }),
+          method: "PATCH",
+        });
+        // Activating is also the moment their login becomes a resident login,
+        // so say whether that worked rather than only echoing the status.
+        const accountNote =
+          status !== "ACTIVE"
+            ? ""
+            : result.accountLink.linked
+              ? " They can sign in with their own email and land on their resident dashboard."
+              : " Their account could not be linked — generate an activation code for them.";
+        setMessage(
+          `${fullName} is now ${status.replaceAll("_", " ").toLowerCase()}.${accountNote}`,
+        );
+        await Promise.all([residentsQuery.refreshAsync(), roomTypesQuery.refreshAsync()]);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Could not update status.");
+      }
+    },
+    [residentsQuery, roomTypesQuery],
+  );
 
   const handleCreateResident = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
-      const bedId = field(form, "bedId");
-      const bed = bedOptions.find((option) => option.id === bedId);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
+
+      setSaveBusy(true);
 
       try {
-        await browserApi("/api/v1/hostel-admin/residents", {
-          body: JSON.stringify({
-            bedId,
-            depositAmount: Number(field(form, "depositAmount") || 0),
-            email: optionalField(form, "email"),
-            firstName: field(form, "firstName"),
-            lastName: field(form, "lastName"),
-            monthlyFee: Number(optionalField(form, "monthlyFee") || 0),
-            moveInDate: field(form, "moveInDate"),
-            phone: field(form, "phone"),
-            residentType: field(form, "residentType"),
-            roomId: bed?.roomId,
-          }),
-          method: "POST",
-        });
-        event.currentTarget.reset();
+        const created = await browserApi<{
+          accountLink: { linked: boolean; reason?: string };
+          resident: { id: string };
+        }>(
+          "/api/v1/hostel-admin/residents",
+          {
+            body: JSON.stringify({
+              depositAmount: Number(field(form, "depositAmount") || 0),
+              email: optionalField(form, "email"),
+              firstName: field(form, "firstName"),
+              lastName: field(form, "lastName"),
+              monthlyFee: Number(optionalField(form, "monthlyFee") || 0),
+              moveInDate: field(form, "moveInDate"),
+              phone: field(form, "phone"),
+              residentType: field(form, "residentType"),
+              // The server decrements this room type's vacant-bed count.
+              roomType: field(form, "roomType"),
+            }),
+            method: "POST",
+          },
+        );
+
+        // The whole point of scanning a resident ID: the guardian and emergency
+        // records the hostel would otherwise re-type get written for them.
+        let attachedContacts = 0;
+
+        if (prefill) {
+          const residentId = created.resident.id;
+          const contactRequests = [
+            ...prefill.guardians.map((guardian) =>
+              browserApi(`/api/v1/hostel-admin/residents/${residentId}/guardians`, {
+                body: JSON.stringify(guardian),
+                method: "POST",
+              }),
+            ),
+            browserApi(
+              `/api/v1/hostel-admin/residents/${residentId}/emergency-contacts`,
+              { body: JSON.stringify(prefill.emergencyContact), method: "POST" },
+            ),
+          ];
+
+          const outcomes = await Promise.allSettled(contactRequests);
+          attachedContacts = outcomes.filter(
+            (outcome) => outcome.status === "fulfilled",
+          ).length;
+        }
+
+        formElement.reset();
+        setRoomType("");
+        setMonthlyFee("");
         setShowAddForm(false);
-        setMessage("Resident created.");
-        await residentsQuery.refetch();
+        setAddStep("identify");
+        // Registering promotes their account to a resident login, so the code is
+        // only worth mentioning when that automatic link did not happen.
+        const accountNote = created.accountLink.linked
+          ? " They can now sign in with their own email and land on their resident dashboard."
+          : " Their account could not be linked automatically — generate an activation code for them.";
+        setMessage(
+          (prefill
+            ? `Resident created from ID ${lookupId.trim().toUpperCase()} — ${attachedContacts} contact record(s) added automatically.`
+            : "Resident created.") + accountNote,
+        );
+        clearPrefill();
+        // Vacancy just changed, so the room-type dropdown has to be refetched
+        // alongside the resident list.
+        await Promise.all([residentsQuery.refreshAsync(), roomTypesQuery.refreshAsync()]);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Could not create resident.");
+      } finally {
+        setSaveBusy(false);
       }
     },
-    [bedOptions, residentsQuery],
+    [clearPrefill, lookupId, prefill, residentsQuery, roomTypesQuery],
   );
 
-  const handleGenerateActivation = useCallback(async () => {
-    if (!activeResidentId) {
+  const handleGenerateActivation = useCallback(async (residentId: string) => {
+    if (!residentId) {
       return;
     }
+
+    // The code lands in the side panel, so make sure that panel is showing the
+    // resident it belongs to — the row menu can target any row.
+    setSelectedResidentId(residentId);
 
     try {
       const result = await browserApi<{
         activation: { code?: string };
         delivery: { sent: boolean; to?: string };
-      }>(`/api/v1/hostel-admin/residents/${activeResidentId}/activation-code`, {
+      }>(`/api/v1/hostel-admin/residents/${residentId}/activation-code`, {
         // Expiry is left to the platform's qrActivationExpiryDays setting.
         body: JSON.stringify({}),
         method: "POST",
@@ -183,79 +595,12 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
           : "Activation code generated. No email was sent — share the code below with the resident.",
       );
     } catch (error) {
+      setActivationCode("");
       setMessage(
         error instanceof Error ? error.message : "Could not generate activation code.",
       );
     }
-  }, [activeResidentId]);
-
-  const handleAddGuardian = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!activeResidentId) {
-        return;
-      }
-
-      const form = new FormData(event.currentTarget);
-
-      try {
-        await browserApi(
-          `/api/v1/hostel-admin/residents/${activeResidentId}/guardians`,
-          {
-            body: JSON.stringify({
-              email: optionalField(form, "email"),
-              firstName: field(form, "firstName"),
-              isPrimary: form.get("isPrimary") === "on",
-              lastName: field(form, "lastName"),
-              phone: field(form, "phone"),
-              relation: field(form, "relation"),
-            }),
-            method: "POST",
-          },
-        );
-        event.currentTarget.reset();
-        setMessage("Guardian saved.");
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not save guardian.");
-      }
-    },
-    [activeResidentId],
-  );
-
-  const handleAddEmergencyContact = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!activeResidentId) {
-        return;
-      }
-
-      const form = new FormData(event.currentTarget);
-
-      try {
-        await browserApi(
-          `/api/v1/hostel-admin/residents/${activeResidentId}/emergency-contacts`,
-          {
-            body: JSON.stringify({
-              isPrimary: form.get("isPrimary") === "on",
-              name: field(form, "name"),
-              phone: field(form, "phone"),
-              relation: field(form, "relation"),
-            }),
-            method: "POST",
-          },
-        );
-        event.currentTarget.reset();
-        setMessage("Emergency contact saved.");
-      } catch (error) {
-        setMessage(
-          error instanceof Error ? error.message : "Could not save emergency contact.",
-        );
-      }
-    },
-    [activeResidentId],
-  );
+  }, []);
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
@@ -263,7 +608,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         actions={
           <>
             <RoleButton
-              onClick={handleGenerateActivation}
+              onClick={() => handleGenerateActivation(activeResidentId)}
               tone="admin"
               type="button"
               variant="outline"
@@ -272,7 +617,13 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
               Generate Activation Code
             </RoleButton>
             <RoleButton
-              onClick={() => setShowAddForm((value) => !value)}
+              onClick={() => {
+                // Always reopen on the "ask for the resident ID" step — that is
+                // the fast path, and typing everything by hand is the fallback.
+                clearPrefill();
+                setAddStep("identify");
+                setShowAddForm((value) => !value);
+              }}
               tone="admin"
               type="button"
             >
@@ -304,36 +655,222 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
               <X className="size-4" />
             </Button>
           }
-          description="Add a new resident and assign room, plan, and details."
+          description={
+            addStep === "identify"
+              ? "Start with the resident's ID — their saved details fill the form for you."
+              : "Review the details, assign a room, then save."
+          }
           title="Register New Resident"
         >
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateResident}>
-            <FormInput label="First name" name="firstName" required />
-            <FormInput label="Last name" name="lastName" required />
-            <FormInput label="Phone" name="phone" required />
-            <FormInput label="Email" name="email" type="email" />
-            <FormSelect label="Available bed" name="bedId" required>
-              <option value="">Select bed</option>
-              {bedOptions
-                .filter((bed) => bed.status === "AVAILABLE")
-                .map((bed) => (
-                  <option key={bed.id} value={bed.id}>
-                    {bed.label}
+          {addStep === "identify" ? (
+            <div className="space-y-4 rounded-xl border border-dashed border-role-admin/40 bg-role-admin-soft/15 p-5">
+              <div>
+                <p className="flex items-center gap-2 text-base font-bold text-foreground">
+                  <ScanLine className="size-4 text-role-admin" />
+                  Ask for their resident ID
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  They open their account menu, tap &quot;Show resident QR code&quot;
+                  and read out the ID printed under it — or you scan the QR in the
+                  mobile app. Everything they already filled in loads here, so
+                  nothing gets typed twice.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  autoFocus
+                  className="h-12 flex-1 rounded-lg border border-border bg-background px-3 font-mono text-base uppercase tracking-widest text-foreground outline-none transition placeholder:font-sans placeholder:normal-case placeholder:tracking-normal placeholder:text-muted-foreground focus:border-role-admin"
+                  onChange={(event) => setLookupId(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleResidentLookup();
+                    }
+                  }}
+                  placeholder="HH-4K7M-9XQ2"
+                  value={lookupId}
+                />
+                <RoleButton
+                  className="h-12"
+                  disabled={lookupBusy || !lookupId.trim()}
+                  onClick={handleResidentLookup}
+                  tone="admin"
+                  type="button"
+                >
+                  {lookupBusy ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <ScanLine className="size-4" />
+                  )}
+                  {lookupBusy ? "Loading…" : "Load their details"}
+                </RoleButton>
+              </div>
+              {lookupError ? (
+                <p className="text-xs font-semibold text-danger">{lookupError}</p>
+              ) : null}
+              <button
+                className="text-xs font-bold text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
+                onClick={() => {
+                  clearPrefill();
+                  setAddStep("form");
+                }}
+                type="button"
+              >
+                They do not have one — enter the details manually
+              </button>
+            </div>
+          ) : null}
+
+          {addStep === "form" && prefill ? (
+            <div className="mb-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <SoftBadge tone="green">
+                  <ShieldCheck className="size-3" />
+                  Loaded from {lookupId.trim().toUpperCase()}
+                </SoftBadge>
+                <Button
+                  onClick={() => {
+                    clearPrefill();
+                    setAddStep("identify");
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  Use a different ID
+                </Button>
+              </div>
+              <ImportedProfileSummary prefill={prefill} />
+            </div>
+          ) : null}
+
+          <form
+            className={cn("space-y-6", addStep === "identify" && "hidden")}
+            key={prefill ? `prefill-${lookupId}` : "blank"}
+            onSubmit={handleCreateResident}
+          >
+            <FormSection
+              description="Who is moving in and how to reach them."
+              title="Resident"
+            >
+              <FormInput
+                defaultValue={prefill?.resident.firstName}
+                label="First name"
+                name="firstName"
+                required
+              />
+              <FormInput
+                defaultValue={prefill?.resident.lastName}
+                label="Last name"
+                name="lastName"
+                required
+              />
+              <FormSelect
+                defaultValue={prefill?.resident.residentType ?? "STUDENT"}
+                label="Resident type"
+                name="residentType"
+              >
+                <option value="STUDENT">Student</option>
+                <option value="WORKING_PROFESSIONAL">Working professional</option>
+                <option value="OTHER">Other</option>
+              </FormSelect>
+              <FormInput
+                defaultValue={prefill?.resident.phone}
+                label="Phone"
+                name="phone"
+                required
+              />
+              <FormInput
+                defaultValue={prefill?.resident.email}
+                label="Email"
+                name="email"
+                type="email"
+              />
+            </FormSection>
+
+            <FormSection
+              description="Picking a room type sets that type's monthly rent automatically."
+              title="Room & stay"
+            >
+              <div className="grid gap-1">
+                <FormSelect
+                  label="Room type"
+                  name="roomType"
+                  onChange={(event) => handleRoomTypeChange(event.target.value)}
+                  required
+                  value={roomType}
+                >
+                  <option value="">
+                    {roomTypeOptions.length > 0
+                      ? "Select room type"
+                      : "No room types available"}
                   </option>
-                ))}
-            </FormSelect>
-            <FormInput label="Move-in date" name="moveInDate" required type="date" />
-            <FormInput label="Deposit" name="depositAmount" required type="number" />
-            <FormSelect defaultValue="STUDENT" label="Resident type" name="residentType">
-              <option value="STUDENT">Student</option>
-              <option value="WORKING_PROFESSIONAL">Working professional</option>
-              <option value="OTHER">Other</option>
-            </FormSelect>
-            <FormInput label="Monthly fee" min="0" name="monthlyFee" type="number" />
-            <div className="flex items-end">
-              <RoleButton className="w-full" tone="admin" type="submit">
-                <UserPlus className="size-4" />
-                Save Resident
+                  {roomTypeOptions.map((option) => (
+                    <option key={option.roomType} value={option.roomType}>
+                      {option.roomType} ({option.vacantBeds} vacant ·{" "}
+                      {currency(option.monthlyRent)}/mo)
+                    </option>
+                  ))}
+                </FormSelect>
+                {/* Only room types with a free bed are listed, so an empty
+                    dropdown means the hostel is full or has no types set up. */}
+                {roomTypeOptions.length === 0 && roomTypesQuery.state !== "loading" ? (
+                  <p className="text-[11px] font-normal text-amber-700 dark:text-amber-300">
+                    {roomTypesQuery.state === "error"
+                      ? "Room types could not be loaded."
+                      : "No vacant beds left. Add or update room types in Rooms & Beds."}
+                  </p>
+                ) : null}
+              </div>
+              {/* The rent belongs to the room type, so it is never typed by
+                  hand — change it in Rooms & Beds and every resident follows. */}
+              <FormInput
+                hint={
+                  roomType
+                    ? "Set by the room type. Change it in Rooms & Beds."
+                    : "Select a room type to fill this in."
+                }
+                label={
+                  <span className="flex items-center gap-1.5">
+                    Monthly fee
+                    <Lock className="size-3 text-muted-foreground" />
+                  </span>
+                }
+                min="0"
+                name="monthlyFee"
+                placeholder="—"
+                readOnly
+                type="number"
+                value={monthlyFee}
+              />
+              <FormInput label="Move-in date" name="moveInDate" required type="date" />
+              <FormInput label="Deposit" name="depositAmount" required type="number" />
+            </FormSection>
+
+            <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
+              <p className="mr-auto text-xs text-muted-foreground">
+                {roomType
+                  ? `${roomType} · ${currency(Number(monthlyFee || 0))}/month`
+                  : "Pick a room type to see the monthly rent."}
+              </p>
+              <Button
+                onClick={() => {
+                  setShowAddForm(false);
+                  setAddStep("identify");
+                  clearPrefill();
+                }}
+                type="button"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+              <RoleButton disabled={saveBusy} tone="admin" type="submit">
+                {saveBusy ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <UserPlus className="size-4" />
+                )}
+                {saveBusy ? "Saving…" : "Save Resident"}
               </RoleButton>
             </div>
           </form>
@@ -400,7 +937,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                     Resident
                   </TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Room / Bed
+                    Room type
                   </TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Phone
@@ -416,7 +953,6 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
               </TableHeader>
               <TableBody>
                 {filteredResidents.map((resident) => {
-                  const bed = bedById.get(resident.bedId);
                   const fullName = `${resident.firstName} ${resident.lastName}`.trim();
                   const selected = activeResidentId === resident.id;
 
@@ -451,16 +987,14 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                               <DemoDataBadge label={resident.demoDataLabel} />
                             ) : (
                               <p className="text-xs text-muted-foreground">
-                                Room {bed?.roomNumber ?? "—"}
+                                {resident.roomType}
                               </p>
                             )}
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {bed
-                          ? `${bed.roomNumber} / Bed ${bed.bedNumber}`
-                          : `Room ${resident.roomId.slice(-4)} / Bed ${resident.bedId.slice(-4)}`}
+                        {resident.roomType}
                       </TableCell>
                       <TableCell className="text-muted-foreground">{resident.phone}</TableCell>
                       <TableCell className="font-medium text-foreground">
@@ -471,10 +1005,55 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                           {resident.status.replaceAll("_", " ")}
                         </SoftBadge>
                       </TableCell>
-                      <TableCell>
-                        <Button className="size-8" size="icon" type="button" variant="ghost">
-                          <MoreHorizontal className="size-4" />
-                        </Button>
+                      {/* The row itself selects on click, so the menu has to
+                          keep its own clicks to itself. */}
+                      <TableCell onClick={(event) => event.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              className="size-8"
+                              size="icon"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <MoreHorizontal className="size-4" />
+                              <span className="sr-only">
+                                Actions for {fullName}
+                              </span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel>{fullName}</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onSelect={() => void handleGenerateActivation(resident.id)}
+                            >
+                              <QrCode className="size-4" />
+                              Generate activation code
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {STATUS_ACTIONS.filter(
+                              (action) => action.status !== resident.status,
+                            ).map((action) => (
+                              <DropdownMenuItem
+                                key={action.status}
+                                onSelect={() =>
+                                  void handleStatusChange(resident, action.status)
+                                }
+                              >
+                                {action.label}
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              disabled={deleteBusy}
+                              onSelect={() => void handleDeleteResident(resident)}
+                              variant="destructive"
+                            >
+                              <Trash2 className="size-4" />
+                              Delete resident
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   );
@@ -499,12 +1078,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                       {selectedResident.firstName} {selectedResident.lastName}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {(() => {
-                        const bed = bedById.get(selectedResident.bedId);
-                        return bed
-                          ? `Room ${bed.roomNumber} · Bed ${bed.bedNumber}`
-                          : selectedResident.phone;
-                      })()}
+                      {selectedResident.roomType}
                     </p>
                     <div className="mt-2">
                       <SoftBadge tone={statusToneFromLabel(selectedResident.status)}>
@@ -514,115 +1088,138 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                   </div>
                 </div>
 
-                <Tabs defaultValue="details">
-                  <TabsList className="grid w-full grid-cols-3 rounded-xl" variant="line">
-                    <TabsTrigger value="details">Details</TabsTrigger>
-                    <TabsTrigger value="guardian">Guardian</TabsTrigger>
-                    <TabsTrigger value="emergency">Emergency</TabsTrigger>
-                  </TabsList>
+                <PanelSection title="Details">
+                  <dl className="space-y-2 rounded-xl border border-border bg-muted/15 p-3 text-sm">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Full Name</dt>
+                      <dd className="font-medium text-foreground">
+                        {selectedResident.firstName} {selectedResident.lastName}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Phone</dt>
+                      <dd className="font-medium text-foreground">
+                        {selectedResident.phone}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Email</dt>
+                      <dd className="font-medium text-foreground">
+                        {selectedResident.email || "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Deposit</dt>
+                      <dd className="font-medium text-foreground">
+                        {currency(selectedResident.depositAmount)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Monthly fee</dt>
+                      <dd className="font-medium text-foreground">
+                        {currency(selectedResident.monthlyFee ?? 0)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Move-in</dt>
+                      <dd className="font-medium text-foreground">
+                        {selectedResident.moveInDate
+                          ? new Date(selectedResident.moveInDate).toLocaleDateString()
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Room type</dt>
+                      <dd className="font-medium text-foreground">
+                        {selectedResident.roomType}
+                      </dd>
+                    </div>
+                  </dl>
+                </PanelSection>
 
-                  <TabsContent className="mt-4 space-y-3" value="details">
-                    <dl className="space-y-2 rounded-xl border border-border bg-muted/15 p-3 text-sm">
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Full Name</dt>
-                        <dd className="font-medium text-foreground">
-                          {selectedResident.firstName} {selectedResident.lastName}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Phone</dt>
-                        <dd className="font-medium text-foreground">
-                          {selectedResident.phone}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Email</dt>
-                        <dd className="font-medium text-foreground">
-                          {selectedResident.email || "—"}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Deposit</dt>
-                        <dd className="font-medium text-foreground">
-                          {currency(selectedResident.depositAmount)}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Move-in</dt>
-                        <dd className="font-medium text-foreground">
-                          {selectedResident.moveInDate
-                            ? new Date(selectedResident.moveInDate).toLocaleDateString()
-                            : "—"}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Room / Bed</dt>
-                        <dd className="font-medium text-foreground">
-                          {(() => {
-                            const bed = bedById.get(selectedResident.bedId);
-                            return bed
-                              ? `${bed.roomNumber} / ${bed.bedNumber}`
-                              : "Assigned";
-                          })()}
-                        </dd>
-                      </div>
-                    </dl>
+                <PanelSection title="Guardian">
+                  {contactsQuery.state === "loading" ? <LoadingRows /> : null}
+                  {contactsQuery.state === "error" ? (
+                    <EmptyInline label="Guardian details could not be loaded." />
+                  ) : null}
+                  {guardians.map((guardian) => (
+                    <ContactCard
+                      key={guardian.id}
+                      rows={[
+                        ["Name", `${guardian.firstName} ${guardian.lastName}`.trim()],
+                        ["Phone", guardian.phone],
+                        ["Relation", guardian.relation],
+                        ["Email", guardian.email || "—"],
+                      ]}
+                      title={guardian.isPrimary ? "Primary guardian" : "Guardian"}
+                    />
+                  ))}
+                  {contactsQuery.state !== "loading" &&
+                  contactsQuery.state !== "error" &&
+                  guardians.length === 0 ? (
+                    <EmptyInline label="This resident has not added a guardian yet." />
+                  ) : null}
+                </PanelSection>
 
-                    {activationCode ? (
-                      <div className="rounded-xl border border-role-admin/30 bg-role-admin-soft/50 p-4">
-                        <p className="text-sm font-semibold text-foreground">Activation Code</p>
-                        <p className="mt-2 font-mono text-2xl font-bold tracking-widest text-role-admin">
-                          {activationCode}
-                        </p>
-                      </div>
-                    ) : (
-                      <RoleButton
-                        className="w-full"
-                        onClick={handleGenerateActivation}
-                        tone="admin"
-                        type="button"
-                        variant="outline"
-                      >
-                        <QrCode className="size-4" />
-                        Generate Activation Code
-                      </RoleButton>
-                    )}
-                  </TabsContent>
+                <PanelSection title="Emergency">
+                  {contactsQuery.state === "loading" ? <LoadingRows /> : null}
+                  {contactsQuery.state === "error" ? (
+                    <EmptyInline label="Emergency contacts could not be loaded." />
+                  ) : null}
+                  {emergencyContacts.map((contact) => (
+                    <ContactCard
+                      key={contact.id}
+                      rows={[
+                        ["Name", contact.name],
+                        ["Phone", contact.phone],
+                        ["Relation", contact.relation],
+                      ]}
+                      title={contact.isPrimary ? "Primary contact" : "Emergency contact"}
+                    />
+                  ))}
+                  {contactsQuery.state !== "loading" &&
+                  contactsQuery.state !== "error" &&
+                  emergencyContacts.length === 0 ? (
+                    <EmptyInline label="This resident has not added an emergency contact yet." />
+                  ) : null}
+                </PanelSection>
 
-                  <TabsContent className="mt-4" value="guardian">
-                    <form className="grid gap-3" onSubmit={handleAddGuardian}>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <FormInput label="First name" name="firstName" required />
-                        <FormInput label="Last name" name="lastName" required />
-                      </div>
-                      <FormInput label="Phone" name="phone" required />
-                      <FormInput label="Relation" name="relation" required />
-                      <FormInput label="Email" name="email" type="email" />
-                      <label className="flex items-center gap-2 text-sm text-foreground">
-                        <input name="isPrimary" type="checkbox" />
-                        Primary guardian
-                      </label>
-                      <RoleButton className="w-full" tone="admin" type="submit" variant="outline">
-                        Save Guardian
-                      </RoleButton>
-                    </form>
-                  </TabsContent>
+                <PanelSection title="Activation">
+                  {activationCode ? (
+                    <div className="rounded-xl border border-role-admin/30 bg-role-admin-soft/50 p-4">
+                      <p className="text-sm font-semibold text-foreground">Activation Code</p>
+                      <p className="mt-2 font-mono text-2xl font-bold tracking-widest text-role-admin">
+                        {activationCode}
+                      </p>
+                    </div>
+                  ) : (
+                    <RoleButton
+                      className="w-full"
+                      onClick={() => handleGenerateActivation(activeResidentId)}
+                      tone="admin"
+                      type="button"
+                      variant="outline"
+                    >
+                      <QrCode className="size-4" />
+                      Generate Activation Code
+                    </RoleButton>
+                  )}
+                </PanelSection>
 
-                  <TabsContent className="mt-4" value="emergency">
-                    <form className="grid gap-3" onSubmit={handleAddEmergencyContact}>
-                      <FormInput label="Name" name="name" required />
-                      <FormInput label="Phone" name="phone" required />
-                      <FormInput label="Relation" name="relation" required />
-                      <label className="flex items-center gap-2 text-sm text-foreground">
-                        <input name="isPrimary" type="checkbox" />
-                        Primary contact
-                      </label>
-                      <RoleButton className="w-full" tone="admin" type="submit" variant="outline">
-                        Save Contact
-                      </RoleButton>
-                    </form>
-                  </TabsContent>
-                </Tabs>
+                <Button
+                  className="w-full gap-2 border-danger/40 text-danger hover:bg-danger/10 hover:text-danger"
+                  disabled={deleteBusy}
+                  onClick={() => handleDeleteResident(selectedResident)}
+                  type="button"
+                  variant="outline"
+                >
+                  {deleteBusy ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  {deleteBusy ? "Removing…" : "Delete Resident"}
+                </Button>
               </div>
             ) : (
               <EmptyInline label="Select a resident to view details." />

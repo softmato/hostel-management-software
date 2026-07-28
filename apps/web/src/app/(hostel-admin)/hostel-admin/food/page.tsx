@@ -1,5 +1,5 @@
-import { HostelAdminFoodPage } from "@/app/_components/hostel-admin-food-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function FoodPage() {
-  return <HostelAdminFoodPage />;
+export default async function LegacyHostelAdminFoodPage() {
+  return redirectToWorkspaceScreen("food");
 }

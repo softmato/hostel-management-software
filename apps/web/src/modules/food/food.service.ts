@@ -109,6 +109,31 @@ function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string)
   };
 }
 
+/**
+ * Menu dates are day-granular. Callers send them in assorted shapes (a bare
+ * `YYYY-MM-DD`, a full timestamp from a seed script), so everything is pinned
+ * to UTC midnight before it is written or matched — otherwise two entries for
+ * the same meal on the same day slip past the unique (hostel, date, meal)
+ * index and the reader picks whichever one it happens to see last.
+ */
+function startOfUtcDay(value: Date) {
+  const date = new Date(value);
+
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
+}
+
+function addUtcDay(value: Date) {
+  const date = startOfUtcDay(value);
+
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date;
+}
+
+function dayRange(value: Date) {
+  return { $gte: startOfUtcDay(value), $lt: addUtcDay(value) };
+}
+
 function definedUpdate(input: Record<string, unknown>, omittedKeys: string[] = []) {
   return Object.fromEntries(
     Object.entries(input).filter(
@@ -187,14 +212,50 @@ export async function createFoodMenu(
   await connectToDatabase();
 
   const hostelId = resolveAdminHostelId(principal, input.hostelId);
-  const menu = await FoodMenuModel.create({
+  const normalized = {
     ...input,
-    createdBy: principal.userId,
+    date: startOfUtcDay(input.date),
+    weekStartDate: startOfUtcDay(input.weekStartDate),
+  };
+  // Re-posting the same meal replaces that day's entry instead of adding a
+  // second one: the match is on the whole day, so an entry written earlier with
+  // a time component is still the one that gets updated.
+  // Oldest-first: if a midnight row already exists it is the one that gets
+  // updated, so normalizing the date cannot collide with it on the unique
+  // (hostel, date, meal) index.
+  const existing = await FoodMenuModel.findOne({
+    date: dayRange(input.date),
     hostelId,
-    updatedBy: principal.userId,
-  });
+    mealType: input.mealType,
+  }).sort({ date: 1 });
 
-  await auditFoodAction(principal, hostelId, menu._id, "FoodMenu", "FOOD_MENU_CREATED");
+  const menu = existing
+    ? await FoodMenuModel.findOneAndUpdate(
+        { _id: existing._id },
+        {
+          ...definedUpdate({ ...normalized }, ["hostelId"]),
+          updatedBy: principal.userId,
+        },
+        { new: true },
+      )
+    : await FoodMenuModel.create({
+        ...normalized,
+        createdBy: principal.userId,
+        hostelId,
+        updatedBy: principal.userId,
+      });
+
+  if (!menu) {
+    throw new FoodServiceError("Food menu could not be saved.", "FOOD_MENU_SAVE_FAILED", 500);
+  }
+
+  await auditFoodAction(
+    principal,
+    hostelId,
+    menu._id,
+    "FoodMenu",
+    existing ? "FOOD_MENU_UPDATED" : "FOOD_MENU_CREATED",
+  );
 
   return {
     menu: serializeFoodMenu(menu as FoodMenuRecord),
@@ -209,11 +270,20 @@ export async function listFoodMenus(query: FoodMenuListQuery, principal: ApiPrin
   };
 
   if (query.date) {
-    const start = new Date(query.date);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    filter.date = { $gte: start, $lt: end };
+    filter.date = dayRange(query.date);
+  } else if (query.from || query.to) {
+    const range: Record<string, Date> = {};
+
+    if (query.from) {
+      range.$gte = startOfUtcDay(query.from);
+    }
+
+    if (query.to) {
+      // `to` is inclusive, so the exclusive upper bound is the next day.
+      range.$lt = addUtcDay(query.to);
+    }
+
+    filter.date = range;
   }
 
   if (query.weekStartDate) {
@@ -224,13 +294,63 @@ export async function listFoodMenus(query: FoodMenuListQuery, principal: ApiPrin
     filter.mealType = query.mealType;
   }
 
+  // A single month of four meals a day is already 124 rows, so the cap has to
+  // clear a couple of months for a ranged read to come back whole.
   const menus = await FoodMenuModel.find(filter)
     .sort({ date: 1, mealType: 1 })
-    .limit(120)
+    .limit(500)
     .lean<FoodMenuRecord[]>();
 
   return {
     menus: menus.map(serializeFoodMenu),
+  };
+}
+
+/**
+ * The routine a public hostel page shows — no principal, because a published
+ * hostel's menu is public information.
+ *
+ * A hostel that keeps the same routine for months only configures it once, so
+ * this reads the most recently published week rather than today's: strictly
+ * scoping to the current week would blank the page for every hostel whose menu
+ * has not been touched since it was set up.
+ */
+export async function listPublicFoodRoutine(
+  hostelId: Types.ObjectId,
+  referenceDate = new Date(),
+) {
+  await connectToDatabase();
+
+  const today = startOfUtcDay(referenceDate);
+  // Prefer the newest week already in effect, so a routine published ahead of
+  // time does not replace the one residents are eating this week.
+  const current = await FoodMenuModel.findOne({
+    hostelId,
+    weekStartDate: { $lte: today },
+  })
+    .sort({ weekStartDate: -1 })
+    .lean<FoodMenuRecord | null>();
+  const latest =
+    current ??
+    (await FoodMenuModel.findOne({ hostelId })
+      .sort({ weekStartDate: -1 })
+      .lean<FoodMenuRecord | null>());
+
+  if (!latest) {
+    return { menus: [], weekStartDate: "" };
+  }
+
+  const menus = await FoodMenuModel.find({
+    hostelId,
+    weekStartDate: latest.weekStartDate,
+  })
+    .sort({ date: 1, mealType: 1, updatedAt: 1 })
+    .limit(60)
+    .lean<FoodMenuRecord[]>();
+
+  return {
+    menus: menus.map(serializeFoodMenu),
+    weekStartDate: latest.weekStartDate.toISOString(),
   };
 }
 

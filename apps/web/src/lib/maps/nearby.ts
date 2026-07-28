@@ -2,7 +2,7 @@ import type { Coordinates, NearbyPlace, NearbyPlaceType } from "./types";
 
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const SEARCH_RADIUS_METERS = 1500;
-const MAX_RESULTS = 12;
+const MAX_RESULTS = 18;
 
 export function haversineMeters(a: Coordinates, b: Coordinates): number {
   const R = 6_371_000;
@@ -43,6 +43,7 @@ type OverpassElement = {
 function classifyOverpass(tags: Record<string, string>): NearbyPlaceType {
   const amenity = tags.amenity ?? "";
   const highway = tags.highway ?? "";
+  const leisure = tags.leisure ?? "";
   if (amenity === "college" || amenity === "university" || amenity === "school") {
     return "college";
   }
@@ -52,6 +53,18 @@ function classifyOverpass(tags: Record<string, string>): NearbyPlaceType {
   if (highway === "bus_stop" || tags.public_transport === "platform") {
     return "bus_stop";
   }
+  if (leisure === "park" || leisure === "garden") {
+    return "park";
+  }
+  if (leisure === "fitness_centre" || leisure === "sports_centre") {
+    return "gym";
+  }
+  if (amenity === "restaurant" || amenity === "cafe" || amenity === "fast_food") {
+    return "restaurant";
+  }
+  if (amenity === "pharmacy") {
+    return "pharmacy";
+  }
   return "other";
 }
 
@@ -59,10 +72,12 @@ async function fetchNearbyWithOverpass(center: Coordinates): Promise<NearbyPlace
   const r = SEARCH_RADIUS_METERS;
   const { lat, lng } = center;
   const query = `[out:json][timeout:20];(
-    node["amenity"~"college|university|school|hospital|clinic"](around:${r},${lat},${lng});
+    node["amenity"~"college|university|school|hospital|clinic|restaurant|cafe|fast_food|pharmacy"](around:${r},${lat},${lng});
     way["amenity"~"college|university|hospital"](around:${r},${lat},${lng});
     node["highway"="bus_stop"](around:${r},${lat},${lng});
-  );out center ${MAX_RESULTS * 3};`;
+    node["leisure"~"park|garden|fitness_centre|sports_centre"](around:${r},${lat},${lng});
+    way["leisure"~"park|garden"](around:${r},${lat},${lng});
+  );out center ${MAX_RESULTS * 4};`;
 
   const response = await fetch(OVERPASS_URL, {
     body: `data=${encodeURIComponent(query)}`,
@@ -123,6 +138,10 @@ const GOOGLE_PLACE_TYPES: { type: string; kind: NearbyPlaceType }[] = [
   { kind: "college", type: "university" },
   { kind: "hospital", type: "hospital" },
   { kind: "bus_stop", type: "bus_station" },
+  { kind: "park", type: "park" },
+  { kind: "gym", type: "gym" },
+  { kind: "restaurant", type: "restaurant" },
+  { kind: "pharmacy", type: "pharmacy" },
 ];
 
 async function fetchNearbyWithGoogle(center: Coordinates): Promise<NearbyPlace[]> {

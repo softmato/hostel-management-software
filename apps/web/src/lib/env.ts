@@ -23,6 +23,12 @@ export const serverEnvSchema = z.object({
   TWILIO_FROM_PHONE: z.string().optional(),
   TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
+  /**
+   * 32-byte key (base64 or hex) that encrypts the resident identity profiles.
+   * Optional here so existing deployments keep booting; the resident-profile
+   * endpoints fail with a clear message when it is absent.
+   */
+  PERSONAL_DATA_ENCRYPTION_KEY: z.string().optional(),
   COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: z
     .string()

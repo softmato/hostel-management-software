@@ -13,6 +13,7 @@ import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
 import { UserModel } from "@hostel/db/models/User";
 import { provisionCookAccount } from "@/modules/food/cook.service";
+import { listPublicFoodRoutine } from "@/modules/food/food.service";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { hostelApprovedEmail } from "@hostel/shared/email/templates/hostel/hostel-approved";
@@ -71,6 +72,7 @@ export type HostelRecord = {
     phone?: string;
   };
   createdAt?: Date;
+  totalFloors?: number;
   demoDataLabel?: string;
   description?: string;
   facilities?: string[];
@@ -91,6 +93,7 @@ export type HostelRecord = {
     province?: string;
   };
   name: string;
+  nameChangeCount?: number;
   nearbyPlaces?: Array<{
     coordinates?: { lat?: number; lng?: number };
     distance?: number;
@@ -103,6 +106,9 @@ export type HostelRecord = {
     _id?: Types.ObjectId;
     alt?: string;
     fileAssetId?: Types.ObjectId;
+    kind?: "EXTERIOR" | "INTERIOR" | "ROOM";
+    /** Set only on ROOM photos — matches roomConfigurations[].roomType. */
+    roomType?: string;
     url?: string;
   }>;
   pricing?: {
@@ -232,11 +238,14 @@ export function serializeHostel(hostel: HostelRecord) {
     isDemoData: Boolean(hostel.isDemoData),
     location: hostel.location,
     name: hostel.name,
+    nameChangeCount: hostel.nameChangeCount ?? 0,
     ownerId: hostel.ownerId.toString(),
     photos: (hostel.photos ?? []).map((photo) => ({
       alt: photo.alt ?? "",
       fileAssetId: photo.fileAssetId?.toString(),
       id: photo._id?.toString(),
+      kind: photo.kind ?? "INTERIOR",
+      roomType: photo.roomType ?? "",
       url: photo.url ?? "",
     })),
     pricing: hostel.pricing ?? {},
@@ -245,14 +254,21 @@ export function serializeHostel(hostel: HostelRecord) {
     rules: hostel.rules ?? [],
     slug: hostel.slug,
     status: hostel.status,
+    totalFloors: hostel.totalFloors ?? 0,
     updatedAt: hostel.updatedAt?.toISOString(),
     verificationStatus: hostel.verificationStatus,
   };
 }
 
+const PUBLIC_PHOTO_ORDER = { EXTERIOR: 0, INTERIOR: 1, ROOM: 2 } as const;
+
 export function serializePublicHostel(hostel: HostelRecord) {
   return {
     capacitySummary: hostel.capacitySummary ?? {},
+    // Phone only, so a visitor can call the hostel directly instead of being
+    // funnelled through the inquiry form. The email stays private — inbound
+    // mail goes through the inquiry flow.
+    contact: { phone: hostel.contact?.phone ?? "" },
     demoDataLabel: hostel.demoDataLabel ?? "",
     description: hostel.description ?? "",
     facilities: hostel.facilities ?? [],
@@ -281,11 +297,18 @@ export function serializePublicHostel(hostel: HostelRecord) {
         };
       })
       .filter((place): place is NonNullable<typeof place> => place !== null),
-    photos: (hostel.photos ?? []).map((photo) => ({
-      alt: photo.alt ?? "",
-      id: photo._id?.toString(),
-      url: photo.url ?? "",
-    })),
+    // Exterior photos lead the public gallery — they're the cover shots —
+    // then interiors. Room shots trail: they belong to a single room type and
+    // only stand in for the gallery when nothing else was uploaded.
+    photos: [...(hostel.photos ?? [])]
+      .sort((a, b) => PUBLIC_PHOTO_ORDER[a.kind ?? "INTERIOR"] - PUBLIC_PHOTO_ORDER[b.kind ?? "INTERIOR"])
+      .map((photo) => ({
+        alt: photo.alt ?? "",
+        id: photo._id?.toString(),
+        kind: photo.kind ?? "INTERIOR",
+        roomType: photo.roomType ?? "",
+        url: photo.url ?? "",
+      })),
     pricing: hostel.pricing ?? {},
     roomConfigurations: serializeRoomConfigurations(hostel),
     roomTypes: hostel.roomTypes ?? [],
@@ -662,6 +685,7 @@ export async function createPlatformHostelApplication(
     roomConfigurations: input.roomConfigurations,
     roomTypes: input.roomTypes,
     rules: input.rules,
+    totalFloors: input.totalFloors,
     slug,
     status: "PENDING_APPROVAL",
     updatedBy: principal.userId,
@@ -758,6 +782,7 @@ export async function registerPublicHostelApplication(
     roomConfigurations: input.roomConfigurations,
     roomTypes: input.roomTypes,
     rules: input.rules,
+    totalFloors: input.totalFloors,
     slug,
     status: "PENDING_APPROVAL",
     updatedBy: ownerId,
@@ -1573,8 +1598,13 @@ export async function getPublicHostelBySlug(slug: string) {
     throw new HostelServiceError("Hostel was not found.", "HOSTEL_NOT_FOUND", 404);
   }
 
+  const foodRoutine = await listPublicFoodRoutine(hostel._id);
+
   return {
-    hostel: serializePublicHostel(hostel),
+    hostel: {
+      ...serializePublicHostel(hostel),
+      foodRoutine,
+    },
   };
 }
 

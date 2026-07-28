@@ -1,5 +1,5 @@
-import { HostelAdminDashboardPageContent } from "@/app/_components/hostel-admin-dashboard-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function HostelAdminDashboardPage() {
-  return <HostelAdminDashboardPageContent />;
+export default async function LegacyHostelAdminDashboardPage() {
+  return redirectToWorkspaceScreen("dashboard");
 }

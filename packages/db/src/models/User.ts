@@ -19,6 +19,14 @@ const userSchema = new Schema(
       default: AuthProvider.LOCAL,
     },
     googleId: { type: String, trim: true },
+    /**
+     * Public, shareable handle for this person's platform-wide resident
+     * identity (format `HH-XXXX-XXXX`). A hostel warden types it in — or scans
+     * the user's QR — to pull the encrypted profile in UserResidentProfile
+     * instead of re-typing every personal detail by hand. Minted lazily the
+     * first time the user saves a resident profile, so most accounts have none.
+     */
+    userResidentId: { type: String, trim: true, uppercase: true },
     role: { type: String, enum: ROLE_VALUES, required: true },
     mustChangePassword: { type: Boolean, default: false },
     tokenVersion: { type: Number, default: 0 },
@@ -43,6 +51,7 @@ const userSchema = new Schema(
 userSchema.index({ email: 1 }, { sparse: true, unique: true });
 userSchema.index({ phone: 1 }, { sparse: true, unique: true });
 userSchema.index({ googleId: 1 }, { sparse: true, unique: true });
+userSchema.index({ userResidentId: 1 }, { sparse: true, unique: true });
 userSchema.index({ role: 1, status: 1 });
 userSchema.index({ hostelIds: 1, status: 1 });
 

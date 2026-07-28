@@ -16,6 +16,9 @@
     "seed:demo": "node scripts/seed-demo-data.mjs",
     "recover:admin": "node scripts/recover-admin-account.mjs",
     "check:private-documents": "node scripts/check-private-documents.mjs",
+    "migrate:rooms-to-counts": "node scripts/migrate-rooms-to-counts.mjs",
+    "backfill:resident-accounts": "node scripts/backfill-resident-accounts.mjs",
+    "repair:archived-residents": "node scripts/repair-archived-residents.mjs",
     "deploy:check": "next build"
   },
   "dependencies": {

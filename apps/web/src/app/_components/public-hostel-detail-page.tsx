@@ -20,10 +20,20 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { HostelMap } from "@/components/maps/hostel-map";
+import { MediaLightbox, type LightboxItem } from "@/components/media-lightbox";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { maybePromptForResidentProfile } from "@/components/resident-identity";
 import { browserApi } from "@/lib/browser-api";
+import { photosOfKind } from "@/lib/hostel-photos";
 import { cn } from "@/lib/utils";
 
 import { Breadcrumbs, PublicShell, StatusPill, formatMoney, humanize } from "./shared";
@@ -34,6 +44,47 @@ import {
   roomTypeLabel,
   type PublicHostel,
 } from "./public-hostel-data";
+
+const GALLERY_PAGE_SIZE = 12;
+
+/** Sunday-first, matching how the hostel admin configures the routine. */
+const ROUTINE_DAYS = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+] as const;
+
+const ROUTINE_MEALS = [
+  { label: "Breakfast", type: "BREAKFAST" },
+  { label: "Lunch", type: "LUNCH" },
+  { label: "Snacks", type: "SNACKS" },
+  { label: "Dinner", type: "DINNER" },
+] as const;
+
+type RoomCard = {
+  bedsPerRoom?: number;
+  features: string[];
+  image: string;
+  mealInclusion?: string;
+  photos: string[];
+  rent: number;
+  rooms?: number;
+  seats: number;
+  slug: string;
+  type: string;
+};
+
+function roomSlug(roomType: string) {
+  return roomType.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function titleCaseDay(day: string) {
+  return day.charAt(0) + day.slice(1).toLowerCase();
+}
 
 function iconForFacility(label: string): LucideIcon {
   if (/wifi|wi-fi|internet/i.test(label)) return Wifi;
@@ -53,6 +104,13 @@ export function PublicHostelDetailPage() {
   const [message, setMessage] = useState("");
   const [currentImgIdx, setCurrentImgIdx] = useState(0);
   const [activeTab, setActiveTab] = useState("overview");
+  // The gallery grows on demand — a hostel can have dozens of photos and
+  // dropping them all on the page at once is what made this feel heavy.
+  const [visiblePhotos, setVisiblePhotos] = useState(GALLERY_PAGE_SIZE);
+  const [lightbox, setLightbox] = useState<{ index: number; items: LightboxItem[] } | null>(
+    null,
+  );
+  const [openRoom, setOpenRoom] = useState<RoomCard | null>(null);
 
   useEffect(() => {
     async function loadHostel() {
@@ -78,20 +136,94 @@ export function PublicHostelDetailPage() {
     }
   }, [slug]);
 
+  // Counting the visit powers the hostel admin's listing stats, and the same
+  // response tells us whether this visitor has browsed enough hostels to be
+  // worth offering the fill-once resident profile.
+  useEffect(() => {
+    if (!slug) {
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await browserApi<{
+          prompt: { reason: "BROWSING" | null; shouldCollectProfile: boolean };
+        }>(`/api/v1/public/hostels/${encodeURIComponent(slug)}/views`, {
+          method: "POST",
+        });
+
+        if (result.prompt.shouldCollectProfile) {
+          maybePromptForResidentProfile("BROWSING");
+        }
+      } catch {
+        // Analytics must never break the page.
+      }
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [slug]);
+
   const hostelSummary = hostel ? mapPublicHostelToSummary(hostel) : null;
 
+  // The hero is a taster, not the archive: three exteriors, three interiors and
+  // one shot of each room type. Everything else lives in the Photos tab.
   const images = useMemo(() => {
-    const photoUrls = hostel?.photos
-      .map((photo) => photo.url)
-      .filter((url): url is string => Boolean(url));
+    const exterior = photosOfKind(hostel?.photos, "EXTERIOR").slice(0, 3);
+    const interior = photosOfKind(hostel?.photos, "INTERIOR").slice(0, 3);
+    const roomTypesSeen = new Set<string>();
+    const oneRoomEach = photosOfKind(hostel?.photos, "ROOM").filter((photo) => {
+      const key = photo.roomType ?? "";
+      if (roomTypesSeen.has(key)) {
+        return false;
+      }
+      roomTypesSeen.add(key);
+      return true;
+    });
 
-    return photoUrls?.length ? photoUrls : [DEFAULT_HOSTEL_IMAGE];
+    const urls = [...exterior, ...interior, ...oneRoomEach]
+      .map((photo) => photo.url ?? "")
+      .filter(Boolean);
+
+    return urls.length ? urls : [DEFAULT_HOSTEL_IMAGE];
   }, [hostel]);
+
+  /** Every uploaded photo, cover order, for the Photos tab and the lightbox. */
+  const galleryPhotos = useMemo(
+    () => (hostel?.photos ?? []).filter((photo) => Boolean(photo.url)),
+    [hostel],
+  );
+
+  const lightboxItems = useMemo(
+    () =>
+      galleryPhotos.map((photo) => ({
+        caption: photo.alt || undefined,
+        kind: "image" as const,
+        src: photo.url ?? "",
+      })),
+    [galleryPhotos],
+  );
+
+  /**
+   * A room shows its own shots only — the shared fallback chain is fine for
+   * picking one cover image, but a "Single Room" gallery must not quietly fill
+   * up with every other room type's photos.
+   */
+  const roomPhotos = useCallback(
+    (roomType: string, fallbackIndex: number) => {
+      const own = photosOfKind(hostel?.photos, "ROOM", roomType)
+        .map((photo) => photo.url ?? "")
+        .filter(Boolean);
+
+      return own.length ? own : [images[fallbackIndex % images.length]];
+    },
+    [hostel, images],
+  );
 
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "rooms", label: "Rooms & Pricing" },
     { id: "facilities", label: "Facilities" },
+    { id: "photos", label: `Photos (${galleryPhotos.length})` },
     { id: "food", label: "Food" },
     { id: "rules", label: "Rules" },
     { id: "reviews", label: `Reviews (${hostelSummary?.reviews ?? 0})` },
@@ -134,8 +266,10 @@ export function PublicHostelDetailPage() {
   }
 
   const address = formatHostelAddress(hostel);
-  const contactPhone = hostel.contact?.phone || "015971234";
-  const contactEmail = hostel.contact?.email;
+  // Only ever show the hostel's real number (set in the profile tab) — no
+  // placeholder phone on the public site.
+  // Phone only — a hostel's email is never published on the public site.
+  const contactPhone = hostel.contact?.phone || "";
 
   const quickStats = [
     {
@@ -176,26 +310,43 @@ export function PublicHostelDetailPage() {
   // Only hostels registered before roomConfigurations existed fall back to the
   // old min→max interpolation, which is a guess and is often plain wrong (it
   // assumes rent rises with array order — the reverse of typical sharing rates).
-  const rooms =
+  const rooms: RoomCard[] =
     roomConfigurations.length > 0
-      ? roomConfigurations.map((config, index) => ({
-          features: hostel.facilities.slice(0, 2),
-          image: images[index % images.length],
-          rent: config.monthlyRent || baseRent,
-          seats: config.vacantBeds,
-          type: roomTypeLabel(config.roomType),
-        }))
-      : (hostel.roomTypes.length > 0 ? hostel.roomTypes : ["Room"]).map(
-          (roomType, index, list) => ({
+      ? roomConfigurations.map((config, index) => {
+          const photos = roomPhotos(config.roomType, index);
+
+          return {
+            bedsPerRoom: config.bedsPerRoom,
             features: hostel.facilities.slice(0, 2),
-            image: images[index % images.length],
-            rent:
-              list.length <= 1
-                ? baseRent
-                : Math.round(baseRent + ((maxRent - baseRent) / (list.length - 1)) * index),
-            seats: hostel.capacitySummary?.vacantBeds ?? hostelSummary.vacancy,
-            type: roomTypeLabel(roomType),
-          }),
+            image: photos[0],
+            mealInclusion: config.mealInclusion,
+            photos,
+            rent: config.monthlyRent || baseRent,
+            rooms: config.rooms,
+            seats: config.vacantBeds,
+            slug: roomSlug(config.roomType),
+            type: roomTypeLabel(config.roomType),
+          };
+        })
+      : (hostel.roomTypes.length > 0 ? hostel.roomTypes : ["Room"]).map(
+          (roomType, index, list) => {
+            const photos = roomPhotos(roomType, index);
+
+            return {
+              features: hostel.facilities.slice(0, 2),
+              image: photos[0],
+              photos,
+              rent:
+                list.length <= 1
+                  ? baseRent
+                  : Math.round(
+                      baseRent + ((maxRent - baseRent) / (list.length - 1)) * index,
+                    ),
+              seats: hostel.capacitySummary?.vacantBeds ?? hostelSummary.vacancy,
+              slug: roomSlug(roomType),
+              type: roomTypeLabel(roomType),
+            };
+          },
         );
 
   const facilities = (
@@ -206,12 +357,43 @@ export function PublicHostelDetailPage() {
     label: facility,
   }));
 
-  const foodDetails = [
-    hostel.food?.mealsPerDay ? `${hostel.food.mealsPerDay} meals per day` : null,
-    hostel.food?.hasVeg ? "Vegetarian meals available" : null,
-    hostel.food?.hasNonVeg ? "Non-vegetarian meals available" : null,
+  // The old Food Details card is gone; these ride along as chips on the
+  // routine header, where they actually add context to the menu.
+  const foodFacts = [
+    hostel.food?.mealsPerDay ? `${hostel.food.mealsPerDay} meals a day` : null,
+    hostel.food?.hasVeg ? "Veg" : null,
+    hostel.food?.hasNonVeg ? "Non-veg" : null,
     hostel.food?.notes,
   ].filter((detail): detail is string => Boolean(detail));
+
+  // This week's published menu, laid out as day rows by meal column. Days with
+  // nothing published are dropped so a half-filled week still reads cleanly.
+  const foodRoutineRows = (() => {
+    const menus = hostel.foodRoutine?.menus ?? [];
+
+    if (menus.length === 0) {
+      return [];
+    }
+
+    return ROUTINE_DAYS.map((day) => {
+      const forDay = menus.filter((menu) => menu.dayOfWeek === day);
+
+      return {
+        day,
+        meals: ROUTINE_MEALS.map((meal) => ({
+          ...meal,
+          // Same-day duplicates can exist in older data; show the newest.
+          menu: forDay
+            .filter((menu) => menu.mealType === meal.type)
+            .sort(
+              (left, right) =>
+                new Date(right.updatedAt ?? 0).getTime() -
+                new Date(left.updatedAt ?? 0).getTime(),
+            )[0],
+        })),
+      };
+    }).filter((row) => row.meals.some((meal) => meal.menu));
+  })();
 
   const hostelRules =
     hostel.rules.length > 0 ? hostel.rules : ["Rules are shared by the hostel team."];
@@ -302,14 +484,28 @@ export function PublicHostelDetailPage() {
                   className="absolute inset-0 bg-cover bg-center"
                   style={{ backgroundImage: `url("${img}")` }}
                 />
-                {idx === images.length - 1 ? (
-                  <span className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/65 text-xs font-bold text-white">
-                    +{Math.max(0, images.length - 1)}
-                    <span className="font-medium">Photos</span>
-                  </span>
-                ) : null}
               </button>
             ))}
+            {galleryPhotos.length > images.length ? (
+              // The overflow tile is the way into the full set — it opens the
+              // Photos tab instead of swapping the hero image.
+              <button
+                className="relative h-16 overflow-hidden rounded-md border-2 border-transparent bg-muted transition md:h-20"
+                onClick={() => handleTabClick("photos")}
+                type="button"
+              >
+                <span
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{
+                    backgroundImage: `url("${galleryPhotos[images.length]?.url ?? images[0]}")`,
+                  }}
+                />
+                <span className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/65 text-xs font-bold text-white transition hover:bg-slate-950/50">
+                  +{galleryPhotos.length - images.length}
+                  <span className="font-medium">more</span>
+                </span>
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -390,12 +586,21 @@ export function PublicHostelDetailPage() {
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <a
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-brand-teal bg-surface text-sm font-bold text-brand-teal transition hover:bg-brand-teal/5"
-              href={`tel:${contactPhone}`}
-            >
-              <PhoneCall className="size-4" /> Contact Hostel
-            </a>
+            {contactPhone ? (
+              <a
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-brand-teal bg-surface text-sm font-bold text-brand-teal transition hover:bg-brand-teal/5"
+                href={`tel:${contactPhone}`}
+              >
+                <PhoneCall className="size-4" /> {contactPhone}
+              </a>
+            ) : (
+              <Link
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-brand-teal bg-surface text-sm font-bold text-brand-teal transition hover:bg-brand-teal/5"
+                href={`/inquiry?hostel=${hostel.slug}`}
+              >
+                <PhoneCall className="size-4" /> Contact Hostel
+              </Link>
+            )}
             <Link
               className="inline-flex h-12 items-center justify-center rounded-lg bg-brand-teal text-sm font-bold text-white shadow-sm transition hover:brightness-105"
               href={`/inquiry?hostel=${hostel.slug}`}
@@ -434,12 +639,9 @@ export function PublicHostelDetailPage() {
           >
             <div className="mb-4 flex items-center justify-between gap-4">
               <h2 className="text-xl font-extrabold text-foreground">Rooms & Pricing</h2>
-              <Link
-                className="inline-flex items-center gap-1 text-xs font-bold text-brand-teal transition hover:text-foreground"
-                href={`/inquiry?hostel=${hostel.slug}`}
-              >
-                View all rooms <ArrowRight className="size-4" />
-              </Link>
+              <span className="text-xs font-bold text-muted-foreground">
+                {rooms.length} room {rooms.length === 1 ? "type" : "types"}
+              </span>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {rooms.map((room) => (
@@ -472,14 +674,13 @@ export function PublicHostelDetailPage() {
                         </p>
                       ))}
                     </div>
-                    <Link
-                      className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-md border border-brand-teal text-xs font-bold text-brand-teal transition hover:bg-brand-teal hover:text-white"
-                      href={`/inquiry?hostel=${hostel.slug}&room=${room.type
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, "-")}`}
+                    <button
+                      className="mt-4 inline-flex h-9 w-full items-center justify-center gap-1 rounded-md border border-brand-teal text-xs font-bold text-brand-teal transition hover:bg-brand-teal hover:text-white"
+                      onClick={() => setOpenRoom(room)}
+                      type="button"
                     >
-                      Request Info
-                    </Link>
+                      See Details <ArrowRight className="size-3.5" />
+                    </button>
                   </div>
                 </article>
               ))}
@@ -513,24 +714,143 @@ export function PublicHostelDetailPage() {
             </div>
           </section>
 
-          <section className="grid gap-5 lg:grid-cols-3" id="hostel-overview">
-            <article
-              className="rounded-lg border border-border bg-surface p-5 shadow-sm"
-              id="hostel-food"
-            >
-              <h2 className="text-lg font-extrabold text-foreground">Food Details</h2>
-              <div className="mt-4 space-y-3 text-sm font-medium text-muted-foreground">
-                {(foodDetails.length > 0
-                  ? foodDetails
-                  : ["Food details are not published yet."]
-                ).map((detail) => (
-                  <p className="flex items-start gap-2" key={detail}>
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand-teal" />
-                    {detail}
-                  </p>
-                ))}
-              </div>
-            </article>
+          <section
+            className="rounded-lg border border-border bg-surface p-4 shadow-sm md:p-5"
+            id="hostel-photos"
+          >
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-xl font-extrabold text-foreground">Photos</h2>
+              <span className="text-xs font-bold text-muted-foreground">
+                {galleryPhotos.length} uploaded by the hostel
+              </span>
+            </div>
+            {galleryPhotos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                This hostel has not uploaded photos yet.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {galleryPhotos.slice(0, visiblePhotos).map((photo, index) => (
+                    <button
+                      className="group relative aspect-4/3 overflow-hidden rounded-md border border-border bg-muted"
+                      key={photo.id ?? `${photo.url}-${index}`}
+                      onClick={() => setLightbox({ index, items: lightboxItems })}
+                      type="button"
+                    >
+                      {/* Native lazy loading keeps the rest of the set off the
+                          wire until the visitor scrolls to it. next/image is
+                          not an option: photo hosts are not in remotePatterns. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        alt={photo.alt || `${hostelSummary.name} photo ${index + 1}`}
+                        className="size-full object-cover transition group-hover:scale-[1.03]"
+                        decoding="async"
+                        loading="lazy"
+                        src={photo.url}
+                      />
+                      {photo.kind ? (
+                        <span className="absolute left-2 top-2 rounded bg-slate-950/60 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
+                          {photo.kind === "ROOM" && photo.roomType
+                            ? roomTypeLabel(photo.roomType)
+                            : humanize(photo.kind)}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+                {visiblePhotos < galleryPhotos.length ? (
+                  <button
+                    className="mt-4 inline-flex h-10 items-center justify-center rounded-lg border border-brand-teal px-5 text-sm font-bold text-brand-teal transition hover:bg-brand-teal/5"
+                    onClick={() =>
+                      setVisiblePhotos((count) => count + GALLERY_PAGE_SIZE)
+                    }
+                    type="button"
+                  >
+                    Load {Math.min(GALLERY_PAGE_SIZE, galleryPhotos.length - visiblePhotos)}{" "}
+                    more photos
+                  </button>
+                ) : null}
+              </>
+            )}
+          </section>
+
+          {/* Bento: the routine is the wide tile and the short cards stack
+              beside it, so a long menu no longer pushes them down the page. */}
+          <section
+            className="grid gap-5 lg:grid-cols-3 lg:items-start"
+            id="hostel-overview"
+          >
+            {foodRoutineRows.length > 0 ? (
+              <article
+                className="rounded-lg border border-border bg-surface p-5 shadow-sm lg:col-span-2 lg:row-span-2"
+                id="hostel-food-routine"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-lg font-extrabold text-foreground">Food Routine</h2>
+                  {foodFacts.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {foodFacts.map((fact) => (
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-bold text-muted-foreground"
+                          key={fact}
+                        >
+                          <CheckCircle2 className="size-3.5 text-brand-teal" />
+                          {fact}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[640px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-muted/50 text-left">
+                        <th className="w-28 px-4 py-3 font-bold text-foreground">Day</th>
+                        {ROUTINE_MEALS.map((meal) => (
+                          <th
+                            className="px-4 py-3 font-bold text-foreground"
+                            key={meal.type}
+                          >
+                            {meal.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {foodRoutineRows.map((row) => (
+                        <tr className="border-t border-border align-top" key={row.day}>
+                          <td className="px-4 py-3 font-bold text-foreground">
+                            {titleCaseDay(row.day)}
+                          </td>
+                          {row.meals.map((meal) => (
+                            <td className="px-4 py-3" key={meal.type}>
+                              {meal.menu ? (
+                                <>
+                                  <span className="font-medium text-foreground">
+                                    {meal.menu.items.join(", ")}
+                                  </span>
+                                  <span className="mt-1 block text-xs font-medium text-muted-foreground">
+                                    {meal.menu.timing}
+                                  </span>
+                                  {meal.menu.specialNotes ? (
+                                    <span className="mt-1 block text-xs font-medium text-brand-teal">
+                                      {meal.menu.specialNotes}
+                                    </span>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            ) : null}
 
             <article
               className="rounded-lg border border-border bg-surface p-5 shadow-sm"
@@ -677,39 +997,153 @@ export function PublicHostelDetailPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-border bg-surface p-5 text-center shadow-sm">
-            <h2 className="text-lg font-extrabold text-foreground">
-              Need More Information?
-            </h2>
+          <section className="rounded-lg border border-border bg-surface p-5 shadow-sm">
+            <h2 className="text-lg font-extrabold text-foreground">Contact the hostel</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Our team is here to help you find the perfect stay.
+              Call or email the hostel directly — the inquiry form is optional.
             </p>
-            <a
-              className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-brand-teal text-sm font-bold text-brand-teal transition hover:bg-brand-teal/5"
-              href={`tel:${contactPhone}`}
-            >
-              <PhoneCall className="size-4" /> Talk to Support
-            </a>
-            <p className="mt-5 text-xs font-medium text-muted-foreground">
-              Or call us at
-            </p>
-            <a
-              className="mt-2 inline-flex items-center gap-2 text-lg font-extrabold text-foreground"
-              href={`tel:${contactPhone}`}
-            >
-              <PhoneCall className="size-5 text-brand-teal" /> {contactPhone}
-            </a>
-            {contactEmail ? (
+            {contactPhone ? (
               <a
-                className="mt-2 block text-sm font-semibold text-brand-teal"
-                href={`mailto:${contactEmail}`}
+                className="mt-4 flex items-center gap-3 rounded-lg border border-border p-3 transition hover:border-brand-teal"
+                href={`tel:${contactPhone}`}
               >
-                {contactEmail}
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-brand-teal-soft/70 text-brand-teal">
+                  <PhoneCall className="size-5" />
+                </span>
+                <span>
+                  <span className="block text-xs font-semibold text-muted-foreground">
+                    Phone
+                  </span>
+                  <span className="block text-base font-extrabold text-foreground">
+                    {contactPhone}
+                  </span>
+                </span>
               </a>
-            ) : null}
+            ) : (
+              <p className="mt-4 text-sm text-muted-foreground">
+                Phone contact appears once the hostel admin adds a number.
+              </p>
+            )}
+            <Link
+              className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-lg border border-brand-teal text-sm font-bold text-brand-teal transition hover:bg-brand-teal/5"
+              href={`/inquiry?hostel=${hostel.slug}`}
+            >
+              Send an inquiry instead
+            </Link>
           </section>
         </aside>
       </section>
+
+      <Sheet
+        onOpenChange={(open) => {
+          if (!open) setOpenRoom(null);
+        }}
+        open={Boolean(openRoom)}
+      >
+        <SheetContent className="w-full sm:max-w-lg" side="right">
+          {openRoom ? (
+            <>
+              <SheetHeader className="border-b border-border">
+                <SheetTitle>{openRoom.type}</SheetTitle>
+                <SheetDescription>
+                  {formatMoney(openRoom.rent)} / month · {hostelSummary.name}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {openRoom.photos.map((photo, index) => (
+                    <button
+                      className="aspect-4/3 overflow-hidden rounded-md border border-border bg-muted"
+                      key={`${photo}-${index}`}
+                      onClick={() =>
+                        setLightbox({
+                          index,
+                          items: openRoom.photos.map((src) => ({
+                            kind: "image" as const,
+                            src,
+                            title: openRoom.type,
+                          })),
+                        })
+                      }
+                      type="button"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        alt={`${openRoom.type} photo ${index + 1}`}
+                        className="size-full object-cover"
+                        decoding="async"
+                        loading="lazy"
+                        src={photo}
+                      />
+                    </button>
+                  ))}
+                </div>
+
+                <dl className="space-y-3 text-sm">
+                  {(
+                    [
+                      ["Monthly rent", formatMoney(openRoom.rent)],
+                      ["Vacant beds", String(openRoom.seats)],
+                      [
+                        "Beds per room",
+                        openRoom.bedsPerRoom ? String(openRoom.bedsPerRoom) : "",
+                      ],
+                      ["Rooms of this type", openRoom.rooms ? String(openRoom.rooms) : ""],
+                      ["Meals", openRoom.mealInclusion ?? ""],
+                    ] as const
+                  )
+                    .filter(([, value]) => Boolean(value))
+                    .map(([label, value]) => (
+                      <div className="flex items-start justify-between gap-4" key={label}>
+                        <dt className="font-medium text-muted-foreground">{label}</dt>
+                        <dd className="text-right font-bold text-foreground">{value}</dd>
+                      </div>
+                    ))}
+                </dl>
+
+                {openRoom.features.length > 0 ? (
+                  <div className="space-y-2 text-sm font-medium text-muted-foreground">
+                    {openRoom.features.map((feature) => (
+                      <p className="flex items-center gap-2" key={feature}>
+                        <CheckCircle2 className="size-4 text-brand-teal" />
+                        {feature}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+
+                {contactPhone ? (
+                  <a
+                    className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-teal text-sm font-bold text-white transition hover:brightness-105"
+                    href={`tel:${contactPhone}`}
+                  >
+                    <PhoneCall className="size-4" /> Call about this room
+                  </a>
+                ) : (
+                  <Link
+                    className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-brand-teal text-sm font-bold text-white transition hover:brightness-105"
+                    href={`/inquiry?hostel=${hostel.slug}&room=${openRoom.slug}`}
+                  >
+                    Ask about this room
+                  </Link>
+                )}
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      {lightbox ? (
+        <MediaLightbox
+          index={lightbox.index}
+          items={lightbox.items}
+          onClose={() => setLightbox(null)}
+          onIndexChange={(next) =>
+            setLightbox((current) => (current ? { ...current, index: next } : current))
+          }
+        />
+      ) : null}
     </PublicShell>
   );
 }

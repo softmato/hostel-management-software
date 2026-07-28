@@ -3,13 +3,10 @@
 import {
   Building2,
   CalendarRange,
-  Clock3,
-  Flag,
   MessageSquare,
-  Receipt,
-  Settings2,
+  Clock3,
+  ScrollText,
   ShieldCheck,
-  UserPlus,
   Users,
   WalletCards,
   Wrench,
@@ -24,7 +21,6 @@ import {
   DemoDataBadge,
   Hostel,
   Message,
-  ReportRecord,
 } from "./core-portal-shared";
 import {
   AreaSparkline,
@@ -45,77 +41,127 @@ import {
   DataTable,
 } from "./portal-dashboard-ui";
 
-function formatMetric(value: unknown) {
-  if (typeof value === "number") {
-    return value.toLocaleString();
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value && typeof value === "object" && "total" in value) {
-    const total = (value as { total?: number }).total;
-    return typeof total === "number" ? total.toLocaleString() : "0";
-  }
-  return "0";
+type MetricTrend = {
+  changePercent: number | null;
+  current: number;
+  previous: number;
+};
+
+type PlatformDashboardReport = {
+  activeResidents: number;
+  complaints: number;
+  inquiries: number;
+  openListingFlags: number;
+  outstandingPayments: number;
+  pendingApprovals: number;
+  platformPayments: number;
+  reviews: number;
+  series: {
+    bucketDays: number;
+    hostels: number[];
+    inquiries: number[];
+    labels: string[];
+    revenue: number[];
+  };
+  serviceProviders: number;
+  totalHostels: number;
+  trends: Record<string, MetricTrend | undefined>;
+  windowDays: number;
+};
+
+type PlatformPayment = {
+  dueAmount: number;
+  dueDate: string | null;
+  hostelName: string;
+  id: string;
+  month: string;
+  paidAmount: number;
+  status: string;
+};
+
+type PlatformPaymentsResponse = {
+  overview: { outstanding: number; totalDue: number; totalPaid: number };
+  recent: PlatformPayment[];
+};
+
+type AuditLog = {
+  action: string;
+  actorLabel: string;
+  createdAt: string | null;
+  entityType: string;
+  hostelLabel: string | null;
+  id: string;
+};
+
+const RECENT_ROW_LIMIT = 5;
+const AUDIT_ROW_LIMIT = 5;
+
+function npr(value: number) {
+  return `NPR ${Math.round(value).toLocaleString()}`;
 }
 
-// Presentational-only pools (per product decision: placeholder values fill the
-// mockup where the pilot schema has no live source yet — owners, plans, renewals).
-const PLACEHOLDER_OWNERS = [
-  "Aarav Shrestha",
-  "Nisha Gurung",
-  "Rohan Karki",
-  "Pema Sherpa",
-  "Binod Adhikari",
-];
-const PLACEHOLDER_PLANS = [
-  { amount: "NPR 8,500", plan: "Pro Plan", renewal: "Jun 20, 2026", status: "Paid" },
-  { amount: "NPR 8,500", plan: "Pro Plan", renewal: "Jun 18, 2026", status: "Paid" },
-  { amount: "NPR 25,000", plan: "Enterprise", renewal: "Jun 15, 2026", status: "Paid" },
-  { amount: "NPR 5,000", plan: "Basic Plan", renewal: "Jun 12, 2026", status: "Paid" },
-  { amount: "NPR 8,500", plan: "Pro Plan", renewal: "May 25, 2026", status: "Due Soon" },
-];
-const CHART_LABELS = ["Apr 22", "Apr 29", "May 6", "May 13", "May 21"];
-const AUDIT_ACTIVITY = [
-  {
-    detail: "by Suman Thapa",
-    icon: ShieldCheck,
-    time: "10 minutes ago",
-    title: 'Hostel "Green View Hostel" approved',
-    tone: "bg-emerald-50 text-emerald-600",
-  },
-  {
-    detail: "from Pokhara, Nepal",
-    icon: UserPlus,
-    time: "35 minutes ago",
-    title: 'New owner "Nisha Gurung" registered',
-    tone: "bg-blue-50 text-blue-600",
-  },
-  {
-    detail: "from Peace Co-living",
-    icon: Receipt,
-    time: "1 hour ago",
-    title: "Payment of NPR 25,000 received",
-    tone: "bg-amber-50 text-amber-600",
-  },
-  {
-    detail: "by user Ramesh K.",
-    icon: Flag,
-    time: "2 hours ago",
-    title: "Abuse flag reported for listing #HST-1298",
-    tone: "bg-rose-50 text-rose-600",
-  },
-  {
-    detail: "updated their profile information",
-    icon: Settings2,
-    time: "3 hours ago",
-    title: 'Service provider "CleanStay Nepal"',
-    tone: "bg-violet-50 text-violet-600",
-  },
-];
+function compactNpr(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return Math.round(value).toLocaleString();
+}
+
+/** Signed, human-readable movement over the report's comparison window. */
+function trendLabel(trend: MetricTrend | undefined, windowDays: number) {
+  if (!trend) return undefined;
+
+  if (trend.changePercent === null) {
+    if (trend.current === 0) return `No change in ${windowDays} days`;
+    return `+${trend.current.toLocaleString()} in ${windowDays} days`;
+  }
+
+  const sign = trend.changePercent >= 0 ? "" : "-";
+  return `${sign}${Math.abs(trend.changePercent)}% vs previous ${windowDays} days`;
+}
+
+function trendIsDown(trend: MetricTrend | undefined) {
+  return Boolean(trend && trend.changePercent !== null && trend.changePercent < 0);
+}
+
+function shortDate(value: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function relativeTime(value: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  const minutes = Math.round((Date.now() - date.getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function humanizeAction(action: string) {
+  return action
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/^\w/, (character) => character.toUpperCase());
+}
+
+function windowRangeLabel(windowDays: number) {
+  const end = new Date();
+  const start = new Date(end.getTime() - windowDays * 24 * 60 * 60 * 1000);
+  const format = (date: Date) =>
+    date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+
+  return `${format(start)} – ${format(end)}, ${end.getFullYear()}`;
+}
 
 export const PlatformDashboardPageContent = memo(function PlatformDashboardPageContent() {
-  const reportResource = usePortalResource<{ report: ReportRecord }>(
+  const reportResource = usePortalResource<{ report: PlatformDashboardReport }>(
     platformEndpoints.dashboardReport,
     { errorMessage: "Could not load dashboard." },
   );
@@ -124,68 +170,93 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
     platformEndpoints.hostels,
     { errorMessage: "Could not load dashboard." },
   );
+  const paymentsResource = usePortalResource<PlatformPaymentsResponse>(
+    platformEndpoints.payments,
+    { errorMessage: "Could not load payments." },
+  );
+  const auditResource = usePortalResource<{ logs: AuditLog[] }>(
+    `${platformEndpoints.auditLogs}?limit=${AUDIT_ROW_LIMIT}`,
+    { errorMessage: "Could not load audit activity." },
+  );
 
-  const { message, state } = combineResources(reportResource, hostelsResource);
+  const { message, state } = combineResources(
+    reportResource,
+    hostelsResource,
+    paymentsResource,
+    auditResource,
+  );
   const report = reportResource.data?.report ?? null;
   const allHostels = hostelsResource.data?.hostels ?? [];
   const totalHostelCount = allHostels.length;
-  const hostels = allHostels.slice(0, 5);
+  const hostels = allHostels.slice(0, RECENT_ROW_LIMIT);
+  const allPayments = paymentsResource.data?.recent ?? [];
+  const payments = allPayments.slice(0, RECENT_ROW_LIMIT);
+  const auditLogs = (auditResource.data?.logs ?? []).slice(0, AUDIT_ROW_LIMIT);
+
+  const windowDays = report?.windowDays ?? 30;
+  const trends = report?.trends ?? {};
+  const series = report?.series;
+  const chartLabels = (series?.labels ?? []).map((label) => shortDate(label));
 
   const metrics = [
     {
       icon: Building2,
       label: "Total Hostels",
       tone: "blue" as const,
-      trend: "8.5% vs last month",
-      value: formatMetric(report?.totalHostels),
+      trend: trendLabel(trends.totalHostels, windowDays),
+      trendDown: trendIsDown(trends.totalHostels),
+      value: (report?.totalHostels ?? 0).toLocaleString(),
     },
     {
       icon: Clock3,
       label: "Pending Approvals",
       tone: "amber" as const,
-      trend: "12 vs last month",
-      value: formatMetric(report?.pendingApprovals),
+      trend: trendLabel(trends.pendingApprovals, windowDays),
+      trendDown: trendIsDown(trends.pendingApprovals),
+      value: (report?.pendingApprovals ?? 0).toLocaleString(),
     },
     {
       icon: Users,
       label: "Active Residents",
       tone: "green" as const,
-      trend: "6.3% vs last month",
-      value: formatMetric(report?.activeResidents),
+      trend: trendLabel(trends.activeResidents, windowDays),
+      trendDown: trendIsDown(trends.activeResidents),
+      value: (report?.activeResidents ?? 0).toLocaleString(),
     },
     {
       icon: MessageSquare,
       label: "Inquiries",
       tone: "purple" as const,
-      trend: "14.2% vs last month",
-      value: formatMetric(report?.inquiries),
+      trend: trendLabel(trends.inquiries, windowDays),
+      trendDown: trendIsDown(trends.inquiries),
+      value: (report?.inquiries ?? 0).toLocaleString(),
     },
     {
       icon: Wrench,
       label: "Service Providers",
       tone: "blue" as const,
-      trend: "5.7% vs last month",
-      value: formatMetric(report?.serviceProviders),
+      trend: trendLabel(trends.serviceProviders, windowDays),
+      trendDown: trendIsDown(trends.serviceProviders),
+      value: (report?.serviceProviders ?? 0).toLocaleString(),
     },
     {
       icon: ShieldCheck,
-      label: "Complaints",
+      label: "Complaints & Flags",
       tone: "rose" as const,
-      trend: "4.1% vs last month",
-      trendDown: true,
-      value: formatMetric(
-        Number(report?.complaints ?? 0) + Number(report?.openListingFlags ?? 0),
-      ),
+      trend: trendLabel(trends.complaints, windowDays),
+      trendDown: trendIsDown(trends.complaints),
+      value: (
+        (report?.complaints ?? 0) + (report?.openListingFlags ?? 0)
+      ).toLocaleString(),
     },
     {
       icon: WalletCards,
-      label: "Platform Revenue",
+      label: "Collected Payments",
+      note: report ? `${npr(report.outstandingPayments)} outstanding` : undefined,
       tone: "green" as const,
-      trend: "16.8% vs last month",
-      value:
-        typeof report?.platformPayments === "number" && report.platformPayments > 0
-          ? `NPR ${Number(report.platformPayments).toLocaleString()}`
-          : "NPR 2,845,760",
+      trend: trendLabel(trends.platformPayments, windowDays),
+      trendDown: trendIsDown(trends.platformPayments),
+      value: npr(report?.platformPayments ?? 0),
     },
   ];
 
@@ -199,7 +270,7 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
             variant="outline"
           >
             <CalendarRange className="size-3.5 text-role-platform" />
-            May 14 – May 21, 2026
+            {windowRangeLabel(windowDays)}
           </Button>
         }
         breadcrumb={["Home", "Dashboard"]}
@@ -249,7 +320,7 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {hostels.map((hostel, index) => (
+                      {hostels.map((hostel) => (
                         <TableRow key={hostel.id}>
                           <TableCell>
                             <div className="flex items-center gap-3">
@@ -269,7 +340,7 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                             {hostel.location.city ? `, ${hostel.location.city}` : ""}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {PLACEHOLDER_OWNERS[index % PLACEHOLDER_OWNERS.length]}
+                            {hostel.owner?.name || "—"}
                           </TableCell>
                           <TableCell>
                             <SoftBadge tone={statusToneFromLabel(hostel.status)}>
@@ -280,17 +351,17 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                       ))}
                     </TableBody>
                   </DataTable>
-                  <ListPager pageSize={5} total={totalHostelCount} />
+                  <ListPager pageSize={RECENT_ROW_LIMIT} total={totalHostelCount} />
                 </>
               )}
             </SectionCard>
 
             <SectionCard
               actions={<ViewAllLink href="/platform/payments" tone="platform" />}
-              title="Platform Payments / Subscriptions"
+              title="Recent Payments"
             >
-              {hostels.length === 0 ? (
-                <EmptyInline label="No published hostels yet." />
+              {payments.length === 0 ? (
+                <EmptyInline label="No payments recorded yet." />
               ) : (
                 <>
                   <DataTable className="min-w-[560px]">
@@ -300,7 +371,7 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                           Hostel / Organization
                         </TableHead>
                         <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Plan
+                          Month
                         </TableHead>
                         <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Amount
@@ -309,45 +380,44 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                           Status
                         </TableHead>
                         <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Renewal Date
+                          Due Date
                         </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {hostels.map((hostel, index) => {
-                        const sub = PLACEHOLDER_PLANS[index % PLACEHOLDER_PLANS.length];
-                        return (
-                          <TableRow key={hostel.id}>
-                            <TableCell>
-                              <div className="flex items-center gap-3">
-                                <InitialsAvatar
-                                  name={hostel.name}
-                                  size="sm"
-                                  tone="platform"
-                                />
-                                <p className="truncate font-semibold text-foreground">
-                                  {hostel.name}
-                                </p>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{sub.plan}</TableCell>
-                            <TableCell className="font-semibold text-foreground">
-                              {sub.amount}
-                            </TableCell>
-                            <TableCell>
-                              <SoftBadge tone={statusToneFromLabel(sub.status)}>
-                                {sub.status}
-                              </SoftBadge>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {sub.renewal}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      {payments.map((payment) => (
+                        <TableRow key={payment.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <InitialsAvatar
+                                name={payment.hostelName}
+                                size="sm"
+                                tone="platform"
+                              />
+                              <p className="truncate font-semibold text-foreground">
+                                {payment.hostelName}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {payment.month}
+                          </TableCell>
+                          <TableCell className="font-semibold text-foreground">
+                            {npr(payment.paidAmount || payment.dueAmount)}
+                          </TableCell>
+                          <TableCell>
+                            <SoftBadge tone={statusToneFromLabel(payment.status)}>
+                              {payment.status.replaceAll("_", " ")}
+                            </SoftBadge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {shortDate(payment.dueDate)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </DataTable>
-                  <ListPager pageSize={5} total={68} />
+                  <ListPager pageSize={RECENT_ROW_LIMIT} total={allPayments.length} />
                 </>
               )}
             </SectionCard>
@@ -356,60 +426,66 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
           <div className="grid gap-5 xl:grid-cols-[1.55fr_1fr]">
             <SectionCard
               actions={
-                <Button
-                  className="h-8 gap-1.5 rounded-lg border-border bg-card px-2.5 text-[11px] font-semibold text-muted-foreground"
-                  type="button"
-                  variant="outline"
-                >
-                  Last 30 days
-                </Button>
+                <span className="text-[11px] font-semibold text-muted-foreground">
+                  Last {(series?.bucketDays ?? 7) * (series?.labels.length ?? 5)} days
+                </span>
               }
               title="Analytics Overview"
             >
               <div className="grid gap-4 md:grid-cols-3">
                 {[
                   {
-                    delta: "18.9%",
                     label: "Hostel Registrations",
                     stroke: "#2563eb",
-                    value: formatMetric(report?.totalHostels),
-                    values: [18, 24, 22, 30, 28, 36, 42, 40, 48, 52],
+                    trend: trends.totalHostels,
+                    value: (report?.totalHostels ?? 0).toLocaleString(),
+                    values: series?.hostels ?? [],
                   },
                   {
-                    delta: "14.2%",
                     label: "Inquiries",
                     stroke: "#10b981",
-                    value: formatMetric(report?.inquiries),
-                    values: [12, 18, 16, 24, 30, 28, 35, 40, 38, 45],
+                    trend: trends.inquiries,
+                    value: (report?.inquiries ?? 0).toLocaleString(),
+                    values: series?.inquiries ?? [],
                   },
                   {
-                    delta: "16.8%",
                     label: "Revenue (NPR)",
                     stroke: "#8b5cf6",
-                    value: "2.85M",
-                    values: [20, 22, 26, 30, 28, 34, 38, 42, 44, 50],
+                    trend: trends.platformPayments,
+                    value: compactNpr(report?.platformPayments ?? 0),
+                    values: series?.revenue ?? [],
                   },
-                ].map((chart) => (
-                  <div
-                    className="rounded-xl border border-border/70 bg-muted/15 p-4"
-                    key={chart.label}
-                  >
-                    <p className="text-xs font-medium text-muted-foreground">{chart.label}</p>
-                    <p className="mt-1 flex items-baseline gap-1.5">
-                      <span className="text-xl font-bold text-foreground">{chart.value}</span>
-                      <span className="text-[11px] font-semibold text-emerald-600">
-                        ↑ {chart.delta}
-                      </span>
-                    </p>
-                    <div className="mt-3">
-                      <AreaSparkline
-                        labels={CHART_LABELS}
-                        stroke={chart.stroke}
-                        values={chart.values}
-                      />
+                ].map((chart) => {
+                  const change = chart.trend?.changePercent ?? null;
+
+                  return (
+                    <div
+                      className="rounded-xl border border-border/70 bg-muted/15 p-4"
+                      key={chart.label}
+                    >
+                      <p className="text-xs font-medium text-muted-foreground">{chart.label}</p>
+                      <p className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-xl font-bold text-foreground">{chart.value}</span>
+                        {change === null ? null : (
+                          <span
+                            className={`text-[11px] font-semibold ${
+                              change < 0 ? "text-rose-600" : "text-emerald-600"
+                            }`}
+                          >
+                            {change < 0 ? "↓" : "↑"} {Math.abs(change)}%
+                          </span>
+                        )}
+                      </p>
+                      <div className="mt-3">
+                        <AreaSparkline
+                          labels={chartLabels}
+                          stroke={chart.stroke}
+                          values={chart.values.length > 0 ? chart.values : [0, 0, 0, 0, 0]}
+                        />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </SectionCard>
 
@@ -419,32 +495,34 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
               }
               title="Recent Audit Activity"
             >
-              <div className="space-y-2.5">
-                {AUDIT_ACTIVITY.map((item) => {
-                  const Icon = item.icon;
-                  return (
+              {auditLogs.length === 0 ? (
+                <EmptyInline label="No audit activity recorded yet." />
+              ) : (
+                <div className="space-y-2.5">
+                  {auditLogs.map((log) => (
                     <div
                       className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/10 px-3 py-2.5"
-                      key={item.title}
+                      key={log.id}
                     >
-                      <span
-                        className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${item.tone}`}
-                      >
-                        <Icon className="size-4" />
+                      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-role-platform-soft text-role-platform">
+                        <ScrollText className="size-4" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold leading-snug text-foreground">
-                          {item.title}
+                          {humanizeAction(log.action)}
+                          {log.hostelLabel ? ` — ${log.hostelLabel}` : ""}
                         </p>
-                        <p className="text-xs text-muted-foreground">{item.detail}</p>
+                        <p className="text-xs text-muted-foreground">
+                          by {log.actorLabel} · {log.entityType.toLowerCase()}
+                        </p>
                       </div>
                       <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {item.time}
+                        {relativeTime(log.createdAt)}
                       </span>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </SectionCard>
           </div>
         </>

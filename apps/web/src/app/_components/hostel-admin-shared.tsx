@@ -19,27 +19,14 @@ export type Resident = {
   moveInDate: string;
   phone: string;
   residentType?: "STUDENT" | "WORKING_PROFESSIONAL" | "OTHER";
-  roomId: string;
+  roomType: string;
   status: "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
 };
 
-export type RoomMapBed = {
-  bedNumber: string;
-  id: string;
-  status: string;
-};
-
-export type RoomMapRoom = {
-  beds: RoomMapBed[];
-  id: string;
-  roomNumber: string;
+export type AvailableRoomType = {
+  monthlyRent: number;
   roomType: string;
-};
-
-export type RoomMapFloor = {
-  id: string;
-  name: string;
-  rooms: RoomMapRoom[];
+  vacantBeds: number;
 };
 
 export type Payment = {
@@ -68,6 +55,7 @@ export type PaymentProof = {
 };
 
 export type FoodMenu = {
+  createdAt?: string;
   date: string;
   dayOfWeek: string;
   id: string;
@@ -75,6 +63,7 @@ export type FoodMenu = {
   mealType: "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
   specialNotes?: string;
   timing: string;
+  updatedAt?: string;
   weekStartDate: string;
 };
 

@@ -4,8 +4,9 @@ const maintenanceRequestSchema = new Schema(
   {
     hostelId: { ref: "Hostel", required: true, type: Schema.Types.ObjectId },
     providerId: { ref: "ServiceProvider", type: Schema.Types.ObjectId },
-    roomId: { ref: "Room", type: Schema.Types.ObjectId },
-    bedId: { ref: "Bed", type: Schema.Types.ObjectId },
+    // Free text ("Room 204", "2nd floor bathroom"). There are no Room or Bed
+    // records to reference — the hostel tracks room types and counts only.
+    location: { type: String, trim: true },
     category: {
       enum: [
         "PLUMBING",
@@ -51,7 +52,6 @@ const maintenanceRequestSchema = new Schema(
 
 maintenanceRequestSchema.index({ hostelId: 1, status: 1, category: 1 });
 maintenanceRequestSchema.index({ hostelId: 1, providerId: 1, createdAt: -1 });
-maintenanceRequestSchema.index({ hostelId: 1, roomId: 1, bedId: 1 });
 
 export const MaintenanceRequestModel =
   models.MaintenanceRequest || model("MaintenanceRequest", maintenanceRequestSchema);

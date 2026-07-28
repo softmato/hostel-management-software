@@ -1,7 +1,6 @@
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
-import { BedModel } from "@hostel/db/models/Bed";
 import { ComplaintModel } from "@hostel/db/models/Complaint";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { GuardianModel } from "@hostel/db/models/Guardian";
@@ -10,7 +9,6 @@ import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { PaymentModel } from "@hostel/db/models/Payment";
 import { QRActivationModel } from "@hostel/db/models/QRActivation";
 import { ResidentModel } from "@hostel/db/models/Resident";
-import { RoomModel } from "@hostel/db/models/Room";
 import { UserModel } from "@hostel/db/models/User";
 
 /**
@@ -36,7 +34,6 @@ type UserRecord = {
 
 type ResidentRecord = {
   _id: Types.ObjectId;
-  bedId?: Types.ObjectId;
   createdAt?: Date;
   depositAmount?: number;
   email?: string;
@@ -45,7 +42,7 @@ type ResidentRecord = {
   lastName: string;
   moveInDate?: Date;
   phone: string;
-  roomId?: Types.ObjectId;
+  roomType?: string;
   status: string;
   userId?: Types.ObjectId;
 };
@@ -108,17 +105,9 @@ export async function listPlatformDirectory() {
   ]);
 
   const residentIds = residents.map((resident) => resident._id);
-  const roomIds = residents.map((resident) => resident.roomId).filter(Boolean);
-  const bedIds = residents.map((resident) => resident.bedId).filter(Boolean);
 
-  const [rooms, beds, guardians, emergencyContacts, payments, nightStatuses, activations] =
+  const [guardians, emergencyContacts, payments, nightStatuses, activations] =
     await Promise.all([
-      RoomModel.find({ _id: { $in: roomIds } })
-        .select("roomNumber roomType")
-        .lean<Array<{ _id: Types.ObjectId; roomNumber?: string; roomType?: string }>>(),
-      BedModel.find({ _id: { $in: bedIds } })
-        .select("bedNumber")
-        .lean<Array<{ _id: Types.ObjectId; bedNumber?: string }>>(),
       GuardianModel.find({ residentId: { $in: residentIds } })
         .sort({ isPrimary: -1, createdAt: -1 })
         .lean<
@@ -171,8 +160,6 @@ export async function listPlatformDirectory() {
     ...users.flatMap((user) => user.hostelIds ?? []),
   ]);
 
-  const roomById = new Map(rooms.map((room) => [room._id.toString(), room]));
-  const bedById = new Map(beds.map((bed) => [bed._id.toString(), bed]));
   const guardianByResident = firstPerResident(guardians);
   const emergencyByResident = firstPerResident(emergencyContacts);
   const paymentByResident = firstPerResident(payments);
@@ -190,7 +177,6 @@ export async function listPlatformDirectory() {
     if (!resident) {
       return {
         activationStatus: "",
-        bedNumber: "",
         emergencyContact: null,
         feeMonth: "",
         feeStatus: "",
@@ -199,14 +185,11 @@ export async function listPlatformDirectory() {
         nightStatus: "",
         residentId: null as string | null,
         residentStatus: "",
-        roomNumber: "",
         stayType: "",
       };
     }
 
     const key = resident._id.toString();
-    const room = resident.roomId ? roomById.get(resident.roomId.toString()) : undefined;
-    const bed = resident.bedId ? bedById.get(resident.bedId.toString()) : undefined;
     const guardian = guardianByResident.get(key);
     const emergency = emergencyByResident.get(key);
     const payment = paymentByResident.get(key);
@@ -215,7 +198,6 @@ export async function listPlatformDirectory() {
 
     return {
       activationStatus: activation?.status ?? "NOT_GENERATED",
-      bedNumber: bed?.bedNumber ?? "",
       emergencyContact: emergency
         ? {
             name: emergency.name,
@@ -236,8 +218,7 @@ export async function listPlatformDirectory() {
       nightStatus: night?.status ?? "",
       residentId: key,
       residentStatus: resident.status,
-      roomNumber: room?.roomNumber ?? "",
-      stayType: room?.roomType ?? "",
+      stayType: resident.roomType ?? "",
     };
   }
 

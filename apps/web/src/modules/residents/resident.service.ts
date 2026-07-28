@@ -4,12 +4,25 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { assertHostelAccess } from "@/lib/tenant";
+import { Role } from "@/lib/roles";
+import { demoteToPublicAccount } from "@/modules/auth/auth.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
-import { BedModel } from "@hostel/db/models/Bed";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { GuardianModel } from "@hostel/db/models/Guardian";
+import { HostelModel } from "@hostel/db/models/Hostel";
 import { ResidentModel } from "@hostel/db/models/Resident";
-import { RoomModel } from "@hostel/db/models/Room";
+import { UserModel } from "@hostel/db/models/User";
+import { sendEmail } from "@hostel/shared/email/sender";
+import { residentLinkedEmail } from "@hostel/shared/email/templates/resident/resident-linked";
+import {
+  registerOrUpgradeUserByEmail,
+  UserServiceError,
+} from "@/modules/users/user.service";
+import {
+  claimBedForRoomType,
+  moveBedBetweenRoomTypes,
+  releaseBedForRoomType,
+} from "@/modules/hostels/hostel-capacity.service";
 import type {
   emergencyContactCreateSchema,
   guardianCreateSchema,
@@ -30,7 +43,6 @@ type ResidentStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
 
 type ResidentRecord = {
   _id: Types.ObjectId;
-  bedId: Types.ObjectId;
   createdAt?: Date;
   demoDataLabel?: string;
   depositAmount: number;
@@ -43,24 +55,10 @@ type ResidentRecord = {
   moveInDate: Date;
   phone: string;
   residentType?: "STUDENT" | "WORKING_PROFESSIONAL" | "OTHER";
-  roomId: Types.ObjectId;
+  roomType: string;
   status: ResidentStatus;
   updatedAt?: Date;
   userId?: Types.ObjectId;
-};
-
-type RoomRecord = {
-  _id: Types.ObjectId;
-  capacity: number;
-  hostelId: Types.ObjectId;
-};
-
-type BedRecord = {
-  _id: Types.ObjectId;
-  assignedResidentId?: Types.ObjectId;
-  hostelId: Types.ObjectId;
-  roomId: Types.ObjectId;
-  status: "AVAILABLE" | "OCCUPIED" | "RESERVED" | "MAINTENANCE";
 };
 
 type GuardianRecord = {
@@ -150,7 +148,6 @@ function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string)
 
 function serializeResident(resident: ResidentRecord) {
   return {
-    bedId: resident.bedId.toString(),
     createdAt: resident.createdAt?.toISOString(),
     demoDataLabel: resident.demoDataLabel ?? "",
     depositAmount: resident.depositAmount,
@@ -164,7 +161,7 @@ function serializeResident(resident: ResidentRecord) {
     moveInDate: resident.moveInDate.toISOString(),
     phone: resident.phone,
     residentType: resident.residentType ?? "STUDENT",
-    roomId: resident.roomId.toString(),
+    roomType: resident.roomType,
     status: resident.status,
     updatedAt: resident.updatedAt?.toISOString(),
     userId: resident.userId?.toString(),
@@ -218,21 +215,6 @@ async function auditResidentAction(
   });
 }
 
-async function refreshRoomVacancyStatus(room: RoomRecord) {
-  const occupiedBeds = await BedModel.countDocuments({
-    isDeleted: false,
-    roomId: room._id,
-    status: { $in: ["OCCUPIED", "RESERVED"] },
-  });
-  const nextStatus =
-    occupiedBeds === 0 ? "VACANT" : occupiedBeds >= room.capacity ? "FULL" : "PARTIAL";
-
-  await RoomModel.updateOne(
-    { _id: room._id, isDeleted: false },
-    { $set: { vacancyStatus: nextStatus } },
-  );
-}
-
 async function findResidentForPrincipal(
   residentId: string,
   principal: ApiPrincipal,
@@ -251,66 +233,152 @@ async function findResidentForPrincipal(
   return resident;
 }
 
-async function validateRoomBedAssignment(
+function residentDashboardUrl() {
+  const base =
+    process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return `${base}/resident/dashboard`;
+}
+
+export type ResidentAccountLink = {
+  /** Why the account was not linked, when it was not. */
+  reason?: string;
+  emailed: boolean;
+  linked: boolean;
+};
+
+/**
+ * Turns the resident's email into a working login the moment they are
+ * registered — the same account upgrade a hostel owner gets when the platform
+ * approves their hostel (ARCHITECTURE.md §3.2). A PUBLIC account keeps its
+ * password and is simply promoted to RESIDENT, so the resident signs in the way
+ * they always did and lands on /resident/dashboard.
+ *
+ * QR activation stays as the manual fallback: residents registered without an
+ * email, or whose email already belongs to a staff account, still redeem a code.
+ * Nothing here may fail the registration itself — the resident record and their
+ * bed are already committed by the time this runs.
+ */
+async function linkResidentAccount(
+  resident: ResidentRecord,
   hostelId: Types.ObjectId,
-  roomId: string,
-  bedId: string,
-  currentResidentId?: Types.ObjectId,
-) {
-  const room = await RoomModel.findOne({
-    _id: normalizeObjectId(roomId, "room id"),
-    hostelId,
-    isDeleted: false,
-  }).lean<RoomRecord | null>();
+  principal: ApiPrincipal,
+): Promise<ResidentAccountLink> {
+  const email = resident.email?.trim().toLowerCase();
 
-  if (!room) {
-    throw new ResidentServiceError("Room was not found.", "ROOM_NOT_FOUND", 404);
+  if (!email) {
+    return { emailed: false, linked: false, reason: "NO_EMAIL" };
   }
 
-  const bed = await BedModel.findOne({
-    _id: normalizeObjectId(bedId, "bed id"),
-    hostelId,
-    isDeleted: false,
-    roomId: room._id,
-  }).lean<BedRecord | null>();
+  // Only ever promotes an account the resident already owns. If they have none,
+  // creating one would mean mailing them a temporary password — and residents
+  // are never sent credentials — so QR activation takes over instead.
+  const existingAccount = await UserModel.findOne({
+    email,
+    isDeleted: { $ne: true },
+  })
+    .select("_id")
+    .lean<{ _id: Types.ObjectId } | null>();
 
-  if (!bed) {
-    throw new ResidentServiceError(
-      "Bed was not found in this room.",
-      "BED_NOT_FOUND",
-      404,
+  if (!existingAccount) {
+    return { emailed: false, linked: false, reason: "NO_ACCOUNT" };
+  }
+
+  try {
+    const hostel = await HostelModel.findById(hostelId)
+      .select("name")
+      .lean<{ name?: string } | null>();
+
+    const upgrade = await registerOrUpgradeUserByEmail({
+      email,
+      hostelId: hostelId.toString(),
+      hostelName: hostel?.name,
+      // Their own password / Google sign-in stays exactly as it was.
+      issueTemporaryPassword: false,
+      name: `${resident.firstName} ${resident.lastName}`.trim(),
+      performedBy: principal.userId,
+      phone: resident.phone,
+      role: Role.RESIDENT,
+      // The generic "account upgraded" mail is replaced by a resident-specific
+      // welcome below, sent only once the link actually holds.
+      sendEmailNotification: false,
+    });
+
+    const userId = normalizeObjectId(upgrade.user.id, "user id");
+
+    // Same guard the QR flow enforces: one live resident profile per account,
+    // so a returning resident cannot end up occupying two beds at once.
+    const conflicting = await ResidentModel.findOne({
+      _id: { $ne: resident._id },
+      isDeleted: false,
+      status: { $in: ["ACTIVE", "PENDING"] },
+      userId,
+    }).lean<ResidentRecord | null>();
+
+    if (conflicting) {
+      return { emailed: false, linked: false, reason: "ACCOUNT_ALREADY_LINKED" };
+    }
+
+    await ResidentModel.updateOne(
+      { _id: resident._id, isDeleted: false },
+      {
+        $set: {
+          status: "ACTIVE",
+          updatedBy: principal.userId,
+          userId,
+        },
+      },
     );
-  }
 
-  const assignedToAnotherResident =
-    bed.assignedResidentId &&
-    (!currentResidentId ||
-      bed.assignedResidentId.toString() !== currentResidentId.toString());
-  const assignedToCurrentResident =
-    bed.assignedResidentId &&
-    currentResidentId &&
-    bed.assignedResidentId.toString() === currentResidentId.toString();
-
-  if (
-    assignedToAnotherResident ||
-    (["OCCUPIED", "RESERVED"].includes(bed.status) && !assignedToCurrentResident)
-  ) {
-    throw new ResidentServiceError(
-      "Selected bed is not available.",
-      "BED_NOT_AVAILABLE",
-      409,
+    await auditResidentAction(
+      principal,
+      hostelId,
+      resident._id,
+      "RESIDENT_ACCOUNT_LINKED",
+      { created: upgrade.created, email, upgraded: upgrade.upgraded },
     );
-  }
 
-  if (bed.status === "MAINTENANCE") {
-    throw new ResidentServiceError(
-      "Selected bed is under maintenance.",
-      "BED_UNDER_MAINTENANCE",
-      409,
-    );
-  }
+    // Never blocks the link: a bounced welcome mail must not leave the resident
+    // unable to reach a portal they can already sign in to.
+    let emailed = false;
 
-  return { bed, room };
+    try {
+      await sendEmail({
+        to: email,
+        ...residentLinkedEmail({
+          dashboardUrl: residentDashboardUrl(),
+          hostelName: hostel?.name ?? "your hostel",
+          residentName: resident.firstName,
+        }),
+      });
+      emailed = true;
+    } catch {
+      emailed = false;
+    }
+
+    return {
+      emailed,
+      linked: true,
+    };
+  } catch (error) {
+    // A staff account on the same address, a bounced email — the resident is
+    // registered either way and can still be activated by QR code.
+    return {
+      emailed: false,
+      linked: false,
+      reason:
+        error instanceof UserServiceError ? error.errorCode : "ACCOUNT_LINK_FAILED",
+    };
+  }
+}
+
+/** True for a MongoServerError raised by a unique-index violation. */
+function isDuplicateKeyError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === 11000
+  );
 }
 
 export async function createResident(
@@ -320,39 +388,73 @@ export async function createResident(
   await connectToDatabase();
 
   const hostelId = resolveAdminHostelId(principal, input.hostelId);
-  const { bed, room } = await validateRoomBedAssignment(
-    hostelId,
-    input.roomId,
-    input.bedId,
-  );
 
-  const resident = await ResidentModel.create({
-    ...input,
-    bedId: bed._id,
-    createdBy: principal.userId,
+  // Checked before the bed is claimed so a duplicate never spends and refunds a
+  // unit of vacancy. Soft-deleted residents are excluded on purpose: removing
+  // someone has to free their phone number for a later re-registration.
+  const existing = await ResidentModel.findOne({
     hostelId,
-    roomId: room._id,
-    updatedBy: principal.userId,
-  });
+    isDeleted: false,
+    phone: input.phone,
+  }).lean<ResidentRecord>();
 
-  await BedModel.findOneAndUpdate(
-    { _id: bed._id, isDeleted: false },
-    {
-      $set: {
-        assignedResidentId: resident._id,
-        status: "OCCUPIED",
-        updatedBy: principal.userId,
-      },
-    },
-  );
-  await refreshRoomVacancyStatus(room);
+  if (existing) {
+    throw new ResidentServiceError(
+      `${existing.firstName} ${existing.lastName} is already registered here with the phone ${input.phone}.`,
+      "RESIDENT_PHONE_TAKEN",
+      409,
+    );
+  }
+
+  // Claim the bed before creating the resident: if the room type is full this
+  // throws and no half-registered resident is left behind.
+  await claimBedForRoomType(hostelId, input.roomType);
+
+  let resident;
+
+  try {
+    resident = await ResidentModel.create({
+      ...input,
+      createdBy: principal.userId,
+      hostelId,
+      isDeleted: false,
+      updatedBy: principal.userId,
+    });
+  } catch (error) {
+    // Duplicate phone, validation failure — give the bed back rather than
+    // leaking a unit of vacancy on every failed intake.
+    await releaseBedForRoomType(hostelId, input.roomType);
+
+    // Two intakes racing on the same number land here; the check above only
+    // narrows the window, the index is what actually closes it.
+    if (isDuplicateKeyError(error)) {
+      throw new ResidentServiceError(
+        `Someone is already registered here with the phone ${input.phone}.`,
+        "RESIDENT_PHONE_TAKEN",
+        409,
+      );
+    }
+
+    throw error;
+  }
+
   await auditResidentAction(principal, hostelId, resident._id, "RESIDENT_CREATED", {
-    bedId: bed._id.toString(),
-    roomId: room._id.toString(),
+    roomType: input.roomType,
   });
+
+  const accountLink = await linkResidentAccount(
+    resident as ResidentRecord,
+    hostelId,
+    principal,
+  );
 
   return {
-    resident: serializeResident(resident as ResidentRecord),
+    accountLink,
+    resident: serializeResident(
+      (accountLink.linked
+        ? await ResidentModel.findById(resident._id).lean<ResidentRecord>()
+        : resident) as ResidentRecord,
+    ),
   };
 }
 
@@ -415,30 +517,34 @@ export async function updateResident(
 
   const resident = await findResidentForPrincipal(residentId, principal, input.hostelId);
   const residentUpdate = definedUpdate(input, ["hostelId"]);
-  let previousRoom: RoomRecord | null = null;
-  let nextRoom: RoomRecord | null = null;
-  let nextBed: BedRecord | null = null;
 
-  if (input.roomId || input.bedId) {
-    const assignment = await validateRoomBedAssignment(
-      resident.hostelId,
-      input.roomId ?? resident.roomId.toString(),
-      input.bedId ?? resident.bedId.toString(),
-      resident._id,
-    );
+  // Editing a phone onto one that is already on the roll would otherwise
+  // surface as a raw duplicate-key 500.
+  if (input.phone && input.phone !== resident.phone) {
+    const phoneTaken = await ResidentModel.exists({
+      _id: { $ne: resident._id },
+      hostelId: resident.hostelId,
+      isDeleted: false,
+      phone: input.phone,
+    });
 
-    nextRoom = assignment.room;
-    nextBed = assignment.bed;
-    residentUpdate.roomId = nextRoom._id;
-    residentUpdate.bedId = nextBed._id;
-
-    if (nextBed._id.toString() !== resident.bedId.toString()) {
-      previousRoom = await RoomModel.findOne({
-        _id: resident.roomId,
-        hostelId: resident.hostelId,
-        isDeleted: false,
-      }).lean<RoomRecord | null>();
+    if (phoneTaken) {
+      throw new ResidentServiceError(
+        `Someone is already registered here with the phone ${input.phone}.`,
+        "RESIDENT_PHONE_TAKEN",
+        409,
+      );
     }
+  }
+
+  // Switching room type moves a unit of vacancy from one type to the other.
+  // Done before the write so a full destination type aborts the whole update.
+  if (input.roomType && input.roomType !== resident.roomType) {
+    await moveBedBetweenRoomTypes(
+      resident.hostelId,
+      resident.roomType,
+      input.roomType,
+    );
   }
 
   const updatedResident = await ResidentModel.findOneAndUpdate(
@@ -454,34 +560,6 @@ export async function updateResident(
 
   if (!updatedResident) {
     throw new ResidentServiceError("Resident was not found.", "RESIDENT_NOT_FOUND", 404);
-  }
-
-  if (nextBed && nextBed._id.toString() !== resident.bedId.toString()) {
-    await BedModel.findOneAndUpdate(
-      { _id: resident.bedId, isDeleted: false },
-      {
-        $unset: { assignedResidentId: "" },
-        $set: { status: "AVAILABLE", updatedBy: principal.userId },
-      },
-    );
-    await BedModel.findOneAndUpdate(
-      { _id: nextBed._id, isDeleted: false },
-      {
-        $set: {
-          assignedResidentId: resident._id,
-          status: "OCCUPIED",
-          updatedBy: principal.userId,
-        },
-      },
-    );
-  }
-
-  if (previousRoom) {
-    await refreshRoomVacancyStatus(previousRoom);
-  }
-
-  if (nextRoom) {
-    await refreshRoomVacancyStatus(nextRoom);
   }
 
   await auditResidentAction(
@@ -519,25 +597,20 @@ export async function updateResidentStatus(
     throw new ResidentServiceError("Resident was not found.", "RESIDENT_NOT_FOUND", 404);
   }
 
-  if (input.status === "MOVED_OUT") {
-    const room = await RoomModel.findOne({
-      _id: resident.roomId,
-      hostelId: resident.hostelId,
-      isDeleted: false,
-    }).lean<RoomRecord | null>();
-
-    await BedModel.findOneAndUpdate(
-      { _id: resident.bedId, isDeleted: false },
-      {
-        $unset: { assignedResidentId: "" },
-        $set: { status: "AVAILABLE", updatedBy: principal.userId },
-      },
-    );
-
-    if (room) {
-      await refreshRoomVacancyStatus(room);
-    }
+  // Moving out frees their bed. Guarded on the previous status so re-saving an
+  // already MOVED_OUT resident does not hand back a second bed.
+  if (input.status === "MOVED_OUT" && resident.status !== "MOVED_OUT") {
+    await releaseBedForRoomType(resident.hostelId, resident.roomType);
   }
+
+  // Marking someone active by hand has to give them a working login too,
+  // otherwise the status says ACTIVE while their account is still PUBLIC and
+  // signing in drops them on the public home page. Residents created before
+  // auto-linking existed reach their portal through exactly this path.
+  const accountLink =
+    input.status === "ACTIVE" && !resident.userId
+      ? await linkResidentAccount(updatedResident, resident.hostelId, principal)
+      : { emailed: false, linked: Boolean(resident.userId) };
 
   await auditResidentAction(
     principal,
@@ -548,7 +621,107 @@ export async function updateResidentStatus(
   );
 
   return {
-    resident: serializeResident(updatedResident),
+    accountLink,
+    resident: serializeResident(
+      accountLink.linked && !resident.userId
+        ? ((await ResidentModel.findById(resident._id).lean<ResidentRecord>()) ??
+            updatedResident)
+        : updatedResident,
+    ),
+  };
+}
+
+/**
+ * Guardian + emergency records already on file for a resident. When the intake
+ * form was filled from a resident ID these exist from the moment the resident
+ * is created, so the admin panel can show them instead of a blank form.
+ */
+export async function listResidentContacts(
+  residentId: string,
+  query: { hostelId?: string },
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const resident = await findResidentForPrincipal(residentId, principal, query.hostelId);
+  const [guardians, emergencyContacts] = await Promise.all([
+    GuardianModel.find({ residentId: resident._id })
+      .sort({ isPrimary: -1, createdAt: 1 })
+      .lean<GuardianRecord[]>(),
+    EmergencyContactModel.find({ residentId: resident._id })
+      .sort({ isPrimary: -1, createdAt: 1 })
+      .lean<EmergencyContactRecord[]>(),
+  ]);
+
+  return {
+    emergencyContacts: emergencyContacts.map(serializeEmergencyContact),
+    guardians: guardians.map(serializeGuardian),
+  };
+}
+
+/**
+ * Soft-deletes a resident and hands their bed back. Soft because payments,
+ * complaints and audit rows still reference the id; every read path already
+ * filters on `isDeleted: false`.
+ */
+export async function deleteResident(
+  residentId: string,
+  query: { hostelId?: string },
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const resident = await findResidentForPrincipal(residentId, principal, query.hostelId);
+
+  await ResidentModel.updateOne(
+    { _id: resident._id, isDeleted: false },
+    {
+      $set: {
+        deletedAt: new Date(),
+        deletedBy: principal.userId,
+        isDeleted: true,
+        updatedBy: principal.userId,
+      },
+    },
+  );
+
+  // A resident who already moved out gave their bed back then; releasing again
+  // would invent a unit of vacancy.
+  if (resident.status !== "MOVED_OUT") {
+    await releaseBedForRoomType(resident.hostelId, resident.roomType);
+  }
+
+  // The account outlives the resident profile: losing your room does not lose
+  // you your login. Drop this hostel from its scope and, once no resident
+  // profile is left anywhere, hand the account back its plain public role — the
+  // state it was in before a hostel took it on. Without this it keeps the
+  // RESIDENT role and keeps landing on a resident dashboard whose every call
+  // now 404s.
+  if (resident.userId) {
+    const stillResidentElsewhere = await ResidentModel.exists({
+      _id: { $ne: resident._id },
+      isDeleted: false,
+      status: { $in: ["ACTIVE", "PENDING"] },
+      userId: resident.userId,
+    });
+
+    await UserModel.updateOne(
+      { _id: resident.userId },
+      { $pull: { hostelIds: resident.hostelId } },
+    );
+
+    if (!stillResidentElsewhere) {
+      await demoteToPublicAccount(resident.userId);
+    }
+  }
+
+  await auditResidentAction(principal, resident.hostelId, resident._id, "RESIDENT_DELETED", {
+    roomType: resident.roomType,
+    status: resident.status,
+  });
+
+  return {
+    residentId: resident._id.toString(),
   };
 }
 

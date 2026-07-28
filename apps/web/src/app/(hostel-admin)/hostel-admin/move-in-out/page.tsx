@@ -1,5 +1,5 @@
-import { HostelAdminMoveChecklistPage } from "@/app/_components/hostel-admin-move-checklist-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function MoveInOutPage() {
-  return <HostelAdminMoveChecklistPage />;
+export default async function LegacyHostelAdminMoveInOutPage() {
+  return redirectToWorkspaceScreen("move-in-out");
 }

@@ -1,54 +1,47 @@
 "use client";
 
 import { Moon } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
 import { Message, PageHeader } from "./daily-operations-shared";
 import { Panel } from "@/app/_components/shared-ui";
 
+type NightStatus = {
+  checkedAt: string | null;
+  status: string;
+};
+
 export const ResidentNightStatusPageContent = memo(function ResidentNightStatusPageContent() {
-  const [status, setStatus] = useState<{
-    checkedAt: string | null;
-    status: string;
-  } | null>(null);
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const invalidate = useInvalidateResources();
+  const statusResource = usePortalResource<{ status: NightStatus }>(
+    residentEndpoints.nightStatus,
+    { errorMessage: "Could not load status." },
+  );
 
-  const load = useCallback(async () => {
-    try {
-      const data = await browserApi<{ status: NonNullable<typeof status> }>(
-        "/api/v1/resident/night-status",
-      );
-
-      setStatus(data.status);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load status.");
-    }
-  }, []);
+  const status = statusResource.data?.status ?? null;
+  const message = actionMessage || statusResource.message;
 
   const update = useCallback(
     async (statusValue: string) => {
       try {
-        await browserApi("/api/v1/resident/night-status", {
+        await browserApi(residentEndpoints.nightStatus, {
           body: JSON.stringify({ status: statusValue }),
           method: "POST",
         });
-        setMessage("Night status updated.");
-        await load();
+        setActionMessage("Night status updated.");
+        invalidate(residentEndpoints.nightStatus, residentEndpoints.dashboard);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not update status.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not update status.",
+        );
       }
     },
-    [load],
+    [invalidate],
   );
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">

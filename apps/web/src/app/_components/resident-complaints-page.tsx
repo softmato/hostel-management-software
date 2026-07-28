@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageSquareWarning, Send } from "lucide-react";
-import { memo, useCallback, useEffect, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import {
   EmptyState,
@@ -12,54 +12,54 @@ import {
   StatusBadge,
   TextArea,
 } from "@/app/_components/shared-ui";
+import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
+import { FileUploaderView, useUploader } from "@/components/uploads";
 import { browserApi } from "@/lib/browser-api";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
 import {
   type Complaint,
-  type LoadState,
   ResidentHeader,
   Message,
   field,
 } from "./resident-shared";
 
 export const ResidentComplaintsPageContent = memo(function ResidentComplaintsPageContent() {
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  // Evidence photos/documents for the complaint. Progress shows in the global
+  // toaster; the form only needs the resulting asset ids.
+  const attachments = useUploader({
+    accessLevel: "PRIVATE",
+    kind: "document",
+    label: "Attachment",
+    maxFiles: 5,
+    optimizeImage: true,
+  });
+  const { clear: clearAttachments, files: attachmentFiles } = attachments;
+  const invalidate = useInvalidateResources();
+  const complaintsResource = usePortalResource<{ complaints: Complaint[] }>(
+    residentEndpoints.complaints,
+    { errorMessage: "Could not load complaints." },
+  );
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const data = await browserApi<{ complaints: Complaint[] }>(
-        "/api/v1/resident/complaints",
-      );
-
-      setComplaints(data.complaints);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load complaints.");
-      setState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const complaints = useMemo(
+    () => complaintsResource.data?.complaints ?? [],
+    [complaintsResource.data],
+  );
+  const state = complaintsResource.state;
+  const message = actionMessage || complaintsResource.message;
 
   const handleCreateComplaint = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
 
     try {
-      await browserApi("/api/v1/resident/complaints", {
+      await browserApi(residentEndpoints.complaints, {
         body: JSON.stringify({
-          attachmentAssetIds: field(form, "attachmentAssetIds")
-            .split(",")
-            .map((item) => item.trim())
-            .filter(Boolean),
+          attachmentAssetIds: attachmentFiles
+            .map((file) => file.assetId)
+            .filter((assetId): assetId is string => Boolean(assetId)),
           category: field(form, "category"),
           description: field(form, "description"),
           isAnonymous: form.get("isAnonymous") === "on",
@@ -67,30 +67,36 @@ export const ResidentComplaintsPageContent = memo(function ResidentComplaintsPag
         }),
         method: "POST",
       });
-      event.currentTarget.reset();
-      setMessage("Complaint submitted.");
-      await load();
+      formElement.reset();
+      clearAttachments();
+      setActionMessage("Complaint submitted.");
+      invalidate(residentEndpoints.complaints, residentEndpoints.dashboard);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not submit complaint.");
+      setActionMessage(
+        error instanceof Error ? error.message : "Could not submit complaint.",
+      );
     }
-  }, [load]);
+  }, [attachmentFiles, clearAttachments, invalidate]);
 
   const confirmResolution = useCallback(async (complaintId: string) => {
     const note = window.prompt("Optional confirmation note")?.trim();
 
     try {
-      await browserApi(`/api/v1/resident/complaints/${complaintId}/confirm-resolution`, {
-        body: JSON.stringify(note ? { note } : {}),
-        method: "PATCH",
-      });
-      setMessage("Resolution confirmed.");
-      await load();
+      await browserApi(
+        `${residentEndpoints.complaints}/${complaintId}/confirm-resolution`,
+        {
+          body: JSON.stringify(note ? { note } : {}),
+          method: "PATCH",
+        },
+      );
+      setActionMessage("Resolution confirmed.");
+      invalidate(residentEndpoints.complaints, residentEndpoints.dashboard);
     } catch (error) {
-      setMessage(
+      setActionMessage(
         error instanceof Error ? error.message : "Could not confirm resolution.",
       );
     }
-  }, [load]);
+  }, [invalidate]);
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
@@ -161,7 +167,7 @@ export const ResidentComplaintsPageContent = memo(function ResidentComplaintsPag
         </Panel>
 
         <Panel title="Submit Complaint">
-          <form className="grid gap-3" onSubmit={handleCreateComplaint}>
+          <BusyForm className="grid gap-3" onSubmit={handleCreateComplaint}>
             <Input label="Title" name="title" required />
             <Select label="Category" name="category" required>
               {[
@@ -180,16 +186,25 @@ export const ResidentComplaintsPageContent = memo(function ResidentComplaintsPag
               ))}
             </Select>
             <TextArea label="Description" name="description" />
-            <Input label="Attachment asset ids" name="attachmentAssetIds" />
+            <div className="grid gap-2">
+              <span className="text-sm font-semibold text-foreground">
+                Attachments <span className="font-normal text-muted-foreground">(optional)</span>
+              </span>
+              <FileUploaderView
+                label="Add a photo or document"
+                tone="resident"
+                uploader={attachments}
+              />
+            </div>
             <label className="flex items-center gap-2 text-sm text-foreground">
               <input name="isAnonymous" type="checkbox" />
               Submit anonymously
             </label>
-            <button className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-role-resident text-sm font-semibold text-white">
+            <SubmitButton className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-role-resident text-sm font-semibold text-white">
               <Send className="size-4" />
               Submit
-            </button>
-          </form>
+            </SubmitButton>
+          </BusyForm>
         </Panel>
       </div>
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Bell, Megaphone, Send } from "lucide-react";
-import { memo, useCallback, useEffect, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { EmptyState, Input, Select, TextArea } from "@/app/_components/shared-ui";
 import {
@@ -11,47 +11,39 @@ import {
   SectionCard,
   SoftBadge,
 } from "@/app/_components/portal-dashboard-ui";
+import { useWorkspaceHref } from "@/hooks/use-workspace-href";
 import { browserApi } from "@/lib/browser-api";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 
-import { field, optionalField, type LoadState, type Notice } from "./hostel-admin-shared";
+import { field, optionalField, type Notice } from "./hostel-admin-shared";
 
 const CATEGORIES = ["GENERAL", "URGENT", "EVENT", "RULE", "MAINTENANCE", "PAYMENT", "FOOD"];
 
 export const HostelAdminNoticesPage = memo(function HostelAdminNoticesPage() {
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const workspaceHref = useWorkspaceHref();
+  const invalidate = useInvalidateResources();
+  const noticesResource = usePortalResource<{ notices: Notice[] }>(
+    hostelAdminEndpoints.notices,
+    { errorMessage: "Could not load notices." },
+  );
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const data = await browserApi<{ notices: Notice[] }>(
-        "/api/v1/hostel-admin/notices",
-      );
-
-      setNotices(data.notices);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load notices.");
-      setState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const notices = useMemo(
+    () => noticesResource.data?.notices ?? [],
+    [noticesResource.data],
+  );
+  const state = noticesResource.state;
+  const message = actionMessage || noticesResource.message;
 
   const handleCreateNotice = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
 
       try {
-        await browserApi("/api/v1/hostel-admin/notices", {
+        await browserApi(hostelAdminEndpoints.notices, {
           body: JSON.stringify({
             category: field(form, "category"),
             content: field(form, "content"),
@@ -61,20 +53,22 @@ export const HostelAdminNoticesPage = memo(function HostelAdminNoticesPage() {
           }),
           method: "POST",
         });
-        event.currentTarget.reset();
-        setMessage("Notice published — residents notified.");
-        await load();
+        formElement.reset();
+        setActionMessage("Notice published — residents notified.");
+        invalidate(hostelAdminEndpoints.notices);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not publish notice.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not publish notice.",
+        );
       }
     },
-    [load],
+    [invalidate],
   );
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-5">
       <PortalPageHeader
-        breadcrumb={[{ href: "/hostel-admin", label: "Home" }, "Notices"]}
+        breadcrumb={[{ href: workspaceHref("/hostel-admin"), label: "Home" }, "Notices"]}
         description="Publish announcements — residents are emailed and notified in-app."
         title="Notices"
       />

@@ -1,31 +1,28 @@
 "use client";
 
 import { ShieldCheck } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
-import { type LoadState, type NightStatusRow, Message, PageHeader } from "./daily-operations-shared";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { type NightStatusRow, Message, PageHeader } from "./daily-operations-shared";
 import { EmptyState, LoadingRows, Panel, StatusBadge } from "@/app/_components/shared-ui";
 
 export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPage() {
-  const [rows, setRows] = useState<NightStatusRow[]>([]);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const invalidate = useInvalidateResources();
+  const statusResource = usePortalResource<{ statuses: NightStatusRow[] }>(
+    hostelAdminEndpoints.nightStatus,
+    { errorMessage: "Could not load statuses." },
+  );
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const data = await browserApi<{ statuses: NightStatusRow[] }>(
-        "/api/v1/hostel-admin/night-status",
-      );
-
-      setRows(data.statuses);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load statuses.");
-      setState("error");
-    }
-  }, []);
+  const rows = useMemo(
+    () => statusResource.data?.statuses ?? [],
+    [statusResource.data],
+  );
+  const state = statusResource.state;
+  const message = actionMessage || statusResource.message;
 
   const override = useCallback(
     async (residentId: string, statusValue: string) => {
@@ -36,26 +33,23 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
       }
 
       try {
-        await browserApi(`/api/v1/hostel-admin/night-status/${residentId}/override`, {
-          body: JSON.stringify({ reason, status: statusValue }),
-          method: "PATCH",
-        });
-        setMessage("Status overridden.");
-        await load();
+        await browserApi(
+          `${hostelAdminEndpoints.nightStatus}/${residentId}/override`,
+          {
+            body: JSON.stringify({ reason, status: statusValue }),
+            method: "PATCH",
+          },
+        );
+        setActionMessage("Status overridden.");
+        invalidate(hostelAdminEndpoints.nightStatus);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not override status.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not override status.",
+        );
       }
     },
-    [load],
+    [invalidate],
   );
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">

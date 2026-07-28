@@ -1,5 +1,5 @@
-import { HostelAdminPaymentsPage } from "@/app/_components/hostel-admin-payments-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function PaymentsPage() {
-  return <HostelAdminPaymentsPage />;
+export default async function LegacyHostelAdminPaymentsPage() {
+  return redirectToWorkspaceScreen("payments");
 }

@@ -11,7 +11,15 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: "*",
         allow: "/",
         // Keep authenticated portals and API routes out of search indexes.
-        disallow: ["/platform", "/hostel-admin", "/resident", "/guardian", "/api/"],
+        disallow: [
+          "/platform",
+          "/hostel-admin",
+          // Tenant workspaces live at /{hostel-slug}/admin/...
+          "/*/admin",
+          "/resident",
+          "/guardian",
+          "/api/",
+        ],
       },
     ],
     host: base,

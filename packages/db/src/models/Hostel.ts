@@ -61,8 +61,28 @@ const hostelSchema = new Schema(
         alt: { type: String, trim: true },
         fileAssetId: { ref: "FileAsset", type: Schema.Types.ObjectId },
         url: { type: String, trim: true },
+        // EXTERIOR (max 3) leads the public listing; INTERIOR (max 20) fills
+        // the gallery; ROOM (max 10 per room type) illustrates one entry of
+        // roomConfigurations. Limits enforced in the profile service.
+        kind: {
+          type: String,
+          enum: ["EXTERIOR", "INTERIOR", "ROOM"],
+          default: "INTERIOR",
+        },
+        // Set only on ROOM photos — matches roomConfigurations[].roomType.
+        roomType: { type: String, trim: true },
       },
     ],
+    // Post-approval renames are limited to 2; further changes go through the
+    // superadmin change-request flow.
+    nameChangeCount: { type: Number, default: 0, min: 0 },
+    // Running total of de-duplicated visits to /hostels/{slug}, kept here so the
+    // admin dashboard reads one number instead of aggregating HostelPageView.
+    // The event rows stay the source of truth for unique/recent breakdowns.
+    publicViewCount: { type: Number, default: 0, min: 0 },
+    // How many floors the building has. Purely descriptive — rooms are stored
+    // as one flat list per hostel and are not grouped by floor.
+    totalFloors: { min: 0, type: Number },
     capacitySummary: {
       totalRooms: { min: 0, type: Number },
       totalBeds: { min: 0, type: Number },
@@ -73,7 +93,16 @@ const hostelSchema = new Schema(
         name: { type: String, trim: true },
         type: {
           type: String,
-          enum: ["college", "hospital", "bus_stop", "other"],
+          enum: [
+            "college",
+            "hospital",
+            "bus_stop",
+            "park",
+            "gym",
+            "restaurant",
+            "pharmacy",
+            "other",
+          ],
           default: "other",
         },
         distance: Number,

@@ -1,16 +1,23 @@
 "use client";
 
-import { ChevronDown, LogOut } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { BadgePlus, ChevronDown, LogOut, QrCode } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { cn } from "@/lib/utils";
+import {
+  ResidentIdentityCenter,
+  requestResidentProfileForm,
+  requestResidentQr,
+} from "@/components/resident-identity";
 
 type CurrentUser = {
   email: string | null;
   image?: string | null;
   name: string;
   role: string;
+  /** Null until they save their resident profile for the first time. */
+  userResidentId?: string | null;
 };
 
 type MeResponse =
@@ -57,42 +64,37 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadCurrentUser = useCallback(async () => {
+    try {
+      const response = await checkAuthWithRefresh();
+      const payload = (await response.json().catch(() => null)) as MeResponse | null;
 
-    async function loadCurrentUser() {
-      try {
-        const response = await checkAuthWithRefresh();
-        const payload = (await response.json().catch(() => null)) as MeResponse | null;
-
-        if (!response.ok || !payload?.success) {
-          throw new Error(
-            payload && !payload.success ? payload.message : "Unable to load account.",
-          );
-        }
-
-        if (isMounted) {
-          setUser(payload.data.user);
-        }
-      } catch (loadError) {
-        if (isMounted) {
-          setError(
-            loadError instanceof Error ? loadError.message : "Unable to load account.",
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+      if (!response.ok || !payload?.success) {
+        throw new Error(
+          payload && !payload.success ? payload.message : "Unable to load account.",
+        );
       }
+
+      setUser(payload.data.user);
+      setError("");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error ? loadError.message : "Unable to load account.",
+      );
+    } finally {
+      setIsLoading(false);
     }
-
-    void loadCurrentUser();
-
-    return () => {
-      isMounted = false;
-    };
   }, []);
+
+  useEffect(() => {
+    // Deferred so the first paint is not blocked by a cascading setState —
+    // same pattern as PublicHeader.
+    const timer = window.setTimeout(() => {
+      void loadCurrentUser();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadCurrentUser]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -197,6 +199,31 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
               </p>
             </div>
           ) : null}
+          {user?.userResidentId ? (
+            <button
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+              onClick={() => {
+                setMenuOpen(false);
+                requestResidentQr();
+              }}
+              type="button"
+            >
+              <QrCode className="size-4" />
+              Show resident QR code
+            </button>
+          ) : (
+            <button
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-brand-teal transition hover:bg-brand-teal/10"
+              onClick={() => {
+                setMenuOpen(false);
+                requestResidentProfileForm("MANUAL");
+              }}
+              type="button"
+            >
+              <BadgePlus className="size-4" />
+              Create resident ID
+            </button>
+          )}
           <button
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:opacity-60 dark:hover:bg-rose-950/30"
             disabled={isLoggingOut}
@@ -208,6 +235,8 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
           </button>
         </div>
       ) : null}
+
+      <ResidentIdentityCenter onProfileSaved={loadCurrentUser} />
     </div>
   );
 }

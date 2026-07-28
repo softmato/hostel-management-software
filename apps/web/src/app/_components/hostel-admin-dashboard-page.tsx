@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BedDouble,
   ClipboardList,
+  Eye,
   Moon,
   Users,
   Utensils,
@@ -11,11 +12,13 @@ import {
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
-import { memo, useEffect, useState } from "react";
+import { memo } from "react";
 
 import { currency, LoadingRows } from "@/app/_components/shared-ui";
-import { browserApi } from "@/lib/browser-api";
-import { deferLoad, Message, ReportRecord } from "./core-portal-shared";
+import { useWorkspaceHref } from "@/hooks/use-workspace-href";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { usePortalResource } from "@/lib/portal-query";
+import { Hostel, Message, ReportRecord } from "./core-portal-shared";
 import {
   MetricCard,
   PortalPageHeader,
@@ -28,26 +31,33 @@ function num(value: unknown) {
 }
 
 export const HostelAdminDashboardPageContent = memo(function HostelAdminDashboardPageContent() {
-  const [report, setReport] = useState<ReportRecord | null>(null);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
+  const workspaceHref = useWorkspaceHref();
+  const reportResource = usePortalResource<{ report: ReportRecord }>(
+    hostelAdminEndpoints.dashboardReport,
+    { errorMessage: "Could not load dashboard." },
+  );
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await browserApi<{ report: ReportRecord }>(
-          "/api/v1/hostel-admin/reports/dashboard",
-        );
-        setReport(data.report);
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not load dashboard.");
-      } finally {
-        setLoading(false);
-      }
-    }
+  // Same cache entry the Profile / Rooms screens already fill — this only needs
+  // the slug and whether the listing is actually live.
+  const profileResource = usePortalResource<{ hostel: Hostel }>(
+    hostelAdminEndpoints.profile,
+    { errorMessage: "Could not load hostel profile." },
+  );
 
-    return deferLoad(load);
-  }, []);
+  const report = reportResource.data?.report ?? null;
+  const message = reportResource.message;
+  const loading = reportResource.state === "loading";
+
+  const hostel = profileResource.data?.hostel ?? null;
+  // The public page only serves published + verified hostels, so previewing
+  // anything else would just 404 the admin.
+  const publicHref =
+    hostel &&
+    hostel.status === "PUBLISHED" &&
+    hostel.verificationStatus === "VERIFIED" &&
+    hostel.slug
+      ? `/hostels/${hostel.slug}`
+      : "";
 
   const nightSummary =
     report?.nightStatusSummary && typeof report.nightStatusSummary === "object"
@@ -111,6 +121,18 @@ export const HostelAdminDashboardPageContent = memo(function HostelAdminDashboar
       tone: "amber" as const,
       value: num(report?.pendingPaymentProofs).toLocaleString(),
     },
+    {
+      // How many people opened this hostel's public page — the top of the
+      // funnel that ends in the Inquiries inbox. The card doubles as the way
+      // to go look at the page those views landed on.
+      external: Boolean(publicHref),
+      href: publicHref || "/hostel-admin/inquiries",
+      icon: Eye,
+      label: "Listing Views",
+      note: publicHref ? "Open public page" : undefined,
+      tone: "cyan" as const,
+      value: num(report?.totalPublicViews).toLocaleString(),
+    },
   ];
 
   const quickLinks = [
@@ -135,16 +157,39 @@ export const HostelAdminDashboardPageContent = memo(function HostelAdminDashboar
       {!loading ? (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {metrics.map((metric) => (
-              <Link className="transition hover:-translate-y-0.5" href={metric.href} key={metric.label}>
+            {metrics.map((metric) => {
+              const card = (
                 <MetricCard
                   icon={metric.icon}
                   label={metric.label}
+                  note={metric.note}
                   tone={metric.tone}
                   value={metric.value}
                 />
-              </Link>
-            ))}
+              );
+
+              // The public listing is outside the portal, so it opens in its own
+              // tab and skips the workspace prefix.
+              return metric.external ? (
+                <a
+                  className="transition hover:-translate-y-0.5"
+                  href={metric.href}
+                  key={metric.label}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {card}
+                </a>
+              ) : (
+                <Link
+                  className="transition hover:-translate-y-0.5"
+                  href={workspaceHref(metric.href)}
+                  key={metric.label}
+                >
+                  {card}
+                </Link>
+              );
+            })}
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
@@ -186,7 +231,7 @@ export const HostelAdminDashboardPageContent = memo(function HostelAdminDashboar
                 {quickLinks.map((item) => (
                   <Link
                     className="rounded-lg border border-border bg-muted/20 px-3 py-3 text-sm font-semibold text-foreground transition hover:border-role-admin/40 hover:bg-role-admin-soft/40"
-                    href={item.href}
+                    href={workspaceHref(item.href)}
                     key={item.href}
                   >
                     {item.label}

@@ -83,13 +83,17 @@ function PermissionGrid({
 }
 
 export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
-  const { data, error, isError, isPending, refetch } = useHostelWardens();
+  const wardensResource = useHostelWardens();
+  const { data, message: loadError, refreshAsync: refetch } = wardensResource;
+  const isPending = wardensResource.state === "loading";
+  const isError = wardensResource.state === "error";
   const wardens = useMemo(() => data?.wardens ?? [], [data]);
 
   const [selectedWardenId, setSelectedWardenId] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [issuedPassword, setIssuedPassword] = useState("");
   const [formPermissions, setFormPermissions] = useState<Set<string>>(
     () => new Set(DEFAULT_WARDEN_PERMISSIONS),
@@ -129,8 +133,10 @@ export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
   const handleCreateWarden = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
 
+      setSaving(true);
       try {
         const result = await browserApi<CreateWardenResult>(
           "/api/v1/hostel-admin/wardens",
@@ -145,7 +151,7 @@ export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
           },
         );
 
-        event.currentTarget.reset();
+        formElement.reset();
         setFormPermissions(new Set(DEFAULT_WARDEN_PERMISSIONS));
         setShowAddForm(false);
         setIssuedPassword(result.temporaryPassword ?? "");
@@ -162,6 +168,8 @@ export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
         setMessage(
           submitError instanceof Error ? submitError.message : "Could not create warden.",
         );
+      } finally {
+        setSaving(false);
       }
     },
     [formPermissions, refetch],
@@ -296,8 +304,8 @@ export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
                 selected={formPermissions}
               />
             </div>
-            <RoleButton tone="admin" type="submit">
-              <UserPlus className="size-4" />
+            <RoleButton loading={saving} tone="admin" type="submit">
+              {saving ? null : <UserPlus className="size-4" />}
               Save Warden
             </RoleButton>
           </form>
@@ -320,11 +328,7 @@ export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
 
           {isPending ? <LoadingRows /> : null}
           {isError ? (
-            <EmptyState
-              label={
-                error instanceof Error ? error.message : "Wardens could not be loaded."
-              }
-            />
+            <EmptyState label={loadError || "Wardens could not be loaded."} />
           ) : null}
           {!isPending && !isError && filteredWardens.length === 0 ? (
             <EmptyInline label="No wardens yet. Add your first warden." />

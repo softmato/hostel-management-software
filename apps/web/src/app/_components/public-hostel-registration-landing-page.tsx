@@ -107,7 +107,7 @@ const features: (Feature & { imageIndex: number })[] = [
     icon: LayoutDashboard, title: "Central Dashboard", description: "Real-time occupancy, payments, complaints, staff activity, and reports — all from one command centre.", tone: "platform", gradient: "from-brand-teal/20 to-cyan-400/10", accent: "bg-brand-teal", imageIndex: 0,
   },
   {
-    icon: BedDouble, title: "Digital Room & Bed Map", description: "Floor-wise rooms, bed assignment, vacancy status, room type (1-4 seater), attached bathroom, balcony, and maintenance status per room.", tone: "admin", gradient: "from-blue-500/20 to-indigo-400/10", accent: "bg-blue-500", imageIndex: 1,
+    icon: BedDouble, title: "Digital Room & Bed Map", description: "Rooms, bed assignment, vacancy status, room type (1-4 seater), attached bathroom, balcony, and maintenance status per room.", tone: "admin", gradient: "from-blue-500/20 to-indigo-400/10", accent: "bg-blue-500", imageIndex: 1,
   },
   {
     icon: Users, title: "Resident Management + QR", description: "Admin registers residents. System generates unique QR code. Resident scans to activate their dashboard — no manual data entry.", tone: "resident", gradient: "from-emerald-400/20 to-green-400/10", accent: "bg-emerald-500", imageIndex: 2,

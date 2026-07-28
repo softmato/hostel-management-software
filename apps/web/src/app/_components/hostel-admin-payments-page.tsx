@@ -11,7 +11,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import {
   currency,
@@ -24,11 +24,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { browserApi } from "@/lib/browser-api";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import {
+  combineResources,
+  useInvalidateResources,
+  usePortalResource,
+} from "@/lib/portal-query";
 
 import {
   field,
   optionalField,
-  type LoadState,
   type Payment,
   type PaymentProof,
   type Resident,
@@ -51,57 +56,98 @@ import {
   TableRow,
 } from "./portal-dashboard-ui";
 
+type MatrixRow = {
+  displayStatus:
+    | "PAID"
+    | "PARTIAL"
+    | "UNPAID"
+    | "OVERDUE"
+    | "PENDING_PROOF"
+    | "NOT_BILLED";
+  payment: Payment | null;
+  resident: Resident & { fullName: string; moveInDate: string };
+};
+
+type MatrixTotals = {
+  collected: number;
+  due: number;
+  notBilled: number;
+  overdue: number;
+  paid: number;
+  partial: number;
+  unpaid: number;
+};
+
+function defaultMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
-  const [residents, setResidents] = useState<Resident[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [proofs, setProofs] = useState<PaymentProof[]>([]);
+  const [month, setMonth] = useState(defaultMonth());
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const invalidate = useInvalidateResources();
+
+  const errorMessage = "Could not load payments.";
+  const residentsResource = usePortalResource<{ residents: Resident[] }>(
+    hostelAdminEndpoints.residents,
+    { errorMessage },
+  );
+  // Keyed by month, so stepping back to a month already viewed paints from
+  // cache instead of blanking the matrix.
+  const matrixResource = usePortalResource<{
+    month: string;
+    rows: MatrixRow[];
+    totals: MatrixTotals;
+  }>(hostelAdminEndpoints.paymentsMatrix(month), { errorMessage });
+  const paymentsResource = usePortalResource<{
+    payments: Payment[];
+    proofs: PaymentProof[];
+  }>(hostelAdminEndpoints.transactions, { errorMessage });
+
+  const residents = useMemo(
+    () => residentsResource.data?.residents ?? [],
+    [residentsResource.data],
+  );
+  const rows = useMemo(() => matrixResource.data?.rows ?? [], [matrixResource.data]);
+  const totals = matrixResource.data?.totals ?? null;
+  const proofs = useMemo(
+    () => paymentsResource.data?.proofs ?? [],
+    [paymentsResource.data],
+  );
+  const combined = combineResources(
+    residentsResource,
+    matrixResource,
+    paymentsResource,
+  );
+  const state = combined.state;
+  const message = actionMessage || combined.message;
 
   const residentById = useMemo(
     () => new Map(residents.map((resident) => [resident.id, resident])),
     [residents],
   );
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const statusQuery = filter !== "ALL" ? `?status=${filter}` : "";
-      const [residentData, paymentData] = await Promise.all([
-        browserApi<{ residents: Resident[] }>("/api/v1/hostel-admin/residents"),
-        browserApi<{ payments: Payment[]; proofs: PaymentProof[] }>(
-          `/api/v1/hostel-admin/payments${statusQuery}`,
-        ),
-      ]);
-
-      setResidents(residentData.residents);
-      setPayments(paymentData.payments);
-      setProofs(paymentData.proofs);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load payments.");
-      setState("error");
-    }
-  }, [filter]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  // Every mutation on this page moves both the matrix and the proof list.
+  const refreshPayments = useCallback(() => {
+    invalidate(
+      hostelAdminEndpoints.paymentsMatrixAll,
+      hostelAdminEndpoints.transactions,
+      hostelAdminEndpoints.residents,
+    );
+  }, [invalidate]);
 
   const handleCreatePayment = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
 
       try {
-        await browserApi("/api/v1/hostel-admin/payments", {
+        await browserApi(hostelAdminEndpoints.transactions, {
           body: JSON.stringify({
             dueAmount: Number(field(form, "dueAmount")),
             dueDate: field(form, "dueDate"),
@@ -111,26 +157,27 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
           }),
           method: "POST",
         });
-        event.currentTarget.reset();
+        formElement.reset();
         setShowCreate(false);
-        setMessage("Payment record created.");
-        await load();
+        setActionMessage("Payment record created.");
+        refreshPayments();
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not create payment.");
+        setActionMessage(error instanceof Error ? error.message : "Could not create payment.");
       }
     },
-    [load],
+    [refreshPayments],
   );
 
   const handleFeeRun = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
       const monthlyFee = optionalField(form, "monthlyFee");
 
       try {
         if (monthlyFee) {
-          await browserApi("/api/v1/hostel-admin/residents/fees", {
+          await browserApi(hostelAdminEndpoints.residentFees, {
             body: JSON.stringify({ monthlyFee: Number(monthlyFee) }),
             method: "PATCH",
           });
@@ -140,7 +187,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
           createdCount: number;
           skippedExistingCount: number;
           skippedNoFeeCount: number;
-        }>("/api/v1/hostel-admin/payments/generate", {
+        }>(`${hostelAdminEndpoints.transactions}/generate`, {
           body: JSON.stringify({
             defaultAmount: monthlyFee ? Number(monthlyFee) : undefined,
             dueDate: field(form, "dueDate"),
@@ -149,17 +196,17 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
           method: "POST",
         });
 
-        setMessage(
+        setActionMessage(
           `${result.createdCount} payment record(s) created. ${result.skippedExistingCount} already existed, ${result.skippedNoFeeCount} skipped with no fee set.`,
         );
-        await load();
+        refreshPayments();
       } catch (error) {
-        setMessage(
+        setActionMessage(
           error instanceof Error ? error.message : "Could not run the monthly fee job.",
         );
       }
     },
-    [load],
+    [refreshPayments],
   );
 
   const reviewProof = useCallback(
@@ -176,47 +223,47 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
           body: JSON.stringify(action === "reject" ? { rejectionReason } : {}),
           method: "PATCH",
         });
-        setMessage(action === "approve" ? "Proof approved." : "Proof rejected.");
-        await load();
+        setActionMessage(action === "approve" ? "Proof approved." : "Proof rejected.");
+        refreshPayments();
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not review proof.");
+        setActionMessage(error instanceof Error ? error.message : "Could not review proof.");
       }
     },
-    [load],
+    [refreshPayments],
   );
 
-  const filteredPayments = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return payments;
-    return payments.filter((payment) => {
-      const resident = residentById.get(payment.residentId);
-      const name = resident
-        ? `${resident.firstName} ${resident.lastName}`.toLowerCase()
-        : payment.residentId.toLowerCase();
-      return name.includes(query) || payment.month.toLowerCase().includes(query);
+    return rows.filter((row) => {
+      if (filter !== "ALL") {
+        const matchesFilter =
+          filter === "UNPAID"
+            ? ["UNPAID", "PENDING_PROOF", "NOT_BILLED"].includes(row.displayStatus)
+            : row.displayStatus === filter;
+        if (!matchesFilter) {
+          return false;
+        }
+      }
+      if (!query) {
+        return true;
+      }
+      return row.resident.fullName.toLowerCase().includes(query);
     });
-  }, [payments, residentById, search]);
+  }, [filter, rows, search]);
 
-  const stats = useMemo(() => {
-    const paid = payments.filter((p) => p.status === "PAID").length;
-    const unpaid = payments.filter((p) => p.status === "UNPAID").length;
-    const partial = payments.filter((p) => p.status === "PARTIAL").length;
-    const overdue = payments.filter((p) => p.status === "OVERDUE").length;
-    const monthlyCollection = payments.reduce((sum, p) => sum + p.paidAmount, 0);
-    const dueAmount = payments.reduce(
-      (sum, p) => sum + Math.max(0, p.dueAmount - p.paidAmount),
-      0,
-    );
-    return {
-      dueAmount,
-      monthlyCollection,
-      overdue,
-      paid,
-      partial,
+  const stats = useMemo(
+    () => ({
+      dueAmount: totals ? Math.max(totals.due - totals.collected, 0) : 0,
+      monthlyCollection: totals?.collected ?? 0,
+      notBilled: totals?.notBilled ?? 0,
+      overdue: totals?.overdue ?? 0,
+      paid: totals?.paid ?? 0,
+      partial: totals?.partial ?? 0,
       pendingProofs: proofs.filter((p) => p.status === "PENDING").length,
-      unpaid,
-    };
-  }, [payments, proofs]);
+      unpaid: totals?.unpaid ?? 0,
+    }),
+    [proofs, totals],
+  );
 
   const pendingProofs = proofs.filter((p) => p.status === "PENDING").slice(0, 6);
 
@@ -352,7 +399,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <TabsList className="h-auto flex-wrap rounded-none bg-transparent p-0" variant="line">
                 <TabsTrigger className="rounded-none px-3 pb-2" value="ALL">
-                  All ({payments.length})
+                  All ({rows.length})
                 </TabsTrigger>
                 <TabsTrigger className="rounded-none px-3 pb-2" value="PAID">
                   Paid ({stats.paid})
@@ -367,6 +414,15 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                   Overdue ({stats.overdue})
                 </TabsTrigger>
               </TabsList>
+              <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                Month
+                <input
+                  className="h-9 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-role-admin"
+                  onChange={(event) => setMonth(event.target.value || defaultMonth())}
+                  type="month"
+                  value={month}
+                />
+              </label>
             </div>
 
             <SearchField
@@ -381,10 +437,10 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
               {state === "error" ? (
                 <EmptyState label="Payments could not be loaded." />
               ) : null}
-              {state === "ready" && filteredPayments.length === 0 ? (
-                <EmptyInline label="No payment records." />
+              {state === "ready" && filteredRows.length === 0 ? (
+                <EmptyInline label="No residents for this month." />
               ) : null}
-              {state === "ready" && filteredPayments.length > 0 ? (
+              {state === "ready" && filteredRows.length > 0 ? (
                 <DataTable className="min-w-[700px]">
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
@@ -392,10 +448,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                         Resident
                       </TableHead>
                       <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Month
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Amount (NPR)
+                        Due (NPR)
                       </TableHead>
                       <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Paid
@@ -409,43 +462,49 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredPayments.map((payment) => {
-                      const resident = residentById.get(payment.residentId);
-                      const name = resident
-                        ? `${resident.firstName} ${resident.lastName}`
-                        : payment.residentId;
+                    {filteredRows.map((row) => {
+                      const name = row.resident.fullName;
+                      const movedInThisMonth = row.resident.moveInDate.startsWith(month);
 
                       return (
-                        <TableRow key={payment.id}>
+                        <TableRow key={row.resident.id}>
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <InitialsAvatar name={name} size="sm" tone="admin" />
                               <div>
                                 <p className="font-semibold text-foreground">{name}</p>
-                                {resident?.phone ? (
-                                  <p className="text-xs text-muted-foreground">
-                                    {resident.phone}
-                                  </p>
-                                ) : null}
+                                <p className="text-xs text-muted-foreground">
+                                  {row.resident.phone}
+                                  {movedInThisMonth
+                                    ? ` · moved in ${new Date(row.resident.moveInDate).toLocaleDateString()} (pro-rated)`
+                                    : ""}
+                                </p>
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {payment.month}
-                          </TableCell>
                           <TableCell className="font-medium">
-                            {currency(payment.dueAmount)}
+                            {row.payment ? currency(row.payment.dueAmount) : "—"}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {currency(payment.paidAmount)}
+                            {row.payment ? currency(row.payment.paidAmount) : "—"}
                           </TableCell>
                           <TableCell>
-                            <SoftBadge tone={statusToneFromLabel(payment.status)}>
-                              {payment.status.replaceAll("_", " ")}
+                            <SoftBadge
+                              tone={
+                                row.displayStatus === "NOT_BILLED"
+                                  ? "slate"
+                                  : statusToneFromLabel(row.displayStatus)
+                              }
+                            >
+                              {row.displayStatus === "NOT_BILLED"
+                                ? "NO FEE SET"
+                                : row.displayStatus.replaceAll("_", " ")}
                             </SoftBadge>
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {new Date(payment.dueDate).toLocaleDateString()}
+                            {row.payment
+                              ? new Date(row.payment.dueDate).toLocaleDateString()
+                              : "—"}
                           </TableCell>
                         </TableRow>
                       );

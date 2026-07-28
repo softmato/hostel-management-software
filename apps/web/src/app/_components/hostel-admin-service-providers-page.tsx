@@ -1,39 +1,25 @@
 "use client";
 
-import React, { useCallback, useState, useEffect } from "react";
+import React, { useMemo } from "react";
 import { Search } from "lucide-react";
 import { EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
-import { browserApi } from "@/lib/browser-api";
-import { Message, PageHeader, type LoadState, type ServiceProvider } from "./portal-shared";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { usePortalResource } from "@/lib/portal-query";
+import { Message, PageHeader, type ServiceProvider } from "./portal-shared";
 
 export const HostelAdminServiceProvidersPageContent = React.memo(
   function HostelAdminServiceProvidersPageContent() {
-    const [providers, setProviders] = useState<ServiceProvider[]>([]);
-    const [message, setMessage] = useState("");
-    const [state, setState] = useState<LoadState>("idle");
+    const providersResource = usePortalResource<{ providers: ServiceProvider[] }>(
+      hostelAdminEndpoints.serviceProviders,
+      { errorMessage: "Could not load providers." },
+    );
 
-    const load = useCallback(async () => {
-      setState("loading");
-      try {
-        const data = await browserApi<{ providers: ServiceProvider[] }>(
-          "/api/v1/hostel-admin/service-providers",
-        );
-
-        setProviders(data.providers);
-        setState("ready");
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not load providers.");
-        setState("error");
-      }
-    }, []);
-
-    useEffect(() => {
-      const timer = window.setTimeout(() => {
-        void load();
-      }, 0);
-
-      return () => window.clearTimeout(timer);
-    }, [load]);
+    const providers = useMemo(
+      () => providersResource.data?.providers ?? [],
+      [providersResource.data],
+    );
+    const message = providersResource.message;
+    const state = providersResource.state;
 
     return (
       <div className="mx-auto max-w-[1448px] space-y-6">

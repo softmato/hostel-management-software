@@ -8,15 +8,7 @@ import {
   Upload,
   WalletCards,
 } from "lucide-react";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from "react";
+import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import {
   currency,
@@ -25,12 +17,14 @@ import {
   LoadingRows,
   Select as FormSelect,
 } from "@/app/_components/shared-ui";
+import { FileUploaderView, useUploader } from "@/components/uploads";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { browserApi } from "@/lib/browser-api";
+import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { residentEndpoints } from "@/lib/resident-endpoints";
 import {
-  type LoadState,
   type Payment,
   type PaymentProof,
   Message,
@@ -54,73 +48,56 @@ import {
 } from "./portal-dashboard-ui";
 
 export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageContent() {
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [proofs, setProofs] = useState<PaymentProof[]>([]);
-  const [state, setState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState("");
-  const [proofAssetId, setProofAssetId] = useState("");
-  const [uploadingProof, setUploadingProof] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
   const [statusTab, setStatusTab] = useState("ALL");
+  const invalidate = useInvalidateResources();
+  // Progress and upload errors surface in the global toaster; this only holds
+  // the resulting asset id for the form submit.
+  const proofUpload = useUploader({
+    accept: "image/jpeg,image/png,image/webp,application/pdf",
+    accessLevel: "PRIVATE",
+    kind: "document",
+    label: "Payment proof",
+    optimizeImage: true,
+  });
+  const proofAssetId = proofUpload.files[0]?.assetId ?? "";
+  const { clear: clearProof } = proofUpload;
+
+  const paymentsResource = usePortalResource<{
+    payments: Payment[];
+    proofs: PaymentProof[];
+  }>(residentEndpoints.payments, { errorMessage: "Could not load payments." });
+
+  const payments = useMemo(
+    () => paymentsResource.data?.payments ?? [],
+    [paymentsResource.data],
+  );
+  const proofs = useMemo(
+    () => paymentsResource.data?.proofs ?? [],
+    [paymentsResource.data],
+  );
+  const state = paymentsResource.state;
+  const message = actionMessage || paymentsResource.message;
 
   const proofByPaymentId = useMemo(
     () => new Map(proofs.map((proof) => [proof.paymentId, proof])),
     [proofs],
   );
 
-  const load = useCallback(async () => {
-    setState("loading");
-    try {
-      const data = await browserApi<{ payments: Payment[]; proofs: PaymentProof[] }>(
-        "/api/v1/resident/payments",
-      );
-
-      setPayments(data.payments);
-      setProofs(data.proofs);
-      setState("ready");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load payments.");
-      setState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
-
-  const handleProofFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) return;
-    setUploadingProof(true);
-    try {
-      const { uploadFile, optimizeImage } = await import("@/lib/client-upload");
-      const assetId = await uploadFile(file, "PRIVATE");
-      optimizeImage(assetId).catch(() => {});
-      setProofAssetId(assetId);
-      setMessage("Proof image uploaded.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not upload image.");
-    } finally {
-      setUploadingProof(false);
-    }
-  }, []);
-
   const handleProof = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
       const paymentId = field(form, "paymentId");
 
       if (!proofAssetId) {
-        setMessage("Please upload a proof image first.");
+        setActionMessage("Please upload a proof image first.");
         return;
       }
 
       try {
-        await browserApi(`/api/v1/resident/payments/${paymentId}/proof`, {
+        await browserApi(`${residentEndpoints.payments}/${paymentId}/proof`, {
           body: JSON.stringify({
             amount: Number(field(form, "amount")),
             paymentMethod: field(form, "paymentMethod"),
@@ -130,15 +107,17 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
           }),
           method: "POST",
         });
-        event.currentTarget.reset();
-        setProofAssetId("");
-        setMessage("Proof submitted.");
-        await load();
+        formElement.reset();
+        clearProof();
+        setActionMessage("Proof submitted.");
+        invalidate(residentEndpoints.payments, residentEndpoints.dashboard);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not submit proof.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not submit proof.",
+        );
       }
     },
-    [proofAssetId, load],
+    [clearProof, invalidate, proofAssetId],
   );
 
   const stats = useMemo(() => {
@@ -329,27 +308,12 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
                 <label className="text-sm font-semibold text-foreground">
                   Upload Receipt / Screenshot
                 </label>
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-role-resident/40 bg-role-resident-soft/30 px-4 py-8 text-center transition hover:bg-role-resident-soft/50">
-                  <Upload className="mb-2 size-6 text-role-resident" />
-                  <span className="text-sm font-semibold text-foreground">
-                    Drag & drop or click to upload
-                  </span>
-                  <span className="mt-1 text-xs text-muted-foreground">
-                    JPG, PNG, PDF up to 5MB
-                  </span>
-                  <input
-                    accept="image/jpeg,image/png,image/webp"
-                    className="sr-only"
-                    disabled={uploadingProof}
-                    onChange={handleProofFile}
-                    type="file"
-                  />
-                </label>
-                {uploadingProof ? (
-                  <p className="text-xs text-muted-foreground">Uploading...</p>
-                ) : proofAssetId ? (
-                  <p className="text-xs font-semibold text-emerald-600">Image uploaded.</p>
-                ) : null}
+                <FileUploaderView
+                  label="Upload receipt"
+                  size="lg"
+                  tone="resident"
+                  uploader={proofUpload}
+                />
               </div>
 
               <input name="proofImageAssetId" type="hidden" value={proofAssetId} />
@@ -381,7 +345,7 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
               </div>
               <RoleButton
                 className="w-full"
-                disabled={uploadingProof || !proofAssetId}
+                disabled={proofUpload.isUploading || !proofAssetId}
                 tone="resident"
                 type="submit"
               >

@@ -7,7 +7,6 @@ export type ResidentStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
 
 export type ResidentRecord = {
   _id: Types.ObjectId;
-  bedId: Types.ObjectId;
   createdAt?: Date;
   depositAmount: number;
   email?: string;
@@ -16,7 +15,7 @@ export type ResidentRecord = {
   lastName: string;
   moveInDate: Date;
   phone: string;
-  roomId: Types.ObjectId;
+  roomType: string;
   status: ResidentStatus;
   updatedAt?: Date;
   userId?: Types.ObjectId;
@@ -42,7 +41,6 @@ export function normalizeObjectId(value: string, label = "id") {
 
 export function serializeResidentSummary(resident: ResidentRecord) {
   return {
-    bedId: resident.bedId.toString(),
     createdAt: resident.createdAt?.toISOString(),
     depositAmount: resident.depositAmount,
     email: resident.email ?? "",
@@ -53,7 +51,7 @@ export function serializeResidentSummary(resident: ResidentRecord) {
     lastName: resident.lastName,
     moveInDate: resident.moveInDate.toISOString(),
     phone: resident.phone,
-    roomId: resident.roomId.toString(),
+    roomType: resident.roomType,
     status: resident.status,
     updatedAt: resident.updatedAt?.toISOString(),
     userId: resident.userId?.toString(),
