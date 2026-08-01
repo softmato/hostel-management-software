@@ -18,7 +18,10 @@ import { useHostels } from "@/hooks/use-hostels";
 import { haversineMeters } from "@/lib/maps/nearby";
 import { NEPAL_COLLEGES } from "@/lib/maps/nepal-colleges";
 import { useComparisonStore } from "@/stores/comparison-store";
-import { useHostelFiltersStore } from "@/stores/hostel-filters-store";
+import {
+  useHostelFiltersStore,
+  type HostelFiltersState,
+} from "@/stores/hostel-filters-store";
 import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 import { HostelCard, HostelListCard, NepalBannerGraphic, PublicShell } from "./shared";
@@ -42,14 +45,54 @@ function budgetQuery(value: string): { maxPrice?: string; minPrice?: string } {
   return {};
 }
 
+/** Reverse of budgetQuery: turn a parsed price range back into a filter label. */
+function budgetLabel(minPrice?: string, maxPrice?: string): string | undefined {
+  const min = minPrice ? Number(minPrice) : undefined;
+  const max = maxPrice ? Number(maxPrice) : undefined;
+
+  if (max != null && max <= 8000 && min == null) return "Under NPR 8,000";
+  if (min != null && min >= 10000 && max == null) return "Above NPR 10,000";
+  if (min != null && max != null) {
+    if (max <= 8000) return "Under NPR 8,000";
+    if (min >= 10000) return "Above NPR 10,000";
+    return "NPR 8,000 - 10,000";
+  }
+
+  return undefined;
+}
+
+function typeLabel(value: string | null): string | undefined {
+  if (value === "BOYS") return "Boys";
+  if (value === "GIRLS") return "Girls";
+  if (value === "CO_LIVING") return "Co-living";
+
+  return undefined;
+}
+
+/** Dietary filter label → the `food` value the public hostels API expects. */
+function dietQuery(value: string): "veg" | "non-veg" | undefined {
+  if (value === "Veg") return "veg";
+  if (value === "Non-veg") return "non-veg";
+
+  return undefined;
+}
+
+/** Reverse of dietQuery, for seeding the filter from a hero-search deep link. */
+function dietLabel(value: string | null): string | undefined {
+  if (value === "veg") return "Veg";
+  if (value === "non-veg") return "Non-veg";
+
+  return undefined;
+}
+
 function PublicHostelListingPageContent() {
   const searchParams = useSearchParams();
-  const initialSearch = searchParams ? searchParams.get("search") || "" : "";
 
   const {
     area: selectedArea,
     budget: selectedBudget,
     college: selectedCollege,
+    diet: selectedDiet,
     facilities: selectedFacilities,
     food: selectedFood,
     query,
@@ -68,13 +111,42 @@ function PublicHostelListingPageContent() {
   const mobileFiltersOpen = useUiStore((state) => state.mobileFiltersOpen);
   const setMobileFiltersOpen = useUiStore((state) => state.setMobileFiltersOpen);
 
-  // Seed the search box from a ?search= deep link (zustand action, not React
-  // setState — safe inside an effect).
+  // Seed the filters from the deep link (zustand action, not React setState —
+  // safe inside an effect). The hero search resolves a sentence into these
+  // params before navigating here, so arriving pre-filtered is the normal path.
+  const deepLink = searchParams?.toString() ?? "";
   useEffect(() => {
-    if (initialSearch) {
-      update({ query: initialSearch });
+    const params = new URLSearchParams(deepLink);
+    const patch: Partial<HostelFiltersState> = {};
+
+    const search = params.get("search");
+    if (search) patch.query = search;
+
+    const area = params.get("area");
+    if (area) patch.area = area;
+
+    const facility = params.get("facility");
+    if (facility) patch.facilities = facility;
+
+    const room = params.get("roomType");
+    if (room) patch.room = room;
+
+    const type = typeLabel(params.get("type"));
+    if (type) patch.type = type;
+
+    const budget = budgetLabel(
+      params.get("minPrice") ?? undefined,
+      params.get("maxPrice") ?? undefined,
+    );
+    if (budget) patch.budget = budget;
+
+    const diet = dietLabel(params.get("food"));
+    if (diet) patch.diet = diet;
+
+    if (Object.keys(patch).length > 0) {
+      update(patch);
     }
-  }, [initialSearch, update]);
+  }, [deepLink, update]);
 
   // Debounce the search term that actually drives the query, so typing does not
   // fire a request per keystroke.
@@ -91,6 +163,7 @@ function PublicHostelListingPageContent() {
     return {
       area: selectedArea !== "All Areas" ? selectedArea : undefined,
       facility: selectedFacilities !== "All Facilities" ? selectedFacilities : undefined,
+      food: dietQuery(selectedDiet),
       maxPrice: budget.maxPrice,
       minPrice: budget.minPrice,
       q: debouncedQuery.trim() || undefined,
@@ -101,6 +174,7 @@ function PublicHostelListingPageContent() {
     debouncedQuery,
     selectedArea,
     selectedBudget,
+    selectedDiet,
     selectedFacilities,
     selectedRoom,
     selectedType,
@@ -399,6 +473,34 @@ function PublicHostelListingPageContent() {
                           className="size-3.5 text-brand-teal border-border focus:ring-brand-teal"
                         />
                         <span>{foodVal}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dietary — asks what is served, unlike Food Option above which
+                  asks whether meals are provided at all. Filtered server-side. */}
+              <div className="space-y-2 pt-2 border-t border-border/60">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Dietary
+                </p>
+                <div className="space-y-2">
+                  {["Any", "Veg", "Non-veg"].map((dietVal) => {
+                    const active = selectedDiet === dietVal;
+                    return (
+                      <label
+                        key={dietVal}
+                        className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-foreground"
+                      >
+                        <input
+                          type="radio"
+                          name="diet"
+                          checked={active}
+                          onChange={() => update({ diet: dietVal })}
+                          className="size-3.5 text-brand-teal border-border focus:ring-brand-teal"
+                        />
+                        <span>{dietVal}</span>
                       </label>
                     );
                   })}

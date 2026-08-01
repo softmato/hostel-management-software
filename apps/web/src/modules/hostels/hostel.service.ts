@@ -90,6 +90,7 @@ export type HostelRecord = {
     city?: string;
     lat?: number;
     lng?: number;
+    locationSource?: "MANUAL" | "GEOCODED";
     province?: string;
   };
   name: string;

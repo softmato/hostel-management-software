@@ -1,6 +1,15 @@
 import type { Coordinates, NearbyPlace, NearbyPlaceType } from "./types";
 
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+/**
+ * Overpass mirrors, tried in order. The main endpoint frequently answers 504
+ * ("server is probably too busy"), and a single overloaded host must not be the
+ * reason a hostel shows no nearby places.
+ */
+const OVERPASS_URLS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
 const SEARCH_RADIUS_METERS = 1500;
 const MAX_RESULTS = 18;
 
@@ -17,12 +26,19 @@ export function haversineMeters(a: Coordinates, b: Coordinates): number {
 }
 
 /**
- * Points of interest near a hostel (colleges, hospitals, bus stops). Prefers
- * Google Places when a key is set, otherwise the free Overpass (OpenStreetMap)
- * API. Results are meant to be cached on the Hostel document, not fetched per
- * page view (ARCHITECTURE.md §4.5).
+ * Points of interest near a hostel (colleges, hospitals, parks, pharmacies…).
+ * Prefers Google Places when a key is set, otherwise the free Overpass
+ * (OpenStreetMap) API. Results are meant to be cached on the Hostel document,
+ * not fetched per page view (ARCHITECTURE.md §4.5).
+ *
+ * Returns null when every provider failed, which is deliberately distinct from
+ * an empty array ("we asked, there is genuinely nothing nearby"). Callers must
+ * not cache a null as a result — doing so marks the hostel fresh and stops it
+ * being retried, leaving the listing permanently blank after one bad request.
  */
-export async function fetchNearbyPlaces(center: Coordinates): Promise<NearbyPlace[]> {
+export async function fetchNearbyPlaces(
+  center: Coordinates,
+): Promise<NearbyPlace[] | null> {
   if (process.env.GOOGLE_MAPS_API_KEY) {
     const viaGoogle = await fetchNearbyWithGoogle(center).catch(() => null);
     if (viaGoogle && viaGoogle.length > 0) {
@@ -30,7 +46,7 @@ export async function fetchNearbyPlaces(center: Coordinates): Promise<NearbyPlac
     }
   }
 
-  return fetchNearbyWithOverpass(center).catch(() => []);
+  return fetchNearbyWithOverpass(center).catch(() => null);
 }
 
 type OverpassElement = {
@@ -79,17 +95,33 @@ async function fetchNearbyWithOverpass(center: Coordinates): Promise<NearbyPlace
     way["leisure"~"park|garden"](around:${r},${lat},${lng});
   );out center ${MAX_RESULTS * 4};`;
 
-  const response = await fetch(OVERPASS_URL, {
-    body: `data=${encodeURIComponent(query)}`,
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    method: "POST",
-  });
+  // Walk the mirrors until one answers. Overpass reports overload as a 504 with
+  // an HTML body, so a non-OK response means "try the next host", not "no data".
+  let data: { elements?: OverpassElement[] } | null = null;
 
-  if (!response.ok) {
-    return [];
+  for (const url of OVERPASS_URLS) {
+    const response = await fetch(url, {
+      body: `data=${encodeURIComponent(query)}`,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    }).catch(() => null);
+
+    if (!response?.ok) {
+      continue;
+    }
+
+    data = (await response.json().catch(() => null)) as {
+      elements?: OverpassElement[];
+    } | null;
+
+    if (data) {
+      break;
+    }
   }
 
-  const data = (await response.json()) as { elements?: OverpassElement[] };
+  if (!data) {
+    throw new Error("Every Overpass mirror failed.");
+  }
 
   const places = (data.elements ?? [])
     .map((element): NearbyPlace | null => {

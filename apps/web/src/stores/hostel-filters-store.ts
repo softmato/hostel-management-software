@@ -8,6 +8,12 @@ export type HostelFiltersState = {
   area: string;
   budget: string;
   college: string;
+  /**
+   * Dietary preference — "Any" | "Veg" | "Non-veg". Distinct from `food`, which
+   * asks whether meals are provided at all; this asks what is on the plate and
+   * is the one the API filters on server-side.
+   */
+  diet: string;
   facilities: string;
   food: string;
   query: string;
@@ -21,6 +27,7 @@ export const initialHostelFilters: HostelFiltersState = {
   area: "All Areas",
   budget: "Any Budget",
   college: "All Colleges",
+  diet: "Any",
   facilities: "All Facilities",
   food: "Any",
   query: "",

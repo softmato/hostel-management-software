@@ -216,6 +216,28 @@ export const inquiryNoteCreateSchema = z.object({
 
 export const hostelAdminProfileQuerySchema = z.object(optionalHostelScopeSchema);
 
+/**
+ * Both directions of the location picker's lookup: `q` searches for a place (or
+ * carries a pasted map link), `lat`/`lng` asks what address a pin sits on.
+ *
+ * `q` is generous about length because a shared Google Maps URL — the fastest
+ * way for an admin to hand us the exact building — routinely runs past 200
+ * characters once it carries the place's data blob.
+ */
+export const hostelAdminGeocodeQuerySchema = z
+  .object({
+    lat: z.coerce.number().min(-90).max(90).optional(),
+    limit: z.coerce.number().int().min(1).max(8).default(5),
+    lng: z.coerce.number().min(-180).max(180).optional(),
+    /** The hostel's saved locality, used to disambiguate a bare place name. */
+    near: z.string().trim().max(200).optional(),
+    q: z.string().trim().min(2).max(2000).optional(),
+  })
+  .refine((input) => Boolean(input.q) || (input.lat != null && input.lng != null), {
+    message: "Provide a search query, or a lat/lng pair to look up.",
+    path: ["q"],
+  });
+
 export const hostelAdminProfileUpdateSchema = z.object({
   ...optionalHostelScopeSchema,
   capacitySummary: z
@@ -249,6 +271,7 @@ export const hostelAdminProfileUpdateSchema = z.object({
       city: z.string().trim().min(2).max(120).optional(),
       lat: z.coerce.number().min(-90).max(90).optional(),
       lng: z.coerce.number().min(-180).max(180).optional(),
+      locationSource: z.enum(["MANUAL", "GEOCODED"]).optional(),
       province: z.string().trim().max(120).optional(),
     })
     .optional(),

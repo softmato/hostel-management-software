@@ -192,6 +192,20 @@ export function useMapProvider() {
   - If Google Maps available: use Geocoding API
   - Else: use Nominatim (OpenStreetMap geocoding API, free)
 
+**Admin location picker** (`GET /api/v1/hostel-admin/profile/geocode`, staff-only):
+
+- `?q=` accepts a place name, a raw `lat,lng` pair, or a pasted map link
+  (Google Maps, OSM, Apple Maps). `maps.app.goo.gl` / `goo.gl` short links are
+  followed server-side — the browser cannot read a cross-origin redirect
+- `?near=` carries the hostel's saved locality, so an admin searching their own
+  hostel's name (which no geocoder in Nepal carries) still resolves nearby
+- `?lat=&lng=` reverse-geocodes, which is how placing the pin rewrites the
+  address fields above the map. City/province are stripped of administrative
+  suffixes ("Kathmandu Metropolitan City" → "Kathmandu") so the value still
+  matches the public city filter
+- A pin the admin placed is stored with `locationSource: MANUAL` and is never
+  overwritten by the address-based geocoder
+
 ### 4.4 Map Rendering (Hostel Profile Page)
 
 **Component structure:**

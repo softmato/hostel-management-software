@@ -1,5 +1,6 @@
 import type { HostelSummary } from "@/app/_components/public-hostel-types";
 import { resolveHostelPhotoUrls } from "@/lib/hostel-photos";
+import type { NearbyPlaceType } from "@/lib/maps/types";
 
 export const DEFAULT_HOSTEL_IMAGE =
   "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=1400&q=80";
@@ -68,7 +69,7 @@ export type PublicHostel = {
     coordinates: { lat: number; lng: number };
     distance: number;
     name: string;
-    type: "college" | "hospital" | "bus_stop" | "other";
+    type: NearbyPlaceType;
   }>;
   photos: Array<{
     alt?: string;

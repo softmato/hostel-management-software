@@ -10,8 +10,12 @@ import "leaflet/dist/leaflet.css";
 const TYPE_COLORS: Record<string, string> = {
   bus_stop: "#f59e0b",
   college: "#2563eb",
+  gym: "#7c3aed",
   hospital: "#dc2626",
   other: "#64748b",
+  park: "#16a34a",
+  pharmacy: "#db2777",
+  restaurant: "#ea580c",
 };
 
 export function LeafletMap({

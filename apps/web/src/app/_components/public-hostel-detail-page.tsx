@@ -5,13 +5,19 @@ import {
   ArrowRight,
   BadgeCheck,
   BedDouble,
+  Bus,
   CheckCircle2,
   ChevronRight,
+  Dumbbell,
+  GraduationCap,
   KeyRound,
   MapPin,
   PhoneCall,
+  Pill,
   ShieldCheck,
   Star,
+  Stethoscope,
+  Trees,
   Users,
   Utensils,
   Wifi,
@@ -34,6 +40,7 @@ import {
 import { maybePromptForResidentProfile } from "@/components/resident-identity";
 import { browserApi } from "@/lib/browser-api";
 import { photosOfKind } from "@/lib/hostel-photos";
+import type { NearbyPlaceType } from "@/lib/maps/types";
 import { cn } from "@/lib/utils";
 
 import { Breadcrumbs, PublicShell, StatusPill, formatMoney, humanize } from "./shared";
@@ -46,6 +53,30 @@ import {
 } from "./public-hostel-data";
 
 const GALLERY_PAGE_SIZE = 12;
+
+/**
+ * Nearby points of interest, in the order a hostel seeker actually cares about
+ * them. Anything not listed here (type "other") is dropped rather than shown
+ * under a meaningless heading. Data comes from the cached OpenStreetMap/Places
+ * lookup on the hostel document — see lib/maps/nearby.ts.
+ */
+const NEARBY_GROUPS: Array<{
+  icon: LucideIcon;
+  label: string;
+  type: NearbyPlaceType;
+}> = [
+  { icon: GraduationCap, label: "Colleges & schools", type: "college" },
+  { icon: Stethoscope, label: "Hospitals & clinics", type: "hospital" },
+  { icon: Pill, label: "Pharmacies", type: "pharmacy" },
+  { icon: Bus, label: "Bus stops", type: "bus_stop" },
+  { icon: Utensils, label: "Restaurants & cafes", type: "restaurant" },
+  { icon: Trees, label: "Parks", type: "park" },
+  { icon: Dumbbell, label: "Gyms", type: "gym" },
+];
+
+function formatDistance(meters: number): string {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${meters} m`;
+}
 
 /** Sunday-first, matching how the hostel admin configures the routine. */
 const ROUTINE_DAYS = [
@@ -266,6 +297,18 @@ export function PublicHostelDetailPage() {
   }
 
   const address = formatHostelAddress(hostel);
+
+  // Bucket the cached points of interest by kind, closest first, dropping any
+  // group with nothing in it. Plain const rather than a memo: this runs after
+  // the early returns above, where a hook would be a rules-of-hooks violation,
+  // and it is a single pass over at most a couple of dozen places.
+  const nearbyGroups = NEARBY_GROUPS.map((group) => ({
+    ...group,
+    places: (hostel.nearbyPlaces ?? [])
+      .filter((place) => place.type === group.type)
+      .sort((a, b) => a.distance - b.distance),
+  })).filter((group) => group.places.length > 0);
+
   // Only ever show the hostel's real number (set in the profile tab) — no
   // placeholder phone on the public site.
   // Phone only — a hostel's email is never published on the public site.
@@ -902,10 +945,11 @@ export function PublicHostelDetailPage() {
             id="hostel-location"
           >
             <h2 className="text-xl font-extrabold text-foreground">Location</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-[1fr_260px]">
+            <p className="mt-1 text-sm font-medium text-muted-foreground">{address}</p>
+            <div className="mt-4 grid gap-4 md:grid-cols-[1fr_280px]">
               <div className="min-h-44 overflow-hidden rounded-lg border border-border">
                 {hostel.coordinates ? (
-                  <div className="h-64 w-full md:h-full">
+                  <div className="h-72 w-full md:h-full">
                     <HostelMap
                       center={hostel.coordinates}
                       name={hostel.name}
@@ -927,32 +971,58 @@ export function PublicHostelDetailPage() {
                   </div>
                 )}
               </div>
-              <div className="space-y-3 text-sm font-medium text-muted-foreground">
-                {hostel.nearbyPlaces && hostel.nearbyPlaces.length > 0
-                  ? hostel.nearbyPlaces.slice(0, 6).map((place) => (
-                      <p
-                        className="flex items-start gap-2"
-                        key={`${place.name}-${place.distance}`}
-                      >
-                        <MapPin className="mt-0.5 size-4 shrink-0 text-brand-teal" />
-                        <span>
-                          <span className="text-foreground">{place.name}</span>
-                          <span className="ml-1 text-xs">
-                            · {place.type.replace("_", " ")} · {place.distance}m
-                          </span>
-                        </span>
-                      </p>
-                    ))
-                  : [
-                      "Campus area access",
-                      "Public transport nearby",
-                      "Food and pharmacy within walking distance",
-                    ].map((item) => (
-                      <p className="flex items-start gap-2" key={item}>
-                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand-teal" />
-                        {item}
-                      </p>
-                    ))}
+              <div className="space-y-3">
+                {nearbyGroups.length > 0 ? (
+                  <>
+                    <p className="text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                      What&apos;s nearby
+                    </p>
+                    {nearbyGroups.map((group) => {
+                      const Icon = group.icon;
+
+                      return (
+                        <div key={group.type}>
+                          <p className="flex items-center gap-2 text-sm font-extrabold text-foreground">
+                            <Icon className="size-4 shrink-0 text-brand-teal" />
+                            {group.label}
+                            <span className="text-xs font-semibold text-muted-foreground">
+                              {group.places.length}
+                            </span>
+                          </p>
+                          <ul className="mt-1 space-y-0.5 pl-6">
+                            {group.places.slice(0, 3).map((place) => (
+                              <li
+                                className="flex items-baseline justify-between gap-2 text-xs font-medium text-muted-foreground"
+                                key={`${place.name}-${place.distance}`}
+                              >
+                                <span className="truncate text-foreground">
+                                  {place.name}
+                                </span>
+                                <span className="shrink-0 tabular-nums">
+                                  {formatDistance(place.distance)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </>
+                ) : (
+                  [
+                    "Campus area access",
+                    "Public transport nearby",
+                    "Food and pharmacy within walking distance",
+                  ].map((item) => (
+                    <p
+                      className="flex items-start gap-2 text-sm font-medium text-muted-foreground"
+                      key={item}
+                    >
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand-teal" />
+                      {item}
+                    </p>
+                  ))
+                )}
               </div>
             </div>
           </section>

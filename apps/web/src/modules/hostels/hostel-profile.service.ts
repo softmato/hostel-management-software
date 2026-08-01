@@ -109,15 +109,19 @@ export async function updateHostelAdminProfile(
 
   await auditHostelAction(principal, hostel._id, "HOSTEL_PROFILE_UPDATED");
 
-  // Re-geocode + refresh nearby places when the address changed or coordinates
-  // are missing. Best-effort — never fail the save on a map-provider hiccup
-  // (ARCHITECTURE.md §4.3).
+  // Refresh coordinates + nearby places when the address changed, the pin
+  // moved, or coordinates are missing. Best-effort — never fail the save on a
+  // map-provider hiccup (ARCHITECTURE.md §4.3). geocodeAndCacheHostel keeps a
+  // MANUAL pin as-is and only rebuilds the nearby cache around it.
   const beforeAddress = buildAddressQuery(hostel.location ?? {});
   const afterAddress = buildAddressQuery(updatedHostel.location ?? {});
   const missingCoords =
     updatedHostel.location?.lat == null || updatedHostel.location?.lng == null;
+  const pinMoved =
+    hostel.location?.lat !== updatedHostel.location?.lat ||
+    hostel.location?.lng !== updatedHostel.location?.lng;
 
-  if (afterAddress && (missingCoords || beforeAddress !== afterAddress)) {
+  if (afterAddress && (missingCoords || pinMoved || beforeAddress !== afterAddress)) {
     const geo = await geocodeAndCacheHostel(String(updatedHostel._id)).catch(
       () => null,
     );
@@ -126,6 +130,7 @@ export async function updateHostelAdminProfile(
         ...updatedHostel.location,
         lat: geo.coordinates.lat,
         lng: geo.coordinates.lng,
+        locationSource: geo.source,
       };
     }
   }

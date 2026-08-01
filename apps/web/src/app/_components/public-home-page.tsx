@@ -28,9 +28,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSiteConfig } from "@/components/site-config-provider";
+import { browserApi } from "@/lib/browser-api";
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { landingPathForRole } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
@@ -155,7 +156,52 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
   const { features, hero, identity, locations, social, trustPoints } = useSiteConfig();
   const cityOptions = locations.map((location) => location.city);
   const [searchVal, setSearchVal] = useState("");
+  const [searching, setSearching] = useState(false);
   const [selectedCity, setSelectedCity] = useState(cityOptions[0] ?? "Kathmandu");
+
+  /**
+   * Resolve the typed sentence into listing filters before navigating.
+   * Keyword detection answers most queries server-side for free; only what it
+   * cannot explain reaches the LLM, and only while the visitor has quota. Any
+   * failure just falls through to a plain ?search= deep link, so the button
+   * never dead-ends.
+   */
+  const runSearch = useCallback(async () => {
+    const query = searchVal.trim();
+    if (!query) {
+      router.push("/hostels");
+      return;
+    }
+
+    setSearching(true);
+    try {
+      const { filters } = await browserApi<{ filters: Record<string, unknown> }>(
+        "/api/v1/public/search/parse",
+        { body: JSON.stringify({ query }), method: "POST" },
+      );
+
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null && value !== "") {
+          params.set(key, String(value));
+        }
+      }
+      // Keep the raw sentence in the box on the listing page unless the parse
+      // already produced a better free-text term.
+      if (!params.has("q")) {
+        params.set("search", query);
+      } else {
+        params.set("search", String(filters.q));
+        params.delete("q");
+      }
+
+      router.push(`/hostels?${params.toString()}`);
+    } catch {
+      router.push(`/hostels?search=${encodeURIComponent(query)}`);
+    } finally {
+      setSearching(false);
+    }
+  }, [router, searchVal]);
 
   useEffect(() => {
     async function redirectIfDashboardRole() {
@@ -303,18 +349,20 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
               <input
                 className="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 onChange={(e) => setSearchVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void runSearch();
+                }}
                 placeholder={hero.searchPlaceholder}
                 value={searchVal}
               />
-              <Link
-                className="rounded-md bg-brand-teal px-7 py-3 text-sm font-bold text-white hover:brightness-105 transition shrink-0"
-                href={{
-                  pathname: "/hostels",
-                  query: searchVal ? { search: searchVal } : {},
-                }}
+              <button
+                className="shrink-0 rounded-md bg-brand-teal px-7 py-3 text-sm font-bold text-white transition hover:brightness-105 disabled:opacity-70"
+                disabled={searching}
+                onClick={() => void runSearch()}
+                type="button"
               >
-                Search
-              </Link>
+                {searching ? "Searching..." : "Search"}
+              </button>
             </div>
             <div className="mt-8 flex flex-wrap gap-6 text-xs font-bold text-foreground">
               {[

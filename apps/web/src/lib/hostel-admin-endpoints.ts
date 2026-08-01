@@ -36,6 +36,13 @@ export const hostelAdminEndpoints = {
   paymentsMatrixAll: "/api/v1/hostel-admin/payments/matrix*",
   paymentsReport: "/api/v1/hostel-admin/reports/payments",
   profile: "/api/v1/hostel-admin/profile",
+  /** `near` disambiguates a bare place name with the hostel's saved locality. */
+  profileGeocode: (query: string, near?: string) =>
+    `/api/v1/hostel-admin/profile/geocode?q=${encodeURIComponent(query)}` +
+    (near ? `&near=${encodeURIComponent(near)}` : ""),
+  /** Reverse direction — what address the pin sits on. */
+  profileReverseGeocode: (lat: number, lng: number) =>
+    `/api/v1/hostel-admin/profile/geocode?lat=${lat}&lng=${lng}`,
   referrals: "/api/v1/hostel-admin/referrals",
   reportsOverview: (month?: string) =>
     month

@@ -8,6 +8,8 @@ import { browserApi } from "@/lib/browser-api";
 export type PublicHostelQueryParams = {
   area?: string;
   facility?: string;
+  /** Dietary preference filter — matches publicHostelListQuerySchema. */
+  food?: "veg" | "non-veg";
   maxPrice?: string;
   minPrice?: string;
   q?: string;

@@ -13,6 +13,14 @@ const hostelSchema = new Schema(
       address: { type: String, trim: true },
       lat: Number,
       lng: Number,
+      // MANUAL means an admin dropped the pin on the map themselves — the
+      // geocoder must never overwrite those coordinates. GEOCODED means lat/lng
+      // were derived from the address text and may be refreshed freely.
+      locationSource: {
+        type: String,
+        enum: ["MANUAL", "GEOCODED"],
+        default: "GEOCODED",
+      },
     },
     contact: {
       phone: String,

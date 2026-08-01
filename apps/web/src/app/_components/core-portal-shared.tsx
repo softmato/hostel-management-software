@@ -42,6 +42,11 @@ export type Hostel = {
     address?: string;
     area: string;
     city?: string;
+    lat?: number;
+    lng?: number;
+    /** MANUAL once an admin has dropped the pin themselves. */
+    locationSource?: "MANUAL" | "GEOCODED";
+    province?: string;
   };
   name: string;
   nameChangeCount?: number;
