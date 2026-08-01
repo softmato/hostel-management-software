@@ -451,6 +451,21 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         keywords: ["sos", "emergency", "alert", "panic", "safety"],
         label: "SOS Alerts",
       },
+      {
+        description:
+          "Zone-based attendance for today, absence alerts, and manual overrides.",
+        href: "/hostel-admin/attendance",
+        icon: "clipboard",
+        keywords: ["attendance", "location", "geofence", "absent", "present"],
+        label: "Attendance",
+      },
+      {
+        description: "Moderate the resident feed and post official announcements.",
+        href: "/hostel-admin/community",
+        icon: "users",
+        keywords: ["community", "feed", "posts", "moderation", "reports"],
+        label: "Community",
+      },
     ],
     label: "Operations",
   },
@@ -511,6 +526,12 @@ export const RESIDENT_NAV: PortalNavGroup[] = [
       },
       { href: "/resident/food", icon: "food", label: "Food Menu" },
       { href: "/resident/notices", icon: "megaphone", label: "Notices" },
+      {
+        href: "/resident/community",
+        icon: "users",
+        keywords: ["feed", "posts", "social", "chat"],
+        label: "Community",
+      },
     ],
     label: "Daily",
   },
@@ -518,13 +539,31 @@ export const RESIDENT_NAV: PortalNavGroup[] = [
     items: [
       { href: "/resident/complaints", icon: "message", label: "Complaints" },
       { href: "/resident/night-status", icon: "moon", label: "Night Status" },
+      {
+        href: "/resident/attendance",
+        icon: "clipboard",
+        keywords: ["location", "tracking", "consent", "present", "absent"],
+        label: "Attendance",
+      },
       { href: "/resident/sos", icon: "siren", label: "SOS" },
+      {
+        href: "/resident/guardians",
+        icon: "shield",
+        keywords: ["parent", "family", "access", "permissions"],
+        label: "Guardians",
+      },
       { href: "/resident/reviews", icon: "star", label: "Reviews" },
     ],
     label: "Safety & Feedback",
   },
   {
     items: [
+      {
+        href: "/resident/move-checklist",
+        icon: "clipboard",
+        keywords: ["move in", "move out", "handover", "deposit"],
+        label: "Move Checklist",
+      },
       { href: "/resident/referral", icon: "gift", label: "Referral" },
       { href: "/resident/notifications", icon: "bell", label: "Notifications" },
       { href: "/resident/documents", icon: "file", label: "Documents" },
@@ -551,6 +590,7 @@ export const GUARDIAN_NAV: PortalNavGroup[] = [
   },
   {
     items: [
+      { href: "/guardian/notifications", icon: "bell", label: "Notifications" },
       { href: "/guardian/messages", icon: "message", label: "Messages" },
       { href: "/guardian/help", icon: "help", label: "Help & Support" },
     ],

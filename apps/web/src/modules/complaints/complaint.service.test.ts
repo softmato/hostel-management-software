@@ -14,6 +14,10 @@ const serviceMocks = vi.hoisted(() => ({
   complaintUpdateCreate: vi.fn(),
   complaintUpdateFind: vi.fn(),
   connectToDatabase: vi.fn(),
+  getOperationsConfig: vi.fn(),
+  notifyAdminsOfNewComplaint: vi.fn(),
+  notifyResidentOfComplaintReply: vi.fn(),
+  notifyResidentOfComplaintStatus: vi.fn(),
   residentFindOne: vi.fn(),
 }));
 
@@ -54,6 +58,16 @@ vi.mock("@hostel/db/models/Resident", () => ({
   ResidentModel: {
     findOne: serviceMocks.residentFindOne,
   },
+}));
+
+vi.mock("@/modules/platform-config/operations-config", () => ({
+  getOperationsConfig: serviceMocks.getOperationsConfig,
+}));
+
+vi.mock("@/modules/complaints/complaint-notify", () => ({
+  notifyAdminsOfNewComplaint: serviceMocks.notifyAdminsOfNewComplaint,
+  notifyResidentOfComplaintReply: serviceMocks.notifyResidentOfComplaintReply,
+  notifyResidentOfComplaintStatus: serviceMocks.notifyResidentOfComplaintStatus,
 }));
 
 import {
@@ -164,6 +178,7 @@ function updateRecord(overrides: Record<string, unknown> = {}) {
 describe("complaint services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serviceMocks.getOperationsConfig.mockResolvedValue({ complaintSlaHours: 72 });
   });
 
   it("creates resident complaints with attachments, timeline, and audit log", async () => {

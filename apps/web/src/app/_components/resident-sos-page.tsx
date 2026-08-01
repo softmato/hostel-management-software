@@ -34,6 +34,19 @@ export const ResidentSOSPageContent = memo(function ResidentSOSPageContent() {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const alertsGuardian = form.get("guardianAlertEnabled") === "on";
+
+    // §4.1: an SOS mails every admin and warden the moment it is raised, so the
+    // one thing that must not happen is raising it by brushing the button.
+    if (
+      !window.confirm(
+        alertsGuardian
+          ? "Raise an emergency SOS? This immediately alerts hostel staff, every warden, and your guardian."
+          : "Raise an emergency SOS? This immediately alerts hostel staff and every warden.",
+      )
+    ) {
+      return;
+    }
 
     try {
       await browserApi("/api/v1/resident/sos", {

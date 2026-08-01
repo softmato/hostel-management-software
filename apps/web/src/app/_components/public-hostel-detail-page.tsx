@@ -54,6 +54,42 @@ import {
 
 const GALLERY_PAGE_SIZE = 12;
 
+type PublicReview = {
+  cleanlinessRating?: number;
+  comment: string;
+  createdAt?: string;
+  foodRating?: number;
+  id: string;
+  isVerifiedResident: boolean;
+  locationRating?: number;
+  managementRating?: number;
+  overallRating: number;
+  reviewerName: string;
+  roomRating?: number;
+  safetyRating?: number;
+};
+
+type PublicReviewData = {
+  reviews: PublicReview[];
+  summary: {
+    averageRating: number;
+    categories: Record<string, number | null>;
+    distribution: Array<{ count: number; stars: number }>;
+    total: number;
+  };
+};
+
+/** The seven rated categories, in the order the hostel detail page shows them. */
+const CATEGORY_LABELS: Array<[string, string]> = [
+  ["overall", "Overall"],
+  ["food", "Food"],
+  ["cleanliness", "Cleanliness"],
+  ["security", "Security"],
+  ["room", "Room"],
+  ["location", "Location"],
+  ["management", "Management"],
+];
+
 /**
  * Nearby points of interest, in the order a hostel seeker actually cares about
  * them. Anything not listed here (type "other") is dropped rather than shown
@@ -142,6 +178,7 @@ export function PublicHostelDetailPage() {
     null,
   );
   const [openRoom, setOpenRoom] = useState<RoomCard | null>(null);
+  const [reviewData, setReviewData] = useState<PublicReviewData | null>(null);
 
   useEffect(() => {
     async function loadHostel() {
@@ -165,6 +202,27 @@ export function PublicHostelDetailPage() {
     if (slug) {
       void loadHostel();
     }
+  }, [slug]);
+
+  useEffect(() => {
+    if (!slug) {
+      return;
+    }
+
+    async function loadReviews() {
+      try {
+        setReviewData(
+          await browserApi<PublicReviewData>(
+            `/api/v1/public/hostels/${encodeURIComponent(slug)}/reviews`,
+          ),
+        );
+      } catch {
+        // A hostel with no reviews yet is the normal case, not an error state.
+        setReviewData(null);
+      }
+    }
+
+    void loadReviews();
   }, [slug]);
 
   // Counting the visit powers the hostel admin's listing stats, and the same
@@ -453,14 +511,15 @@ export function PublicHostelDetailPage() {
   const hostelRules =
     hostel.rules.length > 0 ? hostel.rules : ["Rules are shared by the hostel team."];
 
-  const reviewCounts = [
-    { count: Math.round(hostelSummary.reviews * 0.72), stars: 5 },
-    { count: Math.round(hostelSummary.reviews * 0.2), stars: 4 },
-    { count: Math.round(hostelSummary.reviews * 0.05), stars: 3 },
-    { count: Math.round(hostelSummary.reviews * 0.02), stars: 2 },
-    { count: Math.round(hostelSummary.reviews * 0.01), stars: 1 },
-  ];
-  const reviewTotal = Math.max(1, hostelSummary.reviews);
+  const reviews = reviewData?.reviews ?? [];
+  const reviewCounts =
+    reviewData?.summary.distribution ??
+    [5, 4, 3, 2, 1].map((stars) => ({ count: 0, stars }));
+  const reviewTotal = Math.max(1, reviewData?.summary.total ?? 0);
+  const categoryAverages = CATEGORY_LABELS.map(([key, label]) => ({
+    label,
+    value: reviewData?.summary.categories[key] ?? null,
+  })).filter((entry) => entry.value !== null);
 
   const hostelFacts = [
     ["Hostel Type", humanize(hostelSummary.type)],
@@ -1108,42 +1167,100 @@ export function PublicHostelDetailPage() {
             id="hostel-reviews"
           >
             <h2 className="text-lg font-extrabold text-foreground">What Students Say</h2>
-            <div className="mt-4 grid gap-5 sm:grid-cols-[120px_1fr]">
-              <div>
-                <p className="text-5xl font-extrabold text-foreground">
-                  {hostelSummary.rating ? hostelSummary.rating.toFixed(1) : "New"}
-                </p>
-                <div className="mt-2 flex gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star className="size-3.5 fill-warning text-warning" key={star} />
-                  ))}
-                </div>
-                <p className="mt-2 text-xs font-medium text-muted-foreground">
-                  Based on {hostelSummary.reviews} reviews
-                </p>
-              </div>
-              <div className="space-y-2">
-                {reviewCounts.map((row) => (
-                  <div
-                    className="grid grid-cols-[28px_1fr_28px] items-center gap-2 text-xs"
-                    key={row.stars}
-                  >
-                    <span className="font-bold text-foreground">{row.stars} *</span>
-                    <span className="h-2 overflow-hidden rounded-full bg-muted">
-                      <span
-                        className="block h-full rounded-full bg-brand-teal"
-                        style={{
-                          width: `${Math.min(100, (row.count / reviewTotal) * 100)}%`,
-                        }}
-                      />
-                    </span>
-                    <span className="text-right font-semibold text-muted-foreground">
-                      {row.count}
-                    </span>
+            {reviewData && reviewData.summary.total > 0 ? (
+              <>
+                <div className="mt-4 grid gap-5 sm:grid-cols-[120px_1fr]">
+                  <div>
+                    <p className="text-5xl font-extrabold text-foreground">
+                      {reviewData.summary.averageRating.toFixed(1)}
+                    </p>
+                    <div className="mt-2 flex gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          className={cn(
+                            "size-3.5",
+                            star <= Math.round(reviewData.summary.averageRating)
+                              ? "fill-warning text-warning"
+                              : "text-muted-foreground",
+                          )}
+                          key={star}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs font-medium text-muted-foreground">
+                      Based on {reviewData.summary.total}{" "}
+                      {reviewData.summary.total === 1 ? "review" : "reviews"}
+                    </p>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="space-y-2">
+                    {reviewCounts.map((row) => (
+                      <div
+                        className="grid grid-cols-[28px_1fr_28px] items-center gap-2 text-xs"
+                        key={row.stars}
+                      >
+                        <span className="font-bold text-foreground">{row.stars} *</span>
+                        <span className="h-2 overflow-hidden rounded-full bg-muted">
+                          <span
+                            className="block h-full rounded-full bg-brand-teal"
+                            style={{
+                              width: `${Math.min(100, (row.count / reviewTotal) * 100)}%`,
+                            }}
+                          />
+                        </span>
+                        <span className="text-right font-semibold text-muted-foreground">
+                          {row.count}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {categoryAverages.length > 0 ? (
+                  <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-4 text-xs">
+                    {categoryAverages.map((entry) => (
+                      <div className="flex justify-between gap-2" key={entry.label}>
+                        <dt className="text-muted-foreground">{entry.label}</dt>
+                        <dd className="font-bold text-foreground">
+                          {entry.value?.toFixed(1)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+
+                <ul className="mt-5 space-y-4 border-t border-border pt-4">
+                  {reviews.slice(0, 8).map((review) => (
+                    <li key={review.id}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-bold text-foreground">
+                          {review.reviewerName}
+                        </span>
+                        {review.isVerifiedResident ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-brand-teal/10 px-2 py-0.5 text-[10px] font-bold text-brand-teal">
+                            <BadgeCheck className="size-3" />
+                            Verified Resident
+                          </span>
+                        ) : null}
+                        <span className="ml-auto flex items-center gap-1 text-xs font-bold text-foreground">
+                          <Star className="size-3 fill-warning text-warning" />
+                          {review.overallRating}
+                        </span>
+                      </div>
+                      {review.comment ? (
+                        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                          {review.comment}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="mt-4 text-sm text-muted-foreground">
+                No reviews yet. Residents of this hostel can leave the first one from
+                their portal.
+              </p>
+            )}
           </section>
         </aside>
       </section>

@@ -46,6 +46,7 @@ import { usePathname } from "next/navigation";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { HostelPreviewLink } from "@/components/hostel-preview-link";
+import { NotificationBell } from "@/components/notification-bell";
 import { PortalAccount } from "@/components/portal-account";
 import { PortalSearch } from "@/components/portal-search";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -113,6 +114,18 @@ const iconMap: Record<PortalIconName, LucideIcon> = {
   user: UserRound,
   users: Users,
   wrench: Wrench,
+};
+
+/**
+ * Where each portal's bell points. Platform admins deliberately have no
+ * notifications surface of their own (see MEMORY.md), so they land on the
+ * audit log, which is the equivalent feed for that role.
+ */
+const NOTIFICATIONS_HREF: Record<PortalTone, string> = {
+  admin: "/hostel-admin/notifications",
+  guardian: "/guardian/notifications",
+  platform: "/platform/audit-logs",
+  resident: "/resident/notifications",
 };
 
 const toneStyles: Record<
@@ -515,18 +528,7 @@ export function PortalShell({
 
                 <ThemeToggle className="hidden size-8 sm:inline-flex" />
 
-                <Button
-                  aria-label="Notifications"
-                  className="relative size-8 rounded-full border-slate-200 bg-white text-slate-600 shadow-sm dark:border-border dark:bg-card dark:text-foreground"
-                  size="icon"
-                  type="button"
-                  variant="outline"
-                >
-                  <Bell className="size-4" />
-                  <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white ring-2 ring-white dark:ring-card">
-                    3
-                  </span>
-                </Button>
+                <NotificationBell href={NOTIFICATIONS_HREF[tone] ?? "/notifications"} />
 
                 <Badge
                   className={cn(

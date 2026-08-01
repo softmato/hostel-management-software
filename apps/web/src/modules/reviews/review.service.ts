@@ -4,7 +4,9 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
+import { HostelModel } from "@hostel/db/models/Hostel";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
+import { ResidentModel } from "@hostel/db/models/Resident";
 import { ReviewModerationLogModel } from "@hostel/db/models/ReviewModerationLog";
 import {
   findCurrentResident,
@@ -30,8 +32,11 @@ type ReviewRecord = {
   hiddenAt?: Date;
   hiddenBy?: Types.ObjectId;
   hostelId: Types.ObjectId;
+  locationRating?: number;
+  managementRating?: number;
   overallRating: number;
   residentId: Types.ObjectId;
+  roomRating?: number;
   safetyRating?: number;
   status: "VISIBLE" | "HIDDEN";
   updatedAt?: Date;
@@ -58,13 +63,51 @@ function serializeReview(review: ReviewRecord) {
     hiddenBy: review.hiddenBy?.toString(),
     hostelId: review.hostelId.toString(),
     id: review._id.toString(),
+    locationRating: review.locationRating,
+    managementRating: review.managementRating,
     overallRating: review.overallRating,
     residentId: review.residentId.toString(),
+    roomRating: review.roomRating,
     safetyRating: review.safetyRating,
     status: review.status,
     updatedAt: review.updatedAt?.toISOString(),
     userId: review.userId.toString(),
   };
+}
+
+/**
+ * Public shape of a review. Reviews can only be written by a resident of the
+ * hostel (`createResidentReview` enforces it), so the badge is a fact about the
+ * record, not a claim. The reviewer is shown as a first name plus an initial —
+ * enough to read as a real person, not enough to identify one.
+ */
+function serializePublicReview(review: ReviewRecord, displayName: string) {
+  return {
+    cleanlinessRating: review.cleanlinessRating,
+    comment: review.comment ?? "",
+    createdAt: review.createdAt?.toISOString(),
+    foodRating: review.foodRating,
+    id: review._id.toString(),
+    isVerifiedResident: true,
+    locationRating: review.locationRating,
+    managementRating: review.managementRating,
+    overallRating: review.overallRating,
+    reviewerName: displayName,
+    roomRating: review.roomRating,
+    safetyRating: review.safetyRating,
+  };
+}
+
+function averageOf(values: Array<number | undefined>) {
+  const scored = values.filter((value): value is number => typeof value === "number");
+
+  if (scored.length === 0) {
+    return null;
+  }
+
+  return (
+    Math.round((scored.reduce((sum, value) => sum + value, 0) / scored.length) * 10) / 10
+  );
 }
 
 async function auditReviewAction(
@@ -128,10 +171,33 @@ export async function createResidentReview(
   };
 }
 
-export async function listPublicHostelReviews(hostelId: string) {
+/**
+ * Accepts either a hostel id or its public slug — the public detail page is
+ * routed by slug, and passing that straight through used to fail id parsing.
+ */
+async function resolveHostelId(hostelIdOrSlug: string) {
+  if (Types.ObjectId.isValid(hostelIdOrSlug)) {
+    return normalizeObjectId(hostelIdOrSlug, "hostel id");
+  }
+
+  const hostel = await HostelModel.findOne({
+    isDeleted: { $ne: true },
+    slug: hostelIdOrSlug,
+  })
+    .select("_id")
+    .lean<{ _id: Types.ObjectId } | null>();
+
+  if (!hostel) {
+    throw new ReviewServiceError("Hostel was not found.", "HOSTEL_NOT_FOUND", 404);
+  }
+
+  return hostel._id;
+}
+
+export async function listPublicHostelReviews(hostelIdOrSlug: string) {
   await connectToDatabase();
 
-  const objectId = normalizeObjectId(hostelId, "hostel id");
+  const objectId = await resolveHostelId(hostelIdOrSlug);
   const reviews = await RatingReviewModel.find({
     hostelId: objectId,
     status: "VISIBLE",
@@ -139,15 +205,47 @@ export async function listPublicHostelReviews(hostelId: string) {
     .sort({ createdAt: -1 })
     .limit(100)
     .lean<ReviewRecord[]>();
+  const residents = await ResidentModel.find({
+    _id: { $in: reviews.map((review) => review.residentId) },
+  }).lean<Array<{ _id: Types.ObjectId; firstName: string; lastName: string }>>();
+  const nameByResidentId = new Map(
+    residents.map((resident) => [
+      resident._id.toString(),
+      `${resident.firstName} ${resident.lastName.slice(0, 1)}.`.trim(),
+    ]),
+  );
   const averageRating =
     reviews.length === 0
       ? 0
       : reviews.reduce((sum, review) => sum + review.overallRating, 0) / reviews.length;
 
   return {
-    reviews: reviews.map(serializeReview),
+    reviews: reviews.map((review) =>
+      serializePublicReview(
+        review,
+        nameByResidentId.get(review.residentId.toString()) ?? "Verified resident",
+      ),
+    ),
     summary: {
       averageRating,
+      // Per-category averages skip reviews that left a category unscored, so a
+      // single food rating is not diluted by everyone who ignored the field.
+      categories: {
+        cleanliness: averageOf(reviews.map((review) => review.cleanlinessRating)),
+        food: averageOf(reviews.map((review) => review.foodRating)),
+        location: averageOf(reviews.map((review) => review.locationRating)),
+        management: averageOf(reviews.map((review) => review.managementRating)),
+        overall: averageOf(reviews.map((review) => review.overallRating)),
+        room: averageOf(reviews.map((review) => review.roomRating)),
+        security: averageOf(reviews.map((review) => review.safetyRating)),
+      },
+      // Real counts per star, so the public bar chart reflects the reviews that
+      // exist rather than a shape assumed from the total.
+      distribution: [5, 4, 3, 2, 1].map((stars) => ({
+        count: reviews.filter((review) => Math.round(review.overallRating) === stars)
+          .length,
+        stars,
+      })),
       total: reviews.length,
     },
   };

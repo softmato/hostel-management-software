@@ -8,6 +8,15 @@ const guardianAccessSchema = new Schema(
     userId: { ref: "User", type: Schema.Types.ObjectId },
     phone: { required: true, trim: true, type: String },
     accessCode: { required: true, trim: true, type: String },
+    /**
+     * Email-invitation half of the flow (PHASES.md §4.1). A resident invites a
+     * guardian by email and the link carries this token; the accessCode above
+     * stays as the phone fallback for guardians without a mailbox.
+     */
+    email: { lowercase: true, trim: true, type: String },
+    invitationToken: { trim: true, type: String },
+    invitationExpiresAt: Date,
+    invitedBy: { ref: "User", type: Schema.Types.ObjectId },
     expiresAt: { required: true, type: Date },
     status: {
       default: "ACTIVE",
@@ -24,6 +33,10 @@ const guardianAccessSchema = new Schema(
 guardianAccessSchema.index({ phone: 1, accessCode: 1, status: 1 });
 guardianAccessSchema.index({ hostelId: 1, residentId: 1, status: 1 });
 guardianAccessSchema.index({ userId: 1, status: 1 });
+guardianAccessSchema.index(
+  { invitationToken: 1 },
+  { sparse: true, unique: true },
+);
 
 export const GuardianAccessModel =
   models.GuardianAccess || model("GuardianAccess", guardianAccessSchema);

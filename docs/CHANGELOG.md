@@ -10,9 +10,74 @@ Format follows [Keep a Changelog](https://keepachangelog.com/) — sections per 
 - Phase 1: Turborepo monorepo scaffold, MongoDB connection, Mongoose models, unified auth system, hostel onboarding/approval
 - Phase 2: Public discovery site, hostel profile pages, room/bed management
 - Phase 3: Resident system, QR activation, payments, food menu, **Cook Portal**, **residentType tracking**
-- Phase 4: Complaints, night safety, ratings, guardian dashboard, **Location Tracking & Auto-Attendance**, **Community Feature**
 - Phase 5: Referrals, service providers, maintenance, **QuestionCall Integration**, **Advanced Notifications**, **Configuration System**, final polish
 - Phase 6: React Native mobile app with QR scanning, push notifications, **background location service**, **cook mobile app**, **community mobile**
+
+---
+
+## [0.7.0] - 2026-08-01 — Phase 4: Trust, Safety & Guardian
+
+### Fixed
+- **An SOS alerted nobody.** `triggerSOS` wrote an `SOSAlert`, a `NightStatusLog` and an
+  `IncidentLog`, and stopped there — no email, no notification, to anyone. The single most
+  time-critical path in the product was a database write. It now fans out to every hostel admin,
+  every active warden, and the linked guardians (when the resident left guardian alerting on) with
+  the urgent template plus high-priority in-app notifications. The fan-out is **awaited**, not fired
+  and forgotten: a serverless function stops executing the moment it returns a response, so
+  "background" delivery would simply not have happened. Delivery failures are swallowed — the alert
+  is already persisted and must not surface as an error to someone pressing an emergency button.
+- **Guardian login could demote an existing account.** `loginGuardian` upserted a `User` matched on
+  `phone` alone and force-set `role: GUARDIAN`. A resident who shares a family phone number would
+  have been silently moved out of their own portal. An established non-PUBLIC account now returns
+  `409 PHONE_ALREADY_HAS_ROLE` instead.
+- **Guardian permissions defaulted open.** A missing `GuardianPermission` document was read as
+  "everything shared" — payments, notices, food and night safety all visible. Now default-deny per
+  field (PRD.md §10). The dashboard also gates each *query*, not just the response mapping, so a
+  field the resident did not share is never read out of the database at all.
+- **The guardian dashboard leaked more than it should.** It returned the resident's email, phone and
+  deposit amount, plus `checkedAt` as a full timestamp — §4.1 says day-level, no timestamps. Trimmed
+  to name/room/status and a date.
+- **The public hostel page invented its review distribution.** The star bars were computed as fixed
+  percentages of the review count (72% five-star, 20% four-star…), not from any actual review. Now
+  rendered from real per-star counts, with per-category averages, the review list and a
+  "Verified Resident" badge. Also fixed `/api/v1/public/hostels/[slug]/reviews`, which passed the
+  URL slug straight in as a hostel id and could only ever have thrown.
+- **The notification bell was decorative** — a static "3" badge on a button with no handler. It is
+  now a live dropdown: real unread count, recent list, mark-as-read.
+
+### Added
+- **Complaints**: SLA window moved from a hardcoded 72 hours to the `operations` setting
+  `complaintSlaHours`; admins are notified (email + in-app) when a complaint is filed, anonymously
+  where the resident asked for that; residents are emailed on every status change and notified
+  in-app on replies; an `sla=overdue|on_track` filter for the admin queue; and a
+  `POST /api/v1/cron/complaint-sla` job that flags breaches exactly once via `slaBreachedAt`.
+- **Guardian invitations, resident-driven** (§4.1): a resident invites a guardian by email with
+  per-field permission checkboxes, a 7-day single-use token, and acceptance through
+  `registerOrUpgradeUserByEmail` so an email that already belongs to a resident or admin is refused
+  rather than repurposed. Residents can retune or revoke access at any time from
+  `/resident/guardians`. The original access-code + phone login stays as the fallback for guardians
+  without a mailbox. Adds `canViewReceipts` and a receipts section to the dashboard.
+- **Notices gained `targetAudience`** (`ALL` / `RESIDENTS` / `GUARDIANS`), which now drives both the
+  resident fan-out and what a guardian dashboard may surface.
+- **Ratings expanded to the seven documented categories** — room, location and management joined
+  overall, food, cleanliness and security.
+- **Location tracking & auto-attendance, server side** (§4.1): `AttendanceLog`, `AttendanceAlert`
+  and `ConsentLog` models; geofence/retention/ping-time configuration on `HostelSettings.attendance`;
+  `POST /api/v1/resident/location/ping`, which computes a zone and **discards the coordinates** —
+  they are never written to any collection, and a hostel with no map pin records `UNKNOWN` rather
+  than guessing; opt-in, revocable consent; a resident calendar with one-click erasure of their own
+  history; an admin dashboard with live zone counts and reason-required manual overrides; and
+  `POST /api/v1/cron/attendance-maintenance` for absence alerts and the retention purge.
+- **Community feed** (§4.1): posts with photos, `PUBLIC`/`HOSTEL_ONLY` visibility and an anonymous
+  option, six reaction types, comments, reporting, and hostel-scoped moderation with official
+  announcements. Anonymity is a serializer rule, not missing data — `authorId` is always stored so
+  moderation can act, and is revealed only in the admin view.
+- **Resident move-in/move-out checklist view**, bulk night-status marking, a confirmation step on the
+  SOS button, and notification pages for staff and guardians.
+- Email templates: `guardian/sos-alert`, `guardian/invitation`, `resident/complaint-status-updated`,
+  `resident/complaint-resolved`.
+- 21 new unit tests (5 files) covering SOS fan-out, guardian privacy filtering, attendance zone
+  maths and coordinate discarding, the complaint SLA job, and community anonymity. Suite is 302/302.
 
 ---
 

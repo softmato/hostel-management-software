@@ -31,6 +31,8 @@ export const complaintCreateSchema = z.object({
 export const complaintListQuerySchema = z.object({
   category: complaintCategorySchema.optional(),
   hostelId: objectIdSchema.optional(),
+  /** "overdue" = still open and past slaDueAt; "on_track" = the rest. */
+  sla: z.enum(["overdue", "on_track"]).optional(),
   status: complaintStatusSchema.optional(),
 });
 

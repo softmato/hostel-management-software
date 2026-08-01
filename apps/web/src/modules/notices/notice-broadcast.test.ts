@@ -88,6 +88,7 @@ const noticeInput = {
   category: "URGENT" as const,
   content: "Water supply will be cut from 9am to 1pm tomorrow.",
   isUrgent: true,
+  targetAudience: "ALL" as const,
   title: "Water supply interruption",
 };
 

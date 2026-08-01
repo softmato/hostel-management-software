@@ -218,9 +218,10 @@ All routes require `role IN (HOSTEL_ADMIN, WARDEN)` **and** the resolved `hostel
 | PUT | `/api/v1/hostel-admin/food/routine` | `{ hostelId?, timings, meals: [{ dayOfWeek, mealType, items, note? }], monthEndSpecial?: { items, note? } }` | `manageFood` | Replaces the routine in one upsert. A cleared cell is absent from `meals`; empty `monthEndSpecial.items` clears the treat |
 | POST | `/api/v1/hostel-admin/food/photos` | `{ date, mealType, photoUrl }` | `manageFood` | Upload food photo |
 | GET | `/api/v1/hostel-admin/notices` | `?page=` | — | List notices |
-| POST | `/api/v1/hostel-admin/notices` | `{ title, body, category, isUrgent, targetAudience }` | `manageNotices` | Create notice, sends emails per EMAIL_SYSTEM.md |
-| GET | `/api/v1/hostel-admin/complaints` | `?status=, page=` | `viewComplaints` | List complaints |
-| PATCH | `/api/v1/hostel-admin/complaints/[id]/status` | `{ status?, message }` | `updateComplaints` | Update complaint, add ComplaintUpdate, sends email |
+| POST | `/api/v1/hostel-admin/notices` | `{ title, content, category, isUrgent, targetAudience: ALL\|RESIDENTS\|GUARDIANS }` | `manageNotices` | Create notice and fan out. A `GUARDIANS` notice is **not** sent to residents; guardians read it from their dashboard |
+| GET | `/api/v1/hostel-admin/complaints` | `?status=, category=, sla=overdue\|on_track, page=` | `viewComplaints` | List complaints. `sla=overdue` returns still-open complaints past `slaDueAt`. Anonymous complaints never carry the resident's identity into this response |
+| PATCH | `/api/v1/hostel-admin/complaints/[id]/status` | `{ status?, response? }` | `updateComplaints` | Update complaint, add ComplaintUpdate, emails the resident (`complaint-resolved` on RESOLVED, `complaint-status-updated` otherwise) |
+| POST | `/api/v1/hostel-admin/complaints/[id]/reply` | `{ message }` | `updateComplaints` | Adds a thread reply. Notifies the resident in-app only — a reply is not a status change, so it does not earn an email |
 | GET | `/api/v1/hostel-admin/night-status` | `?date=, residentId=` | `viewNightStatus` | View night status logs |
 | POST | `/api/v1/hostel-admin/night-status` | `{ residentId, date, status, source: 'manual', overrideReason }` | `updateNightStatus` | Manual night status entry/override |
 | POST | `/api/v1/hostel-admin/residents/[id]/move-in` | `{ items[], depositAmount }` | `registerResidents` | Create move-in checklist |
@@ -249,10 +250,23 @@ All routes require `role = RESIDENT`; every query is scoped to `resident.id` der
 | POST | `/api/v1/resident/complaints` | `{ category, title, description, photoUrl?, isAnonymous }` | Create complaint |
 | GET | `/api/v1/resident/night-status` | `?startDate=, endDate=` | Own night status history/summary |
 | POST | `/api/v1/resident/sos` | — | Triggers SOS alert, creates NightStatusLog with `status: SOS`, sends urgent emails (EMAIL_SYSTEM.md §5.1) |
-| POST | `/api/v1/resident/reviews` | `{ overall, food, cleanliness, security, room, location, management, comment? }` | One per hostel, enforced at DB level. Visible publicly after submit |
+| POST | `/api/v1/resident/reviews` | `{ overallRating, foodRating?, cleanlinessRating?, safetyRating?, roomRating?, locationRating?, managementRating?, comment? }` | Only `overallRating` is required. One per hostel, enforced at DB level; re-submitting updates. Visible publicly after submit |
 | GET | `/api/v1/resident/referral` | — | Own referral code/link |
-| POST | `/api/resident/guardian-invite` | `{ email, relation, phone, accessPermissions }` | ⏳ **Not built.** Creates Guardian with invitation token, sends email (EMAIL_SYSTEM.md §1.5) |
-| PATCH | `/api/resident/guardian/:id/permissions` | `{ accessPermissions }` | ⏳ **Not built.** Resident controls what guardian can see |
+| GET | `/api/v1/resident/guardians` | — | Linked guardians and exactly what each can see |
+| POST | `/api/v1/resident/guardians` | `{ email, firstName, lastName, phone, relation, permissions }` | Invites a guardian by email; 7-day single-use token (EMAIL_SYSTEM.md §1.5). Every permission defaults to `false` |
+| PATCH | `/api/v1/resident/guardians/[id]` | `{ canViewPayments?, canViewReceipts?, canViewNotices?, canViewFood?, canViewSafety?, canViewComplaintStatus? }` | Resident retunes access at any time; takes effect on the guardian's next request |
+| DELETE | `/api/v1/resident/guardians/[id]` | — | Revokes the guardian entirely |
+| GET | `/api/v1/resident/move-checklist` | — | Own move-in / move-out checklist, read-only |
+| GET | `/api/v1/resident/community` | `?scope=hostel\|mine` | Own hostel's feed, announcements pinned first |
+| POST | `/api/v1/resident/community` | `{ body, visibility, isAnonymous, mediaAssetIds[] }` | Create a post; body is profanity-masked on write |
+| DELETE | `/api/v1/resident/community/[postId]` | — | Soft-deletes own post |
+| GET/POST | `/api/v1/resident/community/[postId]/comments` | `{ body, isAnonymous }` | List / add comments; adding notifies the post author |
+| POST | `/api/v1/resident/community/[postId]/reactions` | `{ type }` | Toggle — the same type twice removes it |
+| POST | `/api/v1/resident/community/[postId]/report` | `{ reason }` | Flags for hostel-admin review; one report per user per post |
+| GET | `/api/v1/resident/attendance` | — | Own zone history (last 60 days) + current consent state |
+| DELETE | `/api/v1/resident/attendance` | — | Erases own location history immediately (PRIVACY_POLICY.md) |
+| POST | `/api/v1/resident/consent` | `{ consentType, granted, policyVersion?, source? }` | Grants or withdraws a consent; appends a ConsentLog row, never updates one |
+| POST | `/api/v1/resident/location/ping` | `{ lat, lng, accuracyMeters?, recordedAt? }` | Computes a zone and **discards the coordinates**. Requires consent (`403 LOCATION_CONSENT_REQUIRED`) and `attendance.enabled` (`409 ATTENDANCE_DISABLED`) |
 | GET | `/api/v1/resident/food` | — | Own hostel's weekly routine plus food photos |
 | GET | `/api/v1/resident/me` | — | Basic hostel info (name, address, contact, rules) |
 
@@ -260,14 +274,24 @@ All routes require `role = RESIDENT`; every query is scoped to `resident.id` der
 
 ## 8. Guardian
 
-All routes require `role = GUARDIAN`, scoped to the single linked `residentId`. Returns only fields the resident has enabled in `Guardian.accessPermissions` — enforce field-level filtering server-side.
+All routes require `role = GUARDIAN`, scoped to the single linked `residentId`.
+
+**Default-deny.** Permissions live on `GuardianPermission`, one document per `GuardianAccess`, every
+flag defaulting to `false`. A missing permission document means *nothing shared* — never everything.
+Each dashboard section is gated at the **query**, not the response mapping, so a field the resident
+did not enable is never read out of the database at all. Locked by `guardian-privacy.test.ts`.
+
+A guardian always sees the hostel name and contact, and the resident's name, room type and status.
+They never see the resident's email, phone or deposit, whatever else is enabled.
 
 | Method | Path | Notes |
 |---|---|---|---|
 | GET | `/api/v1/guardian/dashboard` | Returns only permitted fields: hostel info, emergency contact, fee summary (if enabled), notices (if enabled), night status summary (if enabled), complaint titles (if enabled). Full complaint details NEVER returned. |
-| GET | `/api/v1/guardian/payments` | If `accessPermissions.feeStatus = true`: returns paid/unpaid/due summary. If `accessPermissions.receipts = true`: includes receipt links. Never returns raw proof images. |
-| GET | `/api/v1/guardian/notices` | If `accessPermissions.notices = true`: returns notices with `targetAudience IN ('all', 'guardians')`. |
-| GET | `/api/v1/guardian/safety-summary` | If `accessPermissions.nightSafety = true`: returns day-level status summary (Inside/Outside/Not Verified/SOS) — never timestamps, never coordinates. |
+| GET | `/api/v1/guardian/payments` | `canViewPayments`: paid/unpaid/due summary. `canViewReceipts`: receipt number, amount, month, issue **date**. Never raw proof images. |
+| GET | `/api/v1/guardian/notices` | `canViewNotices`: notices with `targetAudience IN ('ALL','GUARDIANS')`. |
+| GET | `/api/v1/guardian/food` | `canViewFood`: today's meals off the weekly routine. |
+| GET | `/api/v1/guardian/safety-summary` | `canViewSafety`: `{ asOf: 'YYYY-MM-DD', status }` — a **date**, never a timestamp, never coordinates. `canViewComplaintStatus`: complaint titles + status only. |
+| POST | `/api/v1/guardian/accept-invitation` | Public. `{ token, name? }` — accepts an emailed invitation, creating or upgrading the account through `registerOrUpgradeUserByEmail` (so an email already holding another role is refused `409`). Token is single-use and expires after 7 days. |
 
 ---
 
@@ -288,67 +312,66 @@ All routes require `role = COOK`, scoped to `cook.hostelId`.
 
 ## 10. Community Feature
 
-### 10.1 Community Posts
+Shipped 2026-08-01. Feed routes live under the resident tree (`/api/v1/resident/community/*`, listed
+in section 7); moderation lives under the hostel-admin tree. There is no top-level `/api/community`.
 
-All routes require `role = RESIDENT`.
+**Anonymity is a serialization rule, not missing data.** `authorId` is stored on every post and
+comment. The resident feed renders anonymous authors as "Anonymous Resident"; the hostel-admin
+moderation view shows the real name, because an admin handling abuse has to know who wrote it.
+`community-anonymity.test.ts` locks both directions.
 
-| Method | Path | Body/Query | Notes |
-|---|---|---|---|
-| GET | `/api/community/posts` | `?visibility=PUBLIC\|HOSTEL_ONLY, hostelId?, page=, pageSize=` | ⏳ **Not built.** List posts. If `visibility=PUBLIC`, returns all public posts across hostels. If `visibility=HOSTEL_ONLY`, returns own hostel posts only. |
-| POST | `/api/community/posts` | `{ content, mediaUrls[]?, visibility, isAnonymous }` | ⏳ **Not built.** Create post. Resident can choose PUBLIC (all residents see) or HOSTEL_ONLY |
-| GET | `/api/community/posts/:id` | — | ⏳ **Not built.** Get single post with comments |
-| DELETE | `/api/community/posts/:id` | — | ⏳ **Not built.** Delete own post (anytime) |
-| POST | `/api/community/posts/:id/report` | `{ reason }` | ⏳ **Not built.** Report inappropriate post |
-| POST | `/api/community/posts/:id/react` | `{ reactionType }` | ⏳ **Not built.** Add/change reaction (like, love, care, haha, sad, angry) |
-| DELETE | `/api/community/posts/:id/react` | — | ⏳ **Not built.** Remove own reaction |
-### 10.2 Community Comments
+### 10.1 Community Admin (Hostel Admin / Warden)
+
+Requires `role IN (HOSTEL_ADMIN, WARDEN)`, scoped to own hostel.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| GET | `/api/community/posts/:postId/comments` | `?page=` | ⏳ **Not built.** List comments for a post |
-| POST | `/api/community/posts/:postId/comments` | `{ content, isAnonymous }` | ⏳ **Not built.** Add comment to post, sends notification to post author |
-| DELETE | `/api/community/comments/:id` | — | ⏳ **Not built.** Delete own comment |
-| POST | `/api/community/comments/:id/react` | `{ reactionType }` | ⏳ **Not built.** React to comment (like, love, haha) |
-| POST | `/api/community/comments/:id/report` | `{ reason }` | ⏳ **Not built.** Report inappropriate comment |
-### 10.3 Community Admin (Hostel Admin/Warden)
+| GET | `/api/v1/hostel-admin/community` | `?status=VISIBLE\|HIDDEN` | All posts in own hostel, most-reported first. Author names are unmasked here. Returns `{ posts, summary: { total, reported, hidden } }` |
+| POST | `/api/v1/hostel-admin/community` | `{ body }` | Official announcement, pinned above the resident feed |
+| PATCH | `/api/v1/hostel-admin/community/[postId]/hide` | `{ reason }` | Hides the post and marks its open reports `ACTIONED`. Writes an AuditLog entry |
+| DELETE | `/api/v1/hostel-admin/community/[postId]/hide` | `{ reason }` | Restores the post and marks its open reports `DISMISSED` |
 
-Requires `role IN (HOSTEL_ADMIN, WARDEN)`.
-
-| Method | Path | Body/Query | Notes |
-|---|---|---|---|
-| GET | `/api/hostel-admin/community/posts` | `?reported=true, hidden=true, page=` | ⏳ **Not built.** View all posts in own hostel, filter by reported/hidden |
-| PATCH | `/api/hostel-admin/community/posts/:id/hide` | `{ reason? }` | ⏳ **Not built.** Hide inappropriate post (only for own hostel's posts) |
-| PATCH | `/api/hostel-admin/community/posts/:id/unhide` | — | ⏳ **Not built.** Unhide post |
-| DELETE | `/api/hostel-admin/community/posts/:id` | — | ⏳ **Not built.** Delete post from own hostel |
-| GET | `/api/hostel-admin/community/analytics` | — | ⏳ **Not built.** Most active residents, post frequency, sentiment analysis |
+⏳ Not built, deferred to the Phase 5 reports work: community analytics (most active residents, post
+frequency, sentiment). Comment-level moderation endpoints — the model supports hiding a comment, but
+nothing calls it yet; posts are the moderation unit today.
 
 ---
 
 ## 11. Location Tracking & Auto-Attendance
 
-### 11.1 Resident Location (Mobile Only)
+Server architecture shipped 2026-08-01. The **mobile background service that calls the ping endpoint
+is Phase 6** — the endpoint, zone maths, alerts and retention all exist and are tested now.
 
-Requires `role = RESIDENT`. These endpoints are called automatically by mobile background service.
+**The privacy invariant.** `POST /api/v1/resident/location/ping` accepts coordinates, computes the
+distance from the hostel pin, derives a zone, and discards them. Nothing writes latitude or longitude
+to any collection. A hostel with no map pin yields `UNKNOWN` rather than a guess.
 
-| Method | Path | Body/Query | Notes |
-|---|---|---|---|
-| POST | `/api/resident/location/ping` | `{ lat, lng, timestamp }` | ⏳ **Not built.** Mobile app pings at configured times. Server calculates zone (INSIDE/NEARBY/OUTSIDE), creates AttendanceLog. Never stores exact coordinates, only zone status. |
-| GET | `/api/resident/attendance` | `?startDate=, endDate=` | ⏳ **Not built.** Own attendance history (zone status per check time) |
-| GET | `/api/resident/attendance/summary` | `?month=YYYY-MM` | ⏳ **Not built.** Calendar view: days present/absent |
-| POST | `/api/resident/location/request-deletion` | — | ⏳ **Not built.** Request deletion of location history (admin reviews) |
+### 11.1 Resident (see section 7 for the full rows)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/resident/location/ping` | Consent-gated and hostel-enable-gated. One reading per resident per day; a later ping corrects the day rather than appending |
+| GET | `/api/v1/resident/attendance` | Own zone history, last 60 days, plus current consent state |
+| DELETE | `/api/v1/resident/attendance` | Immediate erasure of own history — not a request queue |
+| POST | `/api/v1/resident/consent` | Grant or withdraw `LOCATION_TRACKING`; the latest row wins, so withdrawal bites on the next ping |
+
 ### 11.2 Admin Attendance Dashboard
 
-Requires `role IN (HOSTEL_ADMIN, WARDEN)`.
+Gated by the existing `viewNightStatus` / `updateNightStatus` warden capabilities — attendance is
+night status arrived at automatically, so it deliberately does not introduce a new permission key.
+Settings are `HOSTEL_ADMIN`-only.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| GET | `/api/hostel-admin/attendance/realtime` | — | ⏳ **Not built.** Current attendance: how many residents INSIDE/NEARBY/OUTSIDE/UNKNOWN right now |
-| GET | `/api/hostel-admin/attendance/history` | `?date=, residentId?, page=` | ⏳ **Not built.** Attendance logs for date or resident |
-| GET | `/api/hostel-admin/attendance/calendar` | `?month=YYYY-MM, residentId?` | ⏳ **Not built.** Calendar view for specific resident or all |
-| GET | `/api/hostel-admin/attendance/alerts` | `?resolved=false, page=` | ⏳ **Not built.** Alerts for residents absent X consecutive days |
-| PATCH | `/api/hostel-admin/attendance/alerts/:id/resolve` | `{ notes? }` | ⏳ **Not built.** Mark alert as resolved |
-| PATCH | `/api/hostel-admin/attendance/:id/override` | `{ zone, reason }` | ⏳ **Not built.** Manually correct attendance log (e.g., resident was present but phone was off) |
-| GET | `/api/hostel-admin/attendance/patterns` | `?residentId=` | ⏳ **Not built.** Patterns: frequently absent residents, avg attendance rate |
+| GET | `/api/v1/hostel-admin/attendance` | `?from=, to=, residentId=, zone=` | Today's live split (`{ INSIDE, NEARBY, OUTSIDE, UNKNOWN, total }`) plus filtered history. Residents with no reading today count as `UNKNOWN` rather than disappearing |
+| PATCH | `/api/v1/hostel-admin/attendance/[residentId]/override` | `{ day, zone, reason }` | `reason` is **required**; writes an AuditLog entry and marks the row `MANUAL_OVERRIDE` |
+| GET | `/api/v1/hostel-admin/attendance/alerts` | — | Absence alerts, open first |
+| PATCH | `/api/v1/hostel-admin/attendance/alerts/[id]/resolve` | `{ note? }` | Closes an open alert |
+| GET/PATCH | `/api/v1/hostel-admin/attendance/settings` | `{ enabled?, insideZoneRadiusMeters?, nearbyZoneRadiusMeters?, absenceAlertDays?, retentionDays?, pingTimes? }` | HOSTEL_ADMIN only. Rejects a nearby radius not larger than the inside radius (`422 INVALID_GEOFENCE`). Platform ceilings apply |
+
+⏳ Not built: `attendance/patterns` (frequently-absent residents, average attendance rate) and the
+admin-side per-resident calendar — both folded into the Phase 5 reports work. The data behind them
+is already served by `GET /api/v1/hostel-admin/attendance`.
 
 ---
 
@@ -507,14 +530,18 @@ All uploads (hostel photos, food photos, payment proofs, hostel documents, servi
 
 ## 13. Cron Jobs (Internal, Auth-Protected by Shared Secret)
 
-These are hit by Vercel Cron with a shared secret header (`X-Cron-Secret`).
+Scheduled by **cron-job.org**, not Vercel Cron, with the secret in an `x-cron-secret` (or
+`Authorization: Bearer`) header — never a query parameter. Full setup and schedules in
+[CRON.md](./CRON.md).
 
 | Method | Path | Trigger | Action |
 |---|---|---|---|
-| POST | `/api/v1/cron/payment-reminders` | Daily at 9 AM | Finds payments due in X days (PlatformConfig), creates Notification, sends emails (EMAIL_SYSTEM.md §3.1) |
-| POST | `/api/cron/subscription-expiry` | Daily at 9 AM | ⏳ **Not built.** Finds subscriptions expiring soon, sends emails to superadmin + hostel admin |
-| POST | `/api/cron/complaint-sla-check` | Hourly | ⏳ **Not built.** Flags complaints past SLA deadline (PlatformConfig), creates notifications |
-| POST | `/api/v1/cron/refresh-nearby-places` | Weekly | Recomputes cached nearby places for hostels with address changes or stale cache |
+| POST | `/api/v1/cron/payment-reminders` | Daily | Finds payments due in X days (`operations` setting), creates Notification, sends emails (EMAIL_SYSTEM.md §3.1) |
+| POST | `/api/v1/cron/complaint-sla` | Daily | Flags still-open complaints past `slaDueAt`, alerts hostel admins. Idempotent via `slaBreachedAt` — each breach is alerted exactly once |
+| POST | `/api/v1/cron/attendance-maintenance` | Daily | Raises/closes absence alerts and purges `AttendanceLog` rows past each hostel's `retentionDays` |
+| POST | `/api/v1/cron/purge-expired-otps` | Daily | Backup sweep for expired `OtpChallenge` documents (the TTL index is primary) |
+| POST | `/api/v1/cron/refresh-nearby-places` | Hourly | Recomputes cached nearby places for hostels with address changes or stale cache |
+| POST | `/api/cron/subscription-expiry` | — | ⏳ **Not built.** Finds subscriptions expiring soon, sends emails to superadmin + hostel admin |
 
 ---
 

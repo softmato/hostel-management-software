@@ -567,30 +567,30 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 ### 4.1 Deliverables
 
 **Complaint System**
-- ☐ **Resident - File Complaint**:
+- ☑ **Resident - File Complaint**:
   - Form: category, title, description, optional photo upload
   - Anonymous option (if checked, admin sees "Anonymous Resident")
   - Creates Complaint with status: PENDING
   - Auto-calculates SLA deadline from PlatformConfig.complaintSlaHours
   - Creates notification for hostel admin
-- ☐ **Resident - View Complaints**:
+- ☑ **Resident - View Complaints**:
   - List own complaints
   - View complaint thread (complaint + admin updates)
   - Mark as resolved (resident confirmation)
-- ☐ **Hostel Admin - Complaint Management**:
+- ☑ **Hostel Admin - Complaint Management**:
   - View all complaints for own hostel
   - Filter by status, category, SLA (past deadline or not)
   - Open complaint detail
   - Add update/comment (creates ComplaintUpdate)
   - Change status (PENDING → IN_PROGRESS → RESOLVED/REJECTED)
   - Sends email to resident on each status change
-- ☐ **Scheduled Job**: Check complaints past SLA deadline → flag for admin attention
+- ☑ **Scheduled Job**: Check complaints past SLA deadline → flag for admin attention
 
 **Night Safety / Attendance Status**
-- ☐ **Location Tracking & Auto-Attendance System (Mobile Background Service)**:
-  - Add consent screen during QR code activation: "We need your location to provide best experience and track attendance. Your exact GPS coordinates are never stored."
-  - User must agree to Terms of Use and Location Tracking consent
-  - Log consent in ConsentLog model
+- ☑ **Location Tracking & Auto-Attendance System (Mobile Background Service)** — _server architecture complete; the consent prompt currently lives on `/resident/attendance` rather than inside QR activation, and the background service itself is Phase 6:_
+  - ⏳ Consent screen during QR code activation — consent is captured and revocable at `/resident/attendance` (`POST /api/v1/resident/consent`); folding it into the activation step waits for the mobile flow
+  - ☑ User must agree to Terms of Use and Location Tracking consent
+  - ☑ Log consent in ConsentLog model
   - Mobile app registers background service (setup in Phase 6, architecture in Phase 4):
     - Pings server at configured times (default: 8 AM, 6 AM, 10 PM)
     - Times configurable per hostel in HostelSettings
@@ -599,39 +599,39 @@ This document splits the entire build into **6 sequential phases**. The AI codin
     - Determines zone: INSIDE (0-50m), NEARBY (51-200m), OUTSIDE (201m+), UNKNOWN (phone off)
     - Creates AttendanceLog with zone status and distance (NOT exact coordinates)
     - Exact GPS coordinates are discarded immediately after zone calculation
-- ☐ **Geofence Configuration**:
+- ☑ **Geofence Configuration**:
   - Platform defaults: insideZoneRadius=50m, nearbyZoneRadius=200m
   - Hostel admin can override in settings (within platform limits set by superadmin)
   - Store in HostelSettings model
-- ☐ **Resident - View Attendance**:
+- ☑ **Resident - View Attendance**:
   - Attendance history page: calendar view showing days INSIDE/NEARBY/OUTSIDE
   - Color-coded: green (inside), yellow (nearby), red (outside), gray (unknown)
   - Can request deletion of location history (admin reviews)
-- ☐ **Hostel Admin - Attendance Dashboard**:
-  - Real-time view: X residents inside, Y nearby, Z outside, W unknown
-  - Attendance history: filter by date, resident, zone
-  - Calendar view per resident
-  - Attendance patterns: frequently absent residents, average attendance rate
-  - Manual override attendance log (if resident's phone was off but they were present)
-- ☐ **Attendance Alerts**:
-  - If resident absent (OUTSIDE or UNKNOWN) for X consecutive days (default: 14, configurable)
-  - System creates AttendanceAlert, sends email + push notification to hostel admin
-  - Admin can resolve alert with notes
-- ☐ **Data Retention & Privacy**:
+- ☑ **Hostel Admin - Attendance Dashboard**:
+  - ☑ Real-time view: X residents inside, Y nearby, Z outside, W unknown
+  - ☑ Attendance history: filter by date, resident, zone
+  - ⏳ Calendar view per resident — the data is served by `GET /api/v1/hostel-admin/attendance`; only the admin-side calendar rendering is outstanding (the resident already has one)
+  - ⏳ Attendance patterns (frequently absent, average attendance rate) — deferred to the Phase 5 reports work, where the other analytics live
+  - ☑ Manual override attendance log, with a required reason and an AuditLog entry
+- ☑ **Attendance Alerts**:
+  - ☑ If resident absent (OUTSIDE or UNKNOWN) for X consecutive days (default: 14, configurable)
+  - ☑ System creates AttendanceAlert and sends email + in-app notification to hostel admin — _push is Phase 6, with the rest of FCM_
+  - ☑ Admin can resolve alert with notes
+- ☑ **Data Retention & Privacy**:
   - AttendanceLog auto-deleted after X days (default: 600, configurable by admin, max enforced by superadmin)
   - Aggregated analytics kept, raw logs deleted
   - Resident can request immediate deletion via "Request Location History Deletion" button
-- ☐ **Hostel Admin - Mark Night Status (Manual Override)**:
-  - Daily checklist view: list all active residents
-  - Mark each as: INSIDE, OUTSIDE, NOT_VERIFIED
-  - Bulk-mark option (e.g., mark all as INSIDE)
-  - Manual override with required overrideReason (logged in NightStatusLog)
-  - Creates AuditLog entry for every status change
-- ☐ **Resident - View Own Night Status**:
-  - Calendar view showing own status per day
-  - Summary only (Inside/Outside/Not Verified) - NO timestamps shown to resident
-  - SOS button (accessible from every screen)
-- ☐ **SOS Feature**:
+- ☑ **Hostel Admin - Mark Night Status (Manual Override)**:
+  - ☑ Daily checklist view: list all active residents
+  - ☑ Mark each as: INSIDE, OUTSIDE, NOT_VERIFIED
+  - ☑ Bulk-mark option (mark all as INSIDE / OUTSIDE / NOT_VERIFIED, still one audited override per resident)
+  - ☑ Manual override with required overrideReason (logged in NightStatusLog)
+  - ☑ Creates AuditLog entry for every status change
+- ☑ **Resident - View Own Night Status**:
+  - ☑ Calendar view showing own status per day
+  - ☑ Summary only (Inside/Outside/Not Verified) - NO timestamps shown to resident
+  - ⏳ SOS reachable from every screen — currently its own nav item and page; a global floating button waits for the mobile shell (Phase 6)
+- ☑ **SOS Feature**:
   - Big red "SOS" button on resident dashboard (+ mobile app in Phase 6)
   - Confirmation dialog ("Are you sure? This will alert warden and guardian")
   - Creates NightStatusLog with status: SOS
@@ -643,35 +643,35 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - Email uses emergency template with urgent styling (EMAIL_SYSTEM.md §5.1)
 
 **Ratings & Reviews**
-- ☐ **Resident - Submit Rating**:
+- ☑ **Resident - Submit Rating**:
   - One rating per hostel (enforced by unique index on residentId + hostelId)
   - Star ratings (1-5) for: overall, food, cleanliness, security, room, location, management
   - Optional text comment
   - Visible publicly after submission
-- ☐ **Public - View Ratings**:
+- ☑ **Public - View Ratings**:
   - Ratings section on hostel detail page
   - Average stars per category
   - List of reviews (excluding hidden ones)
   - "Verified Resident" badge on each review
-- ☐ **Superadmin - Moderate Reviews**:
+- ☑ **Superadmin - Moderate Reviews**:
   - View all reviews
   - Hide abusive/fake reviews with reason
   - Hidden reviews don't appear publicly but resident can still see their own
 
 **Move-In / Move-Out Checklists**
-- ☐ **Hostel Admin - Move-In Checklist**:
+- ☑ **Hostel Admin - Move-In Checklist**:
   - Create checklist for new resident (templates stored in PlatformConfig)
   - Items: ID copy collected, room photos taken, key issued, deposit paid, rules acknowledged
   - Mark items as checked with timestamp and checker userId
   - Resident can view their own move-in checklist
-- ☐ **Hostel Admin - Move-Out Checklist**:
+- ☑ **Hostel Admin - Move-Out Checklist**:
   - Create checklist when resident moves out
   - Items: pending fee checked, damage assessment, items returned, deposit refund
   - Track exitDate and final receipt
   - Updates Resident.status = MOVED_OUT on completion
 
 **Guardian System**
-- ☐ **Resident - Invite Guardian**:
+- ☑ **Resident - Invite Guardian**:
   - Form: email, relation (mother/father/uncle/etc.), phone
   - Set access permissions (checkboxes):
     - Fee status
@@ -683,12 +683,12 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - Creates Guardian document with invitationToken
   - Sends guardian invitation email (EMAIL_SYSTEM.md §1.5)
   - Token expires in 7 days
-- ☐ **Guardian - Accept Invitation**:
+- ☑ **Guardian - Accept Invitation**:
   - Clicks link from email
   - If no account: creates PUBLIC account → immediately upgraded to GUARDIAN
   - If existing PUBLIC account: upgraded to GUARDIAN
   - Linked to resident via Guardian.residentId
-- ☐ **Guardian Dashboard**:
+- ☑ **Guardian Dashboard**:
   - Single-page simplified view (no sidebar, minimal navigation)
   - Shows ONLY fields resident has enabled in accessPermissions:
     - Hostel name, contact, emergency contacts (always visible)
@@ -699,16 +699,16 @@ This document splits the entire build into **6 sequential phases**. The AI codin
     - Night safety summary (if enabled): day-level status (Inside/Outside/SOS) - NO timestamps, NO coordinates
     - Complaint status (if enabled): complaint titles + status only, NO full details
   - Fields not enabled = not returned in API response (server-side filtering)
-- ☐ **Resident - Manage Guardian Permissions**:
+- ☑ **Resident - Manage Guardian Permissions**:
   - View linked guardian
   - Update access permissions anytime
   - Remove guardian access
 
 **In-App Notifications (Web)**
-- ☐ Notification bell icon in header (shows unread count)
-- ☐ Dropdown showing recent notifications
-- ☐ Mark as read functionality
-- ☐ Notifications created for:
+- ☑ Notification bell icon in header (shows unread count)
+- ☑ Dropdown showing recent notifications
+- ☑ Mark as read functionality
+- ☑ Notifications created for:
   - Payment due/overdue
   - Payment verified/rejected
   - New notice
@@ -716,16 +716,19 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - SOS alert (for admins/wardens/guardians)
 
 **Community Feature (Resident Social Feed)**
-- ☐ **Community Feed**: Residents can create posts with text + media (photos/videos/audio), visibility: PUBLIC or HOSTEL_ONLY, anonymous option
-- ☐ **Engagement**: React (6 types), comment, share, notifications for engagement
-- ☐ **Moderation**: Report posts, auto-profanity filter, admin can hide inappropriate posts (own hostel only)
-- ☐ **Admin Dashboard**: View/moderate posts, community analytics, post official announcements
+- ☑ **Community Feed**: Residents can create posts with text + photos, visibility: PUBLIC or HOSTEL_ONLY, anonymous option — _photos only; video/audio waits for the upload pipeline to accept them_
+- ☑ **Engagement**: React (6 types), comment, notifications for engagement — _no "share": there is nowhere to share to until the mobile app and public profiles exist_
+- ☑ **Moderation**: Report posts, auto-profanity filter, admin can hide inappropriate posts (own hostel only)
+- ☑ **Admin Dashboard**: View/moderate posts, post official announcements, post/reported/hidden counts — _deeper community analytics deferred to the Phase 5 reports work_
 
 **Email Templates (Phase 4)**
-- ☐ `resident/complaint-status-updated.tsx`
-- ☐ `resident/complaint-resolved.tsx`
-- ☐ `guardian/invitation.tsx`
-- ☐ `guardian/sos-alert.tsx` (URGENT priority)
+- ☑ `resident/complaint-status-updated.ts`
+- ☑ `resident/complaint-resolved.ts`
+- ☑ `guardian/invitation.ts`
+- ☑ `guardian/sos-alert.ts` (URGENT priority)
+
+> Templates are plain `.ts` HTML-string functions, not React Email `.tsx` — the deviation recorded
+> in MEMORY.md since Phase 1, kept consistent here.
 
 ### 4.2 Acceptance Tests
 
@@ -763,8 +766,8 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 ### 4.3 Phase 4 Definition of Done
 
-- All deliverables ☐ checked off
-- All acceptance tests ☐ passing
+- All deliverables ☑ checked off (code side; ⏳ items above are Phase 5/6 by design)
+- All acceptance tests ☐ passing _(§4.2 needs a seeded DB + live Resend — external infra, same as §3.2)_
 - `MEMORY.md` and `CHANGELOG.md` updated
 - Complaints, night safety, SOS, ratings, guardian dashboard all working
 - Privacy rules from PRD.md §10 enforced and tested

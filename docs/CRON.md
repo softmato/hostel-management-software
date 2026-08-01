@@ -57,14 +57,51 @@ the day-offset rules mean a second run repeats at most the same day's batch.
 
 - Recommended schedule: daily, early morning local time (e.g. `0 2 * * *`).
 
+### Complaint SLA breach check
+
+`POST /api/v1/cron/complaint-sla`
+
+Finds complaints that are still open (`PENDING` / `IN_PROGRESS`) and past `slaDueAt`, stamps
+`slaBreachedAt`, and alerts the hostel's admins by email plus an in-app `Notification`
+(PHASES.md §4.1). The SLA window itself comes from the `operations` setting `complaintSlaHours`
+(default 72) and is applied when the complaint is filed.
+
+Idempotent by construction: the job only selects complaints where `slaBreachedAt` is missing, so a
+breached complaint is alerted exactly once no matter how often the job runs. Returns
+`{ flagged, hostelsNotified, scanned }`.
+
+- Recommended schedule: daily (e.g. `0 4 * * *`).
+
+### Attendance maintenance (absence alerts + retention purge)
+
+`POST /api/v1/cron/attendance-maintenance`
+
+For every hostel with `attendance.enabled`, this job does two things (PHASES.md §4.1,
+PRIVACY_POLICY.md):
+
+1. **Absence alerts** — counts each active resident's consecutive absent days (`OUTSIDE`,
+   `UNKNOWN`, or no reading at all) and opens an `AttendanceAlert` once the streak reaches the
+   hostel's `absenceAlertDays` (default 14). An alert already open is updated with the new day
+   count rather than re-raised, and a resident who is seen again has their alert auto-resolved.
+2. **Retention purge** — deletes `AttendanceLog` rows older than the hostel's `retentionDays`
+   (default 600, platform maximum 1095).
+
+Returns `{ alertsRaised, alertsUpdated, hostelsProcessed, logsPurged }`.
+
+- Recommended schedule: daily (e.g. `0 5 * * *`).
+
 > **Note on the `operations` platform setting.** Several runtime knobs live in a single
 > `PlatformSetting` document keyed `operations`: `qrActivationExpiryDays`,
-> `paymentReminderDaysBefore`, `foodReadyCooldownMinutes`, `sendNoticeEmails`,
-> `sendPaymentEmails`, `receiptNumberPrefix`. Reads never throw — a missing or malformed document
-> falls back to the shipped defaults.
+> `paymentReminderDaysBefore`, `foodReadyCooldownMinutes`, `complaintSlaHours`,
+> `sendNoticeEmails`, `sendPaymentEmails`, `sendComplaintEmails`, `receiptNumberPrefix`. Reads
+> never throw — a missing or malformed document falls back to the shipped defaults.
 
-> Later phases add more cron jobs here (complaint SLA checks, soft-deleted account purge). Each one
-> reuses `validateCronRequest` and is added to this list.
+> Per-hostel attendance settings (geofence radii, ping times, alert threshold, retention) live on
+> `HostelSettings.attendance` instead, because they are a property of the building, not the
+> platform.
+
+> Later phases add more cron jobs here (soft-deleted account purge). Each one reuses
+> `validateCronRequest` and is added to this list.
 
 ## cron-job.org setup (per job)
 

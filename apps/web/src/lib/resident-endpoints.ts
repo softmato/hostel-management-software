@@ -10,6 +10,8 @@ export const residentEndpoints = {
   emergencyContacts: "/api/v1/resident/emergency-contacts",
   food: "/api/v1/resident/food",
   foodPhotos: "/api/v1/resident/food/photos",
+  guardians: "/api/v1/resident/guardians",
+  moveChecklist: "/api/v1/resident/move-checklist",
   nightStatus: "/api/v1/resident/night-status",
   notices: "/api/v1/resident/notices",
   payments: "/api/v1/resident/payments",

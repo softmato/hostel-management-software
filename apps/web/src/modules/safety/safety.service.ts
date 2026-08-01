@@ -12,6 +12,7 @@ import { NightStatusLogModel } from "@hostel/db/models/NightStatusLog";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { SOSAlertModel } from "@hostel/db/models/SOSAlert";
+import { fanOutSOSAlert } from "@/modules/safety/safety-notify";
 import {
   findCurrentResident,
   normalizeObjectId,
@@ -405,8 +406,26 @@ export async function triggerSOS(input: SOSCreateInput, principal: ApiPrincipal)
     ),
   ]);
 
+  // Awaited rather than fired and forgotten: §4.2 wants staff and guardians
+  // alerted within seconds, and a serverless function stops executing the
+  // moment the response is returned. fanOutSOSAlert swallows its own failures.
+  const fanOut = await fanOutSOSAlert({
+    alertId: alert._id.toString(),
+    guardianAlertEnabled: input.guardianAlertEnabled,
+    hostelId: resident.hostelId,
+    message: input.message,
+    residentId: resident._id,
+    residentName: `${resident.firstName} ${resident.lastName}`.trim(),
+    residentPhone: resident.phone,
+    triggeredAt: alert.createdAt ?? new Date(),
+  });
+
   return {
     alert: serializeSOS(alert),
+    notified: {
+      guardians: fanOut.guardiansNotified,
+      staff: fanOut.staffNotified,
+    },
     resident: serializeResidentSummary(resident),
   };
 }

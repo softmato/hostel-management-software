@@ -15,6 +15,7 @@ import { HostelModel } from "@hostel/db/models/Hostel";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { NoticeModel } from "@hostel/db/models/Notice";
 import { PaymentModel } from "@hostel/db/models/Payment";
+import { ReceiptModel } from "@hostel/db/models/Receipt";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { issueSessionForUser } from "@/modules/auth/auth.service";
@@ -59,6 +60,7 @@ type GuardianPermissionRecord = {
   canViewFood: boolean;
   canViewNotices: boolean;
   canViewPayments: boolean;
+  canViewReceipts: boolean;
   canViewSafety: boolean;
 };
 
@@ -224,12 +226,17 @@ async function loadGuardianAccess(principal: ApiPrincipal) {
   return {
     access,
     guardian,
-    permission: permission ?? {
-      canViewComplaintStatus: access.allowComplaintStatus,
-      canViewFood: true,
-      canViewNotices: true,
-      canViewPayments: true,
-      canViewSafety: true,
+    // Default-deny (PRD.md §10). A missing or partial permission document means
+    // the resident has not shared that field, never "share everything" — the
+    // guardian dashboard is opt-in field by field.
+    permission: {
+      canViewComplaintStatus:
+        permission?.canViewComplaintStatus ?? access.allowComplaintStatus ?? false,
+      canViewFood: permission?.canViewFood ?? false,
+      canViewNotices: permission?.canViewNotices ?? false,
+      canViewPayments: permission?.canViewPayments ?? false,
+      canViewReceipts: permission?.canViewReceipts ?? false,
+      canViewSafety: permission?.canViewSafety ?? false,
     },
     resident,
   };
@@ -345,8 +352,29 @@ export async function loginGuardian(input: GuardianLoginInput) {
     throw new GuardianServiceError("Guardian was not found.", "GUARDIAN_NOT_FOUND", 404);
   }
 
+  // A phone number is not proof of identity for anything but a guardian link.
+  // Upserting blindly on `phone` would rewrite the role of whoever already owns
+  // that number — a resident sharing a family phone would be demoted out of
+  // their own portal — so an established non-PUBLIC account is refused instead.
+  const existingUser = await UserModel.findOne({
+    isDeleted: { $ne: true },
+    phone: input.phone,
+  }).lean<UserRecord | null>();
+
+  if (
+    existingUser &&
+    existingUser.role !== Role.PUBLIC &&
+    existingUser.role !== Role.GUARDIAN
+  ) {
+    throw new GuardianServiceError(
+      "This phone number already belongs to another hostel account. Ask the hostel to register the guardian with a different number.",
+      "PHONE_ALREADY_HAS_ROLE",
+      409,
+    );
+  }
+
   const user = (await UserModel.findOneAndUpdate(
-    { phone: input.phone },
+    existingUser ? { _id: existingUser._id } : { phone: input.phone },
     {
       $addToSet: { hostelIds: access.hostelId },
       $set: {
@@ -371,49 +399,85 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
   await connectToDatabase();
 
   const { access, guardian, permission, resident } = await loadGuardianAccess(principal);
-  const [hostel, payments, notices, food, nightStatus, complaints] = await Promise.all([
+  // Each query is gated by its own permission flag rather than fetched and
+  // filtered afterwards: a field the resident did not share is never read out
+  // of the database at all, so it cannot leak through a serializer mistake.
+  const [hostel, payments, notices, food, nightStatus, complaints, receipts] =
+    await Promise.all([
     HostelModel.findOne({ _id: access.hostelId, isDeleted: false }).lean<{
       _id: Types.ObjectId;
       name: string;
       location?: Record<string, unknown>;
     } | null>(),
-    PaymentModel.find({ hostelId: access.hostelId, residentId: access.residentId })
-      .sort({ dueDate: -1 })
-      .limit(6)
-      .lean<
-        Array<{
-          _id: Types.ObjectId;
-          dueAmount: number;
-          dueDate: Date;
-          month: string;
-          paidAmount: number;
-          status: string;
-        }>
-      >(),
-    NoticeModel.find({ hostelId: access.hostelId })
-      .sort({ isUrgent: -1, publishedAt: -1 })
-      .limit(5)
-      .lean<
-        Array<{
-          _id: Types.ObjectId;
-          title: string;
-          content: string;
-          category: string;
-          isUrgent: boolean;
-        }>
-      >(),
-    getFoodRoutine(access.hostelId),
-    NightStatusModel.findOne({ residentId: resident._id }).lean<{
-      checkedAt: Date;
-      status: string;
-    } | null>(),
-    permission.canViewComplaintStatus
-      ? ComplaintModel.find({ hostelId: access.hostelId, residentId: access.residentId })
-          .sort({ createdAt: -1 })
-          .limit(5)
-          .lean<Array<{ _id: Types.ObjectId; status: string; title: string }>>()
-      : Promise.resolve([]),
-  ]);
+      permission.canViewPayments
+        ? PaymentModel.find({
+            hostelId: access.hostelId,
+            residentId: access.residentId,
+          })
+            .sort({ dueDate: -1 })
+            .limit(6)
+            .lean<
+              Array<{
+                _id: Types.ObjectId;
+                dueAmount: number;
+                dueDate: Date;
+                month: string;
+                paidAmount: number;
+                status: string;
+              }>
+            >()
+        : Promise.resolve([]),
+      permission.canViewNotices
+        ? NoticeModel.find({
+            hostelId: access.hostelId,
+            targetAudience: { $in: ["ALL", "GUARDIANS"] },
+          })
+            .sort({ isUrgent: -1, publishedAt: -1 })
+            .limit(5)
+            .lean<
+              Array<{
+                _id: Types.ObjectId;
+                title: string;
+                content: string;
+                category: string;
+                isUrgent: boolean;
+              }>
+            >()
+        : Promise.resolve([]),
+      permission.canViewFood ? getFoodRoutine(access.hostelId) : Promise.resolve(null),
+      permission.canViewSafety
+        ? NightStatusModel.findOne({ residentId: resident._id }).lean<{
+            checkedAt: Date;
+            status: string;
+          } | null>()
+        : Promise.resolve(null),
+      permission.canViewComplaintStatus
+        ? ComplaintModel.find({
+            hostelId: access.hostelId,
+            residentId: access.residentId,
+          })
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .lean<Array<{ _id: Types.ObjectId; status: string; title: string }>>()
+        : Promise.resolve([]),
+      permission.canViewReceipts
+        ? ReceiptModel.find({
+            hostelId: access.hostelId,
+            residentId: access.residentId,
+          })
+            .sort({ issuedAt: -1 })
+            .limit(12)
+            .lean<
+              Array<{
+                _id: Types.ObjectId;
+                amount: number;
+                issuedAt: Date;
+                month: string;
+                receiptNumber: string;
+              }>
+            >()
+        : Promise.resolve([]),
+    ]);
   const dueAmount = payments.reduce(
     (sum, payment) =>
       ["UNPAID", "PARTIAL", "OVERDUE", "PENDING_PROOF"].includes(payment.status)
@@ -432,7 +496,7 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
       })),
       // Today's meals off the weekly routine — a guardian wants "what are they
       // eating", not the whole week.
-      food: permission.canViewFood ? mealsOn(food, new Date()) : [],
+      food: food ? mealsOn(food, new Date()) : [],
       guardian: {
         id: guardian._id.toString(),
         name: `${guardian.firstName} ${guardian.lastName}`.trim(),
@@ -446,30 +510,47 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
             name: hostel.name,
           }
         : null,
-      notices: permission.canViewNotices
-        ? notices.map((notice) => ({
-            category: notice.category,
-            content: notice.content,
-            id: notice._id.toString(),
-            isUrgent: notice.isUrgent,
-            title: notice.title,
-          }))
-        : [],
-      payments: permission.canViewPayments ? payments.map(serializePayment) : [],
+      notices: notices.map((notice) => ({
+        category: notice.category,
+        content: notice.content,
+        id: notice._id.toString(),
+        isUrgent: notice.isUrgent,
+        title: notice.title,
+      })),
+      payments: payments.map(serializePayment),
       permissions: permission,
-      resident: serializeResidentSummary(resident),
+      receipts: receipts.map((receipt) => ({
+        amount: receipt.amount,
+        id: receipt._id.toString(),
+        issuedOn: receipt.issuedAt.toISOString().slice(0, 10),
+        month: receipt.month,
+        receiptNumber: receipt.receiptNumber,
+      })),
+      // A guardian gets the resident's identity and room, never their deposit,
+      // contact details or account linkage (PRD.md §10).
+      resident: {
+        fullName: `${resident.firstName} ${resident.lastName}`.trim(),
+        id: resident._id.toString(),
+        roomType: resident.roomType,
+        status: resident.status,
+      },
+      // Day-level only. `checkedAt` is deliberately truncated to a date: the
+      // exact time a resident was checked is the sort of surveillance detail
+      // §4.1 forbids showing a guardian.
       safety: permission.canViewSafety
         ? {
-            checkedAt: nightStatus?.checkedAt.toISOString() ?? null,
+            asOf: nightStatus?.checkedAt.toISOString().slice(0, 10) ?? null,
             status: nightStatus?.status ?? "NOT_VERIFIED",
           }
         : null,
-      summary: {
-        dueAmount,
-        unpaidCount: payments.filter((payment) =>
-          ["UNPAID", "PARTIAL", "OVERDUE", "PENDING_PROOF"].includes(payment.status),
-        ).length,
-      },
+      summary: permission.canViewPayments
+        ? {
+            dueAmount,
+            unpaidCount: payments.filter((payment) =>
+              ["UNPAID", "PARTIAL", "OVERDUE", "PENDING_PROOF"].includes(payment.status),
+            ).length,
+          }
+        : null,
     },
   };
 }
@@ -477,7 +558,11 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
 export async function listGuardianPayments(principal: ApiPrincipal) {
   const result = await getGuardianDashboard(principal);
 
-  return { payments: result.dashboard.payments, summary: result.dashboard.summary };
+  return {
+    payments: result.dashboard.payments,
+    receipts: result.dashboard.receipts,
+    summary: result.dashboard.summary,
+  };
 }
 
 export async function listGuardianNotices(principal: ApiPrincipal) {

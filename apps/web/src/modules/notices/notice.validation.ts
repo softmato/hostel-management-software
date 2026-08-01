@@ -17,6 +17,7 @@ export const noticeCreateSchema = z.object({
     .enum(["GENERAL", "URGENT", "EVENT", "RULE", "MAINTENANCE", "PAYMENT", "FOOD"])
     .default("GENERAL"),
   isUrgent: z.boolean().default(false),
+  targetAudience: z.enum(["ALL", "RESIDENTS", "GUARDIANS"]).default("ALL"),
   publishedAt: z.coerce.date().optional(),
   expiresAt: z.coerce.date().optional(),
 });

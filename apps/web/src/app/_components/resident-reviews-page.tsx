@@ -22,7 +22,10 @@ export const ResidentReviewsPageContent = memo(function ResidentReviewsPageConte
           cleanlinessRating: optionalNumber(form, "cleanlinessRating"),
           comment: field(form, "comment"),
           foodRating: optionalNumber(form, "foodRating"),
+          locationRating: optionalNumber(form, "locationRating"),
+          managementRating: optionalNumber(form, "managementRating"),
           overallRating: optionalNumber(form, "overallRating"),
+          roomRating: optionalNumber(form, "roomRating"),
           safetyRating: optionalNumber(form, "safetyRating"),
         }),
         method: "POST",
@@ -40,10 +43,35 @@ export const ResidentReviewsPageContent = memo(function ResidentReviewsPageConte
       <Message value={message} />
       <Panel>
         <BusyForm className="grid gap-3" onSubmit={submit}>
-          <Input label="Overall rating" name="overallRating" required type="number" />
-          <Input label="Food rating" name="foodRating" type="number" />
-          <Input label="Safety rating" name="safetyRating" type="number" />
-          <Input label="Cleanliness rating" name="cleanlinessRating" type="number" />
+          <Input
+            label="Overall rating"
+            max="5"
+            min="1"
+            name="overallRating"
+            required
+            type="number"
+          />
+          <p className="text-sm text-muted-foreground">
+            The rest are optional — score 1 to 5 only what you want to.
+          </p>
+          <Input label="Food" max="5" min="1" name="foodRating" type="number" />
+          <Input
+            label="Cleanliness"
+            max="5"
+            min="1"
+            name="cleanlinessRating"
+            type="number"
+          />
+          <Input label="Security" max="5" min="1" name="safetyRating" type="number" />
+          <Input label="Room" max="5" min="1" name="roomRating" type="number" />
+          <Input label="Location" max="5" min="1" name="locationRating" type="number" />
+          <Input
+            label="Management"
+            max="5"
+            min="1"
+            name="managementRating"
+            type="number"
+          />
           <TextArea label="Comment" name="comment" />
           <SubmitButton className="h-11 rounded-md bg-role-resident text-sm font-semibold text-white">
             Submit Review

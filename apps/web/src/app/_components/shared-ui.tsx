@@ -62,6 +62,7 @@ export function Input({
   defaultValue,
   hint,
   label,
+  max,
   min,
   name,
   onChange,
@@ -76,6 +77,7 @@ export function Input({
   /** Small helper line under the field — why it is locked, what format to use. */
   hint?: ReactNode;
   label: ReactNode;
+  max?: string;
   min?: string;
   name: string;
   onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -95,6 +97,7 @@ export function Input({
           readOnly && "cursor-not-allowed bg-muted/50 text-muted-foreground",
         )}
         defaultValue={defaultValue}
+        max={max}
         min={min}
         name={name}
         onChange={onChange}

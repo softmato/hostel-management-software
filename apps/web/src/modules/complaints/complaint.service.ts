@@ -9,6 +9,12 @@ import { ComplaintAttachmentModel } from "@hostel/db/models/ComplaintAttachment"
 import { ComplaintModel } from "@hostel/db/models/Complaint";
 import { ComplaintUpdateModel } from "@hostel/db/models/ComplaintUpdate";
 import {
+  notifyAdminsOfNewComplaint,
+  notifyResidentOfComplaintReply,
+  notifyResidentOfComplaintStatus,
+} from "@/modules/complaints/complaint-notify";
+import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import {
   findCurrentResident,
   normalizeObjectId,
   serializeResidentSummary,
@@ -51,6 +57,7 @@ type ComplaintRecord = {
   rejectedAt?: Date;
   residentId: Types.ObjectId;
   resolvedAt?: Date;
+  slaBreachedAt?: Date;
   slaDueAt: Date;
   status: ComplaintStatus;
   title: string;
@@ -123,10 +130,10 @@ function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string)
   };
 }
 
-function slaDueDate(now = new Date()) {
+function slaDueDate(slaHours: number, now = new Date()) {
   const dueAt = new Date(now);
 
-  dueAt.setHours(dueAt.getHours() + 72);
+  dueAt.setHours(dueAt.getHours() + slaHours);
 
   return dueAt;
 }
@@ -197,6 +204,7 @@ function serializeComplaint(
     rejectedAt: complaint.rejectedAt?.toISOString(),
     residentId: hideResidentIdentity ? null : complaint.residentId.toString(),
     resolvedAt: complaint.resolvedAt?.toISOString(),
+    slaBreachedAt: complaint.slaBreachedAt?.toISOString(),
     slaDueAt: complaint.slaDueAt.toISOString(),
     status: complaint.status,
     title: complaint.title,
@@ -351,6 +359,7 @@ export async function createComplaint(
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
+  const { complaintSlaHours } = await getOperationsConfig();
   const complaint = (await ComplaintModel.create({
     category: input.category,
     createdBy: principal.userId,
@@ -358,7 +367,7 @@ export async function createComplaint(
     hostelId: resident.hostelId,
     isAnonymous: input.isAnonymous,
     residentId: resident._id,
-    slaDueAt: slaDueDate(),
+    slaDueAt: slaDueDate(complaintSlaHours),
     status: "PENDING",
     title: input.title,
     updatedBy: principal.userId,
@@ -379,6 +388,14 @@ export async function createComplaint(
     "COMPLAINT_CREATED",
     { category: complaint.category, isAnonymous: complaint.isAnonymous },
   );
+  await notifyAdminsOfNewComplaint({
+    category: complaint.category,
+    complaintId: complaint._id.toString(),
+    hostelId: resident.hostelId,
+    isAnonymous: complaint.isAnonymous,
+    residentName: `${resident.firstName} ${resident.lastName}`.trim(),
+    title: complaint.title,
+  });
 
   return {
     complaint: serializeComplaint(complaint, {
@@ -430,6 +447,16 @@ export async function listAdminComplaints(
 
   if (query.status) {
     filter.status = query.status;
+  }
+
+  if (query.sla === "overdue") {
+    filter.slaDueAt = { $lt: new Date() };
+    filter.status = query.status ?? { $in: ["PENDING", "IN_PROGRESS"] };
+  } else if (query.sla === "on_track") {
+    filter.$or = [
+      { slaDueAt: { $gte: new Date() } },
+      { status: { $in: ["RESOLVED", "REJECTED"] } },
+    ];
   }
 
   const complaints = await ComplaintModel.find(filter)
@@ -518,6 +545,13 @@ export async function updateComplaintStatus(
     "COMPLAINT_STATUS_UPDATED",
     { nextStatus: updatedComplaint.status, previousStatus: complaint.status },
   );
+  await notifyResidentOfComplaintStatus({
+    hostelId: complaint.hostelId,
+    residentId: complaint.residentId,
+    response: input.response,
+    status: updatedComplaint.status,
+    title: updatedComplaint.title,
+  });
 
   return {
     complaint: serializeComplaint(updatedComplaint, {
@@ -565,6 +599,13 @@ export async function replyToComplaint(
     complaint._id,
     "COMPLAINT_REPLIED",
   );
+  // §4.1 only mandates email on a status change, so a reply is in-app only —
+  // otherwise a back-and-forth thread would mail the resident on every line.
+  await notifyResidentOfComplaintReply({
+    hostelId: complaint.hostelId,
+    residentId: complaint.residentId,
+    title: updatedComplaint.title,
+  });
 
   return {
     complaint: serializeComplaint(updatedComplaint, {

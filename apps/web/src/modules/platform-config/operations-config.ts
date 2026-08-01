@@ -19,7 +19,10 @@ export const operationsConfigSchema = z.object({
    * resident's notifications.
    */
   foodReadyCooldownMinutes: z.number().int().min(0).max(1440).default(120),
+  /** Response window a complaint is measured against (PHASES.md §4.1). */
+  complaintSlaHours: z.number().int().min(1).max(720).default(72),
   paymentReminderDaysBefore: z.number().int().min(0).max(30).default(3),
+  sendComplaintEmails: z.boolean().default(true),
   qrActivationExpiryDays: z.number().int().min(1).max(60).default(7),
   receiptNumberPrefix: z.string().trim().min(1).max(10).default("RCP"),
   sendNoticeEmails: z.boolean().default(true),

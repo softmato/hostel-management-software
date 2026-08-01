@@ -11,6 +11,15 @@ const noticeSchema = new Schema(
       type: String,
     },
     isUrgent: { default: false, type: Boolean },
+    /**
+     * Who the notice is addressed to (PHASES.md §3.1). Drives both the resident
+     * fan-out and what a guardian dashboard is allowed to surface.
+     */
+    targetAudience: {
+      default: "ALL",
+      enum: ["ALL", "RESIDENTS", "GUARDIANS"],
+      type: String,
+    },
     publishedAt: { default: Date.now, type: Date },
     expiresAt: Date,
     createdBy: { ref: "User", type: Schema.Types.ObjectId },

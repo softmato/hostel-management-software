@@ -40,6 +40,7 @@ type NoticeRecord = {
   hostelId: Types.ObjectId;
   isUrgent: boolean;
   publishedAt?: Date;
+  targetAudience?: "ALL" | "RESIDENTS" | "GUARDIANS";
   title: string;
   updatedAt?: Date;
 };
@@ -117,6 +118,7 @@ function serializeNotice(
     isUrgent: notice.isUrgent,
     publishedAt: notice.publishedAt?.toISOString(),
     readAt: readStatus?.readAt.toISOString(),
+    targetAudience: notice.targetAudience ?? "ALL",
     title: notice.title,
     updatedAt: notice.updatedAt?.toISOString(),
   };
@@ -184,6 +186,12 @@ async function broadcastNotice(notice: NoticeRecord) {
 }
 
 async function deliverNoticeBroadcast(notice: NoticeRecord) {
+  // A guardians-only notice is not the residents' mail. Guardians read notices
+  // by pulling their dashboard, so there is nothing to fan out here.
+  if (notice.targetAudience === "GUARDIANS") {
+    return { emailed: 0, notified: 0 };
+  }
+
   const config = await getOperationsConfig();
   const [hostelName, recipients] = await Promise.all([
     getHostelName(notice.hostelId),
@@ -302,6 +310,7 @@ export async function listNoticesForResident(principal: ApiPrincipal) {
   const notices = await NoticeModel.find({
     hostelId: resident.hostelId,
     publishedAt: { $lte: new Date() },
+    targetAudience: { $in: ["ALL", "RESIDENTS"] },
     $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
   })
     .sort({ isUrgent: -1, publishedAt: -1 })

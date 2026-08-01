@@ -13,6 +13,7 @@ import { ProvidedItemModel } from "@hostel/db/models/ProvidedItem";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { releaseBedForRoomType } from "@/modules/hostels/hostel-capacity.service";
 import {
+  findCurrentResident,
   normalizeObjectId,
   serializeResidentSummary,
 } from "@/modules/residents/resident-access";
@@ -196,6 +197,33 @@ async function pendingFeeAmount(resident: ResidentRecord) {
   );
 }
 
+
+/**
+ * A resident's own move-in / move-out record, read-only (PHASES.md §4.1).
+ * Scoped by `findCurrentResident`, so there is no id to tamper with — the
+ * session decides whose checklist this is.
+ */
+export async function getResidentMoveChecklists(principal: ApiPrincipal) {
+  await connectToDatabase();
+
+  const resident = (await findCurrentResident(principal)) as ResidentRecord;
+  const [moveIn, moveOut] = await Promise.all([
+    MoveInChecklistModel.findOne({
+      hostelId: resident.hostelId,
+      residentId: resident._id,
+    }).lean<MoveInRecord | null>(),
+    MoveOutChecklistModel.findOne({
+      hostelId: resident.hostelId,
+      residentId: resident._id,
+    }).lean<MoveOutRecord | null>(),
+  ]);
+
+  return {
+    moveIn: serializeMoveIn(moveIn),
+    moveOut: serializeMoveOut(moveOut),
+    resident: serializeResidentSummary(resident),
+  };
+}
 
 export async function createMoveInChecklist(
   residentId: string,

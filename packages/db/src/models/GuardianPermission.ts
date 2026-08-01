@@ -9,10 +9,13 @@ const guardianPermissionSchema = new Schema(
       required: true,
       type: Schema.Types.ObjectId,
     },
-    canViewPayments: { default: true, type: Boolean },
-    canViewNotices: { default: true, type: Boolean },
-    canViewFood: { default: true, type: Boolean },
-    canViewSafety: { default: true, type: Boolean },
+    // Every field defaults to false: a guardian sees what the resident
+    // deliberately switched on, and nothing else (PRD.md §10).
+    canViewPayments: { default: false, type: Boolean },
+    canViewReceipts: { default: false, type: Boolean },
+    canViewNotices: { default: false, type: Boolean },
+    canViewFood: { default: false, type: Boolean },
+    canViewSafety: { default: false, type: Boolean },
     canViewComplaintStatus: { default: false, type: Boolean },
   },
   { timestamps: true },

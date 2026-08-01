@@ -51,7 +51,42 @@ This file is the project's working memory across coding sessions. Update it ever
 
 ## Current Progress
 
-- **Phase:** Phases 1-3 closed out (2026-08-01). All code-side deliverables for Phases 1, 2 and 3 are done; what remains in each is external infra or a seeded-DB acceptance pass. Phase 4 is next and nothing from it has been started.
+- **Phase:** Phases 1-4 closed out (2026-08-01). All code-side deliverables for Phases 1-4 are done; what remains in each is external infra or a seeded-DB acceptance pass. Phase 5 is next.
+- **Status (2026-08-01, Phase 4):** build green, typecheck + lint clean, **302/302** unit tests pass.
+  As expected from the resume note, most of the Phase 4 surface already existed and the work was
+  closing gaps in it — but three of those gaps were defects rather than omissions:
+  1. **An SOS notified nobody.** `triggerSOS` only wrote rows. Now fans out urgent email + in-app
+     notifications to admins, wardens and linked guardians, **awaited** (a serverless function stops
+     on response, so a fire-and-forget send would never have run).
+  2. **Guardian login could demote a real account** — it upserted `User` on `phone` alone and forced
+     `role: GUARDIAN`, so a resident sharing a family phone would lose their own portal. Now 409s.
+  3. **Guardian permissions defaulted open** when the permission document was missing. Now
+     default-deny per field, and each dashboard section is gated at the *query*, so an unshared
+     field never leaves the database.
+  Also: complaints got config-driven SLA + notifications + a breach cron; guardians got a
+  resident-driven email invitation flow (7-day token, upgrade via `registerOrUpgradeUserByEmail`);
+  notices got `targetAudience`; ratings expanded to all seven categories and the public page stopped
+  inventing its star distribution; the notification bell became real; and the location/attendance and
+  community-feed server surfaces were built from scratch.
+- **Phase 4 remaining (not code):** §4.2 acceptance pass against a seeded DB, and two cron-job.org
+  entries — `/api/v1/cron/complaint-sla` and `/api/v1/cron/attendance-maintenance`. Deliberately
+  deferred inside Phase 4, marked ⏳ in PHASES.md §4.1: the mobile background location service and
+  push notifications (Phase 6), a global floating SOS button (Phase 6 shell), video/audio in
+  community posts, and attendance/community *analytics* (folded into the Phase 5 reports work).
+
+### Location tracking — the privacy invariant (built 2026-08-01)
+
+`POST /api/v1/resident/location/ping` accepts `{ lat, lng }`, computes the distance to the hostel
+pin, derives a zone, and **throws the coordinates away**. They are never written to any collection —
+`AttendanceLog` stores a zone and a rounded distance, nothing else. `attendance-zone.test.ts` asserts
+this by serializing the Mongo update and checking the raw latitude/longitude do not appear in it.
+Keep that test passing; it is the only thing standing between this feature and a location database.
+
+Two more rules that look like details and are not:
+- **No hostel pin → `UNKNOWN`, never a guess.** Marking someone INSIDE because we cannot tell would
+  be inventing attendance.
+- **Consent is read fresh on every ping** (latest `ConsentLog` row wins), so withdrawal takes effect
+  immediately rather than at the next token refresh — same trade as the warden capability lookup.
 - **Status (2026-08-01):** build green, typecheck + lint clean (0 errors, 0 warnings), **247/247** unit tests pass. This session was defect closure rather than new surface:
   1. **Auth surfaces unified.** `/api/auth/*` and `/api/v1/auth/*` had both been live since the Phase 1 alignment. The clients call `/api/v1`, and that copy was the one **without the login rate limit** — so the §1.1 "5 attempts / 15 min" control existed only on the path nobody used. Everything is now `/api/v1/auth/*`, limit restored and locked with a test; cookie writes go through `applySessionCookies()` instead of four drifting copies. The duplicate tree is deleted.
   2. **Password reset actually works.** `/reset-password` had been a static mockup calling nothing. Rebuilt as a real request-link → set-password flow against the endpoints that already existed.
@@ -149,9 +184,22 @@ and a multi-hostel warden is correctly limited per hostel. No grant anywhere →
 
 ## RESUME POINT (next session starts here)
 
-**Phases 1–3 are code-complete.** Next code work is **Phase 4 — Trust, Safety & Guardian** (PHASES.md §4): complaints, night safety status, SOS, guardian dashboard, move-in/out checklists, ratings. Note that a lot of that surface already exists from the earlier codebase, so expect the same gap-completion pattern rather than greenfield building — audit what is there before writing anything.
+**Phases 1–4 are code-complete.** Next code work is **Phase 5 — Growth, Maintenance & Polish**
+(PHASES.md §5): service providers, hostel maintenance, comparison, referrals, duplicate/ghost
+listing detection, reports, production hardening. As with Phase 4, much of that surface already
+exists (`modules/service-providers`, `modules/maintenance`, `modules/referrals`,
+`modules/listing-flags`, `modules/reports` are all present) — **audit before writing**. Phase 5 also
+inherits three things deferred out of Phase 4 on purpose: attendance analytics, community analytics,
+and an admin-side per-resident attendance calendar.
+
+Phase 4 leftovers are external: the §4.2 acceptance pass against a seeded DB, and cron-job.org
+entries for `/api/v1/cron/complaint-sla` (daily) and `/api/v1/cron/attendance-maintenance` (daily).
 
 Phase 3 leftovers are all external: seeded-DB acceptance pass (§3.2), live Resend delivery, an R2 bucket so QR images get a public CDN URL instead of the local-disk fallback, and a cron-job.org entry for `/api/v1/cron/payment-reminders`.
+
+**Payment testing is deliberately deferred to after every phase is built** — client decision
+(2026-08-01), on the grounds that the money path is too sensitive to sign off piecemeal. Do not
+treat the unticked payment items in §3.2 as forgotten.
 
 The older Phase 1 infra list below is still open and still **external/infra or deliberately deferred** — full list in `TODO.md`:
 

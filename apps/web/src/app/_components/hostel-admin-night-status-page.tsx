@@ -51,6 +51,59 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
     [invalidate],
   );
 
+  /**
+   * The nightly reality is "everyone is in except three people", so marking the
+   * whole roster and then correcting the exceptions is the fast path. Each row
+   * still goes through the same audited override endpoint — the bulk action is
+   * a convenience in the UI, not a bypass in the API.
+   */
+  const bulkMark = useCallback(
+    async (statusValue: string) => {
+      const pending = rows.filter((row) => row.status.status !== statusValue);
+
+      if (pending.length === 0) {
+        setActionMessage("Everyone is already marked that way.");
+
+        return;
+      }
+
+      if (
+        !window.confirm(
+          `Mark ${pending.length} resident${pending.length === 1 ? "" : "s"} as ${statusValue.replaceAll("_", " ")}?`,
+        )
+      ) {
+        return;
+      }
+
+      const reason = window.prompt("Reason for this bulk update")?.trim();
+
+      if (!reason) {
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        pending.map((row) =>
+          browserApi(
+            `${hostelAdminEndpoints.nightStatus}/${row.resident.id}/override`,
+            {
+              body: JSON.stringify({ reason, status: statusValue }),
+              method: "PATCH",
+            },
+          ),
+        ),
+      );
+      const failed = results.filter((result) => result.status === "rejected").length;
+
+      setActionMessage(
+        failed === 0
+          ? `${pending.length} residents updated.`
+          : `${pending.length - failed} updated, ${failed} failed.`,
+      );
+      invalidate(hostelAdminEndpoints.nightStatus);
+    },
+    [invalidate, rows],
+  );
+
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
       <PageHeader
@@ -59,6 +112,20 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
         title="Night Status"
       />
       <Message value={message} />
+      <Panel title="Bulk actions">
+        <div className="flex flex-wrap gap-2">
+          {["INSIDE_HOSTEL", "OUTSIDE_HOSTEL", "NOT_VERIFIED"].map((item) => (
+            <button
+              className="rounded-md bg-role-admin px-3 py-2 text-sm font-semibold text-white"
+              key={item}
+              onClick={() => void bulkMark(item)}
+              type="button"
+            >
+              Mark all {item.replaceAll("_", " ").toLowerCase()}
+            </button>
+          ))}
+        </div>
+      </Panel>
       <Panel>
         {state === "loading" ? <LoadingRows /> : null}
         {state === "error" ? (

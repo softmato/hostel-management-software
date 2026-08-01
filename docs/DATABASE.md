@@ -1036,7 +1036,7 @@ interface INotice {
   body: string;
   category: NoticeCategory;
   isUrgent: boolean;
-  targetAudience: 'all' | 'residents' | 'guardians'; // who should see/receive this
+  targetAudience: 'ALL' | 'RESIDENTS' | 'GUARDIANS'; // who should see/receive this
   createdBy: ObjectId; // ref User (hostel admin/warden)
   createdAt: Date;
   updatedAt: Date;
@@ -1054,8 +1054,8 @@ const NoticeSchema = new Schema<INotice>({
   isUrgent: { type: Boolean, default: false, index: true },
   targetAudience: { 
     type: String, 
-    enum: ['all', 'residents', 'guardians'], 
-    default: 'all' 
+    enum: ['ALL', 'RESIDENTS', 'GUARDIANS'], 
+    default: 'ALL' 
   },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true });
@@ -1065,6 +1065,10 @@ NoticeSchema.index({ hostelId: 1, isUrgent: 1, createdAt: -1 });
 
 export const NoticeModel = model<INotice>('Notice', NoticeSchema);
 ```
+
+`targetAudience` was added 2026-08-01 and is load-bearing in two places: the resident fan-out skips
+a `GUARDIANS` notice entirely, and the guardian dashboard only queries `ALL`/`GUARDIANS`. Shipped
+field name is `content`, not `body`; enum values are SCREAMING_SNAKE like every other enum here.
 
 ### Complaint
 
@@ -1079,7 +1083,8 @@ interface IComplaint {
   photoUrl?: string; // R2 URL
   isAnonymous: boolean;
   status: ComplaintStatus;
-  slaDeadline?: Date; // auto-calculated from the `operations` PlatformSetting
+  slaDueAt: Date;        // set on create from the `operations` setting complaintSlaHours (default 72)
+  slaBreachedAt?: Date;  // stamped once by the complaint-SLA cron; its absence is what makes that job idempotent
   resolvedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -1150,46 +1155,41 @@ export const ComplaintUpdateModel = model<IComplaintUpdate>('ComplaintUpdate', C
 
 ### RatingReview
 
+All seven categories shipped 2026-08-01 (`roomRating`, `locationRating` and `managementRating` were
+added then). Only `overallRating` is required — a resident can rate their stay without scoring every
+dimension, and the public per-category averages skip the reviews that left a category blank rather
+than counting them as zero.
+
 ```typescript
-interface IRatingReview {
-  _id: ObjectId;
-  residentId: ObjectId; // ref Resident
-  hostelId: ObjectId; // ref Hostel
-  overall: number; // 1-5
-  food: number; // 1-5
-  cleanliness: number; // 1-5
-  security: number; // 1-5
-  room: number; // 1-5
-  location: number; // 1-5
-  management: number; // 1-5
+{
+  hostelId: ObjectId;    // ref Hostel
+  residentId: ObjectId;  // ref Resident
+  userId: ObjectId;      // ref User
+  overallRating: number;         // 1-5, required
+  foodRating?: number;           // 1-5
+  cleanlinessRating?: number;    // 1-5
+  safetyRating?: number;         // 1-5 — surfaced publicly as "Security"
+  roomRating?: number;           // 1-5
+  locationRating?: number;       // 1-5
+  managementRating?: number;     // 1-5
   comment?: string;
-  isHidden: boolean; // moderated by superadmin
-  hiddenReason?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  status: 'VISIBLE' | 'HIDDEN';  // moderated by superadmin
+  hiddenAt?: Date;
+  hiddenBy?: ObjectId;           // ref User
 }
 
-const RatingReviewSchema = new Schema<IRatingReview>({
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  overall: { type: Number, required: true, min: 1, max: 5 },
-  food: { type: Number, required: true, min: 1, max: 5 },
-  cleanliness: { type: Number, required: true, min: 1, max: 5 },
-  security: { type: Number, required: true, min: 1, max: 5 },
-  room: { type: Number, required: true, min: 1, max: 5 },
-  location: { type: Number, required: true, min: 1, max: 5 },
-  management: { type: Number, required: true, min: 1, max: 5 },
-  comment: { type: String },
-  isHidden: { type: Boolean, default: false, index: true },
-  hiddenReason: { type: String },
-}, { timestamps: true });
-
-// One review per resident per hostel
-RatingReviewSchema.index({ residentId: 1, hostelId: 1 }, { unique: true });
-RatingReviewSchema.index({ hostelId: 1, isHidden: 1, createdAt: -1 });
-
-export const RatingReviewModel = model<IRatingReview>('RatingReview', RatingReviewSchema);
+// One review per resident per hostel. Re-submitting updates it rather than 409ing.
+RatingReviewSchema.index({ hostelId: 1, residentId: 1 }, { unique: true });
+RatingReviewSchema.index({ hostelId: 1, status: 1, createdAt: -1 });
 ```
+
+Public reads (`listPublicHostelReviews`) go through a separate serializer that returns the reviewer
+as a first name plus an initial and an `isVerifiedResident` flag — never the resident or user id.
+The moderation reason lives in `ReviewModerationLog`, not on the review itself.
+
+> Deviations: `*Rating` field suffixes to match the API payload; a `status` enum instead of
+> `isHidden`, consistent with every other moderatable record; `security` is stored as
+> `safetyRating` (renaming it now would need a migration for no behavioural gain).
 
 ---
 
@@ -1804,249 +1804,201 @@ export const FoodReadyLogModel = model<IFoodReadyLog>('FoodReadyLog', FoodReadyL
 
 ### AttendanceLog
 
-Tracks resident location zone at configured check times (morning, evening, night).
+One zone reading per resident **per day**. Shipped 2026-08-01 in
+[`packages/db/src/models/AttendanceLog.ts`](../packages/db/src/models/AttendanceLog.ts).
+
+**The privacy invariant:** no coordinates, ever. `POST /api/v1/resident/location/ping` takes
+`{ lat, lng }`, computes the distance to the hostel pin, derives a zone, and discards them. Only the
+zone and a rounded distance are persisted. `attendance-zone.test.ts` asserts the latitude/longitude
+never appear in the Mongo update — keep that test passing.
 
 ```typescript
-interface IAttendanceLog {
-  _id: ObjectId;
-  residentId: ObjectId; // ref Resident
-  hostelId: ObjectId; // ref Hostel (denormalized)
-  userId: ObjectId; // ref User (denormalized)
-  checkTime: Date; // specific datetime of check (e.g., 2026-08-15 08:00:00)
-  checkType: 'morning' | 'evening' | 'night' | 'manual'; // which scheduled check
-  zone: LocationZone; // INSIDE, NEARBY, OUTSIDE, UNKNOWN
-  distance?: number; // meters from hostel (null if UNKNOWN)
-  // We DO NOT store exact GPS coordinates for privacy
-  source: 'auto' | 'manual_override';
-  overriddenBy?: ObjectId; // ref User (admin/warden who manually corrected)
-  overrideReason?: string;
-  createdAt: Date;
-  updatedAt: Date;
+{
+  hostelId: ObjectId;    // ref Hostel
+  residentId: ObjectId;  // ref Resident
+  userId: ObjectId;      // ref User
+  day: Date;             // UTC midnight — the bucket the reading belongs to
+  recordedAt: Date;
+  zone: 'INSIDE' | 'NEARBY' | 'OUTSIDE' | 'UNKNOWN';
+  distanceMeters?: number;  // rounded; absent when the zone is UNKNOWN
+  source: 'MOBILE_PING' | 'MANUAL_OVERRIDE';
+  overrideReason?: string;  // required on a manual override
+  overriddenBy?: ObjectId;  // ref User
 }
 
-const AttendanceLogSchema = new Schema<IAttendanceLog>({
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  checkTime: { type: Date, required: true, index: true },
-  checkType: { 
-    type: String, 
-    enum: ['morning', 'evening', 'night', 'manual'], 
-    required: true 
-  },
-  zone: { 
-    type: String, 
-    enum: Object.values(LocationZone), 
-    required: true,
-    index: true,
-  },
-  distance: { type: Number },
-  source: { 
-    type: String, 
-    enum: ['auto', 'manual_override'], 
-    default: 'auto' 
-  },
-  overriddenBy: { type: Schema.Types.ObjectId, ref: 'User' },
-  overrideReason: { type: String },
-}, { timestamps: true });
-
-// One log per resident per check time
-AttendanceLogSchema.index({ residentId: 1, checkTime: 1 }, { unique: true });
-AttendanceLogSchema.index({ hostelId: 1, checkTime: 1, zone: 1 });
-AttendanceLogSchema.index({ hostelId: 1, checkType: 1, createdAt: -1 });
-
-export const AttendanceLogModel = model<IAttendanceLog>('AttendanceLog', AttendanceLogSchema);
+// The unique index is what makes the ping handler an upsert rather than an append.
+AttendanceLogSchema.index({ residentId: 1, day: -1 }, { unique: true });
+AttendanceLogSchema.index({ hostelId: 1, day: -1 });
+AttendanceLogSchema.index({ hostelId: 1, zone: 1, day: -1 });
 ```
+
+> **Deviation from the original spec, decided 2026-08-01.** This file previously described a row per
+> *scheduled check* (`checkTime` + `checkType: morning|evening|night`), i.e. three rows per resident
+> per day. The shipped model keys on the day instead, and a later ping overwrites an earlier one.
+>
+> What that buys: everything §4.1 actually asks for is expressed in days — a day-coloured calendar,
+> an absence streak counted in days, a retention window counted in days — and the day key makes all
+> three a direct query instead of an aggregation. It also cuts stored rows ~3×, which matters against
+> a 600-day retention default.
+>
+> What it costs: intra-day detail. You cannot see "present at 8am, gone by 10pm" — the last reading
+> of the day wins. For a night-safety product that is arguably the right reading to keep, but it is a
+> real loss. If per-check granularity is ever needed, change the unique index to
+> `{ residentId, recordedAt }` and add a `checkType`; nothing else in the service depends on
+> one-row-per-day except the upsert filter.
 
 ### AttendanceAlert
 
-Tracks alerts triggered when resident is absent for X consecutive days.
+Raised when a resident's absence streak reaches the hostel's `absenceAlertDays`. Shipped in
+[`packages/db/src/models/AttendanceAlert.ts`](../packages/db/src/models/AttendanceAlert.ts).
 
 ```typescript
-interface IAttendanceAlert {
-  _id: ObjectId;
-  residentId: ObjectId; // ref Resident
-  hostelId: ObjectId; // ref Hostel
-  consecutiveDaysAbsent: number;
-  alertTriggeredAt: Date;
-  alertSentTo: ObjectId[]; // ref User[] - admins/wardens who were notified
-  resolved: boolean;
+{
+  hostelId: ObjectId;       // ref Hostel
+  residentId: ObjectId;     // ref Resident
+  consecutiveDays: number;
+  lastSeenAt?: Date;
+  status: 'OPEN' | 'RESOLVED';
+  resolutionNote?: string;
   resolvedAt?: Date;
-  resolvedBy?: ObjectId; // ref User
-  notes?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  resolvedBy?: ObjectId;    // ref User
 }
 
-const AttendanceAlertSchema = new Schema<IAttendanceAlert>({
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  consecutiveDaysAbsent: { type: Number, required: true },
-  alertTriggeredAt: { type: Date, required: true, default: Date.now },
-  alertSentTo: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-  resolved: { type: Boolean, default: false, index: true },
-  resolvedAt: { type: Date },
-  resolvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
-  notes: { type: String },
-}, { timestamps: true });
-
-AttendanceAlertSchema.index({ hostelId: 1, resolved: 1, createdAt: -1 });
-AttendanceAlertSchema.index({ residentId: 1, resolved: 1 });
-
-export const AttendanceAlertModel = model<IAttendanceAlert>('AttendanceAlert', AttendanceAlertSchema);
+// At most one open alert per resident: a continuing absence updates the day count
+// on the existing alert instead of raising a new one every night.
+AttendanceAlertSchema.index(
+  { residentId: 1, status: 1 },
+  { partialFilterExpression: { status: 'OPEN' }, unique: true },
+);
+AttendanceAlertSchema.index({ hostelId: 1, status: 1, createdAt: -1 });
 ```
+
+> Deviations from the earlier draft: a `status` enum instead of a `resolved` boolean (so a third
+> state can be added without a migration), and no `alertSentTo` array — who was emailed is already
+> in the `Notification` collection and the cron's structured logs, and duplicating it here would be
+> a second source of truth that drifts.
 
 ---
 
 ## Community Feature
 
+Shipped 2026-08-01. Four collections, all hostel-scoped:
+[`CommunityPost`](../packages/db/src/models/CommunityPost.ts),
+[`CommunityComment`](../packages/db/src/models/CommunityComment.ts),
+[`CommunityReaction`](../packages/db/src/models/CommunityReaction.ts),
+[`CommunityReport`](../packages/db/src/models/CommunityReport.ts).
+
+**How anonymity works, and why it is worth reading before changing anything.** `authorId` is stored
+on every post and comment, including anonymous ones. Anonymity is applied in the *serializer*, in
+one place, and is lifted for the hostel-admin moderation view -- an admin dealing with harassment has
+to know who wrote it. Storing anonymous posts without an author would make them unmoderatable, which
+is how anonymous feeds become unusable. `community-anonymity.test.ts` locks both halves: the
+resident feed must not contain the author's name, and the moderation view must.
+
 ### CommunityPost
 
-Hostel-specific or platform-wide community feed (like Facebook wall).
-
 ```typescript
-interface ICommunityPost {
-  _id: ObjectId;
-  hostelId: ObjectId; // ref Hostel - the hostel this post belongs to
-  authorId: ObjectId; // ref Resident
-  authorName?: string; // null if anonymous
+{
+  hostelId: ObjectId;           // ref Hostel
+  authorId: ObjectId;           // ref User - always set, even when anonymous
+  authorResidentId?: ObjectId;  // ref Resident
+  body: string;                 // max 4000, profanity-masked on write
+  mediaAssetIds: string[];      // FileAsset ids, max 6 - photos only for now
   isAnonymous: boolean;
-  visibility: CommunityPostVisibility; // PUBLIC or HOSTEL_ONLY
-  content: string; // text content
-  mediaUrls: string[]; // photos, videos, audio files (R2 URLs)
-  reactions: {
-    like: number;
-    love: number;
-    care: number;
-    haha: number;
-    sad: number;
-    angry: number;
-  };
-  commentCount: number; // denormalized for performance
-  reported: boolean;
-  reportedBy?: ObjectId[]; // ref Resident[]
-  reportReason?: string;
-  hidden: boolean; // admin can hide inappropriate posts
-  hiddenBy?: ObjectId; // ref User (admin/warden)
+  visibility: 'PUBLIC' | 'HOSTEL_ONLY';   // default HOSTEL_ONLY
+  isAnnouncement: boolean;      // staff-posted, pinned above the feed
+  status: 'VISIBLE' | 'HIDDEN';
   hiddenAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
+  hiddenBy?: ObjectId;          // ref User
+  hiddenReason?: string;
+  reportCount: number;
+  commentCount: number;
+  reactionCount: number;
 }
 
-const CommunityPostSchema = new Schema<ICommunityPost>({
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  authorId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  authorName: { type: String },
-  isAnonymous: { type: Boolean, default: false },
-  visibility: { 
-    type: String, 
-    enum: Object.values(CommunityPostVisibility), 
-    default: CommunityPostVisibility.HOSTEL_ONLY,
-    index: true,
-  },
-  content: { type: String, required: true },
-  mediaUrls: [{ type: String }],
-  reactions: {
-    like: { type: Number, default: 0 },
-    love: { type: Number, default: 0 },
-    care: { type: Number, default: 0 },
-    haha: { type: Number, default: 0 },
-    sad: { type: Number, default: 0 },
-    angry: { type: Number, default: 0 },
-  },
-  commentCount: { type: Number, default: 0 },
-  reported: { type: Boolean, default: false, index: true },
-  reportedBy: [{ type: Schema.Types.ObjectId, ref: 'Resident' }],
-  reportReason: { type: String },
-  hidden: { type: Boolean, default: false, index: true },
-  hiddenBy: { type: Schema.Types.ObjectId, ref: 'User' },
-  hiddenAt: { type: Date },
-}, { timestamps: true });
-
-CommunityPostSchema.index({ hostelId: 1, visibility: 1, hidden: 1, createdAt: -1 });
+CommunityPostSchema.index({ hostelId: 1, status: 1, createdAt: -1 });
+CommunityPostSchema.index({ visibility: 1, status: 1, createdAt: -1 });
 CommunityPostSchema.index({ authorId: 1, createdAt: -1 });
-CommunityPostSchema.index({ reported: 1, hidden: 1 });
-
-export const CommunityPostModel = model<ICommunityPost>('CommunityPost', CommunityPostSchema);
 ```
+
+A resident deleting their own post sets `status: HIDDEN` with `hiddenReason: "Removed by author"` --
+a soft delete, per RULES.md 12.3, so a moderation trail survives the author changing their mind.
+
+`visibility: PUBLIC` is stored and indexed but nothing renders a cross-hostel feed yet: a resident
+opening Community sees their own building. The flag is the forward-compatible half of the decision,
+not a shipped surface.
 
 ### CommunityComment
 
 ```typescript
-interface ICommunityComment {
-  _id: ObjectId;
-  postId: ObjectId; // ref CommunityPost
-  authorId: ObjectId; // ref Resident
-  authorName?: string; // null if anonymous
+{
+  postId: ObjectId;      // ref CommunityPost
+  hostelId: ObjectId;    // ref Hostel
+  authorId: ObjectId;    // ref User
+  body: string;          // max 2000, profanity-masked on write
   isAnonymous: boolean;
-  content: string;
-  reactions: {
-    like: number;
-    love: number;
-    haha: number;
-  };
-  reported: boolean;
-  reportedBy?: ObjectId[]; // ref Resident[]
-  hidden: boolean;
-  hiddenBy?: ObjectId; // ref User (admin)
-  createdAt: Date;
-  updatedAt: Date;
+  status: 'VISIBLE' | 'HIDDEN';
+  hiddenAt?: Date;
+  hiddenBy?: ObjectId;
 }
 
-const CommunityCommentSchema = new Schema<ICommunityComment>({
-  postId: { type: Schema.Types.ObjectId, ref: 'CommunityPost', required: true, index: true },
-  authorId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true },
-  authorName: { type: String },
-  isAnonymous: { type: Boolean, default: false },
-  content: { type: String, required: true },
-  reactions: {
-    like: { type: Number, default: 0 },
-    love: { type: Number, default: 0 },
-    haha: { type: Number, default: 0 },
-  },
-  reported: { type: Boolean, default: false },
-  reportedBy: [{ type: Schema.Types.ObjectId, ref: 'Resident' }],
-  hidden: { type: Boolean, default: false },
-  hiddenBy: { type: Schema.Types.ObjectId, ref: 'User' },
-}, { timestamps: true });
-
-CommunityCommentSchema.index({ postId: 1, createdAt: -1 });
-CommunityCommentSchema.index({ authorId: 1, createdAt: -1 });
-
-export const CommunityCommentModel = model<ICommunityComment>('CommunityComment', CommunityCommentSchema);
+CommunityCommentSchema.index({ postId: 1, createdAt: 1 });
+CommunityCommentSchema.index({ hostelId: 1, status: 1 });
 ```
+
+Commenting notifies the post author in-app, unless they are commenting on themselves. The
+notification never names an anonymous commenter.
 
 ### CommunityReaction
 
-Tracks who reacted to posts/comments.
-
 ```typescript
-interface ICommunityReaction {
-  _id: ObjectId;
-  targetType: 'post' | 'comment';
-  targetId: ObjectId; // ref CommunityPost or CommunityComment
-  residentId: ObjectId; // ref Resident
-  reactionType: 'like' | 'love' | 'care' | 'haha' | 'sad' | 'angry';
-  createdAt: Date;
-  updatedAt: Date;
+{
+  postId: ObjectId;    // ref CommunityPost
+  hostelId: ObjectId;  // ref Hostel
+  userId: ObjectId;    // ref User
+  type: 'LIKE' | 'LOVE' | 'LAUGH' | 'SAD' | 'ANGRY' | 'SUPPORT';
 }
 
-const CommunityReactionSchema = new Schema<ICommunityReaction>({
-  targetType: { type: String, enum: ['post', 'comment'], required: true },
-  targetId: { type: Schema.Types.ObjectId, required: true, index: true },
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  reactionType: { 
-    type: String, 
-    enum: ['like', 'love', 'care', 'haha', 'sad', 'angry'], 
-    required: true 
-  },
-}, { timestamps: true });
-
-// One reaction per resident per target
-CommunityReactionSchema.index({ targetType: 1, targetId: 1, residentId: 1 }, { unique: true });
-
-export const CommunityReactionModel = model<ICommunityReaction>('CommunityReaction', CommunityReactionSchema);
+// One reaction per user per post - switching type replaces the row.
+CommunityReactionSchema.index({ postId: 1, userId: 1 }, { unique: true });
+CommunityReactionSchema.index({ postId: 1, type: 1 });
 ```
+
+The endpoint is a toggle: posting the same type twice removes the reaction. `reactionCount` on the
+post is maintained alongside, so the feed does not aggregate per render.
+
+### CommunityReport
+
+```typescript
+{
+  postId: ObjectId;       // ref CommunityPost
+  commentId?: ObjectId;   // ref CommunityComment
+  hostelId: ObjectId;     // ref Hostel
+  reportedBy: ObjectId;   // ref User
+  reason: string;         // max 500
+  status: 'OPEN' | 'ACTIONED' | 'DISMISSED';
+  reviewedAt?: Date;
+  reviewedBy?: ObjectId;
+}
+
+// The same user reporting the same post twice is one report, not two.
+CommunityReportSchema.index({ postId: 1, reportedBy: 1 }, { unique: true });
+CommunityReportSchema.index({ hostelId: 1, status: 1, createdAt: -1 });
+```
+
+Hiding a post marks its open reports `ACTIONED`; restoring one marks them `DISMISSED`. Both write an
+`AuditLog` entry.
+
+> **On the profanity filter.** `modules/community/profanity.ts` masks a short list of obvious words
+> and nothing else. It is a speed bump, not moderation -- the real control is the report to hide
+> flow. It is documented here so nobody mistakes it for a safety feature.
+
+> Deviations from the earlier draft: `content` to `body`; `mediaUrls` to `mediaAssetIds` (the
+> project stores FileAsset ids and resolves URLs at read time, per the universal uploader);
+> denormalised `authorName` dropped (it would go stale and it is exactly the field that must not
+> exist on an anonymous post); the embedded `reactions: { like, love, ... }` counter object replaced
+> by the `CommunityReaction` collection plus a single `reactionCount`, because per-user reaction
+> state is needed to render the viewer's own choice and to enforce one-per-user.
 
 ---
 
@@ -2093,76 +2045,50 @@ export const QuestionCallClickModel = model<IQuestionCallClick>('QuestionCallCli
 
 ### HostelSettings
 
-Per-hostel configurable settings (location tracking, attendance, etc.).
+Per-hostel operational settings — the second level of the PlatformSetting → HostelSettings
+hierarchy. One document per hostel.
+[`packages/db/src/models/HostelSettings.ts`](../packages/db/src/models/HostelSettings.ts).
 
 ```typescript
-interface IHostelSettings {
-  _id: ObjectId;
-  hostelId: ObjectId; // ref Hostel, unique
-  
-  // Location Tracking & Attendance Settings
-  locationTrackingEnabled: boolean;
-  geofenceRadiusMeters: number; // default: 50-100m (configurable)
-  insideZoneRadius: number; // default: 50m
-  nearbyZoneRadius: number; // default: 200m
-  trackingTimes: {
-    morning: string; // HH:mm format, e.g., "08:00"
-    evening: string; // e.g., "18:00"
-    night: string; // e.g., "22:00"
+{
+  hostelId: ObjectId;  // ref Hostel, unique
+
+  // Cook Portal (Phase 3)
+  cookPortalEnabled: boolean;        // default false
+  cookName?: string;
+  cookUserId?: ObjectId;             // ref User — the shared kitchen login
+  cookCredentialIssuedAt?: Date;     // only the bcrypt hash is stored; this is what the UI shows
+
+  // Location tracking & attendance (Phase 4)
+  attendance: {
+    enabled: boolean;                     // default false — opt-in per hostel
+    insideZoneRadiusMeters: number;       // default 50,  max 500
+    nearbyZoneRadiusMeters: number;       // default 200, max 2000
+    absenceAlertDays: number;             // default 14,  max 90
+    retentionDays: number;                // default 600, max 1095 (platform ceiling)
+    pingTimes: string[];                  // HH:mm, default ['06:00','08:00','22:00']
   };
-  attendanceAlertThresholdDays: number; // default: 14
-  locationDataRetentionDays: number; // default: 600 (configurable, cannot exceed platform max)
-  
-  // Cook Portal Settings
-  cookPortalEnabled: boolean;
-  cookName?: string; // e.g., "Sunshine Hostel Cook"
-  cookDeviceFingerprints: string[]; // to track multiple cooks sharing credentials
-  
-  // Community Feature Settings
-  communityFeatureEnabled: boolean;
-  communityModerationEnabled: boolean;
-  profanityFilterEnabled: boolean;
-  
-  // Notification Settings
-  notificationsEnabled: boolean;
-  
-  // General Settings
-  timezone: string; // e.g., "Asia/Kathmandu"
-  
-  createdAt: Date;
-  updatedAt: Date;
+
+  createdBy?: ObjectId;
+  updatedBy?: ObjectId;
 }
-
-const HostelSettingsSchema = new Schema<IHostelSettings>({
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, unique: true, index: true },
-  
-  locationTrackingEnabled: { type: Boolean, default: true },
-  geofenceRadiusMeters: { type: Number, default: 100 },
-  insideZoneRadius: { type: Number, default: 50 },
-  nearbyZoneRadius: { type: Number, default: 200 },
-  trackingTimes: {
-    morning: { type: String, default: '08:00' },
-    evening: { type: String, default: '18:00' },
-    night: { type: String, default: '22:00' },
-  },
-  attendanceAlertThresholdDays: { type: Number, default: 14 },
-  locationDataRetentionDays: { type: Number, default: 600 },
-  
-  cookPortalEnabled: { type: Boolean, default: false },
-  cookName: { type: String },
-  cookDeviceFingerprints: [{ type: String }],
-  
-  communityFeatureEnabled: { type: Boolean, default: true },
-  communityModerationEnabled: { type: Boolean, default: true },
-  profanityFilterEnabled: { type: Boolean, default: true },
-  
-  notificationsEnabled: { type: Boolean, default: true },
-  
-  timezone: { type: String, default: 'Asia/Kathmandu' },
-}, { timestamps: true });
-
-export const HostelSettingsModel = model<IHostelSettings>('HostelSettings', HostelSettingsSchema);
 ```
+
+Validation lives in `attendance.validation.ts`; the service additionally rejects a nearby radius
+that is not larger than the inside radius (`422 INVALID_GEOFENCE`). The maxima above are the
+platform ceilings a hostel admin cannot exceed.
+
+> Deviations from the earlier draft, decided 2026-08-01:
+> - Attendance settings are nested under `attendance` rather than flattened, so the whole block can
+>   be read and merged over `ATTENDANCE_DEFAULTS` in one step.
+> - `pingTimes` is an array instead of a `{morning, evening, night}` object — the default is three
+>   times but nothing in the design depends on it being exactly three.
+> - `geofenceRadiusMeters` is gone; it duplicated `insideZoneRadiusMeters` and nothing read it.
+> - `cookDeviceFingerprints` is gone; per-announcement attribution comes from
+>   `FoodReadyLog.deviceInfo` instead (PHASES.md §3.1), which is where it actually lives.
+> - `communityFeatureEnabled` / `communityModerationEnabled` / `profanityFilterEnabled` /
+>   `notificationsEnabled` / `timezone` are **not implemented**. They are feature switches nothing
+>   reads yet; add them when there is a screen that turns them on, not before.
 
 ### PlatformConfig
 
@@ -2176,42 +2102,34 @@ it is documented there.
 
 ### ConsentLog
 
-Tracks when residents consent to terms, privacy policy, location tracking.
+Append-only record of consents given and withdrawn.
+[`packages/db/src/models/ConsentLog.ts`](../packages/db/src/models/ConsentLog.ts).
 
 ```typescript
-interface IConsentLog {
-  _id: ObjectId;
-  userId: ObjectId; // ref User
-  residentId?: ObjectId; // ref Resident (if applicable)
-  consentType: 'terms_of_use' | 'privacy_policy' | 'location_tracking';
-  consentVersion: string; // e.g., "v1.0", "v2.1"
-  consented: boolean;
-  consentedAt: Date;
-  ipAddress?: string;
-  userAgent?: string;
-  createdAt: Date;
-  updatedAt: Date;
+{
+  userId: ObjectId;       // ref User
+  hostelId?: ObjectId;    // ref Hostel
+  residentId?: ObjectId;  // ref Resident
+  consentType: 'LOCATION_TRACKING' | 'TERMS_OF_USE' | 'PRIVACY_POLICY';
+  granted: boolean;
+  policyVersion?: string; // version of the text the user actually saw
+  recordedAt: Date;
+  source: 'WEB' | 'MOBILE';
 }
 
-const ConsentLogSchema = new Schema<IConsentLog>({
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident' },
-  consentType: { 
-    type: String, 
-    enum: ['terms_of_use', 'privacy_policy', 'location_tracking'], 
-    required: true 
-  },
-  consentVersion: { type: String, required: true },
-  consented: { type: Boolean, required: true },
-  consentedAt: { type: Date, required: true, default: Date.now },
-  ipAddress: { type: String },
-  userAgent: { type: String },
-}, { timestamps: true });
-
-ConsentLogSchema.index({ userId: 1, consentType: 1, consentedAt: -1 });
-
-export const ConsentLogModel = model<IConsentLog>('ConsentLog', ConsentLogSchema);
+ConsentLogSchema.index({ userId: 1, consentType: 1, recordedAt: -1 });
+ConsentLogSchema.index({ hostelId: 1, consentType: 1 });
 ```
+
+**Rows are never updated.** A withdrawal is a new row with `granted: false`, so the history of who
+agreed to what and when survives intact. `hasLocationConsent()` therefore reads the *latest* row
+per user and type, not any row — which is what makes withdrawal take effect on the very next ping.
+
+> Deviations: enum values are SCREAMING_SNAKE to match every other enum in the codebase;
+> `consented` → `granted`; `consentedAt` → `recordedAt`; `consentVersion` → optional
+> `policyVersion` (a consent recorded before there is a versioned policy text is still worth having).
+> `ipAddress` / `userAgent` are **deliberately not stored** — this is a privacy record, and
+> retaining a per-consent IP to prove a privacy choice is self-defeating.
 
 ### AccountDeletionRequest
 

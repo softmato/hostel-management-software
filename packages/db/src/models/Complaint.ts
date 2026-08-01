@@ -28,6 +28,12 @@ const complaintSchema = new Schema(
     },
     adminResponse: { trim: true, type: String },
     slaDueAt: { required: true, type: Date },
+    /**
+     * Set once by the SLA cron when a still-open complaint passes slaDueAt.
+     * Presence is what makes the breach alert idempotent — the job only ever
+     * looks at complaints where this is missing.
+     */
+    slaBreachedAt: Date,
     resolvedAt: Date,
     rejectedAt: Date,
     confirmedAt: Date,
