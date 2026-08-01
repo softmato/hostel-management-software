@@ -1,6 +1,6 @@
 "use client";
 
-import { Users, type LucideIcon } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
@@ -52,19 +52,6 @@ export type PaymentProof = {
   status: "PENDING" | "APPROVED" | "REJECTED";
   submittedAt: string;
   transactionCode?: string;
-};
-
-export type FoodMenu = {
-  createdAt?: string;
-  date: string;
-  dayOfWeek: string;
-  id: string;
-  items: string[];
-  mealType: "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
-  specialNotes?: string;
-  timing: string;
-  updatedAt?: string;
-  weekStartDate: string;
 };
 
 export type Notice = {

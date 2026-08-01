@@ -40,11 +40,8 @@ vi.mock("@hostel/db/models/AuditLog", () => ({
   },
 }));
 
-vi.mock("@hostel/db/models/FoodMenu", () => ({
-  FoodMenuModel: {
-    find: serviceMocks.foodMenuFind,
-    findOne: serviceMocks.foodMenuFindOne,
-  },
+vi.mock("@hostel/db/models/FoodRoutine", () => ({
+  FoodRoutineModel: { findOne: serviceMocks.foodMenuFindOne },
 }));
 
 vi.mock("@hostel/db/models/Hostel", () => ({

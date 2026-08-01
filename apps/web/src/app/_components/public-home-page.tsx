@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { useSiteConfig } from "@/components/site-config-provider";
 import { checkAuthWithRefresh } from "@/lib/auth-check";
@@ -36,12 +36,9 @@ import { landingPathForRole } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
 
 import { cn } from "@/lib/utils";
+import type { HostelSummary } from "./public-hostel-types";
 import { HostelCard, PublicShell, StatusPill, formatMoney } from "./shared";
-import {
-  FACILITY_STATS,
-  HOSTEL_TYPE_STATS,
-  MOCK_HOSTELS,
-} from "./public-home-mock-data";
+import { FACILITY_STATS, HOSTEL_TYPE_STATS } from "./public-home-content";
 
 const PUBLIC_HERO_IMAGE =
   "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=1600&q=80";
@@ -95,6 +92,10 @@ const TRUST_ICON_FALLBACKS: LucideIcon[] = [
   Headphones,
 ];
 
+function pluralHostels(count: number) {
+  return `${count} ${count === 1 ? "hostel" : "hostels"}`;
+}
+
 function SectionHeading({
   title,
   subtitle,
@@ -124,7 +125,32 @@ function SectionHeading({
   );
 }
 
-function PublicHomePageContent() {
+/**
+ * One row of hostel cards. Every row on this page is a slice of the same
+ * server-rendered set, so they share one empty treatment — a row that simply
+ * renders nothing reads as a broken page.
+ */
+function HostelRow({
+  emptyLabel,
+  hostels,
+}: {
+  emptyLabel: string;
+  hostels: HostelSummary[];
+}) {
+  return (
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {hostels.length === 0 ? (
+        <div className="col-span-full rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          {emptyLabel}
+        </div>
+      ) : (
+        hostels.map((hostel) => <HostelCard hostel={hostel} key={hostel.id} />)
+      )}
+    </div>
+  );
+}
+
+function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
   const router = useRouter();
   const { features, hero, identity, locations, social, trustPoints } = useSiteConfig();
   const cityOptions = locations.map((location) => location.city);
@@ -150,19 +176,50 @@ function PublicHomePageContent() {
     void redirectIfDashboardRole();
   }, [router]);
 
-  const featuredHostels = [...MOCK_HOSTELS]
-    .sort((a, b) => b.rating - a.rating || b.reviews - a.reviews)
-    .slice(0, 4);
+  const byRating = useMemo(
+    () => [...hostels].sort((a, b) => b.rating - a.rating || b.reviews - a.reviews),
+    [hostels],
+  );
 
-  const popularHostels = MOCK_HOSTELS.filter((hostel) => hostel.city === selectedCity)
-    .sort((a, b) => b.rating - a.rating || b.reviews - a.reviews)
-    .slice(0, 4);
+  const featuredHostels = byRating.slice(0, 4);
 
-  const budgetHostels = MOCK_HOSTELS.filter((hostel) => hostel.price <= BUDGET_THRESHOLD)
-    .sort((a, b) => a.price - b.price)
-    .slice(0, 4);
+  const popularHostels = useMemo(
+    () => byRating.filter((hostel) => hostel.city === selectedCity).slice(0, 4),
+    [byRating, selectedCity],
+  );
 
-  const newlyListedHostels = MOCK_HOSTELS.filter((hostel) => hostel.isNew).slice(0, 4);
+  const budgetHostels = useMemo(
+    () =>
+      hostels
+        .filter((hostel) => hostel.price > 0 && hostel.price <= BUDGET_THRESHOLD)
+        .sort((a, b) => a.price - b.price)
+        .slice(0, 4),
+    [hostels],
+  );
+
+  // "Newly listed" is the tail of the API's own ordering (newest first), so it
+  // needs no extra field on the hostel.
+  const newlyListedHostels = hostels.slice(0, 4);
+
+  // The category tiles carry counts. Those have to be counted, not asserted —
+  // a tile promising "125 hostels" that opens onto three is worse than no tile.
+  const typeCounts = useMemo(() => {
+    const counts = new Map<HostelSummary["type"], number>();
+    for (const hostel of hostels) {
+      counts.set(hostel.type, (counts.get(hostel.type) ?? 0) + 1);
+    }
+    return counts;
+  }, [hostels]);
+
+  const facilityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const hostel of hostels) {
+      for (const facility of new Set(hostel.facilities)) {
+        counts.set(facility, (counts.get(facility) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [hostels]);
 
   const heroHostel = featuredHostels[0];
 
@@ -331,11 +388,10 @@ function PublicHomePageContent() {
           subtitle="Top-rated and verified hostels for students"
           title="Featured Verified Hostels"
         />
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {featuredHostels.map((hostel) => (
-            <HostelCard hostel={hostel} key={hostel.id} />
-          ))}
-        </div>
+        <HostelRow
+          emptyLabel="No hostels are published yet. Check back soon."
+          hostels={featuredHostels}
+        />
       </section>
 
       {/* Popular near you */}
@@ -374,16 +430,10 @@ function PublicHomePageContent() {
               </Link>
             </div>
           </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {popularHostels.length === 0 ? (
-              <div className="col-span-full rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                No hostels listed in {selectedCity} yet.
-              </div>
-            ) : null}
-            {popularHostels.map((hostel) => (
-              <HostelCard hostel={hostel} key={hostel.id} />
-            ))}
-          </div>
+          <HostelRow
+            emptyLabel={`No hostels listed in ${selectedCity} yet.`}
+            hostels={popularHostels}
+          />
         </div>
       </section>
 
@@ -417,7 +467,7 @@ function PublicHomePageContent() {
                   <div>
                     <p className="font-extrabold text-sm text-foreground">{item.label}</p>
                     <p className="text-[11px] font-bold text-muted-foreground">
-                      {item.count}
+                      {pluralHostels(typeCounts.get(item.type) ?? 0)}
                     </p>
                     <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground max-w-[180px]">
                       {item.description}
@@ -440,11 +490,10 @@ function PublicHomePageContent() {
             subtitle={`Great hostels under ${formatMoney(BUDGET_THRESHOLD)}/month`}
             title="Budget-Friendly Picks"
           />
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {budgetHostels.map((hostel) => (
-              <HostelCard hostel={hostel} key={hostel.id} />
-            ))}
-          </div>
+          <HostelRow
+            emptyLabel={`No hostels under ${formatMoney(BUDGET_THRESHOLD)} a month right now.`}
+            hostels={budgetHostels}
+          />
         </div>
       </section>
 
@@ -456,11 +505,10 @@ function PublicHomePageContent() {
           subtitle="Recently added hostels"
           title="Newly Listed"
         />
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {newlyListedHostels.map((hostel) => (
-            <HostelCard hostel={hostel} key={hostel.id} />
-          ))}
-        </div>
+        <HostelRow
+          emptyLabel="No hostels are published yet. Check back soon."
+          hostels={newlyListedHostels}
+        />
       </section>
 
       {/* Browse by facility */}
@@ -487,7 +535,7 @@ function PublicHomePageContent() {
                   <div>
                     <p className="text-xs font-bold text-foreground">{facility.label}</p>
                     <p className="text-[10px] font-semibold text-muted-foreground">
-                      {facility.count}
+                      {pluralHostels(facilityCounts.get(facility.label) ?? 0)}
                     </p>
                   </div>
                 </Link>
@@ -736,10 +784,10 @@ function PublicHomePageContent() {
   );
 }
 
-export function PublicHomePage() {
+export function PublicHomePage({ hostels }: { hostels: HostelSummary[] }) {
   return (
     <Suspense fallback={null}>
-      <PublicHomePageContent />
+      <PublicHomePageContent hostels={hostels} />
     </Suspense>
   );
 }

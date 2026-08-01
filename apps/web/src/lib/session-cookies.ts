@@ -7,8 +7,8 @@ import {
   refreshTokenTtlSeconds,
 } from "@/lib/auth";
 
-// "/api" so the refresh token reaches both the docs-standard /api/auth/*
-// routes and the legacy /api/v1/auth/* routes during the migration window.
+// Scoped to "/api" rather than "/": the refresh token is only ever presented to
+// a route handler, so no other request needs to carry it.
 const REFRESH_COOKIE_PATH = "/api";
 
 export function applySessionCookies(
@@ -35,6 +35,9 @@ export function applySessionCookies(
 }
 
 export function clearSessionCookies(response: NextResponse) {
+  // A cookie is only cleared by a delete on the exact path it was written to.
+  // "/api/v1/auth" is included so sessions issued before the auth routes were
+  // unified still log out cleanly instead of leaving an undeletable token.
   for (const path of ["/", REFRESH_COOKIE_PATH, "/api/v1/auth"]) {
     const name = path === "/" ? ACCESS_TOKEN_COOKIE : REFRESH_TOKEN_COOKIE;
 

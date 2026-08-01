@@ -1,13 +1,9 @@
 import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
-import {
-  ACCESS_TOKEN_COOKIE,
-  REFRESH_TOKEN_COOKIE,
-  accessTokenTtlSeconds,
-  refreshTokenTtlSeconds,
-} from "@/lib/auth";
+import { REFRESH_TOKEN_COOKIE } from "@/lib/auth";
 import { readBodyRefreshToken, shouldExposeRefreshToken } from "@/lib/mobile-auth";
+import { applySessionCookies } from "@/lib/session-cookies";
 import { AuthServiceError, refreshAccessToken } from "@/modules/auth/auth.service";
 
 export const runtime = "nodejs";
@@ -36,22 +32,10 @@ export async function POST(request: NextRequest) {
       "Token refreshed",
     );
 
+    // Mobile passes the token in the body and stores the rotated one itself;
+    // only a cookie-based session gets the rotated pair written back.
     if (cookieRefreshToken) {
-      response.cookies.set(ACCESS_TOKEN_COOKIE, result.accessToken, {
-        httpOnly: true,
-        maxAge: accessTokenTtlSeconds(),
-        path: "/",
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-      });
-
-      response.cookies.set(REFRESH_TOKEN_COOKIE, result.refreshToken, {
-        httpOnly: true,
-        maxAge: refreshTokenTtlSeconds(),
-        path: "/api/v1/auth",
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-      });
+      applySessionCookies(response, result);
     }
 
     return response;

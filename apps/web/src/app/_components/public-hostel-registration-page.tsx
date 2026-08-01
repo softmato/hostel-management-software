@@ -14,7 +14,7 @@ import {
   CreditCard,
   FileText,
   IdCard,
-  Image,
+  Image as ImageIcon,
   Info,
   Landmark,
   Loader2,
@@ -450,7 +450,7 @@ function FileUploadArea({
               <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
             ) : (
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                {f.name.match(/\.(jpe?g|png|webp)/i) ? <Image className="size-4" /> : <FileText className="size-4" />}
+                {f.name.match(/\.(jpe?g|png|webp)/i) ? <ImageIcon className="size-4" /> : <FileText className="size-4" />}
               </div>
             )}
             <div className="min-w-0">
@@ -1661,10 +1661,10 @@ export function PublicHostelRegistrationPage() {
                       <FileUploadArea files={bankDoc} label="Upload bank statement or cheque" {...docSlot(setBankDoc, "Bank document")} />
                     </DocRow>
 
-                    <DocRow desc="Clear photos of the hostel building exterior (optional)" icon={Image} title="Hostel Exterior Photos">
+                    <DocRow desc="Clear photos of the hostel building exterior (optional)" icon={ImageIcon} title="Hostel Exterior Photos">
                       <FileUploadArea accept={acceptAttribute("image")} files={exteriorPhotos} label="Upload 2–5 exterior photos" maxFiles={5} {...docSlot(setExteriorPhotos, "Exterior photo")} />
                     </DocRow>
-                    <DocRow desc="Photos of rooms and common areas (optional)" icon={Image} title="Room Photos">
+                    <DocRow desc="Photos of rooms and common areas (optional)" icon={ImageIcon} title="Room Photos">
                       <FileUploadArea accept={acceptAttribute("image")} files={roomPhotos} label="Upload 5–10 room photos" maxFiles={10} {...docSlot(setRoomPhotos, "Room photo")} />
                     </DocRow>
                     <p className="flex items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5 text-[11px] font-medium text-muted-foreground">

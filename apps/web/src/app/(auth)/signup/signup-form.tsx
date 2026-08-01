@@ -5,20 +5,15 @@ import {
   BarChart3, 
   Building2, 
   Check, 
-  CheckCircle2, 
   Eye, 
   EyeOff, 
   HelpCircle, 
-  KeyRound, 
   LockKeyhole, 
   Mail, 
   Pencil, 
   Phone, 
-  RefreshCw, 
   ShieldCheck, 
-  Star, 
   User, 
-  UserRound 
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -97,14 +92,12 @@ function SignupFormContent({ googleClientId }: SignupFormProps) {
   const [challengeId, setChallengeId] = useState("");
   const [devCode, setDevCode] = useState("");
   const [error, setError] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
   const [isResending, setIsResending] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form Fields
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [phoneVal, setPhoneVal] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [agreeToTerms, setAgreeToTerms] = useState(false);
@@ -123,20 +116,19 @@ function SignupFormContent({ googleClientId }: SignupFormProps) {
   const identifier = email.trim().toLowerCase();
   const nextParam = searchParams.get("next");
 
-  function redirectAfterAuth(role: Role) {
-    if (nextParam) {
-      router.push(nextParam);
-    } else {
-      router.push(destinationForRole(role));
-    }
-    router.refresh();
-  }
+  const redirectAfterAuth = useCallback(
+    (role: Role) => {
+      router.push(nextParam ?? destinationForRole(role));
+      router.refresh();
+    },
+    [nextParam, router],
+  );
 
   const handleGoogleSuccess = useCallback(
     (user: { role: Role }) => {
       redirectAfterAuth(user.role);
     },
-    [router, nextParam],
+    [redirectAfterAuth],
   );
 
   // Countdown timer effect
@@ -195,7 +187,6 @@ function SignupFormContent({ googleClientId }: SignupFormProps) {
 
     setChallengeId(data.challengeId);
     setDevCode(data.devCode ?? "");
-    setExpiresAt(data.expiresAt);
     setOtpArray(Array(6).fill(""));
     setCountdown(42);
     setStep("verify");
@@ -707,9 +698,9 @@ function SignupFormContent({ googleClientId }: SignupFormProps) {
       {/* Footer link in Card */}
       <div className="mt-6 text-center text-xs text-slate-400 font-medium">
         Already have an account?{" "}
-        <a className="text-[#0A8A4B] font-bold hover:underline" href="/login">
+        <Link className="text-[#0A8A4B] font-bold hover:underline" href="/login">
           Log in
-        </a>
+        </Link>
       </div>
     </AuthShell>
   );

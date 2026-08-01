@@ -281,12 +281,12 @@ export function PublicComparePage() {
               </p>
             </div>
           </div>
-          <a
+          <Link
             href="/contact"
             className="rounded-lg border border-slate-900 bg-slate-900 text-white font-semibold text-xs px-5 py-2.5 hover:bg-slate-800 transition whitespace-nowrap shrink-0"
           >
             Talk to an Expert
-          </a>
+          </Link>
         </div>
       </section>
     </PublicShell>

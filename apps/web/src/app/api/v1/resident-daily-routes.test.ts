@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const routeMocks = vi.hoisted(() => ({
   activateResident: vi.fn(),
   approvePaymentProof: vi.fn(),
-  createFoodMenu: vi.fn(),
   createNotice: vi.fn(),
   createPaymentRecord: vi.fn(),
   generateActivationCode: vi.fn(),
@@ -12,8 +11,10 @@ const routeMocks = vi.hoisted(() => ({
   getResidentDashboard: vi.fn(),
   getResidentProfile: vi.fn(),
   getResidentReceipt: vi.fn(),
+  getFoodRoutine: vi.fn(),
   listFoodForResident: vi.fn(),
-  listFoodMenus: vi.fn(),
+  resolveAdminHostelId: vi.fn(),
+  saveFoodRoutine: vi.fn(),
   listNotices: vi.fn(),
   listNoticesForResident: vi.fn(),
   listPayments: vi.fn(),
@@ -27,7 +28,6 @@ const routeMocks = vi.hoisted(() => ({
   requireResidentPrincipal: vi.fn(),
   submitFoodFeedback: vi.fn(),
   submitPaymentProof: vi.fn(),
-  updateFoodMenu: vi.fn(),
   updateNotice: vi.fn(),
   updatePaymentRecord: vi.fn(),
   uploadFoodPhoto: vi.fn(),
@@ -64,12 +64,15 @@ vi.mock("@/modules/payments/payment.service", () => ({
 }));
 
 vi.mock("@/modules/food/food.service", () => ({
-  createFoodMenu: routeMocks.createFoodMenu,
   listFoodForResident: routeMocks.listFoodForResident,
-  listFoodMenus: routeMocks.listFoodMenus,
+  resolveAdminHostelId: routeMocks.resolveAdminHostelId,
   submitFoodFeedback: routeMocks.submitFoodFeedback,
-  updateFoodMenu: routeMocks.updateFoodMenu,
   uploadFoodPhoto: routeMocks.uploadFoodPhoto,
+}));
+
+vi.mock("@/modules/food/food-routine.service", () => ({
+  getFoodRoutine: routeMocks.getFoodRoutine,
+  saveFoodRoutine: routeMocks.saveFoodRoutine,
 }));
 
 vi.mock("@/modules/notices/notice.service", () => ({
@@ -92,9 +95,8 @@ import * as residentPaymentProofRoute from "@/app/api/v1/resident/payments/[paym
 import * as approvePaymentProofRoute from "@/app/api/v1/hostel-admin/payment-proofs/[id]/approve/route";
 import * as rejectPaymentProofRoute from "@/app/api/v1/hostel-admin/payment-proofs/[id]/reject/route";
 import * as residentReceiptRoute from "@/app/api/v1/resident/receipts/[id]/route";
-import * as adminFoodMenuRoute from "@/app/api/v1/hostel-admin/food/menu/route";
-import * as adminFoodMenuDetailRoute from "@/app/api/v1/hostel-admin/food/menu/[id]/route";
 import * as adminFoodPhotosRoute from "@/app/api/v1/hostel-admin/food/photos/route";
+import * as adminFoodRoutineRoute from "@/app/api/v1/hostel-admin/food/routine/route";
 import * as residentFoodRoute from "@/app/api/v1/resident/food/route";
 import * as residentFoodFeedbackRoute from "@/app/api/v1/resident/food/feedback/route";
 import * as residentFoodPhotosRoute from "@/app/api/v1/resident/food/photos/route";
@@ -128,7 +130,7 @@ function request(
   path: string,
   options: {
     body?: unknown;
-    method?: "GET" | "POST" | "PATCH";
+    method?: "GET" | "POST" | "PATCH" | "PUT";
     mobile?: boolean;
   } = {},
 ) {
@@ -293,37 +295,30 @@ describe("resident daily-use routes", () => {
   });
 
   it("handles admin and resident food workflows", async () => {
-    routeMocks.createFoodMenu.mockResolvedValue({ menu: { id: "menu-1" } });
-    routeMocks.listFoodMenus.mockResolvedValue({ menus: [] });
-    routeMocks.updateFoodMenu.mockResolvedValue({ menu: { id: "menu-1" } });
     routeMocks.uploadFoodPhoto.mockResolvedValue({ photo: { id: "photo-1" } });
-    routeMocks.listFoodForResident.mockResolvedValue({ menus: [], photos: [] });
+    routeMocks.resolveAdminHostelId.mockReturnValue("64f0f0f0f0f0f0f0f0f0f0f1");
+    routeMocks.getFoodRoutine.mockResolvedValue({ meals: [] });
+    routeMocks.saveFoodRoutine.mockResolvedValue({ routine: { meals: [] } });
+    routeMocks.listFoodForResident.mockResolvedValue({ photos: [], routine: null });
     routeMocks.submitFoodFeedback.mockResolvedValue({ feedback: { id: "feedback-1" } });
 
-    const menuBody = {
-      date: "2030-01-01",
-      dayOfWeek: "TUESDAY",
-      items: ["Dal", "Rice"],
-      mealType: "DINNER",
-      timing: "7 PM",
-      weekStartDate: "2029-12-30",
-    };
-
-    const createResponse = await adminFoodMenuRoute.POST(
-      request("/api/v1/hostel-admin/food/menu", {
-        body: menuBody,
-        method: "POST",
-      }),
+    const routineResponse = await adminFoodRoutineRoute.GET(
+      request("/api/v1/hostel-admin/food/routine"),
     );
-    const listResponse = await adminFoodMenuRoute.GET(
-      request("/api/v1/hostel-admin/food/menu?mealType=DINNER"),
-    );
-    const updateResponse = await adminFoodMenuDetailRoute.PATCH(
-      request("/api/v1/hostel-admin/food/menu/64f0f0f0f0f0f0f0f0f0f0f8", {
-        body: { specialNotes: "Extra curd" },
-        method: "PATCH",
+    const saveRoutineResponse = await adminFoodRoutineRoute.PUT(
+      request("/api/v1/hostel-admin/food/routine", {
+        body: {
+          meals: [
+            {
+              dayOfWeek: "TUESDAY",
+              items: ["Dal", "Rice"],
+              mealType: "DINNER",
+            },
+          ],
+          timings: { DINNER: "7 PM" },
+        },
+        method: "PUT",
       }),
-      routeContext({ id: "64f0f0f0f0f0f0f0f0f0f0f8" }),
     );
     const adminPhotoResponse = await adminFoodPhotosRoute.POST(
       request("/api/v1/hostel-admin/food/photos", {
@@ -352,9 +347,8 @@ describe("resident daily-use routes", () => {
       }),
     );
 
-    expect(createResponse.status).toBe(201);
-    expect(listResponse.status).toBe(200);
-    expect(updateResponse.status).toBe(200);
+    expect(routineResponse.status).toBe(200);
+    expect(saveRoutineResponse.status).toBe(200);
     expect(adminPhotoResponse.status).toBe(201);
     expect(residentFoodResponse.status).toBe(200);
     expect(feedbackResponse.status).toBe(201);

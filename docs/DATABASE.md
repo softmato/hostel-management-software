@@ -2,6 +2,29 @@
 
 Database: **MongoDB**. ODM: **Mongoose**. Schemas live at `packages/db/src/models/`. Models below are written Mongoose-style with TypeScript interfaces.
 
+## Build status (end of Phase 3)
+
+`packages/db/src/models/` holds 63 models — more than are written up below, because
+each phase added supporting collections (`EmergencyContact`, `NoticeReadStatus`,
+`OtpChallenge`, `FileAsset`, `MaintenanceComment`, `ReferralReward`, `SOSAlert`,
+and others) whose shape is self-evident from the model file. This document covers
+the ones with a decision worth recording.
+
+Three names here were **renamed or restructured** during implementation; the
+prose in each section is the shipped design:
+
+| In earlier drafts | Shipped as |
+|---|---|
+| `HostelStaff` | `HostelMember` (capability keys as an array) |
+| `PlatformConfig` | `PlatformSetting` (key/value, one doc per section) |
+| `Room` + `Bed` collections | `Hostel.roomConfigurations` + `capacitySummary` |
+
+These are **not yet built**, and each belongs to a later phase — they are
+specified here so the shape is agreed before the phase starts:
+`AttendanceLog`, `AttendanceAlert`, `ConsentLog` (Phase 4); `CommunityPost`,
+`CommunityComment`, `CommunityReaction`, `QuestionCallClick`,
+`NotificationReceipt`, `AccountDeletionRequest`, `Subscription` (Phase 5).
+
 ## Conventions
 
 - All primary keys: `_id ObjectId` (Mongoose default)
@@ -528,146 +551,106 @@ HostelDocumentSchema.index({ hostelId: 1, status: 1 });
 export const HostelDocumentModel = model<IHostelDocument>('HostelDocument', HostelDocumentSchema);
 ```
 
-### HostelStaff
+### HostelMember
 
-Links a User (WARDEN or HOSTEL_ADMIN) to the hostel they work for, with per-warden permission flags.
+Links a User to a hostel they work for, with per-member capability flags. This is
+the model the codebase ships; it supersedes the `HostelStaff` name used in earlier
+drafts. One membership row per (hostel, user), so the same person can hold a role
+at more than one hostel without duplicating their account.
+
+Permissions are stored as an **array of enabled capability keys** rather than a
+boolean-per-flag sub-document: adding a twelfth capability then costs a constant
+in `WARDEN_PERMISSION_KEYS` instead of a schema migration across every row.
 
 ```typescript
-interface IHostelStaffPermissions {
-  registerResidents: boolean;
-  editHostelProfile: boolean;
-  manageRooms: boolean;
-  verifyPayments: boolean;
-  manageFood: boolean;
-  manageNotices: boolean;
-  viewComplaints: boolean;
-  updateComplaints: boolean;
-  viewNightStatus: boolean;
-  updateNightStatus: boolean;
-  manageMaintenance: boolean;
-}
+type HostelCapability =
+  | 'registerResidents'
+  | 'editHostelProfile'
+  | 'manageRooms'
+  | 'verifyPayments'
+  | 'manageFood'
+  | 'manageNotices'
+  | 'viewComplaints'
+  | 'updateComplaints'
+  | 'viewNightStatus'
+  | 'updateNightStatus'
+  | 'manageMaintenance';
 
-interface IHostelStaff {
+interface IHostelMember {
   _id: ObjectId;
-  userId: ObjectId; // ref User, unique
-  hostelId: ObjectId; // ref Hostel
-  role: Role.HOSTEL_ADMIN | Role.WARDEN;
-  permissions: IHostelStaffPermissions;
-  isActive: boolean;
+  hostelId: ObjectId;  // ref Hostel
+  userId: ObjectId;    // ref User
+  role: Role;          // HOSTEL_ADMIN | WARDEN | COOK
+  permissions: HostelCapability[];   // enabled keys only
+  status: 'ACTIVE' | 'INVITED' | 'SUSPENDED' | 'REMOVED';
+  createdBy?: ObjectId;
+  updatedBy?: ObjectId;
+  isDeleted: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const HostelStaffSchema = new Schema<IHostelStaff>({
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  role: { 
-    type: String, 
-    enum: [Role.HOSTEL_ADMIN, Role.WARDEN], 
-    required: true 
-  },
-  permissions: {
-    type: {
-      registerResidents: { type: Boolean, default: true },
-      editHostelProfile: { type: Boolean, default: false },
-      manageRooms: { type: Boolean, default: false },
-      verifyPayments: { type: Boolean, default: true },
-      manageFood: { type: Boolean, default: true },
-      manageNotices: { type: Boolean, default: true },
-      viewComplaints: { type: Boolean, default: true },
-      updateComplaints: { type: Boolean, default: true },
-      viewNightStatus: { type: Boolean, default: true },
-      updateNightStatus: { type: Boolean, default: true },
-      manageMaintenance: { type: Boolean, default: true },
-    },
-    default: {},
-  },
-  isActive: { type: Boolean, default: true, index: true },
-}, { timestamps: true });
+HostelMemberSchema.index({ hostelId: 1, userId: 1 }, { unique: true });
+HostelMemberSchema.index({ hostelId: 1, role: 1, status: 1 });
+HostelMemberSchema.index({ userId: 1, status: 1 });
 
-HostelStaffSchema.index({ hostelId: 1, isActive: 1 });
-
-export const HostelStaffModel = model<IHostelStaff>('HostelStaff', HostelStaffSchema);
+export const HostelMemberModel = model<IHostelMember>('HostelMember', HostelMemberSchema);
 ```
+
+The canonical key list and the default grant for a new warden live in
+`apps/web/src/modules/wardens/warden.validation.ts`. Routes enforce them through
+`requireHostelCapability()`, which returns `CAPABILITY_DENIED` (403).
+Deactivating a warden sets `status: 'SUSPENDED'` — memberships are never hard
+deleted, because audit entries reference them.
 
 ---
 
 ## Rooms & Beds
 
-### Room
+Rooms and beds are **not** separate collections. They live on the hostel as
+`Hostel.roomConfigurations`, one entry per room type, with a denormalised
+`Hostel.capacitySummary` kept in step by the capacity service.
+
+The earlier design gave every physical bed its own document and every resident a
+`bedId`. Nepali hostels do not sell a numbered bed — they sell "a place in a four
+sharing room", and the warden decides which bed on the day. Modelling per-bed rows
+meant a hostel could not be listed until someone had typed in every bed in the
+building, and it produced two sources of truth for vacancy that drifted apart.
+Room-type level configuration is what admins actually maintain, so it is what is
+stored.
 
 ```typescript
-interface IRoom {
-  _id: ObjectId;
-  hostelId: ObjectId; // ref Hostel - MANDATORY for tenant isolation
-  floor: number;
-  roomNumber: string;
-  type: RoomType;
-  rentPerBed: number; // NPR monthly
-  capacity: number; // total beds
-  facilities: string[]; // ['attached_bathroom', 'cupboard', 'table', 'balcony', 'ac', 'heater']
-  photos: string[]; // R2 URLs
-  isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+interface IRoomConfiguration {
+  roomType: string;        // 'Single', 'Two Sharing', 'Four Sharing', …
+  monthlyRent?: number;    // NPR per bed — authoritative price for this type
+  bedsPerRoom?: number;
+  rooms?: number;          // how many rooms of this type exist
+  vacantBeds?: number;     // remaining vacancy, decremented on admission
+  mealInclusion?: 'Included' | 'Not Included' | 'Optional';
 }
 
-const RoomSchema = new Schema<IRoom>({
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  floor: { type: Number, required: true },
-  roomNumber: { type: String, required: true, trim: true },
-  type: { 
-    type: String, 
-    enum: Object.values(RoomType), 
-    required: true 
-  },
-  rentPerBed: { type: Number, required: true },
-  capacity: { type: Number, required: true },
-  facilities: [{ type: String }],
-  photos: [{ type: String }],
-  isActive: { type: Boolean, default: true, index: true },
-}, { timestamps: true });
-
-// Unique constraint: one roomNumber per hostel
-RoomSchema.index({ hostelId: 1, roomNumber: 1 }, { unique: true });
-RoomSchema.index({ hostelId: 1, isActive: 1 });
-
-export const RoomModel = model<IRoom>('Room', RoomSchema);
-```
-
-### Bed
-
-```typescript
-interface IBed {
-  _id: ObjectId;
-  roomId: ObjectId; // ref Room
-  hostelId: ObjectId; // denormalized for fast hostel-scoped queries
-  bedLabel: string; // 'A', 'B', '1', '2', etc.
-  status: BedStatus;
-  maintenanceNote?: string;
-  createdAt: Date;
-  updatedAt: Date;
+interface ICapacitySummary {
+  totalRooms: number;      // Σ rooms
+  totalBeds: number;       // Σ rooms × max(1, bedsPerRoom)
+  vacantBeds: number;      // Σ vacantBeds
 }
-
-const BedSchema = new Schema<IBed>({
-  roomId: { type: Schema.Types.ObjectId, ref: 'Room', required: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  bedLabel: { type: String, required: true, trim: true },
-  status: { 
-    type: String, 
-    enum: Object.values(BedStatus), 
-    default: BedStatus.AVAILABLE,
-    index: true,
-  },
-  maintenanceNote: { type: String },
-}, { timestamps: true });
-
-// Unique constraint: one bedLabel per room
-BedSchema.index({ roomId: 1, bedLabel: 1 }, { unique: true });
-BedSchema.index({ hostelId: 1, status: 1 });
-
-export const BedModel = model<IBed>('Bed', BedSchema);
 ```
+
+`Hostel.roomTypes` stays as a flat string array purely so listing filters have
+something indexable; `roomConfigurations` is the authoritative record.
+
+**Vacancy is only ever changed through `modules/hostels/hostel-capacity.service.ts`.**
+It owns `claimBedForRoomType()`, `releaseBedForRoomType()`,
+`moveBedBetweenRoomTypes()` and `refreshCapacitySummary()`, so that:
+
+- a room type with `vacantBeds === 0` raises `ROOM_TYPE_FULL` (409) instead of
+  going negative;
+- a failed resident intake gives the bed back rather than leaking vacancy;
+- `capacitySummary` is recomputed on every write and never hand-edited.
+
+`Resident` therefore stores `roomType: string`, not `roomId`/`bedId`. The
+"one bed, one active resident" rule from the indexing summary is enforced by the
+capacity counters rather than by a unique index on `bedId`.
 
 ---
 
@@ -678,55 +661,45 @@ export const BedModel = model<IBed>('Bed', BedSchema);
 ```typescript
 interface IResident {
   _id: ObjectId;
-  userId: ObjectId; // ref User, unique
-  hostelId: ObjectId; // ref Hostel - MANDATORY for tenant isolation
-  roomId?: ObjectId; // ref Room, nullable until assigned
-  bedId?: ObjectId; // ref Bed, nullable until assigned, unique when set
-  fullName: string;
+  hostelId: ObjectId;   // ref Hostel - MANDATORY for tenant isolation
+  userId?: ObjectId;    // ref User, set once the account is created/upgraded
+  firstName: string;
+  lastName: string;
   phone: string;
-  guardianContact?: string;
-  educationInfo?: string; // college/course
-  emergencyContact?: string;
-  residentType: ResidentType; // STUDENT, WORKING_PROFESSIONAL, OTHER
-  moveInDate?: Date;
-  moveOutDate?: Date;
-  depositAmount?: number;
-  status: ResidentStatus;
+  email?: string;
+  roomType: string;     // matches Hostel.roomConfigurations[].roomType
+  moveInDate: Date;
+  depositAmount: number;
+  monthlyFee: number;   // recurring fee used when payment records are generated
+  residentType: ResidentType;  // STUDENT | WORKING_PROFESSIONAL | OTHER
+  status: ResidentStatus;      // PENDING | ACTIVE | SUSPENDED | MOVED_OUT
+  createdBy?: ObjectId;
+  updatedBy?: ObjectId;
+  isDemoData: boolean;
+  isDeleted: boolean;   // soft delete
+  deletedAt?: Date;
+  deletedBy?: ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const ResidentSchema = new Schema<IResident>({
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  roomId: { type: Schema.Types.ObjectId, ref: 'Room' },
-  bedId: { type: Schema.Types.ObjectId, ref: 'Bed', unique: true, sparse: true }, // unique enforces one resident per bed
-  fullName: { type: String, required: true, trim: true },
-  phone: { type: String, required: true },
-  guardianContact: { type: String },
-  educationInfo: { type: String },
-  emergencyContact: { type: String },
-  residentType: { 
-    type: String, 
-    enum: Object.values(ResidentType), 
-    default: ResidentType.STUDENT 
-  },
-  moveInDate: { type: Date },
-  moveOutDate: { type: Date },
-  depositAmount: { type: Number },
-  status: { 
-    type: String, 
-    enum: Object.values(ResidentStatus), 
-    default: ResidentStatus.PENDING,
-    index: true,
-  },
-}, { timestamps: true });
-
+// Deletion is soft, so a plain unique index would keep a removed resident's
+// phone reserved forever and make re-registering the same person fail with a
+// raw E11000. The partial filter scopes uniqueness to residents still on the roll.
+ResidentSchema.index(
+  { hostelId: 1, phone: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } },
+);
 ResidentSchema.index({ hostelId: 1, status: 1 });
-ResidentSchema.index({ hostelId: 1, fullName: 1 });
+ResidentSchema.index({ hostelId: 1, roomType: 1 });
+ResidentSchema.index({ userId: 1, status: 1 });
 
 export const ResidentModel = model<IResident>('Resident', ResidentSchema);
 ```
+
+Guardians and emergency contacts are **not** free-text fields on the resident —
+they are their own `Guardian` and `EmergencyContact` documents, created
+automatically at intake when a portable profile (Phase 5A) is imported.
 
 ### Guardian
 
@@ -988,37 +961,35 @@ export const NightStatusLogModel = model<INightStatusLog>('NightStatusLog', Nigh
 
 ## Food
 
-### FoodMenu
+### FoodRoutine
+
+One document per hostel. The routine repeats every week, so meals are keyed by
+day of week and carry no dates — "Friday dinner" is a fact about Fridays. The
+optional month end treat lives alongside them rather than as that day's dinner,
+which is what used to overwrite it.
 
 ```typescript
-interface IFoodMenu {
+interface IFoodRoutine {
   _id: ObjectId;
-  hostelId: ObjectId; // ref Hostel - MANDATORY for tenant isolation
-  date: Date; // specific date (e.g., 2026-08-15)
-  mealType: 'breakfast' | 'lunch' | 'snacks' | 'dinner';
-  description: string; // "Dal Bhat, Chicken Curry, Achar"
-  isVeg: boolean;
+  hostelId: ObjectId; // ref Hostel - MANDATORY for tenant isolation, unique
+  timings: Partial<Record<MealType, string>>; // one timing per meal, all week
+  meals: Array<{
+    dayOfWeek: 'SUNDAY' | ... | 'SATURDAY';
+    mealType: 'BREAKFAST' | 'LUNCH' | 'SNACKS' | 'DINNER';
+    items: string[];
+    note?: string; // shows as a "special food"
+  }>;
+  monthEndSpecial?: { items: string[]; note?: string } | null;
+  updatedBy?: ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const FoodMenuSchema = new Schema<IFoodMenu>({
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  date: { type: Date, required: true, index: true },
-  mealType: { 
-    type: String, 
-    enum: ['breakfast', 'lunch', 'snacks', 'dinner'], 
-    required: true 
-  },
-  description: { type: String, required: true },
-  isVeg: { type: Boolean, default: true },
-}, { timestamps: true });
-
-// One menu per meal per day per hostel
-FoodMenuSchema.index({ hostelId: 1, date: 1, mealType: 1 }, { unique: true });
-
-export const FoodMenuModel = model<IFoodMenu>('FoodMenu', FoodMenuSchema);
+FoodRoutineSchema.index({ hostelId: 1 }, { unique: true });
 ```
+
+Saving is a single upsert of the whole document: a cell the admin cleared is
+simply absent from `meals`.
 
 ### FoodPhoto
 
@@ -1108,7 +1079,7 @@ interface IComplaint {
   photoUrl?: string; // R2 URL
   isAnonymous: boolean;
   status: ComplaintStatus;
-  slaDeadline?: Date; // auto-calculated based on PlatformConfig
+  slaDeadline?: Date; // auto-calculated from the `operations` PlatformSetting
   resolvedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -1364,54 +1335,38 @@ export const ServiceProviderModel = model<IServiceProvider>('ServiceProvider', S
 ```typescript
 interface IMaintenanceRequest {
   _id: ObjectId;
-  hostelId: ObjectId; // ref Hostel - MANDATORY for tenant isolation
-  roomId?: ObjectId; // ref Room, nullable
-  bedId?: ObjectId; // ref Bed, nullable
-  providerId?: ObjectId; // ref ServiceProvider, set when contacted
+  hostelId: ObjectId;      // ref Hostel - MANDATORY for tenant isolation
+  providerId?: ObjectId;   // ref ServiceProvider, set when contacted
+  // Free text ("Room 204", "2nd floor bathroom"). There are no Room or Bed
+  // records to reference — the hostel tracks room types and counts only.
+  location?: string;
   category: ServiceCategory;
-  description: string;
-  urgency: 'low' | 'medium' | 'high';
-  status: MaintenanceStatus;
-  costNote?: string; // informal tracking, not binding
-  createdBy: ObjectId; // ref User (hostel admin/warden)
+  title: string;
+  description?: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  status: MaintenanceStatus;  // PENDING | CONTACTED | SCHEDULED | COMPLETED | CANCELLED
+  scheduledFor?: Date;
   completedAt?: Date;
+  costNote?: string;       // informal tracking, not binding
+  remarks?: string;
+  requestedBy: ObjectId;   // ref User (hostel admin/warden)
+  createdBy?: ObjectId;
+  updatedBy?: ObjectId;
+  isDeleted: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const MaintenanceRequestSchema = new Schema<IMaintenanceRequest>({
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  roomId: { type: Schema.Types.ObjectId, ref: 'Room' },
-  bedId: { type: Schema.Types.ObjectId, ref: 'Bed' },
-  providerId: { type: Schema.Types.ObjectId, ref: 'ServiceProvider' },
-  category: { 
-    type: String, 
-    enum: Object.values(ServiceCategory), 
-    required: true 
-  },
-  description: { type: String, required: true },
-  urgency: { 
-    type: String, 
-    enum: ['low', 'medium', 'high'], 
-    default: 'medium' 
-  },
-  status: { 
-    type: String, 
-    enum: Object.values(MaintenanceStatus), 
-    default: MaintenanceStatus.PENDING,
-    index: true,
-  },
-  costNote: { type: String },
-  createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  completedAt: { type: Date },
-}, { timestamps: true });
+MaintenanceRequestSchema.index({ hostelId: 1, status: 1, category: 1 });
+MaintenanceRequestSchema.index({ hostelId: 1, providerId: 1, createdAt: -1 });
 
-MaintenanceRequestSchema.index({ hostelId: 1, status: 1, createdAt: -1 });
-
-export const MaintenanceRequestModel = model<IMaintenanceRequest>('MaintenanceRequest', MaintenanceRequestSchema);
+export const MaintenanceRequestModel =
+  model<IMaintenanceRequest>('MaintenanceRequest', MaintenanceRequestSchema);
 ```
 
----
+Per-request discussion lives in `MaintenanceComment`, and the status trail in
+`MaintenanceHistory`, rather than being embedded here.
+
 
 ## Inquiries, Referral, Notifications, Subscriptions
 
@@ -1614,80 +1569,45 @@ export const SubscriptionModel = model<ISubscription>('Subscription', Subscripti
 
 ## Platform Config & Audit
 
-### PlatformConfig
+### PlatformSetting
 
-Singleton document (_id = 'default').
+Platform-owner-editable configuration, shipped as a **key/value collection**
+rather than the single `PlatformConfig` singleton earlier drafts described. One
+document per section, `value` deliberately `Mixed`.
+
+The split matters for blast radius: editing website copy and changing how the
+activation/payment machinery behaves are different privileges and different
+review bars, so they are different documents. A bad hero-copy save cannot alter
+QR expiry.
 
 ```typescript
-interface IPlatformConfig {
-  _id: 'default';
-  paymentReminderDaysBefore: number;
-  complaintSlaHours: number;
-  referralRewardPoints: number;
-  features: {
-    mobileAppEnabled: boolean;
-    maintenanceRequestsEnabled: boolean;
-    ratingsEnabled: boolean;
-    guardianDashboardEnabled: boolean;
-  };
-  emailSettings: {
-    sendPaymentReminders: boolean;
-    sendNoticeEmails: boolean;
-    sendComplaintUpdates: boolean;
-  };
-  pricing: {
-    subscriptionPlans: Array<{
-      slug: string;
-      name: string;
-      priceMonthly: number;
-      maxResidents: number;
-      features: string[];
-    }>;
-  };
+interface IPlatformSetting {
+  _id: ObjectId;
+  key: string;    // unique — the section name
+  value: unknown; // Mixed; validated by that section's zod schema before write
+  updatedBy?: ObjectId;
+  createdAt: Date;
   updatedAt: Date;
-  updatedBy: ObjectId; // ref User
 }
 
-const PlatformConfigSchema = new Schema<IPlatformConfig>({
-  _id: { type: String, default: 'default' },
-  paymentReminderDaysBefore: { type: Number, default: 3 },
-  complaintSlaHours: { type: Number, default: 24 },
-  referralRewardPoints: { type: Number, default: 100 },
-  features: {
-    type: {
-      mobileAppEnabled: { type: Boolean, default: false },
-      maintenanceRequestsEnabled: { type: Boolean, default: true },
-      ratingsEnabled: { type: Boolean, default: true },
-      guardianDashboardEnabled: { type: Boolean, default: true },
-    },
-    default: {},
-  },
-  emailSettings: {
-    type: {
-      sendPaymentReminders: { type: Boolean, default: true },
-      sendNoticeEmails: { type: Boolean, default: true },
-      sendComplaintUpdates: { type: Boolean, default: true },
-    },
-    default: {},
-  },
-  pricing: {
-    type: {
-      subscriptionPlans: [{
-        slug: String,
-        name: String,
-        priceMonthly: Number,
-        maxResidents: Number,
-        features: [String],
-      }],
-    },
-    default: {},
-  },
-  updatedAt: { type: Date, default: Date.now },
-  updatedBy: { type: Schema.Types.ObjectId, ref: 'User' },
-});
+PlatformSettingSchema.index({ key: 1 }, { unique: true });
 
-export const PlatformConfigModel = model<IPlatformConfig>('PlatformConfig', PlatformConfigSchema);
+export const PlatformSettingModel =
+  model<IPlatformSetting>('PlatformSetting', PlatformSettingSchema);
 ```
+
+**Keys in use**
+
+| Key | Owner | Contents |
+|---|---|---|
+| `operations` | `modules/platform-config/operations-config.ts` | `qrActivationExpiryDays`, `paymentReminderDaysBefore`, `receiptNumberPrefix`, `foodReadyCooldownMinutes`, `sendNoticeEmails`, `sendPaymentEmails` |
+| `hero`, `identity`, `stats`, `trustPoints`, `features`, `facilities`, `locations`, `pricing`, `legal`, `social`, `announcement` | `modules/platform-config/site-config.*` | Public website content, one document per section |
+
+Validation lives with the section's zod schema in the web app, never in the
+schema — the collection only persists an already-validated shape. Reads never
+throw: a missing or malformed document falls back to the shipped defaults,
+because callers are on paths (activation, payment reminders) that must not fail
+over a configuration read.
 
 ### AuditLog
 
@@ -1723,7 +1643,7 @@ export const AuditLogModel = model<IAuditLog>('AuditLog', AuditLogSchema);
 
 - Every hostel-scoped collection is indexed on `hostelId` — this is what makes tenant-scoped queries fast
 - `User.email` and `User.googleId` are unique — enables the account-upgrade logic in ARCHITECTURE.md §3.2
-- `Resident.bedId` is unique (sparse) — enforces "a bed can only have one active resident" at the database level
+- `Resident` has a unique `(hostelId, phone)` index with `partialFilterExpression: { isDeleted: false }` — one active registration per phone number per hostel, while still letting a removed resident be re-registered later
 - `RatingReview` has a unique compound index on `(residentId, hostelId)` — enforces "one review per resident per hostel"
 - All timestamp-based queries (notices, complaints, payments) have compound indexes including `createdAt` or `dueDate` for efficient sorting
 - `User.userResidentId` is unique (sparse) — it is the single lookup key for a portable resident profile, and sparse because most accounts never create one
@@ -2246,35 +2166,9 @@ export const HostelSettingsModel = model<IHostelSettings>('HostelSettings', Host
 
 ### PlatformConfig
 
-Platform-wide configuration set by superadmin (limits, defaults, overrides).
-
-```typescript
-interface IPlatformConfig {
-  _id: ObjectId;
-  key: string; // unique config key, e.g., "location_tracking_max_retention_days"
-  value: any; // flexible value type (string, number, boolean, object)
-  description: string;
-  category: 'location' | 'notifications' | 'community' | 'general' | 'limits';
-  editable: boolean; // can hostel admin override this?
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const PlatformConfigSchema = new Schema<IPlatformConfig>({
-  key: { type: String, required: true, unique: true, index: true },
-  value: { type: Schema.Types.Mixed, required: true },
-  description: { type: String, required: true },
-  category: { 
-    type: String, 
-    enum: ['location', 'notifications', 'community', 'general', 'limits'], 
-    required: true,
-    index: true,
-  },
-  editable: { type: Boolean, default: false },
-}, { timestamps: true });
-
-export const PlatformConfigModel = model<IPlatformConfig>('PlatformConfig', PlatformConfigSchema);
-```
+Superseded — see **PlatformSetting** under "Platform Config & Audit". The two
+sections described the same key/value collection; there is one implementation and
+it is documented there.
 
 ---
 

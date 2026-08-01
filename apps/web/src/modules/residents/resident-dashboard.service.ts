@@ -3,11 +3,11 @@ import { Types } from "mongoose";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
-import { FoodMenuModel } from "@hostel/db/models/FoodMenu";
 import { GuardianModel } from "@hostel/db/models/Guardian";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NoticeModel } from "@hostel/db/models/Notice";
 import { PaymentModel } from "@hostel/db/models/Payment";
+import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
 import {
   findCurrentResident,
   serializeResidentSummary,
@@ -48,14 +48,6 @@ type NoticeRecord = {
   isUrgent: boolean;
   publishedAt?: Date;
   title: string;
-};
-
-type FoodMenuRecord = {
-  _id: Types.ObjectId;
-  date: Date;
-  items: string[];
-  mealType: string;
-  timing: string;
 };
 
 type GuardianRecord = {
@@ -121,16 +113,6 @@ function serializeNotice(notice: NoticeRecord) {
   };
 }
 
-function serializeFoodMenu(menu: FoodMenuRecord) {
-  return {
-    date: menu.date.toISOString(),
-    id: menu._id.toString(),
-    items: menu.items,
-    mealType: menu.mealType,
-    timing: menu.timing,
-  };
-}
-
 function serializeGuardian(guardian: GuardianRecord) {
   return {
     email: guardian.email ?? "",
@@ -154,12 +136,7 @@ function serializeEmergencyContact(contact: EmergencyContactRecord) {
 }
 
 async function loadResidentBase(resident: ResidentRecord) {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date(todayStart);
-  todayEnd.setDate(todayEnd.getDate() + 1);
-
-  const [hostel, payments, notices, foodMenus] = await Promise.all([
+  const [hostel, payments, notices, routine] = await Promise.all([
     HostelModel.findOne({
       _id: resident.hostelId,
       isDeleted: false,
@@ -175,15 +152,10 @@ async function loadResidentBase(resident: ResidentRecord) {
       .sort({ isUrgent: -1, publishedAt: -1 })
       .limit(5)
       .lean<NoticeRecord[]>(),
-    FoodMenuModel.find({
-      date: { $gte: todayStart, $lt: todayEnd },
-      hostelId: resident.hostelId,
-    })
-      .sort({ mealType: 1 })
-      .lean<FoodMenuRecord[]>(),
+    getFoodRoutine(resident.hostelId),
   ]);
 
-  return { foodMenus, hostel, notices, payments, roomType: resident.roomType };
+  return { hostel, notices, payments, roomType: resident.roomType, routine };
 }
 
 function buildFeeSummary(payments: PaymentRecord[]) {
@@ -211,7 +183,7 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
-  const { foodMenus, hostel, notices, payments, roomType } =
+  const { hostel, notices, payments, roomType, routine } =
     await loadResidentBase(resident);
 
   return {
@@ -221,7 +193,7 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
         recent: [],
       },
       feeStatus: buildFeeSummary(payments),
-      foodMenu: foodMenus.map(serializeFoodMenu),
+      foodMenu: mealsOn(routine, new Date()),
       hostel: serializeHostel(hostel),
       nightStatus: {
         checkedAt: null,

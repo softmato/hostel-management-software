@@ -9,9 +9,6 @@ const serviceMocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   emergencyContactFind: vi.fn(),
   foodFeedbackCreate: vi.fn(),
-  foodMenuCreate: vi.fn(),
-  foodMenuExists: vi.fn(),
-  foodMenuFind: vi.fn(),
   foodMenuFindOne: vi.fn(),
   foodMenuFindOneAndUpdate: vi.fn(),
   foodPhotoCreate: vi.fn(),
@@ -116,11 +113,8 @@ vi.mock("@hostel/db/models/Receipt", () => ({
   },
 }));
 
-vi.mock("@hostel/db/models/FoodMenu", () => ({
-  FoodMenuModel: {
-    create: serviceMocks.foodMenuCreate,
-    exists: serviceMocks.foodMenuExists,
-    find: serviceMocks.foodMenuFind,
+vi.mock("@hostel/db/models/FoodRoutine", () => ({
+  FoodRoutineModel: {
     findOne: serviceMocks.foodMenuFindOne,
     findOneAndUpdate: serviceMocks.foodMenuFindOneAndUpdate,
   },
@@ -218,7 +212,7 @@ import {
   approvePaymentProof,
   createPaymentRecord,
 } from "@/modules/payments/payment.service";
-import { listFoodMenus, submitFoodFeedback } from "@/modules/food/food.service";
+import { submitFoodFeedback } from "@/modules/food/food.service";
 import { listNotices, markNoticeAsRead } from "@/modules/notices/notice.service";
 
 const hostelId = "64f0f0f0f0f0f0f0f0f0f0a1";
@@ -230,7 +224,6 @@ const bedId = "64f0f0f0f0f0f0f0f0f0f0a6";
 const paymentId = "64f0f0f0f0f0f0f0f0f0f0a7";
 const proofId = "64f0f0f0f0f0f0f0f0f0f0a8";
 const noticeId = "64f0f0f0f0f0f0f0f0f0f0a9";
-const menuId = "64f0f0f0f0f0f0f0f0f0f0aa";
 
 const staffPrincipal = {
   hostelIds: [hostelId],
@@ -431,7 +424,7 @@ describe("resident daily-use services", () => {
       queryResult([paymentRecord({ status: "UNPAID" })]),
     );
     serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
-    serviceMocks.foodMenuFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
 
     const result = await getResidentDashboard(residentPrincipal);
 
@@ -488,14 +481,9 @@ describe("resident daily-use services", () => {
   });
 
   it("enforces food tenant isolation and accepts feedback for the current hostel", async () => {
-    await expect(
-      listFoodMenus({ hostelId: otherHostelId }, staffPrincipal),
-    ).rejects.toMatchObject({ errorCode: "TENANT_ACCESS_DENIED", status: 403 });
-
     serviceMocks.residentFindOne.mockReturnValueOnce(
       leanResult(residentRecord({ userId: objectId(userId) })),
     );
-    serviceMocks.foodMenuExists.mockResolvedValueOnce({ _id: objectId(menuId) });
     serviceMocks.foodFeedbackCreate.mockResolvedValueOnce({
       _id: objectId("64f0f0f0f0f0f0f0f0f0f0af"),
       createdAt: new Date("2030-01-01T00:00:00.000Z"),
@@ -503,7 +491,6 @@ describe("resident daily-use services", () => {
       hostelId: objectId(hostelId),
       isAnonymous: false,
       mealType: "DINNER",
-      menuId: objectId(menuId),
       rating: 4,
       residentId: objectId(residentId),
     });
@@ -513,17 +500,12 @@ describe("resident daily-use services", () => {
         date: new Date("2030-01-01T00:00:00.000Z"),
         isAnonymous: false,
         mealType: "DINNER",
-        menuId,
         rating: 4,
       },
       residentPrincipal,
     );
 
     expect(result.feedback.rating).toBe(4);
-    expect(serviceMocks.foodMenuExists).toHaveBeenCalledWith({
-      _id: objectId(menuId),
-      hostelId: objectId(hostelId),
-    });
   });
 
   it("enforces notice tenant isolation and marks own-hostel notices read", async () => {

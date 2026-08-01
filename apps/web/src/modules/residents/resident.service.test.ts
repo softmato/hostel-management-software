@@ -93,6 +93,8 @@ function residentRecord(overrides: Record<string, unknown> = {}) {
 describe("resident management service behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Intake starts with a duplicate-phone lookup; no match is the normal case.
+    serviceMocks.residentFindOne.mockReturnValue(queryResult(null));
   });
 
   it("limits resident lists to the principal hostel ids", async () => {
@@ -156,6 +158,30 @@ describe("resident management service behavior", () => {
         staffPrincipal,
       ),
     ).rejects.toMatchObject({ errorCode: "ROOM_TYPE_FULL", status: 409 });
+    expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a second resident on a phone already registered at the hostel", async () => {
+    serviceMocks.residentFindOne.mockReturnValueOnce(queryResult(residentRecord()));
+
+    await expect(
+      createResident(
+        {
+          depositAmount: 5000,
+          firstName: "Asha",
+          lastName: "Rai",
+          monthlyFee: 0,
+          moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+          phone: "9800000000",
+          residentType: "STUDENT" as const,
+          roomType,
+          status: "PENDING",
+        },
+        staffPrincipal,
+      ),
+    ).rejects.toMatchObject({ errorCode: "RESIDENT_PHONE_TAKEN", status: 409 });
+    // The bed must never be claimed for a registration that cannot proceed.
+    expect(serviceMocks.claimBedForRoomType).not.toHaveBeenCalled();
     expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
   });
 

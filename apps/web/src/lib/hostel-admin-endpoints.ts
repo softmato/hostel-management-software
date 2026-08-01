@@ -22,7 +22,7 @@ export const hostelAdminEndpoints = {
   complaintsReport: "/api/v1/hostel-admin/reports/complaints",
   cookPortal: "/api/v1/hostel-admin/cook-portal",
   dashboardReport: "/api/v1/hostel-admin/reports/dashboard",
-  foodMenu: "/api/v1/hostel-admin/food/menu",
+  foodRoutine: "/api/v1/hostel-admin/food/routine",
   foodPhotos: "/api/v1/hostel-admin/food/photos",
   inquiries: "/api/v1/hostel-admin/inquiries",
   maintenanceReport: "/api/v1/hostel-admin/reports/maintenance",
@@ -37,6 +37,12 @@ export const hostelAdminEndpoints = {
   paymentsReport: "/api/v1/hostel-admin/reports/payments",
   profile: "/api/v1/hostel-admin/profile",
   referrals: "/api/v1/hostel-admin/referrals",
+  reportsOverview: (month?: string) =>
+    month
+      ? `/api/v1/hostel-admin/reports/overview?month=${month}`
+      : "/api/v1/hostel-admin/reports/overview",
+  /** Prefix form for `useInvalidateResources` — drops every month. */
+  reportsOverviewAll: "/api/v1/hostel-admin/reports/overview*",
   residentContacts: (residentId: string) =>
     `/api/v1/hostel-admin/residents/${residentId}/contacts`,
   residentFees: "/api/v1/hostel-admin/residents/fees",

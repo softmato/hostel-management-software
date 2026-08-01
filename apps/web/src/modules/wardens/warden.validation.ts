@@ -7,9 +7,9 @@ const optionalHostelScopeSchema = {
 };
 
 /**
- * Per-warden capability flags. Mirrors DATABASE.md `IHostelStaffPermissions`,
- * but stored as an enabled-key array on the `HostelMember.permissions` field
- * (the model this codebase actually uses in place of docs' `HostelStaff`).
+ * The canonical per-member capability list (DATABASE.md → HostelMember).
+ * Stored as an array of the enabled keys on `HostelMember.permissions`, so a new
+ * capability costs an entry here rather than a migration across every row.
  */
 export const WARDEN_PERMISSION_KEYS = [
   "registerResidents",
@@ -27,7 +27,11 @@ export const WARDEN_PERMISSION_KEYS = [
 
 export type WardenPermissionKey = (typeof WARDEN_PERMISSION_KEYS)[number];
 
-/** Defaults match the `default: true` flags in DATABASE.md HostelStaffSchema. */
+/**
+ * What a newly created warden gets. Everything except the two that change the
+ * hostel itself — editing the profile and the room configuration stay with the
+ * admin until they are granted deliberately.
+ */
 export const DEFAULT_WARDEN_PERMISSIONS: WardenPermissionKey[] = [
   "registerResidents",
   "verifyPayments",

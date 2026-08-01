@@ -7,9 +7,9 @@ import { connectToDatabase } from "@/lib/db";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { ComplaintModel } from "@hostel/db/models/Complaint";
-import { FoodMenuModel } from "@hostel/db/models/FoodMenu";
 import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
 import { GuardianModel } from "@hostel/db/models/Guardian";
+import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
 import { GuardianPermissionModel } from "@hostel/db/models/GuardianPermission";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
@@ -402,18 +402,7 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
           isUrgent: boolean;
         }>
       >(),
-    FoodMenuModel.find({ hostelId: access.hostelId })
-      .sort({ date: -1, mealType: 1 })
-      .limit(8)
-      .lean<
-        Array<{
-          _id: Types.ObjectId;
-          date: Date;
-          items: string[];
-          mealType: string;
-          timing: string;
-        }>
-      >(),
+    getFoodRoutine(access.hostelId),
     NightStatusModel.findOne({ residentId: resident._id }).lean<{
       checkedAt: Date;
       status: string;
@@ -441,15 +430,9 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
         status: complaint.status,
         title: complaint.title,
       })),
-      food: permission.canViewFood
-        ? food.map((menu) => ({
-            date: menu.date.toISOString(),
-            id: menu._id.toString(),
-            items: menu.items,
-            mealType: menu.mealType,
-            timing: menu.timing,
-          }))
-        : [],
+      // Today's meals off the weekly routine — a guardian wants "what are they
+      // eating", not the whole week.
+      food: permission.canViewFood ? mealsOn(food, new Date()) : [],
       guardian: {
         id: guardian._id.toString(),
         name: `${guardian.firstName} ${guardian.lastName}`.trim(),

@@ -96,6 +96,15 @@ function PageHeader({
   );
 }
 
+function isCountMap(value: unknown): value is Record<string, number> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "number")
+  );
+}
+
 function ReportGrid({ report }: { report: ReportRecord | null }) {
   if (!report) {
     return <EmptyState label="Report data is not loaded." />;
@@ -108,15 +117,37 @@ function ReportGrid({ report }: { report: ReportRecord | null }) {
           <p className="text-xs font-semibold uppercase text-muted-foreground">
             {key.replace(/([A-Z])/g, " $1")}
           </p>
-          <p className="mt-2 break-words text-2xl font-bold text-foreground">
-            {typeof value === "number"
-              ? key.toLowerCase().includes("amount") || key.toLowerCase().includes("dues")
-                ? currency(value)
-                : value.toLocaleString()
-              : typeof value === "object"
-                ? JSON.stringify(value)
-                : String(value)}
-          </p>
+          {/* A breakdown ({ PAID: 3, UNPAID: 1 }) is a list, not a headline
+              number — stringifying it renders a useless "{}". */}
+          {isCountMap(value) ? (
+            Object.keys(value).length === 0 ? (
+              <p className="mt-2 text-2xl font-bold text-muted-foreground">—</p>
+            ) : (
+              <dl className="mt-2 grid gap-1">
+                {Object.entries(value).map(([label, count]) => (
+                  <div className="flex items-baseline justify-between gap-2" key={label}>
+                    <dt className="truncate text-xs text-muted-foreground">
+                      {label.replaceAll("_", " ")}
+                    </dt>
+                    <dd className="text-base font-bold text-foreground">
+                      {count.toLocaleString()}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )
+          ) : (
+            <p className="mt-2 break-words text-2xl font-bold text-foreground">
+              {typeof value === "number"
+                ? key.toLowerCase().includes("amount") ||
+                  key.toLowerCase().includes("dues")
+                  ? currency(value)
+                  : value.toLocaleString()
+                : value === null || value === undefined || value === ""
+                  ? "—"
+                  : String(value)}
+            </p>
+          )}
         </Panel>
       ))}
     </div>

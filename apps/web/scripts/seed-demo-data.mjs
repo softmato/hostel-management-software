@@ -33,7 +33,8 @@ const Guardian = mongoose.models.Guardian ?? mongoose.model("Guardian", looseSch
 const EmergencyContact =
   mongoose.models.EmergencyContact ?? mongoose.model("EmergencyContact", looseSchema);
 const Inquiry = mongoose.models.Inquiry ?? mongoose.model("Inquiry", looseSchema);
-const FoodMenu = mongoose.models.FoodMenu ?? mongoose.model("FoodMenu", looseSchema);
+const FoodRoutine =
+  mongoose.models.FoodRoutine ?? mongoose.model("FoodRoutine", looseSchema);
 const Notice = mongoose.models.Notice ?? mongoose.model("Notice", looseSchema);
 const Payment = mongoose.models.Payment ?? mongoose.model("Payment", looseSchema);
 
@@ -474,23 +475,21 @@ for (const [index, hostelInput] of hostels.entries()) {
     { upsert: true },
   );
 
-  await FoodMenu.findOneAndUpdate(
-    {
-      date: new Date("2026-06-27T00:00:00.000Z"),
-      hostelId: hostel._id,
-      mealType: "DINNER",
-    },
+  // One routine per hostel, keyed by day of week — it repeats every week.
+  await FoodRoutine.findOneAndUpdate(
+    { hostelId: hostel._id },
     {
       $set: {
-        createdBy: hostelAdmin._id,
-        date: new Date("2026-06-27T00:00:00.000Z"),
-        dayOfWeek: "SATURDAY",
         hostelId: hostel._id,
-        items: ["Dal", "Rice", "Mixed curry", "Achar"],
-        mealType: "DINNER",
-        timing: "7:30 PM - 9:00 PM",
+        meals: [
+          {
+            dayOfWeek: "SATURDAY",
+            items: ["Dal", "Rice", "Mixed curry", "Achar"],
+            mealType: "DINNER",
+          },
+        ],
+        timings: { DINNER: "7:30 PM - 9:00 PM" },
         updatedBy: hostelAdmin._id,
-        weekStartDate: new Date("2026-06-21T00:00:00.000Z"),
         ...demoDataFields,
       },
     },

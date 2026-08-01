@@ -129,7 +129,7 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
                   {dashboard.foodMenu.map((menu) => (
                     <div
                       className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/15 p-3"
-                      key={menu.id}
+                      key={menu.mealType}
                     >
                       <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-role-resident-soft text-role-resident">
                         <Utensils className="size-5" />

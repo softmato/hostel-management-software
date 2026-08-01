@@ -19,6 +19,14 @@ export const hostelAdminReferralListQuerySchema = z.object({
   status: z.enum(["INQUIRY_CREATED", "JOINED", "REWARDED", "CANCELLED"]).optional(),
 });
 
+export const referralRewardUpdateSchema = z.object({
+  ...optionalHostelScopeSchema,
+  amount: z.coerce.number().nonnegative().optional(),
+  notes: z.string().trim().max(500).optional(),
+  rewardType: z.enum(["DISCOUNT", "CASH", "SERVICE_CREDIT", "OTHER"]).optional(),
+  status: z.enum(["PENDING", "APPROVED", "PAID", "CANCELLED"]),
+});
+
 export const referralConfirmSchema = z.object({
   ...optionalHostelScopeSchema,
   joinedResidentId: objectIdSchema.optional(),

@@ -1,20 +1,31 @@
 import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
-import {
-  ACCESS_TOKEN_COOKIE,
-  REFRESH_TOKEN_COOKIE,
-  accessTokenTtlSeconds,
-  refreshTokenTtlSeconds,
-} from "@/lib/auth";
 import { shouldExposeRefreshToken } from "@/lib/mobile-auth";
+import { rateLimitPublicForm } from "@/lib/rate-limit";
+import { applySessionCookies } from "@/lib/session-cookies";
 import { AuthServiceError, authenticateWithGoogle } from "@/modules/auth/auth.service";
 import { googleAuthSchema } from "@/modules/auth/auth.validation";
 
 export const runtime = "nodejs";
 
+/**
+ * Google sign-in via Google Identity Services: the client obtains an ID token
+ * and posts it here; the server verifies it against Google's JWKS
+ * (ARCHITECTURE.md §3.1 — token verified server-side).
+ */
 export async function POST(request: NextRequest) {
   try {
+    const limited = rateLimitPublicForm(request, {
+      limit: 10,
+      namespace: "auth-google",
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (limited) {
+      return limited;
+    }
+
     const input = googleAuthSchema.parse(await request.json());
     const result = await authenticateWithGoogle(input, {
       ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
@@ -31,23 +42,7 @@ export async function POST(request: NextRequest) {
       "Google sign-in successful",
     );
 
-    response.cookies.set(ACCESS_TOKEN_COOKIE, result.accessToken, {
-      httpOnly: true,
-      maxAge: accessTokenTtlSeconds(),
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-
-    response.cookies.set(REFRESH_TOKEN_COOKIE, result.refreshToken, {
-      httpOnly: true,
-      maxAge: refreshTokenTtlSeconds(),
-      path: "/api/v1/auth",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-
-    return response;
+    return applySessionCookies(response, result);
   } catch (error) {
     if (error instanceof AuthServiceError) {
       return errorResponse(error.message, error.errorCode, error.status);

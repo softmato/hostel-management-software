@@ -110,7 +110,7 @@ export function ResidentHomeScreen({ navigation, route }: Props) {
               <Text style={screenStyles.body}>No menu posted.</Text>
             ) : (
               dashboard.foodMenu.slice(0, 3).map((meal) => (
-                <Text key={meal.id} style={screenStyles.body}>
+                <Text key={meal.mealType} style={screenStyles.body}>
                   {meal.mealType}: {meal.items.join(", ")}
                 </Text>
               ))

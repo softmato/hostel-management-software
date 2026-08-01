@@ -109,11 +109,16 @@ export type ResidentPaymentProof = {
 };
 
 export type ResidentFoodMenu = {
-  date: string;
-  id: string;
+  dayOfWeek: string;
   items: string[];
   mealType: string;
+  note: string;
   timing: string;
+};
+
+export type ResidentFoodRoutine = {
+  meals: ResidentFoodMenu[];
+  monthEndSpecial: { items: string[]; note: string } | null;
 };
 
 export type ResidentFoodPhoto = {
@@ -419,8 +424,8 @@ export function submitPaymentProof(
 
 export function listResidentFood(accessToken: string) {
   return apiRequest<{
-    menus: ResidentFoodMenu[];
     photos: ResidentFoodPhoto[];
+    routine: ResidentFoodRoutine;
   }>("/api/v1/resident/food", {
     accessToken,
   });

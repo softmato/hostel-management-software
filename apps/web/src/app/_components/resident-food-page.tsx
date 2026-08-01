@@ -17,8 +17,8 @@ import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
 import {
-  type FoodMenu,
   type FoodPhoto,
+  type FoodRoutine,
   Message,
   field,
   optionalField,
@@ -32,6 +32,20 @@ const MEAL_META: Record<string, { icon: LucideIcon; tone: "amber" | "green" | "p
 };
 
 const MEAL_ORDER = ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"];
+
+const DAY_ORDER = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+];
+
+function titleCase(value: string) {
+  return value.charAt(0) + value.slice(1).toLowerCase();
+}
 
 function MealSkeleton() {
   return (
@@ -60,20 +74,24 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
   const photoAssetId = photoUpload.files[0]?.assetId ?? "";
   const { clear: clearPhoto } = photoUpload;
 
-  const foodResource = usePortalResource<{ menus: FoodMenu[]; photos: FoodPhoto[] }>(
+  const foodResource = usePortalResource<{ photos: FoodPhoto[]; routine: FoodRoutine }>(
     residentEndpoints.food,
     { errorMessage: "Could not load food." },
   );
 
-  const menus = useMemo(() => foodResource.data?.menus ?? [], [foodResource.data]);
+  const routine = foodResource.data?.routine;
+  const menus = useMemo(() => routine?.meals ?? [], [routine]);
   const photos = useMemo(() => foodResource.data?.photos ?? [], [foodResource.data]);
   const state = foodResource.state;
   const message = actionMessage || foodResource.message;
 
+  // The routine repeats, so it reads day by day rather than by date.
   const sortedMenus = useMemo(
     () =>
       [...menus].sort(
-        (a, b) => MEAL_ORDER.indexOf(a.mealType) - MEAL_ORDER.indexOf(b.mealType),
+        (a, b) =>
+          DAY_ORDER.indexOf(a.dayOfWeek) - DAY_ORDER.indexOf(b.dayOfWeek) ||
+          MEAL_ORDER.indexOf(a.mealType) - MEAL_ORDER.indexOf(b.mealType),
       ),
     [menus],
   );
@@ -90,7 +108,6 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
           date: field(form, "date"),
           isAnonymous: form.get("isAnonymous") === "on",
           mealType: field(form, "mealType"),
-          menuId: optionalField(form, "menuId"),
           rating: Number(field(form, "rating")),
         }),
         method: "POST",
@@ -149,7 +166,7 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
 
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-5">
-          <SectionCard title="This Week's Menu">
+          <SectionCard title="Weekly Menu">
             {state === "loading" ? <MealSkeleton /> : null}
             {state === "error" ? (
               <EmptyState label="Food could not be loaded." />
@@ -165,7 +182,7 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
                   return (
                     <div
                       className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/15 p-3 transition hover:border-role-resident/40"
-                      key={menu.id}
+                      key={`${menu.dayOfWeek}:${menu.mealType}`}
                     >
                       <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-role-resident-soft text-role-resident">
                         <Icon className="size-5" />
@@ -181,11 +198,8 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
                           {menu.items.join(", ")}
                         </p>
                         <p className="mt-1.5 text-[10.5px] text-muted-foreground/70">
-                          {new Date(menu.date).toLocaleDateString(undefined, {
-                            weekday: "short",
-                            day: "numeric",
-                            month: "short",
-                          })}
+                          Every {titleCase(menu.dayOfWeek)}
+                          {menu.note ? ` · ${menu.note}` : ""}
                         </p>
                       </div>
                     </div>
@@ -241,14 +255,6 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
         <div className="space-y-5">
           <SectionCard title="Rate a Meal">
             <form className="grid gap-3" onSubmit={handleFeedback}>
-              <Select label="Menu" name="menuId">
-                <option value="">General feedback</option>
-                {sortedMenus.map((menu) => (
-                  <option key={menu.id} value={menu.id}>
-                    {menu.mealType} · {new Date(menu.date).toLocaleDateString()}
-                  </option>
-                ))}
-              </Select>
               <Input label="Date" name="date" required type="date" />
               <Select label="Meal" name="mealType" required>
                 {MEAL_ORDER.map((meal) => (

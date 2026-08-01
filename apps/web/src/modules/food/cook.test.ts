@@ -6,7 +6,7 @@ import { Role } from "@/lib/roles";
 const mocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
   connectToDatabase: vi.fn(),
-  foodMenuFindOne: vi.fn(),
+  routineFindOne: vi.fn(),
   foodReadyCreate: vi.fn(),
   foodReadyFind: vi.fn(),
   foodReadyFindOne: vi.fn(),
@@ -30,8 +30,8 @@ vi.mock("@hostel/db/models/AuditLog", () => ({
   AuditLogModel: { create: mocks.auditCreate },
 }));
 
-vi.mock("@hostel/db/models/FoodMenu", () => ({
-  FoodMenuModel: { findOne: mocks.foodMenuFindOne },
+vi.mock("@hostel/db/models/FoodRoutine", () => ({
+  FoodRoutineModel: { findOne: mocks.routineFindOne },
 }));
 
 vi.mock("@hostel/db/models/FoodReadyLog", () => ({
@@ -108,6 +108,28 @@ const cookPrincipal = {
 function leanResult<T>(value: T) {
   return { lean: vi.fn().mockResolvedValue(value) };
 }
+
+/** A routine serving `items` for lunch on every day, so "today" always hits. */
+function routineWithLunch(items: string[]) {
+  return leanResult({
+    meals: DAY_NAMES.map((dayOfWeek) => ({
+      dayOfWeek,
+      items,
+      mealType: "LUNCH",
+    })),
+    timings: { LUNCH: "12 PM" },
+  });
+}
+
+const DAY_NAMES = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+] as const;
 
 function queryResult<T>(value: T) {
   return {
@@ -248,12 +270,7 @@ describe("food ready announcements", () => {
   });
 
   it("builds the announcement from today's menu and notifies active residents", async () => {
-    mocks.foodMenuFindOne.mockReturnValue(
-      leanResult({
-        _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0aa"),
-        items: ["Dal", "Bhat", "Tarkari"],
-      }),
-    );
+    mocks.routineFindOne.mockReturnValue(routineWithLunch(["Dal", "Bhat", "Tarkari"]));
 
     const result = await announceFoodReady(
       { deviceInfo: {}, mealType: "LUNCH", useMenuDescription: true },
@@ -268,7 +285,7 @@ describe("food ready announcements", () => {
   });
 
   it("falls back to a plain ready ping when no menu is published", async () => {
-    mocks.foodMenuFindOne.mockReturnValue(leanResult(null));
+    mocks.routineFindOne.mockReturnValue(leanResult(null));
 
     const result = await announceFoodReady(
       { deviceInfo: {}, mealType: "DINNER", useMenuDescription: true },
@@ -279,7 +296,7 @@ describe("food ready announcements", () => {
   });
 
   it("prefers a custom message over the menu", async () => {
-    mocks.foodMenuFindOne.mockReturnValue(leanResult({ items: ["Dal"] }));
+    mocks.routineFindOne.mockReturnValue(routineWithLunch(["Dal"]));
 
     const result = await announceFoodReady(
       {
@@ -295,7 +312,7 @@ describe("food ready announcements", () => {
   });
 
   it("refuses a repeat announcement for the same meal inside the cooldown", async () => {
-    mocks.foodMenuFindOne.mockReturnValue(leanResult(null));
+    mocks.routineFindOne.mockReturnValue(leanResult(null));
     mocks.foodReadyFindOne.mockReturnValue(
       queryResult({ announcedAt: new Date(Date.now() - 10 * 60 * 1000) }),
     );
@@ -315,7 +332,7 @@ describe("food ready announcements", () => {
     mocks.platformSettingFindOne.mockReturnValue(
       leanResult({ key: "operations", value: { foodReadyCooldownMinutes: 0 } }),
     );
-    mocks.foodMenuFindOne.mockReturnValue(leanResult(null));
+    mocks.routineFindOne.mockReturnValue(leanResult(null));
     mocks.foodReadyFindOne.mockReturnValue(
       queryResult({ announcedAt: new Date(Date.now() - 60 * 1000) }),
     );

@@ -14,6 +14,8 @@ import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { PaymentModel } from "@hostel/db/models/Payment";
 import { PaymentProofModel } from "@hostel/db/models/PaymentProof";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
+import { ReferralModel } from "@hostel/db/models/Referral";
+import { ReferralRewardModel } from "@hostel/db/models/ReferralReward";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import { getHostelViewStats } from "@/modules/hostels/hostel-view.service";
@@ -539,6 +541,350 @@ export async function getHostelAdminComplaintsReport(
       byCategory,
       byStatus,
       total,
+    },
+  };
+}
+
+const OVERVIEW_MONTHS = 6;
+const RECENT_PAYMENT_ROWS = 12;
+
+type MonthlyPaymentRow = {
+  _id: string;
+  due: number;
+  paid: number;
+  residents: number;
+};
+
+type RecentPaymentRecord = {
+  _id: Types.ObjectId;
+  dueAmount: number;
+  dueDate?: Date;
+  month: string;
+  paidAmount: number;
+  paidDate?: Date;
+  paymentMethod?: string;
+  residentId: Types.ObjectId;
+  status: string;
+};
+
+type ResidentNameRecord = {
+  _id: Types.ObjectId;
+  firstName?: string;
+  lastName?: string;
+  roomType?: string;
+};
+
+function collectionRate(due: number, paid: number) {
+  return due > 0 ? Number(((paid / due) * 100).toFixed(1)) : 0;
+}
+
+/** Last `OVERVIEW_MONTHS` month keys ending at `month` (or the current month). */
+function recentMonthKeys(month?: string) {
+  const anchor = startOfMonth(month) ?? new Date();
+  const year = anchor.getUTCFullYear();
+  const index = anchor.getUTCMonth();
+
+  return Array.from({ length: OVERVIEW_MONTHS }, (_, offset) => {
+    const date = new Date(Date.UTC(year, index - (OVERVIEW_MONTHS - 1 - offset), 1));
+
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
+/**
+ * Month-by-month roll-up straight off the Payment ledger — the same records the
+ * Payments screen writes, so the report never drifts from what admins recorded.
+ */
+async function monthlyPaymentSeries(
+  scoped: Record<string, unknown>,
+  months: string[],
+) {
+  const rows = await PaymentModel.aggregate<MonthlyPaymentRow>([
+    { $match: { ...scoped, month: { $in: months } } },
+    {
+      $group: {
+        _id: "$month",
+        due: { $sum: "$dueAmount" },
+        paid: { $sum: "$paidAmount" },
+        residents: { $addToSet: "$residentId" },
+      },
+    },
+    { $project: { due: 1, paid: 1, residents: { $size: "$residents" } } },
+  ]);
+  const byMonth = new Map(rows.map((row) => [row._id, row]));
+
+  return months.map((month) => {
+    const row = byMonth.get(month);
+    const due = row?.due ?? 0;
+    const paid = row?.paid ?? 0;
+
+    return {
+      collectionRate: collectionRate(due, paid),
+      due,
+      month,
+      outstanding: Math.max(due - paid, 0),
+      paid,
+      residents: row?.residents ?? 0,
+    };
+  });
+}
+
+async function averageResolutionDays(scoped: Record<string, unknown>) {
+  const [row] = await ComplaintModel.aggregate<{ averageMs: number }>([
+    { $match: { ...scoped, resolvedAt: { $ne: null } } },
+    {
+      $group: {
+        _id: null,
+        averageMs: { $avg: { $subtract: ["$resolvedAt", "$createdAt"] } },
+      },
+    },
+  ]);
+
+  return row?.averageMs ? Number((row.averageMs / DAY_MS).toFixed(1)) : null;
+}
+
+async function foodRatingSummary(scoped: Record<string, unknown>) {
+  const [row] = await FoodFeedbackModel.aggregate<{
+    averageRating: number;
+    total: number;
+  }>([
+    { $match: scoped },
+    { $group: { _id: null, averageRating: { $avg: "$rating" }, total: { $sum: 1 } } },
+  ]);
+
+  return {
+    averageRating: row?.averageRating ? Number(row.averageRating.toFixed(2)) : null,
+    total: row?.total ?? 0,
+  };
+}
+
+async function referralRewardTotals(scoped: Record<string, unknown>) {
+  const [row] = await ReferralRewardModel.aggregate<{
+    approved: number;
+    paid: number;
+    total: number;
+  }>([
+    { $match: scoped },
+    {
+      $group: {
+        _id: null,
+        approved: {
+          $sum: { $cond: [{ $eq: ["$status", "APPROVED"] }, "$amount", 0] },
+        },
+        paid: { $sum: { $cond: [{ $eq: ["$status", "PAID"] }, "$amount", 0] } },
+        total: { $sum: "$amount" },
+      },
+    },
+  ]);
+
+  return {
+    approvedAmount: row?.approved ?? 0,
+    paidAmount: row?.paid ?? 0,
+    totalAmount: row?.total ?? 0,
+  };
+}
+
+/**
+ * Everything the hostel Reports screen shows, in one round trip. Each section
+ * is aggregated from the collection that owns it, so the figures are the live
+ * operational records rather than a separately maintained metrics store.
+ */
+export async function getHostelAdminReportsOverview(
+  query: ReportQuery,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const now = new Date();
+  const scoped = hostelFilter(principal, query.hostelId);
+  const notDeleted = { ...scoped, isDeleted: false };
+  const scopedHostelIds =
+    scoped.hostelId instanceof Types.ObjectId ? [scoped.hostelId] : scoped.hostelId.$in;
+  const months = recentMonthKeys(query.month);
+  const selectedMonth = query.month ?? months[months.length - 1];
+  const monthPaymentFilter = { ...scoped, month: selectedMonth };
+
+  const [
+    hostels,
+    residentsByStatus,
+    residents,
+    vacantBeds,
+    paymentTotals,
+    monthTotals,
+    paymentsByStatus,
+    paymentsByMethod,
+    pendingProofs,
+    monthly,
+    recentPayments,
+    complaintsByStatus,
+    complaintsByCategory,
+    complaintsTotal,
+    slaBreached,
+    resolutionDays,
+    maintenanceByStatus,
+    maintenanceByCategory,
+    maintenanceTotal,
+    maintenanceCompleted,
+    food,
+    nightStatus,
+    inquiriesByStatus,
+    inquiriesTotal,
+    referralsByStatus,
+    referralsTotal,
+    rewards,
+    viewStats,
+  ] = await Promise.all([
+    HostelModel.find({ _id: { $in: scopedHostelIds }, isDeleted: false })
+      .select("roomConfigurations")
+      .lean<Array<{ roomConfigurations?: Array<{ bedsPerRoom?: number; rooms?: number }> }>>(),
+    countByField(ResidentModel, notDeleted, "status"),
+    ResidentModel.countDocuments(notDeleted),
+    countVacantBeds(scopedHostelIds),
+    sumPayments(scoped),
+    sumPayments(monthPaymentFilter),
+    countByField(PaymentModel, scoped, "status"),
+    countByField(PaymentModel, scoped, "paymentMethod"),
+    PaymentProofModel.countDocuments({ ...scoped, status: "PENDING" }),
+    monthlyPaymentSeries(scoped, months),
+    PaymentModel.find(scoped)
+      .sort({ createdAt: -1 })
+      .limit(RECENT_PAYMENT_ROWS)
+      .lean<RecentPaymentRecord[]>(),
+    countByField(ComplaintModel, scoped, "status"),
+    countByField(ComplaintModel, scoped, "category"),
+    ComplaintModel.countDocuments(scoped),
+    ComplaintModel.countDocuments({
+      ...scoped,
+      slaDueAt: { $lt: now },
+      status: { $in: ["PENDING", "IN_PROGRESS"] },
+    }),
+    averageResolutionDays(scoped),
+    countByField(MaintenanceRequestModel, notDeleted, "status"),
+    countByField(MaintenanceRequestModel, notDeleted, "category"),
+    MaintenanceRequestModel.countDocuments(notDeleted),
+    MaintenanceRequestModel.countDocuments({ ...notDeleted, status: "COMPLETED" }),
+    foodRatingSummary(scoped),
+    countByField(NightStatusModel, scoped, "status"),
+    countByField(InquiryModel, notDeleted, "status"),
+    InquiryModel.countDocuments(notDeleted),
+    countByField(ReferralModel, notDeleted, "status"),
+    ReferralModel.countDocuments(notDeleted),
+    referralRewardTotals(scoped),
+    getHostelViewStats(scopedHostelIds),
+  ]);
+
+  const residentIds = [
+    ...new Set(recentPayments.map((payment) => payment.residentId.toString())),
+  ];
+  const residentRows = await ResidentModel.find({ _id: { $in: residentIds } })
+    .select("firstName lastName roomType")
+    .lean<ResidentNameRecord[]>();
+  const residentById = new Map(
+    residentRows.map((resident) => [
+      resident._id.toString(),
+      {
+        name: `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim() || "—",
+        roomType: resident.roomType ?? "—",
+      },
+    ]),
+  );
+
+  const totalBeds = hostels.reduce(
+    (total, hostel) =>
+      total +
+      (hostel.roomConfigurations ?? []).reduce(
+        (sum, config) => sum + (config.bedsPerRoom ?? 0) * (config.rooms ?? 0),
+        0,
+      ),
+    0,
+  );
+  const occupiedBeds = Math.max(totalBeds - vacantBeds, 0);
+  const converted = inquiriesByStatus.CONVERTED ?? 0;
+  const joinedReferrals =
+    (referralsByStatus.JOINED ?? 0) + (referralsByStatus.REWARDED ?? 0);
+
+  return {
+    overview: {
+      complaints: {
+        byCategory: complaintsByCategory,
+        byStatus: complaintsByStatus,
+        averageResolutionDays: resolutionDays,
+        open:
+          (complaintsByStatus.PENDING ?? 0) + (complaintsByStatus.IN_PROGRESS ?? 0),
+        resolved: complaintsByStatus.RESOLVED ?? 0,
+        slaBreached,
+        total: complaintsTotal,
+      },
+      food: {
+        averageRating: food.averageRating,
+        feedbackCount: food.total,
+      },
+      generatedAt: now.toISOString(),
+      inquiries: {
+        byStatus: inquiriesByStatus,
+        conversionRate: collectionRate(inquiriesTotal, converted),
+        converted,
+        total: inquiriesTotal,
+      },
+      maintenance: {
+        byCategory: maintenanceByCategory,
+        byStatus: maintenanceByStatus,
+        completed: maintenanceCompleted,
+        open: maintenanceTotal - maintenanceCompleted,
+        total: maintenanceTotal,
+      },
+      months,
+      nightStatus,
+      occupancy: {
+        byStatus: residentsByStatus,
+        occupancyRate: collectionRate(totalBeds, occupiedBeds),
+        occupiedBeds,
+        residents,
+        totalBeds,
+        vacantBeds,
+      },
+      payments: {
+        byMethod: paymentsByMethod,
+        byStatus: paymentsByStatus,
+        collectionRate: collectionRate(paymentTotals.dueAmount, paymentTotals.paidAmount),
+        monthly,
+        outstanding: Math.max(paymentTotals.dueAmount - paymentTotals.paidAmount, 0),
+        pendingProofs,
+        recent: recentPayments.map((payment) => ({
+          dueAmount: payment.dueAmount,
+          dueDate: payment.dueDate?.toISOString() ?? null,
+          id: payment._id.toString(),
+          method: payment.paymentMethod ?? "",
+          month: payment.month,
+          paidAmount: payment.paidAmount,
+          paidDate: payment.paidDate?.toISOString() ?? null,
+          residentName: residentById.get(payment.residentId.toString())?.name ?? "—",
+          roomType: residentById.get(payment.residentId.toString())?.roomType ?? "—",
+          status: payment.status,
+        })),
+        selectedMonth: {
+          collectionRate: collectionRate(monthTotals.dueAmount, monthTotals.paidAmount),
+          month: selectedMonth,
+          outstanding: Math.max(monthTotals.dueAmount - monthTotals.paidAmount, 0),
+          totalDue: monthTotals.dueAmount,
+          totalPaid: monthTotals.paidAmount,
+        },
+        totalDue: paymentTotals.dueAmount,
+        totalPaid: paymentTotals.paidAmount,
+      },
+      referrals: {
+        byStatus: referralsByStatus,
+        joined: joinedReferrals,
+        rewardApprovedAmount: rewards.approvedAmount,
+        rewardPaidAmount: rewards.paidAmount,
+        rewardTotalAmount: rewards.totalAmount,
+        total: referralsTotal,
+      },
+      visibility: {
+        publicViewsLast30Days: viewStats.publicViewsLast30Days,
+        totalPublicViews: viewStats.totalPublicViews,
+        uniquePublicVisitors: viewStats.uniquePublicVisitors,
+      },
     },
   };
 }

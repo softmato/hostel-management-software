@@ -366,34 +366,46 @@ export function PublicHostelDetailPage() {
     hostel.food?.notes,
   ].filter((detail): detail is string => Boolean(detail));
 
-  // This week's published menu, laid out as day rows by meal column. Days with
-  // nothing published are dropped so a half-filled week still reads cleanly.
-  const foodRoutineRows = (() => {
-    const menus = hostel.foodRoutine?.menus ?? [];
+  // The weekly routine as day rows by meal column. Days with nothing set are
+  // dropped so a half-filled routine still reads cleanly.
+  const routineMeals = hostel.foodRoutine?.meals ?? [];
+  const foodRoutineRows = ROUTINE_DAYS.map((day) => ({
+    day,
+    meals: ROUTINE_MEALS.map((meal) => ({
+      ...meal,
+      menu: routineMeals.find(
+        (entry) => entry.dayOfWeek === day && entry.mealType === meal.type,
+      ),
+    })),
+  })).filter((row) => row.meals.some((meal) => meal.menu));
 
-    if (menus.length === 0) {
-      return [];
-    }
-
-    return ROUTINE_DAYS.map((day) => {
-      const forDay = menus.filter((menu) => menu.dayOfWeek === day);
-
-      return {
-        day,
-        meals: ROUTINE_MEALS.map((meal) => ({
-          ...meal,
-          // Same-day duplicates can exist in older data; show the newest.
-          menu: forDay
-            .filter((menu) => menu.mealType === meal.type)
-            .sort(
-              (left, right) =>
-                new Date(right.updatedAt ?? 0).getTime() -
-                new Date(left.updatedAt ?? 0).getTime(),
-            )[0],
-        })),
-      };
-    }).filter((row) => row.meals.some((meal) => meal.menu));
-  })();
+  // Noted meals and the month end treat read the same way to a visitor, so
+  // they share one strip — only the badge tells them apart.
+  const foodSpecials = [
+    ...routineMeals
+      .filter((meal) => Boolean(meal.note))
+      .map((meal) => ({
+        id: `${meal.dayOfWeek}:${meal.mealType}`,
+        isMonthEnd: false,
+        items: meal.items,
+        label: `Every ${humanize(meal.dayOfWeek)} · ${
+          ROUTINE_MEALS.find((entry) => entry.type === meal.mealType)?.label ??
+          humanize(meal.mealType)
+        }`,
+        note: meal.note,
+      })),
+    ...(hostel.foodRoutine?.monthEndSpecial
+      ? [
+          {
+            id: "month-end",
+            isMonthEnd: true,
+            items: hostel.foodRoutine.monthEndSpecial.items,
+            label: "Last day of every month",
+            note: hostel.foodRoutine.monthEndSpecial.note,
+          },
+        ]
+      : []),
+  ];
 
   const hostelRules =
     hostel.rules.length > 0 ? hostel.rules : ["Rules are shared by the hostel team."];
@@ -775,15 +787,12 @@ export function PublicHostelDetailPage() {
             )}
           </section>
 
-          {/* Bento: the routine is the wide tile and the short cards stack
-              beside it, so a long menu no longer pushes them down the page. */}
-          <section
-            className="grid gap-5 lg:grid-cols-3 lg:items-start"
-            id="hostel-overview"
-          >
+          {/* The routine gets the full main column; rules and reviews live in
+              the sidebar next to the photos, under the contact card. */}
+          <section className="grid gap-5" id="hostel-overview">
             {foodRoutineRows.length > 0 ? (
               <article
-                className="rounded-lg border border-border bg-surface p-5 shadow-sm lg:col-span-2 lg:row-span-2"
+                className="rounded-lg border border-border bg-surface p-5 shadow-sm"
                 id="hostel-food-routine"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -833,9 +842,9 @@ export function PublicHostelDetailPage() {
                                   <span className="mt-1 block text-xs font-medium text-muted-foreground">
                                     {meal.menu.timing}
                                   </span>
-                                  {meal.menu.specialNotes ? (
+                                  {meal.menu.note ? (
                                     <span className="mt-1 block text-xs font-medium text-brand-teal">
-                                      {meal.menu.specialNotes}
+                                      {meal.menu.note}
                                     </span>
                                   ) : null}
                                 </>
@@ -849,66 +858,43 @@ export function PublicHostelDetailPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {foodSpecials.length > 0 ? (
+                  <div className="mt-5">
+                    <h3 className="text-sm font-extrabold text-foreground">
+                      Special meals
+                    </h3>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {foodSpecials.map((special) => (
+                        <div
+                          className="rounded-lg border border-border bg-muted/30 p-3"
+                          key={special.id}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-extrabold text-foreground">
+                              {special.items.join(", ")}
+                            </span>
+                            {special.isMonthEnd ? (
+                              <span className="rounded-full bg-brand-teal-soft/70 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-teal">
+                                Month end
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-xs font-medium text-muted-foreground">
+                            {special.label}
+                          </p>
+                          {special.note ? (
+                            <p className="mt-1 text-xs font-medium text-brand-teal">
+                              {special.note}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </article>
             ) : null}
-
-            <article
-              className="rounded-lg border border-border bg-surface p-5 shadow-sm"
-              id="hostel-rules"
-            >
-              <h2 className="text-lg font-extrabold text-foreground">Hostel Rules</h2>
-              <div className="mt-4 space-y-3 text-sm font-medium text-muted-foreground">
-                {hostelRules.map((rule) => (
-                  <p className="flex items-start gap-2" key={rule}>
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand-teal" />
-                    {rule}
-                  </p>
-                ))}
-              </div>
-            </article>
-
-            <article
-              className="rounded-lg border border-border bg-surface p-5 shadow-sm"
-              id="hostel-reviews"
-            >
-              <h2 className="text-lg font-extrabold text-foreground">What Students Say</h2>
-              <div className="mt-4 grid gap-5 sm:grid-cols-[120px_1fr] lg:grid-cols-1 xl:grid-cols-[120px_1fr]">
-                <div>
-                  <p className="text-5xl font-extrabold text-foreground">
-                    {hostelSummary.rating ? hostelSummary.rating.toFixed(1) : "New"}
-                  </p>
-                  <div className="mt-2 flex gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star className="size-3.5 fill-warning text-warning" key={star} />
-                    ))}
-                  </div>
-                  <p className="mt-2 text-xs font-medium text-muted-foreground">
-                    Based on {hostelSummary.reviews} reviews
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {reviewCounts.map((row) => (
-                    <div
-                      className="grid grid-cols-[28px_1fr_28px] items-center gap-2 text-xs"
-                      key={row.stars}
-                    >
-                      <span className="font-bold text-foreground">{row.stars} *</span>
-                      <span className="h-2 overflow-hidden rounded-full bg-muted">
-                        <span
-                          className="block h-full rounded-full bg-brand-teal"
-                          style={{
-                            width: `${Math.min(100, (row.count / reviewTotal) * 100)}%`,
-                          }}
-                        />
-                      </span>
-                      <span className="text-right font-semibold text-muted-foreground">
-                        {row.count}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </article>
           </section>
 
           <section
@@ -1030,6 +1016,64 @@ export function PublicHostelDetailPage() {
             >
               Send an inquiry instead
             </Link>
+          </section>
+
+          <section
+            className="rounded-lg border border-border bg-surface p-5 shadow-sm"
+            id="hostel-rules"
+          >
+            <h2 className="text-lg font-extrabold text-foreground">Hostel Rules</h2>
+            <div className="mt-4 space-y-3 text-sm font-medium text-muted-foreground">
+              {hostelRules.map((rule) => (
+                <p className="flex items-start gap-2" key={rule}>
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand-teal" />
+                  {rule}
+                </p>
+              ))}
+            </div>
+          </section>
+
+          <section
+            className="rounded-lg border border-border bg-surface p-5 shadow-sm"
+            id="hostel-reviews"
+          >
+            <h2 className="text-lg font-extrabold text-foreground">What Students Say</h2>
+            <div className="mt-4 grid gap-5 sm:grid-cols-[120px_1fr]">
+              <div>
+                <p className="text-5xl font-extrabold text-foreground">
+                  {hostelSummary.rating ? hostelSummary.rating.toFixed(1) : "New"}
+                </p>
+                <div className="mt-2 flex gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star className="size-3.5 fill-warning text-warning" key={star} />
+                  ))}
+                </div>
+                <p className="mt-2 text-xs font-medium text-muted-foreground">
+                  Based on {hostelSummary.reviews} reviews
+                </p>
+              </div>
+              <div className="space-y-2">
+                {reviewCounts.map((row) => (
+                  <div
+                    className="grid grid-cols-[28px_1fr_28px] items-center gap-2 text-xs"
+                    key={row.stars}
+                  >
+                    <span className="font-bold text-foreground">{row.stars} *</span>
+                    <span className="h-2 overflow-hidden rounded-full bg-muted">
+                      <span
+                        className="block h-full rounded-full bg-brand-teal"
+                        style={{
+                          width: `${Math.min(100, (row.count / reviewTotal) * 100)}%`,
+                        }}
+                      />
+                    </span>
+                    <span className="text-right font-semibold text-muted-foreground">
+                      {row.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </section>
         </aside>
       </section>

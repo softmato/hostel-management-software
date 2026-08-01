@@ -50,7 +50,7 @@ function requestUrl(input: RequestInfo | URL): string {
  * be wrong (e.g. retrying a failed login) and could loop, so skip the interceptor.
  */
 function isAuthEndpoint(url: string): boolean {
-  return url.includes("/api/v1/auth/") || url.includes("/api/auth/");
+  return url.includes("/api/v1/auth/");
 }
 
 function redirectToLogin(): void {

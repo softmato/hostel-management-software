@@ -620,12 +620,12 @@ export const PlatformUsersPageContent = memo(function PlatformUsersPageContent()
                         />
                         <p className="pt-1.5 text-[11px] leading-4 text-muted-foreground">
                           The full ledger for this hostel lives under{" "}
-                          <a
+                          <Link
                             className="font-semibold text-role-platform"
                             href="/platform/transactions"
                           >
                             Transactions
-                          </a>
+                          </Link>
                           .
                         </p>
                       </>
@@ -661,12 +661,12 @@ export const PlatformUsersPageContent = memo(function PlatformUsersPageContent()
                     />
                     <p className="pt-1.5 text-[11px] leading-4 text-muted-foreground">
                       Full action history is in the{" "}
-                      <a
+                      <Link
                         className="font-semibold text-role-platform"
                         href="/platform/audit-logs"
                       >
                         Audit Log
-                      </a>
+                      </Link>
                       .
                     </p>
                   </DetailSection>

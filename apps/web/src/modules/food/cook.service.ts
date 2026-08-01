@@ -8,11 +8,11 @@ import { hashPassword } from "@/lib/password";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
-import { FoodMenuModel } from "@hostel/db/models/FoodMenu";
 import { FoodReadyLogModel } from "@hostel/db/models/FoodReadyLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { UserModel } from "@hostel/db/models/User";
+import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { normalizeObjectId } from "@/modules/residents/resident-access";
@@ -336,15 +336,12 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
 
   const hostelId = await resolveCookHostelId(principal, input.hostelId);
   const today = startOfToday();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
 
+  // The routine repeats weekly, so today's meal is today's weekday entry.
   const menu = input.useMenuDescription
-    ? await FoodMenuModel.findOne({
-        date: { $gte: today, $lt: tomorrow },
-        hostelId,
-        mealType: input.mealType,
-      }).lean<{ _id: Types.ObjectId; items?: string[] } | null>()
+    ? mealsOn(await getFoodRoutine(hostelId), today).find(
+        (meal) => meal.mealType === input.mealType,
+      )
     : null;
 
   const mealLabel = input.mealType.toLowerCase();
@@ -412,7 +409,6 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
     deviceInfo: input.deviceInfo,
     hostelId,
     mealType: input.mealType,
-    menuId: menu?._id,
     message: body,
     notifiedCount,
   });

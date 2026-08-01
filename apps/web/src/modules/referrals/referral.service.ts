@@ -18,12 +18,14 @@ import {
 import type {
   hostelAdminReferralListQuerySchema,
   referralConfirmSchema,
+  referralRewardUpdateSchema,
   referredInquiryCreateSchema,
 } from "@/modules/referrals/referral.validation";
 
 type ReferredInquiryCreateInput = z.infer<typeof referredInquiryCreateSchema>;
 type HostelAdminReferralListQuery = z.infer<typeof hostelAdminReferralListQuerySchema>;
 type ReferralConfirmInput = z.infer<typeof referralConfirmSchema>;
+type ReferralRewardUpdateInput = z.infer<typeof referralRewardUpdateSchema>;
 
 type ReferralCodeRecord = {
   _id: Types.ObjectId;
@@ -73,6 +75,18 @@ type ResidentRecord = {
   _id: Types.ObjectId;
   hostelId: Types.ObjectId;
 };
+
+type ReferrerRecord = {
+  _id: Types.ObjectId;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  roomType?: string;
+};
+
+function referrerName(resident?: ReferrerRecord) {
+  return `${resident?.firstName ?? ""} ${resident?.lastName ?? ""}`.trim() || "—";
+}
 
 export class ReferralServiceError extends Error {
   constructor(
@@ -334,11 +348,152 @@ export async function listHostelAdminReferrals(
     rewards.map((reward) => [reward.referralId.toString(), reward]),
   );
 
+  // Resolve referrer names and their codes in two queries rather than per row,
+  // so the admin sees "who brought this person in" instead of an ObjectId.
+  const referrerIds = [
+    ...new Set(referrals.map((referral) => referral.referrerResidentId.toString())),
+  ];
+  const [referrerRows, codes] = await Promise.all([
+    ResidentModel.find({ _id: { $in: referrerIds } })
+      .select("firstName lastName phone roomType")
+      .lean<ReferrerRecord[]>(),
+    ReferralCodeModel.find(scopedHostelFilter(principal, query.hostelId))
+      .sort({ joinedCount: -1 })
+      .limit(10)
+      .lean<ReferralCodeRecord[]>(),
+  ]);
+  const referrerById = new Map(
+    referrerRows.map((resident) => [resident._id.toString(), resident]),
+  );
+  const leaderboardResidentIds = codes.map((code) => code.residentId.toString());
+  const leaderboardRows = await ResidentModel.find({
+    _id: { $in: leaderboardResidentIds },
+  })
+    .select("firstName lastName phone roomType")
+    .lean<ReferrerRecord[]>();
+  const leaderboardById = new Map(
+    leaderboardRows.map((resident) => [resident._id.toString(), resident]),
+  );
+
+  const rewardTotals = rewards.reduce(
+    (totals, reward) => ({
+      approved: totals.approved + (reward.status === "APPROVED" ? reward.amount : 0),
+      paid: totals.paid + (reward.status === "PAID" ? reward.amount : 0),
+      pending: totals.pending + (reward.status === "PENDING" ? reward.amount : 0),
+    }),
+    { approved: 0, paid: 0, pending: 0 },
+  );
+  const byStatus = referrals.reduce<Record<string, number>>((counts, referral) => {
+    counts[referral.status] = (counts[referral.status] ?? 0) + 1;
+    return counts;
+  }, {});
+
   return {
-    referrals: referrals.map((referral) => ({
-      ...serializeReferral(referral),
-      reward: serializeReward(rewardByReferralId.get(referral._id.toString()) ?? null),
-    })),
+    referrals: referrals.map((referral) => {
+      const referrer = referrerById.get(referral.referrerResidentId.toString());
+
+      return {
+        ...serializeReferral(referral),
+        referrerName: referrerName(referrer),
+        referrerPhone: referrer?.phone ?? "",
+        reward: serializeReward(rewardByReferralId.get(referral._id.toString()) ?? null),
+      };
+    }),
+    summary: {
+      byStatus,
+      joined: (byStatus.JOINED ?? 0) + (byStatus.REWARDED ?? 0),
+      pendingConfirmation: byStatus.INQUIRY_CREATED ?? 0,
+      rewardApprovedAmount: rewardTotals.approved,
+      rewardPaidAmount: rewardTotals.paid,
+      rewardPendingAmount: rewardTotals.pending,
+      total: referrals.length,
+    },
+    topReferrers: codes
+      .filter((code) => (code.joinedCount ?? 0) > 0 || (code.rewardCount ?? 0) > 0)
+      .map((code) => ({
+        code: code.code,
+        id: code._id.toString(),
+        joinedCount: code.joinedCount ?? 0,
+        name: referrerName(leaderboardById.get(code.residentId.toString())),
+        rewardCount: code.rewardCount ?? 0,
+        roomType: leaderboardById.get(code.residentId.toString())?.roomType ?? "",
+      })),
+  };
+}
+
+/**
+ * Records a payout decision on a confirmed referral's reward. Marking it PAID
+ * also moves the referral itself to REWARDED so the two never disagree.
+ */
+export async function updateReferralReward(
+  referralId: string,
+  input: ReferralRewardUpdateInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const referral = await ReferralModel.findOne({
+    _id: normalizeObjectId(referralId, "referral id"),
+    isDeleted: false,
+    ...scopedHostelFilter(principal, input.hostelId),
+  }).lean<ReferralRecord | null>();
+
+  if (!referral) {
+    throw new ReferralServiceError("Referral was not found.", "REFERRAL_NOT_FOUND", 404);
+  }
+
+  if (referral.status === "INQUIRY_CREATED") {
+    throw new ReferralServiceError(
+      "Confirm the referral as joined before recording a reward.",
+      "REFERRAL_NOT_CONFIRMED",
+      409,
+    );
+  }
+
+  const set: Record<string, unknown> = {
+    hostelId: referral.hostelId,
+    referrerResidentId: referral.referrerResidentId,
+    status: input.status,
+  };
+
+  if (input.amount !== undefined) {
+    set.amount = input.amount;
+  }
+
+  if (input.notes !== undefined) {
+    set.notes = input.notes;
+  }
+
+  if (input.rewardType) {
+    set.rewardType = input.rewardType;
+  }
+
+  if (input.status === "PAID") {
+    set.approvedAt = new Date();
+    set.approvedBy = principal.userId;
+  }
+
+  const reward = await ReferralRewardModel.findOneAndUpdate(
+    { referralId: referral._id },
+    { $set: set },
+    { new: true, upsert: true },
+  ).lean<ReferralRewardRecord | null>();
+
+  const nextStatus = input.status === "PAID" ? "REWARDED" : referral.status;
+  const updatedReferral = await ReferralModel.findOneAndUpdate(
+    { _id: referral._id, isDeleted: false },
+    { $set: { status: nextStatus, updatedBy: principal.userId } },
+    { new: true },
+  ).lean<ReferralRecord | null>();
+
+  await auditReferralAction(principal, referral, "REFERRAL_REWARD_UPDATED", {
+    amount: reward?.amount ?? 0,
+    status: input.status,
+  });
+
+  return {
+    referral: serializeReferral(updatedReferral ?? referral),
+    reward: serializeReward(reward),
   };
 }
 

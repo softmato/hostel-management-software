@@ -22,7 +22,7 @@ export function VerifyEmailContent() {
 
     (async () => {
       try {
-        const response = await fetch("/api/auth/verify-email", {
+        const response = await fetch("/api/v1/auth/verify-email", {
           body: JSON.stringify({ token }),
           headers: { "Content-Type": "application/json" },
           method: "POST",

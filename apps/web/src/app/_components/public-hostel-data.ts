@@ -37,19 +37,23 @@ export type PublicHostel = {
     mealsPerDay?: number;
     notes?: string;
   };
-  /** This week's published menu, as configured by the hostel admin. */
+  /** The hostel's weekly routine — it repeats, so it carries no dates. */
   foodRoutine?: {
-    menus: Array<{
-      date: string;
-      dayOfWeek: string;
-      id: string;
+    meals: Array<{
+      dayOfWeek:
+        | "SUNDAY"
+        | "MONDAY"
+        | "TUESDAY"
+        | "WEDNESDAY"
+        | "THURSDAY"
+        | "FRIDAY"
+        | "SATURDAY";
       items: string[];
       mealType: "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
-      specialNotes?: string;
+      note: string;
       timing: string;
-      updatedAt?: string;
     }>;
-    weekStartDate: string;
+    monthEndSpecial?: { items: string[]; note: string } | null;
   };
   hostelType: "BOYS" | "GIRLS" | "CO_LIVING";
   id: string;

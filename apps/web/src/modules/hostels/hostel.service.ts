@@ -13,7 +13,7 @@ import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
 import { UserModel } from "@hostel/db/models/User";
 import { provisionCookAccount } from "@/modules/food/cook.service";
-import { listPublicFoodRoutine } from "@/modules/food/food.service";
+import { getFoodRoutine } from "@/modules/food/food-routine.service";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { hostelApprovedEmail } from "@hostel/shared/email/templates/hostel/hostel-approved";
@@ -1598,7 +1598,7 @@ export async function getPublicHostelBySlug(slug: string) {
     throw new HostelServiceError("Hostel was not found.", "HOSTEL_NOT_FOUND", 404);
   }
 
-  const foodRoutine = await listPublicFoodRoutine(hostel._id);
+  const foodRoutine = await getFoodRoutine(hostel._id);
 
   return {
     hostel: {

@@ -426,18 +426,23 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Complaints",
       },
       {
-        description: "Maintenance requests, assignment, scheduling, and cost tracking.",
+        description:
+          "Raise repair requests with an auto-suggested provider role, assign verified providers, and track history.",
         href: "/hostel-admin/maintenance",
         icon: "wrench",
-        keywords: ["maintenance", "repair", "ticket", "electrical", "plumbing"],
-        label: "Maintenance",
-      },
-      {
-        description: "Verified provider directory — call, message, and book a visit.",
-        href: "/hostel-admin/service-providers",
-        icon: "activity",
-        keywords: ["provider", "vendor", "electrician", "plumber", "book visit"],
-        label: "Service Providers",
+        keywords: [
+          "maintenance",
+          "repair",
+          "ticket",
+          "electrical",
+          "plumbing",
+          "provider",
+          "vendor",
+          "electrician",
+          "plumber",
+          "book visit",
+        ],
+        label: "Maintenance & Providers",
       },
       {
         description: "Live SOS alerts raised by residents with escalation history.",

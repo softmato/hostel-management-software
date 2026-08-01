@@ -51,7 +51,14 @@ This file is the project's working memory across coding sessions. Update it ever
 
 ## Current Progress
 
-- **Phase:** Phase 3 — Resident System (all code-side deliverables done; remaining = manual/browser QA + external infra).
+- **Phase:** Phases 1-3 closed out (2026-08-01). All code-side deliverables for Phases 1, 2 and 3 are done; what remains in each is external infra or a seeded-DB acceptance pass. Phase 4 is next and nothing from it has been started.
+- **Status (2026-08-01):** build green, typecheck + lint clean (0 errors, 0 warnings), **247/247** unit tests pass. This session was defect closure rather than new surface:
+  1. **Auth surfaces unified.** `/api/auth/*` and `/api/v1/auth/*` had both been live since the Phase 1 alignment. The clients call `/api/v1`, and that copy was the one **without the login rate limit** — so the §1.1 "5 attempts / 15 min" control existed only on the path nobody used. Everything is now `/api/v1/auth/*`, limit restored and locked with a test; cookie writes go through `applySessionCookies()` instead of four drifting copies. The duplicate tree is deleted.
+  2. **Password reset actually works.** `/reset-password` had been a static mockup calling nothing. Rebuilt as a real request-link → set-password flow against the endpoints that already existed.
+  3. **Home page no longer fabricates hostels.** It rendered `MOCK_HOSTELS` — invented names, ratings and "125 hostels" counts, links that 404'd. Now server-rendered from `listPublicHostels()`, counts derived, empty states per row. Verified: two real hostels rendered, both detail links 200.
+  4. **Docs reconciled with code**, not the reverse — API.md (envelope, error codes, §1.5 paths, ⏳/↔ flags) and DATABASE.md (`HostelMember`, `PlatformSetting`, `roomConfigurations`).
+  5. `FoodMenu` → repeating weekly `FoodRoutine`.
+- **Not verified in-browser:** client-side runtime behaviour of the public pages. The Browser pane was not compositing this session (empty a11y tree, `innerText` blank), so filter/search/compare interactivity was not exercised. Server rendering, API responses, build, types, lint and tests all were.
 - **Status (2026-07-23):** build green, typecheck + lint clean, **131/131** unit tests pass. Like Phase 2, this was gap completion on an already-built surface. Delivered: QR image generation + activation email with config-driven expiry (`operations` platform setting), payment proofs that carry an amount/method/reference so a month can settle PARTIAL, sequential `RCP-YYYY-MM-#####` receipts, the 7 Phase 3 email templates, a payment reminder/overdue cron, notice fan-out (in-app + email), `Resident.residentType` + `monthlyFee` with an idempotent monthly fee run, and cook-portal setup with `/api/v1/cook/food-ready`. See CHANGELOG `[0.5.0]`.
 - **Phase 3 remaining (not code):** §3.2 acceptance pass against a seeded DB, live Resend delivery test, an R2 bucket for QR images (local-disk fallback covers dev), and a cron-job.org entry for `/api/v1/cron/payment-reminders` with `CRON_SECRET` set. Cook *mobile* screens are Phase 6 by design; the server side they call is done.
 - **Prior — Phase 2 (2026-07-22):** public discovery + hostel core.
@@ -154,13 +161,13 @@ The older Phase 1 infra list below is still open and still **external/infra or d
    - Role migration against the dev DB: `node --experimental-transform-types packages/db/src/migrate-roles.ts` (PLATFORM_OWNER→SUPERADMIN etc.), then `npm run db:seed`.
    - Manual acceptance-test pass (PHASES.md §1.2) against a running instance once the above are provisioned; unit coverage exists for auth/upgrade/§3.2.
 2. **Deliberately deferred (not part of a clean Phase 1):**
-   - App-wide response-envelope migration (`{ success, message, data|errorCode }` → docs' `{ success, data|error:{code,message} }`) — do in ONE pass later, not piecemeal.
+   - ~~App-wide response-envelope migration~~ — **resolved 2026-08-01 the other way**: the shipped envelope was already consistent across all 152 route files, so `docs/API.md` §1.1/§1.2 were corrected to describe it instead of migrating 152 routes to match a document. No migration pending.
    - Dedicated `packages/db/src/repositories/` layer — tenant scoping is functionally covered by `apps/web/src/modules/*` services + `lib/tenant.ts`.
    - Field-level alignment of all ~60 models + Phase 3–5 model creation — phase discipline defers future-phase work.
 3. **Known deviations from docs (decided 2026-07-20, revisit deliberately, don't "fix" casually):**
    - npm workspaces + turbo instead of pnpm (pnpm needs admin install; switch later via `corepack enable`).
-   - API stays under `/api/v1/*` for existing portals ("platform" naming instead of docs' "superadmin"); new docs-standard auth lives at `/api/auth/*`. Frontend still calls `/api/v1` via `browser-api.ts`.
-   - Response envelope is `{ success, message, data | errorCode }` (existing app-wide) vs docs' `{ success, data | error:{code,message} }`. Migrate app-wide in one pass later, not piecemeal.
+   - API is under `/api/v1/*` throughout ("platform" naming instead of docs' "superadmin", "wardens" instead of "staff"). **The `/api/auth/*` duplicate surface was removed 2026-08-01** — keeping both had left the live login without a rate limit. One surface only; recorded in API.md §1.5.
+   - Response envelope is `{ success, message, data }` / `{ success, message, errorCode, details? }`, and API.md now documents exactly that (updated 2026-08-01).
    - Email templates are `.ts` HTML-string functions, not React Email `.tsx`.
    - Google auth = Google Identity Services ID-token POST (server-verified), not GET redirect+callback (no GOOGLE_CLIENT_SECRET in env).
    - Hostel model keeps old shape (slug/location object, `PENDING_APPROVAL`/`PUBLISHED` statuses) vs DATABASE.md — reconcile in Phase 2 public-discovery work.

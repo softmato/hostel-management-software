@@ -10,6 +10,7 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState, type FormEvent } from "react";
 
@@ -200,12 +201,12 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
             />
             Remember me
           </label>
-          <a
+          <Link
             className="text-[13px] font-semibold text-[#0A8A4B] hover:underline"
             href="/reset-password"
           >
             Forgot password?
-          </a>
+          </Link>
         </div>
 
         {/* Google button */}

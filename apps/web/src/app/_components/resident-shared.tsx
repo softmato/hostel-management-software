@@ -78,11 +78,23 @@ export type PaymentProof = {
 };
 
 export type FoodMenu = {
-  date: string;
-  id: string;
+  dayOfWeek:
+    | "SUNDAY"
+    | "MONDAY"
+    | "TUESDAY"
+    | "WEDNESDAY"
+    | "THURSDAY"
+    | "FRIDAY"
+    | "SATURDAY";
   items: string[];
   mealType: "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
+  note: string;
   timing: string;
+};
+
+export type FoodRoutine = {
+  meals: FoodMenu[];
+  monthEndSpecial: { items: string[]; note: string } | null;
 };
 
 export type FoodPhoto = {

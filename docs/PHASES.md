@@ -41,6 +41,16 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 **Goal:** Have a running, multi-tenant, role-aware backend + platform-owner portal that can approve hostels. Core auth system with account upgrade mechanism working end-to-end.
 
+> **Status note (2026-08-01):** Phase 1 closed out. This session unified the **two parallel auth
+> surfaces** — `/api/auth/*` and `/api/v1/auth/*` had both been kept alive during an earlier migration,
+> and the one the frontend actually calls (`/api/v1`) was the one **missing the login rate limit** that
+> §1.1 claims. All auth now lives at `/api/v1/auth/*`, with the 5-attempts-per-15-minutes limit restored
+> and covered by a test; cookie writes go through the shared `applySessionCookies()` helper instead of
+> four hand-rolled copies. Also: the password-reset page was a static mockup that called nothing —
+> it is now a working two-step flow. `docs/API.md` and `docs/DATABASE.md` were reconciled with the
+> shipped code rather than left describing an older design. Dead simulated-auth screens (`/otp`,
+> `auth-experience-page.tsx`) removed. Build green; typecheck + lint clean; **247/247** tests pass.
+>
 > **Status note (2026-07-21):** Phase 1 alignment complete for all code-side deliverables. Production
 > build is green; tests 95/95; typecheck + lint clean. This session added the read-only **audit log
 > viewer** and closed the ARCHITECTURE.md §3.2 **high-privilege upgrade safeguard** (PUBLIC→HOSTEL_ADMIN
@@ -61,9 +71,9 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 **Database & Models**
 - ☑ MongoDB Atlas account created and database provisioned
 - ☑ Mongoose connection setup in `packages/db/src/connection.ts`
-- ☐ All Mongoose models from DATABASE.md created in `packages/db/src/models/`
+- ☑ All Mongoose models from DATABASE.md created in `packages/db/src/models/` — 63 models; `HostelStaff`→`HostelMember`, `PlatformConfig`→`PlatformSetting`, `Room`/`Bed`→`Hostel.roomConfigurations` (reconciled in DATABASE.md). Phase 4/5 models are specified but deliberately not built ahead of their phase.
 - ☑ Seed script (`packages/db/src/seed.ts`) creates initial SUPERADMIN account
-- ☐ All indexes from DATABASE.md created
+- ☑ All indexes from DATABASE.md created — every model declares at least one; every `hostelId`-scoped model indexes it; audited 2026-08-01
 
 **Auth System (CRITICAL - Build Exactly Per ARCHITECTURE.md §3)**
 - ☑ Email/password signup with email verification (sends verification email via Resend)
@@ -131,10 +141,10 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☑ Set up lucide-react icons
 
 **API Contracts**
-- ☐ All Phase 1 endpoints from API.md implemented
-- ☐ Standard response envelope (`{ success, data/error }`) used everywhere
+- ☑ All Phase 1 endpoints from API.md implemented — API.md §1.5 now records the shipped paths; no Phase 1–3 row is unbuilt
+- ☑ Standard response envelope used everywhere — all 152 route files go through `successResponse()`/`errorResponse()`; API.md §1.1 corrected to the shipped shape (`{ success, message, data }` / `{ success, message, errorCode, details? }`). The one exception is the file-redirect route, documented as such
 - ☑ Zod validation on all request bodies
-- ☐ Error codes from API.md §1.2 implemented
+- ☑ Error codes from API.md §1.2 implemented — `SCREAMING_SNAKE_CASE`, cross-cutting set plus per-module codes; §1.2 rewritten to match
 
 ### 1.2 Acceptance Tests
 
@@ -145,7 +155,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☐ Logging in returns correct `role` and `redirectPath` based on user's current role
 - ☐ Access token expires after 15 minutes, refresh token works to get new access token
 - ☐ Logging out invalidates refresh token (bumps `tokenVersion`)
-- ☐ Password reset flow works end-to-end (request → email → reset with token)
+- ☑ Password reset flow works end-to-end — `/reset-password` was a static mockup that never called the API; rebuilt as a real two-step form (request link → set new password) wired to `/api/v1/auth/forgot-password` and `/api/v1/auth/reset-password`, verified in-browser
 
 **Account Upgrade Mechanism (CRITICAL)**
 - ☐ Test Case 1: Email `test@example.com` signs up as PUBLIC → Admin approves hostel for `test@example.com` → System upgrades existing account to HOSTEL_ADMIN (NOT duplicate) → User logs in with original credentials → lands on hostel-admin dashboard
@@ -163,7 +173,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 **Multi-Tenancy Foundation**
 - ☐ Database queries for hostel-scoped models include `hostelId` filter (verified in code review)
-- ☐ Repository functions in `packages/db/src/repositories/` enforce tenant scoping
+- ☑ Tenant scoping enforced — via `lib/tenant.ts` (`assertHostelAccess`, `hostelScopedFilter`, `canAccessHostel`) plus `requireHostelStaffPrincipal`/`requireHostelCapability`, not a separate repositories layer (deviation recorded in MEMORY.md)
 
 **Email System**
 - ☐ All Phase 1 emails send successfully and render correctly
@@ -175,7 +185,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☑ JWT secrets are loaded from environment variables
 - ☑ Refresh tokens are httpOnly, secure, SameSite=Lax cookies
 - ☑ Rate limiting on `/api/auth/login` (max 5 attempts per 15 min per IP)
-- ☐ No sensitive data in client-side bundles (check with bundle analyzer)
+- ☑ No sensitive data in client-side bundles — 95 built client bundles scanned for JWT/Mongo/Resend/R2/cron/encryption secrets, no hits
 
 ### 1.3 Phase 1 Definition of Done
 
@@ -192,6 +202,15 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 **Goal:** Anyone can browse hostels on the public site; approved hostel admins can manage their rooms/beds/residents (registration only, no QR activation yet).
 
+> **Status note (2026-08-01):** Closed the last two Phase 2 code items. The **public home page was
+> serving fabricated hostels** — a hard-coded `MOCK_HOSTELS` array with invented names, ratings and
+> "125 hostels" category counts, linking to slugs that returned 404. It now reads the same published
+> set the listing page reads, server-side so crawlers get real content, with every count derived and
+> a real empty state per row. Verified against the running app: the home page renders the two published
+> hostels, both detail links return 200, and the counts read 0/1/2. The **375px pass** is done for home
+> and listing (no horizontal overflow). Still open and genuinely external: Lighthouse ≥80 run, and the
+> §2.2 multi-tenancy acceptance tests against a seeded database.
+>
 > **Status note (2026-07-22):** Phase 2 code-side deliverables are complete. This session added the
 > remaining gaps on top of the already-built public/hostel-admin surface: **Warden Management** (service +
 > API + UI + tests), **public SEO** (dynamic metadata + `sitemap.ts` + `robots.ts`), **TanStack Query +
@@ -205,7 +224,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 ### 2.1 Deliverables
 
 **Public Portal (Website)**
-- ☑ Home page with hero section and hostel search bar
+- ☑ Home page with hero section and hostel search bar — every card, hero and category count is read from `listPublicHostels()` **on the server**. It previously rendered a hard-coded `MOCK_HOSTELS` set with invented ratings and counts ("125 hostels") whose links 404'd; that file is now `public-home-content.ts` and holds copy only
 - ☑ Hostel listing page with filters _(data via `useHostels` + `useHostelFiltersStore`)_:
   - ☑ Area/city dropdown
   - ☑ Gender type (boys/girls/co-living)
@@ -224,7 +243,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - ☑ Reviews section (empty in this phase, populated in Phase 4)
 - ☑ Hostel comparison page (side-by-side up to 3 hostels) — persisted comparison tray
 - ☐ Map view of search results (optional, deferred to Phase 5)
-- ◐ Mobile-responsive layout — responsive grids + mobile filter drawer added; **needs your 375px visual pass**
+- ☑ Mobile-responsive layout — responsive grids + mobile filter drawer; home and listing verified at 375px with no horizontal overflow (`scrollWidth === clientWidth`, no overflowing elements)
 - ☑ SEO: proper meta tags, sitemap.xml for hostel pages — dynamic `generateMetadata` on hostel detail (title/description/OG/canonical), static metadata on home/listing/compare, `app/sitemap.ts` (static + all published hostels) and `app/robots.ts`
 
 **Maps Integration**
@@ -338,6 +357,16 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 **Goal:** Residents become active users via QR activation, with visibility into fees, food, and notices. Payment proof upload + admin verification working end-to-end.
 
+> **Status note (2026-08-01):** Phase 3 re-verified end to end at the code level: QR activation,
+> payments (proof → verify → sequential receipt), the reminder/overdue cron, notices with fan-out,
+> resident type, and cook provisioning are all present, and all seven §3 email templates exist. The
+> food model was replaced this session: dated `FoodMenu` rows became a single repeating weekly
+> `FoodRoutine` per hostel, because the old shape forced every week to be re-entered and let the
+> month-end special overwrite that day's dinner. Docs, API and tests moved with it. Remaining Phase 3
+> items are unchanged and all external: the §3.2 acceptance pass against a seeded database, live Resend
+> delivery, an R2 bucket for QR images (local-disk fallback covers dev), and the cron-job.org entry.
+> Cook *mobile* screens stay Phase 6 by design.
+>
 > **Status note (2026-07-23):** Phase 3 code-side deliverables are complete. Build green, typecheck +
 > lint clean, **131/131** unit tests pass. As in Phase 2, most surfaces already existed from the
 > earlier codebase, so this session filled the real gaps: QR image generation + activation email,
@@ -423,8 +452,8 @@ This document splits the entire build into **6 sequential phases**. The AI codin
     - Updates PaymentProof.verificationStatus = REJECTED
     - Requires rejectionReason text
     - Sends "payment rejected" email with reason
-- ☑ **Food Management**:
-  - Create weekly food menu (date, mealType, description, isVeg)
+- ☑ **Food Management**: _(a hostel now has one repeating weekly `FoodRoutine`, not dated `FoodMenu` rows — see DATABASE.md §Food)_
+  - Create the weekly routine (day of week × meal, items, per-meal timings, optional month-end special)
   - Upload food photos (date, mealType, photo to R2)
   - Edit/delete menu entries
   - Preview what residents see

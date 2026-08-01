@@ -18,7 +18,7 @@ import {
 import { motion, useScroll, useTransform, type Easing, type Variants } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
@@ -139,6 +139,18 @@ const stats = [
   { label: "Avg. Occupancy Lift", value: "23%" },
 ];
 
+/** The signed-in owner's most recent hostel application, if they have one. */
+async function fetchOwnerApplication(): Promise<OwnerApplication | null> {
+  try {
+    const data = await browserApi<{ applications: OwnerApplication[] }>(
+      "/api/v1/public/hostel-applications/my-applications",
+    );
+    return data.applications[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function PublicHostelRegistrationLandingPage() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [displayedWord, setDisplayedWord] = useState("HostelHub");
@@ -153,19 +165,21 @@ export function PublicHostelRegistrationLandingPage() {
   // request 401s) keep seeing the landing page.
   const [statusApp, setStatusApp] = useState<OwnerApplication | null>(null);
 
-  const loadOwnerStatus = async () => {
-    try {
-      const data = await browserApi<{ applications: OwnerApplication[] }>(
-        "/api/v1/public/hostel-applications/my-applications",
-      );
-      setStatusApp(data.applications[0] ?? null);
-    } catch {
-      setStatusApp(null);
-    }
-  };
+  const loadOwnerStatus = useCallback(async () => {
+    setStatusApp(await fetchOwnerApplication());
+  }, []);
 
   useEffect(() => {
-    void loadOwnerStatus();
+    let active = true;
+
+    void fetchOwnerApplication().then((application) => {
+      // The visitor may have navigated away while the request was in flight.
+      if (active) setStatusApp(application);
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const bottomCtaOpacity = useTransform(scrollY, [600, 900], [0, 1]);

@@ -16,6 +16,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/) — sections per 
 
 ---
 
+## [0.6.0] - 2026-08-01 — Phases 1-3 closed out
+
+### Fixed
+- **The login endpoint the app actually calls had no rate limit.** Two auth surfaces had been kept
+  alive side by side: `/api/auth/*` (built to the docs, rate limited) and `/api/v1/auth/*` (what the
+  web and mobile clients call, not rate limited). The PHASES.md §1.1 control existed but sat on the
+  path nobody used. Everything is now under **`/api/v1/auth/*`**, with the 5-attempts-per-15-minutes
+  limit on login and 10-per-15-minutes on Google sign-in, covered by a regression test that asserts
+  the 6th attempt never reaches the credential check.
+- **The password-reset page was a mockup.** `/reset-password` rendered static fields and a link
+  styled as a submit button; it called no endpoint, so the flow could never complete even though the
+  backend had worked all along. Rebuilt as a real two-step flow — request a link, then set the new
+  password from the emailed token — with the server's own error text surfaced.
+- **The public home page advertised hostels that did not exist.** Every card, rating and category
+  count came from a hard-coded `MOCK_HOSTELS` array: invented names, invented review counts, and
+  tiles claiming "125 hostels" on a platform with two. Clicking any card 404'd. The page now reads
+  the same published set as the listing, **on the server**, with all counts derived and a real empty
+  state per row.
+- Three `resident.service` tests were failing against the duplicate-phone guard added with the
+  intake rework; the mock now covers the pre-check, plus a new test for the guard itself.
+- All remaining ESLint errors and warnings cleared (internal `<a>` → `next/link`, a `setState`-in-effect
+  cascade, unused imports and state, a `next/image` alt-text false positive from a lucide icon named
+  `Image`).
+
+### Changed
+- Session cookies are written and cleared through `applySessionCookies()` / `clearSessionCookies()`
+  everywhere, replacing four hand-rolled copies that had already drifted on the refresh-cookie path.
+- **`FoodMenu` → `FoodRoutine`.** A hostel's menu is one repeating weekly document rather than dated
+  rows: the old shape forced every week to be re-entered, let "this week" and "next week" disagree,
+  and stored the month-end special as that day's dinner, overwriting it.
+- `docs/API.md` reconciled with the shipped API — the real response envelope and error-code casing,
+  a new §1.5 recording the `/api/v1` prefix and the `superadmin`→`platform` / `staff`→`wardens`
+  renames, corrected paths on every row that has an implementation, and explicit ⏳ **Not built** /
+  ↔ **Superseded** flags on the rest. No Phase 1-3 row is unbuilt.
+- `docs/DATABASE.md` reconciled likewise: `HostelStaff`→`HostelMember`, `PlatformConfig`→
+  `PlatformSetting`, and the `Room`/`Bed` collections rewritten as `Hostel.roomConfigurations` with
+  the reasoning for tracking room types instead of individual beds.
+
+### Removed
+- The duplicate `/api/auth/*` route tree.
+- `/otp` and `auth-experience-page.tsx` — simulated auth screens that resolved with `setTimeout` and
+  navigated to `/login` without verifying anything. Nothing linked to them.
+- `MOCK_HOSTELS`; the file is now `public-home-content.ts` and holds site copy only.
+
+---
+
 ## [0.5.2] - 2026-07-23 — Cook credential hand-off + dashboard visibility
 
 ### Added

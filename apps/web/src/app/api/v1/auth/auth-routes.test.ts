@@ -17,6 +17,7 @@ const routeMocks = vi.hoisted(() => {
   return {
     AuthServiceError: MockAuthServiceError,
     authenticateWithGoogle: vi.fn(),
+    login: vi.fn(),
     registerPublicAccount: vi.fn(),
     requestOtpChallenge: vi.fn(),
     verifyOtpChallenge: vi.fn(),
@@ -26,6 +27,7 @@ const routeMocks = vi.hoisted(() => {
 vi.mock("@/modules/auth/auth.service", () => routeMocks);
 
 import * as googleRoute from "@/app/api/v1/auth/google/route";
+import * as loginRoute from "@/app/api/v1/auth/login/route";
 import * as otpRequestRoute from "@/app/api/v1/auth/otp/request/route";
 import * as otpVerifyRoute from "@/app/api/v1/auth/otp/verify/route";
 import * as registerRoute from "@/app/api/v1/auth/register/route";
@@ -125,6 +127,46 @@ describe("phase 1 auth routes", () => {
     expect(payload.success).toBe(true);
     expect(payload.data.refreshToken).toBe("refresh-token");
     expect(payload.data.user.role).toBe(Role.PUBLIC);
+  });
+
+  it("locks an IP out of login after 5 failed attempts in the window", async () => {
+    // PHASES.md §1.1 / §5.2: 5 attempts per 15 minutes per IP. The limiter keys
+    // on IP + user agent, so this address must be unique to this test.
+    const attacker = {
+      "user-agent": "rate-limit-probe",
+      "x-forwarded-for": "203.0.113.77",
+    };
+
+    routeMocks.login.mockRejectedValue(
+      new routeMocks.AuthServiceError(
+        "Invalid credentials.",
+        "INVALID_CREDENTIALS",
+        401,
+      ),
+    );
+
+    const attempt = () =>
+      loginRoute.POST(
+        jsonRequest(
+          "/api/v1/auth/login",
+          { identifier: "victim@example.com", password: "wrong-password" },
+          attacker,
+        ),
+      );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect((await attempt()).status).toBe(401);
+    }
+
+    const blocked = await attempt();
+
+    expect(blocked.status).toBe(429);
+    expect(await blocked.json()).toMatchObject({
+      errorCode: "RATE_LIMITED",
+      success: false,
+    });
+    // The 6th attempt must never reach the credential check.
+    expect(routeMocks.login).toHaveBeenCalledTimes(5);
   });
 
   it("returns configured service errors from Google auth", async () => {

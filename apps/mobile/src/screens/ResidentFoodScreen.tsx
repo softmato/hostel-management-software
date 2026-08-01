@@ -38,7 +38,7 @@ export function ResidentFoodScreen({ route }: Props) {
     try {
       const data = await listResidentFood(session.accessToken);
 
-      setMenus(data.menus);
+      setMenus(data.routine?.meals ?? []);
       setPhotos(data.photos);
     } catch (error) {
       Alert.alert(
@@ -65,10 +65,9 @@ export function ResidentFoodScreen({ route }: Props) {
     try {
       await submitFoodFeedback(session.accessToken, {
         comment: comment.trim() || undefined,
-        date: meal.date,
+        date: new Date().toISOString().slice(0, 10),
         isAnonymous: false,
         mealType: meal.mealType,
-        menuId: meal.id,
         rating: Number(rating),
       });
       setComment("");
@@ -103,7 +102,7 @@ export function ResidentFoodScreen({ route }: Props) {
     try {
       await uploadResidentFoodPhoto(session.accessToken, {
         caption: comment.trim() || undefined,
-        date: meal.date,
+        date: new Date().toISOString().slice(0, 10),
         mealType: meal.mealType,
         photoAssetId,
       });
@@ -171,7 +170,7 @@ export function ResidentFoodScreen({ route }: Props) {
       }
       contentContainerStyle={screenStyles.scrollContent}
       data={menus}
-      keyExtractor={(item) => item.id}
+      keyExtractor={(item) => `${item.dayOfWeek}:${item.mealType}`}
       onRefresh={loadFood}
       refreshing={isLoading}
       renderItem={({ item }) => (
@@ -182,7 +181,7 @@ export function ResidentFoodScreen({ route }: Props) {
           </View>
           <Text style={screenStyles.body}>{item.items.join(", ")}</Text>
           <Text style={screenStyles.meta}>
-            {new Date(item.date).toLocaleDateString()}
+            Every {item.dayOfWeek.charAt(0) + item.dayOfWeek.slice(1).toLowerCase()}
           </Text>
         </View>
       )}
