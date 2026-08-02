@@ -157,7 +157,14 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
           "Approve service provider applications and manage the verified provider network.",
         href: "/platform/service-providers",
         icon: "wrench",
-        keywords: ["providers", "vendors", "maintenance", "electrician", "plumber", "verify"],
+        keywords: [
+          "providers",
+          "vendors",
+          "maintenance",
+          "electrician",
+          "plumber",
+          "verify",
+        ],
         label: "Service Providers",
       },
     ],
@@ -199,7 +206,8 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
   {
     items: [
       {
-        description: "Moderate resident ratings and reviews; hide abusive or fake content.",
+        description:
+          "Moderate resident ratings and reviews; hide abusive or fake content.",
         href: "/platform/reviews",
         icon: "star",
         keywords: ["ratings", "moderation", "hide", "feedback", "stars"],
@@ -257,7 +265,8 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         label: "Announcements",
       },
       {
-        description: "Terms of service and privacy policy content served on the public site.",
+        description:
+          "Terms of service and privacy policy content served on the public site.",
         href: "/platform/config/legal",
         icon: "scroll",
         keywords: ["terms", "privacy", "policy", "legal", "compliance"],
@@ -277,7 +286,8 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
   {
     items: [
       {
-        description: "Operational reports across hostels, revenue, occupancy, and complaints.",
+        description:
+          "Operational reports across hostels, revenue, occupancy, and complaints.",
         href: "/platform/reports",
         icon: "chart",
         keywords: ["report", "export", "analytics", "csv", "insights"],
@@ -310,14 +320,16 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
   {
     items: [
       {
-        description: "Occupancy, collections, open complaints, and today's operational summary.",
+        description:
+          "Occupancy, collections, open complaints, and today's operational summary.",
         href: "/hostel-admin/dashboard",
         icon: "dashboard",
         keywords: ["home", "overview", "summary", "today"],
         label: "Dashboard",
       },
       {
-        description: "Public hostel profile — photos, facilities, rules, pricing, and contact.",
+        description:
+          "Public hostel profile — photos, facilities, rules, pricing, and contact.",
         href: "/hostel-admin/profile",
         icon: "building",
         keywords: ["profile", "listing", "photos", "facilities", "rules"],
@@ -356,7 +368,8 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Inquiries",
       },
       {
-        description: "Move-in and move-out checklists, provided items, and deposit refunds.",
+        description:
+          "Move-in and move-out checklists, provided items, and deposit refunds.",
         href: "/hostel-admin/move-in-out",
         icon: "clipboard",
         keywords: ["move in", "move out", "checklist", "deposit", "refund", "handover"],
@@ -376,13 +389,15 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
             label: "Payments",
           },
           {
-            description: "Monthly fee plans, deposits, and add-on charges for this hostel.",
+            description:
+              "Monthly fee plans, deposits, and add-on charges for this hostel.",
             href: "/hostel-admin/fee-plans",
             keywords: ["fee", "rent", "plan", "deposit", "charges", "pricing"],
             label: "Fee Plans",
           },
           {
-            description: "Full payment ledger with method, reference, and reconciliation status.",
+            description:
+              "Full payment ledger with method, reference, and reconciliation status.",
             href: "/hostel-admin/transactions",
             keywords: ["ledger", "transaction", "history", "reconcile", "refund"],
             label: "Transactions",
@@ -419,7 +434,8 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Notices",
       },
       {
-        description: "Resident complaints with updates, attachments, and resolution flow.",
+        description:
+          "Resident complaints with updates, attachments, and resolution flow.",
         href: "/hostel-admin/complaints",
         icon: "message",
         keywords: ["complaint", "issue", "ticket", "resolve"],
@@ -477,6 +493,14 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         icon: "gift",
         keywords: ["referral", "reward", "invite", "code"],
         label: "Referrals",
+      },
+      {
+        description:
+          "Compose targeted or scheduled notifications and track delivery and read counts.",
+        href: "/hostel-admin/notifications",
+        icon: "bell",
+        keywords: ["notification", "alert", "broadcast", "push", "schedule", "announce"],
+        label: "Notifications",
       },
       {
         description: "Occupancy, collection, complaint, and maintenance reports.",
@@ -647,6 +671,48 @@ export function searchEntriesFromNav(groups: PortalNavGroup[]): PortalSearchEntr
 }
 
 export const PLATFORM_SEARCH_ENTRIES = searchEntriesFromNav(PLATFORM_NAV);
+
+/**
+ * Destinations a PLATFORM_MODERATOR ("acting superadmin") may not open, kept in
+ * step with the superadmin-only rules in `route-access.ts`. Hiding them is a
+ * courtesy — the route rule and the API guard are what actually enforce it.
+ */
+const SUPERADMIN_ONLY_PREFIXES = [
+  "/platform/config",
+  "/platform/fee-plans",
+  "/platform/settings",
+];
+
+function isSuperadminOnlyHref(href: string) {
+  return SUPERADMIN_ONLY_PREFIXES.some(
+    (prefix) => href === prefix || href.startsWith(`${prefix}/`),
+  );
+}
+
+/** Drops superadmin-only entries, then any group or parent left with nothing. */
+function withoutSuperadminOnly(groups: PortalNavGroup[]): PortalNavGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .map((item) => ({
+          ...item,
+          children: item.children?.filter((child) => !isSuperadminOnlyHref(child.href)),
+        }))
+        .filter((item) => {
+          if (item.children) {
+            return item.children.length > 0;
+          }
+
+          return !isSuperadminOnlyHref(item.href);
+        }),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+export const PLATFORM_MODERATOR_NAV = withoutSuperadminOnly(PLATFORM_NAV);
+export const PLATFORM_MODERATOR_SEARCH_ENTRIES =
+  searchEntriesFromNav(PLATFORM_MODERATOR_NAV);
 export const HOSTEL_ADMIN_SEARCH_ENTRIES = searchEntriesFromNav(HOSTEL_ADMIN_NAV);
 export const RESIDENT_SEARCH_ENTRIES = searchEntriesFromNav(RESIDENT_NAV);
 export const GUARDIAN_SEARCH_ENTRIES = searchEntriesFromNav(GUARDIAN_NAV);

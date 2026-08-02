@@ -65,9 +65,7 @@ function shouldChaseOverdue(daysOverdue: number) {
  * every morning. Runs against every hostel — this is platform-level plumbing,
  * not a tenant-scoped request.
  */
-export async function runPaymentReminders(
-  now = new Date(),
-): Promise<PaymentReminderRun> {
+export async function runPaymentReminders(now = new Date()): Promise<PaymentReminderRun> {
   await connectToDatabase();
 
   const config = await getOperationsConfig();
@@ -114,10 +112,7 @@ export async function runPaymentReminders(
     const isOverdue = daysUntilDue < 0;
 
     if (isOverdue && payment.status !== "OVERDUE") {
-      await PaymentModel.updateOne(
-        { _id: payment._id },
-        { $set: { status: "OVERDUE" } },
-      );
+      await PaymentModel.updateOne({ _id: payment._id }, { $set: { status: "OVERDUE" } });
       result.markedOverdue += 1;
     }
 

@@ -67,9 +67,7 @@ export async function updateHostelAdminProfile(
     // Dropping a room type takes its photos with it — an orphaned ROOM photo
     // would otherwise keep standing in as fallback imagery for a room type
     // the hostel no longer offers.
-    const keptTypes = new Set(
-      input.roomConfigurations.map((config) => config.roomType),
-    );
+    const keptTypes = new Set(input.roomConfigurations.map((config) => config.roomType));
 
     profileUpdate.photos = (hostel.photos ?? []).filter(
       (photo) => photo.kind !== "ROOM" || keptTypes.has(photo.roomType ?? ""),
@@ -122,9 +120,7 @@ export async function updateHostelAdminProfile(
     hostel.location?.lng !== updatedHostel.location?.lng;
 
   if (afterAddress && (missingCoords || pinMoved || beforeAddress !== afterAddress)) {
-    const geo = await geocodeAndCacheHostel(String(updatedHostel._id)).catch(
-      () => null,
-    );
+    const geo = await geocodeAndCacheHostel(String(updatedHostel._id)).catch(() => null);
     if (geo) {
       updatedHostel.location = {
         ...updatedHostel.location,

@@ -2,7 +2,10 @@ import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { rateLimitPublicForm } from "@/lib/rate-limit";
-import { AuthServiceError, signupWithEmailVerification } from "@/modules/auth/auth.service";
+import {
+  AuthServiceError,
+  signupWithEmailVerification,
+} from "@/modules/auth/auth.service";
 import { signupSchema } from "@hostel/shared/schemas/auth.schema";
 
 export const runtime = "nodejs";

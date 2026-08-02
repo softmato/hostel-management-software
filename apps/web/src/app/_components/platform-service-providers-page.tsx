@@ -122,12 +122,16 @@ export const PlatformServiceProvidersPageContent = React.memo(
     }, [providers]);
 
     const categories = useMemo(
-      () => Array.from(new Set(providers.map((provider) => provider.category))).filter(Boolean),
+      () =>
+        Array.from(new Set(providers.map((provider) => provider.category))).filter(
+          Boolean,
+        ),
       [providers],
     );
 
     const areas = useMemo(
-      () => Array.from(new Set(providers.map((provider) => provider.area))).filter(Boolean),
+      () =>
+        Array.from(new Set(providers.map((provider) => provider.area))).filter(Boolean),
       [providers],
     );
 
@@ -510,11 +514,7 @@ export const PlatformServiceProvidersPageContent = React.memo(
                 title="Provider Details"
               >
                 <div className="mb-2 flex items-center gap-2.5">
-                  <InitialsAvatar
-                    name={selected.fullName}
-                    size="md"
-                    tone="platform"
-                  />
+                  <InitialsAvatar name={selected.fullName} size="md" tone="platform" />
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-bold text-foreground">
                       {selected.fullName}
@@ -529,10 +529,7 @@ export const PlatformServiceProvidersPageContent = React.memo(
                 <DetailField label="Service area" value={selected.area || "—"} />
                 <DetailField label="Phone" value={selected.phone || "—"} />
                 <DetailField label="Experience" value={selected.experience || "—"} />
-                <DetailField
-                  label="Availability"
-                  value={selected.availability || "—"}
-                />
+                <DetailField label="Availability" value={selected.availability || "—"} />
                 <DetailField label="Rating" value={NO_RATING} />
 
                 {selected.description ? (

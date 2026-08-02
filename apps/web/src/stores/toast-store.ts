@@ -33,7 +33,8 @@ type ToastStore = {
 const MAX_VISIBLE = 4;
 
 export const useToastStore = create<ToastStore>((set) => ({
-  dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
+  dismiss: (id) =>
+    set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
   push: (toast) =>
     set((state) => ({ toasts: [...state.toasts, toast].slice(-MAX_VISIBLE) })),
   toasts: [],

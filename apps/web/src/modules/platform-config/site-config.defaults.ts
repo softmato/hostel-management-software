@@ -133,7 +133,8 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
       title: "Verified listings only",
     },
     {
-      description: "Monthly rent, deposit, and extra charges shown upfront — no surprises.",
+      description:
+        "Monthly rent, deposit, and extra charges shown upfront — no surprises.",
       icon: "wallet",
       title: "Transparent pricing",
     },

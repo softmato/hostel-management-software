@@ -124,6 +124,7 @@ function ServiceProviderRegistrationPageContent() {
                 },
               ]
             : [],
+          email: value("email") || undefined,
           experience: value("experience") || undefined,
           fullName: value("fullName"),
           phone: value("phone"),
@@ -198,6 +199,22 @@ function ServiceProviderRegistrationPageContent() {
                     placeholder="9841002300"
                     required
                   />
+                </span>
+              </label>
+              <label className="block text-sm font-semibold text-foreground">
+                Email <span className="font-normal text-muted-foreground">(optional)</span>
+                <span className="mt-2 flex h-12 items-center gap-3 rounded-lg border border-border bg-surface px-3 shadow-sm transition focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15">
+                  <Mail className="size-4 text-muted-foreground" />
+                  <input
+                    className="h-full w-full bg-transparent text-sm font-normal outline-none placeholder:text-muted-foreground"
+                    name="email"
+                    placeholder="you@example.com"
+                    type="email"
+                  />
+                </span>
+                <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                  We will email you when your listing is approved. Leave blank if
+                  you would rather be contacted only by phone.
                 </span>
               </label>
               <label className="block text-sm font-semibold text-foreground">

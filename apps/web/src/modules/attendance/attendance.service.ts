@@ -3,6 +3,12 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import {
+  MAX_PAGE_SIZE,
+  paginationMeta,
+  paginationRange,
+  type PaginationQuery,
+} from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AttendanceAlertModel } from "@hostel/db/models/AttendanceAlert";
 import { AttendanceLogModel } from "@hostel/db/models/AttendanceLog";
@@ -11,6 +17,7 @@ import { ConsentLogModel } from "@hostel/db/models/ConsentLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import {
   findCurrentResident,
   normalizeObjectId,
@@ -101,7 +108,10 @@ export function distanceMeters(
   return Math.round(earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-export function zoneForDistance(meters: number, config: AttendanceConfig): AttendanceZone {
+export function zoneForDistance(
+  meters: number,
+  config: AttendanceConfig,
+): AttendanceZone {
   if (meters <= config.insideZoneRadiusMeters) {
     return "INSIDE";
   }
@@ -236,7 +246,8 @@ export async function recordLocationPing(
           { lat: input.lat, lng: input.lng },
         )
       : null;
-  const zone: AttendanceZone = meters === null ? "UNKNOWN" : zoneForDistance(meters, config);
+  const zone: AttendanceZone =
+    meters === null ? "UNKNOWN" : zoneForDistance(meters, config);
   const recordedAt = input.recordedAt ?? new Date();
   const log = (await AttendanceLogModel.findOneAndUpdate(
     { day: dayKey(recordedAt), residentId: resident._id },
@@ -371,7 +382,11 @@ export async function overrideAttendance(
   }).lean<ResidentRecord | null>();
 
   if (!resident) {
-    throw new AttendanceServiceError("Resident was not found.", "RESIDENT_NOT_FOUND", 404);
+    throw new AttendanceServiceError(
+      "Resident was not found.",
+      "RESIDENT_NOT_FOUND",
+      404,
+    );
   }
 
   const log = (await AttendanceLogModel.findOneAndUpdate(
@@ -438,6 +453,35 @@ export async function updateAttendanceSettings(
     );
   }
 
+  // The platform owns the outer bounds; a hostel tunes inside them
+  // (ARCHITECTURE.md §5). Enforced here, not just in the form, because the
+  // widest geofence and the longest retention are the privacy-relevant knobs.
+  const limits = await getOperationsConfig();
+
+  if (next.insideZoneRadiusMeters > limits.maxInsideZoneRadiusMeters) {
+    throw new AttendanceServiceError(
+      `The inside radius cannot exceed ${limits.maxInsideZoneRadiusMeters} m.`,
+      "GEOFENCE_ABOVE_PLATFORM_LIMIT",
+      422,
+    );
+  }
+
+  if (next.nearbyZoneRadiusMeters > limits.maxNearbyZoneRadiusMeters) {
+    throw new AttendanceServiceError(
+      `The nearby radius cannot exceed ${limits.maxNearbyZoneRadiusMeters} m.`,
+      "GEOFENCE_ABOVE_PLATFORM_LIMIT",
+      422,
+    );
+  }
+
+  if (next.retentionDays > limits.maxAttendanceRetentionDays) {
+    throw new AttendanceServiceError(
+      `Attendance logs cannot be kept longer than ${limits.maxAttendanceRetentionDays} days.`,
+      "RETENTION_ABOVE_PLATFORM_LIMIT",
+      422,
+    );
+  }
+
   await HostelSettingsModel.updateOne(
     { hostelId },
     { $set: { attendance: next, updatedBy: principal.userId } },
@@ -458,13 +502,17 @@ export async function updateAttendanceSettings(
 export async function listAttendanceAlerts(
   principal: ApiPrincipal,
   requestedHostelId?: string,
+  query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },
 ) {
   await connectToDatabase();
 
   const hostelId = resolveAdminHostelId(principal, requestedHostelId);
+  const { limit, skip } = paginationRange(query);
+  const alertTotal = await AttendanceAlertModel.countDocuments({ hostelId });
   const alerts = await AttendanceAlertModel.find({ hostelId })
     .sort({ status: 1, createdAt: -1 })
-    .limit(200)
+    .skip(skip)
+    .limit(limit)
     .lean<
       Array<{
         _id: Types.ObjectId;
@@ -497,6 +545,7 @@ export async function listAttendanceAlerts(
       resolutionNote: alert.resolutionNote ?? "",
       status: alert.status,
     })),
+    pagination: paginationMeta(query, alertTotal),
   };
 }
 

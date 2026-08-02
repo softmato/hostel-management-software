@@ -217,7 +217,9 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
           title="Payment History"
         >
           {state === "loading" ? <LoadingRows /> : null}
-          {state === "error" ? <EmptyState label="Payments could not be loaded." /> : null}
+          {state === "error" ? (
+            <EmptyState label="Payments could not be loaded." />
+          ) : null}
           {state === "ready" && filteredPayments.length === 0 ? (
             <EmptyInline label="No payments in this filter." />
           ) : null}
@@ -317,7 +319,12 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
               </div>
 
               <input name="proofImageAssetId" type="hidden" value={proofAssetId} />
-              <FormSelect defaultValue="ESEWA" label="Payment method" name="paymentMethod" required>
+              <FormSelect
+                defaultValue="ESEWA"
+                label="Payment method"
+                name="paymentMethod"
+                required
+              >
                 <option value="ESEWA">eSewa</option>
                 <option value="FONEPAY">Fonepay</option>
                 <option value="KHALTI">Khalti</option>
@@ -335,7 +342,9 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
               />
               <FormInput label="Transaction code" name="transactionCode" />
               <div className="grid gap-1.5">
-                <label className="text-sm font-semibold text-foreground">Notes (Optional)</label>
+                <label className="text-sm font-semibold text-foreground">
+                  Notes (Optional)
+                </label>
                 <Textarea
                   className="min-h-20 rounded-xl"
                   maxLength={200}

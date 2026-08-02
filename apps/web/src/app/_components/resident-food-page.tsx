@@ -24,7 +24,10 @@ import {
   optionalField,
 } from "./resident-shared";
 
-const MEAL_META: Record<string, { icon: LucideIcon; tone: "amber" | "green" | "purple" | "cyan" }> = {
+const MEAL_META: Record<
+  string,
+  { icon: LucideIcon; tone: "amber" | "green" | "purple" | "cyan" }
+> = {
   BREAKFAST: { icon: Coffee, tone: "amber" },
   LUNCH: { icon: Soup, tone: "green" },
   SNACKS: { icon: Cookie, tone: "purple" },
@@ -168,16 +171,17 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
         <div className="space-y-5">
           <SectionCard title="Weekly Menu">
             {state === "loading" ? <MealSkeleton /> : null}
-            {state === "error" ? (
-              <EmptyState label="Food could not be loaded." />
-            ) : null}
+            {state === "error" ? <EmptyState label="Food could not be loaded." /> : null}
             {state === "ready" && sortedMenus.length === 0 ? (
               <EmptyInline label="No menu has been posted yet." />
             ) : null}
             {sortedMenus.length > 0 ? (
               <div className="grid gap-3 md:grid-cols-2">
                 {sortedMenus.map((menu) => {
-                  const meta = MEAL_META[menu.mealType] ?? { icon: Utensils, tone: "green" };
+                  const meta = MEAL_META[menu.mealType] ?? {
+                    icon: Utensils,
+                    tone: "green",
+                  };
                   const Icon = meta.icon;
                   return (
                     <div
@@ -225,7 +229,8 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
                         alt={photo.caption ?? `${photo.mealType} photo`}
                         className="h-32 w-full object-cover"
                         onError={(event) => {
-                          (event.currentTarget as HTMLImageElement).style.display = "none";
+                          (event.currentTarget as HTMLImageElement).style.display =
+                            "none";
                         }}
                         src={`/api/v1/files/${photo.photoAssetId}/url?variant=THUMBNAIL`}
                       />
@@ -272,7 +277,11 @@ export const ResidentFoodPageContent = memo(function ResidentFoodPageContent() {
               </Select>
               <TextArea label="Comment" name="comment" />
               <label className="flex items-center gap-2 text-[12.5px] font-medium text-foreground">
-                <input className="accent-role-resident" name="isAnonymous" type="checkbox" />
+                <input
+                  className="accent-role-resident"
+                  name="isAnonymous"
+                  type="checkbox"
+                />
                 Submit anonymously
               </label>
               <RoleButton className="w-full" tone="resident" type="submit">

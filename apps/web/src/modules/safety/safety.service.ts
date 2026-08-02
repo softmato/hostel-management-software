@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
@@ -290,13 +291,26 @@ export async function listAdminNightStatus(
     isDeleted: false,
     ...scopedHostelFilter(principal, query.hostelId),
   };
+
+  /*
+   * The roster is assembled in full before it is paged, and deliberately so.
+   *
+   * A resident's night status lives in a separate collection, and a resident
+   * with no row at all is a meaningful state ("Not verified") rather than an
+   * absence — so the status filter cannot be pushed into the resident query.
+   * Slicing the residents first and filtering afterwards is what the previous
+   * version did, and it meant `?status=OUTSIDE_HOSTEL` only ever searched the
+   * first 200 residents by name and reported a total to match. Building the
+   * rows, filtering, then slicing keeps both the filter and the summary honest.
+   *
+   * This is bounded by residents-per-hostel (hundreds), not by anything that
+   * grows without limit.
+   */
   const residents = await ResidentModel.find(residentFilter)
     .sort({ firstName: 1, lastName: 1 })
-    .limit(200)
     .lean<ResidentRecord[]>();
   const statuses = await NightStatusModel.find({
     residentId: { $in: residents.map((resident) => resident._id) },
-    ...(query.status ? { status: query.status } : {}),
   }).lean<NightStatusRecord[]>();
   const statusByResidentId = new Map(
     statuses.map((status) => [status.residentId.toString(), status]),
@@ -309,9 +323,12 @@ export async function listAdminNightStatus(
       ),
     }))
     .filter((row) => !query.status || row.status.status === query.status);
+  const { limit, skip } = paginationRange(query);
 
   return {
-    statuses: rows,
+    pagination: paginationMeta(query, rows.length),
+    statuses: rows.slice(skip, skip + limit),
+    // Over the whole filtered roster, not the page.
     summary: rows.reduce(
       (summary, row) => {
         summary.total += 1;
@@ -441,13 +458,20 @@ export async function listAdminSOSAlerts(query: SOSListQuery, principal: ApiPrin
     filter.status = query.status;
   }
 
-  const alerts = await SOSAlertModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<SOSAlertRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [alerts, total] = await Promise.all([
+    SOSAlertModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<SOSAlertRecord[]>(),
+    SOSAlertModel.countDocuments(filter),
+  ]);
 
   return {
     alerts: alerts.map(serializeSOS),
+    pagination: paginationMeta(query, total),
   };
 }
 

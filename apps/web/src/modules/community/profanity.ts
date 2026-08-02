@@ -6,16 +6,7 @@
  * Treating this as a safety feature would be a mistake; anything it misses is
  * expected to be caught by a person.
  */
-const BLOCKED = [
-  "fuck",
-  "shit",
-  "bitch",
-  "bastard",
-  "asshole",
-  "randi",
-  "muji",
-  "gadha",
-];
+const BLOCKED = ["fuck", "shit", "bitch", "bastard", "asshole", "randi", "muji", "gadha"];
 
 const PATTERN = new RegExp(`\\b(${BLOCKED.join("|")})\\w*\\b`, "gi");
 

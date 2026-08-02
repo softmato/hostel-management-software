@@ -370,7 +370,9 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
       const waitMinutes = Math.max(
         1,
         Math.ceil(
-          (recent.announcedAt.getTime() + foodReadyCooldownMinutes * 60 * 1000 - Date.now()) /
+          (recent.announcedAt.getTime() +
+            foodReadyCooldownMinutes * 60 * 1000 -
+            Date.now()) /
             60_000,
         ),
       );

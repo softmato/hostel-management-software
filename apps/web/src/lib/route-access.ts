@@ -5,7 +5,25 @@ export type ProtectedRouteRule = {
   roles: Role[];
 };
 
+/**
+ * First match wins, so the narrow superadmin-only prefixes must sit above the
+ * broad `/platform` rule. A PLATFORM_MODERATOR moderates content (hostels,
+ * providers, reviews, reports) but never touches platform configuration,
+ * subscription billing, or the admin roster — PHASES.md §5.1.
+ */
 export const protectedRouteRules: ProtectedRouteRule[] = [
+  {
+    prefix: "/platform/config",
+    roles: [Role.SUPERADMIN],
+  },
+  {
+    prefix: "/platform/fee-plans",
+    roles: [Role.SUPERADMIN],
+  },
+  {
+    prefix: "/platform/settings",
+    roles: [Role.SUPERADMIN],
+  },
   {
     prefix: "/platform",
     roles: [Role.SUPERADMIN, Role.PLATFORM_MODERATOR],

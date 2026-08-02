@@ -558,7 +558,4 @@ describe("platform hostel routes", () => {
       staffPrincipal,
     );
   });
-
-
-
 });

@@ -46,6 +46,7 @@ vi.mock("@hostel/db/models/FoodRoutine", () => ({
 
 vi.mock("@hostel/db/models/Hostel", () => ({
   HostelModel: {
+    countDocuments: vi.fn().mockResolvedValue(0),
     create: serviceMocks.hostelCreate,
     exists: serviceMocks.hostelExists,
     find: serviceMocks.hostelFind,
@@ -80,6 +81,7 @@ vi.mock("@hostel/db/models/HostelVerification", () => ({
 
 vi.mock("@hostel/db/models/Inquiry", () => ({
   InquiryModel: {
+    countDocuments: vi.fn().mockResolvedValue(0),
     create: serviceMocks.inquiryCreate,
     find: serviceMocks.inquiryFind,
     findOne: serviceMocks.inquiryFindOne,
@@ -119,6 +121,7 @@ function queryResult<T>(value: T) {
   return {
     lean: vi.fn().mockResolvedValue(value),
     limit: vi.fn().mockReturnThis(),
+    skip: vi.fn().mockReturnThis(),
     sort: vi.fn().mockReturnThis(),
   };
 }
@@ -260,5 +263,4 @@ describe("hostel service phase 2 behavior", () => {
       isDeleted: false,
     });
   });
-
 });

@@ -36,7 +36,11 @@ vi.mock("@hostel/db/models/QRActivation", () => ({
 }));
 
 vi.mock("@hostel/db/models/Resident", () => ({
-  ResidentModel: { find: vi.fn(), findOne: mocks.residentFindOne, findOneAndUpdate: vi.fn() },
+  ResidentModel: {
+    find: vi.fn(),
+    findOne: mocks.residentFindOne,
+    findOneAndUpdate: vi.fn(),
+  },
 }));
 
 vi.mock("@hostel/db/models/Hostel", () => ({
@@ -115,7 +119,11 @@ describe("activation code delivery", () => {
   it("defaults the expiry to the configured qrActivationExpiryDays", async () => {
     const before = Date.now();
 
-    const result = await generateActivationCode(residentId, { sendEmail: true }, staffPrincipal);
+    const result = await generateActivationCode(
+      residentId,
+      { sendEmail: true },
+      staffPrincipal,
+    );
 
     const expiresAt = new Date(result.activation.expiresAt).getTime();
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
@@ -130,7 +138,11 @@ describe("activation code delivery", () => {
     );
     const before = Date.now();
 
-    const result = await generateActivationCode(residentId, { sendEmail: true }, staffPrincipal);
+    const result = await generateActivationCode(
+      residentId,
+      { sendEmail: true },
+      staffPrincipal,
+    );
 
     const expiresAt = new Date(result.activation.expiresAt).getTime();
     const twoDays = 2 * 24 * 60 * 60 * 1000;
@@ -139,7 +151,11 @@ describe("activation code delivery", () => {
   });
 
   it("emails the resident with the QR image and the fallback code", async () => {
-    const result = await generateActivationCode(residentId, { sendEmail: true }, staffPrincipal);
+    const result = await generateActivationCode(
+      residentId,
+      { sendEmail: true },
+      staffPrincipal,
+    );
 
     expect(result.delivery).toMatchObject({ sent: true, to: "asha@example.com" });
 
@@ -150,9 +166,15 @@ describe("activation code delivery", () => {
   });
 
   it("still issues a code when the resident has no email", async () => {
-    mocks.residentFindOne.mockReturnValue(leanResult(residentRecord({ email: undefined })));
+    mocks.residentFindOne.mockReturnValue(
+      leanResult(residentRecord({ email: undefined })),
+    );
 
-    const result = await generateActivationCode(residentId, { sendEmail: true }, staffPrincipal);
+    const result = await generateActivationCode(
+      residentId,
+      { sendEmail: true },
+      staffPrincipal,
+    );
 
     expect(result.activation.code).toHaveLength(8);
     expect(result.delivery).toMatchObject({ sent: false, reason: "no_resident_email" });

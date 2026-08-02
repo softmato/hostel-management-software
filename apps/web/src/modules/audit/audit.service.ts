@@ -77,10 +77,20 @@ export async function listPlatformAuditLogs(query: PlatformAuditLogQuery = {}) {
     .lean<AuditLogRecord[]>();
 
   const actorIds = [
-    ...new Set(logs.map((log) => log.actorId).filter(Boolean).map(String)),
+    ...new Set(
+      logs
+        .map((log) => log.actorId)
+        .filter(Boolean)
+        .map(String),
+    ),
   ];
   const hostelIds = [
-    ...new Set(logs.map((log) => log.hostelId).filter(Boolean).map(String)),
+    ...new Set(
+      logs
+        .map((log) => log.hostelId)
+        .filter(Boolean)
+        .map(String),
+    ),
   ];
 
   const [actors, hostels] = await Promise.all([

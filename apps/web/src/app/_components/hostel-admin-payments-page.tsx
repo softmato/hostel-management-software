@@ -118,11 +118,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
     () => paymentsResource.data?.proofs ?? [],
     [paymentsResource.data],
   );
-  const combined = combineResources(
-    residentsResource,
-    matrixResource,
-    paymentsResource,
-  );
+  const combined = combineResources(residentsResource, matrixResource, paymentsResource);
   const state = combined.state;
   const message = actionMessage || combined.message;
 
@@ -162,7 +158,9 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
         setActionMessage("Payment record created.");
         refreshPayments();
       } catch (error) {
-        setActionMessage(error instanceof Error ? error.message : "Could not create payment.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not create payment.",
+        );
       }
     },
     [refreshPayments],
@@ -226,7 +224,9 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
         setActionMessage(action === "approve" ? "Proof approved." : "Proof rejected.");
         refreshPayments();
       } catch (error) {
-        setActionMessage(error instanceof Error ? error.message : "Could not review proof.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not review proof.",
+        );
       }
     },
     [refreshPayments],
@@ -392,12 +392,12 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
 
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <SectionCard>
-          <Tabs
-            onValueChange={setFilter}
-            value={filter}
-          >
+          <Tabs onValueChange={setFilter} value={filter}>
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <TabsList className="h-auto flex-wrap rounded-none bg-transparent p-0" variant="line">
+              <TabsList
+                className="h-auto flex-wrap rounded-none bg-transparent p-0"
+                variant="line"
+              >
                 <TabsTrigger className="rounded-none px-3 pb-2" value="ALL">
                   All ({rows.length})
                 </TabsTrigger>
@@ -558,7 +558,9 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                             {proof.paymentMethod ? ` · ${proof.paymentMethod}` : ""}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {proof.transactionCode || proof.referenceNote || "No txn code"}
+                            {proof.transactionCode ||
+                              proof.referenceNote ||
+                              "No txn code"}
                           </p>
                           <div className="mt-2 flex gap-2">
                             <Button

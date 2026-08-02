@@ -124,18 +124,16 @@ export async function createPlatformAdmin(
     throw new PlatformAdminServiceError("Email is required.", "EMAIL_REQUIRED", 422);
   }
 
-  const existing = await UserModel.findOne({ email, isDeleted: { $ne: true } }).lean<
-    UserRecord | null
-  >();
+  const existing = await UserModel.findOne({
+    email,
+    isDeleted: { $ne: true },
+  }).lean<UserRecord | null>();
 
   // Only a PUBLIC account may be raised to a platform role. Promoting a hostel
   // admin or resident in place would silently strip their tenant scope, so that
   // is refused rather than guessed at.
   if (existing && existing.role !== Role.PUBLIC) {
-    if (
-      existing.role === Role.SUPERADMIN ||
-      existing.role === Role.PLATFORM_MODERATOR
-    ) {
+    if (existing.role === Role.SUPERADMIN || existing.role === Role.PLATFORM_MODERATOR) {
       throw new PlatformAdminServiceError(
         "This email is already a platform admin.",
         "ALREADY_PLATFORM_ADMIN",
@@ -288,10 +286,7 @@ export async function revokePlatformAdmin(adminId: string, principal: ApiPrincip
     throw new PlatformAdminServiceError("Platform admin not found.", "NOT_FOUND", 404);
   }
 
-  if (
-    admin.role === Role.SUPERADMIN &&
-    (await activeSuperadminCount(adminId)) === 0
-  ) {
+  if (admin.role === Role.SUPERADMIN && (await activeSuperadminCount(adminId)) === 0) {
     throw new PlatformAdminServiceError(
       "At least one full superadmin must remain.",
       "LAST_SUPERADMIN",

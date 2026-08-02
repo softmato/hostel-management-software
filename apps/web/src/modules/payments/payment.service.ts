@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { PaymentModel } from "@hostel/db/models/Payment";
@@ -24,6 +25,7 @@ import {
 } from "@/modules/residents/resident-notify";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import { markReferralConverted } from "@/modules/referrals/referral.service";
 import { paymentProofUploadedEmail } from "@hostel/shared/email/templates/payment/proof-uploaded";
 import { paymentRejectedEmail } from "@hostel/shared/email/templates/payment/payment-rejected";
 import { paymentVerifiedEmail } from "@hostel/shared/email/templates/payment/payment-verified";
@@ -294,8 +296,7 @@ async function nextReceiptNumber(month: string, attempt = 0): Promise<string> {
   const lastSequence = latest
     ? Number.parseInt(latest.receiptNumber.slice(prefix.length), 10)
     : 0;
-  const sequence =
-    (Number.isNaN(lastSequence) ? 0 : lastSequence) + 1 + attempt;
+  const sequence = (Number.isNaN(lastSequence) ? 0 : lastSequence) + 1 + attempt;
 
   return `${prefix}${String(sequence).padStart(5, "0")}`;
 }
@@ -395,10 +396,16 @@ export async function listPayments(query: PaymentListQuery, principal: ApiPrinci
     filter.status = query.status;
   }
 
-  const payments = await PaymentModel.find(filter)
-    .sort({ dueDate: -1 })
-    .limit(100)
-    .lean<PaymentRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [payments, total] = await Promise.all([
+    PaymentModel.find(filter)
+      .sort({ dueDate: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<PaymentRecord[]>(),
+    PaymentModel.countDocuments(filter),
+  ]);
   const proofs = await PaymentProofModel.find({
     paymentId: { $in: payments.map((payment) => payment._id) },
   })
@@ -406,7 +413,10 @@ export async function listPayments(query: PaymentListQuery, principal: ApiPrinci
     .lean<PaymentProofRecord[]>();
 
   return {
+    pagination: paginationMeta(query, total),
     payments: payments.map(serializePayment),
+    // Scoped to the payments on this page, not the whole filter — a proof is
+    // only ever rendered next to its payment.
     proofs: proofs.map(serializePaymentProof),
   };
 }
@@ -647,10 +657,7 @@ async function creditVerifiedAmount(
       throw new PaymentServiceError("Payment was not found.", "PAYMENT_NOT_FOUND", 404);
     }
 
-    const paidAmount = Math.min(
-      current.paidAmount + verifiedAmount,
-      current.dueAmount,
-    );
+    const paidAmount = Math.min(current.paidAmount + verifiedAmount, current.dueAmount);
     const updated = await PaymentModel.findOneAndUpdate(
       { _id: current._id, paidAmount: current.paidAmount },
       {
@@ -669,7 +676,9 @@ async function creditVerifiedAmount(
       return updated;
     }
 
-    current = await PaymentModel.findOne({ _id: payment._id }).lean<PaymentRecord | null>();
+    current = await PaymentModel.findOne({
+      _id: payment._id,
+    }).lean<PaymentRecord | null>();
   }
 
   throw new PaymentServiceError(
@@ -747,6 +756,14 @@ export async function approvePaymentProof(
     },
   );
 
+  // A referred resident only counts as converted once real money has been
+  // verified (PHASES.md §5.1). Idempotent, and swallows its own failures.
+  const referral = await markReferralConverted({
+    hostelId: proof.hostelId,
+    paymentId: paidPayment._id,
+    residentId: proof.residentId,
+  });
+
   await notifyResidentOfReview(paidPayment, {
     kind: "verified",
     receiptNumber: receipt.receiptNumber,
@@ -757,6 +774,7 @@ export async function approvePaymentProof(
     payment: serializePayment(paidPayment),
     proof: serializePaymentProof(reviewedProof),
     receipt: serializeReceipt(receipt),
+    referralConverted: referral.converted,
   };
 }
 
@@ -997,17 +1015,14 @@ export async function generateMonthlyPayments(
     };
   }
 
-  const residents = await ResidentModel.find(filter).lean<
-    (ResidentRecord & { monthlyFee?: number })[]
-  >();
+  const residents =
+    await ResidentModel.find(filter).lean<(ResidentRecord & { monthlyFee?: number })[]>();
   const existing = await PaymentModel.find({
     hostelId,
     month: input.month,
     residentId: { $in: residents.map((resident) => resident._id) },
   }).lean<{ residentId: Types.ObjectId }[]>();
-  const alreadyBilled = new Set(
-    existing.map((payment) => payment.residentId.toString()),
-  );
+  const alreadyBilled = new Set(existing.map((payment) => payment.residentId.toString()));
 
   const pending = residents.filter(
     (resident) => !alreadyBilled.has(resident._id.toString()),
@@ -1073,11 +1088,7 @@ function currentMonth() {
  * month they owe the full fee. Residents who move in after the month ends owe
  * nothing for it.
  */
-export function computeMonthlyDue(
-  monthlyFee: number,
-  moveInDate: Date,
-  month: string,
-) {
+export function computeMonthlyDue(monthlyFee: number, moveInDate: Date, month: string) {
   const { daysInMonth, end, start } = monthBounds(month);
 
   if (moveInDate > end) {
@@ -1135,8 +1146,7 @@ export async function getMonthlyPaymentMatrix(
         resident,
       }))
       .filter(
-        (entry) =>
-          entry.dueAmount > 0 && !billed.has(entry.resident._id.toString()),
+        (entry) => entry.dueAmount > 0 && !billed.has(entry.resident._id.toString()),
       );
 
     if (toCreate.length > 0) {
@@ -1163,9 +1173,7 @@ export async function getMonthlyPaymentMatrix(
     }
   }
 
-  const payments = await PaymentModel.find({ hostelId, month }).lean<
-    PaymentRecord[]
-  >();
+  const payments = await PaymentModel.find({ hostelId, month }).lean<PaymentRecord[]>();
   const paymentByResident = new Map(
     payments.map((payment) => [payment.residentId.toString(), payment]),
   );
@@ -1173,9 +1181,7 @@ export async function getMonthlyPaymentMatrix(
   // MOVED_OUT residents keep their historical rows visible for the month.
   const extraResidentIds = payments
     .map((payment) => payment.residentId)
-    .filter(
-      (id) => !residents.some((resident) => resident._id.equals(id)),
-    );
+    .filter((id) => !residents.some((resident) => resident._id.equals(id)));
   const extraResidents = extraResidentIds.length
     ? await ResidentModel.find({ _id: { $in: extraResidentIds } }).lean<
         (ResidentRecord & { monthlyFee?: number })[]
@@ -1211,8 +1217,7 @@ export async function getMonthlyPaymentMatrix(
     paid: rows.filter((row) => row.displayStatus === "PAID").length,
     partial: rows.filter((row) => row.displayStatus === "PARTIAL").length,
     unpaid: rows.filter(
-      (row) =>
-        row.displayStatus === "UNPAID" || row.displayStatus === "PENDING_PROOF",
+      (row) => row.displayStatus === "UNPAID" || row.displayStatus === "PENDING_PROOF",
     ).length,
   };
 

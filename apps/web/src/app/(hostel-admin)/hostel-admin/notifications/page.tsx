@@ -1,5 +1,5 @@
-import { NotificationsPageContent } from "@/app/_components/notifications-page";
+import { redirectToWorkspaceScreen } from "@/app/_components/legacy-hostel-admin-redirect";
 
-export default function HostelAdminNotificationsPage() {
-  return <NotificationsPageContent />;
+export default async function LegacyHostelAdminNotificationsPage() {
+  return redirectToWorkspaceScreen("notifications");
 }

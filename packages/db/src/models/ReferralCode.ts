@@ -12,6 +12,8 @@ const referralCodeSchema = new Schema(
       type: String,
     },
     joinedCount: { default: 0, min: 0, type: Number },
+    /** Referees whose first payment has been verified. */
+    convertedCount: { default: 0, min: 0, type: Number },
     rewardCount: { default: 0, min: 0, type: Number },
   },
   { timestamps: true },

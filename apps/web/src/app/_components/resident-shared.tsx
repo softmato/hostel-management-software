@@ -12,6 +12,7 @@ export type ResidentSummary = {
   id: string;
   lastName: string;
   phone: string;
+  residentType?: "STUDENT" | "WORKING_PROFESSIONAL" | "OTHER";
   status: string;
 };
 

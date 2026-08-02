@@ -1,6 +1,7 @@
-import { Settings } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { HostelAdminAttendancePageContent } from "@/app/_components/hostel-admin-attendance-page";
+import { HostelAdminCommunityPageContent } from "@/app/_components/hostel-admin-community-page";
 import { HostelAdminComplaintsPage } from "@/app/_components/hostel-admin-complaints-page";
 import { HostelAdminDashboardPageContent } from "@/app/_components/hostel-admin-dashboard-page";
 import { HostelAdminFeePlansPageContent } from "@/app/_components/hostel-admin-fee-plans-page";
@@ -10,16 +11,17 @@ import { HostelAdminMaintenancePageContent } from "@/app/_components/hostel-admi
 import { HostelAdminMoveChecklistPage } from "@/app/_components/hostel-admin-move-checklist-page";
 import { HostelAdminNightStatusPage } from "@/app/_components/hostel-admin-night-status-page";
 import { HostelAdminNoticesPage } from "@/app/_components/hostel-admin-notices-page";
+import { HostelAdminNotificationsPageContent } from "@/app/_components/hostel-admin-notifications-page";
 import { HostelAdminPaymentsPage } from "@/app/_components/hostel-admin-payments-page";
 import { HostelAdminProfilePageContent } from "@/app/_components/hostel-admin-profile-page";
 import { HostelAdminReferralsPageContent } from "@/app/_components/hostel-admin-referrals-page";
 import { HostelAdminReportsPageContent } from "@/app/_components/hostel-admin-reports-page";
 import { HostelAdminResidentsPage } from "@/app/_components/hostel-admin-residents-page";
 import { HostelAdminRoomsPageContent } from "@/app/_components/hostel-admin-rooms-page";
+import { HostelAdminSettingsPageContent } from "@/app/_components/hostel-admin-settings-page";
 import { HostelAdminSOSAlertsPage } from "@/app/_components/hostel-admin-sos-alerts-page";
 import { HostelAdminTransactionsPageContent } from "@/app/_components/hostel-admin-transactions-page";
 import { HostelAdminWardensPage } from "@/app/_components/hostel-admin-wardens-page";
-import { PortalPlaceholderPage } from "@/components/portal-placeholder-page";
 
 /**
  * Every screen of the hostel-owner portal, keyed by the URL segment after
@@ -27,6 +29,8 @@ import { PortalPlaceholderPage } from "@/components/portal-placeholder-page";
  * catch-all route stays a single file instead of one wrapper per tab.
  */
 export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> = {
+  attendance: () => <HostelAdminAttendancePageContent />,
+  community: () => <HostelAdminCommunityPageContent />,
   complaints: () => <HostelAdminComplaintsPage />,
   dashboard: () => <HostelAdminDashboardPageContent />,
   "fee-plans": () => <HostelAdminFeePlansPageContent />,
@@ -36,6 +40,7 @@ export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> =
   "move-in-out": () => <HostelAdminMoveChecklistPage />,
   "night-status": () => <HostelAdminNightStatusPage />,
   notices: () => <HostelAdminNoticesPage />,
+  notifications: () => <HostelAdminNotificationsPageContent />,
   payments: () => <HostelAdminPaymentsPage />,
   profile: () => <HostelAdminProfilePageContent />,
   referrals: () => <HostelAdminReferralsPageContent />,
@@ -44,23 +49,7 @@ export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> =
   rooms: () => <HostelAdminRoomsPageContent />,
   // Merged into Maintenance — kept so bookmarked provider links still resolve.
   "service-providers": () => <HostelAdminMaintenancePageContent />,
-  settings: (slug: string) => (
-    <PortalPlaceholderPage
-      actions={[
-        { href: `/${slug}/admin/profile`, label: "Open Hostel Profile" },
-        { href: `/${slug}/admin/residents`, label: "Manage Residents" },
-      ]}
-      description="Hostel workspace controls for profile, resident access, and daily operations."
-      icon={Settings}
-      items={[
-        "Hostel profile",
-        "Resident activation",
-        "Notice defaults",
-        "Staff access",
-      ]}
-      title="Settings"
-    />
-  ),
+  settings: () => <HostelAdminSettingsPageContent />,
   "sos-alerts": () => <HostelAdminSOSAlertsPage />,
   transactions: () => <HostelAdminTransactionsPageContent />,
   wardens: () => <HostelAdminWardensPage />,

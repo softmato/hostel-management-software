@@ -77,7 +77,6 @@ export const PlatformComplaintsPageContent = memo(
     const [overdueOnly, setOverdueOnly] = useState(false);
     const [page, setPage] = useState(1);
 
-
     const complaints = useMemo(() => data?.complaints ?? [], [data]);
     const statusCounts = data?.statusCounts ?? {};
 

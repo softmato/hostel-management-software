@@ -46,9 +46,9 @@ describe("validateCronRequest", () => {
 
   it("accepts Authorization: Bearer <secret> and the raw secret", () => {
     process.env.CRON_SECRET = "s3cret-value";
-    expect(
-      validateCronRequest(req({ authorization: "Bearer s3cret-value" })),
-    ).toEqual({ ok: true });
+    expect(validateCronRequest(req({ authorization: "Bearer s3cret-value" }))).toEqual({
+      ok: true,
+    });
     expect(validateCronRequest(req({ authorization: "s3cret-value" }))).toEqual({
       ok: true,
     });

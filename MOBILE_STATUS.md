@@ -1,262 +1,130 @@
-# Mobile App Status - Phase 1 & 2 Complete
+# MOBILE_STATUS.md — `apps/mobile`
 
-**Last Updated:** 2026-06-25  
-**Status:** ✅ Phase 1 Complete | ✅ Phase 2 Complete | 🔄 Phase 3 Ready
+**Last verified:** 2026-08-02 (files counted, `npm run mobile:typecheck` clean)
 
----
+**Read this first if any other document disagrees with it.** Two earlier
+statements were both wrong:
 
-## Overview
+- This file previously claimed "Phase 1 & 2 complete, Phase 3 ready to build"
+  using its *own* phase numbering, dated 2026-06-25 — before `docs/` was even
+  finalised. It undersold what exists: it listed 6 screens; there are 17.
+- `docs/MEMORY.md` claimed "nothing of `apps/mobile` exists yet beyond a stub".
+  Also wrong — there is a working Expo app with a 32-function API client.
 
-The HostelHub mobile app (`apps/mobile`) is fully implemented for **Phase 1 (Auth)** and **Phase 2 (Public Browsing)**.
-
-### Technology Stack
-- **Framework:** Expo SDK 56 / React Native 0.85.3
-- **Navigation:** React Navigation v7
-- **Storage:** expo-secure-store (for tokens)
-- **Language:** TypeScript
-- **API:** REST API at `/api/v1` with mobile client header
+Phase numbers below follow **PHASES.md**, where all mobile work is **Phase 6**.
+The old local "Phase 1/2/3" numbering is retired.
 
 ---
 
-## ✅ Phase 1: Foundation + Auth (COMPLETE)
+## Stack
 
-### Implemented Features
+| | |
+|---|---|
+| Framework | Expo SDK 56 / React Native 0.85.3 |
+| Navigation | React Navigation v7 (native stack) |
+| Token storage | `expo-secure-store` |
+| Camera / QR | `expo-camera` (`barcodeScannerSettings: { barcodeTypes: ["qr"] }`) |
+| Image picking | `expo-image-picker` |
+| API | Same REST surface as web, `/api/v1`, with `x-hostelhub-client: mobile` |
+| Base URL | `EXPO_PUBLIC_API_BASE_URL` (use your machine's LAN IP for device testing) |
 
-#### Auth Screens
-- **LoginScreen** - Email/phone + password login
-- **SignupScreen** - Phone OTP / Email OTP registration + Google sign-in placeholder
-- **OtpVerificationScreen** - 6-digit OTP verification and account creation
-
-#### Core Infrastructure
-- **API Client** (`src/api/client.ts`)
-  - All Phase 1 auth endpoints connected
-  - Mobile header: `x-hostelhub-client: mobile`
-  - Automatic refresh token handling
-  - Type-safe request/response models
-
-- **Token Store** (`src/auth/token-store.ts`)
-  - Secure storage for access/refresh tokens
-  - Session persistence
-  - Clear/logout support
-
-- **Navigation** (`src/navigation/AppNavigator.tsx`)
-  - Native stack navigation
-  - Auth flow routing
-  - Role-based home screen navigation (Public vs Resident)
-
-#### Supported Auth Methods
-✅ Email + Password login  
-✅ Phone + Password login  
-✅ Phone OTP registration  
-✅ Email OTP registration  
-✅ Google sign-in placeholder (needs native SDK integration)  
-✅ Refresh token rotation  
-✅ Logout with session cleanup  
+Android native project is committed under `apps/mobile/android/`.
 
 ---
 
-## ✅ Phase 2: Public Portal + Hostel Core (COMPLETE)
+## What is actually built
 
-### Implemented Features
+**17 screens, ~2,200 lines, typecheck clean.**
 
-#### Public Hostel Browsing
-- **PublicHomeScreen** (`src/screens/PublicHomeScreen.tsx`)
-  - Hostel listing with search
-  - Filter by name/area
-  - Filter by hostel type (Boys/Girls/Co-living)
-  - Pull-to-refresh
-  - Card-based hostel preview
-  - Logout button
+### Auth
+`LoginScreen` · `SignupScreen` · `OtpVerificationScreen`
 
-#### Hostel Detail & Inquiry
-- **PublicHostelDetailScreen** (`src/screens/PublicHostelDetailScreen.tsx`)
-  - Full hostel details (name, location, pricing, facilities)
-  - Verification badge display
-  - Capacity summary
-  - **Inquiry submission form** with:
-    - Name (pre-filled from user)
-    - Phone (pre-filled from user)
-    - Preferred visit date
-    - Custom message
-  - Submit inquiry directly to hostel admin
+Email/phone + password, phone-OTP and email-OTP registration, refresh-token
+rotation, logout with session cleanup. Google sign-in accepts an ID token but
+has no native SDK wired up — it is a placeholder.
 
-#### API Integration
-✅ `GET /api/v1/public/hostels` - List hostels with filters  
-✅ `GET /api/v1/public/hostels/:slug` - Get hostel detail  
-✅ `POST /api/v1/public/hostels/:hostelId/inquiries` - Submit inquiry  
+### Public
+`PublicHomeScreen` · `PublicHostelDetailScreen`
 
----
+Listing with search and hostel-type filter, pull-to-refresh, hostel detail with
+verification badge and capacity, and inquiry submission.
 
-## 🔄 Phase 3: Resident System (READY TO BUILD)
+### Resident
+`ResidentActivationScreen` (**QR camera scan works** — this was listed as
+"Phase 3 todo" and is done) · `ResidentHomeScreen` · `ResidentProfileScreen` ·
+`ResidentPaymentsScreen` (proof upload) · `ResidentFoodScreen` (menu, photos,
+feedback) · `ResidentNoticesScreen` · `ResidentComplaintsScreen` ·
+`ResidentNightStatusScreen` · `ResidentSOSScreen` · `ResidentReviewsScreen` ·
+`ResidentReferralScreen` · `ResidentNotificationsScreen`
 
-### Planned Features (from phase3.md)
-
-#### QR Activation
-- [ ] QR scanner screen (camera)
-- [ ] Manual code entry screen
-- [ ] Activation flow after login
-- [ ] Status display (pending/success/error)
-- [ ] Handle already-activated state
-
-#### Resident Dashboard
-- [ ] Home screen with summary cards
-- [ ] Profile screen
-- [ ] Hostel info display
-- [ ] Room/bed assignment display
-- [ ] Fee summary
-
-#### Daily Use Features
-- [ ] Food menu view
-- [ ] Food photos display
-- [ ] Food feedback submission
-- [ ] Payment list
-- [ ] Payment proof upload (image picker + transaction code)
-- [ ] Notices feed with unread badges
-- [ ] Notice detail view
-
-#### APIs Needed
-- `POST /api/v1/resident/activate`
-- `GET /api/v1/resident/dashboard`
-- `GET /api/v1/resident/profile`
-- `GET /api/v1/resident/food`
-- `POST /api/v1/resident/food/feedback`
-- `GET /api/v1/resident/payments`
-- `POST /api/v1/resident/payments/:paymentId/proof`
-- `GET /api/v1/resident/notices`
-- `PATCH /api/v1/resident/notices/:id/read`
+### Infrastructure
+- `src/api/client.ts` — 32 typed functions covering auth, public and the whole
+  resident surface. Includes `saveDeviceToken()` already.
+- `src/auth/token-store.ts` — secure access/refresh storage, session persistence.
+- `src/navigation/AppNavigator.tsx` — native stack, role-based routing
+  (public vs resident).
 
 ---
 
-## Setup Instructions
+## What is missing for Phase 6
 
-### Install Dependencies
+| Gap | Notes |
+|---|---|
+| **Push notification receipt** | `expo-notifications` is not a dependency. `saveDeviceToken()` exists in the client but nothing calls it with a real token, because nothing obtains one. |
+| **Push notification delivery** | Server-side. Every "sends push" line in Phases 3–5 currently means "wrote an in-app `Notification`". Tracked as `TODO.md` Track C1 — delivery goes through the **Expo push service**, so no Firebase Admin SDK is needed server-side. |
+| **Background location service** | `expo-location` + `expo-task-manager` are not dependencies. `POST /api/v1/resident/location/ping` is live and the zone maths is tested; only the device side is missing. |
+| **Guardian screens** | None. |
+| **Cook screens** | None. `POST /api/v1/cook/food-ready` works and the analytics read its output. |
+| **Global floating SOS button** | There is an SOS *screen*; PHASES.md §6 wants it reachable from anywhere. |
+| **Google sign-in** | Needs `@react-native-google-signin/google-signin` or Expo's Google auth module. |
+| **Automatic refresh on 401** | The client can refresh, but does not retry a 401 automatically. |
+
+---
+
+## Commands
+
+Run from the repo root (**npm**, not pnpm):
+
 ```bash
-npm --prefix apps/mobile install
+npm install
 ```
 
-### Environment Setup
-Set the API base URL:
 ```bash
-# For local development
-EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
+npm run mobile:start
+```
 
-# For physical device testing (use your machine's LAN IP)
+```bash
+npm run mobile:typecheck
+```
+
+```bash
+npm --prefix apps/mobile run android
+```
+
+Set the API base URL before starting — `localhost` will not resolve from a
+physical device:
+
+```bash
 EXPO_PUBLIC_API_BASE_URL=http://192.168.1.100:3000
 ```
 
-### Run the App
-```bash
-# Start Expo dev server
-npm --prefix apps/mobile run start
+---
 
-# Run on Android
-npm --prefix apps/mobile run android
+## API reference
 
-# Run on iOS
-npm --prefix apps/mobile run ios
-```
-
-### Type Check
-```bash
-npm --prefix apps/mobile run typecheck
-```
+`docs/MOBILE_API.md` is the endpoint-by-endpoint reference (method, path, auth,
+params, response shape, error codes) written for mobile work. Use it instead of
+reading route handlers. `docs/API.md` remains the general API document.
 
 ---
 
-## Current File Structure
+## Design tokens
 
-```
-apps/mobile/
-├── App.tsx                          # Root component
-├── app.json                         # Expo config
-├── package.json
-├── tsconfig.json
-└── src/
-    ├── api/
-    │   └── client.ts               # ✅ API client with all Phase 1-2 endpoints
-    ├── auth/
-    │   └── token-store.ts          # ✅ Secure token storage
-    ├── navigation/
-    │   └── AppNavigator.tsx        # ✅ Navigation structure
-    └── screens/
-        ├── LoginScreen.tsx         # ✅ Phase 1
-        ├── SignupScreen.tsx        # ✅ Phase 1
-        ├── OtpVerificationScreen.tsx # ✅ Phase 1
-        ├── PublicHomeScreen.tsx    # ✅ Phase 2
-        ├── PublicHostelDetailScreen.tsx # ✅ Phase 2 (includes inquiry)
-        ├── ResidentHomeScreen.tsx  # 🔄 Phase 3 placeholder
-        └── styles.ts               # ✅ Shared styles
-```
+The mobile app hardcodes its palette in `src/screens/styles.ts`. The web app
+moved to oklch tokens with a green brand (`--brand-teal: #0a8a4b`) and four
+per-portal role colours — see DESIGN.md §2. The two are close but not
+generated from one source; reconcile before the app ships publicly.
 
----
-
-## Design System
-
-The mobile app uses the same color palette as the web app:
-
-- **Primary:** `#10b981` (Green)
-- **Background:** `#f8fafc` (Light gray)
-- **Card:** `#ffffff` (White)
-- **Text Primary:** `#0f172a` (Navy)
-- **Text Secondary:** `#475569` (Gray)
-- **Text Muted:** `#64748b` (Light gray)
-- **Border:** `#e2e8f0` (Very light gray)
-- **Chip Background:** `#dcfce7` (Light green)
-- **Chip Text:** `#047857` (Dark green)
-
----
-
-## Testing Checklist
-
-### Phase 1 Auth (Already Working)
-✅ Login with email + password  
-✅ Login with phone + password  
-✅ Signup with phone OTP  
-✅ Signup with email OTP  
-✅ OTP verification flow  
-✅ Token storage persistence  
-✅ Logout and session cleanup  
-✅ Role-based navigation (Public vs Resident)  
-
-### Phase 2 Public Browsing (Already Working)
-✅ Browse hostel listings  
-✅ Search by name/area  
-✅ Filter by hostel type  
-✅ View hostel details  
-✅ Submit inquiry with form validation  
-✅ Pull-to-refresh on listing  
-✅ Logout from public mode  
-
-### Phase 3 Resident System (Todo)
-⏳ Pending backend APIs and screen implementation
-
----
-
-## Notes
-
-1. **Google Sign-In:** Currently accepts ID token input. For production, integrate `@react-native-google-signin/google-signin` or Expo's Google auth module.
-
-2. **Camera/QR Scanner:** Phase 3 will need `expo-camera` or `expo-barcode-scanner` for QR code scanning.
-
-3. **Image Picker:** Phase 3 payment proof upload will need `expo-image-picker`.
-
-4. **Push Notifications:** Phase 4+ will integrate Firebase Cloud Messaging via `expo-notifications`.
-
-5. **API Base URL:** The app dynamically reads `EXPO_PUBLIC_API_BASE_URL`. For physical device testing, use your machine's LAN IP address.
-
-6. **Session Refresh:** Token refresh is built into the API client but automatic refresh on 401 errors can be added later if needed.
-
----
-
-## Ready for Phase 3
-
-The mobile foundation is solid. Phase 3 implementation can now begin:
-
-1. ✅ Auth works
-2. ✅ Navigation works
-3. ✅ API client is proven
-4. ✅ Secure storage works
-5. ✅ Public browsing works
-6. 🔄 Ready to add resident features
-
-See `phase3.md` for the complete Phase 3 checklist.
+Current mobile values: primary `#10b981`, background `#f8fafc`, card `#ffffff`,
+text `#0f172a` / `#475569` / `#64748b`, border `#e2e8f0`, chip `#dcfce7` on
+`#047857`.

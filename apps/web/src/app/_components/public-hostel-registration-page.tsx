@@ -162,9 +162,20 @@ function markerToApplication(marker: SubmittedMarker): OwnerApplication {
 }
 
 const facilityOptions = [
-  "Wi-Fi", "Study Room", "CCTV", "Hot Water", "Laundry", "Meals",
-  "Parking", "Power Backup", "RO Water", "Housekeeping", "Common Room",
-  "First Aid", "Generator", "Garden",
+  "Wi-Fi",
+  "Study Room",
+  "CCTV",
+  "Hot Water",
+  "Laundry",
+  "Meals",
+  "Parking",
+  "Power Backup",
+  "RO Water",
+  "Housekeeping",
+  "Common Room",
+  "First Aid",
+  "Generator",
+  "Garden",
 ];
 
 const plans = [
@@ -177,7 +188,12 @@ const plans = [
   },
   {
     capacity: "Best for growing hostels with advanced features and priority support.",
-    features: ["Priority Listing", "Analytics Dashboard", "Multiple Staff Access", "Priority Support"],
+    features: [
+      "Priority Listing",
+      "Analytics Dashboard",
+      "Multiple Staff Access",
+      "Priority Support",
+    ],
     id: "pro",
     name: "Pro Plan",
     price: 5900,
@@ -192,13 +208,31 @@ const plans = [
 ];
 
 const cityOptions = [
-  "Kathmandu", "Lalitpur", "Bhaktapur", "Pokhara", "Butwal",
-  "Biratnagar", "Dharan", "Chitwan", "Birgunj", "Nepalgunj",
+  "Kathmandu",
+  "Lalitpur",
+  "Bhaktapur",
+  "Pokhara",
+  "Butwal",
+  "Biratnagar",
+  "Dharan",
+  "Chitwan",
+  "Birgunj",
+  "Nepalgunj",
 ];
 
-const roomTypeOptions = ["Single Room", "Double Sharing", "Triple Sharing", "Four Sharing", "Dormitory"];
+const roomTypeOptions = [
+  "Single Room",
+  "Double Sharing",
+  "Triple Sharing",
+  "Four Sharing",
+  "Dormitory",
+];
 
-const ID_PROOF_TYPES = ["Citizenship", "National Identity Card (NID)", "Passport"] as const;
+const ID_PROOF_TYPES = [
+  "Citizenship",
+  "National Identity Card (NID)",
+  "Passport",
+] as const;
 type IdProofType = (typeof ID_PROOF_TYPES)[number] | "";
 
 type RulesTemplate = { body: string; id: string; name: string; summary: string };
@@ -298,11 +332,41 @@ const ROOM_TYPE_META: Record<string, { icon: LucideIcon; tone: string }> = {
   "Triple Sharing": { icon: Users, tone: "bg-violet-50 text-violet-600" },
 };
 
-const PORTALS: { app: boolean; desc: string; icon: LucideIcon; title: string; web: boolean }[] = [
-  { app: true, desc: "Manage residents, rooms, payments & notices.", icon: ShieldCheck, title: "Hostel Warden Portal", web: true },
-  { app: true, desc: "Residents view dues, food menu & raise complaints.", icon: UserRound, title: "Resident Portal", web: true },
-  { app: true, desc: "Cooks update daily menu & meal proof.", icon: ChefHat, title: "Cook App", web: false },
-  { app: true, desc: "Guardians track safety & attendance.", icon: Users, title: "Guardian App", web: false },
+const PORTALS: {
+  app: boolean;
+  desc: string;
+  icon: LucideIcon;
+  title: string;
+  web: boolean;
+}[] = [
+  {
+    app: true,
+    desc: "Manage residents, rooms, payments & notices.",
+    icon: ShieldCheck,
+    title: "Hostel Warden Portal",
+    web: true,
+  },
+  {
+    app: true,
+    desc: "Residents view dues, food menu & raise complaints.",
+    icon: UserRound,
+    title: "Resident Portal",
+    web: true,
+  },
+  {
+    app: true,
+    desc: "Cooks update daily menu & meal proof.",
+    icon: ChefHat,
+    title: "Cook App",
+    web: false,
+  },
+  {
+    app: true,
+    desc: "Guardians track safety & attendance.",
+    icon: Users,
+    title: "Guardian App",
+    web: false,
+  },
 ];
 
 /**
@@ -372,7 +436,11 @@ function humanizeFieldKey(key: string) {
 function PortalPill({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-brand-teal/10 px-2 py-0.5 text-[10px] font-bold text-brand-teal">
-      {label === "Web" ? <Landmark className="size-2.5" /> : <Smartphone className="size-2.5" />}
+      {label === "Web" ? (
+        <Landmark className="size-2.5" />
+      ) : (
+        <Smartphone className="size-2.5" />
+      )}
       {label}
     </span>
   );
@@ -386,8 +454,12 @@ function PortalsCard({ className }: { className?: string }) {
           <BadgeCheck className="size-4.5" />
         </span>
         <div>
-          <h3 className="text-sm font-bold text-foreground">What you&apos;ll get after approval</h3>
-          <p className="text-[11px] text-muted-foreground">Dedicated portals for your whole team.</p>
+          <h3 className="text-sm font-bold text-foreground">
+            What you&apos;ll get after approval
+          </h3>
+          <p className="text-[11px] text-muted-foreground">
+            Dedicated portals for your whole team.
+          </p>
         </div>
       </div>
       <div className="mt-4 space-y-3">
@@ -402,13 +474,16 @@ function PortalsCard({ className }: { className?: string }) {
                 {portal.web ? <PortalPill label="Web" /> : null}
                 {portal.app ? <PortalPill label="App" /> : null}
               </div>
-              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{portal.desc}</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                {portal.desc}
+              </p>
             </div>
           </div>
         ))}
       </div>
       <p className="mt-4 rounded-lg bg-brand-teal/5 px-3 py-2 text-[11px] font-medium text-brand-teal">
-        Your shared cook login is generated automatically once your hostel is approved. You create warden logins yourself from your dashboard.
+        Your shared cook login is generated automatically once your hostel is approved.
+        You create warden logins yourself from your dashboard.
       </p>
     </div>
   );
@@ -444,18 +519,27 @@ function FileUploadArea({
   return (
     <div className="space-y-2">
       {files.map((f) => (
-        <div key={f.id} className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2">
+        <div
+          key={f.id}
+          className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2"
+        >
           <div className="flex items-center gap-2.5 min-w-0">
             {f.uploading ? (
               <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
             ) : (
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                {f.name.match(/\.(jpe?g|png|webp)/i) ? <ImageIcon className="size-4" /> : <FileText className="size-4" />}
+                {f.name.match(/\.(jpe?g|png|webp)/i) ? (
+                  <ImageIcon className="size-4" />
+                ) : (
+                  <FileText className="size-4" />
+                )}
               </div>
             )}
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-foreground">{f.name}</p>
-              <p className="truncate text-[10px] text-muted-foreground">{f.uploading ? "Uploading…" : "Uploaded"}</p>
+              <p className="truncate text-[10px] text-muted-foreground">
+                {f.uploading ? "Uploading…" : "Uploaded"}
+              </p>
             </div>
           </div>
           <button
@@ -491,7 +575,14 @@ function FileUploadArea({
           <span className="text-[10px] text-muted-foreground">
             {hint ?? uploadHint("document", accept)}
           </span>
-          <input accept={accept} className="sr-only" hidden multiple={maxFiles > 1} onChange={onFileSelect} type="file" />
+          <input
+            accept={accept}
+            className="sr-only"
+            hidden
+            multiple={maxFiles > 1}
+            onChange={onFileSelect}
+            type="file"
+          />
         </label>
       ) : null}
     </div>
@@ -515,13 +606,17 @@ export function PublicHostelRegistrationPage() {
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
   const [agreed, setAgreed] = useState(false);
-  const [existingApplication, setExistingApplication] = useState<OwnerApplication | null>(null);
+  const [existingApplication, setExistingApplication] = useState<OwnerApplication | null>(
+    null,
+  );
   const [startNewRegistration, setStartNewRegistration] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
 
   // Step 1 — Basic Information
   const [hostelName, setHostelName] = useState("");
-  const [hostelType, setHostelType] = useState<"BOYS" | "CO_LIVING" | "GIRLS">("CO_LIVING");
+  const [hostelType, setHostelType] = useState<"BOYS" | "CO_LIVING" | "GIRLS">(
+    "CO_LIVING",
+  );
   const [yearEstablished, setYearEstablished] = useState("");
   const [totalCapacity, setTotalCapacity] = useState("");
   const [description, setDescription] = useState("");
@@ -544,7 +639,9 @@ export function PublicHostelRegistrationPage() {
   const [landmark, setLandmark] = useState("");
   const [mapLink, setMapLink] = useState("");
   const [facilities, setFacilities] = useState<string[]>(["Wi-Fi", "CCTV", "Hot Water"]);
-  const [foodAvailability, setFoodAvailability] = useState<"extra" | "included" | "none">("included");
+  const [foodAvailability, setFoodAvailability] = useState<"extra" | "included" | "none">(
+    "included",
+  );
   const [rules, setRules] = useState("");
 
   // Step 3 — Rooms & Pricing
@@ -623,7 +720,9 @@ export function PublicHostelRegistrationPage() {
         try {
           const rawMarker = window.localStorage.getItem(submittedStorageKey(accountKey));
           if (rawMarker) {
-            setExistingApplication(markerToApplication(JSON.parse(rawMarker) as SubmittedMarker));
+            setExistingApplication(
+              markerToApplication(JSON.parse(rawMarker) as SubmittedMarker),
+            );
           }
         } catch {
           // corrupt marker — ignore
@@ -656,7 +755,8 @@ export function PublicHostelRegistrationPage() {
 
         if (draft.hostelName !== undefined) setHostelName(draft.hostelName);
         if (draft.hostelType !== undefined) setHostelType(draft.hostelType);
-        if (draft.yearEstablished !== undefined) setYearEstablished(draft.yearEstablished);
+        if (draft.yearEstablished !== undefined)
+          setYearEstablished(draft.yearEstablished);
         if (draft.totalCapacity !== undefined) setTotalCapacity(draft.totalCapacity);
         if (draft.description !== undefined) setDescription(draft.description);
         if (draft.ownerName !== undefined) setOwnerName(draft.ownerName);
@@ -676,7 +776,8 @@ export function PublicHostelRegistrationPage() {
         if (draft.landmark !== undefined) setLandmark(draft.landmark);
         if (draft.mapLink !== undefined) setMapLink(draft.mapLink);
         if (draft.facilities !== undefined) setFacilities(draft.facilities);
-        if (draft.foodAvailability !== undefined) setFoodAvailability(draft.foodAvailability);
+        if (draft.foodAvailability !== undefined)
+          setFoodAvailability(draft.foodAvailability);
         if (draft.rules !== undefined) setRules(draft.rules);
         if (draft.totalFloors !== undefined) setTotalFloors(draft.totalFloors);
         if (draft.rooms !== undefined) setRooms(draft.rooms);
@@ -689,7 +790,8 @@ export function PublicHostelRegistrationPage() {
         if (draft.exteriorPhotos !== undefined) setExteriorPhotos(draft.exteriorPhotos);
         if (draft.roomPhotos !== undefined) setRoomPhotos(draft.roomPhotos);
         if (draft.rulesDoc !== undefined) setRulesDoc(draft.rulesDoc);
-        if (draft.rulesTemplateId !== undefined) setRulesTemplateId(draft.rulesTemplateId);
+        if (draft.rulesTemplateId !== undefined)
+          setRulesTemplateId(draft.rulesTemplateId);
         if (draft.idProofType !== undefined) setIdProofType(draft.idProofType);
         if (draft.selectedPlan !== undefined) setSelectedPlan(draft.selectedPlan);
         if (draft.agreed !== undefined) setAgreed(draft.agreed);
@@ -728,7 +830,9 @@ export function PublicHostelRegistrationPage() {
           submittedStorageKey(draftAccountKey ?? "anonymous"),
         );
         if (rawMarker) {
-          setExistingApplication(markerToApplication(JSON.parse(rawMarker) as SubmittedMarker));
+          setExistingApplication(
+            markerToApplication(JSON.parse(rawMarker) as SubmittedMarker),
+          );
         }
       } catch {
         // ignore
@@ -764,15 +868,22 @@ export function PublicHostelRegistrationPage() {
   }, [rooms]);
 
   const occupiedBeds = Math.max(0, summary.totalBeds - summary.vacantBeds);
-  const occupancyPct = summary.totalBeds > 0 ? Math.round((occupiedBeds / summary.totalBeds) * 100) : 0;
+  const occupancyPct =
+    summary.totalBeds > 0 ? Math.round((occupiedBeds / summary.totalBeds) * 100) : 0;
 
   const rentValues = rooms
     .map((r) => numberValue(r.monthlyRent))
     .filter((v): v is number => typeof v === "number");
 
   const allUploaded = [
-    ...ownershipDoc, ...ownerIdDoc, ...panDoc, ...licenseDoc,
-    ...bankDoc, ...exteriorPhotos, ...roomPhotos, ...rulesDoc,
+    ...ownershipDoc,
+    ...ownerIdDoc,
+    ...panDoc,
+    ...licenseDoc,
+    ...bankDoc,
+    ...exteriorPhotos,
+    ...roomPhotos,
+    ...rulesDoc,
   ];
   const uploadingFiles = allUploaded.filter((f) => f.uploading).length;
   const uploadedCount = allUploaded.filter((f) => f.url).length;
@@ -798,7 +909,9 @@ export function PublicHostelRegistrationPage() {
         setter((prev) => [...prev, { id, name: file.name, url: "", uploading: true }]);
         try {
           const url = await uploadPublicFile(file, label);
-          setter((prev) => prev.map((f) => (f.id === id ? { ...f, url, uploading: false } : f)));
+          setter((prev) =>
+            prev.map((f) => (f.id === id ? { ...f, url, uploading: false } : f)),
+          );
         } catch {
           setter((prev) => prev.filter((f) => f.id !== id));
         }
@@ -875,13 +988,19 @@ export function PublicHostelRegistrationPage() {
   function stepComplete(key: number) {
     switch (key) {
       case 1:
-        return Boolean(hostelName.trim() && description.trim() && ownerName.trim() && phone.trim());
+        return Boolean(
+          hostelName.trim() && description.trim() && ownerName.trim() && phone.trim(),
+        );
       case 2:
         return Boolean(address.trim() && city.trim() && area.trim());
       case 3:
         return summary.totalBeds > 0;
       case 4:
-        return Boolean(idProofType) && ownerIdDoc.some((f) => f.url) && rulesDoc.some((f) => f.url);
+        return (
+          Boolean(idProofType) &&
+          ownerIdDoc.some((f) => f.url) &&
+          rulesDoc.some((f) => f.url)
+        );
       case 5:
         return agreed;
       default:
@@ -890,7 +1009,9 @@ export function PublicHostelRegistrationPage() {
   }
 
   function toggleFacility(f: string) {
-    setFacilities((prev) => (prev.includes(f) ? prev.filter((i) => i !== f) : [...prev, f]));
+    setFacilities((prev) =>
+      prev.includes(f) ? prev.filter((i) => i !== f) : [...prev, f],
+    );
   }
 
   function updateRoom(id: string, next: Partial<RoomConfig>) {
@@ -917,10 +1038,18 @@ export function PublicHostelRegistrationPage() {
       { label: "Hostel Name", step: 1, valid: Boolean(hostelName.trim()) },
       { label: "Description", step: 1, valid: Boolean(description.trim()) },
       { label: "Owner Full Name", step: 1, valid: Boolean(ownerName.trim()) },
-      { label: "Owner Phone — at least 7 digits", step: 1, valid: phone.trim().length >= 7 },
+      {
+        label: "Owner Phone — at least 7 digits",
+        step: 1,
+        valid: phone.trim().length >= 7,
+      },
       // Without an email the approval never reaches the owner: the server
       // creates an owner User with no address, and resolveHostelOwner bails.
-      { label: "Owner Email", step: 1, valid: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) },
+      {
+        label: "Owner Email",
+        step: 1,
+        valid: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()),
+      },
       { label: "Address Line", step: 2, valid: Boolean(address.trim()) },
       { label: "Area / Locality", step: 2, valid: Boolean(area.trim()) },
       {
@@ -929,7 +1058,8 @@ export function PublicHostelRegistrationPage() {
         valid: summary.totalRooms > 0 && summary.totalBeds > 0,
       },
       {
-        label: "Government ID proof — select a type (Citizenship / NID / Passport) and upload it",
+        label:
+          "Government ID proof — select a type (Citizenship / NID / Passport) and upload it",
         step: 4,
         valid: Boolean(idProofType) && ownerIdDoc.some((f) => f.url),
       },
@@ -945,7 +1075,9 @@ export function PublicHostelRegistrationPage() {
     return getRequiredFieldChecks().filter((c) => !c.valid);
   }
 
-  function refForRequiredField(label: string): React.RefObject<HTMLElement | null> | undefined {
+  function refForRequiredField(
+    label: string,
+  ): React.RefObject<HTMLElement | null> | undefined {
     switch (label) {
       case "Hostel Name":
         return hostelNameRef;
@@ -1018,7 +1150,10 @@ export function PublicHostelRegistrationPage() {
       yearEstablished,
     };
 
-    window.localStorage.setItem(draftStorageKey(draftAccountKey ?? "anonymous"), JSON.stringify(draft));
+    window.localStorage.setItem(
+      draftStorageKey(draftAccountKey ?? "anonymous"),
+      JSON.stringify(draft),
+    );
     setRestoredDraftAt(draft.savedAt);
     setDraftSaved(true);
     window.setTimeout(() => setDraftSaved(false), 2500);
@@ -1054,17 +1189,33 @@ export function PublicHostelRegistrationPage() {
       }));
 
     const photos = [
-      ...exteriorPhotos.filter((p) => p.url).map((p) => ({ alt: `${hostelName.trim()} - Exterior`, url: p.url })),
-      ...roomPhotos.filter((p) => p.url).map((p) => ({ alt: `${hostelName.trim()} - Room`, url: p.url })),
+      ...exteriorPhotos
+        .filter((p) => p.url)
+        .map((p) => ({ alt: `${hostelName.trim()} - Exterior`, url: p.url })),
+      ...roomPhotos
+        .filter((p) => p.url)
+        .map((p) => ({ alt: `${hostelName.trim()} - Room`, url: p.url })),
     ];
 
     const documents = [
-      ...ownershipDoc.filter((d) => d.url).map((d) => ({ documentType: "Ownership proof", fileUrl: d.url })),
-      ...ownerIdDoc.filter((d) => d.url).map((d) => ({ documentType: idProofType || "Owner ID proof", fileUrl: d.url })),
-      ...panDoc.filter((d) => d.url).map((d) => ({ documentType: "PAN / VAT document", fileUrl: d.url })),
-      ...licenseDoc.filter((d) => d.url).map((d) => ({ documentType: "Hostel license", fileUrl: d.url })),
-      ...bankDoc.filter((d) => d.url).map((d) => ({ documentType: "Bank account details", fileUrl: d.url })),
-      ...rulesDoc.filter((d) => d.url).map((d) => ({ documentType: "Rules & policies", fileUrl: d.url })),
+      ...ownershipDoc
+        .filter((d) => d.url)
+        .map((d) => ({ documentType: "Ownership proof", fileUrl: d.url })),
+      ...ownerIdDoc
+        .filter((d) => d.url)
+        .map((d) => ({ documentType: idProofType || "Owner ID proof", fileUrl: d.url })),
+      ...panDoc
+        .filter((d) => d.url)
+        .map((d) => ({ documentType: "PAN / VAT document", fileUrl: d.url })),
+      ...licenseDoc
+        .filter((d) => d.url)
+        .map((d) => ({ documentType: "Hostel license", fileUrl: d.url })),
+      ...bankDoc
+        .filter((d) => d.url)
+        .map((d) => ({ documentType: "Bank account details", fileUrl: d.url })),
+      ...rulesDoc
+        .filter((d) => d.url)
+        .map((d) => ({ documentType: "Rules & policies", fileUrl: d.url })),
     ];
 
     const ownerNote = [
@@ -1073,47 +1224,67 @@ export function PublicHostelRegistrationPage() {
       `Cooks: ${numberValue(cookCount) ?? 0}`,
       `Floors: ${numberValue(totalFloors) ?? 1}`,
       `Selected plan: ${selectedPlanDetail.name}`,
-    ].filter(Boolean).join(" · ");
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
     try {
-      const result = await browserApi<{ hostel: { id: string; name?: string } }>("/api/v1/public/hostels/register", {
-        body: JSON.stringify({
-          applicant: { email: email.trim() || undefined, name: ownerName.trim(), phone: phone.trim() },
-          alternatePhone: alternatePhone.trim() || undefined,
-          capacitySummary,
-          contact: { email: email.trim() || undefined, phone: phone.trim() },
-          description: description.trim() || undefined,
-          documents,
-          facilities,
-          food: {
-            hasNonVeg,
-            hasVeg,
-            mealsPerDay: foodAvailability === "none" ? 0 : numberValue(mealsPerDay),
-            notes: foodAvailability === "extra" ? "Meals available at extra charge" : undefined,
-          },
-          hostelType,
-          landmark: landmark.trim() || undefined,
-          location: { address: address.trim() || undefined, area: area.trim(), city: city.trim(), country },
-          mapLink: mapLink.trim() || undefined,
-          name: hostelName.trim(),
-          notes: ownerNote,
-          photos,
-          pricing: {
-            admissionFee: numberValue(admissionFee),
-            currency: "NPR",
-            monthlyRentMax: rentValues.length > 0 ? Math.max(...rentValues) : undefined,
-            monthlyRentMin: rentValues.length > 0 ? Math.min(...rentValues) : undefined,
-          },
-          roomConfigurations,
-          roomTypes: roomConfigurations.map((r) => r.roomType),
-          rules: rules.split(/\r?\n|,/).map((l) => l.trim()).filter(Boolean),
-          selectedPlan,
-          totalCapacity: numberValue(totalCapacity),
-          totalFloors: numberValue(totalFloors),
-          yearEstablished: yearEstablished.trim() || undefined,
-        }),
-        method: "POST",
-      });
+      const result = await browserApi<{ hostel: { id: string; name?: string } }>(
+        "/api/v1/public/hostels/register",
+        {
+          body: JSON.stringify({
+            applicant: {
+              email: email.trim() || undefined,
+              name: ownerName.trim(),
+              phone: phone.trim(),
+            },
+            alternatePhone: alternatePhone.trim() || undefined,
+            capacitySummary,
+            contact: { email: email.trim() || undefined, phone: phone.trim() },
+            description: description.trim() || undefined,
+            documents,
+            facilities,
+            food: {
+              hasNonVeg,
+              hasVeg,
+              mealsPerDay: foodAvailability === "none" ? 0 : numberValue(mealsPerDay),
+              notes:
+                foodAvailability === "extra"
+                  ? "Meals available at extra charge"
+                  : undefined,
+            },
+            hostelType,
+            landmark: landmark.trim() || undefined,
+            location: {
+              address: address.trim() || undefined,
+              area: area.trim(),
+              city: city.trim(),
+              country,
+            },
+            mapLink: mapLink.trim() || undefined,
+            name: hostelName.trim(),
+            notes: ownerNote,
+            photos,
+            pricing: {
+              admissionFee: numberValue(admissionFee),
+              currency: "NPR",
+              monthlyRentMax: rentValues.length > 0 ? Math.max(...rentValues) : undefined,
+              monthlyRentMin: rentValues.length > 0 ? Math.min(...rentValues) : undefined,
+            },
+            roomConfigurations,
+            roomTypes: roomConfigurations.map((r) => r.roomType),
+            rules: rules
+              .split(/\r?\n|,/)
+              .map((l) => l.trim())
+              .filter(Boolean),
+            selectedPlan,
+            totalCapacity: numberValue(totalCapacity),
+            totalFloors: numberValue(totalFloors),
+            yearEstablished: yearEstablished.trim() || undefined,
+          }),
+          method: "POST",
+        },
+      );
       const marker: SubmittedMarker = {
         hostelId: result.hostel.id,
         hostelName: hostelName.trim() || result.hostel.name,
@@ -1133,8 +1304,12 @@ export function PublicHostelRegistrationPage() {
       void refreshApplicationStatus();
     } catch (error) {
       if (error instanceof ApiRequestError) {
-        const details = error.details as { fieldErrors?: Record<string, string[]> } | undefined;
-        const firstEntry = details?.fieldErrors ? Object.entries(details.fieldErrors)[0] : undefined;
+        const details = error.details as
+          | { fieldErrors?: Record<string, string[]> }
+          | undefined;
+        const firstEntry = details?.fieldErrors
+          ? Object.entries(details.fieldErrors)[0]
+          : undefined;
 
         if (firstEntry) {
           const [key, messages] = firstEntry;
@@ -1143,20 +1318,28 @@ export function PublicHostelRegistrationPage() {
           );
           goTo(FIELD_KEY_STEP[key] ?? 1);
         } else if (error.message === "Validation failed") {
-          setMessage("Some required information is missing or invalid. Please review each step and try again.");
+          setMessage(
+            "Some required information is missing or invalid. Please review each step and try again.",
+          );
           goTo(1);
         } else {
           setMessage(error.message);
         }
       } else {
-        setMessage(error instanceof Error ? error.message : "Could not submit hostel application.");
+        setMessage(
+          error instanceof Error ? error.message : "Could not submit hostel application.",
+        );
       }
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  const hostelTypeLabel = { BOYS: "Boys Hostel", CO_LIVING: "Co-living", GIRLS: "Girls Hostel" }[hostelType];
+  const hostelTypeLabel = {
+    BOYS: "Boys Hostel",
+    CO_LIVING: "Co-living",
+    GIRLS: "Girls Hostel",
+  }[hostelType];
   const missingFields = attemptedSubmit ? findMissingRequiredFields() : [];
 
   if (!statusChecked && !submitted) {
@@ -1187,7 +1370,9 @@ export function PublicHostelRegistrationPage() {
         {/* Header */}
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-foreground md:text-[26px]">Register New Hostel</h1>
+            <h1 className="text-2xl font-bold text-foreground md:text-[26px]">
+              Register New Hostel
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {submitted
                 ? "Your application has been submitted for review."
@@ -1200,7 +1385,11 @@ export function PublicHostelRegistrationPage() {
               onClick={saveDraft}
               type="button"
             >
-              {draftSaved ? <CheckCircle2 className="size-4 text-success" /> : <Save className="size-4" />}
+              {draftSaved ? (
+                <CheckCircle2 className="size-4 text-success" />
+              ) : (
+                <Save className="size-4" />
+              )}
               {draftSaved ? "Draft saved" : "Save Draft"}
             </button>
           ) : null}
@@ -1208,7 +1397,9 @@ export function PublicHostelRegistrationPage() {
 
         {restoredDraftAt && !submitted ? (
           <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-teal/25 bg-brand-teal/5 p-3 text-sm text-brand-teal">
-            <span>Restored your saved draft from {new Date(restoredDraftAt).toLocaleString()}.</span>
+            <span>
+              Restored your saved draft from {new Date(restoredDraftAt).toLocaleString()}.
+            </span>
             <button
               className="font-semibold underline underline-offset-2 hover:text-brand-teal/70"
               onClick={discardDraft}
@@ -1227,7 +1418,10 @@ export function PublicHostelRegistrationPage() {
                 const done = stepComplete(item.key);
                 const active = step === item.key;
                 return (
-                  <div className="flex flex-1 items-center last:flex-initial" key={item.key}>
+                  <div
+                    className="flex flex-1 items-center last:flex-initial"
+                    key={item.key}
+                  >
                     <button
                       className="group flex shrink-0 flex-col items-center gap-2 rounded-lg px-2 py-1 text-center transition hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/40"
                       onClick={() => goTo(item.key)}
@@ -1245,12 +1439,24 @@ export function PublicHostelRegistrationPage() {
                       >
                         {done ? <Check className="size-4.5" /> : item.key}
                       </span>
-                      <p className={cn("whitespace-nowrap text-xs font-semibold transition-colors", active ? "text-brand-teal" : "text-muted-foreground group-hover:text-foreground")}>
+                      <p
+                        className={cn(
+                          "whitespace-nowrap text-xs font-semibold transition-colors",
+                          active
+                            ? "text-brand-teal"
+                            : "text-muted-foreground group-hover:text-foreground",
+                        )}
+                      >
                         {item.label}
                       </p>
                     </button>
                     {index < stepsList.length - 1 ? (
-                      <div className={cn("mx-3 h-0.5 flex-1 rounded-full", done ? "bg-brand-teal" : "bg-border")} />
+                      <div
+                        className={cn(
+                          "mx-3 h-0.5 flex-1 rounded-full",
+                          done ? "bg-brand-teal" : "bg-border",
+                        )}
+                      />
                     ) : null}
                   </div>
                 );
@@ -1261,11 +1467,14 @@ export function PublicHostelRegistrationPage() {
 
         {missingFields.length > 0 ? (
           <div className="mb-5 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            <p className="font-semibold">Please complete the following before submitting:</p>
+            <p className="font-semibold">
+              Please complete the following before submitting:
+            </p>
             <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
               {missingFields.map((field) => (
                 <li key={field.label}>
-                  {field.label} <span className="text-destructive/70">(Step {field.step})</span>
+                  {field.label}{" "}
+                  <span className="text-destructive/70">(Step {field.step})</span>
                 </li>
               ))}
             </ul>
@@ -1285,30 +1494,68 @@ export function PublicHostelRegistrationPage() {
               {step === 1 ? (
                 <section className="app-card p-6">
                   <h2 className="text-lg font-bold text-foreground">Basic Information</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Tell students about your hostel and who runs it.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Tell students about your hostel and who runs it.
+                  </p>
 
                   <div className="mt-6 grid gap-5 md:grid-cols-2">
                     <Field label="Hostel Name" required>
-                      <input className="input-field" onChange={(e) => setHostelName(e.target.value)} placeholder="e.g. Green View Hostel" ref={hostelNameRef} required value={hostelName} />
+                      <input
+                        className="input-field"
+                        onChange={(e) => setHostelName(e.target.value)}
+                        placeholder="e.g. Green View Hostel"
+                        ref={hostelNameRef}
+                        required
+                        value={hostelName}
+                      />
                     </Field>
                     <Field label="Hostel Type" required>
-                      <select className="input-field" onChange={(e) => setHostelType(e.target.value as typeof hostelType)} value={hostelType}>
+                      <select
+                        className="input-field"
+                        onChange={(e) =>
+                          setHostelType(e.target.value as typeof hostelType)
+                        }
+                        value={hostelType}
+                      >
                         <option value="BOYS">Boys Hostel</option>
                         <option value="GIRLS">Girls Hostel</option>
                         <option value="CO_LIVING">Co-living</option>
                       </select>
                     </Field>
                     <Field label="Year Established">
-                      <input className="input-field" max={new Date().getFullYear()} min={1950} onChange={(e) => setYearEstablished(e.target.value)} placeholder="e.g. 2020" type="number" value={yearEstablished} />
+                      <input
+                        className="input-field"
+                        max={new Date().getFullYear()}
+                        min={1950}
+                        onChange={(e) => setYearEstablished(e.target.value)}
+                        placeholder="e.g. 2020"
+                        type="number"
+                        value={yearEstablished}
+                      />
                     </Field>
                     <Field label="Total Resident Capacity">
-                      <input className="input-field" min={0} onChange={(e) => setTotalCapacity(e.target.value)} placeholder="e.g. 100" type="number" value={totalCapacity} />
+                      <input
+                        className="input-field"
+                        min={0}
+                        onChange={(e) => setTotalCapacity(e.target.value)}
+                        placeholder="e.g. 100"
+                        type="number"
+                        value={totalCapacity}
+                      />
                     </Field>
                   </div>
 
                   <div className="mt-5">
                     <Field label="Description" required>
-                      <textarea className="input-field min-h-24 py-2.5" maxLength={2000} onChange={(e) => setDescription(e.target.value)} placeholder="Highlight your location, atmosphere, nearby colleges, etc." ref={descriptionRef} required value={description} />
+                      <textarea
+                        className="input-field min-h-24 py-2.5"
+                        maxLength={2000}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Highlight your location, atmosphere, nearby colleges, etc."
+                        ref={descriptionRef}
+                        required
+                        value={description}
+                      />
                     </Field>
                   </div>
 
@@ -1316,14 +1563,34 @@ export function PublicHostelRegistrationPage() {
                     <h3 className="text-sm font-bold text-foreground">Owner Details</h3>
                     <div className="mt-4 grid gap-5 md:grid-cols-2">
                       <Field label="Full Name" required>
-                        <input className="input-field" onChange={(e) => setOwnerName(e.target.value)} ref={ownerNameRef} required value={ownerName} />
+                        <input
+                          className="input-field"
+                          onChange={(e) => setOwnerName(e.target.value)}
+                          ref={ownerNameRef}
+                          required
+                          value={ownerName}
+                        />
                       </Field>
                       <div className="grid grid-cols-2 gap-4">
                         <Field label="Age">
-                          <input className="input-field" min={18} max={100} onChange={(e) => setOwnerAge(e.target.value)} placeholder="e.g. 42" type="number" value={ownerAge} />
+                          <input
+                            className="input-field"
+                            min={18}
+                            max={100}
+                            onChange={(e) => setOwnerAge(e.target.value)}
+                            placeholder="e.g. 42"
+                            type="number"
+                            value={ownerAge}
+                          />
                         </Field>
                         <Field label="Gender">
-                          <select className="input-field" onChange={(e) => setOwnerGender(e.target.value as typeof ownerGender)} value={ownerGender}>
+                          <select
+                            className="input-field"
+                            onChange={(e) =>
+                              setOwnerGender(e.target.value as typeof ownerGender)
+                            }
+                            value={ownerGender}
+                          >
                             <option value="">Select</option>
                             <option value="Male">Male</option>
                             <option value="Female">Female</option>
@@ -1332,14 +1599,30 @@ export function PublicHostelRegistrationPage() {
                         </Field>
                       </div>
                       <Field label="Phone" required>
-                        <input className="input-field" onChange={(e) => setPhone(e.target.value)} ref={phoneRef} required type="tel" value={phone} />
+                        <input
+                          className="input-field"
+                          onChange={(e) => setPhone(e.target.value)}
+                          ref={phoneRef}
+                          required
+                          type="tel"
+                          value={phone}
+                        />
                       </Field>
                       <Field label="Alternate Phone">
-                        <input className="input-field" onChange={(e) => setAlternatePhone(e.target.value)} type="tel" value={alternatePhone} />
+                        <input
+                          className="input-field"
+                          onChange={(e) => setAlternatePhone(e.target.value)}
+                          type="tel"
+                          value={alternatePhone}
+                        />
                       </Field>
                       <Field label="Email" required>
                         <input
-                          className={lockedEmail ? "input-field cursor-not-allowed bg-muted text-muted-foreground" : "input-field"}
+                          className={
+                            lockedEmail
+                              ? "input-field cursor-not-allowed bg-muted text-muted-foreground"
+                              : "input-field"
+                          }
                           onChange={(e) => setEmail(e.target.value)}
                           readOnly={Boolean(lockedEmail)}
                           ref={emailRef}
@@ -1350,7 +1633,8 @@ export function PublicHostelRegistrationPage() {
                         {lockedEmail ? (
                           <span className="flex items-start gap-1.5 text-[11px] font-medium text-muted-foreground">
                             <Lock className="mt-0.5 size-3 shrink-0" />
-                            Taken from your signed-in account. Approval and login credentials are sent here.
+                            Taken from your signed-in account. Approval and login
+                            credentials are sent here.
                           </span>
                         ) : null}
                       </Field>
@@ -1358,26 +1642,57 @@ export function PublicHostelRegistrationPage() {
                   </div>
 
                   <div className="mt-6 border-t border-border pt-5">
-                    <h3 className="text-sm font-bold text-foreground">Kitchen &amp; Staff</h3>
+                    <h3 className="text-sm font-bold text-foreground">
+                      Kitchen &amp; Staff
+                    </h3>
                     <div className="mt-4 grid gap-5 md:grid-cols-2">
                       <Field label="Meals Per Day">
-                        <input className="input-field" min={0} max={6} onChange={(e) => setMealsPerDay(e.target.value)} type="number" value={mealsPerDay} />
+                        <input
+                          className="input-field"
+                          min={0}
+                          max={6}
+                          onChange={(e) => setMealsPerDay(e.target.value)}
+                          type="number"
+                          value={mealsPerDay}
+                        />
                       </Field>
                       <Field label="Number of Cooks">
-                        <input className="input-field" min={0} max={50} onChange={(e) => setCookCount(e.target.value)} placeholder="e.g. 2" type="number" value={cookCount} />
+                        <input
+                          className="input-field"
+                          min={0}
+                          max={50}
+                          onChange={(e) => setCookCount(e.target.value)}
+                          placeholder="e.g. 2"
+                          type="number"
+                          value={cookCount}
+                        />
                       </Field>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-4">
                       <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                        <input checked={hasVeg} className="size-4 rounded text-brand-teal" onChange={(e) => setHasVeg(e.target.checked)} type="checkbox" /> Veg
+                        <input
+                          checked={hasVeg}
+                          className="size-4 rounded text-brand-teal"
+                          onChange={(e) => setHasVeg(e.target.checked)}
+                          type="checkbox"
+                        />{" "}
+                        Veg
                       </label>
                       <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                        <input checked={hasNonVeg} className="size-4 rounded text-brand-teal" onChange={(e) => setHasNonVeg(e.target.checked)} type="checkbox" /> Non-Veg
+                        <input
+                          checked={hasNonVeg}
+                          className="size-4 rounded text-brand-teal"
+                          onChange={(e) => setHasNonVeg(e.target.checked)}
+                          type="checkbox"
+                        />{" "}
+                        Non-Veg
                       </label>
                     </div>
                     <p className="mt-3 flex items-start gap-2 rounded-lg bg-brand-teal/5 px-3 py-2.5 text-[11px] font-medium text-brand-teal">
                       <ChefHat className="mt-0.5 size-3.5 shrink-0" />
-                      We generate one shared Cook App login for your kitchen after approval, so whoever is cooking can announce meals. You can rotate its password any time.
+                      We generate one shared Cook App login for your kitchen after
+                      approval, so whoever is cooking can announce meals. You can rotate
+                      its password any time.
                     </p>
                   </div>
                 </section>
@@ -1387,39 +1702,82 @@ export function PublicHostelRegistrationPage() {
               {step === 2 ? (
                 <section className="app-card p-6">
                   <h2 className="text-lg font-bold text-foreground">Location Details</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Add the address and location details of your hostel.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Add the address and location details of your hostel.
+                  </p>
 
                   <div className="mt-6 space-y-5">
                     <Field label="Address Line" required>
-                      <input className="input-field" onChange={(e) => setAddress(e.target.value)} placeholder="Enter full address" ref={addressRef} required value={address} />
+                      <input
+                        className="input-field"
+                        onChange={(e) => setAddress(e.target.value)}
+                        placeholder="Enter full address"
+                        ref={addressRef}
+                        required
+                        value={address}
+                      />
                     </Field>
                     <div className="grid gap-5 md:grid-cols-2">
                       <Field label="City" required>
-                        <select className="input-field" onChange={(e) => setCity(e.target.value)} value={city}>
-                          {cityOptions.map((c) => <option key={c}>{c}</option>)}
+                        <select
+                          className="input-field"
+                          onChange={(e) => setCity(e.target.value)}
+                          value={city}
+                        >
+                          {cityOptions.map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
                         </select>
                       </Field>
                       <Field label="Area / Locality" required>
-                        <input className="input-field" onChange={(e) => setArea(e.target.value)} placeholder="e.g. Bagdol, Baneshwor" ref={areaRef} required value={area} />
+                        <input
+                          className="input-field"
+                          onChange={(e) => setArea(e.target.value)}
+                          placeholder="e.g. Bagdol, Baneshwor"
+                          ref={areaRef}
+                          required
+                          value={area}
+                        />
                       </Field>
                     </div>
                     <Field label="Landmark (Optional)">
-                      <input className="input-field" onChange={(e) => setLandmark(e.target.value)} placeholder="Enter nearby landmark" value={landmark} />
+                      <input
+                        className="input-field"
+                        onChange={(e) => setLandmark(e.target.value)}
+                        placeholder="Enter nearby landmark"
+                        value={landmark}
+                      />
                     </Field>
 
                     <div className="grid gap-5 md:grid-cols-2">
                       <div>
-                        <p className="mb-1.5 text-sm font-semibold text-foreground">Location Preview</p>
+                        <p className="mb-1.5 text-sm font-semibold text-foreground">
+                          Location Preview
+                        </p>
                         <div className="flex h-[140px] items-center justify-center rounded-lg border border-border bg-muted/40 bg-[linear-gradient(90deg,transparent_23px,var(--color-border)_24px),linear-gradient(transparent_23px,var(--color-border)_24px)] bg-[length:24px_24px]">
                           <MapPin className="size-8 text-brand-teal" />
                         </div>
                       </div>
                       <div>
-                        <p className="mb-1.5 text-sm font-semibold text-foreground">Google Maps Link (Optional)</p>
-                        <input className="input-field w-full" onChange={(e) => setMapLink(e.target.value)} placeholder="https://maps.google.com/..." value={mapLink} />
-                        <p className="mt-1.5 text-xs text-muted-foreground">Paste your Google Maps location link</p>
+                        <p className="mb-1.5 text-sm font-semibold text-foreground">
+                          Google Maps Link (Optional)
+                        </p>
+                        <input
+                          className="input-field w-full"
+                          onChange={(e) => setMapLink(e.target.value)}
+                          placeholder="https://maps.google.com/..."
+                          value={mapLink}
+                        />
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          Paste your Google Maps location link
+                        </p>
                         {mapLink ? (
-                          <a className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-teal hover:underline" href={mapLink} rel="noreferrer" target="_blank">
+                          <a
+                            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-teal hover:underline"
+                            href={mapLink}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
                             <MapPin className="size-3.5" /> Open in Google Maps
                           </a>
                         ) : null}
@@ -1429,7 +1787,9 @@ export function PublicHostelRegistrationPage() {
 
                   <div className="mt-6 border-t border-border pt-5">
                     <h3 className="text-sm font-bold text-foreground">Facilities</h3>
-                    <p className="mb-3 text-xs text-muted-foreground">Select the facilities available at your hostel.</p>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Select the facilities available at your hostel.
+                    </p>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                       {facilityOptions.map((facility) => {
                         const on = facilities.includes(facility);
@@ -1438,13 +1798,19 @@ export function PublicHostelRegistrationPage() {
                             key={facility}
                             className={cn(
                               "flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-xs font-semibold transition",
-                              on ? "border-brand-teal bg-brand-teal/5 text-foreground" : "border-border bg-surface text-muted-foreground hover:border-brand-teal/40",
+                              on
+                                ? "border-brand-teal bg-brand-teal/5 text-foreground"
+                                : "border-border bg-surface text-muted-foreground hover:border-brand-teal/40",
                             )}
                             onClick={() => toggleFacility(facility)}
                             type="button"
                           >
                             {facility}
-                            {on ? <CheckCircle2 className="size-4 shrink-0 text-brand-teal" /> : <span className="size-4 shrink-0 rounded-full border border-border" />}
+                            {on ? (
+                              <CheckCircle2 className="size-4 shrink-0 text-brand-teal" />
+                            ) : (
+                              <span className="size-4 shrink-0 rounded-full border border-border" />
+                            )}
                           </button>
                         );
                       })}
@@ -1453,24 +1819,43 @@ export function PublicHostelRegistrationPage() {
 
                   <div className="mt-6 grid gap-6 border-t border-border pt-5 md:grid-cols-2">
                     <div>
-                      <h3 className="text-sm font-bold text-foreground">Food Availability</h3>
-                      <p className="mb-3 text-xs text-muted-foreground">Select food availability option.</p>
+                      <h3 className="text-sm font-bold text-foreground">
+                        Food Availability
+                      </h3>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Select food availability option.
+                      </p>
                       <div className="space-y-2.5">
-                        {([
-                          ["included", "Meals included"],
-                          ["extra", "Meals available (at extra charge)"],
-                          ["none", "No meals"],
-                        ] as const).map(([value, label]) => (
-                          <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground" key={value}>
-                            <input checked={foodAvailability === value} className="size-4 text-brand-teal" name="food-availability" onChange={() => setFoodAvailability(value)} type="radio" />
+                        {(
+                          [
+                            ["included", "Meals included"],
+                            ["extra", "Meals available (at extra charge)"],
+                            ["none", "No meals"],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <label
+                            className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground"
+                            key={value}
+                          >
+                            <input
+                              checked={foodAvailability === value}
+                              className="size-4 text-brand-teal"
+                              name="food-availability"
+                              onChange={() => setFoodAvailability(value)}
+                              type="radio"
+                            />
                             {label}
                           </label>
                         ))}
                       </div>
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-foreground">Hostel Rules Summary</h3>
-                      <p className="mb-3 text-xs text-muted-foreground">Add a short summary of your hostel rules.</p>
+                      <h3 className="text-sm font-bold text-foreground">
+                        Hostel Rules Summary
+                      </h3>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Add a short summary of your hostel rules.
+                      </p>
                       <textarea
                         className="input-field min-h-24 w-full py-2.5"
                         maxLength={250}
@@ -1478,7 +1863,9 @@ export function PublicHostelRegistrationPage() {
                         placeholder="E.g. No smoking, No alcohol, Visitors not allowed, Silence after 10 PM…"
                         value={rules}
                       />
-                      <p className="mt-1 text-right text-[11px] text-muted-foreground">{rules.length} / 250</p>
+                      <p className="mt-1 text-right text-[11px] text-muted-foreground">
+                        {rules.length} / 250
+                      </p>
                     </div>
                   </div>
                 </section>
@@ -1487,14 +1874,24 @@ export function PublicHostelRegistrationPage() {
               {/* STEP 3 — ROOMS & PRICING */}
               {step === 3 ? (
                 <section className="app-card p-6" ref={roomsSectionRef}>
-                  <h2 className="text-lg font-bold text-foreground">Rooms &amp; Pricing</h2>
+                  <h2 className="text-lg font-bold text-foreground">
+                    Rooms &amp; Pricing
+                  </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Add all room types, capacity, and pricing details. You can edit these anytime later.
+                    Add all room types, capacity, and pricing details. You can edit these
+                    anytime later.
                   </p>
 
                   <div className="mt-5 max-w-xs">
                     <Field label="How many floors does the building have?">
-                      <input className="input-field" min={1} max={50} onChange={(e) => setTotalFloors(e.target.value)} type="number" value={totalFloors} />
+                      <input
+                        className="input-field"
+                        min={1}
+                        max={50}
+                        onChange={(e) => setTotalFloors(e.target.value)}
+                        type="number"
+                        value={totalFloors}
+                      />
                     </Field>
                   </div>
 
@@ -1502,11 +1899,15 @@ export function PublicHostelRegistrationPage() {
                     <div className="flex items-center justify-between border-b border-border px-4 py-3">
                       <div>
                         <h3 className="text-sm font-bold text-foreground">Room Types</h3>
-                        <p className="text-xs text-muted-foreground">Add each room type available across your hostel.</p>
+                        <p className="text-xs text-muted-foreground">
+                          Add each room type available across your hostel.
+                        </p>
                       </div>
                       <button
                         className="inline-flex items-center gap-1.5 rounded-lg border border-brand-teal px-3 py-1.5 text-xs font-bold text-brand-teal transition hover:bg-brand-teal/5"
-                        onClick={() => setRooms((prev) => [...prev, createRoom("Single Room")])}
+                        onClick={() =>
+                          setRooms((prev) => [...prev, createRoom("Single Room")])
+                        }
                         type="button"
                       >
                         <Plus className="size-3.5" /> Add Room Type
@@ -1529,43 +1930,108 @@ export function PublicHostelRegistrationPage() {
                         </thead>
                         <tbody>
                           {rooms.map((room) => {
-                            const meta = ROOM_TYPE_META[room.roomType] ?? ROOM_TYPE_META["Single Room"];
+                            const meta =
+                              ROOM_TYPE_META[room.roomType] ??
+                              ROOM_TYPE_META["Single Room"];
                             const Icon = meta.icon;
                             return (
-                              <tr className="border-b border-border last:border-0" key={room.id}>
+                              <tr
+                                className="border-b border-border last:border-0"
+                                key={room.id}
+                              >
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-2.5">
-                                    <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", meta.tone)}>
+                                    <span
+                                      className={cn(
+                                        "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                                        meta.tone,
+                                      )}
+                                    >
                                       <Icon className="size-4.5" />
                                     </span>
                                     <select
                                       className="input-field h-9 w-full min-w-[120px] px-2 text-xs"
-                                      onChange={(e) => updateRoom(room.id, { roomType: e.target.value })}
+                                      onChange={(e) =>
+                                        updateRoom(room.id, { roomType: e.target.value })
+                                      }
                                       value={room.roomType}
                                     >
-                                      {roomTypeOptions.map((t) => <option key={t}>{t}</option>)}
+                                      {roomTypeOptions.map((t) => (
+                                        <option key={t}>{t}</option>
+                                      ))}
                                     </select>
                                   </div>
                                 </td>
                                 <td className="px-2 py-3">
-                                  <input className="input-field h-9 w-16 px-2 text-xs" min={0} onChange={(e) => updateRoom(room.id, { rooms: e.target.value })} placeholder="0" type="number" value={room.rooms} />
+                                  <input
+                                    className="input-field h-9 w-16 px-2 text-xs"
+                                    min={0}
+                                    onChange={(e) =>
+                                      updateRoom(room.id, { rooms: e.target.value })
+                                    }
+                                    placeholder="0"
+                                    type="number"
+                                    value={room.rooms}
+                                  />
                                 </td>
                                 <td className="px-2 py-3">
-                                  <input className="input-field h-9 w-16 px-2 text-xs" min={0} onChange={(e) => updateRoom(room.id, { bedsPerRoom: e.target.value })} placeholder="0" type="number" value={room.bedsPerRoom} />
+                                  <input
+                                    className="input-field h-9 w-16 px-2 text-xs"
+                                    min={0}
+                                    onChange={(e) =>
+                                      updateRoom(room.id, { bedsPerRoom: e.target.value })
+                                    }
+                                    placeholder="0"
+                                    type="number"
+                                    value={room.bedsPerRoom}
+                                  />
                                 </td>
                                 <td className="px-2 py-3">
-                                  <input className="input-field h-9 w-16 px-2 text-xs font-bold text-brand-teal" min={0} onChange={(e) => updateRoom(room.id, { vacantBeds: e.target.value })} placeholder="0" type="number" value={room.vacantBeds} />
+                                  <input
+                                    className="input-field h-9 w-16 px-2 text-xs font-bold text-brand-teal"
+                                    min={0}
+                                    onChange={(e) =>
+                                      updateRoom(room.id, { vacantBeds: e.target.value })
+                                    }
+                                    placeholder="0"
+                                    type="number"
+                                    value={room.vacantBeds}
+                                  />
                                 </td>
                                 <td className="px-2 py-3">
-                                  <input className="input-field h-9 w-24 px-2 text-xs" min={0} onChange={(e) => updateRoom(room.id, { monthlyRent: e.target.value })} placeholder="NPR" type="number" value={room.monthlyRent} />
+                                  <input
+                                    className="input-field h-9 w-24 px-2 text-xs"
+                                    min={0}
+                                    onChange={(e) =>
+                                      updateRoom(room.id, { monthlyRent: e.target.value })
+                                    }
+                                    placeholder="NPR"
+                                    type="number"
+                                    value={room.monthlyRent}
+                                  />
                                 </td>
                                 <td className="px-2 py-3">
-                                  <input className="input-field h-9 w-24 px-2 text-xs" min={0} onChange={(e) => updateRoom(room.id, { securityDeposit: e.target.value })} placeholder="NPR" type="number" value={room.securityDeposit} />
+                                  <input
+                                    className="input-field h-9 w-24 px-2 text-xs"
+                                    min={0}
+                                    onChange={(e) =>
+                                      updateRoom(room.id, {
+                                        securityDeposit: e.target.value,
+                                      })
+                                    }
+                                    placeholder="NPR"
+                                    type="number"
+                                    value={room.securityDeposit}
+                                  />
                                 </td>
                                 <td className="px-2 py-3">
                                   <select
                                     className="input-field h-9 w-28 px-2 text-xs"
-                                    onChange={(e) => updateRoom(room.id, { mealInclusion: e.target.value as MealInclusion })}
+                                    onChange={(e) =>
+                                      updateRoom(room.id, {
+                                        mealInclusion: e.target.value as MealInclusion,
+                                      })
+                                    }
                                     value={room.mealInclusion}
                                   >
                                     <option value="Included">Included</option>
@@ -1577,7 +2043,11 @@ export function PublicHostelRegistrationPage() {
                                   <button
                                     className="rounded-md p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
                                     disabled={rooms.length === 1}
-                                    onClick={() => setRooms((prev) => prev.filter((r) => r.id !== room.id))}
+                                    onClick={() =>
+                                      setRooms((prev) =>
+                                        prev.filter((r) => r.id !== room.id),
+                                      )
+                                    }
                                     type="button"
                                   >
                                     <Trash2 className="size-4" />
@@ -1592,13 +2062,20 @@ export function PublicHostelRegistrationPage() {
 
                     <div className="flex items-start gap-2 border-t border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
                       <Info className="mt-0.5 size-3.5 shrink-0 text-role-platform" />
-                      Prices are monthly per bed. You can update pricing anytime from your hostel dashboard.
+                      Prices are monthly per bed. You can update pricing anytime from your
+                      hostel dashboard.
                     </div>
                   </div>
 
                   <div className="mt-5 max-w-xs">
                     <Field label="Admission Fee (NPR)">
-                      <input className="input-field" min={0} onChange={(e) => setAdmissionFee(e.target.value)} type="number" value={admissionFee} />
+                      <input
+                        className="input-field"
+                        min={0}
+                        onChange={(e) => setAdmissionFee(e.target.value)}
+                        type="number"
+                        value={admissionFee}
+                      />
                     </Field>
                   </div>
                 </section>
@@ -1607,80 +2084,166 @@ export function PublicHostelRegistrationPage() {
               {/* STEP 4 — DOCUMENTS & VERIFICATION */}
               {step === 4 ? (
                 <section className="app-card p-6">
-                  <h2 className="text-lg font-bold text-foreground">Documents &amp; Verification</h2>
+                  <h2 className="text-lg font-bold text-foreground">
+                    Documents &amp; Verification
+                  </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Upload the required documents to verify your identity and hostel. All documents are secure and confidential.
+                    Upload the required documents to verify your identity and hostel. All
+                    documents are secure and confidential.
                   </p>
 
                   <div className="mt-6 space-y-4">
                     {/* Government ID proof — REQUIRED, with type selection */}
-                    <div ref={idProofSectionRef} className="grid gap-4 rounded-xl border-2 border-brand-teal/40 bg-brand-teal/[0.03] p-4 md:grid-cols-[1fr_1.2fr] md:items-start">
+                    <div
+                      ref={idProofSectionRef}
+                      className="grid gap-4 rounded-xl border-2 border-brand-teal/40 bg-brand-teal/[0.03] p-4 md:grid-cols-[1fr_1.2fr] md:items-start"
+                    >
                       <div className="flex items-start gap-3">
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal"><IdCard className="size-5" /></span>
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                          <IdCard className="size-5" />
+                        </span>
                         <div>
                           <p className="text-sm font-bold text-foreground">
                             Government ID Proof <span className="text-danger">*</span>
                           </p>
-                          <p className="text-xs text-muted-foreground">Owner&apos;s valid government-issued identity document. This is mandatory.</p>
+                          <p className="text-xs text-muted-foreground">
+                            Owner&apos;s valid government-issued identity document. This
+                            is mandatory.
+                          </p>
                         </div>
                       </div>
                       <div className="space-y-2.5">
                         <div>
-                          <label className="mb-1 block text-xs font-semibold text-foreground">ID document type <span className="text-danger">*</span></label>
+                          <label className="mb-1 block text-xs font-semibold text-foreground">
+                            ID document type <span className="text-danger">*</span>
+                          </label>
                           <select
                             className="input-field"
-                            onChange={(e) => setIdProofType(e.target.value as IdProofType)}
+                            onChange={(e) =>
+                              setIdProofType(e.target.value as IdProofType)
+                            }
                             value={idProofType}
                           >
                             <option value="">Select ID type…</option>
-                            {ID_PROOF_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                            {ID_PROOF_TYPES.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
                           </select>
                         </div>
                         <FileUploadArea
                           files={ownerIdDoc}
-                          label={idProofType ? `Upload ${idProofType}` : "Select an ID type first, then upload"}
+                          label={
+                            idProofType
+                              ? `Upload ${idProofType}`
+                              : "Select an ID type first, then upload"
+                          }
                           {...docSlot(setOwnerIdDoc, idProofType || "Owner ID proof")}
                         />
                       </div>
                     </div>
 
                     <p className="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      <span className="h-px flex-1 bg-border" /> Optional supporting documents <span className="h-px flex-1 bg-border" />
+                      <span className="h-px flex-1 bg-border" /> Optional supporting
+                      documents <span className="h-px flex-1 bg-border" />
                     </p>
 
-                    <DocRow desc="Property deed / ownership certificate (optional)" icon={FileText} title="Ownership Proof">
-                      <FileUploadArea files={ownershipDoc} label="Upload ownership document" {...docSlot(setOwnershipDoc, "Ownership proof")} />
+                    <DocRow
+                      desc="Property deed / ownership certificate (optional)"
+                      icon={FileText}
+                      title="Ownership Proof"
+                    >
+                      <FileUploadArea
+                        files={ownershipDoc}
+                        label="Upload ownership document"
+                        {...docSlot(setOwnershipDoc, "Ownership proof")}
+                      />
                     </DocRow>
-                    <DocRow desc="PAN card or VAT registration certificate (optional)" icon={CreditCard} title="PAN / VAT Document">
-                      <FileUploadArea files={panDoc} label="Upload PAN / VAT" {...docSlot(setPanDoc, "PAN / VAT document")} />
+                    <DocRow
+                      desc="PAN card or VAT registration certificate (optional)"
+                      icon={CreditCard}
+                      title="PAN / VAT Document"
+                    >
+                      <FileUploadArea
+                        files={panDoc}
+                        label="Upload PAN / VAT"
+                        {...docSlot(setPanDoc, "PAN / VAT document")}
+                      />
                     </DocRow>
-                    <DocRow desc="Local authority license or registration (optional)" icon={ScrollText} title="Hostel License / Registration">
-                      <FileUploadArea files={licenseDoc} label="Upload license or registration" {...docSlot(setLicenseDoc, "Hostel license")} />
+                    <DocRow
+                      desc="Local authority license or registration (optional)"
+                      icon={ScrollText}
+                      title="Hostel License / Registration"
+                    >
+                      <FileUploadArea
+                        files={licenseDoc}
+                        label="Upload license or registration"
+                        {...docSlot(setLicenseDoc, "Hostel license")}
+                      />
                     </DocRow>
-                    <DocRow desc="Bank statement or cancelled cheque (optional)" icon={Landmark} title="Bank Account Details">
-                      <FileUploadArea files={bankDoc} label="Upload bank statement or cheque" {...docSlot(setBankDoc, "Bank document")} />
+                    <DocRow
+                      desc="Bank statement or cancelled cheque (optional)"
+                      icon={Landmark}
+                      title="Bank Account Details"
+                    >
+                      <FileUploadArea
+                        files={bankDoc}
+                        label="Upload bank statement or cheque"
+                        {...docSlot(setBankDoc, "Bank document")}
+                      />
                     </DocRow>
 
-                    <DocRow desc="Clear photos of the hostel building exterior (optional)" icon={ImageIcon} title="Hostel Exterior Photos">
-                      <FileUploadArea accept={acceptAttribute("image")} files={exteriorPhotos} label="Upload 2–5 exterior photos" maxFiles={5} {...docSlot(setExteriorPhotos, "Exterior photo")} />
+                    <DocRow
+                      desc="Clear photos of the hostel building exterior (optional)"
+                      icon={ImageIcon}
+                      title="Hostel Exterior Photos"
+                    >
+                      <FileUploadArea
+                        accept={acceptAttribute("image")}
+                        files={exteriorPhotos}
+                        label="Upload 2–5 exterior photos"
+                        maxFiles={5}
+                        {...docSlot(setExteriorPhotos, "Exterior photo")}
+                      />
                     </DocRow>
-                    <DocRow desc="Photos of rooms and common areas (optional)" icon={ImageIcon} title="Room Photos">
-                      <FileUploadArea accept={acceptAttribute("image")} files={roomPhotos} label="Upload 5–10 room photos" maxFiles={10} {...docSlot(setRoomPhotos, "Room photo")} />
+                    <DocRow
+                      desc="Photos of rooms and common areas (optional)"
+                      icon={ImageIcon}
+                      title="Room Photos"
+                    >
+                      <FileUploadArea
+                        accept={acceptAttribute("image")}
+                        files={roomPhotos}
+                        label="Upload 5–10 room photos"
+                        maxFiles={10}
+                        {...docSlot(setRoomPhotos, "Room photo")}
+                      />
                     </DocRow>
                     <p className="flex items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5 text-[11px] font-medium text-muted-foreground">
                       <Info className="mt-0.5 size-3.5 shrink-0 text-brand-teal" />
-                      Photos are optional here — you can add and manage hostel images anytime later from your Hostel Admin portal after approval.
+                      Photos are optional here — you can add and manage hostel images
+                      anytime later from your Hostel Admin portal after approval.
                     </p>
 
                     {/* Hostel Rules & Policies — REQUIRED, template chooser + editable modal */}
-                    <div ref={rulesSectionRef} className="rounded-xl border-2 border-brand-teal/40 bg-brand-teal/[0.03] p-4">
+                    <div
+                      ref={rulesSectionRef}
+                      className="rounded-xl border-2 border-brand-teal/40 bg-brand-teal/[0.03] p-4"
+                    >
                       <div className="flex items-start gap-3">
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal"><ScrollText className="size-5" /></span>
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                          <ScrollText className="size-5" />
+                        </span>
                         <div className="min-w-0">
                           <p className="text-sm font-bold text-foreground">
-                            Hostel Rules &amp; Policies <span className="text-danger">*</span>
+                            Hostel Rules &amp; Policies{" "}
+                            <span className="text-danger">*</span>
                           </p>
-                          <p className="text-xs text-muted-foreground">Pick a ready-made policy below (edit if you like), or upload your own. This is mandatory.</p>
+                          <p className="text-xs text-muted-foreground">
+                            Pick a ready-made policy below (edit if you like), or upload
+                            your own. This is mandatory.
+                          </p>
                         </div>
                       </div>
 
@@ -1692,16 +2255,24 @@ export function PublicHostelRegistrationPage() {
                               key={template.id}
                               className={cn(
                                 "flex flex-col gap-1 rounded-lg border p-3 text-left transition",
-                                active ? "border-brand-teal bg-brand-teal/5 ring-1 ring-brand-teal/30" : "border-border bg-surface hover:border-brand-teal/40",
+                                active
+                                  ? "border-brand-teal bg-brand-teal/5 ring-1 ring-brand-teal/30"
+                                  : "border-border bg-surface hover:border-brand-teal/40",
                               )}
                               onClick={() => chooseRulesTemplate(template)}
                               type="button"
                             >
                               <span className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold text-foreground">{template.name}</span>
-                                {active ? <CheckCircle2 className="size-4 shrink-0 text-brand-teal" /> : null}
+                                <span className="text-xs font-bold text-foreground">
+                                  {template.name}
+                                </span>
+                                {active ? (
+                                  <CheckCircle2 className="size-4 shrink-0 text-brand-teal" />
+                                ) : null}
                               </span>
-                              <span className="text-[11px] leading-snug text-muted-foreground">{template.summary}</span>
+                              <span className="text-[11px] leading-snug text-muted-foreground">
+                                {template.summary}
+                              </span>
                             </button>
                           );
                         })}
@@ -1719,7 +2290,15 @@ export function PublicHostelRegistrationPage() {
                         <span className="text-[11px] text-muted-foreground">or</span>
                         <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted">
                           <Upload className="size-3.5" /> Upload your own (PDF/TXT)
-                          <input accept="application/pdf,text/plain" className="sr-only" onChange={(e) => { setRulesTemplateId("custom"); void handleFileSelect(setRulesDoc, "Rules & policies")(e); }} type="file" />
+                          <input
+                            accept="application/pdf,text/plain"
+                            className="sr-only"
+                            onChange={(e) => {
+                              setRulesTemplateId("custom");
+                              void handleFileSelect(setRulesDoc, "Rules & policies")(e);
+                            }}
+                            type="file"
+                          />
                         </label>
                       </div>
 
@@ -1730,9 +2309,18 @@ export function PublicHostelRegistrationPage() {
                             files={rulesDoc}
                             label="Replace rules & policies file"
                             maxFiles={0}
-                            onFileSelect={handleFileSelect(setRulesDoc, "Rules & policies")}
-                            onFilesDropped={uploadIntoSlot(setRulesDoc, "Rules & policies")}
-                            onRemove={(id) => { setRulesDoc((p) => p.filter((x) => x.id !== id)); setRulesTemplateId(null); }}
+                            onFileSelect={handleFileSelect(
+                              setRulesDoc,
+                              "Rules & policies",
+                            )}
+                            onFilesDropped={uploadIntoSlot(
+                              setRulesDoc,
+                              "Rules & policies",
+                            )}
+                            onRemove={(id) => {
+                              setRulesDoc((p) => p.filter((x) => x.id !== id));
+                              setRulesTemplateId(null);
+                            }}
                           />
                         </div>
                       ) : null}
@@ -1744,56 +2332,109 @@ export function PublicHostelRegistrationPage() {
               {/* STEP 5 — REVIEW & SUBMIT */}
               {step === 5 ? (
                 <section className="app-card p-6">
-                  <h2 className="text-lg font-bold text-foreground">Review &amp; Submit</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Please review all the information below before submitting your hostel for approval.</p>
+                  <h2 className="text-lg font-bold text-foreground">
+                    Review &amp; Submit
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Please review all the information below before submitting your hostel
+                    for approval.
+                  </p>
 
                   <div className="mt-6 space-y-4">
-                    <ReviewCard icon={Building2} onEdit={() => goTo(1)} title="Basic Information">
+                    <ReviewCard
+                      icon={Building2}
+                      onEdit={() => goTo(1)}
+                      title="Basic Information"
+                    >
                       <p className="text-sm font-semibold text-foreground">
-                        {hostelName || "—"} <span className="text-muted-foreground">· {hostelTypeLabel}</span>
+                        {hostelName || "—"}{" "}
+                        <span className="text-muted-foreground">· {hostelTypeLabel}</span>
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {[ownerName, phone, email].filter(Boolean).join(" · ") || "Owner details pending"}
+                        {[ownerName, phone, email].filter(Boolean).join(" · ") ||
+                          "Owner details pending"}
                       </p>
                     </ReviewCard>
 
-                    <ReviewCard icon={MapPin} onEdit={() => goTo(2)} title="Location & Facilities">
-                      <p className="text-sm font-semibold text-foreground">{[area, city, country].filter(Boolean).join(", ") || "—"}</p>
+                    <ReviewCard
+                      icon={MapPin}
+                      onEdit={() => goTo(2)}
+                      title="Location & Facilities"
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {[area, city, country].filter(Boolean).join(", ") || "—"}
+                      </p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {facilities.slice(0, 5).map((f) => (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground" key={f}>
+                          <span
+                            className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground"
+                            key={f}
+                          >
                             <CheckCircle2 className="size-3 text-brand-teal" /> {f}
                           </span>
                         ))}
-                        {facilities.length > 5 ? <span className="text-[11px] font-medium text-muted-foreground">+{facilities.length - 5} more</span> : null}
+                        {facilities.length > 5 ? (
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            +{facilities.length - 5} more
+                          </span>
+                        ) : null}
                       </div>
                     </ReviewCard>
 
                     <ReviewCard icon={Bed} onEdit={() => goTo(3)} title="Rooms & Pricing">
                       <p className="text-sm font-semibold text-foreground">
-                        {rooms.length} room type{rooms.length === 1 ? "" : "s"} · {summary.totalBeds} beds · {totalFloors} floor{Number(totalFloors) === 1 ? "" : "s"}
+                        {rooms.length} room type{rooms.length === 1 ? "" : "s"} ·{" "}
+                        {summary.totalBeds} beds · {totalFloors} floor
+                        {Number(totalFloors) === 1 ? "" : "s"}
                       </p>
                       {rentValues.length > 0 ? (
-                        <p className="mt-1 text-xs text-muted-foreground">Starting from NPR {Math.min(...rentValues).toLocaleString()} / month</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Starting from NPR {Math.min(...rentValues).toLocaleString()} /
+                          month
+                        </p>
                       ) : null}
                     </ReviewCard>
 
                     <ReviewCard icon={FileText} onEdit={() => goTo(4)} title="Documents">
-                      <p className="text-sm font-semibold text-foreground">{uploadedCount} document{uploadedCount === 1 ? "" : "s"} uploaded</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {uploadedCount} document{uploadedCount === 1 ? "" : "s"} uploaded
+                      </p>
                     </ReviewCard>
                   </div>
 
                   <label className="mt-6 flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-4">
-                    <input checked={agreed} className="mt-0.5 size-4 rounded text-brand-teal" onChange={(e) => setAgreed(e.target.checked)} type="checkbox" />
+                    <input
+                      checked={agreed}
+                      className="mt-0.5 size-4 rounded text-brand-teal"
+                      onChange={(e) => setAgreed(e.target.checked)}
+                      type="checkbox"
+                    />
                     <span className="text-sm text-foreground">
-                      I confirm that all the information provided is accurate and complete. I agree to HostelHub&apos;s{" "}
-                      <Link className="font-semibold text-brand-teal hover:underline" href="/terms">Terms of Service</Link> and{" "}
-                      <Link className="font-semibold text-brand-teal hover:underline" href="/privacy">Privacy Policy</Link>.
+                      I confirm that all the information provided is accurate and
+                      complete. I agree to HostelHub&apos;s{" "}
+                      <Link
+                        className="font-semibold text-brand-teal hover:underline"
+                        href="/terms"
+                      >
+                        Terms of Service
+                      </Link>{" "}
+                      and{" "}
+                      <Link
+                        className="font-semibold text-brand-teal hover:underline"
+                        href="/privacy"
+                      >
+                        Privacy Policy
+                      </Link>
+                      .
                     </span>
                   </label>
 
                   <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                    <button className="rounded-lg border border-border px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted" onClick={() => goTo(4)} type="button">
+                    <button
+                      className="rounded-lg border border-border px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
+                      onClick={() => goTo(4)}
+                      type="button"
+                    >
                       Back to Edit
                     </button>
                     <button
@@ -1802,11 +2443,16 @@ export function PublicHostelRegistrationPage() {
                       type="submit"
                     >
                       <Send className="size-4" />
-                      {isSubmitting ? "Submitting…" : uploadingFiles > 0 ? "Waiting for uploads…" : "Submit for Approval"}
+                      {isSubmitting
+                        ? "Submitting…"
+                        : uploadingFiles > 0
+                          ? "Waiting for uploads…"
+                          : "Submit for Approval"}
                     </button>
                   </div>
                   <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Info className="size-3.5" /> Your application will go for review before publishing.
+                    <Info className="size-3.5" /> Your application will go for review
+                    before publishing.
                   </p>
                 </section>
               ) : null}
@@ -1820,8 +2466,12 @@ export function PublicHostelRegistrationPage() {
                 <>
                   <div className="app-card overflow-hidden">
                     <div className="px-5 pt-5">
-                      <h3 className="text-sm font-bold text-foreground">Live Listing Preview</h3>
-                      <p className="text-[11px] text-muted-foreground">This is how your hostel will appear to students.</p>
+                      <h3 className="text-sm font-bold text-foreground">
+                        Live Listing Preview
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground">
+                        This is how your hostel will appear to students.
+                      </p>
                     </div>
                     <div className="p-5">
                       <div className="rounded-xl border border-border">
@@ -1833,29 +2483,44 @@ export function PublicHostelRegistrationPage() {
                         </div>
                         <div className="p-4">
                           <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-bold text-foreground">{hostelName || "Your Hostel Name"}</h4>
+                            <h4 className="text-sm font-bold text-foreground">
+                              {hostelName || "Your Hostel Name"}
+                            </h4>
                             <span className="inline-flex items-center gap-0.5 text-xs font-bold text-foreground">
                               <Star className="size-3.5 fill-warning text-warning" /> New
                             </span>
                           </div>
                           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                            <MapPin className="size-3" /> {[area, city].filter(Boolean).join(", ") || "Location pending"}
+                            <MapPin className="size-3" />{" "}
+                            {[area, city].filter(Boolean).join(", ") ||
+                              "Location pending"}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             {facilities.slice(0, 6).map((f) => (
-                              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-foreground" key={f}>
+                              <span
+                                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-foreground"
+                                key={f}
+                              >
                                 {FACILITY_MINI[f] ?? <Wifi className="size-3" />} {f}
                               </span>
                             ))}
-                            {facilities.length > 6 ? <span className="rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground">+{facilities.length - 6} more</span> : null}
+                            {facilities.length > 6 ? (
+                              <span className="rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                                +{facilities.length - 6} more
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       </div>
                       <div className="mt-4 flex items-start gap-2 rounded-lg bg-brand-teal/5 p-3">
                         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-brand-teal" />
                         <div>
-                          <p className="text-xs font-bold text-brand-teal">Verification Pending</p>
-                          <p className="text-[11px] text-muted-foreground">Our team will verify your hostel details before it goes live.</p>
+                          <p className="text-xs font-bold text-brand-teal">
+                            Verification Pending
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Our team will verify your hostel details before it goes live.
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -1869,30 +2534,53 @@ export function PublicHostelRegistrationPage() {
                   <h3 className="text-sm font-bold text-foreground">Pricing Summary</h3>
                   <div className="mt-4 space-y-4">
                     <div className="flex items-start gap-3">
-                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal"><CreditCard className="size-4.5" /></span>
+                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                        <CreditCard className="size-4.5" />
+                      </span>
                       <div>
-                        <p className="text-[11px] text-muted-foreground">Estimated Monthly Revenue</p>
-                        <p className="text-lg font-extrabold text-foreground">NPR {summary.revenue.toLocaleString()}</p>
-                        <p className="text-[10px] text-muted-foreground">From current occupancy</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Estimated Monthly Revenue
+                        </p>
+                        <p className="text-lg font-extrabold text-foreground">
+                          NPR {summary.revenue.toLocaleString()}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          From current occupancy
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
-                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal"><Bed className="size-4.5" /></span>
+                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                        <Bed className="size-4.5" />
+                      </span>
                       <div>
-                        <p className="text-[11px] text-muted-foreground">Total Capacity</p>
-                        <p className="text-lg font-extrabold text-foreground">{summary.totalBeds} Beds</p>
-                        <p className="text-[10px] text-muted-foreground">Across {summary.totalRooms} rooms</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Total Capacity
+                        </p>
+                        <p className="text-lg font-extrabold text-foreground">
+                          {summary.totalBeds} Beds
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          Across {summary.totalRooms} rooms
+                        </p>
                       </div>
                     </div>
                     <div>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground">Current Occupancy</span>
-                        <span className="font-bold text-foreground">{occupiedBeds} / {summary.totalBeds} Beds</span>
+                        <span className="font-bold text-foreground">
+                          {occupiedBeds} / {summary.totalBeds} Beds
+                        </span>
                       </div>
                       <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full rounded-full bg-brand-teal transition-all" style={{ width: `${occupancyPct}%` }} />
+                        <div
+                          className="h-full rounded-full bg-brand-teal transition-all"
+                          style={{ width: `${occupancyPct}%` }}
+                        />
                       </div>
-                      <p className="mt-1 text-[10px] text-muted-foreground">{occupancyPct}% Occupied</p>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {occupancyPct}% Occupied
+                      </p>
                     </div>
                   </div>
                   <p className="mt-4 flex items-start gap-2 rounded-lg bg-brand-teal/5 p-3 text-[11px] text-brand-teal">
@@ -1906,21 +2594,49 @@ export function PublicHostelRegistrationPage() {
                 <div className="app-card p-5">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="size-5 text-brand-teal" />
-                    <h3 className="text-sm font-bold text-foreground">Verification Guidelines</h3>
+                    <h3 className="text-sm font-bold text-foreground">
+                      Verification Guidelines
+                    </h3>
                   </div>
                   <div className="mt-4 space-y-4">
                     {[
-                      { desc: "Verification helps us ensure trust, safety, and quality across HostelHub.", icon: BadgeCheck, title: "Why We Verify" },
-                      { desc: "Our team reviews your documents, photos, and information for authenticity.", icon: Search, title: "What We Check" },
-                      { desc: "We check for duplicate or similar listings to keep the platform clean.", icon: Copy, title: "Duplicate Listing Check" },
-                      { desc: "All submissions are reviewed manually by our verification team.", icon: FileText, title: "Manual Review" },
-                      { desc: "You will typically receive an update within 1–2 business days.", icon: Clock, title: "Approval Timeline" },
+                      {
+                        desc: "Verification helps us ensure trust, safety, and quality across HostelHub.",
+                        icon: BadgeCheck,
+                        title: "Why We Verify",
+                      },
+                      {
+                        desc: "Our team reviews your documents, photos, and information for authenticity.",
+                        icon: Search,
+                        title: "What We Check",
+                      },
+                      {
+                        desc: "We check for duplicate or similar listings to keep the platform clean.",
+                        icon: Copy,
+                        title: "Duplicate Listing Check",
+                      },
+                      {
+                        desc: "All submissions are reviewed manually by our verification team.",
+                        icon: FileText,
+                        title: "Manual Review",
+                      },
+                      {
+                        desc: "You will typically receive an update within 1–2 business days.",
+                        icon: Clock,
+                        title: "Approval Timeline",
+                      },
                     ].map((item) => (
                       <div className="flex items-start gap-3" key={item.title}>
-                        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-teal"><item.icon className="size-3.5" /></span>
+                        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-teal">
+                          <item.icon className="size-3.5" />
+                        </span>
                         <div>
-                          <p className="text-xs font-bold text-foreground">{item.title}</p>
-                          <p className="text-[11px] leading-snug text-muted-foreground">{item.desc}</p>
+                          <p className="text-xs font-bold text-foreground">
+                            {item.title}
+                          </p>
+                          <p className="text-[11px] leading-snug text-muted-foreground">
+                            {item.desc}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -1928,8 +2644,13 @@ export function PublicHostelRegistrationPage() {
                   <div className="mt-4 flex items-start gap-2 rounded-lg bg-brand-teal/5 p-3">
                     <Lock className="mt-0.5 size-4 shrink-0 text-brand-teal" />
                     <div>
-                      <p className="text-xs font-bold text-brand-teal">Your Information is Secure</p>
-                      <p className="text-[11px] text-muted-foreground">All uploaded documents are encrypted and used only for verification.</p>
+                      <p className="text-xs font-bold text-brand-teal">
+                        Your Information is Secure
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        All uploaded documents are encrypted and used only for
+                        verification.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -1940,15 +2661,26 @@ export function PublicHostelRegistrationPage() {
                   <div className="app-card p-5">
                     <h3 className="text-sm font-bold text-foreground">Your Selection</h3>
                     <div className="mt-3 flex items-start gap-3">
-                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal"><Star className="size-4.5" /></span>
+                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                        <Star className="size-4.5" />
+                      </span>
                       <div>
-                        <p className="text-sm font-bold text-foreground">{selectedPlanDetail.name}</p>
-                        <p className="text-[11px] text-muted-foreground">{selectedPlanDetail.capacity}</p>
+                        <p className="text-sm font-bold text-foreground">
+                          {selectedPlanDetail.name}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {selectedPlanDetail.capacity}
+                        </p>
                       </div>
                     </div>
                     <div className="mt-4 space-y-2">
                       {selectedPlanDetail.features.map((f) => (
-                        <p className="flex items-center gap-2 text-xs text-foreground" key={f}><CheckCircle2 className="size-3.5 text-brand-teal" /> {f}</p>
+                        <p
+                          className="flex items-center gap-2 text-xs text-foreground"
+                          key={f}
+                        >
+                          <CheckCircle2 className="size-3.5 text-brand-teal" /> {f}
+                        </p>
                       ))}
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-2">
@@ -1957,7 +2689,9 @@ export function PublicHostelRegistrationPage() {
                           key={plan.id}
                           className={cn(
                             "rounded-lg border p-2 text-center text-[11px] font-bold transition",
-                            selectedPlan === plan.id ? "border-brand-teal bg-brand-teal/10 text-brand-teal" : "border-border text-muted-foreground hover:border-brand-teal/40",
+                            selectedPlan === plan.id
+                              ? "border-brand-teal bg-brand-teal/10 text-brand-teal"
+                              : "border-border text-muted-foreground hover:border-brand-teal/40",
                           )}
                           onClick={() => setSelectedPlan(plan.id)}
                           type="button"
@@ -1969,29 +2703,68 @@ export function PublicHostelRegistrationPage() {
                   </div>
 
                   <div className="app-card p-5">
-                    <h3 className="text-sm font-bold text-foreground">Estimated Monthly Billing</h3>
+                    <h3 className="text-sm font-bold text-foreground">
+                      Estimated Monthly Billing
+                    </h3>
                     <div className="mt-3 space-y-2 text-sm">
-                      <div className="flex items-center justify-between"><span className="text-muted-foreground">{selectedPlanDetail.name}</span><span className="font-semibold text-foreground">{formatMoney(selectedPlanDetail.price)}</span></div>
-                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Platform Fee (10%)</span><span className="font-semibold text-foreground">{formatMoney(Math.round(selectedPlanDetail.price * 0.1))}</span></div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">
+                          {selectedPlanDetail.name}
+                        </span>
+                        <span className="font-semibold text-foreground">
+                          {formatMoney(selectedPlanDetail.price)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Platform Fee (10%)</span>
+                        <span className="font-semibold text-foreground">
+                          {formatMoney(Math.round(selectedPlanDetail.price * 0.1))}
+                        </span>
+                      </div>
                       <hr className="border-border" />
-                      <div className="flex items-center justify-between"><span className="font-bold text-foreground">Estimated Total</span><span className="font-extrabold text-brand-teal">{formatMoney(Math.round(selectedPlanDetail.price * 1.1))}</span></div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground">Estimated Total</span>
+                        <span className="font-extrabold text-brand-teal">
+                          {formatMoney(Math.round(selectedPlanDetail.price * 1.1))}
+                        </span>
+                      </div>
                     </div>
-                    <p className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground"><Info className="mt-0.5 size-3 shrink-0" /> You will be billed after your hostel is approved and published.</p>
+                    <p className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                      <Info className="mt-0.5 size-3 shrink-0" /> You will be billed after
+                      your hostel is approved and published.
+                    </p>
                   </div>
 
                   <div className="app-card p-5">
-                    <h3 className="text-sm font-bold text-foreground">Submission Checklist</h3>
+                    <h3 className="text-sm font-bold text-foreground">
+                      Submission Checklist
+                    </h3>
                     <div className="mt-3 space-y-2 text-xs">
                       {[
-                        ["Basic information completed", Boolean(hostelName && ownerName && phone)],
-                        ["Location and facilities added", Boolean(area && city && facilities.length)],
+                        [
+                          "Basic information completed",
+                          Boolean(hostelName && ownerName && phone),
+                        ],
+                        [
+                          "Location and facilities added",
+                          Boolean(area && city && facilities.length),
+                        ],
                         ["Rooms and pricing configured", summary.totalBeds > 0],
                         ["Documents uploaded", uploadedCount > 0],
                         ["Terms and policies accepted", agreed],
                       ].map(([label, ok]) => (
                         <p className="flex items-center gap-2" key={label as string}>
-                          <CheckCircle2 className={cn("size-3.5", ok ? "text-brand-teal" : "text-muted-foreground/40")} />
-                          <span className={ok ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+                          <CheckCircle2
+                            className={cn(
+                              "size-3.5",
+                              ok ? "text-brand-teal" : "text-muted-foreground/40",
+                            )}
+                          />
+                          <span
+                            className={ok ? "text-foreground" : "text-muted-foreground"}
+                          >
+                            {label}
+                          </span>
                         </p>
                       ))}
                     </div>
@@ -2036,19 +2809,34 @@ export function PublicHostelRegistrationPage() {
       </form>
 
       {rulesModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setRulesModalOpen(false)}>
-          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-surface shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setRulesModalOpen(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-surface shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <div className="flex items-center gap-2">
                 <Pencil className="size-4 text-brand-teal" />
-                <h3 className="text-sm font-bold text-foreground">Edit Rules &amp; Policies</h3>
+                <h3 className="text-sm font-bold text-foreground">
+                  Edit Rules &amp; Policies
+                </h3>
               </div>
-              <button className="rounded-md p-1 text-muted-foreground transition hover:bg-muted" onClick={() => setRulesModalOpen(false)} type="button">
+              <button
+                className="rounded-md p-1 text-muted-foreground transition hover:bg-muted"
+                onClick={() => setRulesModalOpen(false)}
+                type="button"
+              >
                 <X className="size-4" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-5">
-              <p className="mb-2 text-xs text-muted-foreground">Edit the policy text below. When you save, we generate a rules file for your hostel.</p>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Edit the policy text below. When you save, we generate a rules file for
+                your hostel.
+              </p>
               <textarea
                 autoFocus
                 className="input-field min-h-[340px] w-full py-2.5 font-mono text-xs leading-relaxed"
@@ -2057,10 +2845,18 @@ export function PublicHostelRegistrationPage() {
               />
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
-              <button className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted" onClick={() => setRulesModalOpen(false)} type="button">
+              <button
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+                onClick={() => setRulesModalOpen(false)}
+                type="button"
+              >
                 Cancel
               </button>
-              <button className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-5 py-2 text-sm font-bold text-white transition hover:brightness-110" onClick={saveRulesEditor} type="button">
+              <button
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-5 py-2 text-sm font-bold text-white transition hover:brightness-110"
+                onClick={saveRulesEditor}
+                type="button"
+              >
                 <Save className="size-4" /> Save policy
               </button>
             </div>
@@ -2079,7 +2875,15 @@ const FACILITY_MINI: Record<string, React.ReactNode> = {
   "Wi-Fi": <Wifi className="size-3" />,
 };
 
-function Field({ children, label, required }: { children: React.ReactNode; label: string; required?: boolean }) {
+function Field({
+  children,
+  label,
+  required,
+}: {
+  children: React.ReactNode;
+  label: string;
+  required?: boolean;
+}) {
   return (
     <label className="grid gap-1.5">
       <span className="text-sm font-semibold text-foreground">
@@ -2104,7 +2908,9 @@ function DocRow({
   return (
     <div className="grid gap-4 rounded-xl border border-border p-4 md:grid-cols-[1fr_1.2fr] md:items-center">
       <div className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal"><Icon className="size-5" /></span>
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+          <Icon className="size-5" />
+        </span>
         <div>
           <p className="text-sm font-bold text-foreground">{title}</p>
           <p className="text-xs text-muted-foreground">{desc}</p>
@@ -2130,13 +2936,19 @@ function ReviewCard({
     <div className="rounded-xl border border-border p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-teal"><Icon className="size-5" /></span>
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-teal">
+            <Icon className="size-5" />
+          </span>
           <div>
             <p className="text-sm font-bold text-foreground">{title}</p>
             <div className="mt-1">{children}</div>
           </div>
         </div>
-        <button className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted" onClick={onEdit} type="button">
+        <button
+          className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
+          onClick={onEdit}
+          type="button"
+        >
           <Pencil className="size-3" /> Edit
         </button>
       </div>
@@ -2218,12 +3030,19 @@ export function HostelStatusView({
     const file = input.files?.[0];
     if (!file) return;
     const id = crypto.randomUUID();
-    const label = application.requestedDocuments[index]?.documentType ?? "Requested document";
+    const label =
+      application.requestedDocuments[index]?.documentType ?? "Requested document";
     setError("");
-    setFiles((prev) => ({ ...prev, [index]: { id, name: file.name, url: "", uploading: true } }));
+    setFiles((prev) => ({
+      ...prev,
+      [index]: { id, name: file.name, url: "", uploading: true },
+    }));
     try {
       const url = await uploadPublicFile(file, label);
-      setFiles((prev) => ({ ...prev, [index]: { id, name: file.name, url, uploading: false } }));
+      setFiles((prev) => ({
+        ...prev,
+        [index]: { id, name: file.name, url, uploading: false },
+      }));
     } catch {
       setFiles((prev) => {
         const next = { ...prev };
@@ -2237,7 +3056,9 @@ export function HostelStatusView({
   }
 
   const anyUploading = Object.values(files).some((f) => f.uploading);
-  const uploadedCount = application.requestedDocuments.filter((_, i) => files[i]?.url).length;
+  const uploadedCount = application.requestedDocuments.filter(
+    (_, i) => files[i]?.url,
+  ).length;
   const canResubmit = uploadedCount > 0 && !anyUploading && !submitting;
 
   async function resubmit() {
@@ -2246,11 +3067,16 @@ export function HostelStatusView({
     try {
       const documents = application.requestedDocuments
         .map((doc, i) => ({ documentType: doc.documentType, fileUrl: files[i]?.url }))
-        .filter((doc): doc is { documentType: string; fileUrl: string } => Boolean(doc.fileUrl));
-      await browserApi(`/api/v1/public/hostel-applications/${application.hostelId}/resubmit-documents`, {
-        body: JSON.stringify({ documents }),
-        method: "POST",
-      });
+        .filter((doc): doc is { documentType: string; fileUrl: string } =>
+          Boolean(doc.fileUrl),
+        );
+      await browserApi(
+        `/api/v1/public/hostel-applications/${application.hostelId}/resubmit-documents`,
+        {
+          body: JSON.stringify({ documents }),
+          method: "POST",
+        },
+      );
       setFiles({});
       await onResubmitted();
     } catch (err) {
@@ -2265,17 +3091,31 @@ export function HostelStatusView({
       <div className="app-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <span className={cn("flex size-11 items-center justify-center rounded-xl bg-muted", meta.tone)}>
+            <span
+              className={cn(
+                "flex size-11 items-center justify-center rounded-xl bg-muted",
+                meta.tone,
+              )}
+            >
               <meta.icon className="size-6" />
             </span>
             <div>
-              <h1 className="text-xl font-bold text-foreground">{application.hostelName}</h1>
+              <h1 className="text-xl font-bold text-foreground">
+                {application.hostelName}
+              </h1>
               <p className="text-xs text-muted-foreground">
-                {application.submittedAt ? `Last updated ${new Date(application.submittedAt).toLocaleString()}` : "Application submitted"}
+                {application.submittedAt
+                  ? `Last updated ${new Date(application.submittedAt).toLocaleString()}`
+                  : "Application submitted"}
               </p>
             </div>
           </div>
-          <span className={cn("inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold", meta.badge)}>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold",
+              meta.badge,
+            )}
+          >
             {meta.label}
           </span>
         </div>
@@ -2292,7 +3132,7 @@ export function HostelStatusView({
         <div className="mt-6 flex items-center gap-2">
           {(["PENDING", "NEEDS_MORE_INFO", "APPROVED"] as const).map((stage, index) => {
             const reached =
-              (stage === "PENDING") ||
+              stage === "PENDING" ||
               (stage === "NEEDS_MORE_INFO" && application.status === "NEEDS_MORE_INFO") ||
               (stage === "APPROVED" && application.status === "APPROVED");
             const isRejected = application.status === "REJECTED";
@@ -2301,12 +3141,23 @@ export function HostelStatusView({
                 <span
                   className={cn(
                     "flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
-                    isRejected ? "bg-red-100 text-red-600" : reached ? "bg-brand-teal text-white" : "bg-muted text-muted-foreground",
+                    isRejected
+                      ? "bg-red-100 text-red-600"
+                      : reached
+                        ? "bg-brand-teal text-white"
+                        : "bg-muted text-muted-foreground",
                   )}
                 >
                   {index + 1}
                 </span>
-                {index < 2 ? <div className={cn("mx-2 h-0.5 flex-1 rounded-full", reached && !isRejected ? "bg-brand-teal" : "bg-border")} /> : null}
+                {index < 2 ? (
+                  <div
+                    className={cn(
+                      "mx-2 h-0.5 flex-1 rounded-full",
+                      reached && !isRejected ? "bg-brand-teal" : "bg-border",
+                    )}
+                  />
+                ) : null}
               </div>
             );
           })}
@@ -2325,16 +3176,25 @@ export function HostelStatusView({
             <h2 className="text-sm font-bold text-foreground">Documents requested</h2>
           </div>
           {application.infoRequestNote ? (
-            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{application.infoRequestNote}</p>
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {application.infoRequestNote}
+            </p>
           ) : null}
 
           <div className="mt-4 space-y-3">
             {application.requestedDocuments.map((doc, index) => {
               const uploaded = files[index];
               return (
-                <div key={`${doc.documentType}-${index}`} className="rounded-lg border border-border p-3">
-                  <p className="text-sm font-semibold text-foreground">{doc.documentType}</p>
-                  {doc.note ? <p className="text-xs text-muted-foreground">{doc.note}</p> : null}
+                <div
+                  key={`${doc.documentType}-${index}`}
+                  className="rounded-lg border border-border p-3"
+                >
+                  <p className="text-sm font-semibold text-foreground">
+                    {doc.documentType}
+                  </p>
+                  {doc.note ? (
+                    <p className="text-xs text-muted-foreground">{doc.note}</p>
+                  ) : null}
                   <div className="mt-2">
                     {uploaded ? (
                       <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2">
@@ -2342,18 +3202,38 @@ export function HostelStatusView({
                           {uploaded.uploading ? (
                             <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
                           ) : (
-                            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal"><FileText className="size-4" /></div>
+                            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                              <FileText className="size-4" />
+                            </div>
                           )}
-                          <p className="truncate text-xs font-semibold text-foreground">{uploaded.name}</p>
+                          <p className="truncate text-xs font-semibold text-foreground">
+                            {uploaded.name}
+                          </p>
                         </div>
-                        <button className="ml-2 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600" onClick={() => setFiles((prev) => { const n = { ...prev }; delete n[index]; return n; })} type="button">
+                        <button
+                          className="ml-2 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                          onClick={() =>
+                            setFiles((prev) => {
+                              const n = { ...prev };
+                              delete n[index];
+                              return n;
+                            })
+                          }
+                          type="button"
+                        >
                           <X className="size-4" />
                         </button>
                       </div>
                     ) : (
                       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-3 text-center text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5">
-                        <Upload className="size-4 text-muted-foreground" /> Upload document
-                        <input accept="image/jpeg,image/png,image/webp,application/pdf,text/plain" className="sr-only" onChange={(e) => handleUpload(index, e)} type="file" />
+                        <Upload className="size-4 text-muted-foreground" /> Upload
+                        document
+                        <input
+                          accept="image/jpeg,image/png,image/webp,application/pdf,text/plain"
+                          className="sr-only"
+                          onChange={(e) => handleUpload(index, e)}
+                          type="file"
+                        />
                       </label>
                     )}
                   </div>
@@ -2362,7 +3242,9 @@ export function HostelStatusView({
             })}
           </div>
 
-          {error ? <p className="mt-3 text-xs font-medium text-destructive">{error}</p> : null}
+          {error ? (
+            <p className="mt-3 text-xs font-medium text-destructive">{error}</p>
+          ) : null}
 
           <button
             className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-teal px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-50"
@@ -2371,16 +3253,27 @@ export function HostelStatusView({
             type="button"
           >
             <Send className="size-4" />
-            {submitting ? "Submitting…" : anyUploading ? "Waiting for uploads…" : "Resubmit documents"}
+            {submitting
+              ? "Submitting…"
+              : anyUploading
+                ? "Waiting for uploads…"
+                : "Resubmit documents"}
           </button>
         </div>
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal hover:underline" href="/">
+        <Link
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal hover:underline"
+          href="/"
+        >
           <ArrowLeft className="size-4" /> Back to Homepage
         </Link>
-        <button className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted" onClick={onRegisterAnother} type="button">
+        <button
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+          onClick={onRegisterAnother}
+          type="button"
+        >
           <Plus className="size-4" /> Register another hostel
         </button>
       </div>
@@ -2399,10 +3292,15 @@ function SubmittedView({ planName }: { planName: string }) {
         </div>
         <h2 className="mt-5 text-2xl font-bold text-foreground">You&apos;re All Set!</h2>
         <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-          Your hostel registration application will go for review. Our team will verify your details on the{" "}
-          <span className="font-semibold text-foreground">{planName}</span> and get back to you shortly via email and WhatsApp.
+          Your hostel registration application will go for review. Our team will verify
+          your details on the{" "}
+          <span className="font-semibold text-foreground">{planName}</span> and get back
+          to you shortly via email and WhatsApp.
         </p>
-        <Link className="mt-6 inline-flex rounded-lg bg-brand-teal px-6 py-2.5 text-sm font-semibold text-white shadow transition hover:brightness-105" href="/">
+        <Link
+          className="mt-6 inline-flex rounded-lg bg-brand-teal px-6 py-2.5 text-sm font-semibold text-white shadow transition hover:brightness-105"
+          href="/"
+        >
           Return to Homepage
         </Link>
       </div>

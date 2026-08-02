@@ -77,7 +77,9 @@ const input = {
 describe("SOS fan-out", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.hostelFindOne.mockReturnValue(selectResult({ name: "Sunrise Hostel", ownerId }));
+    mocks.hostelFindOne.mockReturnValue(
+      selectResult({ name: "Sunrise Hostel", ownerId }),
+    );
     mocks.hostelMemberFind.mockReturnValue(leanResult([{ userId: wardenId }]));
     mocks.userFind.mockImplementation((filter: { _id: { $in: Types.ObjectId[] } }) => {
       const ids = filter._id.$in.map((id) => id.toString());

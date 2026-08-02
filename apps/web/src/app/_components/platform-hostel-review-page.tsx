@@ -218,7 +218,9 @@ export const PlatformHostelReviewPageContent = memo(
         } else if (nextAction === "unpublish") {
           // Required: the owner is emailed this reason verbatim.
           const reason = window
-            .prompt("Why is this listing being unpublished? The owner will see this reason.")
+            .prompt(
+              "Why is this listing being unpublished? The owner will see this reason.",
+            )
             ?.trim();
           if (!reason) return;
           body = JSON.stringify({ reason });
@@ -754,8 +756,7 @@ export const PlatformHostelReviewPageContent = memo(
                                     ) === -1
                                       ? index
                                       : documentItems.findIndex(
-                                          (item) =>
-                                            item.title === document.documentType,
+                                          (item) => item.title === document.documentType,
                                         ),
                                   )
                                 }
@@ -789,7 +790,10 @@ export const PlatformHostelReviewPageContent = memo(
                           {document.documentType}
                         </span>
                         {document.note ? (
-                          <span className="text-muted-foreground"> — {document.note}</span>
+                          <span className="text-muted-foreground">
+                            {" "}
+                            — {document.note}
+                          </span>
                         ) : null}
                       </span>
                     </div>

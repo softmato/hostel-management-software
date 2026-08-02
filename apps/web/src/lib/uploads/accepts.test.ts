@@ -35,16 +35,21 @@ describe("upload accept rules", () => {
   });
 
   it("accepts allowed files within their size limit", () => {
-    expect(validateFileForUpload(fakeFile("a.png", "image/png", 4 * MB), { kind: "image" }))
-      .toBeNull();
     expect(
-      validateFileForUpload(fakeFile("a.pdf", "application/pdf", 9 * MB), { kind: "document" }),
+      validateFileForUpload(fakeFile("a.png", "image/png", 4 * MB), { kind: "image" }),
+    ).toBeNull();
+    expect(
+      validateFileForUpload(fakeFile("a.pdf", "application/pdf", 9 * MB), {
+        kind: "document",
+      }),
     ).toBeNull();
   });
 
   it("rejects a MIME type the platform does not accept", () => {
     expect(
-      validateFileForUpload(fakeFile("a.exe", "application/x-msdownload", 10), { kind: "any" }),
+      validateFileForUpload(fakeFile("a.exe", "application/x-msdownload", 10), {
+        kind: "any",
+      }),
     ).toContain("not an accepted file type");
   });
 
@@ -60,14 +65,16 @@ describe("upload accept rules", () => {
   it("holds images to the tighter image limit even inside a document field", () => {
     // 6 MB is under the 10 MB document cap but over the 5 MB image cap.
     expect(
-      validateFileForUpload(fakeFile("big.png", "image/png", 6 * MB), { kind: "document" }),
+      validateFileForUpload(fakeFile("big.png", "image/png", 6 * MB), {
+        kind: "document",
+      }),
     ).toContain("the limit is 5 MB");
   });
 
   it("rejects empty and untyped files", () => {
-    expect(validateFileForUpload(fakeFile("a.png", "image/png", 0), { kind: "image" })).toContain(
-      "is empty",
-    );
+    expect(
+      validateFileForUpload(fakeFile("a.png", "image/png", 0), { kind: "image" }),
+    ).toContain("is empty");
     expect(validateFileForUpload(fakeFile("a", "", 10), { kind: "any" })).toContain(
       "unrecognised file type",
     );

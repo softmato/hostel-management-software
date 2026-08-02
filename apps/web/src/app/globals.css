@@ -28,7 +28,7 @@
   --surface-strong: #fff8ef;
   --warning: #d97706;
   --success: #16a34a;
-  --brand-teal: #0A8A4B;
+  --brand-teal: #0a8a4b;
   --brand-teal-soft: rgba(10, 138, 75, 0.1);
   --role-platform: #0d9488;
   --role-platform-soft: #ccfbf1;
@@ -174,7 +174,7 @@ a {
   --surface-strong: #292524;
   --warning: #d97706;
   --success: #16a34a;
-  --brand-teal: #0A8A4B;
+  --brand-teal: #0a8a4b;
   --brand-teal-soft: rgba(10, 138, 75, 0.18);
   --role-platform: #2dd4bf;
   --role-platform-soft: #134e4a;
@@ -250,4 +250,3 @@ a {
   max-width: 100% !important;
   min-width: 100% !important;
 }
-

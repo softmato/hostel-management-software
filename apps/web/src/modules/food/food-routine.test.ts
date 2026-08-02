@@ -99,9 +99,7 @@ describe("food routine", () => {
 
     await saveFoodRoutine(
       {
-        meals: [
-          { dayOfWeek: "FRIDAY", items: ["Bhaat"], mealType: "DINNER" },
-        ],
+        meals: [{ dayOfWeek: "FRIDAY", items: ["Bhaat"], mealType: "DINNER" }],
         monthEndSpecial: { items: ["Goat Meat"] },
         timings: { DINNER: "7 PM" },
       },
@@ -111,8 +109,7 @@ describe("food routine", () => {
 
     expect(mocks.routineFindOneAndUpdate).toHaveBeenCalledTimes(1);
 
-    const [filter, update, options] =
-      mocks.routineFindOneAndUpdate.mock.calls[0];
+    const [filter, update, options] = mocks.routineFindOneAndUpdate.mock.calls[0];
 
     expect(filter).toEqual({ hostelId });
     expect(options.upsert).toBe(true);

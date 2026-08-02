@@ -33,23 +33,28 @@ const contactMethods = [
 const faqs = [
   {
     question: "How do I create an account?",
-    answer: "Click the Sign Up button on the top right corner of any page. Fill in your details, verify your email or phone via OTP, and you are ready to go.",
+    answer:
+      "Click the Sign Up button on the top right corner of any page. Fill in your details, verify your email or phone via OTP, and you are ready to go.",
   },
   {
     question: "How do I list my hostel?",
-    answer: "Navigate to the Register Hostel page and fill out the registration form. Our team will review and verify your listing within 2–3 business days.",
+    answer:
+      "Navigate to the Register Hostel page and fill out the registration form. Our team will review and verify your listing within 2–3 business days.",
   },
   {
     question: "Can I update my personal information?",
-    answer: "Yes, you can update your name, email, phone, and profile photo from your account settings after logging in.",
+    answer:
+      "Yes, you can update your name, email, phone, and profile photo from your account settings after logging in.",
   },
   {
     question: "How do I report an issue with a hostel?",
-    answer: "Use the inquiry system on the hostel detail page, or reach out to our support team directly via email or phone.",
+    answer:
+      "Use the inquiry system on the hostel detail page, or reach out to our support team directly via email or phone.",
   },
   {
     question: "Is my data secure on HostelHub?",
-    answer: "Absolutely. We use encryption for all data in transit and at rest, and we never share your personal information with third parties without your consent.",
+    answer:
+      "Absolutely. We use encryption for all data in transit and at rest, and we never share your personal information with third parties without your consent.",
   },
 ];
 

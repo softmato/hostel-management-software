@@ -137,11 +137,7 @@ export function ConfigPage({
 }) {
   return (
     <div className="mx-auto max-w-[1100px] space-y-4">
-      <PortalPageHeader
-        breadcrumb={breadcrumb}
-        description={description}
-        title={title}
-      />
+      <PortalPageHeader breadcrumb={breadcrumb} description={description} title={title} />
 
       {message ? (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50 px-3 py-2 text-[12.5px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -308,7 +304,11 @@ export function Repeater<Item>({
   makeItem: () => Item;
   max?: number;
   onChange: (next: Item[]) => void;
-  renderRow: (item: Item, patch: (changes: Partial<Item>) => void, index: number) => ReactNode;
+  renderRow: (
+    item: Item,
+    patch: (changes: Partial<Item>) => void,
+    index: number,
+  ) => ReactNode;
 }) {
   const canAdd = max == null || items.length < max;
 
@@ -337,10 +337,7 @@ export function Repeater<Item>({
       ) : null}
 
       {items.map((item, index) => (
-        <div
-          className="rounded-lg border border-border/70 bg-muted/15 p-2.5"
-          key={index}
-        >
+        <div className="rounded-lg border border-border/70 bg-muted/15 p-2.5" key={index}>
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
               #{index + 1}

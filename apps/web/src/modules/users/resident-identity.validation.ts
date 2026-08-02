@@ -42,11 +42,7 @@ export const DIETARY_PREFERENCE_VALUES = [
   "VEGAN",
 ] as const;
 
-export const OCCUPATION_VALUES = [
-  "STUDENT",
-  "WORKING_PROFESSIONAL",
-  "OTHER",
-] as const;
+export const OCCUPATION_VALUES = ["STUDENT", "WORKING_PROFESSIONAL", "OTHER"] as const;
 
 export const GOVERNMENT_ID_TYPE_VALUES = [
   "CITIZENSHIP",
@@ -153,13 +149,10 @@ export const residentProfileDataSchema = z
     governmentIdType: optionalEnum(GOVERNMENT_ID_TYPE_VALUES),
     governmentIdNumber: optionalText(40),
   })
-  .refine(
-    (value) => !value.backupEmail || value.backupEmail !== value.primaryEmail,
-    {
-      message: "The backup email must be different from your account email.",
-      path: ["backupEmail"],
-    },
-  );
+  .refine((value) => !value.backupEmail || value.backupEmail !== value.primaryEmail, {
+    message: "The backup email must be different from your account email.",
+    path: ["backupEmail"],
+  });
 
 export type ResidentProfileData = z.infer<typeof residentProfileDataSchema>;
 

@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { InquiryNoteModel } from "@hostel/db/models/InquiryNote";
@@ -10,7 +11,11 @@ import type {
   hostelAdminInquiryStatusSchema,
   inquiryNoteCreateSchema,
 } from "@/modules/hostels/hostel.validation";
-import { HostelServiceError, normalizeObjectId, scopedHostelFilter } from "@/modules/hostels/hostel.service";
+import {
+  HostelServiceError,
+  normalizeObjectId,
+  scopedHostelFilter,
+} from "@/modules/hostels/hostel.service";
 import type { z } from "zod";
 
 type HostelAdminInquiryListQuery = z.infer<typeof hostelAdminInquiryListQuerySchema>;
@@ -128,13 +133,20 @@ export async function listHostelAdminInquiries(
     filter.status = query.status;
   }
 
-  const inquiries = await InquiryModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<InquiryRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [inquiries, total] = await Promise.all([
+    InquiryModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<InquiryRecord[]>(),
+    InquiryModel.countDocuments(filter),
+  ]);
 
   return {
     inquiries: inquiries.map(serializeInquiry),
+    pagination: paginationMeta(query, total),
   };
 }
 

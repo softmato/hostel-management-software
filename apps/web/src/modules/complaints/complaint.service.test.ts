@@ -8,6 +8,8 @@ const serviceMocks = vi.hoisted(() => ({
   complaintAttachmentCreate: vi.fn(),
   complaintAttachmentFind: vi.fn(),
   complaintCreate: vi.fn(),
+  complaintAggregate: vi.fn(),
+  complaintCountDocuments: vi.fn(),
   complaintFind: vi.fn(),
   complaintFindOne: vi.fn(),
   complaintFindOneAndUpdate: vi.fn(),
@@ -33,6 +35,8 @@ vi.mock("@hostel/db/models/AuditLog", () => ({
 
 vi.mock("@hostel/db/models/Complaint", () => ({
   ComplaintModel: {
+    aggregate: serviceMocks.complaintAggregate,
+    countDocuments: serviceMocks.complaintCountDocuments,
     create: serviceMocks.complaintCreate,
     find: serviceMocks.complaintFind,
     findOne: serviceMocks.complaintFindOne,
@@ -115,6 +119,7 @@ function queryResult<T>(value: T) {
   return {
     lean: vi.fn().mockResolvedValue(value),
     limit: vi.fn().mockReturnThis(),
+    skip: vi.fn().mockReturnThis(),
     sort: vi.fn().mockReturnThis(),
   };
 }
@@ -179,6 +184,9 @@ describe("complaint services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     serviceMocks.getOperationsConfig.mockResolvedValue({ complaintSlaHours: 72 });
+    // Summary counts come from the database, not from the page of rows.
+    serviceMocks.complaintAggregate.mockResolvedValue([]);
+    serviceMocks.complaintCountDocuments.mockResolvedValue(0);
   });
 
   it("creates resident complaints with attachments, timeline, and audit log", async () => {
@@ -235,13 +243,26 @@ describe("complaint services", () => {
     );
     serviceMocks.complaintAttachmentFind.mockReturnValueOnce(queryResult([]));
     serviceMocks.complaintUpdateFind.mockReturnValueOnce(queryResult([]));
+    // Deliberately larger than the two rows above: the summary must describe
+    // the whole filter, not the page that was returned.
+    serviceMocks.complaintAggregate.mockResolvedValueOnce([
+      { _id: "PENDING", count: 7 },
+      { _id: "RESOLVED", count: 4 },
+    ]);
+    // Two calls, in order: the pagination total, then the overdue count.
+    serviceMocks.complaintCountDocuments
+      .mockResolvedValueOnce(11)
+      .mockResolvedValueOnce(2);
 
     const result = await listAdminComplaints({}, staffPrincipal);
 
     expect(result.complaints[0].residentId).toBeNull();
     expect(result.complaints[1].residentId).toBe(residentId);
-    expect(result.summary.total).toBe(2);
-    expect(result.summary.pending).toBe(1);
+    expect(result.complaints).toHaveLength(2);
+    expect(result.pagination.total).toBe(11);
+    expect(result.summary.total).toBe(11);
+    expect(result.summary.pending).toBe(7);
+    expect(result.summary.overdue).toBe(2);
   });
 
   it("updates complaint status inside the admin hostel scope", async () => {

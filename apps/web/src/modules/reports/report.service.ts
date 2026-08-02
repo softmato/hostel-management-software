@@ -155,7 +155,9 @@ const SERIES_BUCKETS = 5;
 const SERIES_BUCKET_DAYS = 7;
 
 type CountingModel = {
-  countDocuments: (filter: Record<string, unknown>) => Promise<number> | { then: unknown };
+  countDocuments: (
+    filter: Record<string, unknown>,
+  ) => Promise<number> | { then: unknown };
 };
 
 /**
@@ -174,7 +176,10 @@ async function windowTrend(
   const previousStart = new Date(now.getTime() - 2 * TREND_WINDOW_DAYS * DAY_MS);
 
   const [current, previous] = await Promise.all([
-    model.countDocuments({ ...filter, [dateField]: { $gte: currentStart } }) as Promise<number>,
+    model.countDocuments({
+      ...filter,
+      [dateField]: { $gte: currentStart },
+    }) as Promise<number>,
     model.countDocuments({
       ...filter,
       [dateField]: { $gte: previousStart, $lt: currentStart },
@@ -191,7 +196,9 @@ async function windowTrend(
 
 function bucketBoundaries(now: Date) {
   return Array.from({ length: SERIES_BUCKETS }, (_, index) => {
-    const end = new Date(now.getTime() - (SERIES_BUCKETS - 1 - index) * SERIES_BUCKET_DAYS * DAY_MS);
+    const end = new Date(
+      now.getTime() - (SERIES_BUCKETS - 1 - index) * SERIES_BUCKET_DAYS * DAY_MS,
+    );
     return { end, start: new Date(end.getTime() - SERIES_BUCKET_DAYS * DAY_MS) };
   });
 }
@@ -274,7 +281,9 @@ export async function getPlatformDashboardReport() {
     windowTrend(InquiryModel, { isDeleted: false }, now),
     windowTrend(ServiceProviderModel, { isDeleted: false }, now),
     windowTrend(ComplaintModel, {}, now),
-    sumPayments({ paidDate: { $gte: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS) } }),
+    sumPayments({
+      paidDate: { $gte: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS) },
+    }),
     sumPayments({
       paidDate: {
         $gte: new Date(now.getTime() - 2 * TREND_WINDOW_DAYS * DAY_MS),
@@ -307,7 +316,10 @@ export async function getPlatformDashboardReport() {
       complaints,
       inquiries,
       openListingFlags,
-      outstandingPayments: Math.max(paymentTotals.dueAmount - paymentTotals.paidAmount, 0),
+      outstandingPayments: Math.max(
+        paymentTotals.dueAmount - paymentTotals.paidAmount,
+        0,
+      ),
       pendingApprovals,
       // Real ledger roll-up: every payment residents have actually settled.
       // Subscription billing is still outside the pilot schema.
@@ -388,7 +400,9 @@ export async function getPlatformPaymentsOverview() {
   const hostels = await HostelModel.find({ _id: { $in: hostelIds } })
     .select("name")
     .lean<Array<{ _id: Types.ObjectId; name?: string }>>();
-  const nameById = new Map(hostels.map((hostel) => [hostel._id.toString(), hostel.name ?? "—"]));
+  const nameById = new Map(
+    hostels.map((hostel) => [hostel._id.toString(), hostel.name ?? "—"]),
+  );
 
   const proofPayments = await PaymentModel.find({
     _id: { $in: proofs.map((proof) => proof.paymentId) },
@@ -595,10 +609,7 @@ function recentMonthKeys(month?: string) {
  * Month-by-month roll-up straight off the Payment ledger — the same records the
  * Payments screen writes, so the report never drifts from what admins recorded.
  */
-async function monthlyPaymentSeries(
-  scoped: Record<string, unknown>,
-  months: string[],
-) {
+async function monthlyPaymentSeries(scoped: Record<string, unknown>, months: string[]) {
   const rows = await PaymentModel.aggregate<MonthlyPaymentRow>([
     { $match: { ...scoped, month: { $in: months } } },
     {
@@ -736,7 +747,9 @@ export async function getHostelAdminReportsOverview(
   ] = await Promise.all([
     HostelModel.find({ _id: { $in: scopedHostelIds }, isDeleted: false })
       .select("roomConfigurations")
-      .lean<Array<{ roomConfigurations?: Array<{ bedsPerRoom?: number; rooms?: number }> }>>(),
+      .lean<
+        Array<{ roomConfigurations?: Array<{ bedsPerRoom?: number; rooms?: number }> }>
+      >(),
     countByField(ResidentModel, notDeleted, "status"),
     ResidentModel.countDocuments(notDeleted),
     countVacantBeds(scopedHostelIds),
@@ -809,8 +822,7 @@ export async function getHostelAdminReportsOverview(
         byCategory: complaintsByCategory,
         byStatus: complaintsByStatus,
         averageResolutionDays: resolutionDays,
-        open:
-          (complaintsByStatus.PENDING ?? 0) + (complaintsByStatus.IN_PROGRESS ?? 0),
+        open: (complaintsByStatus.PENDING ?? 0) + (complaintsByStatus.IN_PROGRESS ?? 0),
         resolved: complaintsByStatus.RESOLVED ?? 0,
         slaBreached,
         total: complaintsTotal,

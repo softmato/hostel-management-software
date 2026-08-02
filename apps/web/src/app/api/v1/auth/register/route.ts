@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
+import { rateLimitAuthAttempts } from "@/lib/rate-limit";
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
@@ -15,6 +16,13 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
+    // Registration sends mail; unbounded, it is a spam amplifier.
+    const limited = rateLimitAuthAttempts(request, "auth-register");
+
+    if (limited) {
+      return limited;
+    }
+
     const input = registerSchema.parse(await request.json());
     const result = await registerPublicAccount(input, {
       ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),

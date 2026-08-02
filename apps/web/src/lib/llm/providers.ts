@@ -83,9 +83,7 @@ function providerOrder(): ProviderName[] {
   const configured = (process.env.LLM_PROVIDER_ORDER ?? "")
     .split(",")
     .map((name) => name.trim().toLowerCase())
-    .filter((name): name is ProviderName =>
-      PROVIDERS.includes(name as ProviderName),
-    );
+    .filter((name): name is ProviderName => PROVIDERS.includes(name as ProviderName));
 
   return configured.length > 0 ? configured : [...PROVIDERS];
 }

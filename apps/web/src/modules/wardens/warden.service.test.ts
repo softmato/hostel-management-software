@@ -27,6 +27,7 @@ vi.mock("@hostel/db/models/AuditLog", () => ({
 
 vi.mock("@hostel/db/models/HostelMember", () => ({
   HostelMemberModel: {
+    countDocuments: vi.fn().mockResolvedValue(0),
     create: serviceMocks.memberCreate,
     find: serviceMocks.memberFind,
     findOne: serviceMocks.memberFindOne,
@@ -67,6 +68,7 @@ function chain<T>(value: T) {
     lean: vi.fn().mockResolvedValue(value),
     limit: vi.fn().mockReturnThis(),
     select: vi.fn().mockReturnThis(),
+    skip: vi.fn().mockReturnThis(),
     sort: vi.fn().mockReturnThis(),
   };
 }

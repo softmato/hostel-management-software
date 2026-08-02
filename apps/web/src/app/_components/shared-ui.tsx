@@ -33,10 +33,13 @@ export function StatusBadge({ children }: { children: string }) {
 }
 
 export function Panel({
+  action,
   children,
   className,
   title,
 }: {
+  /** Right-aligned control on the title row — an export link, a refresh button. */
+  action?: ReactNode;
   children: ReactNode;
   className?: string;
   title?: string;
@@ -49,9 +52,12 @@ export function Panel({
       )}
     >
       {title ? (
-        <h2 className="mb-3 font-heading text-[13.5px] font-bold text-foreground">
-          {title}
-        </h2>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <h2 className="font-heading text-[13.5px] font-bold text-foreground">
+            {title}
+          </h2>
+          {action ? <div className="shrink-0">{action}</div> : null}
+        </div>
       ) : null}
       {children}
     </section>

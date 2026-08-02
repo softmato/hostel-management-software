@@ -29,9 +29,7 @@ const FALLBACK_ORDER: Record<HostelPhotoKind, HostelPhotoKind[]> = {
 };
 
 function kindOf(photo: HostelPhoto): HostelPhotoKind {
-  return photo.kind === "EXTERIOR" || photo.kind === "ROOM"
-    ? photo.kind
-    : "INTERIOR";
+  return photo.kind === "EXTERIOR" || photo.kind === "ROOM" ? photo.kind : "INTERIOR";
 }
 
 export function photosOfKind(

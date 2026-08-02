@@ -1,14 +1,19 @@
 import type { NextRequest } from "next/server";
 
-import { requirePlatformPrincipal } from "@/lib/api-auth";
+import { requireSuperadminPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import { getSiteConfig } from "@/modules/platform-config/site-config.service";
 
 export const runtime = "nodejs";
 
+/**
+ * Superadmin-only: a PLATFORM_MODERATOR moderates content but must not reach
+ * platform configuration (PHASES.md §5.1). The public site reads its own copy
+ * of this config through the site-config provider, not this endpoint.
+ */
 export async function GET(request: NextRequest) {
   try {
-    await requirePlatformPrincipal(request);
+    await requireSuperadminPrincipal(request);
     const config = await getSiteConfig();
 
     return successResponse({ config }, "Site configuration loaded");

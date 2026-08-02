@@ -152,10 +152,9 @@ describe("payment reminders", () => {
 
     expect(result.markedOverdue).toBe(1);
     expect(result.overdueNotified).toBe(1);
-    expect(mocks.paymentUpdateOne).toHaveBeenCalledWith(
-      expect.anything(),
-      { $set: { status: "OVERDUE" } },
-    );
+    expect(mocks.paymentUpdateOne).toHaveBeenCalledWith(expect.anything(), {
+      $set: { status: "OVERDUE" },
+    });
     expect(mocks.sendEmail.mock.calls[0][0].subject).toContain("Payment overdue");
   });
 

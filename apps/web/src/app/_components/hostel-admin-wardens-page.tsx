@@ -3,11 +3,7 @@
 import { KeyRound, Plus, Shield, ShieldOff, UserPlus, Users, X } from "lucide-react";
 import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
-import {
-  EmptyState,
-  Input as FormInput,
-  LoadingRows,
-} from "@/app/_components/shared-ui";
+import { EmptyState, Input as FormInput, LoadingRows } from "@/app/_components/shared-ui";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useHostelWardens, type Warden } from "@/hooks/use-hostel-admin";
@@ -23,6 +19,7 @@ import {
   DataTable,
   EmptyInline,
   InitialsAvatar,
+  ListPager,
   PortalPageHeader,
   RoleButton,
   SearchField,
@@ -394,6 +391,17 @@ export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
               </TableBody>
             </DataTable>
           ) : null}
+
+          {wardensResource.pagination && wardensResource.pagination.totalPages > 1 ? (
+            <ListPager
+              onPageChange={wardensResource.setPage}
+              page={wardensResource.pagination.page}
+              pageSize={wardensResource.pagination.pageSize}
+              tone="admin"
+              total={wardensResource.pagination.total}
+              unit="wardens"
+            />
+          ) : null}
         </SectionCard>
 
         <div className="space-y-5">
@@ -436,11 +444,7 @@ export const HostelAdminWardensPage = memo(function HostelAdminWardensPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <RoleButton
-                    onClick={handleSavePermissions}
-                    tone="admin"
-                    type="button"
-                  >
+                  <RoleButton onClick={handleSavePermissions} tone="admin" type="button">
                     <Shield className="size-4" />
                     Save Permissions
                   </RoleButton>

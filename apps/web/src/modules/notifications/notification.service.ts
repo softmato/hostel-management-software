@@ -3,6 +3,12 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import {
+  MAX_PAGE_SIZE,
+  paginationMeta,
+  paginationRange,
+  type PaginationQuery,
+} from "@/lib/pagination";
 import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
 import { NotificationModel } from "@hostel/db/models/Notification";
 import { normalizeObjectId } from "@/modules/residents/resident-access";
@@ -75,18 +81,31 @@ export async function createInAppNotification(input: {
   });
 }
 
-export async function listNotifications(principal: ApiPrincipal) {
+export async function listNotifications(
+  principal: ApiPrincipal,
+  query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },
+) {
   await connectToDatabase();
 
-  const notifications = await NotificationModel.find({
-    userId: normalizeObjectId(principal.userId, "user id"),
-  })
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<NotificationRecord[]>();
+  const filter = { userId: normalizeObjectId(principal.userId, "user id") };
+  const { limit, skip } = paginationRange(query);
+
+  const [notifications, total, unread] = await Promise.all([
+    NotificationModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<NotificationRecord[]>(),
+    NotificationModel.countDocuments(filter),
+    // The bell badge counts every unread notification, not the unread ones on
+    // this page.
+    NotificationModel.countDocuments({ ...filter, readAt: { $exists: false } }),
+  ]);
 
   return {
     notifications: notifications.map(serializeNotification),
+    pagination: paginationMeta(query, total),
+    unreadCount: unread,
   };
 }
 

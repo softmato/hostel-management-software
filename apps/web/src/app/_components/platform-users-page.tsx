@@ -675,8 +675,8 @@ export const PlatformUsersPageContent = memo(function PlatformUsersPageContent()
                 {detailTab === "documents" ? (
                   <DetailSection title="Documents">
                     <p className="py-1 text-[11.5px] leading-4 text-muted-foreground">
-                      Resident documents are uploaded and reviewed by the hostel that
-                      owns this record. Hostel-level paperwork is reviewed under{" "}
+                      Resident documents are uploaded and reviewed by the hostel that owns
+                      this record. Hostel-level paperwork is reviewed under{" "}
                       <Link
                         className="font-semibold text-role-platform"
                         href="/platform/hostels"

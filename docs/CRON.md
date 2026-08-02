@@ -90,11 +90,32 @@ Returns `{ alertsRaised, alertsUpdated, hostelsProcessed, logsPurged }`.
 
 - Recommended schedule: daily (e.g. `0 5 * * *`).
 
+### Dispatch scheduled notifications
+
+`POST /api/v1/cron/notification-dispatch`
+
+Sends every `NotificationCampaign` whose `scheduledFor` has passed and is still `SCHEDULED`
+(PHASES.md §5.1). A campaign written without a `scheduledFor` never reaches this job — it fans out
+in the request that created it.
+
+Each campaign is **claimed** first: the job flips it out of `SCHEDULED` with a conditional update
+before writing any receipts, so two overlapping runs cannot deliver the same broadcast twice. A
+campaign whose fan-out throws is marked `FAILED` with the reason rather than retried forever.
+
+Returns `{ dispatched, failed, recipients, scanned }`.
+
+- Recommended schedule: every 15 minutes (e.g. `*/15 * * * *`). The interval is the worst-case
+  delay between the time an admin picked and the notification landing, so pick it to taste — the
+  job is cheap when nothing is due.
+
 > **Note on the `operations` platform setting.** Several runtime knobs live in a single
 > `PlatformSetting` document keyed `operations`: `qrActivationExpiryDays`,
 > `paymentReminderDaysBefore`, `foodReadyCooldownMinutes`, `complaintSlaHours`,
-> `sendNoticeEmails`, `sendPaymentEmails`, `sendComplaintEmails`, `receiptNumberPrefix`. Reads
-> never throw — a missing or malformed document falls back to the shipped defaults.
+> `sendNoticeEmails`, `sendPaymentEmails`, `sendComplaintEmails`, `receiptNumberPrefix`, and the
+> Phase 5 ceilings `maxInsideZoneRadiusMeters`, `maxNearbyZoneRadiusMeters`,
+> `maxAttendanceRetentionDays`. Reads never throw — a missing or malformed document falls back to
+> the shipped defaults. Writes go through `PUT /api/v1/platform/operations-config` (superadmin
+> only), which *does* throw on an invalid value so the person editing sees it.
 
 > Per-hostel attendance settings (geofence radii, ping times, alert threshold, retention) live on
 > `HostelSettings.attendance` instead, because they are a property of the building, not the

@@ -98,43 +98,46 @@ export function PublicPrivacyPage() {
         {/* Intro */}
         <div className="mb-14 text-sm leading-relaxed text-muted-foreground">
           <p>
-            HostelHub (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;) is committed to protecting your privacy.
-            This Privacy Policy explains how we collect, use, disclose, and safeguard
-            your information when you use our hostel management platform.
+            HostelHub (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;) is
+            committed to protecting your privacy. This Privacy Policy explains how we
+            collect, use, disclose, and safeguard your information when you use our hostel
+            management platform.
           </p>
           <p className="mt-4">
-            By using HostelHub, you agree to the collection and use of information
-            in accordance with this policy. If you do not agree, please discontinue
-            use of the platform.
+            By using HostelHub, you agree to the collection and use of information in
+            accordance with this policy. If you do not agree, please discontinue use of
+            the platform.
           </p>
         </div>
 
         {/* Sections — admin-authored copy replaces the built-in text when set. */}
         <div className="space-y-12">
           {customBody ? <LegalBody body={customBody} /> : null}
-          {customBody ? null : sections.map(({ icon: Icon, title, content }) => (
-            <section key={title}>
-              <div className="mb-4 flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
-                  <Icon className="size-4.5 text-primary" />
-                </span>
-                <h2 className="font-heading text-lg font-semibold text-foreground">
-                  {title}
-                </h2>
-              </div>
-              <ul className="ml-12 space-y-2.5">
-                {content.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-3 text-sm leading-relaxed text-muted-foreground"
-                  >
-                    <span className="mt-1.5 block size-1.5 shrink-0 rounded-full bg-primary/40" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+          {customBody
+            ? null
+            : sections.map(({ icon: Icon, title, content }) => (
+                <section key={title}>
+                  <div className="mb-4 flex items-center gap-3">
+                    <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
+                      <Icon className="size-4.5 text-primary" />
+                    </span>
+                    <h2 className="font-heading text-lg font-semibold text-foreground">
+                      {title}
+                    </h2>
+                  </div>
+                  <ul className="ml-12 space-y-2.5">
+                    {content.map((item) => (
+                      <li
+                        key={item}
+                        className="flex items-start gap-3 text-sm leading-relaxed text-muted-foreground"
+                      >
+                        <span className="mt-1.5 block size-1.5 shrink-0 rounded-full bg-primary/40" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
         </div>
 
         {/* Contact */}
@@ -142,7 +145,10 @@ export function PublicPrivacyPage() {
           <p className="font-semibold text-foreground">Questions about this policy?</p>
           <p className="mt-1">
             Contact our Data Protection team at{" "}
-            <a className="text-primary hover:underline" href="mailto:privacy@hostelhub.com">
+            <a
+              className="text-primary hover:underline"
+              href="mailto:privacy@hostelhub.com"
+            >
               privacy@hostelhub.com
             </a>
           </p>

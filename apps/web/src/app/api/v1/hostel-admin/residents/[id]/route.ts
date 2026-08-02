@@ -1,10 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import {
-  requireHostelCapability,
-  requireHostelStaffPrincipal,
-} from "@/lib/api-auth";
+import { requireHostelCapability, requireHostelStaffPrincipal } from "@/lib/api-auth";
 import {
   deleteResident,
   getResidentById,

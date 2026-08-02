@@ -15,14 +15,23 @@ import {
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
-import { motion, useScroll, useTransform, type Easing, type Variants } from "framer-motion";
+import {
+  motion,
+  useScroll,
+  useTransform,
+  type Easing,
+  type Variants,
+} from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
-import { HostelStatusView, type OwnerApplication } from "@/app/_components/public-hostel-registration-page";
+import {
+  HostelStatusView,
+  type OwnerApplication,
+} from "@/app/_components/public-hostel-registration-page";
 import { PublicShell } from "@/app/_components/shared";
 
 const SYMBOLS = "0SCB87675HJGS##&";
@@ -104,31 +113,94 @@ const heroSlides = [
 
 const features: (Feature & { imageIndex: number })[] = [
   {
-    icon: LayoutDashboard, title: "Central Dashboard", description: "Real-time occupancy, payments, complaints, staff activity, and reports — all from one command centre.", tone: "platform", gradient: "from-brand-teal/20 to-cyan-400/10", accent: "bg-brand-teal", imageIndex: 0,
+    icon: LayoutDashboard,
+    title: "Central Dashboard",
+    description:
+      "Real-time occupancy, payments, complaints, staff activity, and reports — all from one command centre.",
+    tone: "platform",
+    gradient: "from-brand-teal/20 to-cyan-400/10",
+    accent: "bg-brand-teal",
+    imageIndex: 0,
   },
   {
-    icon: BedDouble, title: "Digital Room & Bed Map", description: "Rooms, bed assignment, vacancy status, room type (1-4 seater), attached bathroom, balcony, and maintenance status per room.", tone: "admin", gradient: "from-blue-500/20 to-indigo-400/10", accent: "bg-blue-500", imageIndex: 1,
+    icon: BedDouble,
+    title: "Digital Room & Bed Map",
+    description:
+      "Rooms, bed assignment, vacancy status, room type (1-4 seater), attached bathroom, balcony, and maintenance status per room.",
+    tone: "admin",
+    gradient: "from-blue-500/20 to-indigo-400/10",
+    accent: "bg-blue-500",
+    imageIndex: 1,
   },
   {
-    icon: Users, title: "Resident Management + QR", description: "Admin registers residents. System generates unique QR code. Resident scans to activate their dashboard — no manual data entry.", tone: "resident", gradient: "from-emerald-400/20 to-green-400/10", accent: "bg-emerald-500", imageIndex: 2,
+    icon: Users,
+    title: "Resident Management + QR",
+    description:
+      "Admin registers residents. System generates unique QR code. Resident scans to activate their dashboard — no manual data entry.",
+    tone: "resident",
+    gradient: "from-emerald-400/20 to-green-400/10",
+    accent: "bg-emerald-500",
+    imageIndex: 2,
   },
   {
-    icon: WalletCards, title: "Payments & Fee Tracking", description: "Track monthly fees, deposits, dues, and receipts. Residents upload payment proof (eSewa, Khalti, bank). Admin verifies and issues digital receipts.", tone: "guardian", gradient: "from-amber-400/20 to-orange-400/10", accent: "bg-amber-500", imageIndex: 3,
+    icon: WalletCards,
+    title: "Payments & Fee Tracking",
+    description:
+      "Track monthly fees, deposits, dues, and receipts. Residents upload payment proof (eSewa, Khalti, bank). Admin verifies and issues digital receipts.",
+    tone: "guardian",
+    gradient: "from-amber-400/20 to-orange-400/10",
+    accent: "bg-amber-500",
+    imageIndex: 3,
   },
   {
-    icon: Utensils, title: "Food Transparency System", description: "Weekly menu, daily food photos, meal timing, veg/non-veg tracking, and resident food ratings — build trust with residents and guardians.", tone: "teal", gradient: "from-teal-400/20 to-emerald-400/10", accent: "bg-teal-500", imageIndex: 0,
+    icon: Utensils,
+    title: "Food Transparency System",
+    description:
+      "Weekly menu, daily food photos, meal timing, veg/non-veg tracking, and resident food ratings — build trust with residents and guardians.",
+    tone: "teal",
+    gradient: "from-teal-400/20 to-emerald-400/10",
+    accent: "bg-teal-500",
+    imageIndex: 0,
   },
   {
-    icon: Bell, title: "Notices & Complaints", description: "Send hostel, fee, holiday, and emergency notices. Residents submit complaints with photo attachments and track resolution status.", tone: "platform", gradient: "from-cyan-400/20 to-sky-400/10", accent: "bg-cyan-500", imageIndex: 1,
+    icon: Bell,
+    title: "Notices & Complaints",
+    description:
+      "Send hostel, fee, holiday, and emergency notices. Residents submit complaints with photo attachments and track resolution status.",
+    tone: "platform",
+    gradient: "from-cyan-400/20 to-sky-400/10",
+    accent: "bg-cyan-500",
+    imageIndex: 1,
   },
   {
-    icon: ShieldCheck, title: "Night Safety & SOS", description: "Privacy-first night status (Inside/Outside/Not Verified). SOS button alerts warden and guardian. Emergency contacts and safety guides.", tone: "admin", gradient: "from-rose-400/20 to-pink-400/10", accent: "bg-rose-500", imageIndex: 4,
+    icon: ShieldCheck,
+    title: "Night Safety & SOS",
+    description:
+      "Privacy-first night status (Inside/Outside/Not Verified). SOS button alerts warden and guardian. Emergency contacts and safety guides.",
+    tone: "admin",
+    gradient: "from-rose-400/20 to-pink-400/10",
+    accent: "bg-rose-500",
+    imageIndex: 4,
   },
   {
-    icon: HeartHandshake, title: "Guardian Trust Dashboard", description: "Guardians get limited visibility into fee status, food menu, notices, night safety summary, and emergency contact — privacy-first design.", tone: "guardian", gradient: "from-violet-400/20 to-purple-400/10", accent: "bg-violet-500", imageIndex: 5,
+    icon: HeartHandshake,
+    title: "Guardian Trust Dashboard",
+    description:
+      "Guardians get limited visibility into fee status, food menu, notices, night safety summary, and emergency contact — privacy-first design.",
+    tone: "guardian",
+    gradient: "from-violet-400/20 to-purple-400/10",
+    accent: "bg-violet-500",
+    imageIndex: 5,
   },
   {
-    icon: QrCode, title: "Move-in / Move-out Checklist", description: "Digital move-in: document collection, room photos, item checklist, deposit record. Move-out: fee check, damage check, deposit refund.", tone: "teal", gradient: "from-brand-teal/20 to-emerald-400/10", accent: "bg-brand-teal", imageIndex: 2,
+    icon: QrCode,
+    title: "Move-in / Move-out Checklist",
+    description:
+      "Digital move-in: document collection, room photos, item checklist, deposit record. Move-out: fee check, damage check, deposit refund.",
+    tone: "teal",
+    gradient: "from-brand-teal/20 to-emerald-400/10",
+    accent: "bg-brand-teal",
+    imageIndex: 2,
   },
 ];
 
@@ -215,7 +287,9 @@ export function PublicHostelRegistrationLandingPage() {
     );
     const el = featureRef.current;
     if (el) observer.observe(el);
-    return () => { if (el) observer.unobserve(el); };
+    return () => {
+      if (el) observer.unobserve(el);
+    };
   }, []);
 
   const SlideIcon = heroSlides[currentSlide].icon;
@@ -305,9 +379,9 @@ export function PublicHostelRegistrationLandingPage() {
               variants={fadeUp}
               custom={2}
             >
-              Transform your hostel with a complete digital ecosystem — from resident management
-              to guardian communication. Give every stakeholder their own portal while you stay
-              in control from one dashboard.
+              Transform your hostel with a complete digital ecosystem — from resident
+              management to guardian communication. Give every stakeholder their own
+              portal while you stay in control from one dashboard.
             </motion.p>
 
             {/* Register button at top */}
@@ -349,8 +423,12 @@ export function PublicHostelRegistrationLandingPage() {
                 transition={{ duration: 0.6 }}
               >
                 <div className="flex flex-col items-center gap-4 p-8 text-center">
-                  <div className={`flex size-24 items-center justify-center rounded-2xl ${heroSlides[currentSlide].accent}/10`}>
-                    <SlideIcon className={`size-12 ${heroSlides[currentSlide].accent.replace("bg-", "text-")}`} />
+                  <div
+                    className={`flex size-24 items-center justify-center rounded-2xl ${heroSlides[currentSlide].accent}/10`}
+                  >
+                    <SlideIcon
+                      className={`size-12 ${heroSlides[currentSlide].accent.replace("bg-", "text-")}`}
+                    />
                   </div>
                   <p className="text-xl font-bold text-foreground md:text-2xl">
                     {heroSlides[currentSlide].label}
@@ -363,7 +441,11 @@ export function PublicHostelRegistrationLandingPage() {
 
               {/* Slide navigation arrows */}
               <button
-                onClick={() => setCurrentSlide((prev) => (prev === 0 ? heroSlides.length - 1 : prev - 1))}
+                onClick={() =>
+                  setCurrentSlide((prev) =>
+                    prev === 0 ? heroSlides.length - 1 : prev - 1,
+                  )
+                }
                 className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-brand-teal p-2 text-white shadow-lg transition hover:brightness-110"
                 type="button"
               >
@@ -404,8 +486,12 @@ export function PublicHostelRegistrationLandingPage() {
             >
               {stats.map((stat) => (
                 <motion.div key={stat.label} className="text-center" variants={fadeUp}>
-                  <p className="text-3xl font-extrabold text-foreground md:text-4xl">{stat.value}</p>
-                  <p className="mt-1 text-xs font-semibold text-muted-foreground md:text-sm">{stat.label}</p>
+                  <p className="text-3xl font-extrabold text-foreground md:text-4xl">
+                    {stat.value}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-muted-foreground md:text-sm">
+                    {stat.label}
+                  </p>
                 </motion.div>
               ))}
             </motion.div>
@@ -421,7 +507,10 @@ export function PublicHostelRegistrationLandingPage() {
             viewport={{ once: true, margin: "-80px" }}
             variants={stagger}
           >
-            <motion.h2 className="text-3xl font-bold text-foreground md:text-4xl" variants={fadeUp}>
+            <motion.h2
+              className="text-3xl font-bold text-foreground md:text-4xl"
+              variants={fadeUp}
+            >
               Everything you need to run your hostel
             </motion.h2>
             <motion.p
@@ -429,7 +518,8 @@ export function PublicHostelRegistrationLandingPage() {
               variants={fadeUp}
               custom={1}
             >
-              A fully integrated platform for hostel owners, staff, residents, and guardians.
+              A fully integrated platform for hostel owners, staff, residents, and
+              guardians.
             </motion.p>
           </motion.div>
 
@@ -454,29 +544,40 @@ export function PublicHostelRegistrationLandingPage() {
                       className={cn(
                         "mb-3 inline-flex size-10 items-center justify-center rounded-xl",
                         feature.tone === "teal" && "bg-brand-teal/10 text-brand-teal",
-                        feature.tone === "platform" && "bg-role-platform-soft text-role-platform",
+                        feature.tone === "platform" &&
+                          "bg-role-platform-soft text-role-platform",
                         feature.tone === "admin" && "bg-role-admin-soft text-role-admin",
-                        feature.tone === "resident" && "bg-role-resident-soft text-role-resident",
-                        feature.tone === "guardian" && "bg-role-guardian-soft text-role-guardian",
+                        feature.tone === "resident" &&
+                          "bg-role-resident-soft text-role-resident",
+                        feature.tone === "guardian" &&
+                          "bg-role-guardian-soft text-role-guardian",
                       )}
                     >
                       <feature.icon className="size-5" />
                     </span>
-                    <h3 className="text-2xl font-bold text-foreground">{feature.title}</h3>
+                    <h3 className="text-2xl font-bold text-foreground">
+                      {feature.title}
+                    </h3>
                     <p className="text-base leading-relaxed text-muted-foreground">
                       {feature.description}
                     </p>
                     <ul className="space-y-2 pt-2">
                       <li className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">&#10003;</span>
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
+                          &#10003;
+                        </span>
                         Real-time insights and analytics at your fingertips
                       </li>
                       <li className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">&#10003;</span>
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
+                          &#10003;
+                        </span>
                         Role-based access for staff, residents, and guardians
                       </li>
                       <li className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">&#10003;</span>
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
+                          &#10003;
+                        </span>
                         Mobile-friendly portals accessible from any device
                       </li>
                     </ul>
@@ -490,12 +591,20 @@ export function PublicHostelRegistrationLandingPage() {
                     viewport={{ once: true, margin: "-100px" }}
                     transition={{ duration: 0.7, ease: "easeOut" }}
                   >
-                    <div className={`relative h-64 overflow-hidden rounded-2xl border-2 border-border bg-gradient-br ${slideMeta.gradient} shadow-lg md:h-80`}>
+                    <div
+                      className={`relative h-64 overflow-hidden rounded-2xl border-2 border-border bg-gradient-br ${slideMeta.gradient} shadow-lg md:h-80`}
+                    >
                       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                        <div className={`flex size-20 items-center justify-center rounded-2xl ${slideMeta.accent}/10`}>
-                          <SlideFeatureIcon className={`size-10 ${slideMeta.accent.replace("bg-", "text-")}`} />
+                        <div
+                          className={`flex size-20 items-center justify-center rounded-2xl ${slideMeta.accent}/10`}
+                        >
+                          <SlideFeatureIcon
+                            className={`size-10 ${slideMeta.accent.replace("bg-", "text-")}`}
+                          />
                         </div>
-                        <p className="text-lg font-bold text-foreground">{slideMeta.label}</p>
+                        <p className="text-lg font-bold text-foreground">
+                          {slideMeta.label}
+                        </p>
                         <p className="max-w-xs text-sm text-muted-foreground">
                           {feature.description.slice(0, 100)}...
                         </p>
@@ -560,7 +669,10 @@ export function PublicHostelRegistrationLandingPage() {
       {/* Floating bottom register button - appears on scroll */}
       <motion.div
         className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 md:bottom-8"
-        style={{ opacity: bottomCtaOpacity, pointerEvents: showBottomCta ? "auto" : "none" as const }}
+        style={{
+          opacity: bottomCtaOpacity,
+          pointerEvents: showBottomCta ? "auto" : ("none" as const),
+        }}
       >
         <Link
           href="/register-hostel/form"

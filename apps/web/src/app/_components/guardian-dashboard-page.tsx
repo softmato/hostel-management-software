@@ -63,7 +63,10 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
       return { paid: 0, due: 0, charges: 0 };
     }
     const paid = dashboard.payments.reduce((sum, payment) => sum + payment.paidAmount, 0);
-    const charges = dashboard.payments.reduce((sum, payment) => sum + payment.dueAmount, 0);
+    const charges = dashboard.payments.reduce(
+      (sum, payment) => sum + payment.dueAmount,
+      0,
+    );
     return {
       charges,
       due: dashboard.summary.dueAmount,
@@ -201,11 +204,15 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                 <dl className="space-y-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
                     <dt className="text-muted-foreground">Total Paid</dt>
-                    <dd className="font-semibold text-foreground">{currency(totals.paid)}</dd>
+                    <dd className="font-semibold text-foreground">
+                      {currency(totals.paid)}
+                    </dd>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <dt className="text-muted-foreground">Total Due</dt>
-                    <dd className="font-semibold text-foreground">{currency(totals.due)}</dd>
+                    <dd className="font-semibold text-foreground">
+                      {currency(totals.due)}
+                    </dd>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <dt className="text-muted-foreground">Total Charges</dt>
@@ -247,7 +254,12 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                     </p>
                   </div>
                 </div>
-                <RoleButton asChild className="mt-4 w-full" tone="guardian" variant="outline">
+                <RoleButton
+                  asChild
+                  className="mt-4 w-full"
+                  tone="guardian"
+                  variant="outline"
+                >
                   <Link href="/guardian/safety">
                     <Phone className="size-4" />
                     View Safety Summary
@@ -269,8 +281,12 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                       key={notice.id}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground">{notice.title}</p>
-                        {notice.isUrgent ? <SoftBadge tone="rose">Urgent</SoftBadge> : null}
+                        <p className="text-sm font-semibold text-foreground">
+                          {notice.title}
+                        </p>
+                        {notice.isUrgent ? (
+                          <SoftBadge tone="rose">Urgent</SoftBadge>
+                        ) : null}
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                         {notice.content}
@@ -291,7 +307,9 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                       className="rounded-xl border border-border px-3 py-2.5"
                       key={menu.id}
                     >
-                      <p className="text-sm font-semibold text-foreground">{menu.mealType}</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {menu.mealType}
+                      </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {menu.items.join(", ")}
                       </p>

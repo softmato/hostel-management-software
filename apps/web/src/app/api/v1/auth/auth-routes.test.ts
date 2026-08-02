@@ -20,6 +20,8 @@ const routeMocks = vi.hoisted(() => {
     login: vi.fn(),
     registerPublicAccount: vi.fn(),
     requestOtpChallenge: vi.fn(),
+    resetPasswordWithToken: vi.fn(),
+    verifyEmailWithToken: vi.fn(),
     verifyOtpChallenge: vi.fn(),
   };
 });
@@ -31,6 +33,8 @@ import * as loginRoute from "@/app/api/v1/auth/login/route";
 import * as otpRequestRoute from "@/app/api/v1/auth/otp/request/route";
 import * as otpVerifyRoute from "@/app/api/v1/auth/otp/verify/route";
 import * as registerRoute from "@/app/api/v1/auth/register/route";
+import * as resetPasswordRoute from "@/app/api/v1/auth/reset-password/route";
+import * as verifyEmailRoute from "@/app/api/v1/auth/verify-email/route";
 
 function jsonRequest(path: string, body: unknown, headers?: Record<string, string>) {
   return new NextRequest(`https://hostelhub.local${path}`, {
@@ -138,11 +142,7 @@ describe("phase 1 auth routes", () => {
     };
 
     routeMocks.login.mockRejectedValue(
-      new routeMocks.AuthServiceError(
-        "Invalid credentials.",
-        "INVALID_CREDENTIALS",
-        401,
-      ),
+      new routeMocks.AuthServiceError("Invalid credentials.", "INVALID_CREDENTIALS", 401),
     );
 
     const attempt = () =>
@@ -190,5 +190,101 @@ describe("phase 1 auth routes", () => {
       errorCode: "GOOGLE_AUTH_NOT_CONFIGURED",
       success: false,
     });
+  });
+});
+
+/** Long enough to clear the schema's 20-character minimum. */
+const GUESSED_TOKEN = "0123456789abcdef0123456789abcdef";
+
+describe("token-guessing surfaces are rate limited too", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // PHASES.md §5.1: "Rate limiting on all auth endpoints". Login was covered
+  // in Phase 1; a reset or verification token is just as guessable.
+  it("locks out repeated password-reset token attempts", async () => {
+    routeMocks.resetPasswordWithToken.mockRejectedValue(
+      new routeMocks.AuthServiceError("Invalid token.", "INVALID_RESET_TOKEN", 400),
+    );
+
+    const headers = {
+      "user-agent": "reset-probe",
+      "x-forwarded-for": "203.0.113.91",
+    };
+    const attempt = () =>
+      resetPasswordRoute.POST(
+        jsonRequest(
+          "/api/v1/auth/reset-password",
+          { newPassword: "Str0ng-passw0rd!", token: GUESSED_TOKEN },
+          headers,
+        ),
+      );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect((await attempt()).status).toBe(400);
+    }
+
+    expect((await attempt()).status).toBe(429);
+    expect(routeMocks.resetPasswordWithToken).toHaveBeenCalledTimes(5);
+  });
+
+  it("locks out repeated email-verification token attempts", async () => {
+    routeMocks.verifyEmailWithToken.mockRejectedValue(
+      new routeMocks.AuthServiceError(
+        "Invalid token.",
+        "INVALID_VERIFICATION_TOKEN",
+        400,
+      ),
+    );
+
+    const headers = {
+      "user-agent": "verify-probe",
+      "x-forwarded-for": "203.0.113.92",
+    };
+    const attempt = () =>
+      verifyEmailRoute.POST(
+        jsonRequest("/api/v1/auth/verify-email", { token: GUESSED_TOKEN }, headers),
+      );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect((await attempt()).status).toBe(400);
+    }
+
+    expect((await attempt()).status).toBe(429);
+  });
+
+  // Each endpoint has its own budget: burning through resets must not also
+  // lock someone out of verifying their email.
+  it("keeps the budgets separate per endpoint", async () => {
+    routeMocks.resetPasswordWithToken.mockRejectedValue(
+      new routeMocks.AuthServiceError("Invalid token.", "INVALID_RESET_TOKEN", 400),
+    );
+    routeMocks.verifyEmailWithToken.mockResolvedValue({ verified: true });
+
+    const headers = {
+      "user-agent": "shared-probe",
+      "x-forwarded-for": "203.0.113.93",
+    };
+
+    for (let i = 0; i < 6; i += 1) {
+      await resetPasswordRoute.POST(
+        jsonRequest(
+          "/api/v1/auth/reset-password",
+          { newPassword: "Str0ng-passw0rd!", token: GUESSED_TOKEN },
+          headers,
+        ),
+      );
+    }
+
+    const verify = await verifyEmailRoute.POST(
+      jsonRequest(
+        "/api/v1/auth/verify-email",
+        { token: `${GUESSED_TOKEN}-real` },
+        headers,
+      ),
+    );
+
+    expect(verify.status).toBe(200);
   });
 });

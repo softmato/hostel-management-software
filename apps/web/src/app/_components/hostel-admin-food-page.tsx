@@ -81,33 +81,37 @@ const DAYS: DayOfWeek[] = [
   "SATURDAY",
 ];
 
-const MEALS: { defaultTiming: string; icon: LucideIcon; label: string; type: MealType }[] =
-  [
-    {
-      defaultTiming: "6:00 AM - 7:00 AM",
-      icon: Sun,
-      label: "Breakfast (Morning)",
-      type: "BREAKFAST",
-    },
-    {
-      defaultTiming: "8:45 AM - 12:00 PM",
-      icon: Utensils,
-      label: "Lunch",
-      type: "LUNCH",
-    },
-    {
-      defaultTiming: "3:00 PM - 5:00 PM",
-      icon: Cookie,
-      label: "Evening Snacks",
-      type: "SNACKS",
-    },
-    {
-      defaultTiming: "7:00 PM - 8:45 PM",
-      icon: Moon,
-      label: "Dinner",
-      type: "DINNER",
-    },
-  ];
+const MEALS: {
+  defaultTiming: string;
+  icon: LucideIcon;
+  label: string;
+  type: MealType;
+}[] = [
+  {
+    defaultTiming: "6:00 AM - 7:00 AM",
+    icon: Sun,
+    label: "Breakfast (Morning)",
+    type: "BREAKFAST",
+  },
+  {
+    defaultTiming: "8:45 AM - 12:00 PM",
+    icon: Utensils,
+    label: "Lunch",
+    type: "LUNCH",
+  },
+  {
+    defaultTiming: "3:00 PM - 5:00 PM",
+    icon: Cookie,
+    label: "Evening Snacks",
+    type: "SNACKS",
+  },
+  {
+    defaultTiming: "7:00 PM - 8:45 PM",
+    icon: Moon,
+    label: "Dinner",
+    type: "DINNER",
+  },
+];
 
 const TABS: { icon: LucideIcon; id: RoutineTab; label: string }[] = [
   { icon: CalendarDays, id: "weekly", label: "Weekly Routine" },
@@ -362,12 +366,14 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
                         return (
                           <td className="px-3 py-3" key={meal.type}>
                             <input
+                              aria-label={`${day} ${meal.type} items`}
                               className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-role-admin"
                               defaultValue={cell?.items.join(", ") ?? ""}
                               name={`items:${day}:${meal.type}`}
                               placeholder="Comma separated items"
                             />
                             <input
+                              aria-label={`${day} ${meal.type} note`}
                               className="mt-2 h-9 w-full rounded-md border border-dashed border-border bg-background px-3 text-xs outline-none focus:border-role-admin"
                               defaultValue={cell?.note ?? ""}
                               name={`note:${day}:${meal.type}`}
@@ -388,20 +394,22 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
                   Month End Special
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  An optional extra served on the last day of every month. It is
-                  stored on its own, so it never replaces that day&apos;s dinner.
-                  Leave it blank to remove it.
+                  An optional extra served on the last day of every month. It is stored on
+                  its own, so it never replaces that day&apos;s dinner. Leave it blank to
+                  remove it.
                 </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <input
                   className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-role-admin"
+                  aria-label="Month-end special items"
                   defaultValue={monthEndSpecial?.items.join(", ") ?? ""}
                   name="monthEndItems"
                   placeholder="Comma separated items"
                 />
                 <input
                   className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-role-admin"
+                  aria-label="Month-end special note"
                   defaultValue={monthEndSpecial?.note ?? ""}
                   name="monthEndNote"
                   placeholder="Note (optional)"
@@ -449,8 +457,7 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
               No food routine configured
             </p>
             <p className="max-w-md text-sm text-muted-foreground">
-              Set the weekly routine once — it repeats every week until you change
-              it.
+              Set the weekly routine once — it repeats every week until you change it.
             </p>
             <Button
               className="mt-2 h-11 bg-role-admin px-6 text-sm font-semibold text-white hover:bg-role-admin/85"

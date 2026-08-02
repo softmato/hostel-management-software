@@ -2,12 +2,7 @@
 
 import React, { useCallback, useMemo, useState, type FormEvent } from "react";
 import { Gift, Trophy } from "lucide-react";
-import {
-  EmptyState,
-  LoadingRows,
-  Panel,
-  StatusBadge,
-} from "@/app/_components/shared-ui";
+import { EmptyState, LoadingRows, Panel, StatusBadge } from "@/app/_components/shared-ui";
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
@@ -33,6 +28,7 @@ type ReferralsResponse = {
   referrals: AdminReferral[];
   summary: {
     byStatus: Record<string, number>;
+    converted: number;
     joined: number;
     pendingConfirmation: number;
     rewardApprovedAmount: number;
@@ -142,7 +138,7 @@ export const HostelAdminReferralsPageContent = React.memo(
         />
         <Message value={message} />
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <StatTile
             hint={`${summary?.pendingConfirmation ?? 0} awaiting confirmation`}
             label="Referrals received"
@@ -153,6 +149,14 @@ export const HostelAdminReferralsPageContent = React.memo(
             label="Joined"
             tone="good"
             value={summary?.joined ?? 0}
+          />
+          {/* Set automatically the first time a referred resident has a payment
+              verified — nothing here is typed by hand. */}
+          <StatTile
+            hint="First payment verified"
+            label="Converted"
+            tone="good"
+            value={summary?.converted ?? 0}
           />
           <StatTile
             hint="Approved but not yet handed over"
@@ -254,12 +258,14 @@ export const HostelAdminReferralsPageContent = React.memo(
                       <input
                         className="h-10 rounded-md border border-border bg-background px-3 text-sm"
                         min="0"
+                        aria-label="Reward amount"
                         name="rewardAmount"
                         placeholder="Reward amount"
                         type="number"
                       />
                       <input
                         className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+                        aria-label="Reward notes"
                         name="rewardNotes"
                         placeholder="Reward notes"
                       />

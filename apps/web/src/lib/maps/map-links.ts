@@ -28,7 +28,16 @@ const AT_SEGMENT = /@(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/;
 const OSM_HASH = /map=\d+(?:\.\d+)?\/(-?\d{1,2}(?:\.\d+)?)\/(-?\d{1,3}(?:\.\d+)?)/;
 
 /** Query params that different map apps use to carry a point or a place name. */
-const POINT_PARAMS = ["q", "query", "ll", "sll", "center", "daddr", "destination", "viewpoint"];
+const POINT_PARAMS = [
+  "q",
+  "query",
+  "ll",
+  "sll",
+  "center",
+  "daddr",
+  "destination",
+  "viewpoint",
+];
 
 /** Hosts whose links are opaque redirects until followed. */
 const SHORTENERS = ["goo.gl", "maps.app.goo.gl", "g.co", "bit.ly", "osm.org"];
@@ -194,7 +203,8 @@ export async function resolveShortLink(url: string): Promise<ParsedMapLink | nul
     return null;
   }
 
-  const fromFinalUrl = response.url && response.url !== url ? parseMapLink(response.url) : null;
+  const fromFinalUrl =
+    response.url && response.url !== url ? parseMapLink(response.url) : null;
   if (fromFinalUrl && fromFinalUrl.kind !== "shortLink") {
     return fromFinalUrl;
   }

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
   connectToDatabase: vi.fn(),
   hostelFindOne: vi.fn(),
+  markReferralConverted: vi.fn(),
   notificationCreate: vi.fn(),
   paymentFind: vi.fn(),
   paymentFindOne: vi.fn(),
@@ -85,6 +86,12 @@ vi.mock("@hostel/db/models/PlatformSetting", () => ({
 
 vi.mock("@hostel/shared/email/sender", () => ({ sendEmail: mocks.sendEmail }));
 
+// Verifying a proof also converts the referral that brought the resident in;
+// that path has its own tests in referral-conversion.test.ts.
+vi.mock("@/modules/referrals/referral.service", () => ({
+  markReferralConverted: mocks.markReferralConverted,
+}));
+
 import {
   approvePaymentProof,
   generateMonthlyPayments,
@@ -121,6 +128,7 @@ function queryResult<T>(value: T) {
 describe("fee management", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.markReferralConverted.mockResolvedValue({ converted: false });
     mocks.platformSettingFindOne.mockReturnValue(leanResult(null));
     mocks.hostelFindOne.mockReturnValue(queryResult({ name: "Sunrise Hostel" }));
     mocks.residentFindOne.mockReturnValue(leanResult(null));
@@ -204,6 +212,7 @@ describe("fee management", () => {
 describe("payment proof verification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.markReferralConverted.mockResolvedValue({ converted: false });
     mocks.platformSettingFindOne.mockReturnValue(leanResult(null));
     mocks.hostelFindOne.mockReturnValue(queryResult({ name: "Sunrise Hostel" }));
     mocks.residentFindOne.mockReturnValue(leanResult(null));
@@ -253,9 +262,8 @@ describe("payment proof verification", () => {
         submittedBy: new Types.ObjectId(staffPrincipal.userId),
       }),
     );
-    mocks.receiptCreate.mockImplementation(
-      (input: Record<string, unknown>) =>
-        Promise.resolve({ ...input, _id: new Types.ObjectId(), issuedAt: new Date() }),
+    mocks.receiptCreate.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve({ ...input, _id: new Types.ObjectId(), issuedAt: new Date() }),
     );
   }
 
@@ -347,18 +355,17 @@ describe("payment proof verification", () => {
     // underneath us), so the retry must add 3000 to 3000, not to 0.
     mocks.paymentFindOneAndUpdate
       .mockReturnValueOnce(leanResult(null))
-      .mockImplementation(
-        (_filter: unknown, update: { $set: Record<string, unknown> }) =>
-          leanResult({
-            _id: paymentId,
-            dueAmount: 10000,
-            dueDate: new Date("2030-07-05T00:00:00.000Z"),
-            hostelId: new Types.ObjectId(hostelId),
-            month: "2030-07",
-            paidAmount: update.$set.paidAmount,
-            residentId: residentAId,
-            status: update.$set.status,
-          }),
+      .mockImplementation((_filter: unknown, update: { $set: Record<string, unknown> }) =>
+        leanResult({
+          _id: paymentId,
+          dueAmount: 10000,
+          dueDate: new Date("2030-07-05T00:00:00.000Z"),
+          hostelId: new Types.ObjectId(hostelId),
+          month: "2030-07",
+          paidAmount: update.$set.paidAmount,
+          residentId: residentAId,
+          status: update.$set.status,
+        }),
       );
     mocks.paymentFindOne.mockReturnValue(
       leanResult({

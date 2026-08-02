@@ -10,14 +10,14 @@ function MapSkeleton() {
 }
 
 // Leaflet touches `window`, so never render it on the server.
-const LeafletMap = dynamic(
-  () => import("./leaflet-map").then((mod) => mod.LeafletMap),
-  { loading: MapSkeleton, ssr: false },
-);
-const GoogleMap = dynamic(
-  () => import("./google-map").then((mod) => mod.GoogleMap),
-  { loading: MapSkeleton, ssr: false },
-);
+const LeafletMap = dynamic(() => import("./leaflet-map").then((mod) => mod.LeafletMap), {
+  loading: MapSkeleton,
+  ssr: false,
+});
+const GoogleMap = dynamic(() => import("./google-map").then((mod) => mod.GoogleMap), {
+  loading: MapSkeleton,
+  ssr: false,
+});
 
 /**
  * Renders a hostel's location. Provider is chosen at runtime (Google when a

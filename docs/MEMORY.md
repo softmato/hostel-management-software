@@ -9,7 +9,7 @@ This file is the project's working memory across coding sessions. Update it ever
 - **2026-07-14** — Full `docs/` set created: README, PRD, ARCHITECTURE, DATABASE (MongoDB+Mongoose), EMAIL_SYSTEM, FOLDER_STRUCTURE, PHASES, RULES, DESIGN, CODING_STANDARDS, ENVIRONMENT, TESTING, MEMORY, CHANGELOG. No code written yet.
 - **2026-07-14 (Late)** — Documentation updated with 7 major new features: Cook Portal, Community Feature, Location Tracking/Auto-Attendance, QuestionCall Integration, Advanced Notifications, Configuration System, Privacy Policy. All features integrated into DATABASE.md, API.md, PHASES.md, ARCHITECTURE.md, RULES.md, PRIVACY_POLICY.md.
 - **2026-07-20 — Phase 1 alignment session (IMPORTANT CONTEXT):** Contrary to the older note above, a large codebase ALREADY EXISTED in `apps/web` (built under the deleted `sprints.md` spec: 60+ models, 18 service modules, all portals, `/api/v1/*` routes, OTP-based auth). This session aligned it to `docs/`:
-  1. **Monorepo scaffold** — root `package.json` with npm workspaces (`apps/web`, `packages/db`, `packages/shared`) + `turbo.json` + turbo devDependency. **Deviation:** npm workspaces instead of pnpm (pnpm not installed on the machine; corepack shim needs admin). `packages/database` and `packages/ui` are obsolete empty placeholders — delete manually (agent tooling blocked deletes).
+  1. **Monorepo scaffold** — root `package.json` with npm workspaces (`apps/web`, `packages/db`, `packages/shared`) + `turbo.json` + turbo devDependency. **Deviation:** npm workspaces instead of pnpm — settled 2026-08-02, npm is the package manager, not a temporary workaround. `packages/database` and `packages/ui` were obsolete empty placeholders; both are gone (`packages/` now holds only `db` and `shared`).
   2. **packages/db** — all 61 Mongoose models moved from `apps/web/src/models` (git mv, history preserved), `connection.ts`, `seed.ts` (SUPERADMIN, run via `npm run db:seed`), `migrate-roles.ts` (one-shot legacy→canonical role migration; NOT yet run against the dev DB). `apps/web` imports via `@hostel/db/models/*`; `@/lib/db` is a thin re-export.
   3. **packages/shared** — canonical `Role` enum + `LEGACY_ROLE_MAP`, all DATABASE.md enums, auth Zod schemas, `sendEmail()` (Resend REST; logs + no-throw when unconfigured), 7 Phase 1 email templates (**deviation:** plain `.ts` HTML-string templates, not React Email `.tsx`).
   4. **Role alignment** — `PLATFORM_OWNER→SUPERADMIN`, `HOSTEL_OWNER→HOSTEL_ADMIN` (merged), `PUBLIC_USER→PUBLIC`, `SERVICE_PROVIDER` role removed (directory only), added `PLATFORM_MODERATOR` + `COOK`. Updated route-access, permissions, seed/demo scripts. **Existing dev-DB users still carry legacy role strings until `migrate-roles.ts` is run.**
@@ -51,7 +51,31 @@ This file is the project's working memory across coding sessions. Update it ever
 
 ## Current Progress
 
-- **Phase:** Phases 1-4 closed out (2026-08-01). All code-side deliverables for Phases 1-4 are done; what remains in each is external infra or a seeded-DB acceptance pass. Phase 5 is next.
+- **Phase:** Phases 1-5 closed out (2026-08-01). All code-side deliverables for Phases 1-5 are done; what remains in each is external infra, a Lighthouse/contrast audit, or a seeded-DB acceptance pass. **Phase 6 (mobile) is next.**
+- **Status (2026-08-01, Phase 5):** build green, typecheck + lint clean, **338/338** unit tests across
+  50 files. Same pattern as Phase 4 — most of the surface existed, and the gaps that mattered were
+  defects or missing halves rather than blank files:
+  1. **Referrals never converted.** `Referral.converted` — the metric §5.1 is built around — was
+     written by nothing at all, and there was no way to attach a walk-in registration to a referrer.
+     Both closed; and `confirmReferralJoined` was double-counting `joinedCount` on every call.
+  2. **`PLATFORM_MODERATOR` was a superadmin.** The code described it as "acting superadmin" with the
+     whole platform portal including website config, which is the opposite of what §5.1 specifies.
+     Config, fee plans, settings, report exports and platform broadcasts are now superadmin-only at
+     the route rule and at every API guard.
+  3. **Platform ceilings were decorative.** `HostelSettings.attendance` maxima existed in the schema,
+     but `updateAttendanceSettings` never checked them against platform config — so a hostel could
+     set a wider geofence and, more importantly, keep raw location rows longer than the platform
+     allows. Now enforced, with tests.
+  4. **20 inputs had no accessible name**, including both login fields and the OTP boxes.
+  5. **Three user-supplied search strings reached `new RegExp()` unescaped.**
+  Built from scratch: the public service-provider directory, the whole QuestionCall integration,
+  notification campaigns (authoring, targeting, scheduling, dispatch cron, delivery stats), the
+  hostel settings page, food + attendance analytics, and CSV export for both report surfaces.
+- **Phase 5 remaining (not code):** the §5.2 acceptance pass against a seeded DB, a Lighthouse run,
+  a WCAG colour-contrast audit, Playwright E2E (needs the same seeded DB), one cron-job.org entry
+  for `/api/v1/cron/notification-dispatch`, and the Vercel/R2/Resend/Sentry deployment steps.
+  Deliberately **not built** in Phase 5: subscription billing (outside the pilot schema), community
+  engagement analytics, and cancelling a scheduled notification campaign.
 - **Status (2026-08-01, Phase 4):** build green, typecheck + lint clean, **302/302** unit tests pass.
   As expected from the resume note, most of the Phase 4 surface already existed and the work was
   closing gaps in it — but three of those gaps were defects rather than omissions:
@@ -160,6 +184,41 @@ and a multi-hostel warden is correctly limited per hostel. No grant anywhere →
   Warden Management, where each gets their own real mailbox and the §3.2 upgrade path applies.
   Form copy was corrected to stop promising otherwise.
 
+### 2026-08-01 session — Phase 5, decisions worth keeping
+
+**Referral conversion belongs to the payment path, not a cron.** `markReferralConverted` is called
+from `approvePaymentProof` after the money is credited, filtered on `converted: { $ne: true }` so it
+is idempotent, and it swallows its own errors. A referral bookkeeping failure must never turn a
+verified payment into a failed request.
+
+**A campaign and its receipts, not a campaign with a counter.** The drafted `Notification` carried a
+`deliveryStats` object. Counting the per-recipient rows instead cannot drift, and stays correct when
+someone opens a months-old notification. This is also why `NotificationReceipt` was not built — the
+`Notification` row already *is* the receipt.
+
+**Guardian audiences resolve through `GuardianAccess`, not `Guardian`.** A `Guardian` row is a
+contact detail the hostel holds; `GuardianAccess` with `status: ACTIVE` and a `userId` is somebody
+with a login who can actually receive something.
+
+**Exports are aggregates, never row dumps.** A CSV of every resident would put names and phone
+numbers in a downloaded file for no reporting benefit, so each report groups first. Every cell is
+also formula-injection-neutralised (`=`, `+`, `-`, `@` get a leading apostrophe) because hostel names
+and complaint titles are user-supplied and Excel executes them on open.
+
+**No CSP, deliberately.** Next's hydration needs a per-request nonce or `'unsafe-inline'`, and a
+policy containing `'unsafe-inline'` provides no protection while looking like it does. The reasoning
+is recorded in `next.config.ts` next to the five headers that *are* set. XSS is currently held off by
+React escaping — verified: `dangerouslySetInnerHTML` appears nowhere in the app.
+
+**Food "delay" is measured against the hostel's own routine.** A 19:00 dinner is late in one hostel
+and early in another, so the analytics compare `FoodReadyLog.announcedAt` to
+`FoodRoutine.timings[meal]`. A meal with no published timing reports its announcement count and *no*
+delay figure rather than an invented one. Attribution is per **device**, not per person — cook
+credentials are shared kitchen-wide by design (see the 2026-07-23 note below).
+
+**"Present" includes NEARBY.** In attendance analytics a resident at the gate is not absent, so the
+rate counts INSIDE + NEARBY over total readings.
+
 ### 2026-07-23 session — Phase 3, what was done
 1. **Operations config** — new `PlatformSetting` key `operations` (`modules/platform-config/operations-config.ts`): `qrActivationExpiryDays`, `paymentReminderDaysBefore`, `sendNoticeEmails`, `sendPaymentEmails`, `receiptNumberPrefix`. Deliberately kept separate from the public site-config sections so a website edit can never change activation/payment behaviour. Reads never throw — bad or missing document → shipped defaults.
 2. **QR activation** — added `qrcode`; `generateActivationCode` now renders the activation link as a QR PNG, stores it via the new `lib/public-upload.ts` (R2 when `R2_PUBLIC_URL` is configured, else `public/uploads/activation-qr/`), and emails the resident. Expiry defaults from config instead of a client-supplied `expiresInHours`. `/resident-activation` prefills `?code=` (wrapped in Suspense).
@@ -184,13 +243,39 @@ and a multi-hostel warden is correctly limited per hostel. No grant anywhere →
 
 ## RESUME POINT (next session starts here)
 
-**Phases 1–4 are code-complete.** Next code work is **Phase 5 — Growth, Maintenance & Polish**
-(PHASES.md §5): service providers, hostel maintenance, comparison, referrals, duplicate/ghost
-listing detection, reports, production hardening. As with Phase 4, much of that surface already
-exists (`modules/service-providers`, `modules/maintenance`, `modules/referrals`,
-`modules/listing-flags`, `modules/reports` are all present) — **audit before writing**. Phase 5 also
-inherits three things deferred out of Phase 4 on purpose: attendance analytics, community analytics,
-and an admin-side per-resident attendance calendar.
+**Phases 1–5 are code-complete on the server side.** A 2026-08-02 docs-vs-code
+audit found the remaining gaps and opened `TODO.md` at the repo root as the
+tracker — read that before starting anything. The short version: pagination is
+specified in API.md §1.4 and implemented nowhere, three events notify nobody
+(public inquiry, hostel-pending, service-provider status), account deletion is
+specified in four documents and built in none, and there is no multi-tenant
+isolation test suite despite it being the highest-priority item in TESTING.md.
+
+**`apps/mobile` is NOT a stub — that claim was wrong.** Verified 2026-08-02:
+17 screens (~2,200 lines), a 32-function typed API client, secure token store,
+React Navigation stack, and **working QR camera activation** via `expo-camera`.
+`npm run mobile:typecheck` is clean. See `MOBILE_STATUS.md`, which is now the
+authoritative file for mobile state.
+
+What Phase 6 actually still needs: push notification **receipt** on device
+(`expo-notifications` is not installed) and **delivery** from the server (Track
+C1 — via the Expo push service, so no Firebase Admin SDK), the background
+location service (`expo-location` + `expo-task-manager`), guardian and cook
+screens, a global floating SOS button, and real Google sign-in.
+
+Phase 6 inherits several things deferred on purpose, all already server-ready:
+- The **background location ping** service — `POST /api/v1/resident/location/ping` is live and the
+  zone maths is tested; only the device side is missing.
+- **Push notifications** — `DeviceToken` and the notification fan-out exist; FCM/APNS delivery does
+  not. Every "sends push" line in Phases 3–5 means "wrote an in-app Notification" today.
+- **Cook mobile screens** — `/api/v1/cook/food-ready` works and the analytics read its output.
+- **Scanning a resident-ID QR** during registration — the lookup endpoint already parses a scanned
+  URL; the web path uses manual entry because there is no camera dependency yet.
+- A **global floating SOS button**, which needs the mobile shell.
+
+Phase 5 leftovers are external: the §5.2 acceptance pass against a seeded DB, a Lighthouse run, a
+WCAG contrast audit, Playwright E2E (same seeded-DB blocker), one cron-job.org entry for
+`/api/v1/cron/notification-dispatch` (every 15 min), and the deployment steps in §5.1.
 
 Phase 4 leftovers are external: the §4.2 acceptance pass against a seeded DB, and cron-job.org
 entries for `/api/v1/cron/complaint-sla` (daily) and `/api/v1/cron/attendance-maintenance` (daily).
@@ -213,13 +298,15 @@ The older Phase 1 infra list below is still open and still **external/infra or d
    - Dedicated `packages/db/src/repositories/` layer — tenant scoping is functionally covered by `apps/web/src/modules/*` services + `lib/tenant.ts`.
    - Field-level alignment of all ~60 models + Phase 3–5 model creation — phase discipline defers future-phase work.
 3. **Known deviations from docs (decided 2026-07-20, revisit deliberately, don't "fix" casually):**
-   - npm workspaces + turbo instead of pnpm (pnpm needs admin install; switch later via `corepack enable`).
+   - **npm workspaces + turbo, not pnpm.** No longer treated as a deviation to
+     revisit — npm is the package manager, `package-lock.json` is the lockfile,
+     and every doc was corrected to match on 2026-08-02. Do not "switch back".
    - API is under `/api/v1/*` throughout ("platform" naming instead of docs' "superadmin", "wardens" instead of "staff"). **The `/api/auth/*` duplicate surface was removed 2026-08-01** — keeping both had left the live login without a rate limit. One surface only; recorded in API.md §1.5.
    - Response envelope is `{ success, message, data }` / `{ success, message, errorCode, details? }`, and API.md now documents exactly that (updated 2026-08-01).
    - Email templates are `.ts` HTML-string functions, not React Email `.tsx`.
    - Google auth = Google Identity Services ID-token POST (server-verified), not GET redirect+callback (no GOOGLE_CLIENT_SECRET in env).
    - Hostel model keeps old shape (slug/location object, `PENDING_APPROVAL`/`PUBLISHED` statuses) vs DATABASE.md — reconcile in Phase 2 public-discovery work.
-   - `packages/database` + `packages/ui` are dead placeholder dirs — delete manually.
+   - ~~`packages/database` + `packages/ui` are dead placeholder dirs~~ — deleted; verified gone 2026-08-02.
 
 ---
 
@@ -260,7 +347,7 @@ The older Phase 1 infra list below is still open and still **external/infra or d
 | Maps | **OpenStreetMap + Leaflet** (default) with runtime fallback to **Google Maps Platform** if env configured | ARCHITECTURE.md §4 |
 | Mobile timing | **Phase 6** (post web-launch, ~2-3 weeks after Phase 5) | PHASES.md, PRD.md §6 |
 | Payments (v1) | **Manual proof upload + admin verification only**, no live gateway | ARCHITECTURE.md §6, PRD.md §5 |
-| Monorepo | **Turborepo + pnpm workspaces** | FOLDER_STRUCTURE.md |
+| Monorepo | **Turborepo + npm workspaces** | FOLDER_STRUCTURE.md |
 | Timeline | **5 weeks for web** (Phases 1-5) + **2-3 weeks for mobile** (Phase 6) = ~7-8 weeks total | PRD.md, PHASES.md |
 
 ---
@@ -272,7 +359,7 @@ The older Phase 1 infra list below is still open and still **external/infra or d
 - Mongoose (ODM)
 - Next.js 14+ App Router (full-stack framework)
 - TypeScript (strict mode)
-- Turborepo + pnpm (monorepo)
+- Turborepo + npm workspaces (monorepo)
 
 **Frontend:**
 - React 18+

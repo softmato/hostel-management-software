@@ -3,13 +3,20 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
+import { escapeRegex } from "@/lib/validators";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { ServiceProviderApplicationModel } from "@hostel/db/models/ServiceProviderApplication";
 import { ServiceProviderDocumentModel } from "@hostel/db/models/ServiceProviderDocument";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
+import { appUrl, sendNotificationEmail } from "@/modules/residents/resident-notify";
+import { serviceProviderApprovedEmail } from "@hostel/shared/email/templates/service-provider/provider-approved";
+import { serviceProviderRegistrationReceivedEmail } from "@hostel/shared/email/templates/service-provider/registration-received";
+import { serviceProviderRejectedEmail } from "@hostel/shared/email/templates/service-provider/provider-rejected";
 import type {
   hostelAdminServiceProviderListQuerySchema,
   platformServiceProviderListQuerySchema,
+  publicServiceProviderListQuerySchema,
   serviceProviderRegisterSchema,
   serviceProviderRejectSchema,
 } from "@/modules/service-providers/service-provider.validation";
@@ -22,6 +29,9 @@ type HostelAdminServiceProviderListQuery = z.infer<
   typeof hostelAdminServiceProviderListQuerySchema
 >;
 type ServiceProviderRejectInput = z.infer<typeof serviceProviderRejectSchema>;
+type PublicServiceProviderListQuery = z.infer<
+  typeof publicServiceProviderListQuerySchema
+>;
 
 type ServiceProviderStatus =
   | "PENDING_APPROVAL"
@@ -40,6 +50,7 @@ type ServiceProviderRecord = {
   city?: string;
   createdAt?: Date;
   description?: string;
+  email?: string;
   experience?: string;
   fullName: string;
   hiddenAt?: Date;
@@ -90,6 +101,13 @@ function normalizeObjectId(value: string, label = "id") {
   return new Types.ObjectId(value);
 }
 
+/** `DOCTOR_CLINIC` → `Doctor clinic`, for email copy. */
+function providerCategoryLabel(category: string) {
+  const words = category.toLowerCase().split("_");
+
+  return words.map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word)).join(" ");
+}
+
 function serializeProvider(provider: ServiceProviderRecord) {
   return {
     approvedAt: provider.approvedAt?.toISOString(),
@@ -100,6 +118,7 @@ function serializeProvider(provider: ServiceProviderRecord) {
     city: provider.city ?? "Kathmandu",
     createdAt: provider.createdAt?.toISOString(),
     description: provider.description ?? "",
+    email: provider.email ?? "",
     experience: provider.experience ?? "",
     fullName: provider.fullName,
     hiddenAt: provider.hiddenAt?.toISOString(),
@@ -204,6 +223,7 @@ export async function registerPublicServiceProvider(input: ServiceProviderRegist
     category: input.category,
     city: input.city,
     description: input.description,
+    email: input.email,
     experience: input.experience,
     fullName: input.fullName,
     phone: input.phone,
@@ -239,6 +259,19 @@ export async function registerPublicServiceProvider(input: ServiceProviderRegist
     isDeleted: false,
   }).lean<ServiceProviderDocumentRecord[]>();
 
+  // EMAIL_SYSTEM.md §6.1. Optional address, wrapped send — the listing is
+  // already persisted and must not fail on a mail problem.
+  if (provider.email) {
+    await sendNotificationEmail({
+      action: "service_provider_registration_received",
+      to: provider.email,
+      ...serviceProviderRegistrationReceivedEmail({
+        category: providerCategoryLabel(provider.category),
+        fullName: provider.fullName,
+      }),
+    });
+  }
+
   return {
     application: serializeApplication(application),
     documents: documents.map(serializeDocument),
@@ -267,12 +300,19 @@ export async function listPlatformServiceProviders(
     filter.status = query.status;
   }
 
-  const providers = await ServiceProviderModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(120)
-    .lean<ServiceProviderRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [providers, total] = await Promise.all([
+    ServiceProviderModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ServiceProviderRecord[]>(),
+    ServiceProviderModel.countDocuments(filter),
+  ]);
 
   return {
+    pagination: paginationMeta(query, total),
     providers: providers.map(serializeProvider),
   };
 }
@@ -349,6 +389,29 @@ async function updateProviderStatus(
     status,
   });
 
+  // EMAIL_SYSTEM.md §6.2 / §6.3. HIDDEN is deliberately silent — hiding is a
+  // moderation action, not a decision the provider is owed an email about.
+  if (provider.email && (status === "APPROVED" || status === "REJECTED")) {
+    const email =
+      status === "APPROVED"
+        ? serviceProviderApprovedEmail({
+            category: providerCategoryLabel(provider.category),
+            directoryUrl: appUrl("/service-providers"),
+            fullName: provider.fullName,
+          })
+        : serviceProviderRejectedEmail({
+            fullName: provider.fullName,
+            reason: input?.reason,
+          });
+
+    await sendNotificationEmail({
+      action: `service_provider_${status.toLowerCase()}`,
+      html: email.html,
+      subject: email.subject,
+      to: provider.email,
+    });
+  }
+
   return providerBundle(provider);
 }
 
@@ -390,7 +453,7 @@ export async function listApprovedServiceProvidersForHostel(
   };
 
   if (query.area) {
-    filter.area = new RegExp(query.area, "i");
+    filter.area = new RegExp(escapeRegex(query.area), "i");
   }
 
   if (query.category) {
@@ -398,7 +461,7 @@ export async function listApprovedServiceProvidersForHostel(
   }
 
   if (query.q) {
-    const pattern = new RegExp(query.q, "i");
+    const pattern = new RegExp(escapeRegex(query.q), "i");
     filter.$or = [
       { fullName: pattern },
       { phone: pattern },
@@ -407,13 +470,88 @@ export async function listApprovedServiceProvidersForHostel(
     ];
   }
 
-  const providers = await ServiceProviderModel.find(filter)
-    .sort({ category: 1, area: 1, fullName: 1 })
-    .limit(100)
-    .lean<ServiceProviderRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [providers, total] = await Promise.all([
+    ServiceProviderModel.find(filter)
+      .sort({ category: 1, area: 1, fullName: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ServiceProviderRecord[]>(),
+    ServiceProviderModel.countDocuments(filter),
+  ]);
 
   return {
+    pagination: paginationMeta(query, total),
     providers: providers.map(serializeProvider),
+  };
+}
+
+/**
+ * Public directory listing. Deliberately **not** {@link serializeProvider}: the
+ * phone number is the provider's private contact detail and stays behind the
+ * hostel-admin endpoint (PHASES.md §5.1 — "Contact info visible only to hostel
+ * admins"). The public sees a verified profile and nothing to cold-call.
+ */
+function serializePublicProvider(provider: ServiceProviderRecord) {
+  return {
+    area: provider.area,
+    availability: provider.availability ?? "",
+    category: provider.category,
+    city: provider.city ?? "Kathmandu",
+    description: provider.description ?? "",
+    experience: provider.experience ?? "",
+    fullName: provider.fullName,
+    id: provider._id.toString(),
+    photoAssetId: provider.photoAssetId?.toString(),
+    ratingSummary: provider.ratingSummary ?? { averageRating: 0, totalReviews: 0 },
+    verified: true,
+  };
+}
+
+export async function listPublicServiceProviders(query: PublicServiceProviderListQuery) {
+  await connectToDatabase();
+
+  // Location narrows what is *countable*; category only narrows what is listed.
+  // Keeping them apart means the category chips still show how many providers
+  // sit behind each one while a category is selected.
+  const scopeFilter: Record<string, unknown> = {
+    isDeleted: false,
+    // HIDDEN and INACTIVE providers are approved but must not surface here.
+    status: "APPROVED",
+  };
+
+  if (query.area) {
+    scopeFilter.area = new RegExp(escapeRegex(query.area), "i");
+  }
+
+  if (query.city) {
+    scopeFilter.city = new RegExp(escapeRegex(query.city), "i");
+  }
+
+  const [providers, counts] = await Promise.all([
+    ServiceProviderModel.find({
+      ...scopeFilter,
+      ...(query.category ? { category: query.category } : {}),
+    })
+      .sort({ category: 1, area: 1, fullName: 1 })
+      .limit(120)
+      .lean<ServiceProviderRecord[]>(),
+    ServiceProviderModel.aggregate<{ _id: string; count: number }>([
+      { $match: scopeFilter },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const countsByCategory = counts.reduce<Record<string, number>>((totals, entry) => {
+    totals[entry._id] = entry.count;
+    return totals;
+  }, {});
+
+  return {
+    countsByCategory,
+    providers: providers.map(serializePublicProvider),
+    total: counts.reduce((sum, entry) => sum + entry.count, 0),
   };
 }
 

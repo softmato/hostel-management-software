@@ -15,11 +15,7 @@ import {
 } from "@/app/_components/portal-dashboard-ui";
 import { usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
-import {
-  type ResidentDashboard,
-  type ResidentSummary,
-  Message,
-} from "./resident-shared";
+import { type ResidentDashboard, type ResidentSummary, Message } from "./resident-shared";
 
 type Profile = {
   emergencyContacts: Array<{
@@ -137,7 +133,11 @@ export const ResidentProfilePageContent = memo(function ResidentProfilePageConte
           <div className="grid gap-5 md:grid-cols-2">
             <SectionCard title="Personal Information">
               <div className="divide-y divide-border/50">
-                <InfoRow icon={UserRound} label="Full name" value={profile.resident.fullName} />
+                <InfoRow
+                  icon={UserRound}
+                  label="Full name"
+                  value={profile.resident.fullName}
+                />
                 <InfoRow icon={Phone} label="Phone" value={profile.resident.phone} />
                 <InfoRow icon={Mail} label="Email" value={profile.resident.email} />
                 <InfoRow
@@ -149,7 +149,8 @@ export const ResidentProfilePageContent = memo(function ResidentProfilePageConte
             </SectionCard>
 
             <SectionCard title="Contacts">
-              {profile.guardians.length === 0 && profile.emergencyContacts.length === 0 ? (
+              {profile.guardians.length === 0 &&
+              profile.emergencyContacts.length === 0 ? (
                 <EmptyInline label="No guardians or emergency contacts yet." />
               ) : (
                 <div className="space-y-2.5">

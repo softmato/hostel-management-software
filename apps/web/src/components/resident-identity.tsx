@@ -169,11 +169,7 @@ function Modal({
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-4">
-      <div
-        aria-hidden
-        className="absolute inset-0"
-        onClick={onClose}
-      />
+      <div aria-hidden className="absolute inset-0" onClick={onClose} />
       <div
         aria-modal
         className={cn(
@@ -415,52 +411,49 @@ function ProfileForm({
     setSaving(true);
 
     try {
-      const next = await browserApi<IdentityResponse>(
-        "/api/v1/users/resident-identity",
-        {
-          body: JSON.stringify({
-            profile: {
-              alternatePhone: optional("alternatePhone"),
-              backupEmail: optional("backupEmail"),
-              bloodGroup: text("bloodGroup"),
-              budgetRange: optional("budgetRange"),
-              city: optional("city"),
-              courseOrDesignation: optional("courseOrDesignation"),
-              dateOfBirth: optional("dateOfBirth"),
-              dietaryPreference: text("dietaryPreference"),
-              emergencyContactName: optional("emergencyContactName"),
-              emergencyContactPhone: optional("emergencyContactPhone"),
-              emergencyContactRelation: optional("emergencyContactRelation"),
-              fullName: text("fullName"),
-              gender: text("gender"),
-              governmentIdNumber: optional("governmentIdNumber"),
-              governmentIdType: optional("governmentIdType"),
-              guardianEmail: optional("guardianEmail"),
-              guardianName: text("guardianName"),
-              guardianPhone: text("guardianPhone"),
-              guardianRelation: text("guardianRelation"),
-              institution: optional("institution"),
-              interests: text("interests")
-                .split(",")
-                .map((entry) => entry.trim())
-                .filter(Boolean)
-                .slice(0, 12),
-              medicalNotes: optional("medicalNotes"),
-              occupation: text("occupation"),
-              permanentAddress: optional("permanentAddress"),
-              primaryEmail: text("primaryEmail"),
-              primaryPhone: text("primaryPhone"),
-              province: optional("province"),
-              secondGuardianEmail: optional("secondGuardianEmail"),
-              secondGuardianName: optional("secondGuardianName"),
-              secondGuardianPhone: optional("secondGuardianPhone"),
-              secondGuardianRelation: optional("secondGuardianRelation"),
-            },
-            sharingEnabled: form.get("sharingEnabled") === "on",
-          }),
-          method: "PUT",
-        },
-      );
+      const next = await browserApi<IdentityResponse>("/api/v1/users/resident-identity", {
+        body: JSON.stringify({
+          profile: {
+            alternatePhone: optional("alternatePhone"),
+            backupEmail: optional("backupEmail"),
+            bloodGroup: text("bloodGroup"),
+            budgetRange: optional("budgetRange"),
+            city: optional("city"),
+            courseOrDesignation: optional("courseOrDesignation"),
+            dateOfBirth: optional("dateOfBirth"),
+            dietaryPreference: text("dietaryPreference"),
+            emergencyContactName: optional("emergencyContactName"),
+            emergencyContactPhone: optional("emergencyContactPhone"),
+            emergencyContactRelation: optional("emergencyContactRelation"),
+            fullName: text("fullName"),
+            gender: text("gender"),
+            governmentIdNumber: optional("governmentIdNumber"),
+            governmentIdType: optional("governmentIdType"),
+            guardianEmail: optional("guardianEmail"),
+            guardianName: text("guardianName"),
+            guardianPhone: text("guardianPhone"),
+            guardianRelation: text("guardianRelation"),
+            institution: optional("institution"),
+            interests: text("interests")
+              .split(",")
+              .map((entry) => entry.trim())
+              .filter(Boolean)
+              .slice(0, 12),
+            medicalNotes: optional("medicalNotes"),
+            occupation: text("occupation"),
+            permanentAddress: optional("permanentAddress"),
+            primaryEmail: text("primaryEmail"),
+            primaryPhone: text("primaryPhone"),
+            province: optional("province"),
+            secondGuardianEmail: optional("secondGuardianEmail"),
+            secondGuardianName: optional("secondGuardianName"),
+            secondGuardianPhone: optional("secondGuardianPhone"),
+            secondGuardianRelation: optional("secondGuardianRelation"),
+          },
+          sharingEnabled: form.get("sharingEnabled") === "on",
+        }),
+        method: "PUT",
+      });
 
       onSaved(next);
     } catch (saveError) {
@@ -476,10 +469,9 @@ function ProfileForm({
         <div className="flex gap-3 rounded-xl border border-brand-teal/25 bg-brand-teal-soft/35 p-4">
           <ShieldCheck className="size-5 shrink-0 text-brand-teal" />
           <p className="text-sm leading-relaxed text-foreground">
-            Everything below is encrypted before it is stored. Nobody can read it
-            from your resident ID alone — a hostel only receives it when you show
-            them your QR code or hand over your ID, and you can switch sharing off
-            at any time.
+            Everything below is encrypted before it is stored. Nobody can read it from
+            your resident ID alone — a hostel only receives it when you show them your QR
+            code or hand over your ID, and you can switch sharing off at any time.
           </p>
         </div>
 
@@ -760,8 +752,8 @@ function ProfileForm({
         <div className="space-y-3">
           <SectionTitle label="Government ID" />
           <p className="text-sm text-foreground">
-            Hostels are required to record one. Filling it here means you do not
-            have to read it out at the desk.
+            Hostels are required to record one. Filling it here means you do not have to
+            read it out at the desk.
           </p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <SelectField
@@ -793,9 +785,8 @@ function ProfileForm({
             type="checkbox"
           />
           <span className="text-sm leading-relaxed text-foreground">
-            Let a hostel load these details when I show them my QR code or give
-            them my resident ID. You can turn this off later and your data stays
-            saved.
+            Let a hostel load these details when I show them my QR code or give them my
+            resident ID. You can turn this off later and your data stays saved.
           </span>
         </label>
 
@@ -890,20 +881,15 @@ function QrPanel({
     setTogglingShare(true);
 
     try {
-      const next = await browserApi<IdentityResponse>(
-        "/api/v1/users/resident-identity",
-        {
-          body: JSON.stringify({ sharingEnabled: !identity.sharingEnabled }),
-          method: "PATCH",
-        },
-      );
+      const next = await browserApi<IdentityResponse>("/api/v1/users/resident-identity", {
+        body: JSON.stringify({ sharingEnabled: !identity.sharingEnabled }),
+        method: "PATCH",
+      });
 
       onSharingChange(next.identity.sharingEnabled);
     } catch (toggleError) {
       setError(
-        toggleError instanceof Error
-          ? toggleError.message
-          : "Could not change sharing.",
+        toggleError instanceof Error ? toggleError.message : "Could not change sharing.",
       );
     } finally {
       setTogglingShare(false);
@@ -1119,9 +1105,10 @@ export function ResidentIdentityCenter({
         return { status: "unauthenticated" };
       }
 
-      const payload = (await response.json().catch(() => null)) as
-        | { data: IdentityResponse; success: true }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        data: IdentityResponse;
+        success: true;
+      } | null;
 
       if (!response.ok || !payload?.success) {
         return { status: "error" };

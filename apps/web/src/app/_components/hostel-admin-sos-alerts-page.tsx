@@ -17,10 +17,7 @@ export const HostelAdminSOSAlertsPage = memo(function HostelAdminSOSAlertsPage()
     { errorMessage: "Could not load SOS alerts." },
   );
 
-  const alerts = useMemo(
-    () => alertsResource.data?.alerts ?? [],
-    [alertsResource.data],
-  );
+  const alerts = useMemo(() => alertsResource.data?.alerts ?? [], [alertsResource.data]);
   const message = actionMessage || alertsResource.message;
 
   const update = useCallback(

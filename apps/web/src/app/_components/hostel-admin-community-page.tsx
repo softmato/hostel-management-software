@@ -103,11 +103,13 @@ export const HostelAdminCommunityPageContent = memo(
 
         {summary ? (
           <div className="grid gap-3 sm:grid-cols-3">
-            {([
-              ["Posts", summary.total],
-              ["Reported", summary.reported],
-              ["Hidden", summary.hidden],
-            ] as Array<[string, number]>).map(([label, value]) => (
+            {(
+              [
+                ["Posts", summary.total],
+                ["Reported", summary.reported],
+                ["Hidden", summary.hidden],
+              ] as Array<[string, number]>
+            ).map(([label, value]) => (
               <div className="rounded-lg border border-border bg-surface p-4" key={label}>
                 <p className="text-xs font-semibold uppercase text-muted-foreground">
                   {label}

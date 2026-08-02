@@ -316,9 +316,7 @@ export const HostelAdminMaintenancePageContent = React.memo(
 
           <Panel
             title={
-              role
-                ? `Approved ${providerRoleLabel(role)}s`
-                : "Approved Service Providers"
+              role ? `Approved ${providerRoleLabel(role)}s` : "Approved Service Providers"
             }
           >
             {state === "loading" ? <LoadingRows /> : null}

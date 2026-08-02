@@ -33,9 +33,7 @@ export function StatTile({
         {label}
       </p>
       <p className={`mt-1.5 text-2xl font-bold ${toneClass}`}>{value}</p>
-      {hint ? (
-        <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
-      ) : null}
+      {hint ? <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }

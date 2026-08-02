@@ -57,9 +57,16 @@ const rooms = await RoomModel.find({ hostelId: session.hostelId });
 ```
 
 **Enforcement:**
-- All hostel-scoped queries live in `packages/db/src/repositories/` 
-- Repository functions take `hostelId` as mandatory first parameter
-- Route handlers NEVER query Mongoose models directly — always call repository functions
+- All hostel-scoped queries live in a data-access layer that takes `hostelId` as
+  a mandatory parameter. **As built** that layer is
+  `apps/web/src/modules/<feature>/<feature>.service.ts` plus `lib/tenant.ts`,
+  not `packages/db/src/repositories/` — the repositories directory was never
+  created. Route handlers still never query Mongoose models directly; they call
+  a service. Moving to a real `packages/db` repository layer is tracked in
+  `TODO.md` Track B8.
+- Service functions take the session-derived `hostelId` (or a principal
+  carrying `hostelIds`) — never a client-supplied value
+- Route handlers NEVER query Mongoose models directly — always call a service
 - When a lookup fails the tenant check, return `404 not_found` — not `403 forbidden` — so you don't confirm to an attacker that the resource exists in another tenant
 
 **Testing:**
@@ -85,11 +92,17 @@ const rooms = await RoomModel.find({ hostelId: session.hostelId });
 **Password Security:**
 - Every admin-issued account gets `mustChangePassword = true` and is forced through a change-password screen on first login.
 - Never log a password (hashed or plain), a JWT, or a Google ID token in application logs.
-- Passwords hashed with bcrypt (cost factor 10) or argon2.
+- Passwords hashed with **bcrypt, cost factor 12** (`lib/password.ts`). Never
+  store or email a recoverable password — an issued temporary password exists
+  only in the moment it is sent.
 
 **Rate Limiting:**
-- Rate-limit `/api/auth/login` and `/api/auth/google/callback` per IP and per email.
-- Lock out after 5 failed attempts within 15 minutes.
+- Rate-limit the auth endpoints under `/api/v1/auth/*` — there is one auth
+  surface, not two. (A duplicate `/api/auth/*` tree existed until 2026-08-01;
+  the live login was the copy *without* the rate limit, which is why the
+  duplicate was deleted.)
+- Lock out after 5 failed attempts within 15 minutes, per client, per endpoint
+  namespace (`rateLimitAuthAttempts`).
 
 ---
 
@@ -135,9 +148,14 @@ const rooms = await RoomModel.find({ hostelId: session.hostelId });
 **Response Envelope:**
 - Every response uses the standard envelope from API.md §1.1:
   ```json
-  { "success": true, "data": { } }
-  { "success": false, "error": { "code": "...", "message": "...", "details": {} } }
+  { "success": true, "message": "...", "data": { } }
+  { "success": false, "message": "...", "errorCode": "...", "details": { } }
   ```
+- `errorCode` is a flat top-level field, not a nested `error` object. This was
+  reconciled the code's way on 2026-08-01: the shipped envelope was already
+  consistent across all route files, so API.md was corrected to describe it
+  rather than migrating every route to match a document. Build responses with
+  the `successResponse()` / `errorResponse()` helpers — never inline the shape.
 
 **Pagination:**
 - Every list endpoint is paginated (API.md §1.4) — never return an unbounded array.
@@ -195,8 +213,12 @@ const rooms = await RoomModel.find({ hostelId: session.hostelId });
 - Don't defer email implementation to "later" — build email triggers alongside the feature
 
 **Templates:**
-- All templates live in `packages/shared/src/email-templates/`
-- Use React Email (`.tsx` files) or Handlebars (`.hbs`) — pick one, don't mix
+- All templates live in `packages/shared/src/email/templates/<group>/`
+- Each is a plain `.ts` function returning `{ subject, html }`, built on the
+  shared `layout.ts`. **Not** React Email `.tsx` and not Handlebars — that was
+  an early draft decision, reversed during the Phase 1 alignment so
+  `packages/shared` stays framework-agnostic for the Phase 6 mobile app.
+  Don't mix a second templating approach in.
 - Test templates in development before deploying
 
 **Guardian Emails:**
@@ -456,8 +478,12 @@ _End of RULES.md_
 - INFO: General announcements, feature releases
 
 **Delivery:**
-- All notifications stored in Notification model
-- NotificationReceipt created for each recipient
+- All notifications stored in Notification model — **one row per recipient**.
+  That row *is* the receipt; there is deliberately no `NotificationReceipt`
+  collection. Counting rows cannot drift the way a `deliveryStats` counter can,
+  and it stays correct when someone opens a months-old notification.
+  `NotificationCampaign` holds the authored broadcast; the per-recipient
+  `Notification` rows hold delivery and read state.
 - Push notifications sent if mobile app installed + device token exists
 - Web notifications shown in notification center (bell icon)
 - Email sent for URGENT priority only (not all notifications)

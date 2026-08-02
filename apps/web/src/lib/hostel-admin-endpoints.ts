@@ -1,3 +1,5 @@
+import { MAX_PAGE_SIZE } from "@/lib/pagination";
+
 /**
  * Hostel admin (tenant) read endpoints.
  *
@@ -6,6 +8,24 @@
  * cache entry — and an invalidation that misses. Naming them once keeps pages
  * and their post-mutation invalidations pointing at the same key.
  */
+
+/**
+ * Explicit full page for screens that have not been given a pager yet.
+ *
+ * List endpoints default to 20 rows per page (API.md §1.4). A screen that
+ * renders the rows but has no page control would therefore show 20 and give the
+ * user no way to reach the rest — worse than the old behaviour, which at least
+ * showed 100. Asking for the maximum keeps those screens exactly as they were
+ * until each one gets a `ListPager`.
+ *
+ * **Grep for `FULL_PAGE` to find the screens still owing a pager** — the goal is
+ * that every use of this disappears. Tracked in TODO.md B1.
+ */
+export const FULL_PAGE = `pageSize=${MAX_PAGE_SIZE}`;
+
+function withFullPage(url: string) {
+  return `${url}${url.includes("?") ? "&" : "?"}${FULL_PAGE}`;
+}
 export const hostelAdminEndpoints = {
   complaints: (filters?: { category?: string; status?: string }) => {
     const params = new URLSearchParams();
@@ -13,9 +33,11 @@ export const hostelAdminEndpoints = {
     if (filters?.status) params.set("status", filters.status);
     if (filters?.category) params.set("category", filters.category);
 
-    return params.size > 0
-      ? `/api/v1/hostel-admin/complaints?${params.toString()}`
-      : "/api/v1/hostel-admin/complaints";
+    return withFullPage(
+      params.size > 0
+        ? `/api/v1/hostel-admin/complaints?${params.toString()}`
+        : "/api/v1/hostel-admin/complaints",
+    );
   },
   /** Prefix form for `useInvalidateResources` — drops every filter combination. */
   complaintsAll: "/api/v1/hostel-admin/complaints*",
@@ -24,12 +46,12 @@ export const hostelAdminEndpoints = {
   dashboardReport: "/api/v1/hostel-admin/reports/dashboard",
   foodRoutine: "/api/v1/hostel-admin/food/routine",
   foodPhotos: "/api/v1/hostel-admin/food/photos",
-  inquiries: "/api/v1/hostel-admin/inquiries",
+  inquiries: withFullPage("/api/v1/hostel-admin/inquiries"),
   maintenanceReport: "/api/v1/hostel-admin/reports/maintenance",
   maintenanceRequests: "/api/v1/hostel-admin/maintenance/requests",
   moveEvents: "/api/v1/hostel-admin/move-events",
-  nightStatus: "/api/v1/hostel-admin/night-status",
-  notices: "/api/v1/hostel-admin/notices",
+  nightStatus: withFullPage("/api/v1/hostel-admin/night-status"),
+  notices: withFullPage("/api/v1/hostel-admin/notices"),
   paymentsMatrix: (month: string) =>
     `/api/v1/hostel-admin/payments/matrix?month=${month}`,
   /** Prefix form for `useInvalidateResources` — drops every month. */
@@ -43,7 +65,7 @@ export const hostelAdminEndpoints = {
   /** Reverse direction — what address the pin sits on. */
   profileReverseGeocode: (lat: number, lng: number) =>
     `/api/v1/hostel-admin/profile/geocode?lat=${lat}&lng=${lng}`,
-  referrals: "/api/v1/hostel-admin/referrals",
+  referrals: withFullPage("/api/v1/hostel-admin/referrals"),
   reportsOverview: (month?: string) =>
     month
       ? `/api/v1/hostel-admin/reports/overview?month=${month}`
@@ -55,8 +77,8 @@ export const hostelAdminEndpoints = {
   residentFees: "/api/v1/hostel-admin/residents/fees",
   residents: "/api/v1/hostel-admin/residents",
   roomTypes: "/api/v1/hostel-admin/room-types",
-  serviceProviders: "/api/v1/hostel-admin/service-providers",
-  sosAlerts: "/api/v1/hostel-admin/sos-alerts",
-  transactions: "/api/v1/hostel-admin/payments",
+  serviceProviders: withFullPage("/api/v1/hostel-admin/service-providers"),
+  sosAlerts: withFullPage("/api/v1/hostel-admin/sos-alerts"),
+  transactions: withFullPage("/api/v1/hostel-admin/payments"),
   wardens: "/api/v1/hostel-admin/wardens",
 } as const;

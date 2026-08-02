@@ -113,7 +113,6 @@ export const PlatformPaymentsPageContent = memo(function PlatformPaymentsPageCon
   const [page, setPage] = useState(1);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
 
-
   const overview = data?.overview;
   const recent = useMemo(() => data?.recent ?? [], [data]);
   const proofs = useMemo(() => data?.proofs ?? [], [data]);
@@ -226,9 +225,9 @@ export const PlatformPaymentsPageContent = memo(function PlatformPaymentsPageCon
                 <div className="flex flex-wrap gap-2">
                   <FilterSelect
                     defaultLabel="All Hostels"
-                    options={
-                      Array.from(new Set(recent.map((payment) => payment.hostelName)))
-                    }
+                    options={Array.from(
+                      new Set(recent.map((payment) => payment.hostelName)),
+                    )}
                   />
                   <FilterSelect
                     defaultLabel="All Methods"
@@ -340,9 +339,7 @@ export const PlatformPaymentsPageContent = memo(function PlatformPaymentsPageCon
                           {proof.month} · {currency(proof.amount)}
                         </p>
                         <p className="text-[10.5px] text-muted-foreground">
-                          {proof.transactionCode
-                            ? `${proof.transactionCode} · `
-                            : ""}
+                          {proof.transactionCode ? `${proof.transactionCode} · ` : ""}
                           {relativeTime(proof.submittedAt)}
                         </p>
                       </div>
@@ -375,7 +372,10 @@ export const PlatformPaymentsPageContent = memo(function PlatformPaymentsPageCon
                         {selectedPayment.status.replaceAll("_", " ")}
                       </SoftBadge>
                     </div>
-                    <DetailField label="Receipt no." value={selectedPayment.id.slice(-8).toUpperCase()} />
+                    <DetailField
+                      label="Receipt no."
+                      value={selectedPayment.id.slice(-8).toUpperCase()}
+                    />
                     <DetailField label="For month" value={selectedPayment.month} />
                     <DetailField
                       label="Billed"

@@ -85,7 +85,9 @@ if (!dryRun) {
   );
 }
 
-log(`Repair complete. ${stranded.length} account(s) ${dryRun ? "would be" : ""} restored.`);
+log(
+  `Repair complete. ${stranded.length} account(s) ${dryRun ? "would be" : ""} restored.`,
+);
 log("Anyone currently signed in picks up the new role on their next token refresh.");
 
 await mongoose.disconnect();

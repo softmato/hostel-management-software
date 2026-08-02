@@ -233,6 +233,7 @@ export function LocationPicker({
         <div className="flex min-w-56 flex-1 items-center rounded-md border border-border bg-surface">
           <Search className="ml-3 size-4 shrink-0 text-muted-foreground" />
           <input
+            aria-label="Search a place, landmark, or paste a Google Maps link"
             className="h-11 w-full bg-transparent px-3 text-sm outline-none"
             onChange={(event) => setTypedQuery(event.target.value)}
             onKeyDown={(event) => {

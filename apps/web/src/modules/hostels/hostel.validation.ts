@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 const textArraySchema = z.array(z.string().trim().min(1).max(80)).max(40).default([]);
@@ -105,6 +107,7 @@ export const publicHostelApplicationCreateSchema = platformHostelCreateSchema
   });
 
 export const platformHostelListQuerySchema = z.object({
+  ...paginationQuerySchema,
   status: z
     .enum(["DRAFT", "PENDING_APPROVAL", "APPROVED", "PUBLISHED", "REJECTED", "SUSPENDED"])
     .optional(),
@@ -199,6 +202,7 @@ export const publicInquiryCreateSchema = z.object({
 });
 
 export const hostelAdminInquiryListQuerySchema = z.object({
+  ...paginationQuerySchema,
   ...optionalHostelScopeSchema,
   status: inquiryStatusSchema.optional(),
 });

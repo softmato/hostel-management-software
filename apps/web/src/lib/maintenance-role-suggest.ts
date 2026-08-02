@@ -337,7 +337,10 @@ const STRONG_WEIGHT = 3;
 const WEAK_WEIGHT = 1;
 
 function normalize(text: string) {
-  return ` ${text.toLowerCase().replaceAll(/[^a-z0-9\s-]/g, " ").replaceAll(/\s+/g, " ")} `;
+  return ` ${text
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9\s-]/g, " ")
+    .replaceAll(/\s+/g, " ")} `;
 }
 
 function countHits(haystack: string, keywords: string[]) {

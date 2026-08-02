@@ -1,6 +1,8 @@
 # FOLDER_STRUCTURE.md — Folder Organization
 
-Monorepo, managed with **Turborepo** + **pnpm workspaces**.
+Monorepo, managed with **Turborepo** + **npm workspaces**. Workspaces are
+declared in the root `package.json`; `package-lock.json` is the committed
+lockfile. There is no `pnpm-workspace.yaml`.
 
 ```text
 multi-hostel-platform/
@@ -391,8 +393,8 @@ multi-hostel-platform/
 ├── .gitignore
 ├── .env.example
 ├── turbo.json
-├── pnpm-workspace.yaml
-├── package.json
+├── package.json                      # npm workspaces declared here
+├── package-lock.json
 ├── tsconfig.json
 └── README.md
 ```

@@ -1,8 +1,11 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 export const noticeListQuerySchema = z.object({
+  ...paginationQuerySchema,
   category: z
     .enum(["GENERAL", "URGENT", "EVENT", "RULE", "MAINTENANCE", "PAYMENT", "FOOD"])
     .optional(),

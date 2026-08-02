@@ -14,12 +14,16 @@ export function AuthGuard({ children }: { children: ReactNode }) {
         if (r.ok) {
           setOk(true);
         } else {
-          const next = encodeURIComponent(window.location.pathname + window.location.search);
+          const next = encodeURIComponent(
+            window.location.pathname + window.location.search,
+          );
           router.replace(`/login?next=${next}`);
         }
       })
       .catch(() => {
-        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        const next = encodeURIComponent(
+          window.location.pathname + window.location.search,
+        );
         router.replace(`/login?next=${next}`);
       });
   }, [router]);

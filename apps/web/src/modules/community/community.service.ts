@@ -3,6 +3,12 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import {
+  MAX_PAGE_SIZE,
+  paginationMeta,
+  paginationRange,
+  type PaginationQuery,
+} from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { CommunityCommentModel } from "@hostel/db/models/CommunityComment";
@@ -10,6 +16,7 @@ import { CommunityPostModel } from "@hostel/db/models/CommunityPost";
 import { CommunityReactionModel } from "@hostel/db/models/CommunityReaction";
 import { CommunityReportModel } from "@hostel/db/models/CommunityReport";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { getCommunitySettings } from "@/modules/community/community-settings";
 import { maskProfanity } from "@/modules/community/profanity";
 import { UserModel } from "@hostel/db/models/User";
 import {
@@ -156,10 +163,22 @@ export async function createCommunityPost(
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
+  const settings = await getCommunitySettings(resident.hostelId);
+
+  if (!settings.enabled) {
+    throw new CommunityServiceError(
+      "The community feed is turned off for this hostel.",
+      "COMMUNITY_DISABLED",
+      403,
+    );
+  }
+
   const post = (await CommunityPostModel.create({
     authorId: principal.userId,
     authorResidentId: resident._id,
-    body: maskProfanity(input.body),
+    // The mask is a hostel-level choice; reports and hiding are the real
+    // moderation path either way.
+    body: settings.profanityFilterEnabled ? maskProfanity(input.body) : input.body,
     hostelId: resident.hostelId,
     isAnonymous: input.isAnonymous,
     mediaAssetIds: input.mediaAssetIds,
@@ -190,15 +209,19 @@ export async function listCommunityFeed(query: FeedQuery, principal: ApiPrincipa
     filter.authorId = normalizeObjectId(principal.userId, "user id");
   }
 
-  const posts = await CommunityPostModel.find(filter)
-    .sort({ isAnnouncement: -1, createdAt: -1 })
-    .limit(100)
-    .lean<PostRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [posts, total] = await Promise.all([
+    CommunityPostModel.find(filter)
+      .sort({ isAnnouncement: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<PostRecord[]>(),
+    CommunityPostModel.countDocuments(filter),
+  ]);
 
   const [names, reactions] = await Promise.all([
-    namesByUserId(
-      posts.filter((post) => !post.isAnonymous).map((post) => post.authorId),
-    ),
+    namesByUserId(posts.filter((post) => !post.isAnonymous).map((post) => post.authorId)),
     CommunityReactionModel.find({
       postId: { $in: posts.map((post) => post._id) },
       userId: normalizeObjectId(principal.userId, "user id"),
@@ -209,6 +232,7 @@ export async function listCommunityFeed(query: FeedQuery, principal: ApiPrincipa
   );
 
   return {
+    pagination: paginationMeta(query, total),
     posts: posts.map((post) =>
       serializePost(post, {
         authorName: names.get(post.authorId.toString()),
@@ -233,18 +257,29 @@ async function findVisiblePostForResident(postId: string, hostelId: Types.Object
   return post;
 }
 
-export async function listPostComments(postId: string, principal: ApiPrincipal) {
+export async function listPostComments(
+  postId: string,
+  principal: ApiPrincipal,
+  query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },
+) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
   const post = await findVisiblePostForResident(postId, resident.hostelId);
-  const comments = await CommunityCommentModel.find({
+  const commentFilter = {
     postId: post._id,
     status: "VISIBLE",
-  })
-    .sort({ createdAt: 1 })
-    .limit(200)
-    .lean<CommentRecord[]>();
+  };
+  const { limit, skip } = paginationRange(query);
+
+  const [comments, total] = await Promise.all([
+    CommunityCommentModel.find(commentFilter)
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<CommentRecord[]>(),
+    CommunityCommentModel.countDocuments(commentFilter),
+  ]);
   const names = await namesByUserId(
     comments.filter((comment) => !comment.isAnonymous).map((comment) => comment.authorId),
   );
@@ -253,6 +288,7 @@ export async function listPostComments(postId: string, principal: ApiPrincipal) 
     comments: comments.map((comment) =>
       serializeComment(comment, names.get(comment.authorId.toString())),
     ),
+    pagination: paginationMeta(query, total),
   };
 }
 
@@ -375,7 +411,9 @@ export async function deleteOwnPost(postId: string, principal: ApiPrincipal) {
       authorId: normalizeObjectId(principal.userId, "user id"),
       hostelId: resident.hostelId,
     },
-    { $set: { hiddenAt: new Date(), hiddenReason: "Removed by author", status: "HIDDEN" } },
+    {
+      $set: { hiddenAt: new Date(), hiddenReason: "Removed by author", status: "HIDDEN" },
+    },
   );
 
   if (result.matchedCount === 0) {
@@ -407,13 +445,26 @@ export async function listCommunityForModeration(
     filter.status = query.status;
   }
 
-  const posts = await CommunityPostModel.find(filter)
-    .sort({ reportCount: -1, createdAt: -1 })
-    .limit(200)
-    .lean<PostRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [posts, total] = await Promise.all([
+    CommunityPostModel.find(filter)
+      .sort({ reportCount: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<PostRecord[]>(),
+    CommunityPostModel.countDocuments(filter),
+  ]);
   const names = await namesByUserId(posts.map((post) => post.authorId));
+  // Over the whole queue, not the page — a moderator needs to know how much
+  // work is waiting, which is exactly what a page-scoped count cannot say.
+  const [hidden, reported] = await Promise.all([
+    CommunityPostModel.countDocuments({ ...filter, status: "HIDDEN" }),
+    CommunityPostModel.countDocuments({ ...filter, reportCount: { $gt: 0 } }),
+  ]);
 
   return {
+    pagination: paginationMeta(query, total),
     posts: posts.map((post) =>
       serializePost(post, {
         authorName: names.get(post.authorId.toString()),
@@ -421,9 +472,9 @@ export async function listCommunityForModeration(
       }),
     ),
     summary: {
-      hidden: posts.filter((post) => post.status === "HIDDEN").length,
-      reported: posts.filter((post) => post.reportCount > 0).length,
-      total: posts.length,
+      hidden,
+      reported,
+      total,
     },
   };
 }
@@ -456,7 +507,13 @@ export async function hideCommunityPost(
   await Promise.all([
     CommunityReportModel.updateMany(
       { postId: post._id, status: "OPEN" },
-      { $set: { reviewedAt: new Date(), reviewedBy: principal.userId, status: "ACTIONED" } },
+      {
+        $set: {
+          reviewedAt: new Date(),
+          reviewedBy: principal.userId,
+          status: "ACTIONED",
+        },
+      },
     ),
     AuditLogModel.create({
       action: "COMMUNITY_POST_HIDDEN",

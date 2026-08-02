@@ -14,9 +14,7 @@ describe("parseSearchQuery", () => {
   });
 
   it("prefers the longer area name when both match", () => {
-    expect(parseSearchQuery("rooms in New Baneshwor").filters.area).toBe(
-      "New Baneshwor",
-    );
+    expect(parseSearchQuery("rooms in New Baneshwor").filters.area).toBe("New Baneshwor");
   });
 
   it("falls back to a city when no locality matches", () => {

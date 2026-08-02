@@ -19,12 +19,7 @@ export const ROUTINE_DAYS = [
   "SATURDAY",
 ] as const;
 
-export const ROUTINE_MEAL_TYPES = [
-  "BREAKFAST",
-  "LUNCH",
-  "SNACKS",
-  "DINNER",
-] as const;
+export const ROUTINE_MEAL_TYPES = ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"] as const;
 
 export type RoutineDay = (typeof ROUTINE_DAYS)[number];
 export type RoutineMealType = (typeof ROUTINE_MEAL_TYPES)[number];
@@ -99,9 +94,7 @@ function serializeRoutine(routine: FoodRoutineRecord | null): FoodRoutine {
  * The hostel's routine. Always returns a routine — an unconfigured hostel gets
  * the empty one rather than null, so every caller renders the same shape.
  */
-export async function getFoodRoutine(
-  hostelId: Types.ObjectId,
-): Promise<FoodRoutine> {
+export async function getFoodRoutine(hostelId: Types.ObjectId): Promise<FoodRoutine> {
   await connectToDatabase();
 
   const routine = await FoodRoutineModel.findOne({
@@ -116,9 +109,7 @@ export function mealsOn(routine: FoodRoutine, date: Date): RoutineMeal[] {
   const day = dayOfWeekFor(date);
 
   return ROUTINE_MEAL_TYPES.map((mealType) =>
-    routine.meals.find(
-      (meal) => meal.dayOfWeek === day && meal.mealType === mealType,
-    ),
+    routine.meals.find((meal) => meal.dayOfWeek === day && meal.mealType === mealType),
   ).filter((meal): meal is RoutineMeal => Boolean(meal));
 }
 

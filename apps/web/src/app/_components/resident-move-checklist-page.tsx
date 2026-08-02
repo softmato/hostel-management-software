@@ -108,10 +108,7 @@ export const ResidentMoveChecklistPageContent = memo(
                   <StatusBadge>{moveOut.depositRefundDecision}</StatusBadge>
                 </div>
                 <Row label="Pending fees" value={`Rs ${moveOut.pendingFeeAmount}`} />
-                <Row
-                  label="Deposit refund"
-                  value={`Rs ${moveOut.depositRefundAmount}`}
-                />
+                <Row label="Deposit refund" value={`Rs ${moveOut.depositRefundAmount}`} />
                 <Row label="Damage notes" value={moveOut.damageNotes} />
                 <Row label="Items returned" value={moveOut.itemReturnNotes} />
                 <Row

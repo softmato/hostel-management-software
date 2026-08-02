@@ -14,9 +14,7 @@ import crypto from "node:crypto";
 export const CRON_SECRET_ENV_KEY = "CRON_SECRET";
 export const CRON_SECRET_HEADER = "x-cron-secret";
 
-export type CronAuthResult =
-  | { ok: true }
-  | { ok: false; status: number; error: string };
+export type CronAuthResult = { ok: true } | { ok: false; status: number; error: string };
 
 function normalizeSecret(value: string | null | undefined) {
   return value?.trim() || "";

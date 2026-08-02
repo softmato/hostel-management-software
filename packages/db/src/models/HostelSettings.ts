@@ -40,6 +40,18 @@ const hostelSettingsSchema = new Schema(
       },
       default: () => ({}),
     },
+    /**
+     * Community feed controls (PHASES.md §5.1). Both default to the platform's
+     * position: the feed is on, and the profanity mask is on — a hostel may turn
+     * either off for its own residents.
+     */
+    community: {
+      type: {
+        enabled: { default: true, type: Boolean },
+        profanityFilterEnabled: { default: true, type: Boolean },
+      },
+      default: () => ({}),
+    },
     createdBy: { ref: "User", type: Schema.Types.ObjectId },
     updatedBy: { ref: "User", type: Schema.Types.ObjectId },
   },

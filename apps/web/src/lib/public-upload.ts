@@ -9,9 +9,9 @@ import { siteUrl } from "@/lib/site";
 function r2Configured() {
   return Boolean(
     process.env.R2_ENDPOINT &&
-      process.env.R2_ACCESS_KEY_ID &&
-      process.env.R2_BUCKET_NAME &&
-      process.env.R2_PUBLIC_URL,
+    process.env.R2_ACCESS_KEY_ID &&
+    process.env.R2_BUCKET_NAME &&
+    process.env.R2_PUBLIC_URL,
   );
 }
 

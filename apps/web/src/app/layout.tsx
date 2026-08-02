@@ -31,8 +31,7 @@ export const metadata: Metadata = {
     default: `${SITE_NAME} — Find & Manage Hostels in Nepal`,
     template: `%s · ${SITE_NAME}`,
   },
-  description:
-    "Nepal-focused multi-hostel SaaS for discovery and hostel operations.",
+  description: "Nepal-focused multi-hostel SaaS for discovery and hostel operations.",
   openGraph: {
     siteName: SITE_NAME,
     type: "website",

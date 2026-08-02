@@ -7,7 +7,13 @@
  */
 import type { HostelSummary } from "@/app/_components/public-hostel-types";
 
-export const CITY_OPTIONS = ["Kathmandu", "Pokhara", "Lalitpur", "Bhaktapur", "Biratnagar"];
+export const CITY_OPTIONS = [
+  "Kathmandu",
+  "Pokhara",
+  "Lalitpur",
+  "Bhaktapur",
+  "Biratnagar",
+];
 
 export const HOSTEL_TYPE_STATS: Array<{
   type: HostelSummary["type"];

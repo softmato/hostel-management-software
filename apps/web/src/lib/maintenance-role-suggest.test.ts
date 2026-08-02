@@ -13,9 +13,9 @@ describe("suggestProviderRole", () => {
     expect(suggestProviderRole("Tap in room 204 is leaking since morning")?.role).toBe(
       "PLUMBER",
     );
-    expect(suggestProviderRole("Switch board sparking, no power in 3rd floor")?.role).toBe(
-      "ELECTRICIAN",
-    );
+    expect(
+      suggestProviderRole("Switch board sparking, no power in 3rd floor")?.role,
+    ).toBe("ELECTRICIAN");
     expect(suggestProviderRole("Wifi router keeps dropping")?.role).toBe(
       "INTERNET_TECHNICIAN",
     );

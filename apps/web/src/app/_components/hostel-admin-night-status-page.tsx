@@ -17,10 +17,7 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
     { errorMessage: "Could not load statuses." },
   );
 
-  const rows = useMemo(
-    () => statusResource.data?.statuses ?? [],
-    [statusResource.data],
-  );
+  const rows = useMemo(() => statusResource.data?.statuses ?? [], [statusResource.data]);
   const state = statusResource.state;
   const message = actionMessage || statusResource.message;
 
@@ -33,13 +30,10 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
       }
 
       try {
-        await browserApi(
-          `${hostelAdminEndpoints.nightStatus}/${residentId}/override`,
-          {
-            body: JSON.stringify({ reason, status: statusValue }),
-            method: "PATCH",
-          },
-        );
+        await browserApi(`${hostelAdminEndpoints.nightStatus}/${residentId}/override`, {
+          body: JSON.stringify({ reason, status: statusValue }),
+          method: "PATCH",
+        });
         setActionMessage("Status overridden.");
         invalidate(hostelAdminEndpoints.nightStatus);
       } catch (error) {
@@ -83,13 +77,10 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
 
       const results = await Promise.allSettled(
         pending.map((row) =>
-          browserApi(
-            `${hostelAdminEndpoints.nightStatus}/${row.resident.id}/override`,
-            {
-              body: JSON.stringify({ reason, status: statusValue }),
-              method: "PATCH",
-            },
-          ),
+          browserApi(`${hostelAdminEndpoints.nightStatus}/${row.resident.id}/override`, {
+            body: JSON.stringify({ reason, status: statusValue }),
+            method: "PATCH",
+          }),
         ),
       );
       const failed = results.filter((result) => result.status === "rejected").length;

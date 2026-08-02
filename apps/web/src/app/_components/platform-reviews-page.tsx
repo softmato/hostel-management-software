@@ -49,10 +49,13 @@ export const PlatformReviewsPageContent = memo(function PlatformReviewsPageConte
   );
 
   const stats = useMemo(() => {
-    const hidden = reviews.filter((review) => review.status.toUpperCase().includes("HIDDEN")).length;
+    const hidden = reviews.filter((review) =>
+      review.status.toUpperCase().includes("HIDDEN"),
+    ).length;
     const avg =
       reviews.length > 0
-        ? reviews.reduce((sum, review) => sum + (review.overallRating ?? 0), 0) / reviews.length
+        ? reviews.reduce((sum, review) => sum + (review.overallRating ?? 0), 0) /
+          reviews.length
         : 0;
     return { avg, hidden, total: reviews.length, visible: reviews.length - hidden };
   }, [reviews]);
@@ -67,10 +70,36 @@ export const PlatformReviewsPageContent = memo(function PlatformReviewsPageConte
       <Message value={message} />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={Stars} label="Total Reviews" note="All hostels" tone="blue" value={stats.total} />
-        <MetricCard icon={Eye} label="Visible" note="Public on listings" noteTone="green" tone="green" value={stats.visible} />
-        <MetricCard icon={EyeOff} label="Hidden" note="Moderated out" noteTone="rose" tone="rose" value={stats.hidden} />
-        <MetricCard icon={Star} label="Avg Rating" note="Across reviews" tone="amber" value={stats.avg.toFixed(1)} />
+        <MetricCard
+          icon={Stars}
+          label="Total Reviews"
+          note="All hostels"
+          tone="blue"
+          value={stats.total}
+        />
+        <MetricCard
+          icon={Eye}
+          label="Visible"
+          note="Public on listings"
+          noteTone="green"
+          tone="green"
+          value={stats.visible}
+        />
+        <MetricCard
+          icon={EyeOff}
+          label="Hidden"
+          note="Moderated out"
+          noteTone="rose"
+          tone="rose"
+          value={stats.hidden}
+        />
+        <MetricCard
+          icon={Star}
+          label="Avg Rating"
+          note="Across reviews"
+          tone="amber"
+          value={stats.avg.toFixed(1)}
+        />
       </div>
 
       <Panel title="Moderation Queue">
@@ -80,9 +109,13 @@ export const PlatformReviewsPageContent = memo(function PlatformReviewsPageConte
             <div className="rounded-xl border border-border p-4" key={review.id}>
               <div className="flex items-start justify-between gap-3">
                 <RatingStars rating={review.overallRating ?? 0} />
-                <SoftBadge tone={statusToneFromLabel(review.status)}>{review.status}</SoftBadge>
+                <SoftBadge tone={statusToneFromLabel(review.status)}>
+                  {review.status}
+                </SoftBadge>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{review.comment || "—"}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {review.comment || "—"}
+              </p>
               <div className="mt-3 flex gap-2">
                 <button
                   className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground"

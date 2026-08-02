@@ -1,10 +1,8 @@
 "use client";
 
-import type {
-  AvailableRoomType,
-  Resident,
-} from "@/app/_components/hostel-admin-shared";
+import type { AvailableRoomType, Resident } from "@/app/_components/hostel-admin-shared";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { usePagedPortalResource } from "@/lib/portal-pagination";
 import { usePortalResource } from "@/lib/portal-query";
 
 /**
@@ -38,8 +36,13 @@ export function useAvailableRoomTypes() {
   );
 }
 
+/**
+ * Paged — a hostel with more than one page of residents used to have the list
+ * silently cut at 100 rows (API.md §1.4). Callers render
+ * `<PaginationControls pagination={pagination} onPageChange={setPage} />`.
+ */
 export function useResidents() {
-  return usePortalResource<{ residents: Resident[] }>(
+  return usePagedPortalResource<{ residents: Resident[] }>(
     hostelAdminEndpoints.residents,
     { errorMessage: "Could not load residents." },
   );
@@ -74,7 +77,7 @@ export function useResidentContacts(residentId: string) {
 }
 
 export function useHostelWardens() {
-  return usePortalResource<{ wardens: Warden[] }>(hostelAdminEndpoints.wardens, {
+  return usePagedPortalResource<{ wardens: Warden[] }>(hostelAdminEndpoints.wardens, {
     errorMessage: "Could not load wardens.",
   });
 }

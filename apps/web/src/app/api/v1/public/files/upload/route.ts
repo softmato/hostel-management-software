@@ -12,14 +12,21 @@ import { FileAssetModel } from "@hostel/db/models/FileAsset";
 export const runtime = "nodejs";
 
 const ALLOWED_TYPES = [
-  "image/jpeg", "image/png", "image/webp",
-  "application/pdf", "text/plain",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "text/plain",
 ];
 
 const MAX_SIZE = 5 * 1024 * 1024;
 
 function r2Configured() {
-  return !!(process.env.R2_ENDPOINT && process.env.R2_ACCESS_KEY_ID && process.env.R2_BUCKET_NAME);
+  return !!(
+    process.env.R2_ENDPOINT &&
+    process.env.R2_ACCESS_KEY_ID &&
+    process.env.R2_BUCKET_NAME
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -40,7 +47,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!ALLOWED_TYPES.includes(file.type)) {
-      return errorResponse("File type not allowed. Accepted: JPEG, PNG, WebP, PDF, TXT", "FILE_TYPE_NOT_ALLOWED", 422);
+      return errorResponse(
+        "File type not allowed. Accepted: JPEG, PNG, WebP, PDF, TXT",
+        "FILE_TYPE_NOT_ALLOWED",
+        422,
+      );
     }
 
     if (file.size > MAX_SIZE) {
@@ -94,7 +105,9 @@ export async function POST(request: NextRequest) {
       url = `/uploads/hostel-documents/${uniqueName}`;
     }
 
-    return successResponse({ url, fileName, mimeType, sizeBytes }, "File uploaded", { status: 201 });
+    return successResponse({ url, fileName, mimeType, sizeBytes }, "File uploaded", {
+      status: 201,
+    });
   } catch (error) {
     return handleRouteError(error);
   }

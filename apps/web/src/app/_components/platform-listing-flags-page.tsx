@@ -78,7 +78,8 @@ export const PlatformListingFlagsPageContent = React.memo(
     );
 
     const counts = useMemo(() => {
-      const by = (status: string) => flags.filter((flag) => flag.status === status).length;
+      const by = (status: string) =>
+        flags.filter((flag) => flag.status === status).length;
       return {
         dismissed: by("DISMISSED"),
         highRisk: flags.filter((flag) => flag.riskLevel?.toUpperCase() === "HIGH").length,
@@ -97,21 +98,52 @@ export const PlatformListingFlagsPageContent = React.memo(
         <Message value={message} />
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={Flag} label="Open Flags" note="Needs review" noteTone="amber" tone="amber" value={counts.open} />
-          <MetricCard icon={AlertOctagon} label="High Risk" note="Duplicate signals" noteTone="rose" tone="rose" value={counts.highRisk} />
-          <MetricCard icon={CheckCircle2} label="Resolved" note="Actioned" noteTone="green" tone="green" value={counts.resolved} />
-          <MetricCard icon={XCircle} label="Dismissed" note="No action needed" tone="slate" value={counts.dismissed} />
+          <MetricCard
+            icon={Flag}
+            label="Open Flags"
+            note="Needs review"
+            noteTone="amber"
+            tone="amber"
+            value={counts.open}
+          />
+          <MetricCard
+            icon={AlertOctagon}
+            label="High Risk"
+            note="Duplicate signals"
+            noteTone="rose"
+            tone="rose"
+            value={counts.highRisk}
+          />
+          <MetricCard
+            icon={CheckCircle2}
+            label="Resolved"
+            note="Actioned"
+            noteTone="green"
+            tone="green"
+            value={counts.resolved}
+          />
+          <MetricCard
+            icon={XCircle}
+            label="Dismissed"
+            note="No action needed"
+            tone="slate"
+            value={counts.dismissed}
+          />
         </div>
 
         <Panel title="Run Duplicate Check">
           <form className="flex flex-wrap gap-3" onSubmit={runCheck}>
             <input
               className="h-11 min-w-80 flex-1 rounded-xl border border-border bg-background px-3 text-sm"
+              aria-label="Hostel id"
               name="hostelId"
               placeholder="Hostel id"
               required
             />
-            <button className="rounded-xl bg-role-platform px-4 py-2 text-sm font-semibold text-white" type="submit">
+            <button
+              className="rounded-xl bg-role-platform px-4 py-2 text-sm font-semibold text-white"
+              type="submit"
+            >
               Run Check
             </button>
           </form>
@@ -133,8 +165,12 @@ export const PlatformListingFlagsPageContent = React.memo(
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <SoftBadge tone={statusToneFromLabel(flag.riskLevel)}>{flag.riskLevel}</SoftBadge>
-                    <SoftBadge tone={statusToneFromLabel(flag.status)}>{flag.status}</SoftBadge>
+                    <SoftBadge tone={statusToneFromLabel(flag.riskLevel)}>
+                      {flag.riskLevel}
+                    </SoftBadge>
+                    <SoftBadge tone={statusToneFromLabel(flag.status)}>
+                      {flag.status}
+                    </SoftBadge>
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">

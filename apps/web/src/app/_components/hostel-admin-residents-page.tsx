@@ -65,6 +65,7 @@ import {
   DataTable,
   EmptyInline,
   InitialsAvatar,
+  ListPager,
   PortalPageHeader,
   RoleButton,
   SearchField,
@@ -153,7 +154,9 @@ function ImportedProfileSummary({ prefill }: { prefill: ResidentPrefill }) {
     ["Blood group", details.bloodGroup === "UNKNOWN" ? "—" : details.bloodGroup],
     ["Food", humanizeValue(details.dietaryPreference)],
     [
-      details.governmentIdType ? humanizeValue(details.governmentIdType) : "Government ID",
+      details.governmentIdType
+        ? humanizeValue(details.governmentIdType)
+        : "Government ID",
       details.governmentIdNumber ?? "—",
     ],
     ["Institution", details.institution ?? "—"],
@@ -225,8 +228,8 @@ function ImportedProfileSummary({ prefill }: { prefill: ResidentPrefill }) {
         ) : null}
 
         <p className="text-[11px] text-muted-foreground">
-          Guardian and emergency contact records are created automatically when you
-          save this resident.
+          Guardian and emergency contact records are created automatically when you save
+          this resident.
         </p>
       </div>
     </div>
@@ -303,7 +306,8 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     () => roomTypesQuery.data?.roomTypes ?? [],
     [roomTypesQuery.data],
   );
-  const isPending = residentsQuery.state === "loading" || roomTypesQuery.state === "loading";
+  const isPending =
+    residentsQuery.state === "loading" || roomTypesQuery.state === "loading";
   const isError = residentsQuery.state === "error" || roomTypesQuery.state === "error";
 
   const [selectedResidentId, setSelectedResidentId] = useState("");
@@ -319,7 +323,10 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [prefill, setPrefill] = useState<ResidentPrefill | null>(null);
   /** "identify" asks for the resident ID first; "form" is the actual registration. */
   const [addStep, setAddStep] = useState<"identify" | "form">("identify");
-  /** Room type drives the monthly rent, so both are controlled in the form. */  const [roomType, setRoomType] = useState("");
+  /** Room type drives the monthly rent, so both are controlled in the form. */ const [
+    roomType,
+    setRoomType,
+  ] = useState("");
   const [monthlyFee, setMonthlyFee] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
@@ -496,25 +503,24 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
       try {
         const created = await browserApi<{
           accountLink: { linked: boolean; reason?: string };
+          referral: { code: string } | null;
           resident: { id: string };
-        }>(
-          "/api/v1/hostel-admin/residents",
-          {
-            body: JSON.stringify({
-              depositAmount: Number(field(form, "depositAmount") || 0),
-              email: optionalField(form, "email"),
-              firstName: field(form, "firstName"),
-              lastName: field(form, "lastName"),
-              monthlyFee: Number(optionalField(form, "monthlyFee") || 0),
-              moveInDate: field(form, "moveInDate"),
-              phone: field(form, "phone"),
-              residentType: field(form, "residentType"),
-              // The server decrements this room type's vacant-bed count.
-              roomType: field(form, "roomType"),
-            }),
-            method: "POST",
-          },
-        );
+        }>("/api/v1/hostel-admin/residents", {
+          body: JSON.stringify({
+            depositAmount: Number(field(form, "depositAmount") || 0),
+            email: optionalField(form, "email"),
+            firstName: field(form, "firstName"),
+            lastName: field(form, "lastName"),
+            monthlyFee: Number(optionalField(form, "monthlyFee") || 0),
+            moveInDate: field(form, "moveInDate"),
+            phone: field(form, "phone"),
+            referralCode: optionalField(form, "referralCode"),
+            residentType: field(form, "residentType"),
+            // The server decrements this room type's vacant-bed count.
+            roomType: field(form, "roomType"),
+          }),
+          method: "POST",
+        });
 
         // The whole point of scanning a resident ID: the guardian and emergency
         // records the hostel would otherwise re-type get written for them.
@@ -551,10 +557,15 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         const accountNote = created.accountLink.linked
           ? " They can now sign in with their own email and land on their resident dashboard."
           : " Their account could not be linked automatically — generate an activation code for them.";
+        const referralNote = created.referral
+          ? ` Credited to referral code ${created.referral.code}.`
+          : "";
         setMessage(
           (prefill
             ? `Resident created from ID ${lookupId.trim().toUpperCase()} — ${attachedContacts} contact record(s) added automatically.`
-            : "Resident created.") + accountNote,
+            : "Resident created.") +
+            accountNote +
+            referralNote,
         );
         clearPrefill();
         // Vacancy just changed, so the room-type dropdown has to be refetched
@@ -670,14 +681,15 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                   Ask for their resident ID
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  They open their account menu, tap &quot;Show resident QR code&quot;
-                  and read out the ID printed under it — or you scan the QR in the
-                  mobile app. Everything they already filled in loads here, so
-                  nothing gets typed twice.
+                  They open their account menu, tap &quot;Show resident QR code&quot; and
+                  read out the ID printed under it — or you scan the QR in the mobile app.
+                  Everything they already filled in loads here, so nothing gets typed
+                  twice.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
+                  aria-label="Resident ID"
                   autoFocus
                   className="h-12 flex-1 rounded-lg border border-border bg-background px-3 font-mono text-base uppercase tracking-widest text-foreground outline-none transition placeholder:font-sans placeholder:normal-case placeholder:tracking-normal placeholder:text-muted-foreground focus:border-role-admin"
                   onChange={(event) => setLookupId(event.target.value)}
@@ -845,6 +857,14 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
               />
               <FormInput label="Move-in date" name="moveInDate" required type="date" />
               <FormInput label="Deposit" name="depositAmount" required type="number" />
+              {/* Optional: credits the resident whose code brought this person
+                  in. A wrong code is rejected before the bed is taken. */}
+              <FormInput
+                hint="If another resident referred them, enter their referral code."
+                label="Referral code"
+                name="referralCode"
+                placeholder="Optional"
+              />
             </FormSection>
 
             <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
@@ -905,15 +925,26 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                 <SelectContent>
                   <SelectItem value="ALL">All types</SelectItem>
                   <SelectItem value="STUDENT">Student</SelectItem>
-                  <SelectItem value="WORKING_PROFESSIONAL">Working professional</SelectItem>
+                  <SelectItem value="WORKING_PROFESSIONAL">
+                    Working professional
+                  </SelectItem>
                   <SelectItem value="OTHER">Other</SelectItem>
                 </SelectContent>
               </Select>
               <SoftBadge tone="cyan">
                 <Users className="size-3" />
-                Total Residents: {filteredResidents.length}
+                {/* The server total, not the page — the badge is the one place
+                    an admin checks "how many residents do I have". The filters
+                    below still narrow only the current page; pushing them into
+                    the query is tracked in TODO.md B1. */}
+                Total Residents:{" "}
+                {residentsQuery.pagination?.total ?? filteredResidents.length}
               </SoftBadge>
-              <Button className="ml-auto h-10 gap-2 rounded-xl" type="button" variant="outline">
+              <Button
+                className="ml-auto h-10 gap-2 rounded-xl"
+                type="button"
+                variant="outline"
+              >
                 <Download className="size-4" />
                 Export
               </Button>
@@ -960,7 +991,8 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                     <TableRow
                       className={cn(
                         "cursor-pointer",
-                        selected && "bg-role-admin-soft/50 data-[state=selected]:bg-role-admin-soft/50",
+                        selected &&
+                          "bg-role-admin-soft/50 data-[state=selected]:bg-role-admin-soft/50",
                       )}
                       data-state={selected ? "selected" : undefined}
                       key={resident.id}
@@ -996,7 +1028,9 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                       <TableCell className="text-muted-foreground">
                         {resident.roomType}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{resident.phone}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {resident.phone}
+                      </TableCell>
                       <TableCell className="font-medium text-foreground">
                         {currency(resident.depositAmount)}
                       </TableCell>
@@ -1017,9 +1051,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                               variant="ghost"
                             >
                               <MoreHorizontal className="size-4" />
-                              <span className="sr-only">
-                                Actions for {fullName}
-                              </span>
+                              <span className="sr-only">Actions for {fullName}</span>
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-56">
@@ -1060,6 +1092,17 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                 })}
               </TableBody>
             </DataTable>
+          ) : null}
+
+          {residentsQuery.pagination && residentsQuery.pagination.totalPages > 1 ? (
+            <ListPager
+              onPageChange={residentsQuery.setPage}
+              page={residentsQuery.pagination.page}
+              pageSize={residentsQuery.pagination.pageSize}
+              tone="admin"
+              total={residentsQuery.pagination.total}
+              unit="residents"
+            />
           ) : null}
         </SectionCard>
 
@@ -1187,7 +1230,9 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                 <PanelSection title="Activation">
                   {activationCode ? (
                     <div className="rounded-xl border border-role-admin/30 bg-role-admin-soft/50 p-4">
-                      <p className="text-sm font-semibold text-foreground">Activation Code</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        Activation Code
+                      </p>
                       <p className="mt-2 font-mono text-2xl font-bold tracking-widest text-role-admin">
                         {activationCode}
                       </p>

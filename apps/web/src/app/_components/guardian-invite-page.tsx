@@ -75,9 +75,9 @@ export const GuardianInvitePageContent = memo(function GuardianInvitePageContent
             <div className="space-y-2">
               <h1 className="text-2xl font-bold text-foreground">Guardian invitation</h1>
               <p className="text-sm text-muted-foreground">
-                A resident has invited you as their guardian. Accepting links your
-                account to them so you can see only what they chose to share — they
-                can change or withdraw that at any time.
+                A resident has invited you as their guardian. Accepting links your account
+                to them so you can see only what they chose to share — they can change or
+                withdraw that at any time.
               </p>
             </div>
             <Message value={message} />
@@ -94,8 +94,8 @@ export const GuardianInvitePageContent = memo(function GuardianInvitePageContent
               </BusyForm>
             ) : (
               <p className="text-sm text-destructive">
-                This link is missing its invitation token. Open the link from your
-                email exactly as it was sent.
+                This link is missing its invitation token. Open the link from your email
+                exactly as it was sent.
               </p>
             )}
           </div>

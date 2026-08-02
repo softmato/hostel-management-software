@@ -40,61 +40,59 @@ function metadataSummary(metadata: Record<string, unknown>) {
   return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ");
 }
 
-export const PlatformAuditLogsPageContent = memo(
-  function PlatformAuditLogsPageContent() {
-    const logsResource = usePortalResource<{ logs: AuditLogRecord[] }>(
-      platformEndpoints.auditLogs,
-      { errorMessage: "Could not load audit logs." },
-    );
+export const PlatformAuditLogsPageContent = memo(function PlatformAuditLogsPageContent() {
+  const logsResource = usePortalResource<{ logs: AuditLogRecord[] }>(
+    platformEndpoints.auditLogs,
+    { errorMessage: "Could not load audit logs." },
+  );
 
-    const logs = logsResource.data?.logs ?? [];
-    const message = logsResource.message;
+  const logs = logsResource.data?.logs ?? [];
+  const message = logsResource.message;
 
-    return (
-      <div className="mx-auto max-w-[1448px] space-y-6">
-        <PageHeader
-          description="Read-only trail of privileged platform actions (newest first)."
-          icon={ScrollText}
-          title="Audit Log"
-        />
-        <Message value={message} />
-        <Panel>
-          {logs.length === 0 ? <EmptyState label="No audit entries yet." /> : null}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-muted-foreground">
-                <tr>
-                  <th className="py-2">When</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Entity</th>
-                  <th>Hostel</th>
-                  <th>Details</th>
+  return (
+    <div className="mx-auto max-w-[1448px] space-y-6">
+      <PageHeader
+        description="Read-only trail of privileged platform actions (newest first)."
+        icon={ScrollText}
+        title="Audit Log"
+      />
+      <Message value={message} />
+      <Panel>
+        {logs.length === 0 ? <EmptyState label="No audit entries yet." /> : null}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-muted-foreground">
+              <tr>
+                <th className="py-2">When</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Entity</th>
+                <th>Hostel</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {logs.map((log) => (
+                <tr key={log.id}>
+                  <td className="whitespace-nowrap py-3">
+                    {formatTimestamp(log.createdAt)}
+                  </td>
+                  <td>{log.actorLabel}</td>
+                  <td className="font-medium text-foreground">{log.action}</td>
+                  <td>
+                    {log.entityType}
+                    <p className="text-xs text-muted-foreground">{log.entityId}</p>
+                  </td>
+                  <td>{log.hostelLabel ?? "-"}</td>
+                  <td className="max-w-[280px] truncate text-xs text-muted-foreground">
+                    {metadataSummary(log.metadata)}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {logs.map((log) => (
-                  <tr key={log.id}>
-                    <td className="whitespace-nowrap py-3">
-                      {formatTimestamp(log.createdAt)}
-                    </td>
-                    <td>{log.actorLabel}</td>
-                    <td className="font-medium text-foreground">{log.action}</td>
-                    <td>
-                      {log.entityType}
-                      <p className="text-xs text-muted-foreground">{log.entityId}</p>
-                    </td>
-                    <td>{log.hostelLabel ?? "-"}</td>
-                    <td className="max-w-[280px] truncate text-xs text-muted-foreground">
-                      {metadataSummary(log.metadata)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-      </div>
-    );
-  },
-);
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+});

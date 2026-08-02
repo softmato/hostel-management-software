@@ -112,25 +112,28 @@ export const ResidentCommunityPageContent = memo(function ResidentCommunityPageC
     [invalidate],
   );
 
-  const openComments = useCallback(async (postId: string) => {
-    if (openPostId === postId) {
-      setOpenPostId(null);
+  const openComments = useCallback(
+    async (postId: string) => {
+      if (openPostId === postId) {
+        setOpenPostId(null);
 
-      return;
-    }
+        return;
+      }
 
-    setOpenPostId(postId);
+      setOpenPostId(postId);
 
-    try {
-      const data = await browserApi<{ comments: CommunityComment[] }>(
-        `${COMMUNITY_ENDPOINT}/${postId}/comments`,
-      );
+      try {
+        const data = await browserApi<{ comments: CommunityComment[] }>(
+          `${COMMUNITY_ENDPOINT}/${postId}/comments`,
+        );
 
-      setComments(data.comments);
-    } catch {
-      setComments([]);
-    }
-  }, [openPostId]);
+        setComments(data.comments);
+      } catch {
+        setComments([]);
+      }
+    },
+    [openPostId],
+  );
 
   const addComment = useCallback(
     async (event: FormEvent<HTMLFormElement>, postId: string) => {
@@ -247,13 +250,9 @@ export const ResidentCommunityPageContent = memo(function ResidentCommunityPageC
                 <span className="text-sm font-semibold text-foreground">
                   {post.authorName}
                 </span>
-                {post.visibility === "PUBLIC" ? (
-                  <StatusBadge>PUBLIC</StatusBadge>
-                ) : null}
+                {post.visibility === "PUBLIC" ? <StatusBadge>PUBLIC</StatusBadge> : null}
                 <span className="ml-auto text-[11px] text-muted-foreground">
-                  {post.createdAt
-                    ? new Date(post.createdAt).toLocaleDateString()
-                    : ""}
+                  {post.createdAt ? new Date(post.createdAt).toLocaleDateString() : ""}
                 </span>
               </div>
 

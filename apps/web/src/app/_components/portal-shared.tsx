@@ -31,6 +31,7 @@ type MaintenanceRequest = {
 };
 
 type Referral = {
+  converted?: boolean;
   id: string;
   name: string;
   phone: string;
@@ -163,11 +164,4 @@ export type {
   ReportRecord,
 };
 
-export {
-  field,
-  optionalField,
-  optionalNumber,
-  Message,
-  PageHeader,
-  ReportGrid,
-};
+export { field, optionalField, optionalNumber, Message, PageHeader, ReportGrid };

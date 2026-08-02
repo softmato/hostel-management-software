@@ -1,9 +1,12 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 const monthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Use YYYY-MM format.");
 
 export const paymentListQuerySchema = z.object({
+  ...paginationQuerySchema,
   hostelId: objectIdSchema.optional(),
   month: monthSchema.optional(),
   residentId: objectIdSchema.optional(),

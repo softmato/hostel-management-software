@@ -7,11 +7,16 @@ export const runtime = "nodejs";
 // Regenerate at most hourly so newly-approved hostels appear without a redeploy.
 export const revalidate = 3600;
 
-const STATIC_ROUTES: { path: string; priority: number; changeFrequency: "daily" | "weekly" | "monthly" }[] = [
+const STATIC_ROUTES: {
+  path: string;
+  priority: number;
+  changeFrequency: "daily" | "weekly" | "monthly";
+}[] = [
   { path: "", priority: 1, changeFrequency: "daily" },
   { path: "/hostels", priority: 0.9, changeFrequency: "daily" },
   { path: "/compare", priority: 0.6, changeFrequency: "weekly" },
   { path: "/register-hostel", priority: 0.7, changeFrequency: "monthly" },
+  { path: "/service-providers", priority: 0.6, changeFrequency: "weekly" },
   { path: "/service-providers/register", priority: 0.5, changeFrequency: "monthly" },
   { path: "/about", priority: 0.4, changeFrequency: "monthly" },
   { path: "/contact", priority: 0.4, changeFrequency: "monthly" },

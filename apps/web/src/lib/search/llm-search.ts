@@ -132,7 +132,11 @@ function normalizeFilters(
     }
   }
 
-  if (payload.type === "BOYS" || payload.type === "GIRLS" || payload.type === "CO_LIVING") {
+  if (
+    payload.type === "BOYS" ||
+    payload.type === "GIRLS" ||
+    payload.type === "CO_LIVING"
+  ) {
     filters.type = payload.type;
   }
   if (payload.food === "veg" || payload.food === "non-veg") {

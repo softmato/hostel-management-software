@@ -347,6 +347,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
             <div className="mt-8 flex max-w-lg items-center gap-2 rounded-lg border border-border bg-card p-1.5 shadow-md focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15 transition">
               <Search className="ml-3 size-5 text-muted-foreground" />
               <input
+                aria-label="Search hostels"
                 className="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 onChange={(e) => setSearchVal(e.target.value)}
                 onKeyDown={(e) => {

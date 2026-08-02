@@ -3,12 +3,7 @@
 import { MessageSquareWarning } from "lucide-react";
 import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
-import {
-  EmptyState,
-  LoadingRows,
-  Panel,
-  StatusBadge,
-} from "@/app/_components/shared-ui";
+import { EmptyState, LoadingRows, Panel, StatusBadge } from "@/app/_components/shared-ui";
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
@@ -67,13 +62,10 @@ export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage
       }
 
       try {
-        await browserApi(
-          `${hostelAdminEndpoints.complaints()}/${complaintId}/reply`,
-          {
-            body: JSON.stringify({ message: reply }),
-            method: "POST",
-          },
-        );
+        await browserApi(`${hostelAdminEndpoints.complaints()}/${complaintId}/reply`, {
+          body: JSON.stringify({ message: reply }),
+          method: "POST",
+        });
         formElement.reset();
         setActionMessage("Reply saved.");
         invalidate(hostelAdminEndpoints.complaintsAll);
@@ -93,18 +85,18 @@ export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage
       const form = new FormData(formElement);
 
       try {
-        await browserApi(
-          `${hostelAdminEndpoints.complaints()}/${complaintId}/status`,
-          {
-            body: JSON.stringify({
-              response: optionalField(form, "response"),
-              status: field(form, "status"),
-            }),
-            method: "PATCH",
-          },
-        );
+        await browserApi(`${hostelAdminEndpoints.complaints()}/${complaintId}/status`, {
+          body: JSON.stringify({
+            response: optionalField(form, "response"),
+            status: field(form, "status"),
+          }),
+          method: "PATCH",
+        });
         setActionMessage("Complaint status updated.");
-        invalidate(hostelAdminEndpoints.complaintsAll, hostelAdminEndpoints.complaintsReport);
+        invalidate(
+          hostelAdminEndpoints.complaintsAll,
+          hostelAdminEndpoints.complaintsReport,
+        );
       } catch (error) {
         setActionMessage(
           error instanceof Error ? error.message : "Could not update status.",

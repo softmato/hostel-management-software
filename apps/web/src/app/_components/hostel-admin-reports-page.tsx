@@ -14,7 +14,20 @@ import {
   type CountMap,
   type MonthlyPoint,
 } from "./report-widgets";
+import {
+  HostelAdminAttendanceAnalyticsPanel,
+  HostelAdminFoodAnalyticsPanel,
+} from "./hostel-admin-operations-analytics";
 import { Message, PageHeader } from "./portal-shared";
+
+const HOSTEL_ADMIN_REPORT_EXPORT = "/api/v1/hostel-admin/reports/export";
+
+const REPORT_EXPORTS = [
+  { label: "Residents CSV", report: "residents" },
+  { label: "Collection CSV", report: "payments" },
+  { label: "Complaints CSV", report: "complaints" },
+  { label: "Occupancy CSV", report: "occupancy" },
+];
 
 type Overview = {
   overview: {
@@ -98,7 +111,9 @@ type Overview = {
 };
 
 function shortDate(value: string | null) {
-  return value ? new Date(value).toLocaleDateString("en", { day: "numeric", month: "short" }) : "—";
+  return value
+    ? new Date(value).toLocaleDateString("en", { day: "numeric", month: "short" })
+    : "—";
 }
 
 function rateTone(rate: number) {
@@ -149,8 +164,16 @@ export const HostelAdminReportsPageContent = React.memo(
       );
     }
 
-    const { complaints, food, inquiries, maintenance, occupancy, payments, referrals, visibility } =
-      data;
+    const {
+      complaints,
+      food,
+      inquiries,
+      maintenance,
+      occupancy,
+      payments,
+      referrals,
+      visibility,
+    } = data;
     const selected = payments.selectedMonth;
 
     return (
@@ -178,6 +201,19 @@ export const HostelAdminReportsPageContent = React.memo(
           </label>
         </div>
         <Message value={resource.message} />
+
+        {/* Aggregates only — no CSV here carries a resident's name or phone. */}
+        <nav aria-label="Report exports" className="flex flex-wrap gap-2">
+          {REPORT_EXPORTS.map((entry) => (
+            <a
+              className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-role-admin"
+              href={`${HOSTEL_ADMIN_REPORT_EXPORT}?report=${entry.report}`}
+              key={entry.report}
+            >
+              {entry.label}
+            </a>
+          ))}
+        </nav>
 
         {/* ---- Headline health of the hostel ---- */}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -241,10 +277,7 @@ export const HostelAdminReportsPageContent = React.memo(
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Payment method
                 </p>
-                <Breakdown
-                  emptyLabel="No method recorded yet."
-                  map={payments.byMethod}
-                />
+                <Breakdown emptyLabel="No method recorded yet." map={payments.byMethod} />
               </div>
             </div>
           </div>
@@ -258,7 +291,9 @@ export const HostelAdminReportsPageContent = React.memo(
               rows={payments.recent.map((row) => [
                 <span key="name">
                   {row.residentName}
-                  <span className="block text-xs text-muted-foreground">{row.roomType}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {row.roomType}
+                  </span>
                 </span>,
                 row.month,
                 money(row.dueAmount),
@@ -419,6 +454,11 @@ export const HostelAdminReportsPageContent = React.memo(
             </p>
           </Panel>
         </div>
+
+        {/* Fetched separately so a hostel with no cook portal or no location
+            tracking still gets the rest of the page. */}
+        <HostelAdminFoodAnalyticsPanel />
+        <HostelAdminAttendanceAnalyticsPanel />
       </div>
     );
   },

@@ -197,7 +197,6 @@ async function pendingFeeAmount(resident: ResidentRecord) {
   );
 }
 
-
 /**
  * A resident's own move-in / move-out record, read-only (PHASES.md §4.1).
  * Scoped by `findCurrentResident`, so there is no id to tamper with — the
@@ -387,9 +386,7 @@ export async function listMoveEvents(principal: ApiPrincipal, hostelId?: string)
       residentStatus: resident.status,
       roomType: resident.roomType,
     };
-    const rows: Array<
-      typeof base & { date: string; type: "MOVE_IN" | "MOVE_OUT" }
-    > = [
+    const rows: Array<typeof base & { date: string; type: "MOVE_IN" | "MOVE_OUT" }> = [
       { ...base, date: resident.moveInDate.toISOString(), type: "MOVE_IN" },
     ];
 

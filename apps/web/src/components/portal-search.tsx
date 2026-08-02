@@ -97,7 +97,10 @@ export function PortalSearch({
   const results = useMemo(
     () =>
       entries
-        .map((entry, index) => ({ entry, score: scoreEntry(entry, normalizedQuery, index) }))
+        .map((entry, index) => ({
+          entry,
+          score: scoreEntry(entry, normalizedQuery, index),
+        }))
         .filter((item) => item.score > 0)
         .sort((left, right) => right.score - left.score)
         .slice(0, 8)
@@ -165,6 +168,7 @@ export function PortalSearch({
       >
         <Search className="mr-2 size-3.5 shrink-0 text-slate-400" />
         <input
+          aria-label="Search this portal"
           className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           onChange={(event) => {
             setQuery(event.target.value);
@@ -191,7 +195,9 @@ export function PortalSearch({
               event.preventDefault();
               setOpen(true);
               setActiveIndex((current) =>
-                results.length === 0 ? 0 : (current - 1 + results.length) % results.length,
+                results.length === 0
+                  ? 0
+                  : (current - 1 + results.length) % results.length,
               );
               return;
             }
@@ -251,7 +257,9 @@ export function PortalSearch({
                     </p>
                   </div>
                   {activeIndex === index ? (
-                    <CornerDownLeft className={cn("mt-0.5 size-3.5 shrink-0", styles.text)} />
+                    <CornerDownLeft
+                      className={cn("mt-0.5 size-3.5 shrink-0", styles.text)}
+                    />
                   ) : (
                     <ArrowUpRight className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
                   )}

@@ -17,11 +17,7 @@ import { LoadingRows } from "@/app/_components/shared-ui";
 import { Button } from "@/components/ui/button";
 import { platformEndpoints } from "@/lib/platform-endpoints";
 import { combineResources, usePortalResource } from "@/lib/portal-query";
-import {
-  DemoDataBadge,
-  Hostel,
-  Message,
-} from "./core-portal-shared";
+import { DemoDataBadge, Hostel, Message } from "./core-portal-shared";
 import {
   AreaSparkline,
   EmptyInline,
@@ -324,7 +320,11 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                         <TableRow key={hostel.id}>
                           <TableCell>
                             <div className="flex items-center gap-3">
-                              <InitialsAvatar name={hostel.name} size="sm" tone="platform" />
+                              <InitialsAvatar
+                                name={hostel.name}
+                                size="sm"
+                                tone="platform"
+                              />
                               <div className="min-w-0">
                                 <p className="truncate font-semibold text-foreground">
                                   {hostel.name}
@@ -463,9 +463,13 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                       className="rounded-xl border border-border/70 bg-muted/15 p-4"
                       key={chart.label}
                     >
-                      <p className="text-xs font-medium text-muted-foreground">{chart.label}</p>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {chart.label}
+                      </p>
                       <p className="mt-1 flex items-baseline gap-1.5">
-                        <span className="text-xl font-bold text-foreground">{chart.value}</span>
+                        <span className="text-xl font-bold text-foreground">
+                          {chart.value}
+                        </span>
                         {change === null ? null : (
                           <span
                             className={`text-[11px] font-semibold ${
@@ -480,7 +484,9 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
                         <AreaSparkline
                           labels={chartLabels}
                           stroke={chart.stroke}
-                          values={chart.values.length > 0 ? chart.values : [0, 0, 0, 0, 0]}
+                          values={
+                            chart.values.length > 0 ? chart.values : [0, 0, 0, 0, 0]
+                          }
                         />
                       </div>
                     </div>
@@ -491,7 +497,11 @@ export const PlatformDashboardPageContent = memo(function PlatformDashboardPageC
 
             <SectionCard
               actions={
-                <ViewAllLink href="/platform/audit-logs" label="View all" tone="platform" />
+                <ViewAllLink
+                  href="/platform/audit-logs"
+                  label="View all"
+                  tone="platform"
+                />
               }
               title="Recent Audit Activity"
             >

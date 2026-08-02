@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  Building2,
-  Eye,
-  EyeOff,
-  LockKeyhole,
-  ShieldCheck,
-  User,
-  UserRound,
-  Users,
-} from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, ShieldCheck, User } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState, type FormEvent } from "react";
@@ -33,18 +24,6 @@ const routeErrorMessages: Record<string, string> = {
   session_expired: "Your session expired. Please login again.",
 };
 
-type DemoRole = "owner" | "warden" | "staff" | "resident";
-
-const DEMO_ACCOUNTS: Record<
-  DemoRole,
-  { email: string; label: string; Icon: typeof User }
-> = {
-  owner:    { email: "hostelowner1@gmail.com", label: "Owner",    Icon: Building2 },
-  warden:   { email: "hosteladmin1@gmail.com", label: "Warden",   Icon: ShieldCheck },
-  staff:    { email: "hosteladmin1@gmail.com", label: "Staff",    Icon: Users },
-  resident: { email: "student1@gmail.com",     label: "Resident", Icon: UserRound },
-};
-
 /* ─────────────────────── Component ─────────────────── */
 export function LoginForm({ googleClientId }: { googleClientId: string }) {
   return (
@@ -58,17 +37,19 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [identifier, setIdentifier]     = useState("");
-  const [password, setPassword]         = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError]               = useState("");
-  const [selectedDemo, setSelectedDemo] = useState<DemoRole | null>(null);
+  const [error, setError] = useState("");
 
-  const routeError   = searchParams.get("error");
-  const visibleError = error || (routeError ? (routeErrorMessages[routeError] ?? "") : "");
-  const nextParam    = searchParams.get("next");
-  const signupLink   = nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : "/signup";
+  const routeError = searchParams.get("error");
+  const visibleError =
+    error || (routeError ? (routeErrorMessages[routeError] ?? "") : "");
+  const nextParam = searchParams.get("next");
+  const signupLink = nextParam
+    ? `/signup?next=${encodeURIComponent(nextParam)}`
+    : "/signup";
 
   /* helpers */
   function destinationAfterLogin(role: Role) {
@@ -100,7 +81,8 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
         }),
       });
       const payload = (await res.json().catch(() => null)) as LoginResponse | null;
-      if (!res.ok || !payload?.success) throw new Error(payload?.message ?? "Login failed.");
+      if (!res.ok || !payload?.success)
+        throw new Error(payload?.message ?? "Login failed.");
       router.push(destinationAfterLogin(payload.data.user.role));
       router.refresh();
     } catch (err) {
@@ -110,17 +92,9 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
     }
   }
 
-  function handleDemoSelect(key: DemoRole) {
-    setSelectedDemo(key);
-    setIdentifier(DEMO_ACCOUNTS[key].email);
-    setPassword("admin");
-    setError("");
-  }
-
   /* ── render ── */
   return (
     <div className="flex flex-col gap-0">
-
       {/* ── Heading ── */}
       <div className="mb-7">
         <h2 className="font-heading text-[28px] font-bold text-[#0F172A] leading-tight">
@@ -143,10 +117,12 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
 
       {/* ── Form ── */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-
         {/* Email / Phone */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-semibold text-[#0F172A]">
+          <label
+            className="text-[13px] font-semibold text-[#0F172A]"
+            htmlFor="login-identifier"
+          >
             Email or Phone Number
           </label>
           <div className="flex h-[52px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 transition focus-within:border-[#0A8A4B] focus-within:ring-2 focus-within:ring-[#0A8A4B]/15">
@@ -154,8 +130,9 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
             <input
               autoComplete="username"
               className="h-full flex-1 bg-transparent text-[14px] text-[#0F172A] placeholder:text-slate-300 outline-none"
+              id="login-identifier"
               name="identifier"
-              onChange={(e) => { setIdentifier(e.target.value); setSelectedDemo(null); }}
+              onChange={(e) => setIdentifier(e.target.value)}
               placeholder="Enter your email or phone number"
               required
               type="text"
@@ -166,7 +143,10 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
 
         {/* Password */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-semibold text-[#0F172A]">
+          <label
+            className="text-[13px] font-semibold text-[#0F172A]"
+            htmlFor="login-password"
+          >
             Password
           </label>
           <div className="flex h-[52px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 transition focus-within:border-[#0A8A4B] focus-within:ring-2 focus-within:ring-[#0A8A4B]/15">
@@ -174,8 +154,9 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
             <input
               autoComplete="current-password"
               className="h-full flex-1 bg-transparent text-[14px] text-[#0F172A] placeholder:text-slate-300 outline-none"
+              id="login-password"
               name="password"
-              onChange={(e) => { setPassword(e.target.value); setSelectedDemo(null); }}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
               required
               type={showPassword ? "text" : "password"}
@@ -236,41 +217,6 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
             You&apos;ll be redirected to the right dashboard based on your role.
           </p>
         </div>
-      </div>
-
-      {/* ── Demo section ── */}
-      <div className="mt-6">
-        <div className="flex items-center gap-3 text-[11px] text-slate-400 font-semibold uppercase tracking-widest mb-4">
-          <div className="flex-1 h-px bg-slate-200" />
-          OR PREVIEW AS DEMO
-          <div className="flex-1 h-px bg-slate-200" />
-        </div>
-
-        <div className="grid grid-cols-4 gap-2">
-          {(Object.keys(DEMO_ACCOUNTS) as DemoRole[]).map((key) => {
-            const { Icon, label } = DEMO_ACCOUNTS[key];
-            const active = selectedDemo === key;
-            return (
-              <button
-                key={key}
-                onClick={() => handleDemoSelect(key)}
-                type="button"
-                className={`flex items-center justify-center gap-2 rounded-xl border py-3 px-2 text-[13px] font-semibold transition-all ${
-                  active
-                    ? "border-[#0A8A4B] bg-[#EAF6F3] text-[#0A8A4B]"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                <Icon className={`size-4 ${active ? "text-[#0A8A4B]" : "text-slate-400"}`} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        <p className="mt-3 text-center text-[11px] text-slate-400">
-          Selecting a role above will log you in with demo data for preview.
-        </p>
       </div>
 
       {/* ── Bottom link ── */}

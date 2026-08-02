@@ -19,7 +19,7 @@
 | Maps | **OpenStreetMap + Leaflet** (default) with runtime fallback to **Google Maps Platform** (Maps JavaScript API, Places API, Geocoding API) | Default: Free OpenStreetMap via Leaflet for most users. Fallback: If `GOOGLE_MAPS_API_KEY` env var is set and API calls succeed, automatically use Google Maps for richer UX (nearby POI, better geocoding). System detects at runtime which provider to use. |
 | Email (credential delivery, notices) | **Resend** | Transactional email with template system. Needed from Phase 1 day one: admin-issued account credentials are delivered by email. See EMAIL_SYSTEM.md for all 30+ email scenarios. |
 | Push notifications | **Firebase Cloud Messaging** | Phase 6, alongside mobile app. Website uses an in-app notification bell instead (Phase 4). |
-| Monorepo tooling | **Turborepo** + **pnpm workspaces** | `apps/web`, `apps/mobile` (Phase 6), `packages/shared`, `packages/db` |
+| Monorepo tooling | **Turborepo** + **npm workspaces** | `apps/web`, `apps/mobile` (Phase 6), `packages/shared`, `packages/db`. `package-lock.json` is the committed lockfile. |
 | Deployment | **Vercel** (web app) | Fits Next.js natively; environment variables per FOLDER_STRUCTURE/ENVIRONMENT docs. |
 
 Full rationale for anything marked "final decision by developer" in the source brief is captured above — treat this table as final unless the client explicitly requests a change.
@@ -69,15 +69,25 @@ Flow for Google:
 
 Either method ends the same way: the backend returns which role the account has, and the frontend routes accordingly:
 
-| `role` | Redirect |
-|---|---|
-| `PUBLIC` | `/` (public homepage/dashboard) |
-| `SUPERADMIN` | `/superadmin` |
-| `PLATFORM_MODERATOR` | `/moderator` |
-| `HOSTEL_ADMIN` | `/hostel-admin` |
-| `WARDEN` | `/hostel-admin` (same shell, permission-gated subset — see §3.3) |
-| `RESIDENT` | `/resident` |
-| `GUARDIAN` | `/guardian` |
+Landing paths are defined in one place — `roleLandingPath` in
+`apps/web/src/lib/route-access.ts` — and the same file's `protectedRouteRules`
+gate access. As shipped:
+
+| `role` | Redirect | Notes |
+|---|---|---|
+| `PUBLIC` | `/` | Public homepage |
+| `SUPERADMIN` | `/platform/dashboard` | Full platform portal |
+| `PLATFORM_MODERATOR` | `/platform/dashboard` | **Same portal**, narrowed by rule: `/platform/config`, `/platform/fee-plans` and `/platform/settings` are SUPERADMIN-only, and every corresponding API guard enforces the same split |
+| `HOSTEL_ADMIN` | `/hostel-admin/dashboard` | Also reachable at the tenant-scoped `/{hostel-slug}/admin/...` |
+| `WARDEN` | `/hostel-admin/dashboard` | Same shell, capability-gated subset — see §3.3 |
+| `COOK` | `/` | No portal landing path by design — COOK reaches exactly one endpoint |
+| `RESIDENT` | `/resident/dashboard` | |
+| `GUARDIAN` | `/guardian/dashboard` | |
+
+> Earlier drafts listed `/superadmin` and `/moderator` as separate portals.
+> They were built as one `/platform` portal separated by route rules rather than
+> by URL prefix, so a moderator and a superadmin share every screen they are
+> both allowed to see instead of the codebase carrying two near-identical trees.
 
 ### 3.2 Account upgrade on admin-issued registration (critical flow — build this exactly)
 

@@ -4,6 +4,13 @@ const serviceProviderSchema = new Schema(
   {
     fullName: { required: true, trim: true, type: String },
     phone: { required: true, trim: true, type: String },
+    /**
+     * Optional — the directory is reachable by phone and many local tradespeople
+     * have no working mailbox. Present only so the registration / approval /
+     * rejection emails in EMAIL_SYSTEM.md §6 can be sent to those who do; a
+     * provider without one is still fully usable, just never emailed.
+     */
+    email: { lowercase: true, trim: true, type: String },
     category: {
       enum: [
         "PLUMBER",

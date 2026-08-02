@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
+import { rateLimitAuthAttempts } from "@/lib/rate-limit";
 import { ACCESS_TOKEN_COOKIE, getBearerToken, verifyAccessToken } from "@/lib/auth";
 import { shouldExposeRefreshToken } from "@/lib/mobile-auth";
 import { applySessionCookies } from "@/lib/session-cookies";
@@ -11,6 +12,13 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
+    // The current password is checked here, so it is a guessing surface.
+    const limited = rateLimitAuthAttempts(request, "auth-change-password");
+
+    if (limited) {
+      return limited;
+    }
+
     const accessToken =
       getBearerToken(request.headers.get("authorization")) ??
       request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;

@@ -75,9 +75,7 @@ export async function geocodeAndCacheHostel(hostelId: string) {
         // would mark the hostel fresh for the whole stale window, so one bad
         // Overpass response would blank its nearby list for a week. Leave the
         // previous cache in place and let the next sweep pick it up instead.
-        ...(nearby
-          ? { nearbyPlaces: nearby, nearbyPlacesLastUpdated: new Date() }
-          : {}),
+        ...(nearby ? { nearbyPlaces: nearby, nearbyPlacesLastUpdated: new Date() } : {}),
       },
     },
   );

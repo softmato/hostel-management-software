@@ -174,9 +174,10 @@ export function PublicHostelDetailPage() {
   // The gallery grows on demand — a hostel can have dozens of photos and
   // dropping them all on the page at once is what made this feel heavy.
   const [visiblePhotos, setVisiblePhotos] = useState(GALLERY_PAGE_SIZE);
-  const [lightbox, setLightbox] = useState<{ index: number; items: LightboxItem[] } | null>(
-    null,
-  );
+  const [lightbox, setLightbox] = useState<{
+    index: number;
+    items: LightboxItem[];
+  } | null>(null);
   const [openRoom, setOpenRoom] = useState<RoomCard | null>(null);
   const [reviewData, setReviewData] = useState<PublicReviewData | null>(null);
 
@@ -769,7 +770,9 @@ export function PublicHostelDetailPage() {
                   />
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-sm font-extrabold text-foreground">{room.type}</h3>
+                      <h3 className="text-sm font-extrabold text-foreground">
+                        {room.type}
+                      </h3>
                       <span className="inline-flex items-center gap-1 text-xs font-bold text-muted-foreground">
                         <Users className="size-3" /> {room.seats}
                       </span>
@@ -876,12 +879,11 @@ export function PublicHostelDetailPage() {
                 {visiblePhotos < galleryPhotos.length ? (
                   <button
                     className="mt-4 inline-flex h-10 items-center justify-center rounded-lg border border-brand-teal px-5 text-sm font-bold text-brand-teal transition hover:bg-brand-teal/5"
-                    onClick={() =>
-                      setVisiblePhotos((count) => count + GALLERY_PAGE_SIZE)
-                    }
+                    onClick={() => setVisiblePhotos((count) => count + GALLERY_PAGE_SIZE)}
                     type="button"
                   >
-                    Load {Math.min(GALLERY_PAGE_SIZE, galleryPhotos.length - visiblePhotos)}{" "}
+                    Load{" "}
+                    {Math.min(GALLERY_PAGE_SIZE, galleryPhotos.length - visiblePhotos)}{" "}
                     more photos
                   </button>
                 ) : null}
@@ -1023,8 +1025,7 @@ export function PublicHostelDetailPage() {
                         {address}
                       </p>
                       <p className="mt-1 text-xs font-medium text-muted-foreground">
-                        The exact location appears once the hostel admin saves an
-                        address.
+                        The exact location appears once the hostel admin saves an address.
                       </p>
                     </div>
                   </div>
@@ -1320,7 +1321,10 @@ export function PublicHostelDetailPage() {
                         "Beds per room",
                         openRoom.bedsPerRoom ? String(openRoom.bedsPerRoom) : "",
                       ],
-                      ["Rooms of this type", openRoom.rooms ? String(openRoom.rooms) : ""],
+                      [
+                        "Rooms of this type",
+                        openRoom.rooms ? String(openRoom.rooms) : "",
+                      ],
                       ["Meals", openRoom.mealInclusion ?? ""],
                     ] as const
                   )

@@ -81,7 +81,10 @@ function AttachedFile({
     <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2">
       <div className="flex min-w-0 items-center gap-2.5">
         <span
-          className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", tone.soft)}
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-lg",
+            tone.soft,
+          )}
         >
           <Icon className="size-4" />
         </span>
@@ -215,11 +218,18 @@ export function FileUploaderView({
         >
           {busy ? (
             <Loader2
-              className={cn("animate-spin", large ? "mb-1 size-6" : "size-4", toneClasses.icon)}
+              className={cn(
+                "animate-spin",
+                large ? "mb-1 size-6" : "size-4",
+                toneClasses.icon,
+              )}
             />
           ) : (
             <Upload
-              className={cn(large ? "mb-1 size-6" : "size-4", large ? toneClasses.icon : "text-muted-foreground")}
+              className={cn(
+                large ? "mb-1 size-6" : "size-4",
+                large ? toneClasses.icon : "text-muted-foreground",
+              )}
             />
           )}
           <span
@@ -233,7 +243,9 @@ export function FileUploaderView({
                   ? `${label} — drag & drop or click`
                   : label}
           </span>
-          <span className={cn("text-muted-foreground", large ? "text-xs" : "text-[10px]")}>
+          <span
+            className={cn("text-muted-foreground", large ? "text-xs" : "text-[10px]")}
+          >
             {hint ?? uploader.hint}
           </span>
           {fileInput}

@@ -96,10 +96,9 @@ describe("complaint SLA cron", () => {
 
     expect(result).toMatchObject({ flagged: 2, hostelsNotified: 1 });
     // The flag is what makes the job idempotent — it must be written.
-    expect(mocks.complaintUpdateMany).toHaveBeenCalledWith(
-      expect.anything(),
-      { $set: { slaBreachedAt: now } },
-    );
+    expect(mocks.complaintUpdateMany).toHaveBeenCalledWith(expect.anything(), {
+      $set: { slaBreachedAt: now },
+    });
     expect(mocks.complaintFind).toHaveBeenCalledWith(
       expect.objectContaining({ slaBreachedAt: { $exists: false } }),
     );

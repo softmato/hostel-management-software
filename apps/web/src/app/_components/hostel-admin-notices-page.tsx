@@ -18,7 +18,15 @@ import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 
 import { field, optionalField, type Notice } from "./hostel-admin-shared";
 
-const CATEGORIES = ["GENERAL", "URGENT", "EVENT", "RULE", "MAINTENANCE", "PAYMENT", "FOOD"];
+const CATEGORIES = [
+  "GENERAL",
+  "URGENT",
+  "EVENT",
+  "RULE",
+  "MAINTENANCE",
+  "PAYMENT",
+  "FOOD",
+];
 
 export const HostelAdminNoticesPage = memo(function HostelAdminNoticesPage() {
   const [actionMessage, setActionMessage] = useState("");
@@ -115,7 +123,9 @@ export const HostelAdminNoticesPage = memo(function HostelAdminNoticesPage() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[13px] font-bold text-foreground">{notice.title}</p>
+                    <p className="text-[13px] font-bold text-foreground">
+                      {notice.title}
+                    </p>
                     {notice.isUrgent ? <SoftBadge tone="rose">Urgent</SoftBadge> : null}
                     <SoftBadge tone="slate">{notice.category}</SoftBadge>
                   </div>

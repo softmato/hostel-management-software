@@ -108,7 +108,10 @@ for (const request of requests) {
 log(`Maintenance requests given a location: ${requests.length}`);
 
 // 3 + 4. Recount vacancy from who is actually living there, then derive totals.
-const hostels = await db.collection("hostels").find({ isDeleted: { $ne: true } }).toArray();
+const hostels = await db
+  .collection("hostels")
+  .find({ isDeleted: { $ne: true } })
+  .toArray();
 
 for (const hostel of hostels) {
   let configurations = hostel.roomConfigurations ?? [];

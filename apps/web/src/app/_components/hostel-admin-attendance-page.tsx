@@ -3,12 +3,7 @@
 import { MapPinned } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
 
-import {
-  EmptyState,
-  LoadingRows,
-  Panel,
-  StatusBadge,
-} from "@/app/_components/shared-ui";
+import { EmptyState, LoadingRows, Panel, StatusBadge } from "@/app/_components/shared-ui";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
@@ -43,9 +38,88 @@ const ZONE_STYLES: Record<Zone, string> = {
 
 const ZONE_ORDER: Zone[] = ["INSIDE", "NEARBY", "OUTSIDE", "UNKNOWN"];
 
+/**
+ * A resident's last 60 days as a grid — the same day-level view the resident
+ * has of themselves, so an admin checking an absence alert reads the same
+ * picture. Days with no reading are blank, not "outside": no data is not
+ * evidence of absence.
+ */
+function AttendanceCalendar({ residentId }: { residentId: string }) {
+  const resource = usePortalResource<{ history: Array<{ day: string; zone: Zone }> }>(
+    `${ATTENDANCE_ENDPOINT}?residentId=${residentId}`,
+    { errorMessage: "Could not load this resident's history." },
+  );
+
+  const zoneByDay = useMemo(() => {
+    const map = new Map<string, Zone>();
+
+    for (const entry of resource.data?.history ?? []) {
+      map.set(entry.day.slice(0, 10), entry.zone);
+    }
+
+    return map;
+  }, [resource.data]);
+
+  const days = useMemo(() => {
+    const today = new Date();
+
+    return Array.from({ length: 60 }, (_, index) => {
+      const date = new Date(today);
+
+      date.setUTCDate(date.getUTCDate() - (59 - index));
+
+      return date.toISOString().slice(0, 10);
+    });
+  }, []);
+
+  if (resource.state === "loading") {
+    return <LoadingRows />;
+  }
+
+  if (resource.state === "error") {
+    return <EmptyState label="This resident's history could not be loaded." />;
+  }
+
+  if (zoneByDay.size === 0) {
+    return <EmptyState label="No attendance readings for this resident yet." />;
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-border p-3">
+      {/* 60 cells: 6 rows on mobile, 5 on wider screens. */}
+      <div className="grid grid-cols-10 gap-1 sm:grid-cols-12">
+        {days.map((day) => {
+          const zone = zoneByDay.get(day);
+
+          return (
+            <span
+              className={cn(
+                "aspect-square rounded-sm border border-border/60",
+                zone ? ZONE_STYLES[zone] : "bg-transparent",
+              )}
+              key={day}
+              title={`${day}: ${zone ?? "no reading"}`}
+            />
+          );
+        })}
+      </div>
+      <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        {ZONE_ORDER.map((zone) => (
+          <div className="flex items-center gap-1.5" key={zone}>
+            <span className={cn("size-3 rounded-sm", ZONE_STYLES[zone])} />
+            <dt className="sr-only">Legend</dt>
+            <dd>{zone}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 export const HostelAdminAttendancePageContent = memo(
   function HostelAdminAttendancePageContent() {
     const [actionMessage, setActionMessage] = useState("");
+    const [selectedResidentId, setSelectedResidentId] = useState("");
     const invalidate = useInvalidateResources();
     const attendance = usePortalResource<{
       summary: Record<string, number>;
@@ -134,10 +208,7 @@ export const HostelAdminAttendancePageContent = memo(
 
         <div className="grid gap-3 sm:grid-cols-4">
           {ZONE_ORDER.map((zone) => (
-            <div
-              className="rounded-lg border border-border bg-surface p-4"
-              key={zone}
-            >
+            <div className="rounded-lg border border-border bg-surface p-4" key={zone}>
               <p className="text-xs font-semibold uppercase text-muted-foreground">
                 {zone}
               </p>
@@ -157,34 +228,53 @@ export const HostelAdminAttendancePageContent = memo(
             <div className="space-y-2">
               {rows.map((row) => (
                 <div
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3"
+                  className="rounded-lg border border-border p-3"
                   key={row.resident.id}
                 >
-                  <div>
-                    <p className="font-semibold text-foreground">
-                      {row.resident.fullName}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {row.resident.roomType}
-                    </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-foreground">
+                        {row.resident.fullName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.resident.roomType}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-xs font-bold",
+                          ZONE_STYLES[row.zone],
+                        )}
+                      >
+                        {row.zone}
+                      </span>
+                      <button
+                        aria-pressed={selectedResidentId === row.resident.id}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                        onClick={() =>
+                          setSelectedResidentId((current) =>
+                            current === row.resident.id ? "" : row.resident.id,
+                          )
+                        }
+                        type="button"
+                      >
+                        {selectedResidentId === row.resident.id
+                          ? "Hide history"
+                          : "History"}
+                      </button>
+                      <button
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                        onClick={() => void override(row.resident.id)}
+                        type="button"
+                      >
+                        Override
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "rounded-full px-2.5 py-1 text-xs font-bold",
-                        ZONE_STYLES[row.zone],
-                      )}
-                    >
-                      {row.zone}
-                    </span>
-                    <button
-                      className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
-                      onClick={() => void override(row.resident.id)}
-                      type="button"
-                    >
-                      Override
-                    </button>
-                  </div>
+                  {selectedResidentId === row.resident.id ? (
+                    <AttendanceCalendar residentId={row.resident.id} />
+                  ) : null}
                 </div>
               ))}
             </div>

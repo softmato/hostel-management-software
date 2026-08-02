@@ -7,32 +7,38 @@ const values = [
   {
     icon: Shield,
     title: "Trust & Transparency",
-    content: "We believe every student deserves honest, verified information about their accommodation. Every listing on HostelHub goes through a verification process to ensure accuracy.",
+    content:
+      "We believe every student deserves honest, verified information about their accommodation. Every listing on HostelHub goes through a verification process to ensure accuracy.",
   },
   {
     icon: Users,
     title: "Student First",
-    content: "Everything we build starts with the student experience — from easy search and comparison tools to seamless communication with hostel teams.",
+    content:
+      "Everything we build starts with the student experience — from easy search and comparison tools to seamless communication with hostel teams.",
   },
   {
     icon: Target,
     title: "Innovation",
-    content: "We are modernising Nepal&apos;s hostel ecosystem with digital tools for payments, complaints, food feedback, and real-time vacancy tracking.",
+    content:
+      "We are modernising Nepal&apos;s hostel ecosystem with digital tools for payments, complaints, food feedback, and real-time vacancy tracking.",
   },
   {
     icon: Eye,
     title: "Accountability",
-    content: "Hostel admins, wardens, and platform owners are held to clear standards. Our audit-logged system ensures every action is traceable.",
+    content:
+      "Hostel admins, wardens, and platform owners are held to clear standards. Our audit-logged system ensures every action is traceable.",
   },
   {
     icon: Heart,
     title: "Community",
-    content: "HostelHub connects not just students to hostels, but also families, guardians, and local service providers into one trusted network.",
+    content:
+      "HostelHub connects not just students to hostels, but also families, guardians, and local service providers into one trusted network.",
   },
   {
     icon: Building2,
     title: "Local First",
-    content: "Built for Nepal, by a team that understands the local landscape. We design for Nepali students, hostel culture, and the unique needs of the valley.",
+    content:
+      "Built for Nepal, by a team that understands the local landscape. We design for Nepali students, hostel culture, and the unique needs of the valley.",
   },
 ];
 
@@ -69,7 +75,8 @@ export function PublicAboutPage() {
           </p>
           <p className="mt-4">
             We are headquartered in Kathmandu, Nepal, and our team is passionate about
-            using technology to solve real problems for students and hostel operators alike.
+            using technology to solve real problems for students and hostel operators
+            alike.
           </p>
         </div>
 
@@ -102,8 +109,8 @@ export function PublicAboutPage() {
             Reach out at{" "}
             <a className="text-primary hover:underline" href="mailto:hello@hostelhub.com">
               hello@hostelhub.com
-            </a>
-            {" "}or visit our office in Kathmandu, Nepal.
+            </a>{" "}
+            or visit our office in Kathmandu, Nepal.
           </p>
         </div>
       </div>

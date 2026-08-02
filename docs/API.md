@@ -67,18 +67,58 @@ on. A specific code is always preferred over a generic one.
 
 ### 1.4 Pagination
 
-List endpoints accept `?page=1&pageSize=20` and return:
+List endpoints accept `?page=1&pageSize=20`. The collection keeps its own
+descriptive key and carries a sibling `pagination` block:
+
 ```json
-{ 
-  "success": true, 
-  "data": { 
-    "items": [...], 
-    "page": 1, 
-    "pageSize": 20, 
-    "total": 143 
-  } 
+{
+  "success": true,
+  "message": "Residents loaded",
+  "data": {
+    "residents": [],
+    "pagination": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 143,
+      "totalPages": 8,
+      "hasMore": true
+    }
+  }
 }
 ```
+
+An earlier draft of this section specified a generic `items` key. The shipped
+API names its collections (`residents`, `payments`, `complaints`, …) — which is
+better anyway, because a response can carry more than one collection.
+`GET /api/v1/hostel-admin/payments` returns `payments` **and** `proofs`;
+`GET /api/v1/hostel-admin/complaints` returns `complaints` **and** a `summary`.
+A single `items` key cannot express that.
+
+**Rules:**
+
+- **Never return an unbounded array.** Every list endpoint paginates.
+- `page` is 1-based. `pageSize` defaults to **20** and is capped at **100**
+  (`MAX_PAGE_SIZE`). A request above the cap at the route boundary is a
+  `VALIDATION_ERROR`; a service called internally clamps instead of throwing.
+- `total` counts every document matching the filter, **before** skip/limit.
+  `totalPages` is `0` for an empty result — not `1` empty page.
+- Both query parameters are optional. Defaults are applied in exactly one place,
+  `paginationRange()` in `lib/pagination.ts`, so a service invoked directly by a
+  cron job or a test behaves identically to one invoked through a route.
+- Any aggregate returned alongside a page — a status `summary`, a count, a total
+  owed — **must be computed over the whole filter, not the returned page.**
+  Getting this wrong produces a header that silently describes 20 rows while
+  claiming to describe the hostel.
+
+Implement by spreading `paginationQuerySchema` into the endpoint's Zod schema and
+returning `paginationMeta(query, total)` next to the collection.
+
+> **Build status.** Live on hostel-admin residents, payments and complaints, and
+> on resident complaints. The remaining list endpoints still return a bounded
+> array without a `pagination` block; they are being converted — see `TODO.md`
+> Track B1. Internal batch jobs (`complaint-sla`, `payment-reminders`,
+> `notification-dispatch`, attendance maintenance) are *not* paginated by
+> design: their `.limit()` is a batch size, not a page.
 
 ### 1.5 Path conventions and build status
 
@@ -138,7 +178,8 @@ Rows are flagged where reality differs from the original plan:
 | GET | `/api/v1/public/hostels/compare` | none | `ids=a,b,c` | Max 3 ids. Side-by-side comparison |
 | POST | `/api/v1/public/hostels/[slug]/inquiries` | none or `PUBLIC` | `{ hostelId, name, phone, email?, message? }` | Submit inquiry. Response also carries `shouldCollectProfile` — see §18 |
 | POST | `/api/v1/public/hostels/[slug]/views` | none or any role | — | Records a page view for the hostel's listing stats and returns the resident-profile prompt decision. See §18.3 |
-| POST | `/api/v1/public/service-providers/register` | none | `{ name, phone, category, area, availability?, description?, photoUrl?, documentUrl? }` | Register as service provider (always `status: PENDING`) |
+| GET | `/api/v1/public/service-providers` | none | `category?, area?, city?` | Public provider directory — `status: APPROVED` only (HIDDEN and INACTIVE never surface). **Carries no phone numbers**: contact details are hostel-admin-only (§6). Returns `countsByCategory` computed over the location-scoped set, so the category chips stay correct while a category is selected. |
+| POST | `/api/v1/public/service-providers/register` | none | `{ fullName, phone, category, area, city?, availability?, description?, experience?, photoAssetId?, documents[]? }` | Register as service provider (always `status: PENDING_APPROVAL`). Rate limited. |
 | GET | `/api/public/colleges` | none | `?search=` | ↔ **Superseded.** The college list is a small fixed reference set bundled at `lib/maps/nepal-colleges.ts`; shipping it as data avoids a request on every listing page load. |
 
 ---
@@ -160,8 +201,8 @@ All routes require `role = SUPERADMIN`.
 | GET | `/api/superadmin/subscriptions` | `?status=, page=` | ⏳ **Not built.** Hostel subscriptions |
 | POST | `/api/superadmin/subscriptions` | `{ hostelId, plan, amount, periodStart, periodEnd, proofUrl? }` | ⏳ **Not built.** Record manual payment from hostel |
 | PATCH | `/api/superadmin/subscriptions/:id/verify` | — | ⏳ **Not built.** Verify subscription payment proof |
-| GET | `/api/v1/platform/reports/dashboard` | `?type=hostels|payments|inquiries|complaints` | Platform-wide reports, CSV export |
-| POST | `/api/superadmin/announcements` | `{ title, body }` | ⏳ **Not built.** Broadcast to all hostels/users |
+| GET | `/api/v1/platform/reports/export` | `?report=hostels\|residents\|payments\|complaints` | CSV download. **Aggregates only** — hostels by status, residents by hostel+status, payment volume per hostel-month, complaint volume per hostel-status. No CSV carries a resident's name or phone. SUPERADMIN only. Every cell is quoted per RFC 4180 and formula-injection-neutralised (`=`, `+`, `-`, `@` prefixed with `'`) |
+| POST | `/api/v1/platform/notifications` | `{ title, body, category, priority, hostelIds[]?, scheduledFor? }` | Platform-wide announcement — see §12.3 |
 | PATCH | `/api/v1/platform/reviews/[id]/hide` | `{ reason }` | Moderate abusive reviews |
 | GET | `/api/v1/platform/service-providers` | `?status=, category=, page=` | List service providers |
 | PATCH | `/api/v1/platform/service-providers/[id]/approve` | `{ status: APPROVED|REJECTED|HIDDEN, rejectionReason? }` | Approve/reject/hide provider |
@@ -173,17 +214,35 @@ All routes require `role = SUPERADMIN`.
 
 ## 5. Platform Moderator
 
-`PLATFORM_MODERATOR` has a subset of superadmin permissions (no config/billing access).
+↔ **Superseded.** There is no `/api/moderator/*` surface. A `PLATFORM_MODERATOR`
+uses the **same** `/api/v1/platform/*` endpoints as a superadmin; the difference
+is which of them accept the role. `requirePlatformPrincipal` admits both roles,
+`requireSuperadminPrincipal` admits only a full superadmin.
 
-| Method | Path | Notes |
-|---|---|---|---|
-| GET | `/api/moderator/hostels` | ⏳ **Not built.** Same as superadmin but read-only on sensitive fields |
-| PATCH | `/api/moderator/hostels/:id/approve` | ⏳ **Not built.** Can approve hostels |
-| PATCH | `/api/moderator/hostels/:id/reject` | ⏳ **Not built.** Can reject hostels |
-| GET | `/api/moderator/service-providers` | ⏳ **Not built.** Can review service providers |
-| PATCH | `/api/moderator/service-providers/:id` | ⏳ **Not built.** Can approve/reject providers |
-| PATCH | `/api/moderator/reviews/:id/hide` | ⏳ **Not built.** Can moderate reviews |
-| GET | `/api/moderator/reports` | ⏳ **Not built.** Can view reports (no CSV export of financial data) |
+**A moderator may** (via `requirePlatformPrincipal`):
+
+| Area | Endpoints |
+|---|---|
+| Hostels | `/api/v1/platform/hostels*` — list, review, approve, reject, request documents, publish, unpublish |
+| Service providers | `/api/v1/platform/service-providers*` — list, approve, reject, hide |
+| Reviews | `/api/v1/platform/reviews*` — list, hide, unhide |
+| Complaints | `/api/v1/platform/complaints` |
+| Listing flags | `/api/v1/platform/listing-flags*` |
+| Users, payments, audit log | `/api/v1/platform/users`, `/api/v1/platform/payments`, `/api/v1/platform/audit-logs` |
+| Reports | `/api/v1/platform/reports/dashboard`, `/api/v1/platform/questioncall/analytics?format=json` |
+
+**A moderator may not** — these return `403 FORBIDDEN`
+(`requireSuperadminPrincipal`), and the matching routes redirect to
+`/platform/dashboard` before rendering:
+
+| Area | Endpoints | Route prefix |
+|---|---|---|
+| Website config | `GET`/`PUT` `/api/v1/platform/site-config*` | `/platform/config` |
+| Operations config | `GET`/`PUT` `/api/v1/platform/operations-config` | — |
+| Subscription billing | — | `/platform/fee-plans` |
+| Admin roster | `/api/v1/platform/admins*` | `/platform/settings` |
+| Report exports | `/api/v1/platform/reports/export`, `…/questioncall/analytics?format=csv` | — |
+| Platform broadcast | `POST /api/v1/platform/notifications` | — |
 
 ---
 
@@ -251,7 +310,8 @@ All routes require `role = RESIDENT`; every query is scoped to `resident.id` der
 | GET | `/api/v1/resident/night-status` | `?startDate=, endDate=` | Own night status history/summary |
 | POST | `/api/v1/resident/sos` | — | Triggers SOS alert, creates NightStatusLog with `status: SOS`, sends urgent emails (EMAIL_SYSTEM.md §5.1) |
 | POST | `/api/v1/resident/reviews` | `{ overallRating, foodRating?, cleanlinessRating?, safetyRating?, roomRating?, locationRating?, managementRating?, comment? }` | Only `overallRating` is required. One per hostel, enforced at DB level; re-submitting updates. Visible publicly after submit |
-| GET | `/api/v1/resident/referral` | — | Own referral code/link |
+| GET | `/api/v1/resident/referral` | — | Own referral code, shareable link, referral list with rewards, and `summary: { sent, joined, converted, rewardApprovedAmount, rewardPaidAmount }`. The code is minted lazily on first access |
+| POST | `/api/v1/resident/questioncall/click` | `{ deviceType? }` | STUDENT residents only — see §13.1 |
 | GET | `/api/v1/resident/guardians` | — | Linked guardians and exactly what each can see |
 | POST | `/api/v1/resident/guardians` | `{ email, firstName, lastName, phone, relation, permissions }` | Invites a guardian by email; 7-day single-use token (EMAIL_SYSTEM.md §1.5). Every permission defaults to `false` |
 | PATCH | `/api/v1/resident/guardians/[id]` | `{ canViewPayments?, canViewReceipts?, canViewNotices?, canViewFood?, canViewSafety?, canViewComplaintStatus? }` | Resident retunes access at any time; takes effect on the guardian's next request |
@@ -331,8 +391,9 @@ Requires `role IN (HOSTEL_ADMIN, WARDEN)`, scoped to own hostel.
 | PATCH | `/api/v1/hostel-admin/community/[postId]/hide` | `{ reason }` | Hides the post and marks its open reports `ACTIONED`. Writes an AuditLog entry |
 | DELETE | `/api/v1/hostel-admin/community/[postId]/hide` | `{ reason }` | Restores the post and marks its open reports `DISMISSED` |
 
-⏳ Not built, deferred to the Phase 5 reports work: community analytics (most active residents, post
-frequency, sentiment). Comment-level moderation endpoints — the model supports hiding a comment, but
+⏳ Not built: community analytics (most active residents, post frequency, sentiment) — the Phase 5
+reports work covered food and attendance analytics; community engagement analytics did not make the
+phase. Comment-level moderation endpoints — the model supports hiding a comment, but
 nothing calls it yet; posts are the moderation unit today.
 
 ---
@@ -369,9 +430,16 @@ Settings are `HOSTEL_ADMIN`-only.
 | PATCH | `/api/v1/hostel-admin/attendance/alerts/[id]/resolve` | `{ note? }` | Closes an open alert |
 | GET/PATCH | `/api/v1/hostel-admin/attendance/settings` | `{ enabled?, insideZoneRadiusMeters?, nearbyZoneRadiusMeters?, absenceAlertDays?, retentionDays?, pingTimes? }` | HOSTEL_ADMIN only. Rejects a nearby radius not larger than the inside radius (`422 INVALID_GEOFENCE`). Platform ceilings apply |
 
-⏳ Not built: `attendance/patterns` (frequently-absent residents, average attendance rate) and the
-admin-side per-resident calendar — both folded into the Phase 5 reports work. The data behind them
-is already served by `GET /api/v1/hostel-admin/attendance`.
+Built in Phase 5, closing the two items deferred from Phase 4:
+
+| Method | Path | Body/Query | Notes |
+|---|---|---|---|
+| GET | `/api/v1/hostel-admin/reports/attendance` | `?days=, hostelId=` | Attendance patterns: per-resident rate, zone totals, and `frequentlyAbsent` (≥5 readings and below 50%). Built from zone rows only — the coordinates that produced them were discarded at write time and are not available to any report. "Present" counts INSIDE **and** NEARBY: a resident at the gate is not absent |
+| GET | `/api/v1/hostel-admin/reports/food` | `?days=, hostelId=` | Meal timing against the hostel's own published `FoodRoutine.timings`, on-time/late split (15-minute tolerance), and a per-kitchen-device breakdown — device, not person, because cook credentials are shared. A meal with no published timing reports announcements but no delay figure. Capability: `manageFood` |
+| GET | `/api/v1/hostel-admin/reports/export` | `?report=residents\|payments\|complaints\|occupancy, hostelId=` | CSV download, scoped to the caller's own hostels. Aggregates only: residents by move-in month, collection rate per month, complaint count and average resolution days per category, occupancy per room type |
+
+The admin-side per-resident calendar is now on the Attendance page ("History" per
+row), rendering the same 60-day grid the resident sees of themselves.
 
 ---
 
@@ -395,18 +463,17 @@ Requires `role IN (HOSTEL_ADMIN, WARDEN, SUPERADMIN)`.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| POST | `/api/hostel-admin/notifications` | `{ title, body, priority, category, targetAudience, targetResidentIds[]?, scheduledFor? }` | ⏳ **Not built.** Create notification for own hostel. Can target all residents or specific residents (e.g., specific floor). Can schedule for future. |
-| GET | `/api/hostel-admin/notifications` | `?page=, status=sent\|scheduled` | ⏳ **Not built.** List sent/scheduled notifications |
-| GET | `/api/hostel-admin/notifications/:id/stats` | — | ⏳ **Not built.** Delivery stats: sent, delivered, read counts |
-| DELETE | `/api/hostel-admin/notifications/:id` | — | ⏳ **Not built.** Cancel scheduled notification (before it's sent) |
+| POST | `/api/v1/hostel-admin/notifications` | `{ title, body, category, priority, audience: ALL\|RESIDENTS\|GUARDIANS\|SPECIFIC, residentIds[]?, scheduledFor?, hostelId? }` | Creates a `NotificationCampaign`. Omit `scheduledFor` to fan out in the same request; a past timestamp is rejected (`NOTIFICATION_SCHEDULE_IN_PAST`). `GUARDIANS` targets `GuardianAccess` logins, not resident logins. |
+| GET | `/api/v1/hostel-admin/notifications` | `?hostelId=` | Campaigns for the caller's hostels, each with `stats: { sent, delivered, read }` counted from the per-recipient receipts. |
+| DELETE | `/api/hostel-admin/notifications/:id` | — | ⏳ **Not built.** Cancel scheduled notification (before it's sent). Editing/cancelling a scheduled campaign is not in Phase 5. |
 ### 12.3 Superadmin Platform-Wide Notifications
 
 Requires `role = SUPERADMIN`.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| POST | `/api/superadmin/notifications` | `{ title, body, priority, category, targetAudience, targetHostelIds[]?, scheduledFor? }` | ⏳ **Not built.** Send notification to all hostels or specific hostels |
-| GET | `/api/superadmin/notifications` | `?page=` | ⏳ **Not built.** List all platform notifications |
+| POST | `/api/v1/platform/notifications` | `{ title, body, category, priority, hostelIds[]?, scheduledFor? }` | Platform-wide broadcast. An empty `hostelIds` means every hostel. **SUPERADMIN only** — a moderator may read the list but not address the whole user base. |
+| GET | `/api/v1/platform/notifications` | — | Platform campaigns with delivery stats. Readable by `PLATFORM_MODERATOR`. |
 
 ---
 
@@ -418,16 +485,16 @@ Requires `role = RESIDENT` AND `residentType = STUDENT`.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| POST | `/api/resident/questioncall/click` | `{ deviceType? }` | ⏳ **Not built.** Tracks click event, returns redirect URL with user context. Creates QuestionCallClick record. |
-| GET | `/api/resident/questioncall/status` | — | ⏳ **Not built.** Check if user has converted (signed up on QuestionCall) |
+| POST | `/api/v1/resident/questioncall/click` | `{ deviceType?: web\|android\|ios }` | Creates a `QuestionCallClick` and returns `{ clickId, redirectUrl, ssoEnabled }`. With `QUESTIONCALL_SSO_SECRET` set the URL carries a 10-minute signed JWT; without it, a plain link. A non-STUDENT resident gets `403 QUESTIONCALL_NOT_ELIGIBLE` — the hidden button is not the gate. |
+| GET | `/api/v1/resident/questioncall/status` | — | `{ clickCount, converted, eligible, lastClickedAt }` |
 ### 13.2 Superadmin QuestionCall Analytics
 
 Requires `role = SUPERADMIN`.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| GET | `/api/superadmin/questioncall/analytics` | `?startDate=, endDate=, hostelId?` | ⏳ **Not built.** Total clicks, conversions, click-through rate, per hostel breakdown |
-| GET | `/api/superadmin/questioncall/export` | `?startDate=, endDate=, format=csv\|json` | ⏳ **Not built.** Export QuestionCall usage data |
+| GET | `/api/v1/platform/questioncall/analytics` | `?startDate=, endDate=, hostelId=, format=json\|csv` | Clicks, conversions, conversion rate, per-hostel and per-day breakdown. `format=json` is readable by `PLATFORM_MODERATOR`; **`format=csv` requires SUPERADMIN** (§5: moderators read reports, they do not export them). |
+| POST | `/api/v1/integrations/questioncall/conversion` | `{ clickId? , userId? }` | Partner callback marking a referred student as converted — the only writer of `converted`. Authenticated by the `x-questioncall-secret` header against `QUESTIONCALL_WEBHOOK_SECRET`; returns `503 INTEGRATION_NOT_CONFIGURED` when that secret is unset. Idempotent. |
 
 ---
 
@@ -439,9 +506,17 @@ Requires `role = HOSTEL_ADMIN`.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| GET | `/api/hostel-admin/settings` | — | ⏳ **Not built.** Get all settings for own hostel (location tracking, cook portal, community, etc.) |
-| PATCH | `/api/hostel-admin/settings` | `{ ...partial settings }` | ⏳ **Not built.** Update hostel settings. Validates against platform constraints (e.g., can't set geofence > platform max) |
-| GET | `/api/hostel-admin/settings/defaults` | — | ⏳ **Not built.** Get platform default settings |
+Settings are split by subject rather than served as one blob, so each one is
+gated by the capability that owns it.
+
+| Method | Path | Body/Query | Notes |
+|---|---|---|---|
+| GET | `/api/v1/hostel-admin/attendance/settings` | `?hostelId=` | Geofence radii, ping times, absence threshold, retention. |
+| PATCH | `/api/v1/hostel-admin/attendance/settings` | `{ enabled?, insideZoneRadiusMeters?, nearbyZoneRadiusMeters?, absenceAlertDays?, retentionDays?, pingTimes[]? }` | Enforces the platform ceilings — `GEOFENCE_ABOVE_PLATFORM_LIMIT` / `RETENTION_ABOVE_PLATFORM_LIMIT` (422) — and still rejects a nearby radius ≤ the inside radius. |
+| GET | `/api/v1/hostel-admin/cook-portal` | `?hostelId=` | Cook portal state, name, and when credentials were last issued. |
+| PATCH | `/api/v1/hostel-admin/cook-portal` | `{ enabled, cookName? }` | Capability: `manageFood`. |
+| GET | `/api/v1/hostel-admin/settings/community` | `?hostelId=` | `{ enabled, profanityFilterEnabled }`. |
+| PATCH | `/api/v1/hostel-admin/settings/community` | `{ enabled?, profanityFilterEnabled? }` | HOSTEL_ADMIN only. Disabling the feed blocks new posts (`403 COMMUNITY_DISABLED`); existing posts stay readable so moderation still works. |
 ### 14.2 Platform Configuration (Superadmin)
 
 Requires `role = SUPERADMIN`.
@@ -449,9 +524,10 @@ Requires `role = SUPERADMIN`.
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
 | GET | `/api/v1/platform/site-config` | `?category=` | List all platform config entries |
-| PATCH | `/api/superadmin/platform-config/:key` | `{ value }` | ⏳ **Not built.** Update specific platform config |
-| GET | `/api/superadmin/hostels/:id/settings` | — | ⏳ **Not built.** View specific hostel's settings (to check overrides) |
-| PATCH | `/api/superadmin/hostels/:id/settings/override` | `{ ...settings }` | ⏳ **Not built.** Superadmin can override any hostel setting |
+| PUT | `/api/v1/platform/site-config/[section]` | `{ ...section }` | **SUPERADMIN only** (was platform-wide before Phase 5). |
+| GET | `/api/v1/platform/operations-config` | — | The `operations` PlatformSetting: activation expiry, payment reminder lead, complaint SLA, receipt prefix, food-ready cooldown, per-channel email switches, and the three ceilings hostels tune within. |
+| PUT | `/api/v1/platform/operations-config` | `{ ...partial config }` | Merges onto the stored document, so a form posting one field does not reset the rest. Writes an `AuditLog` entry. Unlike the read path this throws on an invalid value rather than falling back to defaults. |
+| GET | `/api/superadmin/hostels/:id/settings` | — | ⏳ **Not built.** Superadmin sets the *limits*; per-hostel override from the platform side is not in Phase 5. |
 
 ---
 
@@ -541,6 +617,7 @@ Scheduled by **cron-job.org**, not Vercel Cron, with the secret in an `x-cron-se
 | POST | `/api/v1/cron/attendance-maintenance` | Daily | Raises/closes absence alerts and purges `AttendanceLog` rows past each hostel's `retentionDays` |
 | POST | `/api/v1/cron/purge-expired-otps` | Daily | Backup sweep for expired `OtpChallenge` documents (the TTL index is primary) |
 | POST | `/api/v1/cron/refresh-nearby-places` | Hourly | Recomputes cached nearby places for hostels with address changes or stale cache |
+| POST | `/api/v1/cron/notification-dispatch` | Every 15 min | Sends scheduled `NotificationCampaign` rows whose time has passed. Each campaign is claimed out of `SCHEDULED` before its receipts are written, so overlapping runs cannot double-send; a campaign that throws is marked `FAILED` with the reason rather than retried forever |
 | POST | `/api/cron/subscription-expiry` | — | ⏳ **Not built.** Finds subscriptions expiring soon, sends emails to superadmin + hostel admin |
 
 ---

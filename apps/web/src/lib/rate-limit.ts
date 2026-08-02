@@ -72,6 +72,26 @@ export function rateLimitPublicForm(
   );
 }
 
+/** PHASES.md §1.1/§5.1: 5 attempts per 15 minutes per client, per endpoint. */
+export const AUTH_ATTEMPT_LIMIT = 5;
+export const AUTH_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * The auth-endpoint limit, in one place so every credential- or token-guessing
+ * surface gets the same budget.
+ *
+ * Each endpoint passes its own namespace, so exhausting password resets does
+ * not also lock someone out of verifying their email — but a token guesser gets
+ * five tries per quarter hour at whichever door they picked.
+ */
+export function rateLimitAuthAttempts(request: NextRequest, namespace: string) {
+  return rateLimitPublicForm(request, {
+    limit: AUTH_ATTEMPT_LIMIT,
+    namespace,
+    windowMs: AUTH_ATTEMPT_WINDOW_MS,
+  });
+}
+
 export function resetPublicFormRateLimitForTests() {
   buckets.clear();
 }

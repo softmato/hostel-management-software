@@ -29,6 +29,15 @@ export const serverEnvSchema = z.object({
    * endpoints fail with a clear message when it is absent.
    */
   PERSONAL_DATA_ENCRYPTION_KEY: z.string().optional(),
+  /**
+   * QuestionCall partner integration (ARCHITECTURE.md §12). All optional: with
+   * no SSO secret the study link still works as a plain outbound link, and with
+   * no webhook secret the conversion callback returns 503 instead of trusting
+   * an unauthenticated caller.
+   */
+  QUESTIONCALL_URL: z.string().url().optional(),
+  QUESTIONCALL_SSO_SECRET: z.string().optional(),
+  QUESTIONCALL_WEBHOOK_SECRET: z.string().optional(),
   COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: z
     .string()

@@ -31,7 +31,6 @@ export const PlatformFeePlansPageContent = memo(function PlatformFeePlansPageCon
   const plans = configResource.data?.config.pricing ?? [];
   const { message, state } = configResource;
 
-
   const featured = plans.find((plan) => plan.highlighted);
 
   return (

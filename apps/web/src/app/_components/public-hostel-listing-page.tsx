@@ -318,6 +318,7 @@ function PublicHostelListingPageContent() {
                 <div className="relative flex items-center rounded-lg border border-border bg-muted px-3 py-2 focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15 transition">
                   <Search className="size-4 text-muted-foreground shrink-0" />
                   <input
+                    aria-label="Search by hostel name or area"
                     className="ml-2 w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
                     onChange={(event) => update({ query: event.target.value })}
                     placeholder="Hostel name or area..."

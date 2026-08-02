@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 const starRating = z.number().int().min(1).max(5);
@@ -33,6 +35,7 @@ export const reviewModerationSchema = z.object({
 });
 
 export const platformReviewListQuerySchema = z.object({
+  ...paginationQuerySchema,
   hostelId: objectIdSchema.optional(),
   status: z.enum(["VISIBLE", "HIDDEN"]).optional(),
 });

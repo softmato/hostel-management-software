@@ -37,9 +37,9 @@ export function ResidentIdSharePage({ residentId }: { residentId: string }) {
           HostelHub resident ID
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Give this ID to the hostel and they can fill your registration from the
-          details you already saved. Your information stays encrypted — the ID on
-          its own does not reveal anything.
+          Give this ID to the hostel and they can fill your registration from the details
+          you already saved. Your information stays encrypted — the ID on its own does not
+          reveal anything.
         </p>
 
         <p className="mt-8 select-all break-all font-mono text-3xl font-extrabold tracking-widest text-brand-teal">

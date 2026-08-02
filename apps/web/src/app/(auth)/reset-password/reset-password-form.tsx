@@ -157,7 +157,10 @@ function RequestResetLink() {
 
       <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-semibold text-[#0F172A]" htmlFor="reset-email">
+          <label
+            className="text-[13px] font-semibold text-[#0F172A]"
+            htmlFor="reset-email"
+          >
             Email
           </label>
           <div className={FIELD_SHELL}>
@@ -230,8 +233,8 @@ function SetNewPassword({ token }: { token: string }) {
         <div className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-[#EAF6F3] px-4 py-4">
           <CheckCircle2 className="size-5 shrink-0 text-[#0A8A4B]" />
           <p className="text-[12px] leading-relaxed text-slate-500">
-            Signing out everywhere is deliberate — if someone else had access to the
-            old password, that access is now gone.
+            Signing out everywhere is deliberate — if someone else had access to the old
+            password, that access is now gone.
           </p>
         </div>
         <Link className={`${PRIMARY_BUTTON} mt-5`} href="/login">
@@ -253,7 +256,10 @@ function SetNewPassword({ token }: { token: string }) {
 
       <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-semibold text-[#0F172A]" htmlFor="new-password">
+          <label
+            className="text-[13px] font-semibold text-[#0F172A]"
+            htmlFor="new-password"
+          >
             New password
           </label>
           <div className={FIELD_SHELL}>

@@ -127,9 +127,7 @@ function parseAmount(raw: string, suffix?: string): number {
     return Number.NaN;
   }
 
-  const isThousands = suffix
-    ? /^(k|thousand|hajar|hazar)$/i.test(suffix.trim())
-    : false;
+  const isThousands = suffix ? /^(k|thousand|hajar|hazar)$/i.test(suffix.trim()) : false;
 
   // A bare number under 1000 in a rent query is almost always thousands
   // ("under 8" means 8000), while 8000 is already absolute.
@@ -221,12 +219,20 @@ export function parseSearchQuery(input: string): ParsedSearch {
     new RegExp(String.raw`\bbetween\s+${AMOUNT}\s*(?:-|–|to|and)\s*${AMOUNT}`, "i"),
   );
   const under = query.match(
-    new RegExp(String.raw`\b(?:under|below|less than|upto|up to|max|within)\s+${AMOUNT}`, "i"),
+    new RegExp(
+      String.raw`\b(?:under|below|less than|upto|up to|max|within)\s+${AMOUNT}`,
+      "i",
+    ),
   );
   const over = query.match(
-    new RegExp(String.raw`\b(?:above|over|more than|at least|min|minimum)\s+${AMOUNT}`, "i"),
+    new RegExp(
+      String.raw`\b(?:above|over|more than|at least|min|minimum)\s+${AMOUNT}`,
+      "i",
+    ),
   );
-  const range = query.match(new RegExp(String.raw`\b${AMOUNT}\s*(?:-|–|to)\s*${AMOUNT}`, "i"));
+  const range = query.match(
+    new RegExp(String.raw`\b${AMOUNT}\s*(?:-|–|to)\s*${AMOUNT}`, "i"),
+  );
 
   if (between) {
     filters.minPrice = parseAmount(between[1], between[2]);
@@ -270,12 +276,7 @@ export function parseSearchQuery(input: string): ParsedSearch {
 
   // Words the passes above consumed. Whatever is left over is what an LLM
   // could still explain — a lot of leftovers means low confidence.
-  const consumed = [
-    filters.area,
-    filters.facility,
-    filters.roomType,
-    filters.q,
-  ]
+  const consumed = [filters.area, filters.facility, filters.roomType, filters.q]
     .filter(Boolean)
     .join(" ");
   const words = query.split(/\s+/).filter((word) => word.length > 2);

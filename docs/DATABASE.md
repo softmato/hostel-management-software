@@ -2,13 +2,14 @@
 
 Database: **MongoDB**. ODM: **Mongoose**. Schemas live at `packages/db/src/models/`. Models below are written Mongoose-style with TypeScript interfaces.
 
-## Build status (end of Phase 3)
+## Build status (end of Phase 5 — verified 2026-08-02)
 
-`packages/db/src/models/` holds 63 models — more than are written up below, because
-each phase added supporting collections (`EmergencyContact`, `NoticeReadStatus`,
-`OtpChallenge`, `FileAsset`, `MaintenanceComment`, `ReferralReward`, `SOSAlert`,
-and others) whose shape is self-evident from the model file. This document covers
-the ones with a decision worth recording.
+`packages/db/src/models/` holds **72 models** — more than are written up below,
+because each phase added supporting collections (`EmergencyContact`,
+`NoticeReadStatus`, `OtpChallenge`, `FileAsset`, `MaintenanceComment`,
+`ReferralReward`, `SOSAlert`, `DeviceToken`, and others) whose shape is
+self-evident from the model file. This document covers the ones with a decision
+worth recording.
 
 Three names here were **renamed or restructured** during implementation; the
 prose in each section is the shipped design:
@@ -19,11 +20,17 @@ prose in each section is the shipped design:
 | `PlatformConfig` | `PlatformSetting` (key/value, one doc per section) |
 | `Room` + `Bed` collections | `Hostel.roomConfigurations` + `capacitySummary` |
 
-These are **not yet built**, and each belongs to a later phase — they are
-specified here so the shape is agreed before the phase starts:
-`AttendanceLog`, `AttendanceAlert`, `ConsentLog` (Phase 4); `CommunityPost`,
-`CommunityComment`, `CommunityReaction`, `QuestionCallClick`,
-`NotificationReceipt`, `AccountDeletionRequest`, `Subscription` (Phase 5).
+Phase 4 built `AttendanceLog`, `AttendanceAlert`, `ConsentLog`, `CommunityPost`,
+`CommunityComment`, `CommunityReaction` and `CommunityReport`. Phase 5 built
+`QuestionCallClick` and `NotificationCampaign`.
+
+Not built, with the reason for each:
+
+| Model | Status |
+|---|---|
+| `NotificationReceipt` | **Superseded — will not be built.** The per-recipient `Notification` row *is* the receipt. Counting rows cannot drift the way a `deliveryStats` counter can. |
+| `AccountDeletionRequest` | **Being built** — `TODO.md` Track B5. Specified below and in ARCHITECTURE.md §13 / PRIVACY_POLICY.md §8. This section stops being a specification and starts being a description when B5 lands. |
+| `Subscription` | **Deliberately outside the pilot.** Platform→hostel billing is manual record-keeping in v1 (ARCHITECTURE.md §6). PRD.md §9.2 still lists it as a platform-owner feature, so it needs a client decision before it is either built or removed from scope. Tracked in `TODO.md` Track B8. |
 
 ## Conventions
 
@@ -31,7 +38,14 @@ specified here so the shape is agreed before the phase starts:
 - All models: `createdAt: Date`, `updatedAt: Date` (via `timestamps: true`)
 - Soft-delete only where explicitly noted (`deletedAt?: Date`); everything else is a hard delete guarded by role checks
 - Every hostel-scoped model has a **mandatory, indexed** `hostelId: ObjectId` — this is the tenant-isolation key (see ARCHITECTURE.md §2)
-- Money fields: `Decimal128` (never `Number`), currency assumed NPR platform-wide (no multi-currency in v1)
+- Money fields: **`Number`**, currency assumed NPR platform-wide (no
+  multi-currency in v1). An early draft of this file said `Decimal128 (never
+  Number)`, which contradicted RULES.md §6 and every shipped model
+  (`Payment.dueAmount`, `Payment.paidAmount`, `PaymentProof.amount`, …).
+  Resolved 2026-08-02 in favour of `Number`: NPR amounts at hostel scale are
+  whole rupees well inside IEEE-754 exact-integer range, and `Decimal128` would
+  force `.toString()` conversions through every service and API response for no
+  precision benefit. Never use a `string` for a value that gets arithmetic.
 - Enums: TypeScript string literal unions, validated via Mongoose enum
 
 ---
@@ -1284,8 +1298,17 @@ export const MoveOutChecklistModel = model<IMoveOutChecklist>('MoveOutChecklist'
 ```typescript
 interface IServiceProvider {
   _id: ObjectId;
-  name: string;
+  name: string;          // shipped as `fullName`
   phone: string;
+  /**
+   * Optional. Added 2026-08-02 so the §6.1/§6.2/§6.3 emails in EMAIL_SYSTEM.md
+   * could be implemented at all — before it existed the directory collected no
+   * address, so "registration received / approved / rejected" had no recipient.
+   * Still optional on purpose: many local tradespeople have no working mailbox
+   * and the directory is reachable by phone. A provider without one is fully
+   * usable, just never emailed.
+   */
+  email?: string;
   category: ServiceCategory;
   area: string; // city/locality
   availability: string; // 'Weekdays', '24/7', 'On call', etc.
@@ -1463,65 +1486,64 @@ or periodic roll-up is worth adding before the platform carries serious traffic.
 
 ---
 
-### Referral
+### Referral / ReferralCode / ReferralReward
+
+The draft folded "a resident's code" and "a person they referred" into one
+document. As built these are three collections, because one code produces many
+referrals and a reward has its own lifecycle:
+[`Referral.ts`](../packages/db/src/models/Referral.ts),
+[`ReferralCode.ts`](../packages/db/src/models/ReferralCode.ts),
+[`ReferralReward.ts`](../packages/db/src/models/ReferralReward.ts).
 
 ```typescript
-interface IReferral {
-  _id: ObjectId;
-  residentId: ObjectId; // ref Resident, unique
-  code: string; // unique, 6-8 char alphanumeric
-  refereeName?: string;
-  refereePhone?: string;
-  refereeResidentId?: ObjectId; // ref Resident, set when referee joins
-  converted: boolean;
-  rewardApplied: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+// One per resident, per hostel. Minted lazily on first dashboard visit.
+ReferralCode {
+  hostelId, residentId, userId;
+  code: string;              // unique, e.g. HH12341234
+  status: 'ACTIVE' | 'INACTIVE';
+  joinedCount: number;       // referees who registered
+  convertedCount: number;    // referees whose first payment was verified (Phase 5)
+  rewardCount: number;
 }
 
-const ReferralSchema = new Schema<IReferral>({
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, unique: true, index: true },
-  code: { type: String, required: true, unique: true, index: true },
-  refereeName: { type: String },
-  refereePhone: { type: String },
-  refereeResidentId: { type: Schema.Types.ObjectId, ref: 'Resident' },
-  converted: { type: Boolean, default: false, index: true },
-  rewardApplied: { type: Boolean, default: false },
-}, { timestamps: true });
-
-export const ReferralModel = model<IReferral>('Referral', ReferralSchema);
+// One per referred person.
+Referral {
+  hostelId, referralCodeId, referrerResidentId;
+  inquiryId?, joinedResidentId?;
+  name, phone, email?, message?;
+  status: 'INQUIRY_CREATED' | 'JOINED' | 'REWARDED' | 'CANCELLED';
+  confirmedAt?, confirmedBy?;
+  // Phase 5. Kept as its own flag rather than a `status` value so it can be
+  // true while the reward is still PENDING, APPROVED or already PAID.
+  converted: boolean;        // default false
+  convertedAt?: Date;
+  convertedPaymentId?: ObjectId;  // ref Payment
+  isDeleted: boolean;
+}
 ```
+
+Indexes: `{ hostelId, status, createdAt }`, `{ hostelId, phone }`,
+`{ referrerResidentId, status }`, and `{ hostelId, joinedResidentId, converted }`
+— the last one is the conversion lookup run on every verified payment.
+
+**Who sets `converted`.** Only `markReferralConverted`, called from
+`approvePaymentProof` after the money is credited. The update filter carries
+`converted: { $ne: true }`, so a second verified payment for the same resident
+matches nothing and the counter cannot drift. It swallows its own failures: the
+payment is already verified by then, and referral bookkeeping must not turn a
+successful verification into a failed request.
+
+`Referral.rewardApplied` from the draft is not a field — a reward is a
+`ReferralReward` row with its own `status` (`PENDING` → `APPROVED` → `PAID`), so
+the amount, type and payout note live with it instead of a bare boolean.
 
 ### Notification
 
-```typescript
-interface INotification {
-  _id: ObjectId;
-  userId: ObjectId; // ref User
-  type: string; // 'payment_due', 'proof_verified', 'new_notice', 'complaint_update', 'sos', etc.
-  title: string;
-  body: string;
-  data?: Record<string, any>; // additional payload (e.g., { paymentId, complaintId })
-  isRead: boolean;
-  readAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const NotificationSchema = new Schema<INotification>({
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  type: { type: String, required: true, index: true },
-  title: { type: String, required: true },
-  body: { type: String, required: true },
-  data: { type: Schema.Types.Mixed },
-  isRead: { type: Boolean, default: false, index: true },
-  readAt: { type: Date },
-}, { timestamps: true });
-
-NotificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
-
-export const NotificationModel = model<INotification>('Notification', NotificationSchema);
-```
+↔ **Superseded by the as-built definition** under "Notifications & Push
+Messaging" below, which this earlier draft predates. Differences worth naming:
+the shipped model uses `category` (not `type`), derives read state from
+`readAt` (there is no `isRead` boolean), and adds `campaignId`, `priority` and
+`deliveredAt` in Phase 5.
 
 ### Subscription
 
@@ -1654,103 +1676,77 @@ export const AuditLogModel = model<IAuditLog>('AuditLog', AuditLogSchema);
 
 ## Notifications & Push Messaging
 
-### Notification
+### Notification (as built)
+
+One row **per recipient** — it is both the feed entry and the delivery receipt.
+[`packages/db/src/models/Notification.ts`](../packages/db/src/models/Notification.ts).
 
 ```typescript
-interface INotification {
-  _id: ObjectId;
-  hostelId?: ObjectId; // ref Hostel - null for platform-wide notifications
-  priority: NotificationPriority;
-  category: NotificationCategory;
+{
+  userId: ObjectId;            // ref User — the recipient
+  hostelId?: ObjectId;         // ref Hostel
   title: string;
   body: string;
-  targetAudience: 'all_residents' | 'specific_residents' | 'all_hostels' | 'specific_hostel';
-  targetResidentIds?: ObjectId[]; // ref Resident[] - for specific targeting
-  targetHostelIds?: ObjectId[]; // ref Hostel[] - for multi-hostel targeting
-  createdBy: ObjectId; // ref User (admin/warden/cook/superadmin)
-  scheduledFor?: Date; // for scheduled notifications
-  sentAt?: Date;
-  deliveryStats: {
-    sent: number;
-    delivered: number;
-    read: number;
-    failed: number;
-  };
-  createdAt: Date;
-  updatedAt: Date;
+  category: string;            // 'PAYMENT' | 'COMPLAINT' | 'ANNOUNCEMENT' | …
+  channel: 'IN_APP' | 'PUSH' | 'EMAIL' | 'SMS';   // default IN_APP
+  data: Record<string, unknown>;
+
+  // Phase 5
+  campaignId?: ObjectId;       // ref NotificationCampaign — null for system alerts
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';  // default NORMAL
+  deliveredAt?: Date;          // reached the feed (in-app: written)
+  readAt?: Date;               // opened
+
+  status: 'QUEUED' | 'SENT' | 'FAILED';
+  createdBy?, updatedBy?: ObjectId;
 }
-
-const NotificationSchema = new Schema<INotification>({
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', index: true },
-  priority: { 
-    type: String, 
-    enum: Object.values(NotificationPriority), 
-    default: NotificationPriority.NORMAL 
-  },
-  category: { 
-    type: String, 
-    enum: Object.values(NotificationCategory), 
-    required: true,
-    index: true,
-  },
-  title: { type: String, required: true },
-  body: { type: String, required: true },
-  targetAudience: { 
-    type: String, 
-    enum: ['all_residents', 'specific_residents', 'all_hostels', 'specific_hostel'], 
-    required: true 
-  },
-  targetResidentIds: [{ type: Schema.Types.ObjectId, ref: 'Resident' }],
-  targetHostelIds: [{ type: Schema.Types.ObjectId, ref: 'Hostel' }],
-  createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  scheduledFor: { type: Date },
-  sentAt: { type: Date },
-  deliveryStats: {
-    sent: { type: Number, default: 0 },
-    delivered: { type: Number, default: 0 },
-    read: { type: Number, default: 0 },
-    failed: { type: Number, default: 0 },
-  },
-}, { timestamps: true });
-
-NotificationSchema.index({ hostelId: 1, createdAt: -1 });
-NotificationSchema.index({ category: 1, sentAt: -1 });
-NotificationSchema.index({ scheduledFor: 1, sentAt: 1 });
-
-export const NotificationModel = model<INotification>('Notification', NotificationSchema);
 ```
 
-### NotificationReceipt
+Indexes: `{ userId, readAt, createdAt }`, `{ hostelId, status }`,
+`{ campaignId, readAt }` — the last is what delivery stats aggregate over.
 
-Tracks individual notification delivery per resident.
+### NotificationCampaign
+
+One row per **authored broadcast** (PHASES.md §5.1).
+[`packages/db/src/models/NotificationCampaign.ts`](../packages/db/src/models/NotificationCampaign.ts).
 
 ```typescript
-interface INotificationReceipt {
-  _id: ObjectId;
-  notificationId: ObjectId; // ref Notification
-  residentId: ObjectId; // ref Resident
-  userId: ObjectId; // ref User (denormalized from Resident)
-  deliveredAt?: Date;
-  readAt?: Date;
-  dismissed: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+{
+  hostelId?: ObjectId;         // null for a platform-wide campaign
+  title: string;
+  body: string;
+  category: string;            // default 'ANNOUNCEMENT'
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  audience: 'ALL' | 'RESIDENTS' | 'GUARDIANS' | 'SPECIFIC';
+  residentIds: ObjectId[];     // used when audience = SPECIFIC
+  hostelIds: ObjectId[];       // platform campaigns may target a subset
+  scope: 'HOSTEL' | 'PLATFORM';
+  scheduledFor?: Date;         // absent = send now, in the same request
+  sentAt?: Date;
+  status: 'SCHEDULED' | 'SENT' | 'CANCELLED' | 'FAILED';
+  recipientCount: number;      // written at dispatch
+  failureReason?: string;
+  createdBy?, updatedBy?: ObjectId;
 }
-
-const NotificationReceiptSchema = new Schema<INotificationReceipt>({
-  notificationId: { type: Schema.Types.ObjectId, ref: 'Notification', required: true, index: true },
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  deliveredAt: { type: Date },
-  readAt: { type: Date },
-  dismissed: { type: Boolean, default: false },
-}, { timestamps: true });
-
-NotificationReceiptSchema.index({ userId: 1, readAt: 1 });
-NotificationReceiptSchema.index({ notificationId: 1, residentId: 1 }, { unique: true });
-
-export const NotificationReceiptModel = model<INotificationReceipt>('NotificationReceipt', NotificationReceiptSchema);
 ```
+
+Indexes: `{ hostelId, createdAt }`, `{ scope, createdAt }`, and
+`{ status, scheduledFor }` — the dispatch cron's only query.
+
+**Why a campaign and receipts rather than one document with a `deliveryStats`
+counter** (the draft's shape): a counter has to be kept in step with the rows it
+counts, and drifts the first time a write half-fails. Counting the receipts
+cannot drift, and it stays right when someone opens a months-old notification.
+
+**Why `NotificationReceipt` was not built.** The per-recipient `Notification`
+row already carries `campaignId`, `deliveredAt` and `readAt` — a separate
+receipt collection would duplicate every row for no extra fact. Push-specific
+per-device receipts may justify one in Phase 6; nothing in Phase 5 needed it.
+
+`GUARDIANS` resolves through `GuardianAccess` (status `ACTIVE`, `userId` set),
+not through `Guardian` — a `Guardian` record on its own is a contact detail the
+hostel holds, not somebody with a login to notify.
+
 
 ### FoodReadyLog
 
@@ -2007,6 +2003,12 @@ Hiding a post marks its open reports `ACTIONED`; restoring one marks them `DISMI
 ### QuestionCallClick
 
 Tracks when residents click the QuestionCall integration button.
+Built in Phase 5 — [`packages/db/src/models/QuestionCallClick.ts`](../packages/db/src/models/QuestionCallClick.ts).
+The shape below is what shipped, with one clarification: `converted` is written
+**only** by QuestionCall's own webhook (`POST /api/v1/integrations/questioncall/conversion`,
+authenticated by `QUESTIONCALL_WEBHOOK_SECRET`). The platform never infers a
+signup it cannot prove, so with no webhook configured every click reads
+`converted: false` and the analytics conversion rate is honestly 0%.
 
 ```typescript
 interface IQuestionCallClick {
@@ -2069,6 +2071,12 @@ hierarchy. One document per hostel.
     pingTimes: string[];                  // HH:mm, default ['06:00','08:00','22:00']
   };
 
+  // Community feed (Phase 5)
+  community: {
+    enabled: boolean;                     // default true — turning it off blocks new posts
+    profanityFilterEnabled: boolean;      // default true
+  };
+
   createdBy?: ObjectId;
   updatedBy?: ObjectId;
 }
@@ -2086,9 +2094,17 @@ platform ceilings a hostel admin cannot exceed.
 > - `geofenceRadiusMeters` is gone; it duplicated `insideZoneRadiusMeters` and nothing read it.
 > - `cookDeviceFingerprints` is gone; per-announcement attribution comes from
 >   `FoodReadyLog.deviceInfo` instead (PHASES.md §3.1), which is where it actually lives.
-> - `communityFeatureEnabled` / `communityModerationEnabled` / `profanityFilterEnabled` /
->   `notificationsEnabled` / `timezone` are **not implemented**. They are feature switches nothing
->   reads yet; add them when there is a screen that turns them on, not before.
+> - `communityFeatureEnabled` / `communityModerationEnabled` / `profanityFilterEnabled` landed in
+>   Phase 5 as the `community` block above, now that the Settings screen turns them on and
+>   `createCommunityPost` reads them. `notificationsEnabled` / `timezone` remain **not implemented**
+>   — still switches nothing reads.
+
+> **Platform ceilings (Phase 5).** The `max…` values above are no longer only schema maxima:
+> `updateAttendanceSettings` reads `maxInsideZoneRadiusMeters`, `maxNearbyZoneRadiusMeters` and
+> `maxAttendanceRetentionDays` from the `operations` PlatformSetting and rejects anything above them
+> (`GEOFENCE_ABOVE_PLATFORM_LIMIT` / `RETENTION_ABOVE_PLATFORM_LIMIT`, 422). Retention is the
+> privacy-relevant one — a hostel must not be able to keep raw location rows longer than the
+> platform allows.
 
 ### PlatformConfig
 

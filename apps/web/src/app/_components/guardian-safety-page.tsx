@@ -108,8 +108,12 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                     <ShieldCheck className="size-3.5 text-emerald-600" />
                     Current Status
                   </div>
-                  <p className="mt-2 text-base font-bold text-foreground">{safetyStatus}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">Marked by hostel</p>
+                  <p className="mt-2 text-base font-bold text-foreground">
+                    {safetyStatus}
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Marked by hostel
+                  </p>
                 </div>
                 <div className="rounded-xl border border-border/70 bg-muted/15 p-3">
                   <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -117,7 +121,9 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                     Emergency Status
                   </div>
                   <p className="mt-2 text-base font-bold text-foreground">Normal</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">No active alerts</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    No active alerts
+                  </p>
                 </div>
                 <div className="rounded-xl border border-border/70 bg-muted/15 p-3">
                   <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -129,7 +135,9 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                       ? new Date(dashboard.safety.checkedAt).toLocaleString()
                       : "Not verified"}
                   </p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">From hostel system</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    From hostel system
+                  </p>
                 </div>
               </div>
 
@@ -138,8 +146,8 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                 <div>
                   <p className="font-semibold">No GPS Tracking. No Location History.</p>
                   <p className="mt-0.5 text-xs opacity-90">
-                    We do not track or share live location. Status is updated only by hostel
-                    staff.
+                    We do not track or share live location. Status is updated only by
+                    hostel staff.
                   </p>
                 </div>
               </div>
@@ -164,7 +172,12 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <RoleButton className="w-full" tone="guardian" type="button" variant="soft">
+                  <RoleButton
+                    className="w-full"
+                    tone="guardian"
+                    type="button"
+                    variant="soft"
+                  >
                     <Phone className="size-4" />
                     Call
                   </RoleButton>
@@ -183,9 +196,14 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                       {dashboard.hostel?.name ?? "Hostel"}
                     </p>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">24/7 Emergency Helpline</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    24/7 Emergency Helpline
+                  </p>
                   <p className="mt-3 text-2xl font-bold text-rose-600">Contact Hostel</p>
-                  <RoleButton className="mt-4 w-full bg-rose-600 hover:bg-rose-600/90" tone="guardian">
+                  <RoleButton
+                    className="mt-4 w-full bg-rose-600 hover:bg-rose-600/90"
+                    tone="guardian"
+                  >
                     <Phone className="size-4" />
                     Call Emergency
                   </RoleButton>
@@ -221,10 +239,16 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground">{notice.title}</p>
-                        {notice.isUrgent ? <SoftBadge tone="rose">Urgent</SoftBadge> : null}
+                        <p className="text-sm font-semibold text-foreground">
+                          {notice.title}
+                        </p>
+                        {notice.isUrgent ? (
+                          <SoftBadge tone="rose">Urgent</SoftBadge>
+                        ) : null}
                       </div>
-                      <p className="mt-1 text-xs text-muted-foreground">{notice.content}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {notice.content}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -237,7 +261,11 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
               <ShieldCheck className="size-4 text-role-guardian" />
               In case of any emergency, contact the warden or hostel immediately.
             </div>
-            <Button className="h-9 rounded-xl border-role-guardian/30" type="button" variant="outline">
+            <Button
+              className="h-9 rounded-xl border-role-guardian/30"
+              type="button"
+              variant="outline"
+            >
               How We Ensure Safety
             </Button>
           </div>

@@ -52,12 +52,7 @@ import { PortalSearch } from "@/components/portal-search";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type {
   PortalIconName,
   PortalNavGroup,
@@ -400,7 +395,9 @@ export function PortalShell({
       <div className="space-y-2 border-t border-slate-100 p-2 dark:border-border">
         <div className="rounded-lg border border-slate-100 bg-white p-2 dark:border-border dark:bg-card">
           <p className="text-[10px] font-medium text-muted-foreground">Current Plan</p>
-          <p className={cn("mt-0.5 text-[12.5px] font-bold", styles.text)}>{plan.label}</p>
+          <p className={cn("mt-0.5 text-[12.5px] font-bold", styles.text)}>
+            {plan.label}
+          </p>
           <p className="mt-0.5 text-[10px] text-muted-foreground">{plan.renews}</p>
           <Button
             className={cn(
@@ -474,7 +471,10 @@ export function PortalShell({
         </aside>
 
         <Sheet onOpenChange={setMobileNavOpen} open={mobileNavOpen}>
-          <SheetContent className="flex w-[264px] flex-col gap-0 p-0 sm:max-w-[264px]" side="left">
+          <SheetContent
+            className="flex w-[264px] flex-col gap-0 p-0 sm:max-w-[264px]"
+            side="left"
+          >
             <SheetHeader className="shrink-0 border-b border-slate-100 px-3 py-3 dark:border-border">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               {renderBrand()}

@@ -144,7 +144,9 @@ const UploadRow = memo(function UploadRow({ item }: { item: UploadItem }) {
         <span
           className={cn(
             "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
-            failed ? "bg-destructive/10 text-destructive" : "bg-brand-teal/10 text-brand-teal",
+            failed
+              ? "bg-destructive/10 text-destructive"
+              : "bg-brand-teal/10 text-brand-teal",
           )}
         >
           <FileIcon className="size-4" />
@@ -261,7 +263,9 @@ function UploadStack() {
     const loadedBytes = items.reduce(
       (sum, item) =>
         sum +
-        (item.status === "success" ? item.sizeBytes : (item.sizeBytes * item.percent) / 100),
+        (item.status === "success"
+          ? item.sizeBytes
+          : (item.sizeBytes * item.percent) / 100),
       0,
     );
 
@@ -269,7 +273,8 @@ function UploadStack() {
       activeCount: activeItems.length,
       doneCount: items.filter((item) => item.status === "success").length,
       failedCount: items.filter((item) => item.status === "error").length,
-      percent: totalBytes > 0 ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100)) : 0,
+      percent:
+        totalBytes > 0 ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100)) : 0,
     };
   }, [items]);
 

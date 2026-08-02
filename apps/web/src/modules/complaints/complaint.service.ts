@@ -3,6 +3,12 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import {
+  MAX_PAGE_SIZE,
+  paginationMeta,
+  paginationRange,
+  type PaginationQuery,
+} from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { ComplaintAttachmentModel } from "@hostel/db/models/ComplaintAttachment";
@@ -213,43 +219,39 @@ function serializeComplaint(
   };
 }
 
-function complaintSummary(complaints: ComplaintRecord[]) {
-  return complaints.reduce(
-    (summary, complaint) => {
-      if (complaint.status === "PENDING") {
-        summary.pending += 1;
-      }
+/**
+ * Status tallies for the whole filter, not the page.
+ *
+ * This replaced an in-memory reduce over the returned array. Once the list
+ * became paginated that array is one page, so the admin header would have read
+ * "20 complaints" no matter how many there really were. Runs against the same
+ * filter as the list query, so the two can never disagree.
+ */
+async function complaintSummaryForFilter(filter: Record<string, unknown>) {
+  const openStatuses = ["PENDING", "IN_PROGRESS"];
 
-      if (complaint.status === "IN_PROGRESS") {
-        summary.inProgress += 1;
-      }
+  const [byStatus, overdue] = await Promise.all([
+    ComplaintModel.aggregate<{ _id: string; count: number }>([
+      { $match: filter },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+    ComplaintModel.countDocuments({
+      ...filter,
+      slaDueAt: { $lt: new Date() },
+      status: { $in: openStatuses },
+    }),
+  ]);
 
-      if (complaint.status === "RESOLVED") {
-        summary.resolved += 1;
-      }
+  const counts = new Map(byStatus.map((row) => [row._id, row.count]));
 
-      if (complaint.status === "REJECTED") {
-        summary.rejected += 1;
-      }
-
-      if (
-        !["RESOLVED", "REJECTED"].includes(complaint.status) &&
-        complaint.slaDueAt.getTime() < Date.now()
-      ) {
-        summary.overdue += 1;
-      }
-
-      return summary;
-    },
-    {
-      inProgress: 0,
-      overdue: 0,
-      pending: 0,
-      rejected: 0,
-      resolved: 0,
-      total: complaints.length,
-    },
-  );
+  return {
+    inProgress: counts.get("IN_PROGRESS") ?? 0,
+    overdue,
+    pending: counts.get("PENDING") ?? 0,
+    rejected: counts.get("REJECTED") ?? 0,
+    resolved: counts.get("RESOLVED") ?? 0,
+    total: [...counts.values()].reduce((sum, count) => sum + count, 0),
+  };
 }
 
 async function complaintChildren(complaints: ComplaintRecord[]) {
@@ -406,17 +408,35 @@ export async function createComplaint(
   };
 }
 
-export async function listResidentComplaints(principal: ApiPrincipal) {
+/**
+ * A resident's own complaints.
+ *
+ * `query` is optional and defaults to a full `MAX_PAGE_SIZE` page so existing
+ * callers — including the mobile client, which passes nothing — see exactly the
+ * behaviour they had before pagination existed. Pass `{ page }` to walk further
+ * back.
+ */
+export async function listResidentComplaints(
+  principal: ApiPrincipal,
+  query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },
+) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
-  const complaints = await ComplaintModel.find({
+  const filter = {
     hostelId: resident.hostelId,
     residentId: resident._id,
-  })
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<ComplaintRecord[]>();
+  };
+  const { limit, skip } = paginationRange(query);
+
+  const [complaints, total] = await Promise.all([
+    ComplaintModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ComplaintRecord[]>(),
+    ComplaintModel.countDocuments(filter),
+  ]);
   const { attachmentsByComplaintId, updatesByComplaintId } =
     await complaintChildren(complaints);
 
@@ -427,6 +447,7 @@ export async function listResidentComplaints(principal: ApiPrincipal) {
         updates: updatesByComplaintId.get(complaint._id.toString()),
       }),
     ),
+    pagination: paginationMeta(query, total),
     resident: serializeResidentSummary(resident),
   };
 }
@@ -459,10 +480,16 @@ export async function listAdminComplaints(
     ];
   }
 
-  const complaints = await ComplaintModel.find(filter)
-    .sort({ status: 1, createdAt: -1 })
-    .limit(100)
-    .lean<ComplaintRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [complaints, total] = await Promise.all([
+    ComplaintModel.find(filter)
+      .sort({ status: 1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ComplaintRecord[]>(),
+    ComplaintModel.countDocuments(filter),
+  ]);
   const { attachmentsByComplaintId, updatesByComplaintId } =
     await complaintChildren(complaints);
 
@@ -474,7 +501,8 @@ export async function listAdminComplaints(
         updates: updatesByComplaintId.get(complaint._id.toString()),
       }),
     ),
-    summary: complaintSummary(complaints),
+    pagination: paginationMeta(query, total),
+    summary: await complaintSummaryForFilter(filter),
   };
 }
 

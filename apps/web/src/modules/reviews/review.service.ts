@@ -3,6 +3,12 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import {
+  MAX_PAGE_SIZE,
+  paginationMeta,
+  paginationRange,
+  type PaginationQuery,
+} from "@/lib/pagination";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
@@ -194,17 +200,37 @@ async function resolveHostelId(hostelIdOrSlug: string) {
   return hostel._id;
 }
 
-export async function listPublicHostelReviews(hostelIdOrSlug: string) {
+export async function listPublicHostelReviews(
+  hostelIdOrSlug: string,
+  query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },
+) {
   await connectToDatabase();
 
   const objectId = await resolveHostelId(hostelIdOrSlug);
-  const reviews = await RatingReviewModel.find({
+  const filter = {
     hostelId: objectId,
     status: "VISIBLE",
-  })
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<ReviewRecord[]>();
+  };
+  const { limit, skip } = paginationRange(query);
+
+  // Two reads on purpose. `reviews` is the page the visitor sees; `scored` is
+  // every visible review's rating fields, because the summary below — average,
+  // per-category means, star distribution, total — describes the hostel, not
+  // the page. Computing it from `reviews` would make a hostel's rating change
+  // as you click through pages. `scored` is a narrow projection, so it stays
+  // cheap even when the list does not.
+  const [reviews, scored] = await Promise.all([
+    RatingReviewModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ReviewRecord[]>(),
+    RatingReviewModel.find(filter)
+      .select(
+        "overallRating cleanlinessRating foodRating locationRating managementRating roomRating safetyRating",
+      )
+      .lean<ReviewRecord[]>(),
+  ]);
   const residents = await ResidentModel.find({
     _id: { $in: reviews.map((review) => review.residentId) },
   }).lean<Array<{ _id: Types.ObjectId; firstName: string; lastName: string }>>();
@@ -215,11 +241,12 @@ export async function listPublicHostelReviews(hostelIdOrSlug: string) {
     ]),
   );
   const averageRating =
-    reviews.length === 0
+    scored.length === 0
       ? 0
-      : reviews.reduce((sum, review) => sum + review.overallRating, 0) / reviews.length;
+      : scored.reduce((sum, review) => sum + review.overallRating, 0) / scored.length;
 
   return {
+    pagination: paginationMeta(query, scored.length),
     reviews: reviews.map((review) =>
       serializePublicReview(
         review,
@@ -231,22 +258,22 @@ export async function listPublicHostelReviews(hostelIdOrSlug: string) {
       // Per-category averages skip reviews that left a category unscored, so a
       // single food rating is not diluted by everyone who ignored the field.
       categories: {
-        cleanliness: averageOf(reviews.map((review) => review.cleanlinessRating)),
-        food: averageOf(reviews.map((review) => review.foodRating)),
-        location: averageOf(reviews.map((review) => review.locationRating)),
-        management: averageOf(reviews.map((review) => review.managementRating)),
-        overall: averageOf(reviews.map((review) => review.overallRating)),
-        room: averageOf(reviews.map((review) => review.roomRating)),
-        security: averageOf(reviews.map((review) => review.safetyRating)),
+        cleanliness: averageOf(scored.map((review) => review.cleanlinessRating)),
+        food: averageOf(scored.map((review) => review.foodRating)),
+        location: averageOf(scored.map((review) => review.locationRating)),
+        management: averageOf(scored.map((review) => review.managementRating)),
+        overall: averageOf(scored.map((review) => review.overallRating)),
+        room: averageOf(scored.map((review) => review.roomRating)),
+        security: averageOf(scored.map((review) => review.safetyRating)),
       },
       // Real counts per star, so the public bar chart reflects the reviews that
       // exist rather than a shape assumed from the total.
       distribution: [5, 4, 3, 2, 1].map((stars) => ({
-        count: reviews.filter((review) => Math.round(review.overallRating) === stars)
+        count: scored.filter((review) => Math.round(review.overallRating) === stars)
           .length,
         stars,
       })),
-      total: reviews.length,
+      total: scored.length,
     },
   };
 }
@@ -264,12 +291,19 @@ export async function listPlatformReviews(query: PlatformReviewListQuery) {
     filter.status = query.status;
   }
 
-  const reviews = await RatingReviewModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(200)
-    .lean<ReviewRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [reviews, total] = await Promise.all([
+    RatingReviewModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ReviewRecord[]>(),
+    RatingReviewModel.countDocuments(filter),
+  ]);
 
   return {
+    pagination: paginationMeta(query, total),
     reviews: reviews.map(serializeReview),
   };
 }

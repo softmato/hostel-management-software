@@ -118,7 +118,10 @@ export function PublicComparePage() {
           <SectionCard>
             <div className="p-10 text-center text-sm text-muted-foreground">
               No hostels selected. Pick hostels from the{" "}
-              <Link className="font-semibold text-brand-teal hover:underline" href="/hostels">
+              <Link
+                className="font-semibold text-brand-teal hover:underline"
+                href="/hostels"
+              >
                 listing page
               </Link>{" "}
               to compare them here.

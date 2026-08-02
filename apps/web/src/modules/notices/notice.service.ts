@@ -3,6 +3,12 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import {
+  MAX_PAGE_SIZE,
+  paginationMeta,
+  paginationRange,
+  type PaginationQuery,
+} from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { NoticeModel } from "@hostel/db/models/Notice";
@@ -250,13 +256,20 @@ export async function listNotices(query: NoticeListQuery, principal: ApiPrincipa
     filter.category = query.category;
   }
 
-  const notices = await NoticeModel.find(filter)
-    .sort({ isUrgent: -1, publishedAt: -1 })
-    .limit(100)
-    .lean<NoticeRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [notices, total] = await Promise.all([
+    NoticeModel.find(filter)
+      .sort({ isUrgent: -1, publishedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<NoticeRecord[]>(),
+    NoticeModel.countDocuments(filter),
+  ]);
 
   return {
     notices: notices.map((notice) => serializeNotice(notice)),
+    pagination: paginationMeta(query, total),
   };
 }
 
@@ -303,19 +316,29 @@ export async function updateNotice(
   };
 }
 
-export async function listNoticesForResident(principal: ApiPrincipal) {
+export async function listNoticesForResident(
+  principal: ApiPrincipal,
+  query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },
+) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
-  const notices = await NoticeModel.find({
+  const filter = {
     hostelId: resident.hostelId,
     publishedAt: { $lte: new Date() },
     targetAudience: { $in: ["ALL", "RESIDENTS"] },
     $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
-  })
-    .sort({ isUrgent: -1, publishedAt: -1 })
-    .limit(100)
-    .lean<NoticeRecord[]>();
+  };
+  const { limit, skip } = paginationRange(query);
+
+  const [notices, total] = await Promise.all([
+    NoticeModel.find(filter)
+      .sort({ isUrgent: -1, publishedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<NoticeRecord[]>(),
+    NoticeModel.countDocuments(filter),
+  ]);
   const readStatuses = await NoticeReadStatusModel.find({
     noticeId: { $in: notices.map((notice) => notice._id) },
     userId: normalizeObjectId(principal.userId, "user id"),
@@ -328,6 +351,7 @@ export async function listNoticesForResident(principal: ApiPrincipal) {
     notices: notices.map((notice) =>
       serializeNotice(notice, readStatusByNoticeId.get(notice._id.toString())),
     ),
+    pagination: paginationMeta(query, total),
     resident: serializeResidentSummary(resident),
   };
 }

@@ -2,6 +2,8 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
+import { escapeRegex } from "@/lib/validators";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
@@ -22,6 +24,10 @@ import { hostelUnpublishedEmail } from "@hostel/shared/email/templates/hostel/ho
 import { hostelDocumentsRequestedEmail } from "@hostel/shared/email/templates/hostel/documents-requested";
 import { hostelRejectedEmail } from "@hostel/shared/email/templates/hostel/hostel-rejected";
 import { hostelSubmissionReceivedEmail } from "@hostel/shared/email/templates/hostel/submission-received";
+import {
+  notifyHostelOfInquiry,
+  notifyPlatformOfPendingHostel,
+} from "@/modules/hostels/hostel-notify";
 import type {
   hostelRejectSchema,
   hostelRequestDocumentsSchema,
@@ -302,7 +308,11 @@ export function serializePublicHostel(hostel: HostelRecord) {
     // then interiors. Room shots trail: they belong to a single room type and
     // only stand in for the gallery when nothing else was uploaded.
     photos: [...(hostel.photos ?? [])]
-      .sort((a, b) => PUBLIC_PHOTO_ORDER[a.kind ?? "INTERIOR"] - PUBLIC_PHOTO_ORDER[b.kind ?? "INTERIOR"])
+      .sort(
+        (a, b) =>
+          PUBLIC_PHOTO_ORDER[a.kind ?? "INTERIOR"] -
+          PUBLIC_PHOTO_ORDER[b.kind ?? "INTERIOR"],
+      )
       .map((photo) => ({
         alt: photo.alt ?? "",
         id: photo._id?.toString(),
@@ -437,7 +447,10 @@ export async function findHostelByIdOrThrow(hostelId: string) {
   return hostel;
 }
 
-export function definedUpdate(input: Record<string, unknown>, omittedKeys: string[] = []) {
+export function definedUpdate(
+  input: Record<string, unknown>,
+  omittedKeys: string[] = [],
+) {
   return Object.fromEntries(
     Object.entries(input).filter(
       ([key, value]) => value !== undefined && !omittedKeys.includes(key),
@@ -449,7 +462,10 @@ export function normalizeObjectIds(values: string[]) {
   return values.map((value) => normalizeObjectId(value));
 }
 
-export function resolveAdminHostelId(principal: ApiPrincipal, requestedHostelId?: string) {
+export function resolveAdminHostelId(
+  principal: ApiPrincipal,
+  requestedHostelId?: string,
+) {
   if (requestedHostelId) {
     assertHostelAccess(principal, requestedHostelId);
     return normalizeObjectId(requestedHostelId);
@@ -478,7 +494,10 @@ export function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: 
   };
 }
 
-export async function findScopedHostel(principal: ApiPrincipal, requestedHostelId?: string) {
+export async function findScopedHostel(
+  principal: ApiPrincipal,
+  requestedHostelId?: string,
+) {
   const hostelId = resolveAdminHostelId(principal, requestedHostelId);
   const hostel = await HostelModel.findOne({
     _id: hostelId,
@@ -853,6 +872,13 @@ export async function registerPublicHostelApplication(
     });
   }
 
+  // EMAIL_SYSTEM.md §7.1. The owner was already told; until this landed the
+  // platform staff who have to act on it were not.
+  await notifyPlatformOfPendingHostel(hostel, {
+    email: input.applicant.email,
+    name: input.applicant.name,
+  }).catch(() => {});
+
   const createdHostel = await findHostelByIdOrThrow(hostel._id.toString());
   const createdApplication = await HostelApplicationModel.findById(
     application._id,
@@ -881,10 +907,16 @@ export async function listPlatformHostels(query: PlatformHostelListQuery) {
     filter.verificationStatus = query.verificationStatus;
   }
 
-  const hostels = await HostelModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<HostelRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [hostels, total] = await Promise.all([
+    HostelModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<HostelRecord[]>(),
+    HostelModel.countDocuments(filter),
+  ]);
 
   // The approval queue is about people as much as listings, so each row carries
   // who filed it and when — resolved in one query rather than per row.
@@ -892,7 +924,9 @@ export async function listPlatformHostels(query: PlatformHostelListQuery) {
     _id: { $in: hostels.map((hostel) => hostel.ownerId) },
   })
     .select("name email phone")
-    .lean<Array<{ _id: Types.ObjectId; email?: string; name?: string; phone?: string }>>();
+    .lean<
+      Array<{ _id: Types.ObjectId; email?: string; name?: string; phone?: string }>
+    >();
 
   const ownerById = new Map(
     owners.map((owner) => [
@@ -919,7 +953,10 @@ export async function listPlatformHostels(query: PlatformHostelListQuery) {
       }>
     >();
 
-  const applicationByHostel = new Map<string, { status: string; submittedAt: string | null }>();
+  const applicationByHostel = new Map<
+    string,
+    { status: string; submittedAt: string | null }
+  >();
   for (const application of applications) {
     const key = application.hostelId.toString();
     if (!applicationByHostel.has(key)) {
@@ -941,6 +978,7 @@ export async function listPlatformHostels(query: PlatformHostelListQuery) {
         submittedAt: application?.submittedAt ?? hostel.createdAt?.toISOString() ?? null,
       };
     }),
+    pagination: paginationMeta(query, total),
   };
 }
 
@@ -1190,7 +1228,8 @@ async function provisionApprovalCookAccount(
       JSON.stringify({
         level: "warn",
         action: "approval_cook_provisioning_failed",
-        message: error instanceof Error ? error.message : "Unknown cook provisioning error",
+        message:
+          error instanceof Error ? error.message : "Unknown cook provisioning error",
         hostelId: hostelId.toString(),
       }),
     );
@@ -1354,7 +1393,14 @@ export async function listOwnerHostelApplications(userId: string) {
   const hostelIds = applications.map((application) => application.hostelId);
   const hostels = await HostelModel.find({ _id: { $in: hostelIds } })
     .select("name status verificationStatus")
-    .lean<{ _id: Types.ObjectId; name?: string; status?: string; verificationStatus?: string }[]>();
+    .lean<
+      {
+        _id: Types.ObjectId;
+        name?: string;
+        status?: string;
+        verificationStatus?: string;
+      }[]
+    >();
   const hostelById = new Map(hostels.map((hostel) => [hostel._id.toString(), hostel]));
 
   return {
@@ -1517,12 +1563,14 @@ export async function listPublicHostels(query: PublicHostelListQuery) {
   };
 
   if (query.q) {
-    const pattern = new RegExp(query.q, "i");
+    // Escaped: a public search box reaches Mongo as a pattern, so an unescaped
+    // "(" is a 500 and a crafted one is a CPU bill.
+    const pattern = new RegExp(escapeRegex(query.q), "i");
     filter.$or = [{ name: pattern }, { "location.area": pattern }];
   }
 
   if (query.area) {
-    filter["location.area"] = new RegExp(query.area, "i");
+    filter["location.area"] = new RegExp(escapeRegex(query.area), "i");
   }
 
   if (query.type) {
@@ -1718,6 +1766,16 @@ export async function createPublicHostelInquiry(
     source: "PUBLIC_WEBSITE",
     status: "NEW",
   });
+
+  // EMAIL_SYSTEM.md §2.4. Wrapped: a notification failure must never fail an
+  // inquiry the visitor has already submitted.
+  await notifyHostelOfInquiry(hostel, {
+    email: input.email,
+    message: input.message,
+    name: input.name,
+    phone: input.phone,
+    preferredVisitDate: input.preferredVisitDate,
+  }).catch(() => {});
 
   return {
     hostel: serializePublicHostel(hostel),

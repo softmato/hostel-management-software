@@ -38,7 +38,9 @@ describe("parseMapLink", () => {
 
   it("reads an OpenStreetMap permalink", () => {
     expect(
-      parseMapLink("https://www.openstreetmap.org/?mlat=27.6812&mlon=85.3527#map=19/27.68/85.35"),
+      parseMapLink(
+        "https://www.openstreetmap.org/?mlat=27.6812&mlon=85.3527#map=19/27.68/85.35",
+      ),
     ).toEqual({ coordinates: { lat: 27.6812, lng: 85.3527 }, kind: "coordinates" });
   });
 
@@ -50,7 +52,9 @@ describe("parseMapLink", () => {
   });
 
   it("returns the place name when a link carries no coordinates", () => {
-    expect(parseMapLink("https://www.google.com/maps/place/New+Baneshwor,+Kathmandu")).toEqual({
+    expect(
+      parseMapLink("https://www.google.com/maps/place/New+Baneshwor,+Kathmandu"),
+    ).toEqual({
       kind: "place",
       query: "New Baneshwor, Kathmandu",
     });

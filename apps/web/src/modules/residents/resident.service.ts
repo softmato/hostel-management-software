@@ -3,6 +3,8 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { escapeRegex } from "@/lib/validators";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { Role } from "@/lib/roles";
 import { demoteToPublicAccount } from "@/modules/auth/auth.service";
@@ -14,6 +16,10 @@ import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { residentLinkedEmail } from "@hostel/shared/email/templates/resident/resident-linked";
+import {
+  assertActiveReferralCode,
+  linkReferralOnRegistration,
+} from "@/modules/referrals/referral.service";
 import {
   registerOrUpgradeUserByEmail,
   UserServiceError,
@@ -365,8 +371,7 @@ async function linkResidentAccount(
     return {
       emailed: false,
       linked: false,
-      reason:
-        error instanceof UserServiceError ? error.errorCode : "ACCOUNT_LINK_FAILED",
+      reason: error instanceof UserServiceError ? error.errorCode : "ACCOUNT_LINK_FAILED",
     };
   }
 }
@@ -406,6 +411,12 @@ export async function createResident(
     );
   }
 
+  // A mistyped referral code fails here, before any bed is spent — the admin
+  // clears the field and retries rather than losing the whole intake.
+  if (input.referralCode) {
+    await assertActiveReferralCode(input.referralCode, hostelId);
+  }
+
   // Claim the bed before creating the resident: if the room type is full this
   // throws and no half-registered resident is left behind.
   await claimBedForRoomType(hostelId, input.roomType);
@@ -414,7 +425,7 @@ export async function createResident(
 
   try {
     resident = await ResidentModel.create({
-      ...input,
+      ...definedUpdate(input, ["referralCode"]),
       createdBy: principal.userId,
       hostelId,
       isDeleted: false,
@@ -442,6 +453,17 @@ export async function createResident(
     roomType: input.roomType,
   });
 
+  const referral = input.referralCode
+    ? await linkReferralOnRegistration({
+        code: input.referralCode,
+        hostelId,
+        joinedResidentId: resident._id,
+        name: `${input.firstName} ${input.lastName}`.trim(),
+        phone: input.phone,
+        principal,
+      })
+    : null;
+
   const accountLink = await linkResidentAccount(
     resident as ResidentRecord,
     hostelId,
@@ -450,6 +472,7 @@ export async function createResident(
 
   return {
     accountLink,
+    referral,
     resident: serializeResident(
       (accountLink.linked
         ? await ResidentModel.findById(resident._id).lean<ResidentRecord>()
@@ -475,7 +498,8 @@ export async function listResidents(query: ResidentListQuery, principal: ApiPrin
   }
 
   if (query.q) {
-    const pattern = new RegExp(query.q, "i");
+    // Escaped — the search box feeds this straight into a Mongo pattern.
+    const pattern = new RegExp(escapeRegex(query.q), "i");
     filter.$or = [
       { firstName: pattern },
       { lastName: pattern },
@@ -484,12 +508,19 @@ export async function listResidents(query: ResidentListQuery, principal: ApiPrin
     ];
   }
 
-  const residents = await ResidentModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<ResidentRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [residents, total] = await Promise.all([
+    ResidentModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ResidentRecord[]>(),
+    ResidentModel.countDocuments(filter),
+  ]);
 
   return {
+    pagination: paginationMeta(query, total),
     residents: residents.map(serializeResident),
   };
 }
@@ -540,11 +571,7 @@ export async function updateResident(
   // Switching room type moves a unit of vacancy from one type to the other.
   // Done before the write so a full destination type aborts the whole update.
   if (input.roomType && input.roomType !== resident.roomType) {
-    await moveBedBetweenRoomTypes(
-      resident.hostelId,
-      resident.roomType,
-      input.roomType,
-    );
+    await moveBedBetweenRoomTypes(resident.hostelId, resident.roomType, input.roomType);
   }
 
   const updatedResident = await ResidentModel.findOneAndUpdate(
@@ -715,10 +742,16 @@ export async function deleteResident(
     }
   }
 
-  await auditResidentAction(principal, resident.hostelId, resident._id, "RESIDENT_DELETED", {
-    roomType: resident.roomType,
-    status: resident.status,
-  });
+  await auditResidentAction(
+    principal,
+    resident.hostelId,
+    resident._id,
+    "RESIDENT_DELETED",
+    {
+      roomType: resident.roomType,
+      status: resident.status,
+    },
+  );
 
   return {
     residentId: resident._id.toString(),

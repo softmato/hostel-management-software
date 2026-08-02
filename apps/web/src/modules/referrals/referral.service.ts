@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { InquiryModel } from "@hostel/db/models/Inquiry";
@@ -31,6 +32,7 @@ type ReferralCodeRecord = {
   _id: Types.ObjectId;
   code: string;
   createdAt?: Date;
+  convertedCount?: number;
   hostelId: Types.ObjectId;
   joinedCount?: number;
   residentId: Types.ObjectId;
@@ -44,6 +46,9 @@ type ReferralRecord = {
   _id: Types.ObjectId;
   confirmedAt?: Date;
   confirmedBy?: Types.ObjectId;
+  converted?: boolean;
+  convertedAt?: Date;
+  convertedPaymentId?: Types.ObjectId;
   createdAt?: Date;
   email?: string;
   hostelId: Types.ObjectId;
@@ -101,6 +106,7 @@ export class ReferralServiceError extends Error {
 function serializeReferralCode(code: ReferralCodeRecord) {
   return {
     code: code.code,
+    convertedCount: code.convertedCount ?? 0,
     createdAt: code.createdAt?.toISOString(),
     hostelId: code.hostelId.toString(),
     id: code._id.toString(),
@@ -118,6 +124,8 @@ function serializeReferral(referral: ReferralRecord) {
   return {
     confirmedAt: referral.confirmedAt?.toISOString(),
     confirmedBy: referral.confirmedBy?.toString(),
+    converted: referral.converted ?? false,
+    convertedAt: referral.convertedAt?.toISOString(),
     createdAt: referral.createdAt?.toISOString(),
     email: referral.email ?? "",
     hostelId: referral.hostelId.toString(),
@@ -221,6 +229,40 @@ async function uniqueReferralCode(residentId: string, phone: string) {
   return candidate;
 }
 
+/**
+ * Resolves a typed or scanned referral code to its live row.
+ *
+ * `hostelId` is passed when the code has to belong to a specific hostel — a
+ * resident of hostel A referring someone into hostel B would otherwise credit
+ * the wrong leaderboard.
+ */
+async function findActiveReferralCode(code: string, hostelId?: Types.ObjectId) {
+  const referralCode = await ReferralCodeModel.findOne({
+    code: code.trim().toUpperCase(),
+    status: "ACTIVE",
+    ...(hostelId ? { hostelId } : {}),
+  }).lean<ReferralCodeRecord | null>();
+
+  if (!referralCode) {
+    throw new ReferralServiceError(
+      "Referral code was not found.",
+      "REFERRAL_CODE_NOT_FOUND",
+      404,
+    );
+  }
+
+  return referralCode;
+}
+
+/**
+ * Pre-flight check for resident intake: fails on a mistyped code *before* a bed
+ * is claimed, so nothing has to be unwound.
+ */
+export async function assertActiveReferralCode(code: string, hostelId: Types.ObjectId) {
+  await connectToDatabase();
+  await findActiveReferralCode(code, hostelId);
+}
+
 export async function getResidentReferral(principal: ApiPrincipal) {
   await connectToDatabase();
 
@@ -249,28 +291,191 @@ export async function getResidentReferral(principal: ApiPrincipal) {
     .limit(50)
     .lean<ReferralRecord[]>();
 
+  // Rewards are informational in v1 — nothing is paid out automatically, so the
+  // resident sees what an admin has actually recorded against their referrals.
+  const rewards =
+    referrals.length > 0
+      ? await ReferralRewardModel.find({
+          referralId: { $in: referrals.map((referral) => referral._id) },
+        }).lean<ReferralRewardRecord[]>()
+      : [];
+  const rewardByReferralId = new Map(
+    rewards.map((reward) => [reward.referralId.toString(), reward]),
+  );
+
   return {
     referralCode: serializeReferralCode(referralCode),
-    referrals: referrals.map(serializeReferral),
+    referrals: referrals.map((referral) => ({
+      ...serializeReferral(referral),
+      reward: serializeReward(rewardByReferralId.get(referral._id.toString()) ?? null),
+    })),
     resident: serializeResidentSummary(resident),
+    summary: {
+      converted: referrals.filter((referral) => referral.converted).length,
+      joined: referrals.filter((referral) =>
+        ["JOINED", "REWARDED"].includes(referral.status),
+      ).length,
+      rewardApprovedAmount: rewards
+        .filter((reward) => reward.status === "APPROVED")
+        .reduce((total, reward) => total + reward.amount, 0),
+      rewardPaidAmount: rewards
+        .filter((reward) => reward.status === "PAID")
+        .reduce((total, reward) => total + reward.amount, 0),
+      sent: referrals.length,
+    },
   };
+}
+
+/**
+ * Attaches a walk-in registration to the code that brought them in.
+ *
+ * Called from resident intake *before* the bed is claimed, so a mistyped code
+ * fails the whole registration rather than half-creating a resident with no
+ * referral — the admin can clear the field and retry.
+ */
+export async function linkReferralOnRegistration(input: {
+  code: string;
+  hostelId: Types.ObjectId;
+  joinedResidentId: Types.ObjectId;
+  name: string;
+  phone: string;
+  principal: ApiPrincipal;
+}) {
+  const referralCode = await findActiveReferralCode(input.code, input.hostelId);
+
+  if (referralCode.residentId.equals(input.joinedResidentId)) {
+    throw new ReferralServiceError(
+      "A resident cannot refer themselves.",
+      "REFERRAL_SELF_REFERENCE",
+      422,
+    );
+  }
+
+  // A referral may already exist from the public `?ref=` inquiry flow; that row
+  // is the one to confirm, otherwise the same person shows up twice.
+  const existing = await ReferralModel.findOne({
+    hostelId: input.hostelId,
+    isDeleted: false,
+    phone: input.phone,
+    referralCodeId: referralCode._id,
+    status: { $ne: "CANCELLED" },
+  }).lean<ReferralRecord | null>();
+
+  const referral = existing
+    ? await ReferralModel.findOneAndUpdate(
+        { _id: existing._id },
+        {
+          $set: {
+            confirmedAt: new Date(),
+            confirmedBy: input.principal.userId,
+            joinedResidentId: input.joinedResidentId,
+            status: "JOINED",
+            updatedBy: input.principal.userId,
+          },
+        },
+        { new: true },
+      ).lean<ReferralRecord | null>()
+    : ((await ReferralModel.create({
+        confirmedAt: new Date(),
+        confirmedBy: input.principal.userId,
+        createdBy: input.principal.userId,
+        hostelId: input.hostelId,
+        joinedResidentId: input.joinedResidentId,
+        name: input.name,
+        phone: input.phone,
+        referralCodeId: referralCode._id,
+        referrerResidentId: referralCode.residentId,
+        status: "JOINED",
+      })) as ReferralRecord);
+
+  if (!referral) {
+    throw new ReferralServiceError("Referral was not found.", "REFERRAL_NOT_FOUND", 404);
+  }
+
+  // Only count the join once — an inquiry that was already confirmed by hand
+  // must not add a second unit to the referrer's leaderboard total.
+  if (!existing || existing.status === "INQUIRY_CREATED") {
+    await ReferralCodeModel.updateOne(
+      { _id: referralCode._id },
+      { $inc: { joinedCount: 1 } },
+    );
+  }
+
+  await auditReferralAction(
+    input.principal,
+    referral,
+    "REFERRAL_JOINED_ON_REGISTRATION",
+    {
+      referralCode: referralCode.code,
+    },
+  );
+
+  return {
+    code: referralCode.code,
+    referralId: referral._id.toString(),
+    referrerResidentId: referralCode.residentId.toString(),
+  };
+}
+
+/**
+ * Flips a referral to converted the first time the person they brought in has a
+ * payment verified. Idempotent and never throws: it runs after the money has
+ * already been credited, so a referral bookkeeping problem must not turn a
+ * successful verification into a failed request.
+ */
+export async function markReferralConverted(input: {
+  hostelId: Types.ObjectId | string;
+  paymentId: Types.ObjectId | string;
+  residentId: Types.ObjectId | string;
+}) {
+  try {
+    await connectToDatabase();
+
+    const referral = await ReferralModel.findOneAndUpdate(
+      {
+        converted: { $ne: true },
+        hostelId: input.hostelId,
+        isDeleted: false,
+        joinedResidentId: input.residentId,
+      },
+      {
+        $set: {
+          converted: true,
+          convertedAt: new Date(),
+          convertedPaymentId: input.paymentId,
+        },
+      },
+      { new: true },
+    ).lean<ReferralRecord | null>();
+
+    if (!referral) {
+      return { converted: false };
+    }
+
+    await ReferralCodeModel.updateOne(
+      { _id: referral.referralCodeId },
+      { $inc: { convertedCount: 1 } },
+    );
+
+    return { converted: true, referralId: referral._id.toString() };
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        action: "referral_conversion_failed",
+        message: error instanceof Error ? error.message : "Unknown referral error",
+        residentId: input.residentId.toString(),
+      }),
+    );
+
+    return { converted: false };
+  }
 }
 
 export async function createReferredInquiry(input: ReferredInquiryCreateInput) {
   await connectToDatabase();
 
-  const referralCode = await ReferralCodeModel.findOne({
-    code: input.referralCode.toUpperCase(),
-    status: "ACTIVE",
-  }).lean<ReferralCodeRecord | null>();
-
-  if (!referralCode) {
-    throw new ReferralServiceError(
-      "Referral code was not found.",
-      "REFERRAL_CODE_NOT_FOUND",
-      404,
-    );
-  }
+  const referralCode = await findActiveReferralCode(input.referralCode);
 
   const existingReferral = await ReferralModel.findOne({
     hostelId: referralCode.hostelId,
@@ -333,10 +538,16 @@ export async function listHostelAdminReferrals(
     filter.status = query.status;
   }
 
-  const referrals = await ReferralModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(120)
-    .lean<ReferralRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [referrals, total] = await Promise.all([
+    ReferralModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ReferralRecord[]>(),
+    ReferralModel.countDocuments(filter),
+  ]);
   const referralIds = referrals.map((referral) => referral._id);
   const rewards =
     referralIds.length > 0
@@ -375,16 +586,35 @@ export async function listHostelAdminReferrals(
     leaderboardRows.map((resident) => [resident._id.toString(), resident]),
   );
 
-  const rewardTotals = rewards.reduce(
-    (totals, reward) => ({
-      approved: totals.approved + (reward.status === "APPROVED" ? reward.amount : 0),
-      paid: totals.paid + (reward.status === "PAID" ? reward.amount : 0),
-      pending: totals.pending + (reward.status === "PENDING" ? reward.amount : 0),
-    }),
-    { approved: 0, paid: 0, pending: 0 },
-  );
-  const byStatus = referrals.reduce<Record<string, number>>((counts, referral) => {
-    counts[referral.status] = (counts[referral.status] ?? 0) + 1;
+  /*
+   * The summary describes every referral in the hostel scope, not the page and
+   * not the current status filter. Deriving `byStatus` from the returned rows
+   * would make the breakdown collapse to a single bucket the moment an admin
+   * filtered by status, and shrink to the page size otherwise.
+   */
+  const summaryFilter = {
+    isDeleted: false,
+    ...scopedHostelFilter(principal, query.hostelId),
+  };
+  const [statusCounts, convertedTotal, rewardSums] = await Promise.all([
+    ReferralModel.aggregate<{ _id: string; count: number }>([
+      { $match: summaryFilter },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+    ReferralModel.countDocuments({ ...summaryFilter, converted: true }),
+    ReferralRewardModel.aggregate<{ _id: string; amount: number }>([
+      { $match: scopedHostelFilter(principal, query.hostelId) },
+      { $group: { _id: "$status", amount: { $sum: "$amount" } } },
+    ]),
+  ]);
+  const rewardByStatus = new Map(rewardSums.map((row) => [row._id, row.amount]));
+  const rewardTotals = {
+    approved: rewardByStatus.get("APPROVED") ?? 0,
+    paid: rewardByStatus.get("PAID") ?? 0,
+    pending: rewardByStatus.get("PENDING") ?? 0,
+  };
+  const byStatus = statusCounts.reduce<Record<string, number>>((counts, row) => {
+    counts[row._id] = row.count;
     return counts;
   }, {});
 
@@ -399,14 +629,16 @@ export async function listHostelAdminReferrals(
         reward: serializeReward(rewardByReferralId.get(referral._id.toString()) ?? null),
       };
     }),
+    pagination: paginationMeta(query, total),
     summary: {
       byStatus,
+      converted: convertedTotal,
       joined: (byStatus.JOINED ?? 0) + (byStatus.REWARDED ?? 0),
       pendingConfirmation: byStatus.INQUIRY_CREATED ?? 0,
       rewardApprovedAmount: rewardTotals.approved,
       rewardPaidAmount: rewardTotals.paid,
       rewardPendingAmount: rewardTotals.pending,
-      total: referrals.length,
+      total: Object.values(byStatus).reduce((sum, count) => sum + count, 0),
     },
     topReferrers: codes
       .filter((code) => (code.joinedCount ?? 0) > 0 || (code.rewardCount ?? 0) > 0)
@@ -569,12 +801,16 @@ export async function confirmReferralJoined(
     { new: true, upsert: true },
   ).lean<ReferralRewardRecord | null>();
 
+  // Confirming an already-confirmed referral (a second click, an edited reward)
+  // must not add another join to the referrer's leaderboard total.
+  const alreadyJoined = referral.status !== "INQUIRY_CREATED";
+
   await ReferralCodeModel.updateOne(
     { _id: referral.referralCodeId },
     {
       $inc: {
-        joinedCount: 1,
-        rewardCount: input.rewardAmount > 0 ? 1 : 0,
+        joinedCount: alreadyJoined ? 0 : 1,
+        rewardCount: input.rewardAmount > 0 && !alreadyJoined ? 1 : 0,
       },
     },
   );

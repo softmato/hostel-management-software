@@ -55,9 +55,7 @@ describe("personal data crypto", () => {
   });
 
   it("rejects an envelope in an unknown format", () => {
-    expect(() => decryptPersonalData("not-an-envelope")).toThrow(
-      /unrecognised format/i,
-    );
+    expect(() => decryptPersonalData("not-an-envelope")).toThrow(/unrecognised format/i);
   });
 
   it("cannot be read with a different key", () => {
@@ -75,8 +73,6 @@ describe("personal data crypto", () => {
     resetPersonalDataKeyCache();
 
     expect(isPersonalDataEncryptionConfigured()).toBe(false);
-    expect(() => encryptPersonalData(profile)).toThrow(
-      /PERSONAL_DATA_ENCRYPTION_KEY/,
-    );
+    expect(() => encryptPersonalData(profile)).toThrow(/PERSONAL_DATA_ENCRYPTION_KEY/);
   });
 });

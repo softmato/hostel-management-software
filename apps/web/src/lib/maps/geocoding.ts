@@ -166,7 +166,8 @@ function addressPartsFromNominatim(address: NominatimAddress | undefined): Addre
   }
 
   const parts: AddressParts = {
-    address: [address.house_number, address.road].filter(Boolean).join(" ").trim() || undefined,
+    address:
+      [address.house_number, address.road].filter(Boolean).join(" ").trim() || undefined,
     area: pick(address, [
       "neighbourhood",
       "suburb",
@@ -250,10 +251,16 @@ async function reverseWithGoogle(
     return null;
   }
 
-  return { address, ...(best.formatted_address ? { label: best.formatted_address } : {}) };
+  return {
+    address,
+    ...(best.formatted_address ? { label: best.formatted_address } : {}),
+  };
 }
 
-async function searchWithNominatim(query: string, limit: number): Promise<GeocodeResult[]> {
+async function searchWithNominatim(
+  query: string,
+  limit: number,
+): Promise<GeocodeResult[]> {
   const url =
     `${NOMINATIM_URL}?format=json&addressdetails=1&limit=${limit}` +
     `&countrycodes=np&q=${encodeURIComponent(query)}`;
@@ -318,7 +325,9 @@ type GoogleAddressComponent = { long_name?: string; types?: string[] };
  * Google returns the address as a bag of typed components rather than named
  * fields, so each of ours is the first component carrying one of its types.
  */
-function addressPartsFromGoogle(components: GoogleAddressComponent[] | undefined): AddressParts {
+function addressPartsFromGoogle(
+  components: GoogleAddressComponent[] | undefined,
+): AddressParts {
   if (!components?.length) {
     return {};
   }

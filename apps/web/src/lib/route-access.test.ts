@@ -26,6 +26,29 @@ describe("route access", () => {
     ]);
   });
 
+  it("keeps platform config, fee plans and settings superadmin-only", () => {
+    // A moderator moderates content; configuration and billing are not theirs
+    // (PHASES.md §5.1). The narrow rules must win over the broad /platform one.
+    for (const path of [
+      "/platform/config/site",
+      "/platform/config",
+      "/platform/fee-plans",
+      "/platform/settings",
+    ]) {
+      expect(protectedRouteRuleForPath(path)?.roles).toEqual([Role.SUPERADMIN]);
+    }
+
+    // Everything a moderator *does* need stays reachable.
+    for (const path of [
+      "/platform/hostels",
+      "/platform/service-providers",
+      "/platform/reviews",
+      "/platform/reports",
+    ]) {
+      expect(protectedRouteRuleForPath(path)?.roles).toContain(Role.PLATFORM_MODERATOR);
+    }
+  });
+
   it("does not treat same-prefix public paths as protected portal paths", () => {
     expect(protectedRouteRuleForPath("/platformer")).toBeUndefined();
     expect(protectedRouteRuleForPath("/resident-life")).toBeUndefined();
@@ -49,9 +72,9 @@ describe("route access", () => {
       isAllowedNextPath(Role.HOSTEL_ADMIN, "/green-view-hostel/admin/residents"),
     ).toBe(true);
     expect(isAllowedNextPath(Role.WARDEN, "/green-view-hostel/admin/rooms")).toBe(true);
-    expect(
-      isAllowedNextPath(Role.RESIDENT, "/green-view-hostel/admin/residents"),
-    ).toBe(false);
+    expect(isAllowedNextPath(Role.RESIDENT, "/green-view-hostel/admin/residents")).toBe(
+      false,
+    );
   });
 
   it("allows next redirects only inside the user's own portal", () => {

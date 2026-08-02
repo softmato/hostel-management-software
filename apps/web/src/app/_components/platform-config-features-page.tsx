@@ -7,7 +7,12 @@ import { ConfigCard, ConfigPage, useSiteConfigDraft } from "./platform-config-sh
 
 const FLAGS: Array<{
   description: string;
-  key: "compare" | "inquiries" | "publicRegistration" | "reviews" | "serviceProviderSignup";
+  key:
+    | "compare"
+    | "inquiries"
+    | "publicRegistration"
+    | "reviews"
+    | "serviceProviderSignup";
   label: string;
 }> = [
   {
@@ -79,7 +84,9 @@ export const PlatformConfigFeaturesPageContent = memo(
                 description={flag.description}
                 key={flag.key}
                 label={flag.label}
-                onChange={(next) => setValue("features", { ...features, [flag.key]: next })}
+                onChange={(next) =>
+                  setValue("features", { ...features, [flag.key]: next })
+                }
               />
             ))}
           </div>

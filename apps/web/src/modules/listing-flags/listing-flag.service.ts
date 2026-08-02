@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { DuplicateCheckResultModel } from "@hostel/db/models/DuplicateCheckResult";
 import { HostelModel } from "@hostel/db/models/Hostel";
@@ -141,13 +142,20 @@ export async function listListingFlags(query: ListingFlagListQuery) {
     filter.status = query.status;
   }
 
-  const flags = await ListingFlagModel.find(filter)
-    .sort({ status: 1, riskLevel: -1, createdAt: -1 })
-    .limit(120)
-    .lean<ListingFlagRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [flags, total] = await Promise.all([
+    ListingFlagModel.find(filter)
+      .sort({ status: 1, riskLevel: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<ListingFlagRecord[]>(),
+    ListingFlagModel.countDocuments(filter),
+  ]);
 
   return {
     flags: flags.map(serializeFlag),
+    pagination: paginationMeta(query, total),
   };
 }
 

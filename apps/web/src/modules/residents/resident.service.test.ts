@@ -10,6 +10,7 @@ const serviceMocks = vi.hoisted(() => ({
   guardianCreate: vi.fn(),
   claimBedForRoomType: vi.fn(),
   releaseBedForRoomType: vi.fn(),
+  residentCountDocuments: vi.fn(),
   residentCreate: vi.fn(),
   residentFind: vi.fn(),
   residentFindOne: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock("@/modules/hostels/hostel-capacity.service", () => ({
 
 vi.mock("@hostel/db/models/Resident", () => ({
   ResidentModel: {
+    countDocuments: serviceMocks.residentCountDocuments,
     create: serviceMocks.residentCreate,
     find: serviceMocks.residentFind,
     findOne: serviceMocks.residentFindOne,
@@ -71,6 +73,7 @@ function queryResult<T>(value: T) {
   return {
     lean: vi.fn().mockResolvedValue(value),
     limit: vi.fn().mockReturnThis(),
+    skip: vi.fn().mockReturnThis(),
     sort: vi.fn().mockReturnThis(),
   };
 }
@@ -95,6 +98,7 @@ describe("resident management service behavior", () => {
     vi.clearAllMocks();
     // Intake starts with a duplicate-phone lookup; no match is the normal case.
     serviceMocks.residentFindOne.mockReturnValue(queryResult(null));
+    serviceMocks.residentCountDocuments.mockResolvedValue(0);
   });
 
   it("limits resident lists to the principal hostel ids", async () => {

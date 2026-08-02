@@ -25,14 +25,11 @@ type ReadUrlResponse = {
 };
 
 export async function optimizeImage(assetId: string) {
-  return browserApi<OptimizeResponse>(
-    `/api/v1/files/${assetId}/optimize`,
-    { method: "POST" },
-  );
+  return browserApi<OptimizeResponse>(`/api/v1/files/${assetId}/optimize`, {
+    method: "POST",
+  });
 }
 
 export async function getImageUrl(assetId: string, variant = "THUMBNAIL") {
-  return browserApi<ReadUrlResponse>(
-    `/api/v1/files/${assetId}/url?variant=${variant}`,
-  );
+  return browserApi<ReadUrlResponse>(`/api/v1/files/${assetId}/url?variant=${variant}`);
 }

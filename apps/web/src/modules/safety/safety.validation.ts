@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 export const nightStatusSchema = z.enum([
@@ -16,6 +18,7 @@ export const nightStatusUpdateSchema = z.object({
 });
 
 export const nightStatusListQuerySchema = z.object({
+  ...paginationQuerySchema,
   hostelId: objectIdSchema.optional(),
   status: nightStatusSchema.optional(),
 });
@@ -32,6 +35,7 @@ export const sosCreateSchema = z.object({
 });
 
 export const sosListQuerySchema = z.object({
+  ...paginationQuerySchema,
   hostelId: objectIdSchema.optional(),
   status: z.enum(["ACTIVE", "ACKNOWLEDGED", "RESOLVED", "FALSE_ALARM"]).optional(),
 });

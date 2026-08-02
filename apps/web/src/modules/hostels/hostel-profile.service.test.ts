@@ -155,9 +155,7 @@ describe("hostel profile service", () => {
         }),
       ),
     );
-    profileMocks.hostelFindOneAndUpdate.mockReturnValueOnce(
-      leanResult(hostelRecord()),
-    );
+    profileMocks.hostelFindOneAndUpdate.mockReturnValueOnce(leanResult(hostelRecord()));
 
     await expect(
       addHostelAdminProfilePhoto(

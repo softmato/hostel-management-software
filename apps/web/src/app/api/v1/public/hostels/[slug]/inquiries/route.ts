@@ -36,11 +36,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       input.email,
     ).catch(() => false);
 
-    return successResponse(
-      { ...result, shouldCollectProfile },
-      "Inquiry submitted",
-      { status: 201 },
-    );
+    return successResponse({ ...result, shouldCollectProfile }, "Inquiry submitted", {
+      status: 201,
+    });
   } catch (error) {
     return handleRouteError(error);
   }

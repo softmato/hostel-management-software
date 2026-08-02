@@ -246,9 +246,11 @@ export const PlatformHostelsPageContent = memo(function PlatformHostelsPageConte
       } else if (nextAction === "unpublish") {
         // Pulling a live listing is owner-visible, and the reason is quoted
         // verbatim in the email they receive — so it is required, not optional.
-        const reason = window.prompt(
-          "Why is this listing being unpublished? The owner will see this reason.",
-        )?.trim();
+        const reason = window
+          .prompt(
+            "Why is this listing being unpublished? The owner will see this reason.",
+          )
+          ?.trim();
         if (!reason) return;
         body = JSON.stringify({ reason });
       }
@@ -288,9 +290,7 @@ export const PlatformHostelsPageContent = memo(function PlatformHostelsPageConte
         body: JSON.stringify({}),
         method: "PATCH",
       });
-      setActionMessage(
-        "Duplicate check finished — see Abuse Flags for any new matches.",
-      );
+      setActionMessage("Duplicate check finished — see Abuse Flags for any new matches.");
     } catch (error) {
       setActionMessage(
         error instanceof Error ? error.message : "Duplicate check failed.",

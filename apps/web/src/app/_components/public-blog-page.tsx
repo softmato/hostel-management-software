@@ -6,57 +6,69 @@ import { Calendar, Clock, Tag, User } from "lucide-react";
 const posts = [
   {
     title: "How to Choose the Perfect Hostel in Kathmandu",
-    excerpt: "From location to facilities — a complete guide for students and parents looking for the ideal accommodation in the valley.",
+    excerpt:
+      "From location to facilities — a complete guide for students and parents looking for the ideal accommodation in the valley.",
     author: "HostelHub Team",
     date: "July 8, 2026",
     readTime: "5 min read",
     category: "Guides",
-    image: "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "Top 10 Facilities to Look for in a Student Hostel",
-    excerpt: "Wi-Fi, food quality, security, and more — here is what every student should check before moving into a hostel.",
+    excerpt:
+      "Wi-Fi, food quality, security, and more — here is what every student should check before moving into a hostel.",
     author: "HostelHub Team",
     date: "July 5, 2026",
     readTime: "7 min read",
     category: "Tips",
-    image: "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "Understanding Hostel Fee Structures in Nepal",
-    excerpt: "Breaking down rent, deposits, meal plans, and hidden costs so you can budget with confidence.",
+    excerpt:
+      "Breaking down rent, deposits, meal plans, and hidden costs so you can budget with confidence.",
     author: "HostelHub Team",
     date: "July 1, 2026",
     readTime: "6 min read",
     category: "Finance",
-    image: "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "A Day in the Life of a Hostel Resident",
-    excerpt: "From morning routines to late-night study sessions — experience what life is really like in a Nepali student hostel.",
+    excerpt:
+      "From morning routines to late-night study sessions — experience what life is really like in a Nepali student hostel.",
     author: "HostelHub Team",
     date: "June 28, 2026",
     readTime: "4 min read",
     category: "Lifestyle",
-    image: "https://images.unsplash.com/photo-1523050854058-8df90110c7f1?auto=format&fit=crop&w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1523050854058-8df90110c7f1?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "Why Hostel Verification Matters for Parents",
-    excerpt: "Learn how HostelHub verified listings give families peace of mind when sending their children to a new city.",
+    excerpt:
+      "Learn how HostelHub verified listings give families peace of mind when sending their children to a new city.",
     author: "HostelHub Team",
     date: "June 22, 2026",
     readTime: "5 min read",
     category: "Trust & Safety",
-    image: "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "Comparing Hostels vs. Renting a Private Room",
-    excerpt: "Cost, convenience, community — a balanced look at the pros and cons of hostel living versus private renting in Nepal.",
+    excerpt:
+      "Cost, convenience, community — a balanced look at the pros and cons of hostel living versus private renting in Nepal.",
     author: "HostelHub Team",
     date: "June 18, 2026",
     readTime: "8 min read",
     category: "Guides",
-    image: "https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=800&q=80",
   },
 ];
 

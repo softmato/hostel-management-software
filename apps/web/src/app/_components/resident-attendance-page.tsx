@@ -98,9 +98,9 @@ export const ResidentAttendancePageContent = memo(
         <Panel title="Location tracking">
           <p className="text-sm text-muted-foreground">
             Your hostel uses your phone&apos;s location a few times a day to record
-            whether you are inside, nearby, or away. The coordinates are used to work
-            that out and then discarded — they are never saved. You can switch this off
-            or erase your history at any time.
+            whether you are inside, nearby, or away. The coordinates are used to work that
+            out and then discarded — they are never saved. You can switch this off or
+            erase your history at any time.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -147,10 +147,7 @@ export const ResidentAttendancePageContent = memo(
               <div className="grid grid-cols-7 gap-1.5">
                 {days.map((entry) => (
                   <div
-                    className={cn(
-                      "rounded-md p-2 text-center",
-                      ZONE_STYLES[entry.zone],
-                    )}
+                    className={cn("rounded-md p-2 text-center", ZONE_STYLES[entry.zone])}
                     key={entry.day}
                     title={`${entry.day} · ${entry.zone}${entry.source === "MANUAL_OVERRIDE" ? " (set by staff)" : ""}`}
                   >

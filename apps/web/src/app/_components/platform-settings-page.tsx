@@ -34,7 +34,13 @@ import { TextField } from "@/app/_components/platform-config-shared";
 import { browserApi } from "@/lib/browser-api";
 import { Role } from "@/lib/roles";
 import { platformEndpoints } from "@/lib/platform-endpoints";
-import { combineResources, useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import {
+  combineResources,
+  useInvalidateResources,
+  usePortalResource,
+} from "@/lib/portal-query";
+import { PlatformBroadcastPanel } from "./platform-broadcast-panel";
+import { PlatformOperationsPanel } from "./platform-operations-panel";
 import { Message, ReportRecord } from "./core-portal-shared";
 
 type PlatformOwner = {
@@ -62,8 +68,8 @@ type PlatformAdmin = {
 const ROLE_COPY: Record<string, { description: string; label: string }> = {
   [Role.PLATFORM_MODERATOR]: {
     description:
-      "Full access to the platform portal — approvals, verification, moderation, and website config — but cannot add or remove admins.",
-    label: "Acting Superadmin",
+      "Approvals, verification, moderation and read-only reports. Cannot reach website config, fee plans, settings, report exports, or the admin roster.",
+    label: "Platform Moderator",
   },
   [Role.SUPERADMIN]: {
     description:
@@ -108,10 +114,7 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
   // than surfacing an error they cannot act on, so its failure is not combined
   // into the page-level state below.
   const admins = adminsResource.data?.admins ?? [];
-  const { state, message: loadMessage } = combineResources(
-    ownerResource,
-    reportResource,
-  );
+  const { state, message: loadMessage } = combineResources(ownerResource, reportResource);
   const pageError = error || loadMessage;
 
   // Only a full superadmin may manage admins; an acting superadmin sees the
@@ -222,6 +225,8 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
 
       {state === "ready" ? (
         <>
+          {canManageAdmins ? <PlatformBroadcastPanel /> : null}
+          {canManageAdmins ? <PlatformOperationsPanel /> : null}
           <div className="grid gap-4 lg:grid-cols-2">
             <Panel title="Your Account">
               {owner ? (
@@ -337,11 +342,11 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
 
                 <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
                   <FilterSelect
-                    defaultLabel="Acting Superadmin"
+                    defaultLabel="Platform Moderator"
                     label="Access level"
                     onChange={(next) => setInviteRole(next || Role.PLATFORM_MODERATOR)}
                     options={[
-                      { label: "Acting Superadmin", value: Role.PLATFORM_MODERATOR },
+                      { label: "Platform Moderator", value: Role.PLATFORM_MODERATOR },
                       { label: "Superadmin (full access)", value: Role.SUPERADMIN },
                     ]}
                     value={inviteRole}
@@ -417,19 +422,13 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
                       <TableRow key={admin.id}>
                         <TableCell>
                           <div className="flex items-center gap-2.5">
-                            <InitialsAvatar
-                              name={admin.name}
-                              size="sm"
-                              tone="platform"
-                            />
+                            <InitialsAvatar name={admin.name} size="sm" tone="platform" />
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="truncate font-semibold text-foreground">
                                   {admin.name}
                                 </span>
-                                {isSelf ? (
-                                  <SoftBadge tone="slate">You</SoftBadge>
-                                ) : null}
+                                {isSelf ? <SoftBadge tone="slate">You</SoftBadge> : null}
                               </div>
                               <p className="truncate text-[11px] text-muted-foreground">
                                 {admin.email}
@@ -483,8 +482,8 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
                                 type="button"
                               >
                                 {admin.role === Role.SUPERADMIN
-                                  ? "Make acting"
-                                  : "Make full"}
+                                  ? "Make moderator"
+                                  : "Make superadmin"}
                               </button>
                               {isSelf ? null : (
                                 <button

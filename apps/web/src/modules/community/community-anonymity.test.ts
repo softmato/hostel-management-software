@@ -5,6 +5,7 @@ import { Role } from "@/lib/roles";
 
 const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
+  postCountDocuments: vi.fn(),
   postCreate: vi.fn(),
   postFind: vi.fn(),
   reactionFind: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
 
 vi.mock("@hostel/db/models/CommunityPost", () => ({
   CommunityPostModel: {
+    countDocuments: mocks.postCountDocuments,
     create: mocks.postCreate,
     find: mocks.postFind,
     findOne: vi.fn(),
@@ -25,7 +27,11 @@ vi.mock("@hostel/db/models/CommunityPost", () => ({
 }));
 
 vi.mock("@hostel/db/models/CommunityComment", () => ({
-  CommunityCommentModel: { create: vi.fn(), find: vi.fn() },
+  CommunityCommentModel: {
+    countDocuments: vi.fn().mockResolvedValue(0),
+    create: vi.fn(),
+    find: vi.fn(),
+  },
 }));
 
 vi.mock("@hostel/db/models/CommunityReaction", () => ({
@@ -50,6 +56,15 @@ vi.mock("@hostel/db/models/User", () => ({
 }));
 
 vi.mock("@hostel/db/models/AuditLog", () => ({ AuditLogModel: { create: vi.fn() } }));
+
+// Posting reads the hostel's community settings; the defaults are what this
+// suite is about, so the lookup is stubbed rather than hitting HostelSettings.
+vi.mock("@/modules/community/community-settings", () => ({
+  getCommunitySettings: vi.fn().mockResolvedValue({
+    enabled: true,
+    profanityFilterEnabled: true,
+  }),
+}));
 
 vi.mock("@/modules/notifications/notification.service", () => ({
   createInAppNotification: vi.fn(),
@@ -90,6 +105,7 @@ function queryResult<T>(value: T) {
     lean: vi.fn().mockResolvedValue(value),
     limit: vi.fn().mockReturnThis(),
     select: vi.fn().mockReturnThis(),
+    skip: vi.fn().mockReturnThis(),
     sort: vi.fn().mockReturnThis(),
   };
 }
@@ -165,12 +181,23 @@ describe("community anonymity", () => {
 
   it("reveals the author to a hostel admin reviewing reports", async () => {
     mocks.postFind.mockReturnValue(queryResult([anonymousPost()]));
+    // Three counts, in order: the pagination total, then hidden, then reported.
+    // The summary describes the whole queue, so it is deliberately larger than
+    // the single row on this page.
+    mocks.postCountDocuments
+      .mockResolvedValueOnce(9)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(4);
 
-    const { posts, summary } = await listCommunityForModeration({}, staffPrincipal);
+    const { pagination, posts, summary } = await listCommunityForModeration(
+      {},
+      staffPrincipal,
+    );
 
     expect(posts[0].authorName).toBe("Asha Rai");
     expect(posts[0].reportCount).toBe(2);
-    expect(summary).toMatchObject({ reported: 1, total: 1 });
+    expect(pagination.total).toBe(9);
+    expect(summary).toMatchObject({ hidden: 2, reported: 4, total: 9 });
   });
 
   it("masks obvious profanity on the way in", () => {

@@ -79,9 +79,7 @@ export function NotificationBell({ href }: { href: string }) {
       <DropdownMenuTrigger asChild>
         <Button
           aria-label={
-            unread.length > 0
-              ? `Notifications, ${unread.length} unread`
-              : "Notifications"
+            unread.length > 0 ? `Notifications, ${unread.length} unread` : "Notifications"
           }
           className="relative size-8 rounded-full border-slate-200 bg-white text-slate-600 shadow-sm dark:border-border dark:bg-card dark:text-foreground"
           size="icon"

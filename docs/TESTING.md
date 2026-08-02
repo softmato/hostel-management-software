@@ -46,75 +46,77 @@
 
 ## 3. Tooling & Frameworks
 
-| Layer | Framework / Tool | Purpose |
-|-------|------------------|---------|
-| Backend unit tests | **Jest** or **Vitest** | Fast, isolated unit tests for services, utilities |
-| Backend integration | **Supertest** | HTTP request testing against real API routes |
-| Frontend unit tests | **Vitest** + **React Testing Library** | Component testing, hooks, UI logic |
-| E2E (web) | **Playwright** | Full browser automation for critical flows |
-| Mobile E2E (Phase 6) | **Detox** (optional) | React Native smoke tests |
-| Test database | **MongoDB** (test instance) + **Mongoose** | Real database for integration tests, isolated from dev/prod |
-| Mocking | **jest.mock()** / **vi.mock()** | Mock external services (email, file storage, payment gateways) |
+There is **no separate backend workspace** — this is a Next.js monolith, so
+"backend" below means the service and route-handler code inside `apps/web`.
+
+| Layer | Framework / Tool | Status |
+|-------|------------------|--------|
+| Service + route unit tests | **Vitest** | ✅ In use — 50 files, 338 tests |
+| Route-handler integration | **Supertest** against real API routes | ❌ Not installed. Route tests today drive the handler function directly with mocked models. |
+| Component tests | **Vitest** + **React Testing Library** | ❌ Not installed — zero `.test.tsx` files |
+| E2E (web) | **Playwright** | ❌ Not installed — §8 flows unwritten |
+| Mobile E2E (Phase 6) | **Detox** (optional) | ❌ Not started |
+| Test database | **mongodb-memory-server** | ❌ Not installed — Mongoose models are mocked with `vi.mock()` |
+| Mocking | **`vi.mock()`** | ✅ In use |
 
 **Key principles:**
-- Use **real database** for integration tests, not mocks — tenant isolation bugs only appear with real queries.
-- **Mock external services** (Resend email, Cloudflare R2, Google Maps) to avoid flaky tests and API costs.
-- **Playwright** runs against a real deployment (local or preview) — no mocking at E2E level.
+- Use a **real database** for integration tests, not mocks — tenant isolation
+  bugs only appear with real queries. *(Aspirational today: the suite mocks
+  models, which is exactly why the isolation coverage in §6.1 is thin.)*
+- **Mock external services** (Resend email, Cloudflare R2, Google Maps) to avoid
+  flaky tests and API costs.
+- **Playwright** runs against a real deployment (local or preview) — no mocking
+  at E2E level.
+
+> The ❌ rows are tracked in `TODO.md` under Track B8. Do not read this table as
+> a description of what exists; read it as the target with today's state
+> marked.
 
 ---
 
 ## 4. Commands
 
-### Backend Tests
+The package manager is **npm**. Run everything from the repo root.
+
+### What exists today
 
 ```bash
-# Run all backend tests
-pnpm --filter backend test
-
-# Watch mode (during development)
-pnpm --filter backend test:watch
-
-# Coverage report
-pnpm --filter backend test:coverage
-
-# Integration tests only
-pnpm --filter backend test:integration
-
-# Unit tests only
-pnpm --filter backend test:unit
+npm run web:test
 ```
-
-### Frontend/Web Tests
 
 ```bash
-# Component + unit tests
-pnpm --filter web test
-
-# Watch mode
-pnpm --filter web test:watch
-
-# E2E tests (Playwright)
-pnpm --filter web e2e
-
-# E2E in headed mode (see browser)
-pnpm --filter web e2e:headed
-
-# E2E specific test file
-pnpm --filter web e2e -- resident-activation.spec.ts
+npm --prefix apps/web run test:watch
 ```
-
-### Run All Tests (Monorepo Root)
 
 ```bash
-# All unit + integration tests across packages
-pnpm test
-
-# All tests + E2E
-pnpm test:all
-
-# Coverage across all packages
-pnpm test:coverage
+npm --prefix apps/web run test -- attendance-zone
 ```
+
+```bash
+npm run test
+```
+
+(`npm run test` fans out across every workspace via Turborepo.)
+
+Alongside the suite, the checks that gate a change:
+
+```bash
+npm --prefix apps/web run typecheck
+```
+
+```bash
+npm run web:lint
+```
+
+```bash
+npm run web:build
+```
+
+### Not yet wired up
+
+Coverage reporting, `test:integration` / `test:unit` splits, and the Playwright
+commands (`e2e`, `e2e:headed`) referenced elsewhere in this document do not
+exist as scripts yet. See `TODO.md` Track B8.
 
 ---
 
@@ -625,9 +627,11 @@ export async function seedResident(overrides = {}) {
 
 ## 10. CI/CD Integration
 
-### 10.1 GitHub Actions Workflow
+> **Status: `.github/workflows/` does not exist.** Nothing below runs today, so
+> §10.2's branch protection rules are unenforceable. Tracked in `TODO.md`
+> Track B8. The YAML below is the intended workflow, corrected to npm.
 
-**On every PR/push to feature branch:**
+**On every PR/push to a feature branch:**
 ```yaml
 # .github/workflows/test.yml
 name: Tests
@@ -637,33 +641,31 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
-      
+          cache: 'npm'
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      
+        run: npm ci
+
       - name: Lint
-        run: pnpm lint
-      
+        run: npm run web:lint
+
       - name: Typecheck
-        run: pnpm typecheck
-      
-      - name: Unit + Integration tests
-        run: pnpm test
+        run: npm --prefix apps/web run typecheck
+
+      - name: Unit tests
+        run: npm run web:test
         env:
-          TEST_MONGODB_URI: ${{ secrets.TEST_MONGODB_URI }}
           NODE_ENV: test
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
+
+      - name: Build
+        run: npm run web:build
 ```
 
-**On merge to main:**
+**On merge to main (once Playwright exists):**
 ```yaml
 # .github/workflows/e2e.yml
 name: E2E Tests
@@ -675,28 +677,30 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2
-      - uses: actions/setup-node@v3
-      
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      
+        run: npm ci
+
       - name: Install Playwright
-        run: pnpm exec playwright install --with-deps
-      
+        run: npx playwright install --with-deps
+
       - name: Build app
-        run: pnpm build
-      
+        run: npm run web:build
+
       - name: Run E2E tests
-        run: pnpm e2e
+        run: npm --prefix apps/web run e2e
         env:
           E2E_BASE_URL: http://localhost:3000
           TEST_MONGODB_URI: ${{ secrets.TEST_MONGODB_URI }}
-      
+
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: playwright-report/
@@ -852,7 +856,7 @@ console.log('All rooms in DB:', allRooms.map(r => ({ id: r._id, hostelId: r.host
 
 **Fixes:**
 - Use explicit waits: `await page.waitForSelector('.resident-list', { timeout: 5000 })`
-- Check network tab in headed mode: `pnpm e2e:headed`
+- Check network tab in headed mode: `npm --prefix apps/web run e2e:headed`
 - Add debug screenshots: `await page.screenshot({ path: 'debug.png' })`
 
 ---

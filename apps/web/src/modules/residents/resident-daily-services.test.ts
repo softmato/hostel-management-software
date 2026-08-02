@@ -17,6 +17,7 @@ const serviceMocks = vi.hoisted(() => ({
   hostelFindOne: vi.fn(),
   hostelMemberFind: vi.fn(),
   issueSessionForUser: vi.fn(),
+  markReferralConverted: vi.fn(),
   notificationCreate: vi.fn(),
   platformSettingFindOne: vi.fn(),
   sendEmail: vi.fn(),
@@ -203,6 +204,14 @@ vi.mock("@hostel/shared/email/sender", () => ({
   sendEmail: serviceMocks.sendEmail,
 }));
 
+// Approving a proof also converts the resident's referral; that path is covered
+// by referral-conversion.test.ts.
+vi.mock("@/modules/referrals/referral.service", () => ({
+  assertActiveReferralCode: vi.fn(),
+  linkReferralOnRegistration: vi.fn(),
+  markReferralConverted: serviceMocks.markReferralConverted,
+}));
+
 import {
   activateResident,
   generateActivationCode,
@@ -319,6 +328,7 @@ function receiptRecord() {
 describe("resident daily-use services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serviceMocks.markReferralConverted.mockResolvedValue({ converted: false });
 
     // Notification plumbing: no stored config, no reachable contacts, no sends.
     serviceMocks.platformSettingFindOne.mockReturnValue(leanResult(null));

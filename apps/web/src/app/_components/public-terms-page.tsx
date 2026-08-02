@@ -128,44 +128,46 @@ export function PublicTermsPage() {
         {/* Intro */}
         <div className="mb-14 text-sm leading-relaxed text-muted-foreground">
           <p>
-            Welcome to HostelHub. These Terms &amp; Regulations (&ldquo;Terms&rdquo;) govern your
-            access to and use of the HostelHub platform, including any related
-            services, content, and functionality offered through our website and
-            mobile applications.
+            Welcome to HostelHub. These Terms &amp; Regulations (&ldquo;Terms&rdquo;)
+            govern your access to and use of the HostelHub platform, including any related
+            services, content, and functionality offered through our website and mobile
+            applications.
           </p>
           <p className="mt-4">
-            Please read these terms carefully before using the platform. Depending
-            on your role — hostel admin, resident, guardian, or service provider —
-            additional role-specific terms may apply.
+            Please read these terms carefully before using the platform. Depending on your
+            role — hostel admin, resident, guardian, or service provider — additional
+            role-specific terms may apply.
           </p>
         </div>
 
         {/* Sections — admin-authored copy replaces the built-in text when set. */}
         <div className="space-y-12">
           {customBody ? <LegalBody body={customBody} /> : null}
-          {customBody ? null : sections.map(({ icon: Icon, title, content }) => (
-            <section key={title}>
-              <div className="mb-4 flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
-                  <Icon className="size-4.5 text-primary" />
-                </span>
-                <h2 className="font-heading text-lg font-semibold text-foreground">
-                  {title}
-                </h2>
-              </div>
-              <ul className="ml-12 space-y-2.5">
-                {content.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-3 text-sm leading-relaxed text-muted-foreground"
-                  >
-                    <span className="mt-1.5 block size-1.5 shrink-0 rounded-full bg-primary/40" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+          {customBody
+            ? null
+            : sections.map(({ icon: Icon, title, content }) => (
+                <section key={title}>
+                  <div className="mb-4 flex items-center gap-3">
+                    <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
+                      <Icon className="size-4.5 text-primary" />
+                    </span>
+                    <h2 className="font-heading text-lg font-semibold text-foreground">
+                      {title}
+                    </h2>
+                  </div>
+                  <ul className="ml-12 space-y-2.5">
+                    {content.map((item) => (
+                      <li
+                        key={item}
+                        className="flex items-start gap-3 text-sm leading-relaxed text-muted-foreground"
+                      >
+                        <span className="mt-1.5 block size-1.5 shrink-0 rounded-full bg-primary/40" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
         </div>
 
         {/* Contact */}
@@ -173,10 +175,13 @@ export function PublicTermsPage() {
           <p className="font-semibold text-foreground">Have questions?</p>
           <p className="mt-1">
             Reach out to our support team at{" "}
-            <a className="text-primary hover:underline" href="mailto:support@hostelhub.com">
+            <a
+              className="text-primary hover:underline"
+              href="mailto:support@hostelhub.com"
+            >
               support@hostelhub.com
-            </a>
-            {" "}or use the in-app support system.
+            </a>{" "}
+            or use the in-app support system.
           </p>
         </div>
       </div>

@@ -18,7 +18,18 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type PublicHeaderProps = {
-  active?: "about" | "blog" | "browse" | "compare" | "contact" | "home" | "pricing" | "privacy" | "providers" | "register-hostel" | "terms";
+  active?:
+    | "about"
+    | "blog"
+    | "browse"
+    | "compare"
+    | "contact"
+    | "home"
+    | "pricing"
+    | "privacy"
+    | "providers"
+    | "register-hostel"
+    | "terms";
 };
 
 type CurrentUser = {
@@ -64,7 +75,8 @@ const navItems = [
   { href: "/hostels", id: "browse", label: "Hostels" },
   { href: "/compare", id: "compare", label: "Compare" },
   { href: "/register-hostel", id: "register-hostel", label: "Register Hostel" },
-  { href: "/service-providers/register", id: "providers", label: "Service Providers" },
+  // Lands on the public directory; registering is the CTA on that page.
+  { href: "/service-providers", id: "providers", label: "Service Providers" },
 ] as const;
 
 const moreItems = [
@@ -131,7 +143,9 @@ export function PublicHeader({ active }: PublicHeaderProps) {
   }, [menuOpen]);
 
   useEffect(() => {
-    function onScroll() { setScrolled(window.scrollY > 50); }
+    function onScroll() {
+      setScrolled(window.scrollY > 50);
+    }
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -151,7 +165,10 @@ export function PublicHeader({ active }: PublicHeaderProps) {
       )}
     >
       <div className="flex h-16 w-full items-center justify-between px-4 md:px-8">
-        <Link href="/" className="flex items-center gap-2 font-heading text-lg font-semibold text-brand-teal">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-heading text-lg font-semibold text-brand-teal"
+        >
           <span className="flex size-8 items-center justify-center rounded-md bg-brand-teal text-sm font-bold text-white">
             H
           </span>
@@ -174,7 +191,8 @@ export function PublicHeader({ active }: PublicHeaderProps) {
             <button
               className={cn(
                 "flex h-full items-center gap-1 border-b-2 border-transparent pt-1 transition hover:text-brand-teal",
-                moreItems.some((i) => i.id === active) && "border-b-2 border-brand-teal text-brand-teal",
+                moreItems.some((i) => i.id === active) &&
+                  "border-b-2 border-brand-teal text-brand-teal",
               )}
             >
               More
@@ -219,13 +237,19 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                       {(user.name || user.email || "U").charAt(0).toUpperCase()}
                     </span>
                   )}
-                  <span className="hidden md:inline text-muted-foreground">{user.name || user.email}</span>
+                  <span className="hidden md:inline text-muted-foreground">
+                    {user.name || user.email}
+                  </span>
                 </button>
                 {menuOpen && (
                   <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-border bg-surface p-1 shadow-lg">
                     <div className="border-b border-border px-3 py-2">
-                      <p className="truncate text-sm font-medium text-foreground">{user.name || user.email}</p>
-                      <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {user.name || user.email}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {user.email}
+                      </p>
                     </div>
                     {hasDashboard(user.role) && (
                       <Link

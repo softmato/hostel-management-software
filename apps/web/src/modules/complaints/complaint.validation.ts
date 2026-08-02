@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 export const complaintCategorySchema = z.enum([
@@ -29,6 +31,7 @@ export const complaintCreateSchema = z.object({
 });
 
 export const complaintListQuerySchema = z.object({
+  ...paginationQuerySchema,
   category: complaintCategorySchema.optional(),
   hostelId: objectIdSchema.optional(),
   /** "overdue" = still open and past slaDueAt; "on_track" = the rest. */

@@ -46,9 +46,9 @@ function signedInAs(role: Role, hostelIds: string[]) {
 
 function membershipsIn(hostelIds: string[]) {
   mocks.memberFind.mockReturnValue({
-    lean: vi.fn().mockResolvedValue(
-      hostelIds.map((id) => ({ hostelId: new Types.ObjectId(id) })),
-    ),
+    lean: vi
+      .fn()
+      .mockResolvedValue(hostelIds.map((id) => ({ hostelId: new Types.ObjectId(id) }))),
     select: vi.fn().mockReturnThis(),
   });
 }
@@ -104,17 +104,17 @@ describe("warden capability enforcement", () => {
   it("still rejects a non-staff role before any permission lookup", async () => {
     signedInAs(Role.RESIDENT, [HOSTEL_A]);
 
-    await expect(requireHostelCapability(request(), "manageFood")).rejects.toMatchObject(
-      { status: 403 },
-    );
+    await expect(requireHostelCapability(request(), "manageFood")).rejects.toMatchObject({
+      status: 403,
+    });
     expect(mocks.memberFind).not.toHaveBeenCalled();
   });
 
   it("rejects an unauthenticated request", async () => {
     mocks.verifyAccessToken.mockRejectedValue(new Error("bad token"));
 
-    await expect(requireHostelCapability(request(), "manageFood")).rejects.toMatchObject(
-      { status: 401 },
-    );
+    await expect(requireHostelCapability(request(), "manageFood")).rejects.toMatchObject({
+      status: 401,
+    });
   });
 });

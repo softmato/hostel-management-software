@@ -11,7 +11,13 @@ import {
   useInvalidateResources,
   usePortalResource,
 } from "@/lib/portal-query";
-import { field, type Resident, Message, optionalNumber, PageHeader } from "./daily-operations-shared";
+import {
+  field,
+  type Resident,
+  Message,
+  optionalNumber,
+  PageHeader,
+} from "./daily-operations-shared";
 import { Input, Panel, Select, TextArea } from "@/app/_components/shared-ui";
 import {
   Sheet,
@@ -58,10 +64,7 @@ export const HostelAdminMoveChecklistPage = memo(function HostelAdminMoveCheckli
     () => residentsResource.data?.residents ?? [],
     [residentsResource.data],
   );
-  const events = useMemo(
-    () => eventsResource.data?.events ?? [],
-    [eventsResource.data],
-  );
+  const events = useMemo(() => eventsResource.data?.events ?? [], [eventsResource.data]);
   const selectedResidentId = pickedResidentId || residents[0]?.id || "";
   const movedOutIds = useMemo(
     () =>
@@ -79,8 +82,8 @@ export const HostelAdminMoveChecklistPage = memo(function HostelAdminMoveCheckli
 
   const years = useMemo(
     () =>
-      Array.from(new Set(events.map((event) => event.date.slice(0, 4)))).sort(
-        (a, b) => b.localeCompare(a),
+      Array.from(new Set(events.map((event) => event.date.slice(0, 4)))).sort((a, b) =>
+        b.localeCompare(a),
       ),
     [events],
   );
@@ -95,14 +98,11 @@ export const HostelAdminMoveChecklistPage = memo(function HostelAdminMoveCheckli
     });
   }, [events, search, typeFilter, yearFilter]);
 
-  const openChecklist = useCallback(
-    (residentId: string, tab: "MOVE_IN" | "MOVE_OUT") => {
-      setActionMessage("");
-      setDrawerResidentId(residentId);
-      setDrawerTab(tab);
-    },
-    [],
-  );
+  const openChecklist = useCallback((residentId: string, tab: "MOVE_IN" | "MOVE_OUT") => {
+    setActionMessage("");
+    setDrawerResidentId(residentId);
+    setDrawerTab(tab);
+  }, []);
 
   const moveIn = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -188,9 +188,9 @@ export const HostelAdminMoveChecklistPage = memo(function HostelAdminMoveCheckli
 
       <Panel title="Move History (automatic)">
         <p className="mb-3 text-sm text-muted-foreground">
-          Move-ins are logged automatically when a resident is registered; move-outs
-          are logged once their settlement checklist is completed. Open a row to record
-          the condition checklist or settle a deposit.
+          Move-ins are logged automatically when a resident is registered; move-outs are
+          logged once their settlement checklist is completed. Open a row to record the
+          condition checklist or settle a deposit.
         </p>
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
           <Input
@@ -272,8 +272,7 @@ export const HostelAdminMoveChecklistPage = memo(function HostelAdminMoveCheckli
 
       <Panel title="Open a checklist directly">
         <p className="mb-3 text-sm text-muted-foreground">
-          Filters hide rows — use this to reach any resident regardless of the list
-          above.
+          Filters hide rows — use this to reach any resident regardless of the list above.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid min-w-[16rem] flex-1 gap-2 text-sm font-semibold text-foreground">
@@ -315,8 +314,8 @@ export const HostelAdminMoveChecklistPage = memo(function HostelAdminMoveCheckli
                 : "Resident"}
             </SheetTitle>
             <SheetDescription>
-              Move-in records the handover condition; move-out settles the deposit
-              against it.
+              Move-in records the handover condition; move-out settles the deposit against
+              it.
             </SheetDescription>
           </SheetHeader>
 

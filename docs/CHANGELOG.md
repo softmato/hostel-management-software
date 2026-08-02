@@ -7,11 +7,102 @@ Format follows [Keep a Changelog](https://keepachangelog.com/) — sections per 
 ## [Unreleased]
 
 ### Planned
-- Phase 1: Turborepo monorepo scaffold, MongoDB connection, Mongoose models, unified auth system, hostel onboarding/approval
-- Phase 2: Public discovery site, hostel profile pages, room/bed management
-- Phase 3: Resident system, QR activation, payments, food menu, **Cook Portal**, **residentType tracking**
-- Phase 5: Referrals, service providers, maintenance, **QuestionCall Integration**, **Advanced Notifications**, **Configuration System**, final polish
 - Phase 6: React Native mobile app with QR scanning, push notifications, **background location service**, **cook mobile app**, **community mobile**
+
+---
+
+## [0.8.0] - 2026-08-01 — Phase 5: Growth, Maintenance & Polish
+
+### Fixed
+- **Referrals never converted.** `Referral.converted` — the metric the whole referral feature is
+  reported on — was written by no code path anywhere, so every referral dashboard showed zero
+  conversions forever. It is now set by `markReferralConverted`, called from `approvePaymentProof`
+  once a referee's first payment is verified. The update filters on `converted: { $ne: true }`, so a
+  second verified payment matches nothing and the counters cannot drift, and it swallows its own
+  failures because the money is already credited by the time it runs.
+- **Confirming a referral twice double-counted the referrer.** `confirmReferralJoined` incremented
+  `ReferralCode.joinedCount` unconditionally, so a second click — or an edited reward — inflated the
+  leaderboard. It now only counts a referral that was still `INQUIRY_CREATED`.
+- **`PLATFORM_MODERATOR` was a full superadmin.** The role was implemented as an "acting superadmin"
+  with the entire platform portal including website config, directly contradicting PHASES.md §5.1
+  ("Cannot access platform config, billing, or create other moderators"). Platform config, fee plans,
+  settings, report exports and platform-wide broadcasts are now SUPERADMIN-only — at the route rule,
+  at every API guard, and hidden from the moderator's sidebar and command palette.
+- **Platform ceilings on hostel settings were decorative.** The maxima on
+  `HostelSettings.attendance` existed in the Mongoose schema but nothing compared a hostel's values
+  against platform config, so a hostel could widen its geofence and — the part that matters — keep
+  raw `AttendanceLog` rows past the platform's retention limit. `updateAttendanceSettings` now
+  rejects both (`GEOFENCE_ABOVE_PLATFORM_LIMIT`, `RETENTION_ABOVE_PLATFORM_LIMIT`).
+- **20 form inputs had no accessible name**, including both login fields, all four signup fields, the
+  six OTP boxes, every food-routine grid cell and every search box. A screen reader announced them as
+  "edit text, blank". Fixed with `htmlFor`/`id` where a visible label already sat beside the field,
+  `aria-label` where only a placeholder existed.
+- **Three user-supplied search strings reached `new RegExp()` unescaped** — public hostel search,
+  resident search and provider area filter. A typed `(` was a 500; a crafted pattern was a CPU bill.
+  All now go through a shared `escapeRegex`.
+- **The header's "Service Providers" link went to the registration form**, not to any directory —
+  there was nothing to browse.
+
+### Added
+- **Public service-provider directory** at `/service-providers` — approved providers by category and
+  area, rendered on the server so it is crawlable, in the sitemap, with per-category counts that stay
+  correct while a category is selected. The public payload has **no phone field at all**: contact
+  details are served only by the authenticated hostel-admin endpoint, enforced by a separate
+  serializer rather than by the UI declining to render them.
+- **Referral completion** — an optional referral code on resident registration, validated *before*
+  the bed is claimed so a typo costs nothing; a `converted` flag plus `convertedAt` /
+  `convertedPaymentId`; `ReferralCode.convertedCount`; and sent/joined/converted counts with a
+  copyable share link on the resident dashboard.
+- **QuestionCall integration** (ARCHITECTURE.md §12) — `QuestionCallClick` model, a STUDENT-only
+  dashboard card, click tracking that returns a 10-minute signed SSO token when
+  `QUESTIONCALL_SSO_SECRET` is configured and a plain link when it is not, superadmin analytics with
+  per-hostel and per-day breakdowns, CSV export, and a shared-secret webhook that is the **only**
+  writer of `converted` — with no webhook configured the conversion rate honestly reads 0% instead
+  of being guessed.
+- **Notification campaigns** — new `NotificationCampaign` model with priority, audience targeting
+  (all residents / linked guardians / named residents), scheduled delivery, a platform-wide
+  superadmin broadcast, and `POST /api/v1/cron/notification-dispatch` which claims each campaign out
+  of `SCHEDULED` before writing receipts so overlapping cron runs cannot double-send. Delivery stats
+  are counted from the per-recipient rows rather than a stored counter that drifts on a partial
+  write.
+- **Hostel admin Settings page** — location tracking and attendance thresholds, cook portal, and
+  community moderation (`HostelSettings.community`, honoured by `createCommunityPost`). Replaces the
+  placeholder that had been rendering at `/{slug}/admin/settings`.
+- **Superadmin operations config** — `GET`/`PUT /api/v1/platform/operations-config`, audited, for the
+  activation/payment/complaint/food knobs plus the three ceilings hostels tune within.
+- **Food and attendance analytics** — meal timing measured against each hostel's own published
+  routine with a per-kitchen-*device* breakdown (cook logins are shared by design), and attendance
+  patterns with a frequently-absent list built from zone rows only. Also closes the two items
+  deferred out of Phase 4: attendance patterns and the admin-side per-resident calendar.
+- **CSV export** for platform and hostel-admin reports. Aggregates only — no export carries a
+  resident's name or phone — and every cell is RFC-4180 quoted and formula-injection-neutralised,
+  because hostel names and complaint titles are user-supplied and a spreadsheet executes a cell
+  beginning `=`, `+`, `-` or `@`.
+- **Security headers** — `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`,
+  `Permissions-Policy`, `Strict-Transport-Security` and `Cross-Origin-Opener-Policy`, served by Next
+  itself. Deliberately **no CSP**: Next's hydration needs a per-request nonce or `'unsafe-inline'`,
+  and a policy carrying `'unsafe-inline'` protects nothing while looking like it does. The reasoning
+  is recorded next to the headers.
+- **Rate limiting on the remaining auth endpoints** — reset-password, verify-email, otp/request,
+  otp/verify, change-password and register, each with its own 5-per-15-minute budget so exhausting
+  one door does not lock the others.
+- 36 new tests (338 total across 50 files) covering referral linking and conversion, moderator
+  gating, campaign targeting and scheduled dispatch, attendance limit enforcement, CSV serialisation,
+  and the new auth rate limits.
+
+### Changed
+- Private R2 read URLs (payment proofs, KYC documents) expire in **15 minutes** instead of 1 hour.
+- `/api/v1/platform/site-config` — read and write both narrowed from platform-wide to SUPERADMIN.
+- `Notification` gained `campaignId`, `priority`, `deliveredAt`; `readAt` remains the read signal.
+- `/hostel-admin/attendance`, `/community` and `/notifications` now redirect to their tenant-scoped
+  `/{slug}/admin/...` equivalents like every other hostel-admin route, and all four screens
+  (including the new Settings) are registered in the workspace screen map.
+- `docs/API.md` moderator, QuestionCall, notification and settings sections rewritten from
+  speculative "not built" rows to what shipped; `docs/DATABASE.md` reconciled for `Referral`,
+  `Notification` and `HostelSettings`, where the draft and the implementation had diverged.
+
+### Removed
+- The `PortalPlaceholderPage` stub for hostel-admin Settings.
 
 ---
 

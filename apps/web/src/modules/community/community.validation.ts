@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 export const REACTION_TYPES = [
@@ -19,6 +21,7 @@ export const communityPostCreateSchema = z.object({
 });
 
 export const communityFeedQuerySchema = z.object({
+  ...paginationQuerySchema,
   hostelId: objectIdSchema.optional(),
   /** "mine" narrows the feed to the caller's own posts. */
   scope: z.enum(["hostel", "mine"]).default("hostel"),
@@ -38,6 +41,7 @@ export const communityReportSchema = z.object({
 });
 
 export const communityModerationQuerySchema = z.object({
+  ...paginationQuerySchema,
   hostelId: objectIdSchema.optional(),
   status: z.enum(["VISIBLE", "HIDDEN"]).optional(),
 });

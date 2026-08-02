@@ -80,7 +80,9 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
       if (next === "unpublish") {
         // Required: the owner is emailed this reason verbatim.
         const reason = window
-          .prompt("Why is this listing being unpublished? The owner will see this reason.")
+          .prompt(
+            "Why is this listing being unpublished? The owner will see this reason.",
+          )
           ?.trim();
         if (!reason) return;
         body = JSON.stringify({ reason });

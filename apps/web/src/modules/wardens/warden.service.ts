@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { Role } from "@/lib/roles";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
@@ -110,10 +111,7 @@ async function auditWardenAction(
   });
 }
 
-export async function listHostelWardens(
-  query: WardenListQuery,
-  principal: ApiPrincipal,
-) {
+export async function listHostelWardens(query: WardenListQuery, principal: ApiPrincipal) {
   await connectToDatabase();
 
   const filter: Record<string, unknown> = {
@@ -126,10 +124,16 @@ export async function listHostelWardens(
     filter.status = query.status;
   }
 
-  const members = await HostelMemberModel.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(200)
-    .lean<HostelMemberRecord[]>();
+  const { limit, skip } = paginationRange(query);
+
+  const [members, total] = await Promise.all([
+    HostelMemberModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean<HostelMemberRecord[]>(),
+    HostelMemberModel.countDocuments(filter),
+  ]);
 
   const userIds = members.map((member) => member.userId);
   const users = userIds.length
@@ -141,6 +145,7 @@ export async function listHostelWardens(
   const userById = new Map(users.map((user) => [user._id.toString(), user]));
 
   return {
+    pagination: paginationMeta(query, total),
     wardens: members.map((member) =>
       serializeWarden(member, userById.get(member.userId.toString())),
     ),

@@ -18,7 +18,10 @@ import {
   getHostelName,
   sendNotificationEmail,
 } from "@/modules/residents/resident-notify";
-import { findCurrentResident, normalizeObjectId } from "@/modules/residents/resident-access";
+import {
+  findCurrentResident,
+  normalizeObjectId,
+} from "@/modules/residents/resident-access";
 import type {
   guardianInvitationAcceptSchema,
   guardianInviteSchema,
@@ -119,7 +122,9 @@ function serializeGuardianLink(
   };
 }
 
-async function loadPermissions(accessId: Types.ObjectId): Promise<GuardianPermissionFlags> {
+async function loadPermissions(
+  accessId: Types.ObjectId,
+): Promise<GuardianPermissionFlags> {
   const permission = await GuardianPermissionModel.findOne({
     guardianAccessId: accessId,
   }).lean<Partial<GuardianPermissionFlags> | null>();
@@ -140,7 +145,10 @@ async function loadPermissions(accessId: Types.ObjectId): Promise<GuardianPermis
  * Resident invites a guardian by email (PHASES.md §4.1). The resident — not an
  * admin — owns this link and the permissions attached to it.
  */
-export async function inviteGuardian(input: GuardianInviteInput, principal: ApiPrincipal) {
+export async function inviteGuardian(
+  input: GuardianInviteInput,
+  principal: ApiPrincipal,
+) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
@@ -369,10 +377,7 @@ export async function acceptGuardianInvitation(input: GuardianInvitationAcceptIn
     );
   }
 
-  if (
-    access.invitationExpiresAt &&
-    access.invitationExpiresAt.getTime() < Date.now()
-  ) {
+  if (access.invitationExpiresAt && access.invitationExpiresAt.getTime() < Date.now()) {
     await GuardianAccessModel.updateOne(
       { _id: access._id },
       { $set: { status: "EXPIRED" }, $unset: { invitationToken: "" } },

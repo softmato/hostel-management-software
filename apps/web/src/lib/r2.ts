@@ -58,6 +58,13 @@ export async function getPresignedUploadUrl(
   return getSignedUrl(getR2Client(), command, { expiresIn: 600 });
 }
 
+/**
+ * 15 minutes (PHASES.md §5.1). Long enough to open a payment proof or a
+ * citizenship scan, short enough that a URL copied out of a browser's history
+ * or an access log is dead by the time anyone else reaches it.
+ */
+export const PRIVATE_READ_URL_TTL_SECONDS = 900;
+
 export async function getPresignedReadUrl(key: string) {
   const bucket = process.env.R2_BUCKET_NAME;
 
@@ -69,7 +76,9 @@ export async function getPresignedReadUrl(key: string) {
     Bucket: bucket,
     Key: key,
   });
-  return getSignedUrl(getR2Client(), command, { expiresIn: 3600 });
+  return getSignedUrl(getR2Client(), command, {
+    expiresIn: PRIVATE_READ_URL_TTL_SECONDS,
+  });
 }
 
 /**
@@ -101,7 +110,5 @@ export async function deleteFromR2(key: string) {
     throw new Error("R2_BUCKET_NAME must be set");
   }
 
-  await getR2Client().send(
-    new DeleteObjectCommand({ Bucket: bucket, Key: key }),
-  );
+  await getR2Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }

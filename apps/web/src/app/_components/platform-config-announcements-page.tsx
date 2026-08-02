@@ -50,7 +50,9 @@ export const PlatformConfigAnnouncementsPageContent = memo(
               checked={announcement.enabled}
               description="When off, the banner is removed from every public page."
               label="Show the banner"
-              onChange={(enabled) => setValue("announcement", { ...announcement, enabled })}
+              onChange={(enabled) =>
+                setValue("announcement", { ...announcement, enabled })
+              }
             />
 
             <TextAreaField

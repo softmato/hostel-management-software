@@ -404,11 +404,11 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
   // of the database at all, so it cannot leak through a serializer mistake.
   const [hostel, payments, notices, food, nightStatus, complaints, receipts] =
     await Promise.all([
-    HostelModel.findOne({ _id: access.hostelId, isDeleted: false }).lean<{
-      _id: Types.ObjectId;
-      name: string;
-      location?: Record<string, unknown>;
-    } | null>(),
+      HostelModel.findOne({ _id: access.hostelId, isDeleted: false }).lean<{
+        _id: Types.ObjectId;
+        name: string;
+        location?: Record<string, unknown>;
+      } | null>(),
       permission.canViewPayments
         ? PaymentModel.find({
             hostelId: access.hostelId,

@@ -10,7 +10,13 @@ import {
   type FormEvent,
 } from "react";
 
-import { EmptyState, Input, Panel, Select, StatusBadge } from "@/app/_components/shared-ui";
+import {
+  EmptyState,
+  Input,
+  Panel,
+  Select,
+  StatusBadge,
+} from "@/app/_components/shared-ui";
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { useMediaViewer } from "@/components/media-viewer";
 import { Button } from "@/components/ui/button";
@@ -107,7 +113,9 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
         setActionMessage(successMessage);
         await reloadProfile();
       } catch (error) {
-        setActionMessage(error instanceof Error ? error.message : "Could not save room types.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not save room types.",
+        );
       }
     },
     [reloadProfile],
@@ -273,7 +281,9 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
         );
         await reloadProfile();
       } catch (error) {
-        setActionMessage(error instanceof Error ? error.message : "Could not upload photos.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not upload photos.",
+        );
       } finally {
         // The stored photos are on screen now, so the local previews can go.
         setPendingByRoom((prev) => {
@@ -301,7 +311,9 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
         setActionMessage("Photo removed.");
         await reloadProfile();
       } catch (error) {
-        setActionMessage(error instanceof Error ? error.message : "Could not remove photo.");
+        setActionMessage(
+          error instanceof Error ? error.message : "Could not remove photo.",
+        );
       } finally {
         // The refreshed list has dropped it by now; a failed delete gets its
         // photo back sharp and clickable.
@@ -378,8 +390,7 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
                             {config.roomType}
                           </h3>
                           <p className="text-sm text-muted-foreground">
-                            {totalBeds - config.vacantBeds} of {totalBeds} bed(s)
-                            occupied
+                            {totalBeds - config.vacantBeds} of {totalBeds} bed(s) occupied
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
@@ -435,44 +446,47 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
                                 photo.id != null && deletingIds.includes(photo.id);
 
                               return (
-                              <div className="group relative" key={photo.id ?? photo.url}>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  alt={photo.alt || `${config.roomType} photo`}
-                                  className={
-                                    deleting
-                                      ? "h-20 w-full rounded-md border border-border object-cover blur-[2px] brightness-90 transition"
-                                      : "h-20 w-full cursor-zoom-in rounded-md border border-border object-cover transition"
-                                  }
-                                  onClick={() =>
-                                    deleting
-                                      ? undefined
-                                      : openViewer(
-                                          roomPhotos.map((item) => ({
-                                            src: item.url ?? "",
-                                            title: config.roomType,
-                                          })),
-                                          photoIndex,
-                                        )
-                                  }
-                                  src={photo.url}
-                                />
-                                {deleting ? (
-                                  <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/25">
-                                    <Loader2 className="size-5 animate-spin text-white" />
-                                  </div>
-                                ) : (
-                                  <Button
-                                    className="absolute right-1 top-1 size-6 opacity-0 transition group-hover:opacity-100"
-                                    onClick={() => void deleteRoomPhoto(photo.id)}
-                                    size="icon"
-                                    type="button"
-                                    variant="destructive"
-                                  >
-                                    <Trash2 className="size-3" />
-                                  </Button>
-                                )}
-                              </div>
+                                <div
+                                  className="group relative"
+                                  key={photo.id ?? photo.url}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    alt={photo.alt || `${config.roomType} photo`}
+                                    className={
+                                      deleting
+                                        ? "h-20 w-full rounded-md border border-border object-cover blur-[2px] brightness-90 transition"
+                                        : "h-20 w-full cursor-zoom-in rounded-md border border-border object-cover transition"
+                                    }
+                                    onClick={() =>
+                                      deleting
+                                        ? undefined
+                                        : openViewer(
+                                            roomPhotos.map((item) => ({
+                                              src: item.url ?? "",
+                                              title: config.roomType,
+                                            })),
+                                            photoIndex,
+                                          )
+                                    }
+                                    src={photo.url}
+                                  />
+                                  {deleting ? (
+                                    <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/25">
+                                      <Loader2 className="size-5 animate-spin text-white" />
+                                    </div>
+                                  ) : (
+                                    <Button
+                                      className="absolute right-1 top-1 size-6 opacity-0 transition group-hover:opacity-100"
+                                      onClick={() => void deleteRoomPhoto(photo.id)}
+                                      size="icon"
+                                      type="button"
+                                      variant="destructive"
+                                    >
+                                      <Trash2 className="size-3" />
+                                    </Button>
+                                  )}
+                                </div>
                               );
                             })}
                             {pending.map((item) => (
@@ -579,8 +593,8 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
         </Panel>
         <Panel title="Add Room Type">
           <p className="mb-3 text-sm text-muted-foreground">
-            New room types start fully vacant. Vacancy then moves on its own as
-            residents are registered and moved out.
+            New room types start fully vacant. Vacancy then moves on its own as residents
+            are registered and moved out.
           </p>
           {addableRoomTypes.length === 0 ? (
             <EmptyState label="Every room type is already on your list. Edit one on the left." />

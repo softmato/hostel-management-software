@@ -1,445 +1,430 @@
 # ENVIRONMENT.md — Environment Variables & Setup
 
+**Package manager: npm** (npm workspaces + Turborepo). Not pnpm — `corepack`/pnpm
+appear nowhere in this repo, and `package-lock.json` is the committed lockfile.
+
+`.env.example` at the repo root is the authoritative variable list; this file
+explains what each group is for. If the two ever disagree, `.env.example` wins.
+
+---
+
 ## 1. Prerequisites
 
 - Node.js 20 LTS
-- pnpm 9+ (`corepack enable`)
+- npm 10+ (ships with Node 20 — no corepack step)
 - MongoDB Atlas account (or local MongoDB 7.0+)
-- Cloudflare account with R2 bucket
-- Resend account for transactional emails
-- Google Cloud project (optional, for Maps fallback — requires billing enabled)
+- Cloudflare account with an R2 bucket
+- Resend account for transactional email
+- Google Cloud project — only if you want the optional Google Maps fallback
+  (requires billing enabled); OpenStreetMap is the free default
 
 ---
 
 ## 2. Environment Variables
 
-Create `.env` at the repo root (never commit it — `.env.example` is the tracked template).
+Create `.env` **at the repo root** — not inside `apps/web`. `next.config.ts`
+calls `loadEnvConfig(repoRoot)`, and the standalone scripts under
+`apps/web/scripts/` load the same root file, so one file serves every workspace.
+Never commit it; `.env.example` is the tracked template.
 
-```bash
-# --- App ---
-NODE_ENV=development
-APP_URL=http://localhost:3000
+### App
 
-# --- Database ---
-DATABASE_URL="mongodb+srv://user:password@cluster.mongodb.net/dbname?retryWrites=true&w=majority"
+| Variable | Required | Notes |
+|---|---|---|
+| `NODE_ENV` | no | `development` / `production` / `test` |
+| `APP_URL` | **yes** | Absolute base URL. Used for every link inside an email and for `siteUrl()`. Falls back to `http://localhost:3000`. |
+| `NEXT_PUBLIC_APP_URL` | **yes** | Same value, exposed to the browser bundle. |
 
-# --- Auth / JWT ---
-JWT_ACCESS_SECRET=replace-with-a-long-random-string-min-32-chars
-JWT_REFRESH_SECRET=replace-with-a-different-long-random-string-min-32-chars
-ACCESS_TOKEN_TTL=15m
-REFRESH_TOKEN_TTL=30d
+### Database
 
-# --- Google OAuth (login) ---
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+| Variable | Required | Notes |
+|---|---|---|
+| `MONGODB_URI` | **yes** | Full connection string. **Not** `DATABASE_URL` — nothing reads that name. |
 
-# --- Google Maps Platform (optional - runtime fallback) ---
-# Leave blank to use OpenStreetMap only (free)
-# If set, system will auto-detect and use Google Maps if available
-GOOGLE_MAPS_API_KEY=                # server-only: Geocoding + Places (never expose to client)
-NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY=   # restricted by HTTP referrer, safe for client bundle
+### Auth / JWT
 
-# --- Cloudflare R2 (S3-compatible) ---
-R2_ACCOUNT_ID=your-cloudflare-account-id
-R2_ACCESS_KEY_ID=your-r2-access-key-id
-R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
-R2_BUCKET_NAME=multi-hostel-uploads
-R2_PUBLIC_URL=https://multi-hostel-uploads.your-account.r2.dev   # or custom domain
+| Variable | Required | Notes |
+|---|---|---|
+| `JWT_ACCESS_SECRET` | **yes** | Minimum 32 characters (enforced by `lib/env.ts`). |
+| `JWT_REFRESH_SECRET` | **yes** | Minimum 32 characters, different from the access secret. |
+| `ACCESS_TOKEN_TTL` | no | Default `15m`. |
+| `REFRESH_TOKEN_TTL` | no | Default `30d`. |
 
-# --- Email (Resend) ---
-RESEND_API_KEY=re_your_resend_api_key
-EMAIL_FROM="Multi-Hostel Platform <no-reply@yourdomain.com>"
+Rotating either secret invalidates every live session.
 
-# --- Seed / bootstrap ---
-SEED_SUPERADMIN_EMAIL=admin@yourdomain.com
-SEED_SUPERADMIN_PASSWORD=set-a-strong-one-time-password
+### OTP (legacy signup flow)
 
-# --- Cron Secret (protect cron endpoints) ---
-CRON_SECRET=random-secret-for-vercel-cron-endpoints
+`OTP_TTL_MINUTES`, `OTP_RESEND_COOLDOWN_SECONDS`, `OTP_RATE_LIMIT_WINDOW_MINUTES`,
+`OTP_RATE_LIMIT_MAX`, `OTP_HASH_SECRET`. All optional — sane defaults ship in
+code. `OTP_HASH_SECRET` falls back to `JWT_ACCESS_SECRET` when unset.
 
-# --- Firebase Cloud Messaging (Phase 6 only, leave blank until then) ---
-FIREBASE_PROJECT_ID=
-FIREBASE_CLIENT_EMAIL=
-FIREBASE_PRIVATE_KEY=
+### Google sign-in
 
-# --- Production only ---
-# SENTRY_DSN=                       # Error monitoring (optional)
-# NEXT_PUBLIC_ANALYTICS_ID=          # Google Analytics/Plausible (optional)
-```
+| Variable | Required | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | for Google login | Client ID for Google Identity Services in the browser. |
+| `GOOGLE_CLIENT_ID` | for Google login | Same value, used server-side to verify the ID token audience. |
+
+> **There is no `GOOGLE_CLIENT_SECRET` and no OAuth redirect URI.** This project
+> uses the Google Identity Services **ID-token POST** flow, verified server-side —
+> not a GET redirect + callback. Earlier drafts of this document specified
+> `GOOGLE_CLIENT_SECRET` and `GOOGLE_OAUTH_REDIRECT_URI`; neither is read by any
+> code path. See ARCHITECTURE.md §3.1.
+
+### Google Maps (optional runtime fallback)
+
+| Variable | Required | Notes |
+|---|---|---|
+| `GOOGLE_MAPS_API_KEY` | no | Server-only: Geocoding + Places. Never exposed to the client. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` | no | Restrict by HTTP referrer. |
+
+Leave both blank to run on OpenStreetMap/Leaflet + Nominatim + Overpass, which
+is the default and costs nothing.
+
+### Cloudflare R2
+
+| Variable | Required | Notes |
+|---|---|---|
+| `R2_ENDPOINT` | **yes in production** | `https://<account-id>.r2.cloudflarestorage.com`. Note: the endpoint URL, not a bare `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` | **yes in production** | |
+| `R2_SECRET_ACCESS_KEY` | **yes in production** | |
+| `R2_BUCKET_NAME` | **yes in production** | |
+| `R2_PUBLIC_URL` | **yes in production** | Public base URL for public assets (hostel photos, activation QR images). |
+
+All five must be set together — `lib/public-upload.ts` treats R2 as configured
+only when endpoint, key, bucket **and** public URL are all present. Without
+them it writes to `apps/web/public/uploads/` on local disk, which is fine for
+development and **will not work on Vercel** (read-only filesystem). Uploads
+degrade to `null` rather than throwing, so the QR email simply arrives without
+an image. Provision R2 before production.
+
+### Email (Resend)
+
+| Variable | Required | Notes |
+|---|---|---|
+| `RESEND_API_KEY` | **yes in production** | Without it `sendEmail()` logs and no-ops instead of throwing. |
+| `EMAIL_FROM` | one of these | Full `Name <address>` header. Wins if set. |
+| `RESEND_FROM_NAME` + `RESEND_FROM_EMAIL` | one of these | Combined into `Name <address>` when `EMAIL_FROM` is absent. |
+
+### Seed / bootstrap
+
+`SEED_SUPERADMIN_EMAIL`, `SEED_SUPERADMIN_NAME`, `SEED_SUPERADMIN_PASSWORD` —
+read only by `npm run db:seed`. SUPERADMIN accounts are created by that script
+and by an existing superadmin in the portal; never by a public endpoint.
+
+### Cron
+
+| Variable | Required | Notes |
+|---|---|---|
+| `CRON_SECRET` | **yes in production** | Protects all six `/api/v1/cron/*` endpoints. A missing value makes them answer `500 CRON_NOT_CONFIGURED` — they never fall open. |
+
+### Resident identity encryption
+
+| Variable | Required | Notes |
+|---|---|---|
+| `PERSONAL_DATA_ENCRYPTION_KEY` | for resident profiles | 32 bytes, base64 or hex. Generate with `openssl rand -base64 32`. |
+
+**Rotating this key makes every stored resident profile permanently
+unreadable.** The resident-profile endpoints fail with a clear message when it
+is absent, so the rest of the app still boots.
+
+### Public hero search (optional)
+
+`GEMINI_API_KEYS`, `GROQ_API_KEYS`, `OPENROUTER_API_KEYS`, `MISTRAL_API_KEYS`,
+`CEREBRAS_API_KEYS` — each a **comma-separated** list, tried in order; a key
+that reports a quota error is parked until the next UTC midnight.
+`LLM_PROVIDER_ORDER` overrides the try order. `SEARCH_QUOTA_SECRET` signs the
+per-visitor quota cookie (10 calls / 5 hours) and falls back to `CRON_SECRET`.
+
+With none of these set, hero search stays keyword-only. It never errors — it
+just stops handling freeform sentences.
+
+### QuestionCall (optional)
+
+`QUESTIONCALL_URL`, `QUESTIONCALL_SSO_SECRET`, `QUESTIONCALL_WEBHOOK_SECRET`.
+With no SSO secret the study button opens a plain link instead of a signed
+hand-off. With no webhook secret the conversion callback answers `503` rather
+than trusting an unauthenticated caller.
+
+### Cookies, limits, logging
+
+`COOKIE_DOMAIN`, `COOKIE_SECURE`, `LOG_LEVEL`, `PUBLIC_FORM_RATE_LIMIT_MAX`
+(default 10), `PUBLIC_FORM_RATE_LIMIT_WINDOW_SECONDS` (default 60),
+`UPLOAD_MAX_IMAGE_BYTES` (default 5 MB), `UPLOAD_MAX_DOCUMENT_BYTES`
+(default 10 MB), `ALLOWED_IMAGE_MIME_TYPES`, `ALLOWED_DOCUMENT_MIME_TYPES`.
+
+Session cookies set `secure` from `NODE_ENV === "production"` directly, so
+`COOKIE_SECURE` does not need to be set in production.
+
+### Firebase (Phase 6 only)
+
+`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` — leave
+blank until mobile push is built. See the note in §9.
 
 ---
 
 ## 3. Secrets Handling
 
-**Never commit:**
-- `.env` (actual secrets)
-- `google-services.json` / `GoogleService-Info.plist` (Firebase config)
-- Any file with real API keys, passwords, or tokens
+**Never commit:** `.env`, `google-services.json` / `GoogleService-Info.plist`,
+anything holding a real key.
 
-**Always commit:**
-- `.env.example` (template with blank/placeholder values)
+**Always commit:** `.env.example`.
 
-**Server-only secrets** (never exposed to client):
-- `GOOGLE_MAPS_API_KEY` (server key)
-- `R2_SECRET_ACCESS_KEY`
-- `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
-- `RESEND_API_KEY`
-- `FIREBASE_PRIVATE_KEY`
-- `DATABASE_URL`
-- `CRON_SECRET`
+**Server-only** (never exposed to a client bundle): `MONGODB_URI`,
+`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `OTP_HASH_SECRET`,
+`R2_SECRET_ACCESS_KEY`, `R2_ACCESS_KEY_ID`, `RESEND_API_KEY`, `CRON_SECRET`,
+`PERSONAL_DATA_ENCRYPTION_KEY`, `GOOGLE_MAPS_API_KEY`, every `*_API_KEYS` list,
+`QUESTIONCALL_*_SECRET`, `FIREBASE_PRIVATE_KEY`.
 
-**Client-accessible vars** (must be prefixed `NEXT_PUBLIC_`):
-- `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` (restricted by HTTP referrer in Google Cloud Console)
-- `NEXT_PUBLIC_ANALYTICS_ID` (if using analytics)
+**Client-accessible** (must carry the `NEXT_PUBLIC_` prefix):
+`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`,
+`NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`.
 
-**Security measures:**
-- Restrict `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` to your production domain(s) via HTTP referrer restrictions
-- Restrict `GOOGLE_MAPS_API_KEY` by API (Geocoding, Places only) and server IP if possible
-- Set a budget alert on Google Cloud project — Maps/Places billing is usage-based
-- Rotate `JWT_*_SECRET` keys if compromised (invalidates all sessions)
+Only `NEXT_PUBLIC_*` variables may reach the browser. `next.config.ts` also
+explicitly re-exports `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_ID`
+through its `env` block — the latter is a public client ID, not a secret.
 
 ---
 
 ## 4. Local Setup
 
-### First-time setup
-
 ```bash
-# 1. Clone repo
+# 1. Clone and install (npm workspaces — one install covers every workspace)
 git clone <repo-url>
-cd multi-hostel-platform
+cd hostel-management-software
+npm install
 
-# 2. Install pnpm if not already installed
-corepack enable
-pnpm --version  # Should be 9.x
-
-# 3. Install dependencies (monorepo)
-pnpm install
-
-# 4. Copy env template
+# 2. Environment
 cp .env.example .env
-# Fill in real values in .env
+# Fill in at minimum: MONGODB_URI, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET,
+# APP_URL, NEXT_PUBLIC_APP_URL, SEED_SUPERADMIN_EMAIL, SEED_SUPERADMIN_PASSWORD
 
-# 5. MongoDB setup
-# - Create MongoDB Atlas cluster (or run local MongoDB)
-# - Whitelist your IP
-# - Get connection string and set DATABASE_URL in .env
+# 3. Seed the initial SUPERADMIN account
+npm run db:seed
 
-# 6. Cloudflare R2 setup
-# - Create R2 bucket
-# - Generate R2 API tokens
-# - Set R2_* vars in .env
-# - Configure CORS for your domain (in Cloudflare dashboard)
-
-# 7. Resend setup
-# - Sign up at resend.com
-# - Get API key
-# - Set RESEND_API_KEY in .env
-# - (Production: verify your sending domain)
-
-# 8. Google OAuth setup
-# - Go to Google Cloud Console
-# - Create OAuth 2.0 client ID (Web application)
-# - Add http://localhost:3000/api/auth/google/callback to Authorized redirect URIs
-# - Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env
-
-# 9. (Optional) Google Maps setup
-# - Enable Maps JavaScript API, Places API, Geocoding API in Google Cloud Console
-# - Create two API keys:
-#   - Server key (no restrictions) → GOOGLE_MAPS_API_KEY
-#   - Browser key (HTTP referrer restriction to your domain) → NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
-# - Enable billing (required for Places API)
-# - Set budget alert
-# - If not configured, system will use free OpenStreetMap
-
-# 10. Run database seed (creates SUPERADMIN account)
-pnpm --filter @packages/db seed
-
-# 11. Start dev server
-pnpm dev
-# Web app runs at http://localhost:3000
+# 4. Run the web app
+npm run web:dev            # http://localhost:3000
 ```
+
+MongoDB: create the Atlas cluster (or run locally), whitelist your IP, put the
+connection string in `MONGODB_URI`.
+
+R2: create the bucket, generate API tokens, set the five `R2_*` vars, configure
+CORS for your domain in the Cloudflare dashboard.
+
+Resend: sign up, set `RESEND_API_KEY`, and verify your sending domain before
+production.
+
+Google sign-in: create an OAuth 2.0 **Web application** client ID and put the
+same value in `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_ID`. Add your
+origin to *Authorized JavaScript origins*. There is no redirect URI to register
+and no client secret to store.
 
 ---
 
-## 5. Development Commands
+## 5. Commands
+
+Run from the repo root.
 
 | Command | Purpose |
 |---|---|
-| `pnpm dev` | Start dev server (Turborepo runs `apps/web` dev) |
-| `pnpm build` | Production build across monorepo |
-| `pnpm lint` | ESLint across all packages |
-| `pnpm format` | Prettier format all code |
-| `pnpm test` | Run all tests (see TESTING.md) |
-| `pnpm --filter @packages/db seed` | Run database seed script |
-| `pnpm --filter @packages/db migrate` | Run any pending migrations (if migration system implemented) |
+| `npm run web:dev` | Next dev server |
+| `npm run web:build` | Production build |
+| `npm run web:test` | Vitest suite |
+| `npm run web:lint` | ESLint |
+| `npm run web:format` | Prettier write |
+| `npm --prefix apps/web run typecheck` | `tsc --noEmit` |
+| `npm run db:seed` | Create/refresh the SUPERADMIN account |
+| `npm run web:seed:demo` | Seed demo hostel data |
+| `npm run web:recover:admin` | Recover a locked-out admin account |
+| `npm run web:deploy:check` | Production build as a pre-deploy gate |
+| `npm run dev` / `build` / `lint` / `test` / `typecheck` | Same across every workspace via Turborepo |
+| `npm run mobile:start` | Expo dev server (`apps/mobile`) |
+| `npm run mobile:typecheck` | Mobile `tsc --noEmit` |
+
+Maintenance scripts: `npm run web:check:private-documents`,
+`npm run web:backfill:resident-accounts`,
+`npm run web:repair:archived-residents`, and
+`npm --prefix apps/web run migrate:rooms-to-counts`.
+
+One-shot legacy role migration:
+
+```bash
+node --experimental-transform-types packages/db/src/migrate-roles.ts
+```
 
 ---
 
 ## 6. Production Deployment (Vercel)
 
 ### Prerequisites
-- Vercel account created
-- MongoDB Atlas production cluster created
+- Vercel account
+- MongoDB Atlas **production** cluster (separate from dev)
 - R2 bucket for production (separate from dev)
-- Resend domain verified
-- (Optional) Google Cloud project with billing enabled
+- Resend sending domain verified
+- Optional: Google Cloud project with billing enabled for Maps
 
-### Deployment Steps
+### Steps
 
-1. **Push to GitHub/GitLab:**
-   ```bash
-   git push origin main
-   ```
+1. **Push to GitHub/GitLab.**
 
-2. **Connect to Vercel:**
-   - Import project in Vercel dashboard
-   - Select `apps/web` as root directory
-   - Framework Preset: Next.js (auto-detected)
+2. **Import the project in Vercel.** It is an npm-workspaces monorepo; set the
+   Root Directory to `apps/web`. Framework preset is auto-detected as Next.js.
+   `next.config.ts` transpiles `@hostel/db` and `@hostel/shared` from
+   `packages/`, so both must be included in the build context.
 
-3. **Set Environment Variables in Vercel:**
-   - Go to Project Settings → Environment Variables
-   - Add all variables from `.env.example`
-   - Use **production values** (different DB, different R2 bucket, etc.)
-   - Scope critical secrets to **Production only**
-   - Scope preview-safe vars to **Production + Preview**
+3. **Set environment variables** in Project Settings → Environment Variables.
+   Add everything from `.env.example` with production values. Scope secrets to
+   Production; scope preview-safe values to Production + Preview. Remember
+   `APP_URL` and `NEXT_PUBLIC_APP_URL` must be the real domain — every email
+   link is built from them.
 
-4. **Configure Vercel Cron:**
-   Add `vercel.json` at repo root:
-   ```json
-   {
-     "crons": [
-       {
-         "path": "/api/cron/payment-reminders",
-         "schedule": "0 9 * * *"
-       },
-       {
-         "path": "/api/cron/subscription-expiry",
-         "schedule": "0 9 * * *"
-       },
-       {
-         "path": "/api/cron/complaint-sla-check",
-         "schedule": "0 * * * *"
-       },
-       {
-         "path": "/api/cron/nearby-places-refresh",
-         "schedule": "0 2 * * 0"
-       }
-     ]
-   }
-   ```
+4. **Schedule the cron jobs on [cron-job.org](https://cron-job.org).**
 
-5. **Protect Cron Endpoints:**
-   Each cron route checks for `X-Cron-Secret` header:
-   ```typescript
-   // app/api/cron/payment-reminders/route.ts
-   export async function POST(req: Request) {
-     const secret = req.headers.get('X-Cron-Secret');
-     if (secret !== process.env.CRON_SECRET) {
-       return new Response('Unauthorized', { status: 401 });
-     }
-     // ... cron logic
-   }
-   ```
+   > **This project does not use Vercel Cron and has no `vercel.json`.** An
+   > earlier draft of this document told you to create one with four
+   > `/api/cron/*` paths. Those paths do not exist. The real endpoints are the
+   > six below, and `docs/CRON.md` is the authoritative reference for what each
+   > one does and why its schedule is what it is.
 
-6. **Deploy:**
-   - Vercel auto-deploys on push to main
-   - Preview deployments on PRs
-   - Check build logs for errors
+   Every job: method `POST`, no query parameters, and a header
+   `x-cron-secret: <CRON_SECRET>` (cron-job.org → job → *Advanced* → *Headers*).
+   A secret in a URL leaks into access logs, so the query-param form is not
+   accepted.
 
-7. **Post-Deployment Checks:**
-   - [ ] Homepage loads
-   - [ ] Can create PUBLIC account and verify email
-   - [ ] Superadmin can log in
-   - [ ] Hostel registration works
-   - [ ] File uploads to R2 work
-   - [ ] Emails send successfully (check Resend dashboard)
-   - [ ] Cron jobs run on schedule (check logs)
-   - [ ] MongoDB connection stable (check Atlas metrics)
+   | Endpoint | Suggested schedule |
+   |---|---|
+   | `POST /api/v1/cron/purge-expired-otps` | daily — `0 3 * * *` |
+   | `POST /api/v1/cron/payment-reminders` | daily — `0 2 * * *` |
+   | `POST /api/v1/cron/complaint-sla` | daily — `0 4 * * *` |
+   | `POST /api/v1/cron/attendance-maintenance` | daily — `0 5 * * *` |
+   | `POST /api/v1/cron/refresh-nearby-places` | hourly — `0 * * * *` |
+   | `POST /api/v1/cron/notification-dispatch` | every 15 min — `*/15 * * * *` |
+
+5. **Deploy.** Vercel builds on push to `main`; PRs get preview deployments.
+
+### Post-Deployment Checks
+
+- [ ] Homepage loads and lists real published hostels
+- [ ] A PUBLIC account can sign up and verify its email
+- [ ] The seeded SUPERADMIN can log in
+- [ ] Hostel registration submits and appears in the approval queue
+- [ ] File uploads reach R2 (not the local-disk fallback)
+- [ ] Emails deliver — check the Resend dashboard
+- [ ] Each cron job returns 200 with the secret and 401 without it
+- [ ] MongoDB connection stable — check Atlas metrics
 
 ---
 
 ## 7. Database Migrations (Mongoose)
 
-Mongoose doesn't have formal migrations like Prisma. Options:
+Mongoose has no formal migration system. What this project does:
 
-**Option A: Manual migration scripts**
-Create `packages/db/migrations/` folder:
-```
-migrations/
-  001_seed_platform_config.ts
-  002_add_nearby_places_field.ts
-  003_create_indexes.ts
-```
+- New fields rely on schema defaults — existing documents pick them up on read.
+- Breaking changes (renames, type changes) get a one-off script in
+  `apps/web/scripts/` or `packages/db/src/`, run manually **before** deploying
+  the code that depends on them. Existing examples:
+  `migrate-roles.ts`, `migrate-rooms-to-counts.mjs`,
+  `backfill-resident-accounts.mjs`, `repair-archived-residents.mjs`.
+- Removing a field means stopping the code from writing it; old data stays until
+  a cleanup script removes it.
 
-Run manually during deployment:
-```bash
-pnpm --filter @packages/db run-migration 001
-```
-
-**Option B: Schema changes with Mongoose**
-- Mongoose is schema-less at MongoDB level (flexible)
-- Add new fields anytime (old documents auto-get defaults)
-- Remove fields by stopping code from writing them (old data remains but unused)
-- Rename fields requires manual migration script to update all documents
-
-**Recommended approach for this project:**
-- Use Mongoose schema defaults for new fields
-- For breaking changes (renames, type changes), write one-off migration scripts
-- Run migrations manually in production before deploying new code
+Indexes are declared on the models themselves, so they are created by Mongoose
+on first connection — there is no separate index migration step. Verify them in
+Atlas after the first production deploy.
 
 ---
 
-## 8. Monitoring & Logging (Production)
+## 8. Monitoring & Logging
 
-**Error Monitoring:**
-- Integrate Sentry (optional but recommended):
-  ```bash
-  pnpm add @sentry/nextjs
-  ```
-- Set `SENTRY_DSN` in Vercel env vars
-- Configure in `next.config.js`
+**Errors:** Sentry is not currently wired up. Adding it is a tracked task
+(`TODO.md`, Track B8). Until then, Vercel's function logs are the only trace.
 
-**Logging:**
-- Server-side: use `console.log`/`console.error` (captured by Vercel logs)
-- Structured logging (JSON) for easier parsing:
-  ```typescript
-  console.log(JSON.stringify({
-    level: 'info',
-    timestamp: new Date().toISOString(),
-    userId: session.userId,
-    action: 'payment_verified',
-    message: 'Payment proof verified successfully',
-  }));
-  ```
+**Logging:** server code uses structured single-line JSON via `console.log` /
+`console.warn` / `console.error`, captured by Vercel:
 
-**Performance Monitoring:**
-- Vercel Analytics (built-in, free tier)
-- Optional: Google Analytics, Plausible
+```json
+{ "level": "warn", "action": "public_asset_store_failed", "message": "...", "prefix": "activation-qr" }
+```
 
-**Database Monitoring:**
-- MongoDB Atlas has built-in performance monitoring
-- Set up alerts for slow queries, high CPU, connection limits
+Never log a password (hashed or plain), a JWT, a Google ID token, or a full
+user document — `userId` only. See RULES.md §13.
+
+**Performance:** Vercel Analytics (free tier). MongoDB Atlas has built-in
+monitoring — set alerts for slow queries, high CPU and connection limits.
 
 ---
 
 ## 9. Phase 6 (Mobile) Additional Setup
 
-Not needed until Phase 6:
+`apps/mobile` is an Expo app; `npm run mobile:start` runs it.
 
-**Expo EAS Build:**
-- Install EAS CLI: `npm install -g eas-cli`
-- Login: `eas login`
-- Configure `eas.json` in `apps/mobile/`
-- Build: `eas build --platform android --profile preview`
+**Push notifications** are delivered through the **Expo push service**
+(`https://exp.host/--/api/v2/push/send`), which accepts both Expo push tokens
+and raw FCM tokens. That means the server needs **no Firebase Admin SDK and no
+`FIREBASE_PRIVATE_KEY`** — the `FIREBASE_*` variables in `.env.example` are
+reserved and currently unused. Device tokens are stored in the `DeviceToken`
+collection via `POST /api/v1/mobile/device-token`.
 
-**Firebase Cloud Messaging:**
-- Create Firebase project
-- Download `google-services.json` (Android) and `GoogleService-Info.plist` (iOS)
-- Place in `apps/mobile/` (gitignored)
-- Set Firebase env vars
+For Android builds you still need `google-services.json` from a Firebase
+project (gitignored, placed in `apps/mobile/`), because the Expo push service
+delivers through FCM underneath.
 
-**App Store Accounts:**
-- Google Play Console account (one-time $25 fee)
-- Apple Developer Program ($99/year)
-- Out of scope per PRD.md §5 — client-payable
+**EAS Build:** `npm install -g eas-cli`, `eas login`, configure
+`apps/mobile/eas.json`, then
+`eas build --platform android --profile preview`.
+
+**Store accounts:** Google Play Console (one-time $25) and Apple Developer
+($99/yr) are client-payable and out of scope per PRD.md §5.
 
 ---
 
 ## 10. Troubleshooting
 
-**"Cannot connect to MongoDB":**
-- Check `DATABASE_URL` is correct
-- Verify IP is whitelisted in Atlas
-- Check network access settings
+**Cannot connect to MongoDB** — check `MONGODB_URI`, confirm your IP is
+whitelisted in Atlas, check Network Access settings.
 
-**"Google OAuth not working":**
-- Verify `GOOGLE_OAUTH_REDIRECT_URI` matches exactly in Google Cloud Console
-- Check `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are correct
-- Ensure OAuth consent screen is configured
+**Google sign-in not working** — confirm `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_ID` hold the *same* client ID, and that your origin is listed
+under *Authorized JavaScript origins*. There is no redirect URI in this flow, so
+a redirect-URI mismatch is never the cause.
 
-**"Emails not sending":**
-- Check `RESEND_API_KEY` is valid
-- Verify sending domain in Resend (for production)
-- Check Resend dashboard for delivery logs
-- In development, emails go to test mode if domain not verified
+**Emails not sending** — check `RESEND_API_KEY`, verify the sending domain,
+check the Resend dashboard. With no key configured `sendEmail()` logs and
+returns without throwing, so the feature that triggered it will look like it
+succeeded.
 
-**"R2 uploads failing":**
-- Verify `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`
-- Check CORS configuration in Cloudflare dashboard
-- Ensure bucket name matches `R2_BUCKET_NAME`
+**R2 uploads failing** — all five `R2_*` variables must be present or the code
+silently uses the local-disk fallback. Check CORS in Cloudflare and that the
+bucket name matches.
 
-**"Map not loading":**
-- If using Google Maps: check browser key is restricted properly
-- If using OpenStreetMap: check Leaflet CSS is imported
-- Check browser console for errors
+**Cron returns `500 CRON_NOT_CONFIGURED`** — `CRON_SECRET` is not set in the
+deployed environment.
 
-**"Push notifications not working":**
-- Check `FIREBASE_SERVICE_ACCOUNT_KEY` is valid JSON
-- Verify FCM project is enabled in Firebase console
-- For iOS: check APNS certificate is uploaded to Firebase
-- Check device tokens are being stored correctly
+**Cron returns `401 UNAUTHORIZED`** — the `x-cron-secret` header value does not
+match, or the job is using a query parameter instead of a header, or it is
+pointed at the wrong domain. Confirm the method is `POST`.
 
----
+**Map not loading** — with Google Maps, check the browser key's referrer
+restriction; with OpenStreetMap, check that the Leaflet CSS is imported and look
+at the browser console.
 
-## 8. Push Notifications (Phase 6 - Mobile)
-
-### Firebase Cloud Messaging (FCM) + APNS
-
-```bash
-# Firebase Admin SDK service account (JSON file)
-FIREBASE_SERVICE_ACCOUNT_KEY='{...}'  # Full JSON content or path to file
-# Or separate fields:
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-
-# Firebase Cloud Messaging Server Key (legacy, for older SDK)
-FCM_SERVER_KEY=AAAA...
-
-# APNS (iOS) - configured in Firebase console, no env var needed
-```
-
-**Setup Steps:**
-1. Create Firebase project at https://console.firebase.google.com
-2. Enable Cloud Messaging
-3. Download service account JSON from Settings → Service Accounts
-4. For iOS: Upload APNS certificate (development + production) in Firebase → Project Settings → Cloud Messaging
-5. Add `FIREBASE_SERVICE_ACCOUNT_KEY` to `.env`
+**Resident profile endpoints failing** — `PERSONAL_DATA_ENCRYPTION_KEY` is
+missing or not a valid 32-byte base64/hex value.
 
 ---
 
-## 9. QuestionCall Integration (Phase 5)
+## 11. Location Tracking Defaults
 
-```bash
-# QuestionCall API for SSO redirect
-QUESTIONCALL_API_URL=https://questioncall.com/api
-QUESTIONCALL_SSO_SECRET=your-shared-secret  # For signing JWT tokens
-```
+Platform-level defaults live in the `PlatformSetting` document keyed
+`operations`; per-hostel values live on `HostelSettings.attendance`. They are
+**not** environment variables — they are edited in the platform portal so they
+can change without a deploy. See docs/CRON.md and ARCHITECTURE.md §8.4.
 
----
-
-## 10. Location Tracking Configuration Defaults
-
-Platform defaults (stored in PlatformConfig, but can be overridden via env for initial seed):
-
-```bash
-# Default geofence radii (meters)
-DEFAULT_INSIDE_ZONE_RADIUS=50
-DEFAULT_NEARBY_ZONE_RADIUS=200
-
-# Default tracking times (HH:mm format)
-DEFAULT_TRACKING_TIME_MORNING=08:00
-DEFAULT_TRACKING_TIME_EVENING=18:00
-DEFAULT_TRACKING_TIME_NIGHT=22:00
-
-# Default data retention (days)
-DEFAULT_LOCATION_DATA_RETENTION_DAYS=600
-DEFAULT_ATTENDANCE_ALERT_THRESHOLD_DAYS=14
-```
+Shipped defaults: inside zone 50 m, nearby zone 200 m, tracking at 08:00 /
+18:00 / 22:00, retention 600 days (platform maximum 1095), absence alert at 14
+consecutive days.
 
 ---
 
 _End of ENVIRONMENT.md_
-

@@ -95,7 +95,6 @@ export const PlatformTransactionsPageContent = memo(
     const [hostelFilter, setHostelFilter] = useState("");
     const [page, setPage] = useState(1);
 
-
     const ledger = useMemo(
       () =>
         (data?.recent ?? []).map((payment) => ({
@@ -219,9 +218,7 @@ export const PlatformTransactionsPageContent = memo(
                       setHostelFilter(next);
                       setPage(1);
                     }}
-                    options={Array.from(
-                      new Set(ledger.map((entry) => entry.hostelName)),
-                    )}
+                    options={Array.from(new Set(ledger.map((entry) => entry.hostelName)))}
                     value={hostelFilter}
                   />
                   <FilterSelect

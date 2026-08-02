@@ -214,8 +214,7 @@ export async function generateActivationCode(
   const resident = await findAdminResident(residentId, principal, input.hostelId);
   const config = await getOperationsConfig();
   const code = generatePlainCode();
-  const expiresInHours =
-    input.expiresInHours ?? config.qrActivationExpiryDays * 24;
+  const expiresInHours = input.expiresInHours ?? config.qrActivationExpiryDays * 24;
   const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
   await QRActivationModel.updateMany(
@@ -267,7 +266,8 @@ async function deliverActivationEmail(
       JSON.stringify({
         level: "warn",
         action: "resident_activation_email_failed",
-        message: error instanceof Error ? error.message : "Unknown activation email error",
+        message:
+          error instanceof Error ? error.message : "Unknown activation email error",
         residentId: resident._id.toString(),
       }),
     );

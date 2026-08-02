@@ -14,13 +14,10 @@ import {
 import Link from "next/link";
 import { memo } from "react";
 
-import {
-  currency,
-  EmptyState,
-  LoadingRows,
-} from "@/app/_components/shared-ui";
+import { currency, EmptyState, LoadingRows } from "@/app/_components/shared-ui";
 import { usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
+import { ResidentQuestionCallCard } from "./resident-questioncall-card";
 import { type ResidentDashboard, Message } from "./resident-shared";
 import {
   EmptyInline,
@@ -53,8 +50,7 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
   const message = dashboardResource.message;
 
   const firstName = dashboard?.resident.firstName ?? "Resident";
-  const unreadNotices =
-    dashboard?.notices.filter((notice) => !notice.isRead).length ?? 0;
+  const unreadNotices = dashboard?.notices.filter((notice) => !notice.isRead).length ?? 0;
   const roomLabel = dashboard
     ? `${dashboard.roomBed.room?.roomNumber ?? "—"} / ${dashboard.roomBed.bed?.bedNumber ?? "—"}`
     : "—";
@@ -155,7 +151,11 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
                   {[
                     { href: "/resident/payments", icon: CreditCard, label: "Payments" },
                     { href: "/resident/notices", icon: Bell, label: "Notices" },
-                    { href: "/resident/complaints", icon: AlertTriangle, label: "Complaints" },
+                    {
+                      href: "/resident/complaints",
+                      icon: AlertTriangle,
+                      label: "Complaints",
+                    },
                     { href: "/resident/sos", icon: Siren, label: "SOS" },
                     { href: "/resident/reviews", icon: Star, label: "Reviews" },
                   ].map((item, index) => {
@@ -197,8 +197,12 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
                           <p className="text-sm font-semibold text-foreground">
                             {notice.title}
                           </p>
-                          {notice.isUrgent ? <SoftBadge tone="rose">Urgent</SoftBadge> : null}
-                          {!notice.isRead ? <SoftBadge tone="green">New</SoftBadge> : null}
+                          {notice.isUrgent ? (
+                            <SoftBadge tone="rose">Urgent</SoftBadge>
+                          ) : null}
+                          {!notice.isRead ? (
+                            <SoftBadge tone="green">New</SoftBadge>
+                          ) : null}
                         </div>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                           {notice.content}
@@ -256,7 +260,9 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2.5">
                       <div>
-                        <p className="font-semibold text-foreground">{latestPayment.month}</p>
+                        <p className="font-semibold text-foreground">
+                          {latestPayment.month}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {latestPayment.dueDate
                             ? new Date(latestPayment.dueDate).toLocaleDateString()
@@ -315,17 +321,26 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
                 </div>
               </div>
               <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
-                <p className="text-xs font-medium text-muted-foreground">Your assignment</p>
+                <p className="text-xs font-medium text-muted-foreground">
+                  Your assignment
+                </p>
                 <p className="mt-1 font-semibold text-foreground">
                   Room {dashboard.roomBed.room?.roomNumber ?? "—"} · Bed{" "}
                   {dashboard.roomBed.bed?.bedNumber ?? "—"}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {dashboard.roomBed.room?.roomType?.replaceAll("_", " ") ?? "Room type n/a"}
+                  {dashboard.roomBed.room?.roomType?.replaceAll("_", " ") ??
+                    "Room type n/a"}
                 </p>
               </div>
             </div>
           </SectionCard>
+
+          {/* Students only — a working professional has no use for it, and the
+              API repeats the check so hiding the card is not the gate. */}
+          {(dashboard.resident.residentType ?? "STUDENT") === "STUDENT" ? (
+            <ResidentQuestionCallCard />
+          ) : null}
         </>
       ) : null}
     </div>

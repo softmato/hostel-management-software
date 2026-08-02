@@ -11,45 +11,42 @@
 
 Built on **shadcn/ui** + Tailwind CSS. Do not hand-roll components that shadcn/ui already provides (Button, Card, Dialog, Tabs, Table, Badge, Select, Form, Toast, etc.) — extend them with variants rather than replacing them.
 
-### Color tokens (Tailwind CSS variables, define in `globals.css`)
+### Color tokens
+
+**`apps/web/src/app/globals.css` is the source of truth** — it is Tailwind v4,
+so tokens are plain `:root` custom properties in **oklch**, surfaced to
+utilities through an `@theme inline` block, with a `.dark` override. Not the
+HSL `@layer base` triplets an early draft of this file showed.
+
+**The brand is green, not blue.** An earlier version of this document specified
+`--primary: 221.2 83.2% 53.3%` (blue), copied from the stock shadcn palette and
+from the UI mockups. The shipped theme is green and has been since Phase 2 —
+copy a mockup's *layout*, never its colours.
+
+Key tokens as built:
 
 ```css
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-    
-    /* Custom status colors */
-    --success: 142.1 76.2% 36.3%;
-    --warning: 47.9 95.8% 53.1%;
-    --info: 199.9 89.1% 48.4%;
-  }
+:root {
+  --primary: oklch(0.508 0.118 165.612);   /* green */
+  --primary-foreground: oklch(0.979 0.021 166.113);
+  --destructive: oklch(0.577 0.245 27.325);
+  --radius: 0.625rem;
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    /* ... dark mode tokens ... */
-  }
+  --warning: #d97706;
+  --success: #16a34a;
+  --brand-teal: #0a8a4b;                   /* the brand green */
+  --brand-teal-soft: rgba(10, 138, 75, 0.1);
+
+  /* Per-portal accent, so a screenshot tells you which portal you're in */
+  --role-platform: #0d9488;   --role-platform-soft: #ccfbf1;
+  --role-admin:    #0891b2;   --role-admin-soft:    #ecfeff;
+  --role-resident: #16a34a;   --role-resident-soft: #dcfce7;
+  --role-guardian: #d97706;   --role-guardian-soft: #fffbeb;
 }
 ```
+
+Use the **role tokens** for portal chrome and the **brand token** for shared
+product surfaces. Never reach for a raw hex in a component.
 
 ### Status color mapping (use consistently everywhere)
 
@@ -67,7 +64,11 @@ Built on **shadcn/ui** + Tailwind CSS. Do not hand-roll components that shadcn/u
 
 ### Typography
 
-- One sans-serif variable font: **Inter** or **Geist** for everything — headings and body. Don't mix typefaces.
+- Two families, loaded in `app/layout.tsx` via `next/font/google`, plus a mono
+  for code: **Geist** for body (`--font-geist-sans`), **Poppins** for headings
+  (`--font-poppins`, exposed as the `font-heading` utility), **Geist Mono**
+  (`--font-geist-mono`). Don't add a fourth. An earlier draft said "one font for
+  everything"; the heading/body split shipped deliberately and is kept.
 - Scale: `text-xs` (12px) → `text-sm` (14px, default body) → `text-base` (16px) → `text-lg/xl/2xl` for section headers → `text-3xl/4xl` only on the public homepage hero.
 - Numbers (fees, amounts, counts) use tabular figures (`font-variant-numeric: tabular-nums`) wherever they appear in a table/list so digits align.
 
@@ -327,11 +328,15 @@ Use Tailwind defaults:
 
 ---
 
-## 9. Dark Mode (Optional for v1, Plan Ahead)
+## 9. Dark Mode (built)
 
-- Tailwind supports dark mode via `dark:` prefix
-- shadcn/ui components are dark-mode ready
-- If deferring dark mode to post-launch, ensure all custom CSS uses Tailwind tokens (not hardcoded hex colors) so switching is easy later
+- **Shipped, not deferred.** `globals.css` declares `@custom-variant dark
+  (&:is(.dark *))` and a full `.dark` token override — every token above has a
+  dark counterpart.
+- Style against tokens (`bg-background`, `text-foreground`, `border-border`) and
+  dark mode follows for free. Reach for a raw hex and it does not.
+- This is the practical reason the "no hardcoded colours" rule in §10 matters:
+  each hex literal is a spot that silently stays light-mode.
 
 ---
 

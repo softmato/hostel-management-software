@@ -22,8 +22,7 @@ export function extractJsonPayload(raw: string): string {
   // an array is not mistaken for a bare array.
   const objectStart = trimmed.indexOf("{");
   const arrayStart = trimmed.indexOf("[");
-  const useArray =
-    arrayStart !== -1 && (objectStart === -1 || arrayStart < objectStart);
+  const useArray = arrayStart !== -1 && (objectStart === -1 || arrayStart < objectStart);
   const start = useArray ? arrayStart : objectStart;
   const end = useArray ? trimmed.lastIndexOf("]") : trimmed.lastIndexOf("}");
 
@@ -36,9 +35,7 @@ export function extractJsonPayload(raw: string): string {
 
 /** Normalize smart quotes and escape control characters left inside strings. */
 export function sanitizeJsonPayload(raw: string): string {
-  const normalized = raw
-    .replace(/“|”/g, '"')
-    .replace(/‘|’/g, "'");
+  const normalized = raw.replace(/“|”/g, '"').replace(/‘|’/g, "'");
 
   let result = "";
   let inString = false;

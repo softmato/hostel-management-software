@@ -69,7 +69,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const results = await searchCandidates(link?.kind === "place" ? link.query : q, near, limit);
+    const results = await searchCandidates(
+      link?.kind === "place" ? link.query : q,
+      near,
+      limit,
+    );
 
     return successResponse({ results }, "Location search complete");
   } catch (error) {

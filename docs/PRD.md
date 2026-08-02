@@ -147,12 +147,17 @@ Upgrading a `PUBLIC` account into `HOSTEL_ADMIN` or `SUPERADMIN` (high-privilege
 
 After successful login, backend returns `{ role, redirectPath }`:
 - `PUBLIC` → `/` (public homepage)
-- `SUPERADMIN` → `/superadmin`
-- `PLATFORM_MODERATOR` → `/moderator`
-- `HOSTEL_ADMIN` → `/hostel-admin`
-- `WARDEN` → `/hostel-admin` (same portal, permission-gated features)
-- `RESIDENT` → `/resident` (web dashboard) or resident app (mobile)
-- `GUARDIAN` → `/guardian`
+- `SUPERADMIN` → `/platform/dashboard`
+- `PLATFORM_MODERATOR` → `/platform/dashboard` (same portal as the superadmin,
+  with config, fee plans and platform settings withheld by route rule)
+- `HOSTEL_ADMIN` → `/hostel-admin/dashboard` (also `/{hostel-slug}/admin/...`)
+- `WARDEN` → `/hostel-admin/dashboard` (same portal, capability-gated features)
+- `RESIDENT` → `/resident/dashboard` (web) or the resident app (mobile)
+- `GUARDIAN` → `/guardian/dashboard`
+- `COOK` → `/` (no portal — mobile-only, single endpoint)
+
+See ARCHITECTURE.md §3.1 for why moderator and superadmin share one `/platform`
+portal instead of having separate `/superadmin` and `/moderator` trees.
 
 Frontend never decides the redirect path — always trusts the backend's response based on the user's current role.
 

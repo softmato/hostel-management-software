@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 const optionalHostelScopeSchema = {
@@ -15,6 +17,7 @@ export const residentTypeSchema = z.enum(["STUDENT", "WORKING_PROFESSIONAL", "OT
 
 export const residentListQuerySchema = z.object({
   ...optionalHostelScopeSchema,
+  ...paginationQuerySchema,
   q: z.string().trim().min(1).max(120).optional(),
   residentType: residentTypeSchema.optional(),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).optional(),
@@ -29,6 +32,8 @@ export const residentCreateSchema = z.object({
   monthlyFee: z.coerce.number().nonnegative().default(0),
   moveInDate: z.coerce.date(),
   phone: z.string().trim().min(7).max(24),
+  /** Optional code of the resident who referred this one (PHASES.md §5.1). */
+  referralCode: z.string().trim().min(4).max(32).optional(),
   residentType: residentTypeSchema.default("STUDENT"),
   roomType: z.string().trim().min(1).max(80),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).default("PENDING"),

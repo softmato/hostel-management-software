@@ -72,7 +72,10 @@ function joinTypes(labels: string[]) {
 function labelsFor(mimeTypes: string[]) {
   return mimeTypes
     .map((mime) => EXTENSION_BY_MIME[mime.trim().toLowerCase()])
-    .filter((value, index, all): value is string => Boolean(value) && all.indexOf(value) === index);
+    .filter(
+      (value, index, all): value is string =>
+        Boolean(value) && all.indexOf(value) === index,
+    );
 }
 
 /**
@@ -88,8 +91,12 @@ export function uploadHint(kind: UploadKind = "any", override?: string) {
   );
 
   const imageMax = Math.min(rule.maxBytes, DEFAULT_IMAGE_BYTES);
-  const images = labelsFor(mimeTypes.filter((mime) => DEFAULT_IMAGE_MIME_TYPES.includes(mime)));
-  const others = labelsFor(mimeTypes.filter((mime) => !DEFAULT_IMAGE_MIME_TYPES.includes(mime)));
+  const images = labelsFor(
+    mimeTypes.filter((mime) => DEFAULT_IMAGE_MIME_TYPES.includes(mime)),
+  );
+  const others = labelsFor(
+    mimeTypes.filter((mime) => !DEFAULT_IMAGE_MIME_TYPES.includes(mime)),
+  );
 
   if (images.length > 0 && others.length > 0 && imageMax !== rule.maxBytes) {
     return `${joinTypes(images)} up to ${formatBytes(imageMax)} · ${joinTypes(
@@ -109,7 +116,10 @@ export function formatBytes(bytes: number) {
   }
 
   const units = ["B", "KB", "MB", "GB"];
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / 1024 ** exponent;
   // One decimal for small values, but never a bare ".0" — "5 MB", not "5.0 MB".
   const rounded =
@@ -130,7 +140,10 @@ export function validateFileForUpload(
   const rule = uploadKindRule(options.kind ?? "any");
   const mimeType = file.type.toLowerCase().trim();
   const allowed = options.accept
-    ? options.accept.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean)
+    ? options.accept
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean)
     : rule.mimeTypes;
 
   if (!mimeType) {

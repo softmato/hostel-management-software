@@ -160,12 +160,16 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
         <span className="hidden min-w-0 text-left sm:block">
           {isLoading ? (
             <>
-              <span className="block text-xs font-semibold text-foreground">Loading…</span>
+              <span className="block text-xs font-semibold text-foreground">
+                Loading…
+              </span>
               <span className="block text-[10px] text-muted-foreground">Session</span>
             </>
           ) : error ? (
             <>
-              <span className="block text-xs font-semibold text-rose-600">Session issue</span>
+              <span className="block text-xs font-semibold text-rose-600">
+                Session issue
+              </span>
               <span className="block max-w-[120px] truncate text-[10px] text-muted-foreground">
                 {error}
               </span>
@@ -182,7 +186,9 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
           ) : (
             <>
               <span className="block text-xs font-semibold text-foreground">Guest</span>
-              <span className="block text-[10px] text-muted-foreground">Not signed in</span>
+              <span className="block text-[10px] text-muted-foreground">
+                Not signed in
+              </span>
             </>
           )}
         </span>
@@ -193,7 +199,9 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
         <div className="absolute right-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-border dark:bg-card">
           {user ? (
             <div className="border-b border-slate-100 px-3 py-2 dark:border-border">
-              <p className="truncate text-sm font-semibold text-foreground">{user.name}</p>
+              <p className="truncate text-sm font-semibold text-foreground">
+                {user.name}
+              </p>
               <p className="truncate text-xs text-muted-foreground">
                 {user.email ?? readableRole(user.role)}
               </p>

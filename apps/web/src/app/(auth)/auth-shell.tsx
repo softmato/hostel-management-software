@@ -2,7 +2,6 @@ import { ArrowLeft, BarChart3, Lock, Search, ShieldCheck, Star, Zap } from "luci
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-
 type AuthShellProps = {
   children: ReactNode;
   mode: "login" | "signup";
@@ -16,7 +15,14 @@ function HostelHubLogo() {
     <Link href="/" className="group flex items-center gap-2.5">
       <span className="flex items-center justify-center size-9 bg-[#0A8A4B]/12 rounded-xl transition group-hover:bg-[#0A8A4B]/20">
         <ArrowLeft className="size-4.5 text-[#0A8A4B] hidden group-hover:block" />
-        <svg className="block group-hover:hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg
+          className="block group-hover:hidden"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
           <path
             d="M3 9.5L12 3L21 9.5V20C21 20.5523 20.5523 21 20 21H14V14H10V21H4C3.44772 21 3 20.5523 3 20V9.5Z"
             fill="#0A8A4B"
@@ -64,18 +70,32 @@ export function AuthShell({ children, mode }: AuthShellProps) {
             /* Login left content */
             <div className="mt-7 flex flex-col relative z-10">
               <h1 className="font-heading text-[30px] xl:text-[34px] font-extrabold leading-[1.2] text-[#0F172A]">
-                Welcome back!<br />
+                Welcome back!
+                <br />
                 Let&apos;s get you logged in.
               </h1>
               <p className="mt-3 text-[13px] text-slate-500 leading-relaxed max-w-[380px]">
-                HostelHub is the all-in-one platform to discover, manage, and grow your hostel operations.
+                HostelHub is the all-in-one platform to discover, manage, and grow your
+                hostel operations.
               </p>
 
               <div className="mt-5 space-y-4">
                 {[
-                  { Icon: ShieldCheck, title: "Secure & Role-based Access", desc: "Your data is safe with enterprise-grade security." },
-                  { Icon: BarChart3, title: "Built for Every Role", desc: "Owner, Warden, Staff or Resident — one platform." },
-                  { Icon: Zap, title: "Fast, Reliable & Always Available", desc: "Access anytime, from anywhere." },
+                  {
+                    Icon: ShieldCheck,
+                    title: "Secure & Role-based Access",
+                    desc: "Your data is safe with enterprise-grade security.",
+                  },
+                  {
+                    Icon: BarChart3,
+                    title: "Built for Every Role",
+                    desc: "Owner, Warden, Staff or Resident — one platform.",
+                  },
+                  {
+                    Icon: Zap,
+                    title: "Fast, Reliable & Always Available",
+                    desc: "Access anytime, from anywhere.",
+                  },
                 ].map(({ Icon, title, desc }) => (
                   <div key={title} className="flex items-start gap-3">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#0A8A4B]/10 text-[#0A8A4B]">
@@ -83,7 +103,9 @@ export function AuthShell({ children, mode }: AuthShellProps) {
                     </span>
                     <div>
                       <h3 className="text-[12px] font-bold text-[#0F172A]">{title}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        {desc}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -93,19 +115,35 @@ export function AuthShell({ children, mode }: AuthShellProps) {
             /* Signup left content */
             <div className="mt-7 flex flex-col relative z-10">
               <h1 className="font-heading text-[30px] xl:text-[34px] font-extrabold leading-[1.2] text-[#0F172A]">
-                One Platform.<br />Every Hostel.<br />
+                One Platform.
+                <br />
+                Every Hostel.
+                <br />
                 <span className="text-[#0A8A4B]">Better Together.</span>
               </h1>
               <div className="h-1 w-14 bg-[#0A8A4B] mt-4 rounded-full" />
               <p className="mt-3 text-[13px] text-slate-500 leading-relaxed max-w-[380px]">
-                Create a public account to explore hostels, compare facilities, read reviews, and make bookings.
+                Create a public account to explore hostels, compare facilities, read
+                reviews, and make bookings.
               </p>
 
               <div className="mt-5 space-y-4 z-10">
                 {[
-                  { Icon: Search, title: "Discover & Compare", desc: "Find verified hostels, compare facilities, prices, and availability." },
-                  { Icon: ShieldCheck, title: "Verified & Secure", desc: "Trusted listings, secure payments, and 24/7 support." },
-                  { Icon: Star, title: "Book with Confidence", desc: "Read reviews, view photos, and book your stay with ease." },
+                  {
+                    Icon: Search,
+                    title: "Discover & Compare",
+                    desc: "Find verified hostels, compare facilities, prices, and availability.",
+                  },
+                  {
+                    Icon: ShieldCheck,
+                    title: "Verified & Secure",
+                    desc: "Trusted listings, secure payments, and 24/7 support.",
+                  },
+                  {
+                    Icon: Star,
+                    title: "Book with Confidence",
+                    desc: "Read reviews, view photos, and book your stay with ease.",
+                  },
                 ].map(({ Icon, title, desc }) => (
                   <div key={title} className="flex items-start gap-3">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#0A8A4B]/10 text-[#0A8A4B]">
@@ -113,7 +151,9 @@ export function AuthShell({ children, mode }: AuthShellProps) {
                     </span>
                     <div>
                       <h3 className="text-[12px] font-bold text-[#0F172A]">{title}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        {desc}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -128,9 +168,7 @@ export function AuthShell({ children, mode }: AuthShellProps) {
             className="w-full max-w-[560px] bg-white rounded-[20px] shadow-[0_4px_40px_rgba(0,0,0,0.10)] overflow-y-auto"
             style={{ maxHeight: "calc(100vh - 72px)" }}
           >
-            <div className="px-10 py-10">
-              {children}
-            </div>
+            <div className="px-10 py-10">{children}</div>
           </div>
         </section>
       </div>
@@ -145,15 +183,24 @@ export function AuthShell({ children, mode }: AuthShellProps) {
         ) : (
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="size-3.5" />
-            <span>Your data is safe. We use industry-standard security to protect your information.</span>
+            <span>
+              Your data is safe. We use industry-standard security to protect your
+              information.
+            </span>
           </div>
         )}
 
         {isLogin ? (
-            <div className="flex items-center gap-5">
-            <Link href="/privacy" className="hover:text-slate-600 transition">Privacy Policy</Link>
-            <Link href="/terms" className="hover:text-slate-600 transition">Terms of Service</Link>
-            <Link href="/pricing" className="hover:text-slate-600 transition">Help Center</Link>
+          <div className="flex items-center gap-5">
+            <Link href="/privacy" className="hover:text-slate-600 transition">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="hover:text-slate-600 transition">
+              Terms of Service
+            </Link>
+            <Link href="/pricing" className="hover:text-slate-600 transition">
+              Help Center
+            </Link>
             <span>&copy; 2026 HostelHub. All rights reserved.</span>
           </div>
         ) : (

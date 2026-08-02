@@ -4,10 +4,7 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
-import {
-  decryptPersonalData,
-  encryptPersonalData,
-} from "@/lib/personal-data-crypto";
+import { decryptPersonalData, encryptPersonalData } from "@/lib/personal-data-crypto";
 import { siteUrl } from "@/lib/site";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { HostelPageViewModel } from "@hostel/db/models/HostelPageView";
@@ -206,7 +203,9 @@ export async function getResidentIdentity(userId: string) {
       sharingEnabled: record?.sharingEnabled ?? true,
       updatedAt: record?.updatedAt?.toISOString() ?? null,
     },
-    profile: profile ? { ...profile, age: ageFromDateOfBirth(profile.dateOfBirth) } : null,
+    profile: profile
+      ? { ...profile, age: ageFromDateOfBirth(profile.dateOfBirth) }
+      : null,
   };
 }
 

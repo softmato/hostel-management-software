@@ -21,7 +21,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
 
 vi.mock("@hostel/db/models/GuardianAccess", () => ({
-  GuardianAccessModel: { findOne: mocks.guardianAccessFindOne, updateMany: vi.fn(), updateOne: vi.fn() },
+  GuardianAccessModel: {
+    findOne: mocks.guardianAccessFindOne,
+    updateMany: vi.fn(),
+    updateOne: vi.fn(),
+  },
 }));
 
 vi.mock("@hostel/db/models/Guardian", () => ({

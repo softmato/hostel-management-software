@@ -571,6 +571,7 @@ export function SearchField({
         <path d="m21 21-4.3-4.3" />
       </svg>
       <input
+        aria-label={placeholder ?? "Search"}
         className="w-full bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground"
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder ?? "Search..."}
@@ -824,7 +825,9 @@ export function DetailPanel({
     >
       <div className="flex shrink-0 items-start gap-2 border-b border-border/60 p-3">
         <div className="min-w-0 flex-1">
-          <div className="font-heading text-[14px] font-bold text-foreground">{title}</div>
+          <div className="font-heading text-[14px] font-bold text-foreground">
+            {title}
+          </div>
           {subtitle ? (
             <div className="mt-0.5 text-[11.5px] text-muted-foreground">{subtitle}</div>
           ) : null}
@@ -873,17 +876,13 @@ export function DetailSection({
   );
 }
 
-export function DetailField({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+export function DetailField({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 text-[11.5px]">
       <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right font-medium text-foreground">{value ?? "—"}</span>
+      <span className="min-w-0 text-right font-medium text-foreground">
+        {value ?? "—"}
+      </span>
     </div>
   );
 }

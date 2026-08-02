@@ -15,6 +15,7 @@ export type ResidentRecord = {
   lastName: string;
   moveInDate: Date;
   phone: string;
+  residentType?: "STUDENT" | "WORKING_PROFESSIONAL" | "OTHER";
   roomType: string;
   status: ResidentStatus;
   updatedAt?: Date;
@@ -51,6 +52,8 @@ export function serializeResidentSummary(resident: ResidentRecord) {
     lastName: resident.lastName,
     moveInDate: resident.moveInDate.toISOString(),
     phone: resident.phone,
+    // Drives the STUDENT-only QuestionCall entry point on the dashboard.
+    residentType: resident.residentType ?? "STUDENT",
     roomType: resident.roomType,
     status: resident.status,
     updatedAt: resident.updatedAt?.toISOString(),

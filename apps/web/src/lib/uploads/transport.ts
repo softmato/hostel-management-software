@@ -95,7 +95,11 @@ function sendWithProgress(options: XhrOptions) {
 
     xhr.onerror = () => {
       cleanup();
-      reject(new UploadError("Network error while uploading. Check your connection and try again."));
+      reject(
+        new UploadError(
+          "Network error while uploading. Check your connection and try again.",
+        ),
+      );
     };
 
     xhr.ontimeout = () => {
@@ -153,18 +157,19 @@ async function uploadViaPresignedUrl(
     signal?: AbortSignal;
   },
 ): Promise<UploadResult> {
-  const presign = await browserApi<{ assetId: string; key: string; presignedUrl: string }>(
-    "/api/v1/files/presign",
-    {
-      body: JSON.stringify({
-        accessLevel: options.accessLevel,
-        fileName: file.name,
-        mimeType: file.type,
-        sizeBytes: file.size,
-      }),
-      method: "POST",
-    },
-  );
+  const presign = await browserApi<{
+    assetId: string;
+    key: string;
+    presignedUrl: string;
+  }>("/api/v1/files/presign", {
+    body: JSON.stringify({
+      accessLevel: options.accessLevel,
+      fileName: file.name,
+      mimeType: file.type,
+      sizeBytes: file.size,
+    }),
+    method: "POST",
+  });
 
   const response = await sendWithProgress({
     body: file,
@@ -280,7 +285,9 @@ export function sendUpload(
   return uploadViaMultipart(file, {
     accessLevel: options.accessLevel,
     endpoint:
-      options.target === "public" ? "/api/v1/public/files/upload" : "/api/v1/files/upload",
+      options.target === "public"
+        ? "/api/v1/public/files/upload"
+        : "/api/v1/files/upload",
     onProgress: options.onProgress,
     requiresAuth: options.target === "authenticated-form",
     signal: options.signal,

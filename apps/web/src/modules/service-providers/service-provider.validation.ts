@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 export const serviceProviderCategorySchema = z.enum([
@@ -32,6 +34,12 @@ export const serviceProviderRegisterSchema = z.object({
     )
     .max(8)
     .default([]),
+  /**
+   * Optional: many local tradespeople have no working mailbox, and the
+   * directory is reachable by phone. Present so the §6 registration/approval/
+   * rejection emails can be sent to those who do have one.
+   */
+  email: z.string().trim().email().optional(),
   experience: z.string().trim().max(240).optional(),
   fullName: z.string().trim().min(2).max(160),
   phone: z.string().trim().min(7).max(24),
@@ -39,6 +47,7 @@ export const serviceProviderRegisterSchema = z.object({
 });
 
 export const platformServiceProviderListQuerySchema = z.object({
+  ...paginationQuerySchema,
   area: z.string().trim().min(1).max(120).optional(),
   category: serviceProviderCategorySchema.optional(),
   status: z
@@ -46,11 +55,18 @@ export const platformServiceProviderListQuerySchema = z.object({
     .optional(),
 });
 
+export const publicServiceProviderListQuerySchema = z.object({
+  area: z.string().trim().min(1).max(120).optional(),
+  category: serviceProviderCategorySchema.optional(),
+  city: z.string().trim().min(1).max(120).optional(),
+});
+
 export const serviceProviderRejectSchema = z.object({
   reason: z.string().trim().min(2).max(800),
 });
 
 export const hostelAdminServiceProviderListQuerySchema = z.object({
+  ...paginationQuerySchema,
   area: z.string().trim().min(1).max(120).optional(),
   category: serviceProviderCategorySchema.optional(),
   q: z.string().trim().min(1).max(160).optional(),

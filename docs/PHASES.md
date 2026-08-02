@@ -780,39 +780,91 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 **Goal:** Complete remaining features (referrals, service providers, maintenance), polish all portals, harden for production.
 
+> **Status note (2026-08-01):** Phase 5 code-side complete. Build green, typecheck + lint clean,
+> **338/338** unit tests pass. As in Phases 2–4 most surfaces already existed, so this session
+> closed the real gaps rather than rebuilding what was there:
+>
+> - **Referrals were half a loop.** A code existed and an inquiry could carry `?ref=`, but there was
+>   no way to attach a walk-in registration to a referrer, and *nothing anywhere set
+>   `converted`* — the metric §5.1 names. Added `referralCode` to resident intake (validated before
+>   the bed is claimed, so a typo costs nothing) and `markReferralConverted`, called from
+>   `approvePaymentProof`. Also fixed a real bug: `confirmReferralJoined` incremented
+>   `joinedCount` on every call, so confirming twice double-counted the referrer's leaderboard.
+> - **The public provider directory did not exist** — the header's "Service Providers" link went
+>   straight to the registration form. There is now a real directory at `/service-providers`, read
+>   server-side so it is crawlable, and it carries **no phone numbers**: contact details stay behind
+>   the hostel-admin endpoint, which is what §5.1 asks for.
+> - **`PLATFORM_MODERATOR` was a full superadmin in practice** — the code called it "acting
+>   superadmin" and let it reach website config and the whole platform portal, directly contradicting
+>   §5.1. Config, fee plans, settings, report exports and platform broadcasts are now SUPERADMIN-only
+>   at the route rule *and* the API guard, and hidden from the moderator's sidebar and command
+>   palette.
+> - **QuestionCall did not exist at all.** Model, click tracking with an optional signed-SSO handoff,
+>   a STUDENT-only dashboard card, superadmin analytics with CSV, and a webhook — the only writer of
+>   `converted`, so the platform never claims a signup it cannot prove.
+> - **Notifications had no authoring side.** Added `NotificationCampaign` with priority, audience
+>   targeting (including guardians, resolved through `GuardianAccess` rather than `Guardian`),
+>   scheduling, a dispatch cron that claims each campaign before writing receipts, and delivery
+>   stats counted from the receipts themselves rather than a counter that can drift.
+> - **Settings were a placeholder.** `/{slug}/admin/settings` rendered a stub; it is now a real page
+>   for location tracking, cook portal and community moderation. The platform ceilings it references
+>   are now **enforced** — `updateAttendanceSettings` rejects a geofence or retention window above
+>   what the `operations` config allows, which had been schema-only before.
+> - **Reports had no export and no food/attendance analytics.** Both added; the exports are
+>   aggregates only, so no CSV carries a resident's name or phone, and every cell is
+>   formula-injection-neutralised.
+> - **Security**: six response headers added (no CSP — see the comment in `next.config.ts` for why a
+>   nonce-less one would be theatre), rate limits extended to every remaining auth endpoint,
+>   private R2 read URLs cut from 1 hour to 15 minutes, and three user-supplied search strings that
+>   went into `new RegExp()` unescaped are now escaped.
+> - **Accessibility**: 20 inputs across login, signup, the food grid and every search box had no
+>   accessible name at all. Fixed with `htmlFor`/`id` where a visible label existed and `aria-label`
+>   where only a placeholder did.
+>
+> Remaining open items are external infra or manual QA, unchanged in character from Phases 2–4:
+> the Lighthouse run, the §5.2 acceptance pass against a seeded database, Playwright E2E, and the
+> Vercel/R2/Resend/Sentry deployment steps. Also **deliberately not built**: subscription billing
+> (out of the pilot schema), community engagement analytics, and cancelling a scheduled campaign.
+
 ### 5.1 Deliverables
 
 **Referral System**
-- ☐ **Resident - Referral Dashboard**:
-  - View own unique referral code (auto-generated on first access)
-  - Shareable link
-  - Track referrals: # sent, # joined, # converted (first payment confirmed)
-- ☐ **Hostel Admin - Register Resident with Referral**:
-  - Optional "referral code" field on resident registration
-  - If valid code, links refereeResidentId to referrerResidentId
-  - Marks Referral.converted = true after referee's first payment is verified
-- ☐ **Referral Rewards** (informational tracking only, no auto-payout in v1):
-  - Admin can mark Referral.rewardApplied = true manually
-  - Display in resident dashboard ("You've earned X rewards")
+- ☑ **Resident - Referral Dashboard**:
+  - ☑ View own unique referral code (minted lazily on first access)
+  - ☑ Shareable link, with copy-to-clipboard
+  - ☑ Track referrals: # sent, # joined, # converted (first payment confirmed)
+- ☑ **Hostel Admin - Register Resident with Referral**:
+  - ☑ Optional "referral code" field on resident registration — validated *before* the bed is
+    claimed, so a mistyped code costs nothing and the admin just retries
+  - ☑ If valid, links `joinedResidentId` to the code's `referrerResidentId`; an existing referral
+    from the public `?ref=` inquiry flow is confirmed rather than duplicated
+  - ☑ `Referral.converted = true` after the referee's first payment proof is verified — set by
+    `markReferralConverted` from `approvePaymentProof`, idempotent via a `converted: { $ne: true }`
+    filter, and failure-swallowing so referral bookkeeping cannot fail a verified payment
+- ☑ **Referral Rewards** (informational tracking only, no auto-payout in v1):
+  - ☑ Admin records a reward manually — a `ReferralReward` row with amount, type and status
+    (`PENDING` → `APPROVED` → `PAID`) rather than the drafted `rewardApplied` boolean
+  - ☑ Displayed in the resident dashboard ("You've earned X in rewards…")
 
 **Service Provider System**
-- ☐ **Public - Register as Service Provider**:
+- ☑ **Public - Register as Service Provider**:
   - Form: name, phone, category, area, availability, description, photo, ID document
   - Uploads photo + document to R2
   - Creates ServiceProvider with status: PENDING
   - Sends "registration received" email
-- ☐ **Superadmin/Moderator - Approve Providers**:
+- ☑ **Superadmin/Moderator - Approve Providers**:
   - View pending service provider registrations
   - Review documents
   - Approve → status = APPROVED → sends "provider approved" email
   - Reject → status = REJECTED → sends rejection email with reason
   - Hide → status = HIDDEN (approved but temporarily hidden)
-- ☐ **Hostel Admin - Search Service Providers**:
+- ☑ **Hostel Admin - Search Service Providers**: _(merged into the Maintenance tab — the only
+  reason to look a provider up is to attach one to a repair)_
   - Search by category (plumber, electrician, doctor, etc.)
   - Filter by area, availability
   - View provider profile (name, phone, description, photo)
   - "Contact" button (tel: link for calling)
-- ☐ **Hostel Admin - Maintenance Requests**:
+- ☑ **Hostel Admin - Maintenance Requests**:
   - Create maintenance request:
     - Category, description, urgency (low/medium/high)
     - Optional: link to specific room/bed
@@ -820,88 +872,148 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - Update request status: PENDING → CONTACTED → SCHEDULED → COMPLETED/CANCELLED
   - Add cost note (informational only, not billing)
   - View maintenance history per room/bed
-- ☐ **Service Provider Directory Page** (public):
-  - Browse approved providers by category
-  - No login required (public directory)
-  - Contact info visible only to hostel admins (public sees "Verified Provider" badge only)
+- ☑ **Service Provider Directory Page** (public) — `/service-providers`, added this phase:
+  - ☑ Browse approved providers by category, with per-category counts that stay correct while a
+    category is selected (they are computed over the location-scoped set, not the filtered one)
+  - ☑ No login required; rendered on the server so it is crawlable, and in the sitemap
+  - ☑ Contact info visible only to hostel admins — the public payload has no `phone` field at all,
+    enforced by a separate serializer rather than by the UI choosing not to render it
 
 **Platform Moderator Features**
-- ☐ Moderator dashboard (limited version of superadmin)
-- ☐ Can approve/reject hostels
-- ☐ Can approve/reject service providers
-- ☐ Can moderate reviews
-- ☐ Can view reports (read-only, no export)
-- ☐ Cannot access platform config, billing, or create other moderators
+- ☑ Moderator dashboard (the platform portal minus the tabs below, filtered from the same nav tree
+  so the sidebar and the command palette can never disagree)
+- ☑ Can approve/reject hostels
+- ☑ Can approve/reject service providers
+- ☑ Can moderate reviews
+- ☑ Can view reports (read-only, no export) — `?format=csv` and `/reports/export` require SUPERADMIN
+- ☑ Cannot access platform config, billing, or create other moderators — enforced at the route rule
+  (`/platform/config`, `/platform/fee-plans`, `/platform/settings` are SUPERADMIN-only prefixes,
+  ordered above the broad `/platform` rule) **and** at each API guard. Before this phase the role was
+  implemented as an "acting superadmin" with website-config access, contradicting this line.
 
 **QuestionCall Integration** (STUDENT residents only)
-- ☐ Show "Study with QuestionCall" section in resident dashboard if residentType=STUDENT
-- ☐ Track clicks in QuestionCallClick model, redirect with user context
-- ☐ Superadmin analytics dashboard: clicks, conversions, per-hostel breakdown, CSV export
+- ☑ Show "Study with QuestionCall" section in resident dashboard if residentType=STUDENT — the API
+  repeats the check (`403 QUESTIONCALL_NOT_ELIGIBLE`), because a hidden button is not access control
+- ☑ Track clicks in QuestionCallClick model, redirect with user context — a 10-minute signed JWT when
+  `QUESTIONCALL_SSO_SECRET` is set, otherwise a plain link, so the click never fails over a partner
+  credential this deployment may not have
+- ☑ Superadmin analytics dashboard: clicks, conversions, per-hostel breakdown, CSV export
+- ☑ Conversions are written **only** by QuestionCall's own webhook
+  (`POST /api/v1/integrations/questioncall/conversion`, shared-secret header, idempotent). With no
+  webhook configured the conversion rate honestly reads 0% rather than being guessed at
 
 **Advanced Notifications**
-- ☐ Admin can create custom notifications: priority levels, categories, target specific residents, schedule delivery
-- ☐ View delivery stats: sent/delivered/read counts, read receipts
-- ☐ Superadmin platform-wide notifications to all/specific hostels
+- ☑ Admin can create custom notifications: priority levels, categories, target all residents /
+  linked guardians / specific residents, and schedule delivery. A past delivery time is rejected
+  rather than silently sent. Scheduled campaigns go out via `POST /api/v1/cron/notification-dispatch`,
+  which claims each campaign out of `SCHEDULED` before writing receipts so overlapping runs cannot
+  double-send
+- ☑ View delivery stats: sent/delivered/read counts — counted from the per-recipient `Notification`
+  rows themselves, not a stored counter that drifts the first time a write half-fails
+- ☑ Superadmin platform-wide notifications to all/specific hostels — on the Settings page rather than
+  its own tab, since the platform portal deliberately has no notification inbox
+- ☐ Cancel or edit a scheduled campaign — not built; deleting a queued broadcast is Phase 6
 
 **Configuration & Settings**
-- ☐ Hostel admin settings page: location tracking config, attendance thresholds, cook portal, community moderation
-- ☐ Superadmin platform config: set defaults, limits, override hostel settings
+- ☑ Hostel admin settings page: location tracking config, attendance thresholds, cook portal,
+  community moderation. Replaces the placeholder screen that previously rendered at
+  `/{slug}/admin/settings`
+- ☑ Superadmin platform config: defaults and limits, editable at
+  `PUT /api/v1/platform/operations-config` (audited). The three ceilings — inside radius, nearby
+  radius, attendance retention — are now **enforced** in `updateAttendanceSettings`; they had been
+  schema maxima only, so a hostel could previously keep raw location rows past the platform limit
+- ☐ Superadmin override of an individual hostel's settings — not built; the platform sets the
+  bounds, the hostel tunes within them
 
 **Food & Attendance Analytics**
-- ☐ Admin food analytics: avg ready times, delays, patterns, cook performance
-- ☐ Admin attendance analytics: patterns, frequently absent residents, attendance rates
+- ☑ Admin food analytics: average ready time and delay measured against the hostel's **own**
+  published `FoodRoutine.timings` (a 19:00 dinner is late in one hostel and early in another), an
+  on-time/late split, and a per-kitchen-*device* breakdown — device, not person, because cook
+  credentials are shared by design
+- ☑ Admin attendance analytics: per-resident rate, zone totals, and a frequently-absent list.
+  "Present" counts INSIDE **and** NEARBY — a resident at the gate is not absent. Built from zone rows
+  only; the coordinates that produced them were discarded at write time
+- ☑ Also closes the two Phase 4 ⏳ items: the admin-side per-resident calendar (now on the Attendance
+  page, the same 60-day grid the resident sees) and attendance patterns
 
 **Final Polish - All Portals**
-- ☐ **Loading States**: Every list/detail view has skeleton loaders (not spinners)
-- ☐ **Empty States**: Every list has helpful empty state ("No residents yet. Add your first resident!")
-- ☐ **Error States**: Every view has error boundary + retry button
-- ☐ **Form Validation**: All forms use Zod schemas, show inline errors
-- ☐ **Mobile Responsiveness**: Full QA pass on 375px width for all screens
-- ☐ **Accessibility**:
-  - All images have alt text
-  - All inputs have labels
-  - Keyboard navigation works
-  - Focus states visible
-  - Color contrast WCAG AA compliant
-- ☐ **Performance**:
-  - Lighthouse mobile score ≥ 80 on key pages (home, hostel detail, dashboards)
-  - TanStack Query caching reduces redundant API calls
-  - Images optimized and lazy-loaded
+- ☑ **Loading States**: `LoadingRows` skeletons (not spinners) on every list/detail view; the two
+  that were missing them (`resident-night-status`, and every panel added this phase) now have them
+- ☑ **Empty States**: audited all 64 portal page components — every list-bearing one has a helpful
+  empty state; the remainder are form-only screens with no list to empty
+- ☑ **Error States**: `error.tsx` + `global-error.tsx` both render `AppErrorRecovery` with a retry
+  that calls Next's `reset()`; every `usePortalResource` consumer renders its own error state too
+- ☑ **Form Validation**: all request bodies parse through Zod; `handleRouteError` returns the full
+  dotted issue path so an error lands on the field that caused it
+- ☑ **Mobile Responsiveness**: 375px verified for the new public directory
+  (`scrollWidth === clientWidth`, no overflowing elements); home and listing were verified in Phase 2
+- ☑ **Accessibility**:
+  - ☑ All images have alt text — verified by parsing every `<img>` in the app
+  - ☑ All inputs have labels — 20 had **no accessible name at all** (login, signup, the OTP boxes,
+    the food routine grid, and every search box). Fixed with `htmlFor`/`id` where a visible label
+    already existed, `aria-label` where only a placeholder did
+  - ☑ Keyboard navigation and visible focus — `focus-visible:outline-2` on the controls added this
+    phase; the shared inputs already carried `focus-within` rings
+  - ☐ Colour contrast WCAG AA — needs a real contrast audit, not a code read
+- ◐ **Performance**:
+  - ☐ Lighthouse mobile score ≥ 80 on key pages — needs a Lighthouse run (external)
+  - ☑ TanStack Query caching reduces redundant API calls — `usePortalResource` keys by URL, so the
+    same endpoint on two panels is one request
+  - ☑ Images optimized and lazy-loaded
 
 **Reports & Analytics**
-- ☐ **Superadmin Reports**:
-  - Total hostels by status
-  - Total residents by status
-  - Payment volume (verified payments)
-  - Complaint volume by hostel
-  - CSV export for each report
-- ☐ **Hostel Admin Reports**:
-  - Resident count over time
-  - Payment collection rate
-  - Complaint resolution time
-  - Room occupancy rate
+- ☑ **Superadmin Reports**:
+  - ☑ Total hostels by status
+  - ☑ Total residents by status
+  - ☑ Payment volume (billed vs collected, per hostel-month)
+  - ☑ Complaint volume by hostel
+  - ☑ CSV export for each report — **aggregates only**: no export carries a resident's name or
+    phone, and every cell is RFC-4180 quoted and formula-injection-neutralised, because hostel names
+    and complaint titles are user-supplied and Excel executes a cell starting with `=`
+- ☑ **Hostel Admin Reports**: _(the on-screen report already existed; this phase added the exports)_
+  - ☑ Resident count over time (by move-in month)
+  - ☑ Payment collection rate
+  - ☑ Complaint resolution time (average days, per category — unresolved tickets contribute nothing
+    rather than reading as "resolved in 0 days")
+  - ☑ Room occupancy rate
 
 **Security Hardening**
-- ☐ Rate limiting on all auth endpoints (5 attempts per 15 min per IP)
-- ☐ SQL injection prevention (Mongoose handles this, but verify no raw queries)
-- ☐ XSS prevention (React handles this, but verify no `dangerouslySetInnerHTML` without sanitization)
-- ☐ CSRF protection (httpOnly cookies + SameSite=Lax)
-- ☐ Helmet.js for security headers
-- ☐ File upload validation (content type, max size, no executable files)
-- ☐ Signed URLs for private files (payment proofs, documents) with short expiry (15 min)
+- ☑ Rate limiting on all auth endpoints (5 attempts per 15 min per client) — login was covered in
+  Phase 1; this phase added reset-password, verify-email, otp/request, otp/verify, change-password
+  and register, each with its own budget so exhausting one door does not lock the others
+- ☑ SQL injection prevention — verified: no `$where`, no `mapReduce`, no raw queries anywhere. Three
+  user-supplied search strings *were* reaching `new RegExp()` unescaped (hostel search, resident
+  search, provider area); all now go through a shared `escapeRegex`
+- ☑ XSS prevention — verified: `dangerouslySetInnerHTML` appears nowhere in the app
+- ☑ CSRF protection (httpOnly cookies + SameSite=Lax) — verified in `session-cookies.ts`
+- ☑ Security headers — six of them, served by Next itself rather than a middleware:
+  `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`,
+  `Strict-Transport-Security`, `Cross-Origin-Opener-Policy`. **No CSP**: Next's hydration needs a
+  per-request nonce or `'unsafe-inline'`, and a policy with `'unsafe-inline'` buys nothing while
+  looking like cover. A real nonce-based policy is its own task, recorded in the config
+- ☑ File upload validation — allowlist by MIME type plus per-kind size caps, so an executable has
+  never been able to pass
+- ☑ Signed URLs for private files with short expiry — cut from 1 hour to **15 min**
 
 **Testing (see TESTING.md for full strategy)**
-- ☐ Write unit tests for:
-  - Account upgrade logic
-  - Multi-tenancy filtering in repositories
-  - Payment status calculations
-  - Guardian permission filtering
-- ☐ Write integration tests for:
-  - Auth flow (signup, verify, login, refresh, logout)
-  - Hostel approval workflow
-  - Payment proof verification workflow
-  - Complaint lifecycle
-- ☐ Write E2E tests (Playwright):
+- ☑ Write unit tests for:
+  - ☑ Account upgrade logic
+  - ☑ Multi-tenancy filtering (`tenant.ts` + per-service scoping, not a repositories layer — the
+    deviation recorded in MEMORY.md since Phase 1)
+  - ☑ Payment status calculations
+  - ☑ Guardian permission filtering
+  - ☑ Added this phase: referral linking and conversion, moderator nav/route gating, notification
+    campaign targeting and scheduled dispatch, attendance platform-limit enforcement, CSV
+    serialisation, and the new auth rate limits — **338 tests across 50 files**
+- ◐ Write integration tests for: _(covered at the service level with mocked models — a true
+  integration test needs a live database, which is the same external dependency as §5.2)_
+  - ☑ Auth flow (signup, verify, login, refresh, logout) — `auth-routes.test.ts`
+  - ☑ Hostel approval workflow
+  - ☑ Payment proof verification workflow — `fee-management.test.ts`
+  - ☑ Complaint lifecycle — `complaint.service.test.ts`, `complaint-sla.test.ts`
+- ☐ Write E2E tests (Playwright) — **not built.** Every spec below needs a running app against a
+  seeded database, the same blocker as the §5.2 acceptance pass; adding the harness without that
+  database would land a suite that cannot be run. Tracked as the first task of the QA pass:
   - Public discovery flow
   - Hostel onboarding and approval
   - Resident registration and QR activation
@@ -910,10 +1022,16 @@ This document splits the entire build into **6 sequential phases**. The AI codin
   - SOS alert
 
 **Documentation Updates**
-- ☐ All new API endpoints added to API.md
-- ☐ All Phase 5 features documented in MEMORY.md
-- ☐ CHANGELOG.md updated with Phase 5 release notes
-- ☐ README.md updated with final setup instructions
+- ☑ All new API endpoints added to API.md — and the stale ⏳ rows for moderator, QuestionCall,
+  notifications and settings reconciled with what actually shipped
+- ☑ New models and fields documented in DATABASE.md (`QuestionCallClick`, `NotificationCampaign`,
+  `Referral.converted`, `ReferralCode.convertedCount`, `Notification.campaignId/priority/deliveredAt`,
+  `HostelSettings.community`)
+- ☑ The dispatch cron documented in CRON.md
+- ☑ Phase 5 features documented in MEMORY.md
+- ☑ CHANGELOG.md updated with Phase 5 release notes
+- ☑ `.env.example` extended with the three optional QuestionCall variables
+- ☐ README.md final setup instructions — unchanged; no new required setup step landed this phase
 
 **Deployment Preparation**
 - ☐ Vercel project created and linked
@@ -957,13 +1075,17 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 
 ### 5.3 Phase 5 Definition of Done
 
-- All deliverables ☐ checked off
-- All acceptance tests ☐ passing
-- Full regression pass completed
-- `MEMORY.md` and `CHANGELOG.md` updated
-- Product is feature-complete per PRD.md (web platform)
-- Production deployment successful and stable
-- **Web platform (Phases 1-5) complete and ready for users**
+- ☑ All code-side deliverables checked off (the ☐ items left above are external infra, a Lighthouse
+  run, a colour-contrast audit, or explicitly-deferred scope, each annotated with why)
+- ☐ All acceptance tests passing — §5.2 needs a seeded database and live Resend, the same external
+  dependency that has held §2.2/§3.2/§4.2 open since Phase 2
+- ☑ Full regression pass completed — 338/338 unit tests, typecheck and lint clean, production build
+  green
+- ☑ `MEMORY.md` and `CHANGELOG.md` updated
+- ☑ Product is feature-complete per PRD.md (web platform), with three named exclusions: subscription
+  billing, community engagement analytics, and cancelling a scheduled notification campaign
+- ☐ Production deployment successful and stable — external
+- **Web platform (Phases 1-5) code-complete; QA and deployment remain**
 - **Mobile app (Phase 6) starts next**
 
 ---

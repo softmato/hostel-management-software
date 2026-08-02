@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { paginationQuerySchema } from "@/lib/pagination";
+
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 const optionalHostelScopeSchema = {
@@ -49,6 +51,7 @@ const permissionsSchema = z
   .max(WARDEN_PERMISSION_KEYS.length);
 
 export const wardenListQuerySchema = z.object({
+  ...paginationQuerySchema,
   ...optionalHostelScopeSchema,
   status: z.enum(["ACTIVE", "INVITED", "SUSPENDED", "REMOVED"]).optional(),
 });
