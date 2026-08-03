@@ -135,8 +135,8 @@ describe("warden service", () => {
         adminPrincipal,
       ),
     ).rejects.toMatchObject({
-      errorCode: "TENANT_ACCESS_DENIED",
-      status: 403,
+      errorCode: "NOT_FOUND",
+      status: 404,
     });
 
     expect(serviceMocks.registerOrUpgrade).not.toHaveBeenCalled();

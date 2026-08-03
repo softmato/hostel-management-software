@@ -192,10 +192,11 @@ async function loadGuardianAccess(principal: ApiPrincipal) {
   }
 
   if (!principal.hostelIds.includes(access.hostelId.toString())) {
+    // Reported exactly like a genuine miss (RULES.md §3).
     throw new GuardianServiceError(
-      "This guardian profile is outside the current session hostel scope.",
-      "TENANT_ACCESS_DENIED",
-      403,
+      "Guardian access was not found for this account.",
+      "GUARDIAN_ACCESS_NOT_FOUND",
+      404,
     );
   }
 

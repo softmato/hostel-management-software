@@ -243,7 +243,7 @@ describe("cook portal setup", () => {
   it("refuses a hostel outside the admin's scope", async () => {
     await expect(
       updateCookPortal({ enabled: true, hostelId: otherHostelId }, staffPrincipal),
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ errorCode: "NOT_FOUND", status: 404 });
   });
 });
 
@@ -356,6 +356,6 @@ describe("food ready announcements", () => {
         },
         cookPrincipal,
       ),
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ errorCode: "NOT_FOUND", status: 404 });
   });
 });

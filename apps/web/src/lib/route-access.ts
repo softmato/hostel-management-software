@@ -13,6 +13,11 @@ export type ProtectedRouteRule = {
  */
 export const protectedRouteRules: ProtectedRouteRule[] = [
   {
+    // Closing a hostel owner's account is not a moderation action.
+    prefix: "/platform/account-deletions",
+    roles: [Role.SUPERADMIN],
+  },
+  {
     prefix: "/platform/config",
     roles: [Role.SUPERADMIN],
   },

@@ -227,7 +227,7 @@ describe("complaint services", () => {
   it("enforces admin tenant isolation", async () => {
     await expect(
       listAdminComplaints({ hostelId: otherHostelId }, staffPrincipal),
-    ).rejects.toMatchObject({ errorCode: "TENANT_ACCESS_DENIED", status: 403 });
+    ).rejects.toMatchObject({ errorCode: "NOT_FOUND", status: 404 });
   });
 
   it("hides anonymous resident identity from admin complaint lists", async () => {

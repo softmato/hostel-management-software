@@ -81,6 +81,64 @@ export async function createInAppNotification(input: {
   });
 }
 
+/**
+ * Collapse repeated notifications about the same thing into one row.
+ *
+ * Anything that can fire many times in a row for a single recipient — reactions
+ * on one post, say — would otherwise flood the bell with near-identical rows.
+ * Instead the first event writes a notification carrying a `dedupeKey`, and
+ * every later event for the same key rewrites that same row's title/body and
+ * bumps it back to the top of the feed.
+ *
+ * Only *unread* rows are reused. Once the author has read "5 people reacted",
+ * the next reaction writes a fresh row, so they are told about it rather than
+ * having an already-seen notification silently mutate behind them.
+ */
+export async function createOrUpdateBatchedNotification(input: {
+  body: string;
+  category: string;
+  data?: Record<string, unknown>;
+  /** Identifies the thing being batched, e.g. `reaction:<postId>`. */
+  dedupeKey: string;
+  hostelId?: string;
+  title: string;
+  userId: string;
+}) {
+  await connectToDatabase();
+
+  const now = new Date();
+  const existing = await NotificationModel.findOneAndUpdate(
+    {
+      category: input.category,
+      "data.dedupeKey": input.dedupeKey,
+      readAt: { $exists: false },
+      userId: normalizeObjectId(input.userId, "user id"),
+    },
+    {
+      $set: {
+        body: input.body,
+        createdAt: now,
+        data: { ...input.data, dedupeKey: input.dedupeKey },
+        title: input.title,
+      },
+    },
+    { new: true },
+  );
+
+  if (existing) {
+    return existing;
+  }
+
+  return createInAppNotification({
+    body: input.body,
+    category: input.category,
+    data: { ...input.data, dedupeKey: input.dedupeKey },
+    hostelId: input.hostelId,
+    title: input.title,
+    userId: input.userId,
+  });
+}
+
 export async function listNotifications(
   principal: ApiPrincipal,
   query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },

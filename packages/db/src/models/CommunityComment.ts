@@ -4,7 +4,8 @@ const communityCommentSchema = new Schema(
   {
     postId: { ref: "CommunityPost", required: true, type: Schema.Types.ObjectId },
     hostelId: { ref: "Hostel", required: true, type: Schema.Types.ObjectId },
-    authorId: { ref: "User", required: true, type: Schema.Types.ObjectId },
+    /** Null only after the author's account is purged — see CommunityPost. */
+    authorId: { default: null, ref: "User", type: Schema.Types.ObjectId },
     body: { maxlength: 2000, required: true, trim: true, type: String },
     isAnonymous: { default: false, type: Boolean },
     status: {

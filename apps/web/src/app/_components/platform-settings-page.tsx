@@ -15,6 +15,7 @@ import Link from "next/link";
 import { memo, useState } from "react";
 
 import { EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import {
   DataTable,
   DetailField,
@@ -96,6 +97,7 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
   const [temporaryPassword, setTemporaryPassword] = useState("");
 
   const invalidate = useInvalidateResources();
+  const { confirm, confirmDialog } = useConfirm();
   const ownerResource = usePortalResource<{ user: PlatformOwner }>(
     platformEndpoints.currentUser,
     { errorMessage: "Could not load settings." },
@@ -180,7 +182,14 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
   }
 
   async function revoke(adminId: string, name: string) {
-    if (!window.confirm(`Revoke platform access for ${name}? They will be suspended.`)) {
+    const confirmed = await confirm({
+      actionLabel: "Revoke access",
+      description: `${name} will be suspended immediately and signed out of the platform portal.`,
+      title: "Revoke platform access?",
+      tone: "destructive",
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -200,6 +209,7 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-4">
+      {confirmDialog}
       <PortalPageHeader
         breadcrumb={["Home", "Settings"]}
         description="Your account, platform access control, and a workspace snapshot."

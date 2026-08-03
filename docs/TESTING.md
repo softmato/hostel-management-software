@@ -159,6 +159,25 @@ For every hostel-scoped resource (`Room`, `Bed`, `Resident`, `Payment`, `Notice`
 - Multi-tenant data leaks are **catastrophic** — one hostel seeing another's financial records, complaints, or resident data is a complete system failure.
 - Build this test suite in **Phase 1** and extend it every phase as new resources are added.
 
+**Where it lives:** `apps/web/src/modules/tenant-isolation.test.ts`.
+
+It proves the property at the **service** boundary with mocked models rather than
+over HTTP as §7.1 sketches, because Supertest and `mongodb-memory-server` are not
+installed (that decision sits in `TODO.md` B8). The service boundary is where the
+scoping actually lives — RULES.md §3 forbids route handlers from querying models
+directly — so the coverage is real, not a stand-in.
+
+The suite asserts the **filter handed to Mongo**, not just that a lookup came back
+empty. A service that fetched first and checked afterwards would pass a
+null-result assertion right up until someone deleted the check; asserting the
+scope is *in the query* cannot pass that way. `countDocuments` and any summary
+`$match` are asserted alongside the page, since an unscoped total leaks the other
+hostel's row count even when the returned page is clean.
+
+**Extend it, don't fork it:** every new hostel-scoped resource adds a case here.
+When Supertest and an in-memory Mongo do land, add route-level tests *beside*
+this file rather than replacing it — the two catch different mistakes.
+
 ### 6.2 Auth & Account-Upgrade Logic ⭐ CRITICAL
 
 This is the **trickiest logic** in the app (see ARCHITECTURE.md §3.2). Test thoroughly:

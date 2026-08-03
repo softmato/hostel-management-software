@@ -194,30 +194,133 @@ turn a submitted inquiry or registration into a failed request.
   owed mail about.
 - Verified: typecheck clean, lint clean, 349/349 tests.
 
-### B3. Community engagement notifications
-- [ ] Reactions notify nobody; only comments do (ARCHITECTURE §9.4, RULES §14,
-  EMAIL_SYSTEM §8.1). Add reaction notifications, batched
-  ("5 people reacted to your post") rather than one per reaction.
+### B3. Community engagement notifications ✅
+- [x] Reactions now notify the post author (ARCHITECTURE §9.4, RULES §14,
+  EMAIL_SYSTEM §8.1). Batching is done with a new
+  `createOrUpdateBatchedNotification()` in `notification.service.ts`: the row
+  carries a `data.dedupeKey`, and a later event for the same key rewrites that
+  row's title/body and bumps `createdAt` instead of writing a second one. Only
+  **unread** rows are reused — once the author has read "5 people reacted", the
+  next reaction writes a fresh row rather than silently mutating something they
+  have already seen. `notifyPostReaction()` fires only for a *new* reactor
+  (switching LIKE→LOVE is the same person; un-reacting is not news), skips
+  self-reactions, reads the count back from `countDocuments` so the number is
+  the true reactor count rather than a tally of how often the handler ran, and
+  never names the reactor. Swallows its own errors like the comment
+  notification does. **10 new tests** — `community-reaction-notify.test.ts` (7)
+  and `notification-batching.test.ts` (3).
+- Verified: typecheck clean, lint clean, 359/359 tests.
 
-### B4. Multi-tenancy
-- [ ] **Cross-tenant miss returns 403, docs require 404.** `RULES.md` §3 and
-  `PHASES.md` §5.2 both say return `404` so existence is not confirmed.
-  `lib/tenant.ts` and `lib/api-auth.ts` return `403 TENANT_ACCESS_DENIED`.
-- [ ] **No isolation test suite.** TESTING.md §6.1 marks this "⭐ HIGHEST
-  PRIORITY" with a mandatory template (§7.1); RULES.md §3 requires one per
-  hostel-scoped resource; PRD.md §11 makes it a v1 success criterion. What
-  exists is a single unit test of the guard helper. Write real per-service
-  tests: hostel A principal, hostel B data, assert nothing leaks.
+### B4. Multi-tenancy ✅
+- [x] **Cross-tenant miss now returns 404, not 403** (RULES.md §3, PHASES.md
+  §5.2). `TenantAccessError` and `assertHostelScopedApiAccess` now throw
+  `404 NOT_FOUND` with a bare "Not found." — the *code* changed as well as the
+  status, because a distinct `TENANT_ACCESS_DENIED` would confirm existence just
+  as surely as a 403 did. The two self-scope checks in `resident-access.ts` and
+  `guardian.service.ts` were folded into the genuine-miss errors immediately
+  above them (`RESIDENT_PROFILE_NOT_FOUND` / `GUARDIAN_ACCESS_NOT_FOUND`, both
+  404) so the two cases are indistinguishable from outside. API.md's error table
+  lost the `TENANT_ACCESS_DENIED` row and the `NOT_FOUND` row now records why
+  there deliberately isn't one. Six existing tests updated to the new shape.
+- [x] **Isolation suite built** — `apps/web/src/modules/tenant-isolation.test.ts`,
+  **16 tests** over residents, payments, notices, complaints and maintenance,
+  for both an admin and a warden principal. Deviates from the §7.1 template
+  deliberately: that template needs Supertest + `mongodb-memory-server`, neither
+  installed (B8), so it proves the property at the service boundary — which is
+  where the scoping lives, since route handlers never query models. Asserts the
+  **filter handed to Mongo**, not merely an empty result: a service that fetched
+  first and checked after would pass a null-result assertion right up until
+  someone deleted the check. `countDocuments` and the complaints summary
+  `$match` are asserted alongside the page, since an unscoped total leaks the
+  other hostel's row count even when the page is clean. Also covers the search
+  `$or` narrowing *within* the tenant rather than replacing the tenant clause,
+  and that a rejected scope never reaches the database.
+- [x] **Verified the suite bites** by removing `scopedHostelFilter` from
+  `listNotices` — 2 tests failed (the leak and the 404), and passed again on
+  restore. TESTING.md §6.1 now names the file, records the deviation and its
+  reasoning, and says to extend rather than fork it.
+- Verified: typecheck clean, lint clean, 375/375 tests.
 
-### B5. Account deletion & data retention — entire feature absent
+### B5. Account deletion & data retention ✅ *(except §9.3 — moved to B6)*
 Specified in ARCHITECTURE §13, DATABASE §AccountDeletionRequest,
-PRIVACY_POLICY §7.3/§8, EMAIL_SYSTEM §9.1–9.3. Nothing exists.
-- [ ] `AccountDeletionRequest` model.
-- [ ] Request / cancel endpoints + resident-facing UI.
-- [ ] Immediate effects on request: account disabled, sessions invalidated,
-  device tokens removed.
-- [ ] Purge cron at 60 days with the documented delete-vs-anonymise split.
-- [ ] Emails 9.1 (requested) and 9.2 (cancelled).
+PRIVACY_POLICY §7.3/§8, EMAIL_SYSTEM §9.1–9.3.
+
+**Design decided by the client, not by the docs.** The docs assumed one
+universal "delete account". The client's answer was that it is four different
+actions, and that is what shipped (ARCHITECTURE §13.0):
+`SELF_SERVICE` (public / moved-out resident) · `GUARDIAN_RELEASE` (guardian
+demotes to PUBLIC, keeps the account) · `BLOCKED` (a resident still living in a
+hostel, and staff/platform accounts) · `PLATFORM_REVIEW` (a hostel owner's
+request is routed to the SUPERADMIN, with a review tab, and the account is
+**untouched** until approved). The server picks the pathway; the caller cannot.
+
+- [x] `AccountDeletionRequest` model — one row per user, `kind` splitting the
+  two shapes. `scheduledDeletionAt` is deliberately unset on `PLATFORM_REVIEW`
+  until approval; that absence is what keeps the purge cron away from an
+  unreviewed request.
+- [x] Endpoints: `GET/POST /api/v1/users/account-deletion`,
+  `POST /api/v1/auth/cancel-account-deletion`,
+  `GET /api/v1/platform/account-deletions`,
+  `POST /api/v1/platform/account-deletions/[id]/review`,
+  `POST /api/v1/cron/account-purge`.
+- [x] UI: `/account/privacy` (role-aware panel that says what the button will
+  actually do *before* it is pressed), `/cancel-deletion` (token-based, public),
+  and the SUPERADMIN queue at `/platform/account-deletions` — added to
+  `portal-nav.ts` and to the superadmin-only prefix lists in both `portal-nav.ts`
+  and `route-access.ts`.
+- [x] Immediate effects: `User.status = SUSPENDED` (**not** `DISABLED` — the enum
+  has no such member and SUSPENDED is what the login check already refuses on),
+  `tokenVersion` bumped in the same update because revoking `Session` rows alone
+  leaves an unexpired access JWT working, sessions revoked, device tokens
+  deleted.
+- [x] **Cancellation runs off a signed `cancel-account-deletion` purpose token**
+  in the email. ARCHITECTURE §13.1 wants the account closed *and* cancellable —
+  the user cannot log in, so a settings page could not have worked. The cancel
+  query keys on the deletion clock rather than on `kind`, so an owner whose
+  request was approved can use the same link.
+- [x] Purge cron with the delete-vs-retain split. Marks `executed` only after
+  the purge succeeds, so a crash leaves the request due; one failure does not
+  strand the batch.
+- [x] Emails 9.1 (requested — also sent on owner approval, when the clock really
+  starts) and 9.2 (cancelled), plus a **new** platform-review email the spec had
+  no room for, documented as EMAIL_SYSTEM §9.1a.
+- [x] **Two places the docs could not be implemented literally, both amended
+  with the reason:**
+  - `Payment.residentId = null` would collide on the unique
+    `{ hostelId, residentId, month }` index the second time an account in the
+    same hostel/month was purged — a privacy guarantee turning into an error.
+    Neither `Payment` nor `Receipt` stores a name; deleting the `Resident` row
+    already leaves an id resolving to nothing, which is the de-identification
+    asked for.
+  - `CommunityPost/Comment.authorId` was `required: true`, so "set to null"
+    would have been sneaking a value past the schema. Made genuinely nullable,
+    and the community serializers, name lookup, comment notification and
+    reaction notification all now handle a purged author — who reads as
+    anonymous to moderators too, since re-identifying them would undo the
+    erasure.
+- [x] **26 new tests** — `account-deletion.test.ts` (18: pathway per role, the
+  immediate effects, the owner's account staying untouched, guardian demotion,
+  cancellation) and `account-purge.test.ts` (8: what is erased vs retained,
+  which requests are due, retry-on-failure).
+- Docs reconciled: ARCHITECTURE §13 (rewritten with the pathway table),
+  DATABASE.md, PRIVACY_POLICY §8, EMAIL_SYSTEM §9, CRON.md, ENVIRONMENT.md
+  (six → seven cron jobs).
+- Verified: typecheck clean, lint clean, 401/401 tests, production build exit 0
+  with all seven new routes present.
+- [x] **Confirmations moved onto the shadcn `AlertDialog`** *(client request)*.
+  Added `components/ui/alert-dialog.tsx` (no new dependency — the unified
+  `radix-ui` package already ships it) and a `useConfirm()` hook in
+  `app/_components/confirm-dialog.tsx` that keeps the boolean-returning shape of
+  `window.confirm`, so each call site changed by one line. Converted **all 8
+  surviving `window.confirm` calls** as well as the new B5 screens: resident
+  community/guardians/SOS/attendance, hostel-admin residents (delete + move-out)
+  and night-status bulk override, platform settings (revoke access), the
+  deletion queue's approve action, and the account-deletion panel. `grep
+  window.confirm` now returns only the hook's own docstring. Every dialog names
+  its action ("Delete post", "Revoke access") instead of "OK" and states the
+  consequence. DESIGN.md §1 now carries the rule and the usage snippet.
+- [ ] **Location history deletion email (EMAIL_SYSTEM §9.3)** — was listed here
+  but belongs with the location work in B6, where it now sits.
 
 ### B6. Privacy commitments the site makes but the code does not keep
 - [ ] **`/privacy` page is wrong.** It promises deletion "within 30 days"

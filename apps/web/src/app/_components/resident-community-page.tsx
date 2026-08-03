@@ -12,6 +12,7 @@ import {
   TextArea,
 } from "@/app/_components/shared-ui";
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import { FileUploaderView, useUploader } from "@/components/uploads";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
@@ -62,6 +63,7 @@ export const ResidentCommunityPageContent = memo(function ResidentCommunityPageC
   });
   const { clear: clearMedia, files: mediaFiles } = media;
   const invalidate = useInvalidateResources();
+  const { confirm, confirmDialog } = useConfirm();
   const feed = usePortalResource<{ posts: CommunityPost[] }>(COMMUNITY_ENDPOINT, {
     errorMessage: "Could not load the community feed.",
   });
@@ -184,7 +186,15 @@ export const ResidentCommunityPageContent = memo(function ResidentCommunityPageC
 
   const removeOwn = useCallback(
     async (postId: string) => {
-      if (!window.confirm("Delete your post?")) {
+      const confirmed = await confirm({
+        actionLabel: "Delete post",
+        description:
+          "Your post and its comments come down for everyone in your hostel. This cannot be undone.",
+        title: "Delete your post?",
+        tone: "destructive",
+      });
+
+      if (!confirmed) {
         return;
       }
 
@@ -196,11 +206,12 @@ export const ResidentCommunityPageContent = memo(function ResidentCommunityPageC
         setActionMessage(error instanceof Error ? error.message : "Could not delete.");
       }
     },
-    [invalidate],
+    [confirm, invalidate],
   );
 
   return (
     <div className="mx-auto max-w-[1000px] space-y-6">
+      {confirmDialog}
       <ResidentHeader
         description="Talk to the people you actually live with."
         icon={Users}

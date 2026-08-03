@@ -82,6 +82,8 @@ describe("api auth guards", () => {
       ),
     ).not.toThrow();
 
+    // 404 with a bare "Not found." — a 403 would confirm hostel-2 exists
+    // (RULES.md §3).
     expect(() =>
       assertHostelScopedApiAccess(
         {
@@ -91,6 +93,16 @@ describe("api auth guards", () => {
         },
         "hostel-2",
       ),
-    ).toThrow("You do not have access to this hostel.");
+    ).toThrow("Not found.");
+
+    try {
+      assertHostelScopedApiAccess(
+        { hostelIds: ["hostel-1"], role: Role.HOSTEL_ADMIN, userId: "user-1" },
+        "hostel-2",
+      );
+      expect.unreachable("cross-tenant access must throw");
+    } catch (error) {
+      expect(error).toMatchObject({ errorCode: "NOT_FOUND", status: 404 });
+    }
   });
 });

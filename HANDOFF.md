@@ -16,7 +16,7 @@ Verified green at the moment of writing — re-run these first, they should stay
 npm --prefix apps/web run typecheck && npm run web:lint && npm run web:test && npm run web:build
 ```
 
-- typecheck clean · lint clean (0 errors, 0 warnings) · **349/349 tests, 51 files** · production build exit 0
+- typecheck clean · lint clean (0 errors, 0 warnings) · **401/401 tests, 56 files** · production build exit 0
 - `npm run mobile:typecheck` also clean
 
 **Nothing is committed.** `git log` still shows `4a2a5cf "added upto phase 4"`
@@ -119,34 +119,45 @@ tool for files under `_components/`.
 
 ---
 
-## 6. Resume here — `TODO.md` Track B3 onward
+## 6. Resume here — `TODO.md` Track B6 onward
 
-In order:
+**B3, B4 and B5 are done** (2026-08-02, second session). Verified green:
+typecheck, lint, **401/401 tests across 56 files**, production build exit 0.
+`TODO.md` carries the detail; the three things worth knowing before touching
+adjacent code:
 
-- **B3 — community reaction notifications.** Comments notify the post author
-  (`community.service.ts` ~line 294); reactions notify nobody. Spec wants them
-  *batched* ("5 people reacted to your post"), not one per reaction —
-  ARCHITECTURE §9.4, RULES §14, EMAIL_SYSTEM §8.1.
+- **B3** added `createOrUpdateBatchedNotification()` to
+  `notification.service.ts`. Any repeated notification about the same thing can
+  now collapse into one row via a `data.dedupeKey`. Only *unread* rows are
+  reused, so a read notification is never silently mutated.
 
-- **B4 — multi-tenancy.** Two parts:
-  - Cross-tenant miss returns `403 TENANT_ACCESS_DENIED`; RULES §3 and
-    PHASES §5.2 both require **404**, so existence isn't confirmed.
-    `lib/tenant.ts:10` and `lib/api-auth.ts:194`.
-  - **No isolation test suite.** TESTING §6.1 marks this "⭐ HIGHEST PRIORITY"
-    with a mandatory template (§7.1); PRD §11 makes it a v1 success criterion.
-    All that exists is one unit test of the guard helper
-    (`lib/api-auth.test.ts:73`). Needs per-service tests: hostel A principal,
-    hostel B data, assert nothing leaks.
+- **B4** changed every cross-tenant miss from `403 TENANT_ACCESS_DENIED` to
+  `404 NOT_FOUND` — **the error code went too**, since a distinct code confirms
+  existence just as surely as a 403 status. There is now no
+  `TENANT_ACCESS_DENIED` anywhere. The isolation suite is
+  `apps/web/src/modules/tenant-isolation.test.ts`; it asserts the *filter handed
+  to Mongo*, not just an empty result. **Extend it whenever you add a
+  hostel-scoped resource** — TESTING §6.1 now says so too.
 
-- **B5 — account deletion.** Specified in four documents (ARCHITECTURE §13,
-  DATABASE, PRIVACY_POLICY §7.3/§8, EMAIL_SYSTEM §9.1–9.3), built in none.
-  Model + request/cancel endpoints + UI + 60-day purge cron + 2 emails.
+- **B5** shipped account deletion as **four pathways, not one** — a client
+  decision that overrode the docs (ARCHITECTURE §13.0 has the table). A hostel
+  owner's request is *routed to the SUPERADMIN* and their account is untouched
+  until approved; a guardian's "delete" demotes them to PUBLIC; an active
+  resident is refused. Two doc instructions turned out to be unimplementable as
+  written (nulling `Payment.residentId` collides with a unique index; `authorId`
+  was `required`) — both amended in place with the reasoning.
 
 - **B6 — privacy commitments.** The live `/privacy` page promises things that
   don't exist (delete from settings, 30-day deletion, cookie preferences, data
   export) and **never discloses location/attendance collection at all**, which
   PRIVACY_POLICY §3 marks "⚠️ READ CAREFULLY". Rewrite it, build the export,
-  add the location-deletion confirmation email, add re-consent on policy change.
+  add the location-deletion confirmation email (EMAIL_SYSTEM §9.3 — the only
+  part of the §9 email group B5 left behind), add re-consent on policy change.
+
+  **Start from `/account/privacy`**, which B5 created. It already hosts the
+  deletion panel and is reachable by any signed-in account regardless of role —
+  the export and the cookie/consent controls belong on that same page, which is
+  also where PRIVACY_POLICY §7.1/§7.4 say they live.
 
 - **B7 — small items.** Cook web-login message · `validateServerEnv()` is
   defined and never called · PlatformConfig 5-min cache · the high-privilege

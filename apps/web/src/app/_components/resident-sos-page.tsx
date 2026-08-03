@@ -4,6 +4,7 @@ import { Siren } from "lucide-react";
 import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import { browserApi } from "@/lib/browser-api";
 import { usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
@@ -29,6 +30,7 @@ export const ResidentSOSPageContent = memo(function ResidentSOSPageContent() {
     [contactsResource.data],
   );
   const message = actionMessage || contactsResource.message;
+  const { confirm, confirmDialog } = useConfirm();
 
   const trigger = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -38,13 +40,16 @@ export const ResidentSOSPageContent = memo(function ResidentSOSPageContent() {
 
     // §4.1: an SOS mails every admin and warden the moment it is raised, so the
     // one thing that must not happen is raising it by brushing the button.
-    if (
-      !window.confirm(
-        alertsGuardian
-          ? "Raise an emergency SOS? This immediately alerts hostel staff, every warden, and your guardian."
-          : "Raise an emergency SOS? This immediately alerts hostel staff and every warden.",
-      )
-    ) {
+    const confirmed = await confirm({
+      actionLabel: "Raise SOS",
+      description: alertsGuardian
+        ? "This immediately alerts hostel staff, every warden, and your guardian. It cannot be recalled."
+        : "This immediately alerts hostel staff and every warden. It cannot be recalled.",
+      title: "Raise an emergency SOS?",
+      tone: "destructive",
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -61,10 +66,11 @@ export const ResidentSOSPageContent = memo(function ResidentSOSPageContent() {
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "Could not trigger SOS.");
     }
-  }, []);
+  }, [confirm]);
 
   return (
     <div className="mx-auto max-w-[900px] space-y-6">
+      {confirmDialog}
       <PageHeader
         description="Trigger an emergency alert for hostel staff."
         icon={Siren}

@@ -906,13 +906,40 @@ Superadmin dashboard shows:
 
 ## 13. Account Deletion & Data Retention Architecture
 
+**Status: built.** `modules/users/account-deletion.service.ts` (request, cancel,
+review), `modules/users/account-purge.service.ts` (the erasure itself), and the
+`/api/v1/cron/account-purge` job.
+
+### 13.0 "Delete my account" is four different actions
+
+An account is not one thing, so the button cannot be. Which outcome an account
+gets is decided by the server from the account's role and what depends on it —
+the caller does not choose. `getAccountDeletionStatus()` returns the pathway so
+the UI can say what the button will actually do *before* it is pressed.
+
+| Pathway | Who | What happens |
+|---|---|---|
+| `SELF_SERVICE` | `PUBLIC`, and residents who have moved out | The 60-day flow in §13.1. |
+| `GUARDIAN_RELEASE` | `GUARDIAN` | Their `GuardianAccess` rows are revoked and the account drops to `PUBLIC` with its `hostelIds` cleared. The account survives — a guardian's account outlives their guardianship, and deleting "the guardian" means giving up the link to the resident, not erasing the person. They can then delete the public account outright. |
+| `BLOCKED` | An **active** resident; `WARDEN`; `COOK`; platform roles | Refused with `409 DELETION_NOT_ALLOWED` and a reason. A current residency is the hostel's record of who is in a bed tonight and is not the resident's alone to erase — they can delete once they have moved out. Staff accounts are issued by an admin, so retiring one is the admin's action. |
+| `PLATFORM_REVIEW` | `HOSTEL_ADMIN` | A `PENDING` request is routed to SUPERADMIN with the owner's reason and their hostel names. **Nothing happens to the account** — no suspension, no revoked sessions — until a superadmin approves it. Approval then starts the same 60-day clock. Queue at `/platform/account-deletions`; rejection closes the row so they can ask again. |
+
 ### 13.1 60-Day Grace Period
 
-When user requests account deletion:
-1. Create AccountDeletionRequest with scheduledDeletionAt = now + 60 days
-2. Disable account immediately (User.status = DISABLED)
-3. User cannot log in but can cancel deletion during grace period
-4. Daily cron job checks for requests past scheduledDeletionAt
+When a `SELF_SERVICE` request is made (or a `PLATFORM_REVIEW` one is approved):
+1. Create/refresh the `AccountDeletionRequest` with `scheduledDeletionAt = now + 60 days`
+2. Suspend the account immediately — `User.status = SUSPENDED`. The enum has no
+   `DISABLED` member; `SUSPENDED` is the shipped name for the same state and is
+   already what the login check refuses on. `tokenVersion` is bumped in the same
+   update, because revoking `Session` rows alone would leave an unexpired access
+   JWT working.
+3. The user cannot log in — so cancellation runs off the **signed
+   `cancel-account-deletion` purpose token** in the email link, not a settings
+   page (`/cancel-deletion`, `POST /api/v1/auth/cancel-account-deletion`, rate
+   limited). The token names one user, cannot be replayed as an access token,
+   and expires with the grace period.
+4. Daily cron (`/api/v1/cron/account-purge`) picks up requests past
+   `scheduledDeletionAt`
 5. If past date and not cancelled → execute permanent deletion
 
 ### 13.2 What Gets Deleted
@@ -925,17 +952,37 @@ When user requests account deletion:
 **After 60 Days**:
 - User document deleted
 - Resident document deleted
-- All NotificationReceipt deleted
-- All AttendanceLog deleted (raw location data)
+- All `Notification` rows deleted (these *are* the receipts — there is no
+  `NotificationReceipt` collection; see DATABASE.md)
+- All AttendanceLog deleted (raw location data) — matched on **both** `userId`
+  and `residentId`, since the model carries both and matching one leaves rows
 - All ConsentLog deleted
 - All QuestionCallClick deleted
-- All CommunityPost/Comment by user set to authorId=null (anonymous)
+- All Session and DeviceToken rows deleted
+- All CommunityPost/Comment by user set to `authorId = null` and
+  `isAnonymous = true`. The post survives because it is part of a conversation
+  other residents took part in; the authorship link is what is cut. A purged
+  author reads as anonymous to **everyone, moderators included** — there is no
+  longer an account to act against, and re-identifying them would undo the
+  erasure. `authorId` is nullable on both models for exactly this case.
 
 **Retained for Legal/Audit**:
-- Payment records (anonymous: residentId=null, but amounts/dates kept)
+- Payment records (amounts/dates kept)
 - Receipt records (financial audit trail)
-- AuditLog entries (compliance)
+- AuditLog entries (compliance) — including an `ACCOUNT_PURGED` entry written by
+  the purge itself, which is the only evidence the request was honoured
 - Aggregated analytics (no PII)
+
+> **Payments are left untouched, not nulled.** An earlier version of this
+> section said to set `Payment.residentId = null`. That cannot be done as
+> written: `Payment` carries a unique index on `{ hostelId, residentId, month }`,
+> so the second account purged in the same hostel and month would collide on
+> `null` and the purge would fail — turning a privacy guarantee into an error.
+> It is also unnecessary. Neither `Payment` nor `Receipt` stores a name, email
+> or phone; `residentId` is their only link to a person, and the `Resident`
+> document it points at is deleted. What is left is an ObjectId resolving to
+> nothing — the de-identification this section is asking for, with the ledger
+> intact. Resolved 2026-08-02.
 
 ---
 

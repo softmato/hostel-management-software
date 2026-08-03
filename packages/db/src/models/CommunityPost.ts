@@ -10,7 +10,13 @@ import { Schema, model, models } from "mongoose";
 const communityPostSchema = new Schema(
   {
     hostelId: { ref: "Hostel", required: true, type: Schema.Types.ObjectId },
-    authorId: { ref: "User", required: true, type: Schema.Types.ObjectId },
+    /**
+     * Null only after the author's account is purged (ARCHITECTURE.md §13.2) —
+     * the post survives because it is part of a conversation other residents
+     * took part in, but the authorship link is cut. Not optional in any other
+     * situation; `community.service.ts` always supplies it.
+     */
+    authorId: { default: null, ref: "User", type: Schema.Types.ObjectId },
     authorResidentId: { ref: "Resident", type: Schema.Types.ObjectId },
     body: { maxlength: 4000, required: true, trim: true, type: String },
     mediaAssetIds: { default: [], type: [String] },

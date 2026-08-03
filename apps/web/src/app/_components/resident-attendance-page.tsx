@@ -4,6 +4,7 @@ import { CalendarCheck } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
 
 import { EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,7 @@ export const ResidentAttendancePageContent = memo(
   function ResidentAttendancePageContent() {
     const [actionMessage, setActionMessage] = useState("");
     const invalidate = useInvalidateResources();
+    const { confirm, confirmDialog } = useConfirm();
     const resource = usePortalResource<{
       attendance: AttendanceDay[];
       consentGranted: boolean;
@@ -67,11 +69,15 @@ export const ResidentAttendancePageContent = memo(
     );
 
     const eraseHistory = useCallback(async () => {
-      if (
-        !window.confirm(
-          "Delete all of your stored attendance history? This cannot be undone.",
-        )
-      ) {
+      const confirmed = await confirm({
+        actionLabel: "Delete history",
+        description:
+          "Every stored attendance record for your account is erased. This cannot be undone, and your hostel will no longer see your past attendance.",
+        title: "Delete all of your attendance history?",
+        tone: "destructive",
+      });
+
+      if (!confirmed) {
         return;
       }
 
@@ -84,10 +90,11 @@ export const ResidentAttendancePageContent = memo(
           error instanceof Error ? error.message : "Could not delete history.",
         );
       }
-    }, [invalidate]);
+    }, [confirm, invalidate]);
 
     return (
       <div className="mx-auto max-w-[1000px] space-y-6">
+        {confirmDialog}
         <ResidentHeader
           description="Your day-by-day attendance. Only a zone is stored — never your exact location."
           icon={CalendarCheck}

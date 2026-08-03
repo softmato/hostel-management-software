@@ -188,11 +188,8 @@ export function assertHostelScopedApiAccess(principal: ApiPrincipal, hostelId: s
   try {
     assertHostelAccess(principal, hostelId);
   } catch {
-    throw new ApiAuthError(
-      "You do not have access to this hostel.",
-      "TENANT_ACCESS_DENIED",
-      403,
-    );
+    // 404, not 403 — see TenantAccessError in lib/tenant.ts.
+    throw new ApiAuthError("Not found.", "NOT_FOUND", 404);
   }
 }
 

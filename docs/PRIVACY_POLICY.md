@@ -209,14 +209,29 @@ We may disclose your information if required by law, court order, or to:
 ## 8. Account Deletion & Data Retention
 
 ### 8.1 Request Account Deletion
-1. Go to Settings → Privacy → "Delete Account"
+1. Go to **/account/privacy** → "Delete my account"
 2. Fill out deletion request form (reason required)
 3. Confirm deletion request
 
+**What the button does depends on your account** — the page tells you before you
+press it (ARCHITECTURE.md §13.0 is the full table):
+
+- **Most accounts** get the 60-day flow in §8.2.
+- **Guardians** are removing their guardian *access*, not their account. It
+  becomes an ordinary account, which can then be deleted outright.
+- **Current residents cannot delete** while they are living in a hostel — the
+  hostel needs that record while you are in a bed. You can delete after moving
+  out. Staff accounts are closed by your hostel administrator.
+- **Hostel owners** cannot delete on the spot, because their residents' payments
+  and records depend on the account. The request goes to the platform owner and
+  the account keeps working normally until it is reviewed.
+
 ### 8.2 60-Day Grace Period
-- Your account is immediately **disabled** (cannot log in)
+- Your account is immediately **closed** (cannot log in)
 - Data is retained for 60 days
-- You can **cancel deletion** anytime during this period
+- You can **cancel deletion** anytime during this period, using the link in the
+  confirmation email — since your account is closed, that link is how you get
+  back in
 - After 60 days: permanent deletion executed
 
 ### 8.3 What Gets Deleted (After 60 Days)
@@ -230,7 +245,9 @@ We may disclose your information if required by law, court order, or to:
 - Community posts/comments (set to anonymous, author removed)
 
 ⚠️ **Retained for Legal/Audit** (anonymized):
-- Payment records (amounts, dates - resident name removed)
+- Payment records (amounts, dates — the link to you is removed with your
+  resident profile; see the note in ARCHITECTURE.md §13.2 on why the row itself
+  is left alone rather than nulled)
 - Receipt records (financial audit trail)
 - Audit logs (system security, compliance)
 - Aggregated analytics (no personal identifiers)

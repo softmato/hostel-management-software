@@ -116,7 +116,7 @@ and by an existing superadmin in the portal; never by a public endpoint.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `CRON_SECRET` | **yes in production** | Protects all six `/api/v1/cron/*` endpoints. A missing value makes them answer `500 CRON_NOT_CONFIGURED` — they never fall open. |
+| `CRON_SECRET` | **yes in production** | Protects all seven `/api/v1/cron/*` endpoints. A missing value makes them answer `500 CRON_NOT_CONFIGURED` — they never fall open. |
 
 ### Resident identity encryption
 
@@ -284,7 +284,7 @@ node --experimental-transform-types packages/db/src/migrate-roles.ts
    > **This project does not use Vercel Cron and has no `vercel.json`.** An
    > earlier draft of this document told you to create one with four
    > `/api/cron/*` paths. Those paths do not exist. The real endpoints are the
-   > six below, and `docs/CRON.md` is the authoritative reference for what each
+   > seven below, and `docs/CRON.md` is the authoritative reference for what each
    > one does and why its schedule is what it is.
 
    Every job: method `POST`, no query parameters, and a header
@@ -300,6 +300,7 @@ node --experimental-transform-types packages/db/src/migrate-roles.ts
    | `POST /api/v1/cron/attendance-maintenance` | daily — `0 5 * * *` |
    | `POST /api/v1/cron/refresh-nearby-places` | hourly — `0 * * * *` |
    | `POST /api/v1/cron/notification-dispatch` | every 15 min — `*/15 * * * *` |
+   | `POST /api/v1/cron/account-purge` | daily — `0 3 * * *` |
 
 5. **Deploy.** Vercel builds on push to `main`; PRs get preview deployments.
 

@@ -132,8 +132,8 @@ describe("resident management service behavior", () => {
         staffPrincipal,
       ),
     ).rejects.toMatchObject({
-      errorCode: "TENANT_ACCESS_DENIED",
-      status: 403,
+      errorCode: "NOT_FOUND",
+      status: 404,
     });
     expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
   });

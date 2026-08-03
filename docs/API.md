@@ -46,9 +46,8 @@ can return:
 | `EMAIL_NOT_VERIFIED` | 403 | Email verification required before access |
 | `FORBIDDEN` | 403 | Authenticated but role/permission doesn't allow this action |
 | `CAPABILITY_DENIED` | 403 | Staff member lacks the required `HostelMember.permissions` flag |
-| `TENANT_ACCESS_DENIED` | 403 | Principal is not scoped to the requested hostel |
 | `HOSTEL_SCOPE_REQUIRED` | 400 | Endpoint needs a hostel scope the principal does not carry |
-| `NOT_FOUND` | 404 | Resource doesn't exist or isn't in the caller's tenant scope (never leak existence across tenants — return 404, not 403, for cross-tenant reads) |
+| `NOT_FOUND` | 404 | Resource doesn't exist or isn't in the caller's tenant scope (never leak existence across tenants — return 404, not 403, for cross-tenant reads). There is deliberately **no** `TENANT_ACCESS_DENIED` code: a distinct code for "wrong tenant" would confirm existence just as surely as a 403 status. |
 | `INVALID_OBJECT_ID` | 400 | Path or query id is not a valid ObjectId |
 | `EMAIL_ALREADY_HAS_ROLE` | 409 | Account-upgrade conflict — see ARCHITECTURE.md §3.2 |
 | `RATE_LIMITED` | 429 | Too many attempts |

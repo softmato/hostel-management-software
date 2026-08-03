@@ -120,7 +120,10 @@ async function verifyToken(
   return payload as AuthTokenPayload;
 }
 
-export type PurposeTokenPurpose = "verify-email" | "password-reset";
+export type PurposeTokenPurpose =
+  | "cancel-account-deletion"
+  | "password-reset"
+  | "verify-email";
 
 export type PurposeTokenPayload = JWTPayload & {
   tokenType: PurposeTokenPurpose;

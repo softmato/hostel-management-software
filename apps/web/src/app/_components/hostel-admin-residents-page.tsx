@@ -31,6 +31,7 @@ import {
   Select as FormSelect,
 } from "@/app/_components/shared-ui";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -329,6 +330,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   ] = useState("");
   const [monthlyFee, setMonthlyFee] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const { confirm, confirmDialog } = useConfirm();
   const [saveBusy, setSaveBusy] = useState(false);
 
   const selectedResident =
@@ -425,11 +427,14 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     async (resident: Resident) => {
       const fullName = `${resident.firstName} ${resident.lastName}`.trim();
 
-      if (
-        !window.confirm(
-          `Remove ${fullName} from this hostel? Their bed is freed and they disappear from every list.`,
-        )
-      ) {
+      const confirmed = await confirm({
+        actionLabel: "Remove resident",
+        description: `${fullName}'s bed is freed and they disappear from every list in this hostel.`,
+        title: "Remove this resident?",
+        tone: "destructive",
+      });
+
+      if (!confirmed) {
         return;
       }
 
@@ -450,7 +455,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         setDeleteBusy(false);
       }
     },
-    [residentsQuery, roomTypesQuery],
+    [confirm, residentsQuery, roomTypesQuery],
   );
 
   const handleStatusChange = useCallback(
@@ -459,11 +464,17 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
 
       // Moving out is the one status that hands the bed back, so it gets a
       // confirmation the reversible ones do not need.
-      if (
-        status === "MOVED_OUT" &&
-        !window.confirm(`Mark ${fullName} as moved out? Their bed is freed.`)
-      ) {
-        return;
+      if (status === "MOVED_OUT") {
+        const confirmed = await confirm({
+          actionLabel: "Mark moved out",
+          description: `${fullName}'s bed is freed and becomes available to assign.`,
+          title: "Mark this resident as moved out?",
+          tone: "destructive",
+        });
+
+        if (!confirmed) {
+          return;
+        }
       }
 
       try {
@@ -489,7 +500,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         setMessage(error instanceof Error ? error.message : "Could not update status.");
       }
     },
-    [residentsQuery, roomTypesQuery],
+    [confirm, residentsQuery, roomTypesQuery],
   );
 
   const handleCreateResident = useCallback(
@@ -615,6 +626,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
+      {confirmDialog}
       <PortalPageHeader
         actions={
           <>

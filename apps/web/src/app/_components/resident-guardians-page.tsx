@@ -11,6 +11,7 @@ import {
   StatusBadge,
 } from "@/app/_components/shared-ui";
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
@@ -53,6 +54,7 @@ const PERMISSION_FIELDS: Array<{ key: keyof GuardianPermissions; label: string }
 export const ResidentGuardiansPageContent = memo(function ResidentGuardiansPageContent() {
   const [actionMessage, setActionMessage] = useState("");
   const invalidate = useInvalidateResources();
+  const { confirm, confirmDialog } = useConfirm();
   const guardiansResource = usePortalResource<{ guardians: GuardianLink[] }>(
     residentEndpoints.guardians,
     { errorMessage: "Could not load guardians." },
@@ -117,7 +119,15 @@ export const ResidentGuardiansPageContent = memo(function ResidentGuardiansPageC
 
   const revoke = useCallback(
     async (accessId: string) => {
-      if (!window.confirm("Remove this guardian's access entirely?")) {
+      const confirmed = await confirm({
+        actionLabel: "Remove access",
+        description:
+          "They will immediately stop seeing your information and will need a new invitation to get it back.",
+        title: "Remove this guardian's access?",
+        tone: "destructive",
+      });
+
+      if (!confirmed) {
         return;
       }
 
@@ -133,11 +143,12 @@ export const ResidentGuardiansPageContent = memo(function ResidentGuardiansPageC
         );
       }
     },
-    [invalidate],
+    [confirm, invalidate],
   );
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
+      {confirmDialog}
       <ResidentHeader
         description="Choose what a parent or guardian can see. You can change or withdraw this at any time."
         icon={ShieldCheck}

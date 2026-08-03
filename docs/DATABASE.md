@@ -29,7 +29,7 @@ Not built, with the reason for each:
 | Model | Status |
 |---|---|
 | `NotificationReceipt` | **Superseded — will not be built.** The per-recipient `Notification` row *is* the receipt. Counting rows cannot drift the way a `deliveryStats` counter can. |
-| `AccountDeletionRequest` | **Being built** — `TODO.md` Track B5. Specified below and in ARCHITECTURE.md §13 / PRIVACY_POLICY.md §8. This section stops being a specification and starts being a description when B5 lands. |
+| `AccountDeletionRequest` | **Built** (2026-08-02, `TODO.md` B5). Described below; see ARCHITECTURE.md §13 for the four deletion pathways. |
 | `Subscription` | **Deliberately outside the pilot.** Platform→hostel billing is manual record-keeping in v1 (ARCHITECTURE.md §6). PRD.md §9.2 still lists it as a platform-owner feature, so it needs a client decision before it is either built or removed from scope. Tracked in `TODO.md` Track B8. |
 
 ## Conventions
@@ -2151,17 +2151,40 @@ per user and type, not any row — which is what makes withdrawal take effect on
 
 Tracks requests from users to delete their account (60-day grace period).
 
+Two shapes share the collection, distinguished by `kind` (ARCHITECTURE.md §13.0):
+
+- **`SELF_SERVICE`** — the 60-day countdown. `scheduledDeletionAt` is set on
+  creation and the purge cron acts on it.
+- **`PLATFORM_REVIEW`** — a hostel owner's request, routed to SUPERADMIN.
+  `scheduledDeletionAt` is **deliberately left unset** until approval, which is
+  the mechanism that keeps the purge cron away from an unreviewed request.
+  Approval sets it and starts the same clock; rejection sets `cancelled` so the
+  unique `userId` index does not block a later request.
+
+The `requested*` fields snapshot who the account was at request time, so the
+review queue still reads correctly after the user is purged.
+
 ```typescript
 interface IAccountDeletionRequest {
   _id: ObjectId;
-  userId: ObjectId; // ref User, unique (only one active request per user)
+  userId: ObjectId; // ref User, unique (only one open request per user)
   reason: string;
+  kind: 'SELF_SERVICE' | 'PLATFORM_REVIEW';
+  requestedRole: string;
+  requestedEmail: string;
+  requestedName?: string;
+  hostelIds: ObjectId[];    // context for the reviewer
   requestedAt: Date;
-  scheduledDeletionAt: Date; // requestedAt + 60 days
+  scheduledDeletionAt?: Date; // requestedAt + 60 days; unset until approval on PLATFORM_REVIEW
   cancelled: boolean;
   cancelledAt?: Date;
   executed: boolean;
   executedAt?: Date;
+  // PLATFORM_REVIEW only
+  reviewStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  reviewedAt?: Date;
+  reviewedBy?: ObjectId;    // ref User
+  reviewNote?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -2169,15 +2192,27 @@ interface IAccountDeletionRequest {
 const AccountDeletionRequestSchema = new Schema<IAccountDeletionRequest>({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
   reason: { type: String, required: true },
+  kind: { type: String, enum: ['SELF_SERVICE', 'PLATFORM_REVIEW'], required: true, default: 'SELF_SERVICE' },
+  requestedRole: { type: String, required: true },
+  requestedEmail: { type: String, required: true, lowercase: true, trim: true },
+  requestedName: { type: String, trim: true },
+  hostelIds: [{ type: Schema.Types.ObjectId, ref: 'Hostel' }],
   requestedAt: { type: Date, required: true, default: Date.now },
-  scheduledDeletionAt: { type: Date, required: true },
-  cancelled: { type: Boolean, default: false, index: true },
+  scheduledDeletionAt: { type: Date },
+  cancelled: { type: Boolean, default: false },
   cancelledAt: { type: Date },
-  executed: { type: Boolean, default: false, index: true },
+  executed: { type: Boolean, default: false },
   executedAt: { type: Date },
+  reviewStatus: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'] },
+  reviewedAt: { type: Date },
+  reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  reviewNote: { type: String, trim: true },
 }, { timestamps: true });
 
+// The purge cron's query: due, still live.
 AccountDeletionRequestSchema.index({ scheduledDeletionAt: 1, executed: 1, cancelled: 1 });
+// The superadmin review queue.
+AccountDeletionRequestSchema.index({ kind: 1, reviewStatus: 1, requestedAt: -1 });
 
 export const AccountDeletionRequestModel = model<IAccountDeletionRequest>('AccountDeletionRequest', AccountDeletionRequestSchema);
 ```

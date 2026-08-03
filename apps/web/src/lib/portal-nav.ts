@@ -294,6 +294,22 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         label: "Reports",
       },
       {
+        description:
+          "Hostel owners asking to close their account. Nothing happens until you approve.",
+        href: "/platform/account-deletions",
+        icon: "clipboard",
+        keywords: [
+          "delete",
+          "deletion",
+          "account",
+          "close account",
+          "erase",
+          "privacy",
+          "gdpr",
+        ],
+        label: "Account Deletions",
+      },
+      {
         description: "Immutable trail of every privileged action taken on the platform.",
         href: "/platform/audit-logs",
         icon: "clipboard",
@@ -678,6 +694,7 @@ export const PLATFORM_SEARCH_ENTRIES = searchEntriesFromNav(PLATFORM_NAV);
  * courtesy — the route rule and the API guard are what actually enforce it.
  */
 const SUPERADMIN_ONLY_PREFIXES = [
+  "/platform/account-deletions",
   "/platform/config",
   "/platform/fee-plans",
   "/platform/settings",

@@ -90,6 +90,23 @@ Returns `{ alertsRaised, alertsUpdated, hostelsProcessed, logsPurged }`.
 
 - Recommended schedule: daily (e.g. `0 5 * * *`).
 
+### Account deletion purge
+
+`POST /api/v1/cron/account-purge`
+
+Permanently erases accounts whose 60-day grace period has run out (ARCHITECTURE.md §13.1
+step 4, PRIVACY_POLICY.md §8.3).
+
+A request qualifies only when `scheduledDeletionAt` is set **and** past, and it is neither
+cancelled nor already executed. A `PLATFORM_REVIEW` request that no superadmin has approved
+has no `scheduledDeletionAt` at all, so this job can never pick one up by accident.
+
+Each account is purged first and marked `executed` afterwards, so a crash part-way through
+leaves the request due and the next run finishes it. One account failing does not strand the
+rest of the batch. Returns `{ due, failed, purged }`.
+
+- Recommended schedule: daily (e.g. `0 3 * * *`).
+
 ### Dispatch scheduled notifications
 
 `POST /api/v1/cron/notification-dispatch`

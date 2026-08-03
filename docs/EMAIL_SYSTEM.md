@@ -907,6 +907,24 @@ _End of EMAIL_SYSTEM.md_
 - Link to cancel deletion
 - Urgent: You have until [date] to cancel
 
+**Built:** `packages/shared/src/email/templates/account/deletion-requested.ts`.
+Also sent when a superadmin **approves** a hostel owner's `PLATFORM_REVIEW`
+request, since that is the moment their 60-day clock actually starts.
+
+### 9.1a Account Deletion Request Needs Review *(added 2026-08-02)*
+
+**Trigger:** A `HOSTEL_ADMIN` asks to delete their account
+**Recipients:** every active SUPERADMIN
+**Template:** `platform/account-deletion-review`
+**Subject:** "Account deletion request from {name}"
+
+Not in the original spec, because the spec assumed every account could delete
+itself. A hostel owner's cannot — their residents, payments and staff depend on
+it — so the request is routed for review instead (ARCHITECTURE.md §13.0). The
+mail carries who asked, their role, the hostels attached to the account, their
+reason, and a link to `/platform/account-deletions`. It states plainly that
+nothing has changed on the account yet.
+
 ### 9.2 Account Deletion Cancelled
 
 **Trigger:** User cancels deletion request during grace period
@@ -918,6 +936,8 @@ _End of EMAIL_SYSTEM.md_
 - Confirmation account is active again
 - All data preserved
 - Login link
+
+**Built:** `packages/shared/src/email/templates/account/deletion-cancelled.ts`.
 
 ### 9.3 Location History Deletion Approved
 

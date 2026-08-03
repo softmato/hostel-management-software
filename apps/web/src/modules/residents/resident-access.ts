@@ -77,10 +77,12 @@ export async function findCurrentResident(principal: ApiPrincipal) {
   }
 
   if (!principal.hostelIds.includes(resident.hostelId.toString())) {
+    // Out-of-scope is reported exactly like a genuine miss (RULES.md §3), so
+    // the two cases above are indistinguishable from outside the tenant.
     throw new ResidentAccessError(
-      "This resident profile is outside the current session hostel scope.",
-      "TENANT_ACCESS_DENIED",
-      403,
+      "Resident profile was not found for this account.",
+      "RESIDENT_PROFILE_NOT_FOUND",
+      404,
     );
   }
 

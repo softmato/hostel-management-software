@@ -8,10 +8,12 @@ import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { type NightStatusRow, Message, PageHeader } from "./daily-operations-shared";
 import { EmptyState, LoadingRows, Panel, StatusBadge } from "@/app/_components/shared-ui";
+import { useConfirm } from "@/app/_components/confirm-dialog";
 
 export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPage() {
   const [actionMessage, setActionMessage] = useState("");
   const invalidate = useInvalidateResources();
+  const { confirm, confirmDialog } = useConfirm();
   const statusResource = usePortalResource<{ statuses: NightStatusRow[] }>(
     hostelAdminEndpoints.nightStatus,
     { errorMessage: "Could not load statuses." },
@@ -61,11 +63,14 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
         return;
       }
 
-      if (
-        !window.confirm(
-          `Mark ${pending.length} resident${pending.length === 1 ? "" : "s"} as ${statusValue.replaceAll("_", " ")}?`,
-        )
-      ) {
+      const confirmed = await confirm({
+        actionLabel: "Mark all",
+        description: `This overrides the recorded status for ${pending.length} resident${pending.length === 1 ? "" : "s"} at once. Each override is logged against your account.`,
+        title: `Mark ${pending.length} resident${pending.length === 1 ? "" : "s"} as ${statusValue.replaceAll("_", " ").toLowerCase()}?`,
+        tone: "destructive",
+      });
+
+      if (!confirmed) {
         return;
       }
 
@@ -92,11 +97,12 @@ export const HostelAdminNightStatusPage = memo(function HostelAdminNightStatusPa
       );
       invalidate(hostelAdminEndpoints.nightStatus);
     },
-    [invalidate, rows],
+    [confirm, invalidate, rows],
   );
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
+      {confirmDialog}
       <PageHeader
         description="Status-only safety summary for residents in this hostel."
         icon={ShieldCheck}

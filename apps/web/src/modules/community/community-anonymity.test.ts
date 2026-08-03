@@ -36,6 +36,7 @@ vi.mock("@hostel/db/models/CommunityComment", () => ({
 
 vi.mock("@hostel/db/models/CommunityReaction", () => ({
   CommunityReactionModel: {
+    countDocuments: vi.fn().mockResolvedValue(0),
     deleteOne: vi.fn(),
     find: mocks.reactionFind,
     findOne: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@/modules/community/community-settings", () => ({
 
 vi.mock("@/modules/notifications/notification.service", () => ({
   createInAppNotification: vi.fn(),
+  createOrUpdateBatchedNotification: vi.fn(),
 }));
 
 import {

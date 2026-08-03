@@ -6,9 +6,18 @@ export type TenantPrincipal = {
   userId: string;
 };
 
+/**
+ * A cross-tenant miss is reported as **404, not 403** (RULES.md §3).
+ *
+ * A 403 confirms the resource exists in some other hostel, which is exactly
+ * what an attacker walking `/api/v1/residents/<objectid>` wants to learn. From
+ * outside the tenant, "you may not see this" and "this does not exist" must be
+ * indistinguishable — same status, same errorCode, same message as a genuine
+ * miss.
+ */
 export class TenantAccessError extends Error {
-  status = 403;
-  errorCode = "TENANT_ACCESS_DENIED";
+  status = 404;
+  errorCode = "NOT_FOUND";
 }
 
 export function canAccessHostel(principal: TenantPrincipal, hostelId: string) {
@@ -21,7 +30,7 @@ export function canAccessHostel(principal: TenantPrincipal, hostelId: string) {
 
 export function assertHostelAccess(principal: TenantPrincipal, hostelId: string) {
   if (!canAccessHostel(principal, hostelId)) {
-    throw new TenantAccessError("You do not have access to this hostel.");
+    throw new TenantAccessError("Not found.");
   }
 }
 

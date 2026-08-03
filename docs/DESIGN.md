@@ -9,7 +9,25 @@
 
 ## 2. Foundation
 
-Built on **shadcn/ui** + Tailwind CSS. Do not hand-roll components that shadcn/ui already provides (Button, Card, Dialog, Tabs, Table, Badge, Select, Form, Toast, etc.) — extend them with variants rather than replacing them.
+Built on **shadcn/ui** + Tailwind CSS. Do not hand-roll components that shadcn/ui already provides (Button, Card, Dialog, AlertDialog, Tabs, Table, Badge, Select, Form, Toast, etc.) — extend them with variants rather than replacing them.
+
+**Confirmations use the shadcn `AlertDialog`, never `window.confirm`.** The
+native dialog ignores the theme, cannot say more than one line, and blocks the
+main thread. Use the `useConfirm()` hook in
+`app/_components/confirm-dialog.tsx`, which keeps the boolean-returning shape
+that made `window.confirm` convenient:
+
+```tsx
+const { confirm, confirmDialog } = useConfirm();
+// …
+if (!(await confirm({ title: "Delete your post?", description: "…", tone: "destructive" }))) return;
+// …
+return <>{confirmDialog}…</>;
+```
+
+Set `tone: "destructive"` for anything that removes, revokes or cannot be
+undone, and make `actionLabel` name the action ("Delete post", "Revoke access")
+rather than "OK" — the button label is the last thing read before committing.
 
 ### Color tokens
 

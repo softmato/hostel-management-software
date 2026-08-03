@@ -462,7 +462,7 @@ describe("resident daily-use services", () => {
         },
         staffPrincipal,
       ),
-    ).rejects.toMatchObject({ errorCode: "TENANT_ACCESS_DENIED", status: 403 });
+    ).rejects.toMatchObject({ errorCode: "NOT_FOUND", status: 404 });
 
     serviceMocks.paymentProofFindOne.mockReturnValueOnce(
       leanResult(paymentProofRecord()),
@@ -521,7 +521,7 @@ describe("resident daily-use services", () => {
   it("enforces notice tenant isolation and marks own-hostel notices read", async () => {
     await expect(
       listNotices({ hostelId: otherHostelId }, staffPrincipal),
-    ).rejects.toMatchObject({ errorCode: "TENANT_ACCESS_DENIED", status: 403 });
+    ).rejects.toMatchObject({ errorCode: "NOT_FOUND", status: 404 });
 
     serviceMocks.residentFindOne.mockReturnValueOnce(
       leanResult(residentRecord({ userId: objectId(userId) })),

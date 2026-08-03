@@ -15,7 +15,10 @@ import { CommunityCommentModel } from "@hostel/db/models/CommunityComment";
 import { CommunityPostModel } from "@hostel/db/models/CommunityPost";
 import { CommunityReactionModel } from "@hostel/db/models/CommunityReaction";
 import { CommunityReportModel } from "@hostel/db/models/CommunityReport";
-import { createInAppNotification } from "@/modules/notifications/notification.service";
+import {
+  createInAppNotification,
+  createOrUpdateBatchedNotification,
+} from "@/modules/notifications/notification.service";
 import { getCommunitySettings } from "@/modules/community/community-settings";
 import { maskProfanity } from "@/modules/community/profanity";
 import { UserModel } from "@hostel/db/models/User";
@@ -45,7 +48,8 @@ type AnnouncementInput = z.infer<typeof communityAnnouncementSchema>;
 
 type PostRecord = {
   _id: Types.ObjectId;
-  authorId: Types.ObjectId;
+  /** Null once the author's account has been purged (ARCHITECTURE.md §13.2). */
+  authorId: Types.ObjectId | null;
   body: string;
   commentCount: number;
   createdAt?: Date;
@@ -62,7 +66,8 @@ type PostRecord = {
 
 type CommentRecord = {
   _id: Types.ObjectId;
-  authorId: Types.ObjectId;
+  /** Null once the author's account has been purged (ARCHITECTURE.md §13.2). */
+  authorId: Types.ObjectId | null;
   body: string;
   createdAt?: Date;
   isAnonymous: boolean;
@@ -98,7 +103,9 @@ function resolveAdminHostelId(principal: ApiPrincipal, requestedHostelId?: strin
   );
 }
 
-async function namesByUserId(userIds: Types.ObjectId[]) {
+async function namesByUserId(ids: Array<Types.ObjectId | null>) {
+  const userIds = ids.filter((id): id is Types.ObjectId => Boolean(id));
+
   if (userIds.length === 0) {
     return new Map<string, string>();
   }
@@ -125,7 +132,10 @@ function serializePost(
     viewerUserId?: string;
   } = {},
 ) {
-  const anonymous = post.isAnonymous && !options.isModeratorView;
+  // A purged author is anonymous to everyone, moderators included — there is
+  // no longer an account for a moderator to act against, and re-identifying
+  // them would undo the erasure.
+  const anonymous = (post.isAnonymous && !options.isModeratorView) || !post.authorId;
 
   return {
     authorName: anonymous ? "Anonymous Resident" : (options.authorName ?? "Resident"),
@@ -136,7 +146,7 @@ function serializePost(
     id: post._id.toString(),
     isAnnouncement: post.isAnnouncement,
     isAnonymous: post.isAnonymous,
-    isMine: options.viewerUserId === post.authorId.toString(),
+    isMine: Boolean(post.authorId) && options.viewerUserId === post.authorId?.toString(),
     mediaAssetIds: post.mediaAssetIds,
     reactionCount: post.reactionCount,
     reportCount: options.isModeratorView ? post.reportCount : undefined,
@@ -235,7 +245,7 @@ export async function listCommunityFeed(query: FeedQuery, principal: ApiPrincipa
     pagination: paginationMeta(query, total),
     posts: posts.map((post) =>
       serializePost(post, {
-        authorName: names.get(post.authorId.toString()),
+        authorName: post.authorId ? names.get(post.authorId.toString()) : undefined,
         viewerReaction: reactionByPostId.get(post._id.toString()),
         viewerUserId: principal.userId,
       }),
@@ -286,7 +296,7 @@ export async function listPostComments(
 
   return {
     comments: comments.map((comment) =>
-      serializeComment(comment, names.get(comment.authorId.toString())),
+      serializeComment(comment, comment.authorId ? names.get(comment.authorId.toString()) : undefined),
     ),
     pagination: paginationMeta(query, total),
   };
@@ -314,7 +324,8 @@ export async function commentOnPost(
 
   // Tell the author someone replied — unless they replied to themselves, and
   // never in a way that names an anonymous commenter.
-  if (post.authorId.toString() !== principal.userId) {
+  // No author to tell once the account has been purged.
+  if (post.authorId && post.authorId.toString() !== principal.userId) {
     try {
       await createInAppNotification({
         body: "Someone commented on your community post.",
@@ -366,9 +377,53 @@ export async function reactToPost(
 
   if (!existing) {
     await CommunityPostModel.updateOne({ _id: post._id }, { $inc: { reactionCount: 1 } });
+    await notifyPostReaction(post, principal.userId, resident.hostelId);
   }
 
   return { reaction: input.type };
+}
+
+/**
+ * Tell the author their post got a reaction — batched into a single row per
+ * post ("5 people reacted to your post") rather than one notification each,
+ * which is what ARCHITECTURE §9.4 / RULES §14 / EMAIL_SYSTEM §8.1 ask for.
+ *
+ * Only called when a *new* reactor appears: switching LIKE → LOVE is the same
+ * person, and un-reacting is not news. The count is read back from the post so
+ * it reflects the true number of reactors, not how many times this ran.
+ *
+ * Never names the reactor. Reactions carry no anonymity flag, but a post's
+ * audience is the whole hostel and the author does not need to be handed a
+ * roster to know their post landed.
+ */
+async function notifyPostReaction(
+  post: PostRecord,
+  actorUserId: string,
+  hostelId: Types.ObjectId,
+) {
+  // Nothing to send when the author is themselves, or has been purged.
+  if (!post.authorId || post.authorId.toString() === actorUserId) {
+    return;
+  }
+
+  try {
+    const reactors = await CommunityReactionModel.countDocuments({ postId: post._id });
+
+    await createOrUpdateBatchedNotification({
+      body:
+        reactors === 1
+          ? "Someone reacted to your community post."
+          : `${reactors} people reacted to your community post.`,
+      category: "COMMUNITY",
+      data: { postId: post._id.toString(), reactionCount: reactors },
+      dedupeKey: `community-reaction:${post._id.toString()}`,
+      hostelId: hostelId.toString(),
+      title: "New reaction",
+      userId: post.authorId.toString(),
+    });
+  } catch {
+    // Engagement notifications never block the reaction itself.
+  }
 }
 
 export async function reportPost(
@@ -467,7 +522,7 @@ export async function listCommunityForModeration(
     pagination: paginationMeta(query, total),
     posts: posts.map((post) =>
       serializePost(post, {
-        authorName: names.get(post.authorId.toString()),
+        authorName: post.authorId ? names.get(post.authorId.toString()) : undefined,
         isModeratorView: true,
       }),
     ),
