@@ -1,12 +1,12 @@
 # Graph Report - hostel-management-software  (2026-08-03)
 
 ## Corpus Check
-- 849 files · ~1,660,315 words
+- 857 files · ~1,671,942 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 6446 nodes · 16241 edges · 307 communities (289 shown, 18 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 280 edges (avg confidence: 0.8)
+- 6546 nodes · 16513 edges · 308 communities (291 shown, 17 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 285 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
@@ -308,17 +308,18 @@
 - [[_COMMUNITY_Community 290|Community 290]]
 - [[_COMMUNITY_Community 291|Community 291]]
 - [[_COMMUNITY_Community 292|Community 292]]
-- [[_COMMUNITY_Community 295|Community 295]]
+- [[_COMMUNITY_Community 294|Community 294]]
+- [[_COMMUNITY_Community 296|Community 296]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `handleRouteError()` - 379 edges
-2. `successResponse()` - 375 edges
-3. `connectToDatabase()` - 238 edges
-4. `cn()` - 200 edges
-5. `connectToDatabase()` - 183 edges
+1. `handleRouteError()` - 386 edges
+2. `successResponse()` - 381 edges
+3. `connectToDatabase()` - 243 edges
+4. `cn()` - 205 edges
+5. `connectToDatabase()` - 184 edges
 6. `requireHostelStaffPrincipal()` - 116 edges
 7. `requireHostelCapability()` - 109 edges
-8. `browserApi()` - 98 edges
+8. `browserApi()` - 99 edges
 9. `requireResidentPrincipal()` - 72 edges
 10. `usePortalResource()` - 71 edges
 
@@ -334,51 +335,51 @@
 - `requireHostelCapability()` --calls--> `connectToDatabase()`  [INFERRED]
   apps/web/src/lib/api-auth.ts → packages/db/src/connection.ts
 
-## Communities (307 total, 18 thin omitted)
+## Communities (308 total, 17 thin omitted)
 
 ### Community 0 - "Community 0"
-Cohesion: 0.02
-Nodes (185): POST(), GET(), geocodeAndCacheHostel(), listHostelAdminInquiries(), addHostelAdminProfilePhoto(), deleteHostelAdminProfilePhoto(), getHostelAdminProfile(), HostelAdminProfileQuery (+177 more)
+Cohesion: 0.03
+Nodes (130): POST(), attacker, attempt(), headers, jsonRequest(), routeMocks, appBaseUrl(), authenticateWithGoogle() (+122 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.03
-Nodes (131): POST(), attacker, attempt(), headers, jsonRequest(), routeMocks, appBaseUrl(), authenticateWithGoogle() (+123 more)
+Nodes (94): PATCH(), POST(), RouteContext, GET(), attendanceAlertResolveSchema, attendanceOverrideSchema, attendanceSettingsSchema, POST() (+86 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.03
-Nodes (89): ConfirmOptions, Resolver, Resident, MoveEvent, HostelPreviewLink(), Notification, NotificationBell(), avatarToneClasses (+81 more)
+Nodes (88): DemoDataBadge(), UserRecord, GuardianDashboard, Message(), PageHeader(), Resident, Review, SOSAlert (+80 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.04
-Nodes (68): DemoDataBadge(), HostelTable(), UserRecord, GuardianDashboard, LoadState, Message(), NightStatusRow, PageHeader() (+60 more)
+Cohesion: 0.05
+Nodes (58): attendanceListQuerySchema, consentSchema, locationPingSchema, objectIdSchema, DELETE(), GET(), POST(), GET() (+50 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.03
-Nodes (76): dayOfWeekFor(), EMPTY_ROUTINE, FoodRoutine, FoodRoutineRecord, FoodRoutineSaveInput, getFoodRoutine(), isMonthEnd(), mealsOn() (+68 more)
+Cohesion: 0.04
+Nodes (71): EMPTY_SUMMARY, addDays(), COOK_PORTAL_DEFAULTS, CookPortalSettings, DayOfWeek, DAYS, FoodRoutine, formatWeekRange() (+63 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.04
-Nodes (65): GET(), attendanceListQuerySchema, attendanceOverrideSchema, GET(), POST(), POST(), RouteContext, GET() (+57 more)
+Cohesion: 0.06
+Nodes (57): BusyContext, BusyForm(), BusyFormProps, SubmitButton(), useConfirm(), field(), optionalNumber(), AcceptResult (+49 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.06
-Nodes (60): BusyContext, BusyForm(), BusyFormProps, SubmitButton(), useConfirm(), field(), optionalNumber(), AcceptResult (+52 more)
+Cohesion: 0.03
+Nodes (59): AccountDeletionPanel, DeletionPathway, DeletionStatus, PATHWAY_COPY, csvField(), deferLoad(), field(), Hostel (+51 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.04
-Nodes (59): csvField(), deferLoad(), field(), Hostel, Inquiry, LoadState, Message(), numberField() (+51 more)
+Cohesion: 0.06
+Nodes (53): GenericPortalScreen(), portalRows(), portalTitle(), PublicComparePage(), PublicHostel, ROUTINE_DAYS, ROUTINE_MEALS, hasFood() (+45 more)
 
 ### Community 8 - "Community 8"
 Cohesion: 0.04
-Nodes (79): deleteResidentLocationHistory(), listAttendanceAlerts(), authorUserId, mocks, postId, residentId, residentPrincipal, staffPrincipal (+71 more)
+Nodes (63): Notification, PagerButton(), PublicHostelListingPage(), InquiryPage(), cn(), Alert(), AlertAction(), AlertDescription() (+55 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.04
-Nodes (73): EMPTY_SUMMARY, HostelAdminComplaintsPage, addDays(), COOK_PORTAL_DEFAULTS, CookPortalSettings, DayOfWeek, DAYS, FoodRoutine (+65 more)
+Cohesion: 0.06
+Nodes (56): GET(), POST(), GET(), POST(), GET(), GET(), POST(), POST() (+48 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.05
-Nodes (58): POST(), consentSchema, locationPingSchema, objectIdSchema, POST(), DELETE(), POST(), GET() (+50 more)
+Cohesion: 0.04
+Nodes (60): ApiPrincipal, PaginationMeta, PaginationQuery, paginationQuerySchema, querySchema, noticeReadStatusSchema, notificationSchema, ratingReviewSchema (+52 more)
 
 ### Community 11 - "Community 11"
 Cohesion: 0.06
@@ -386,571 +387,571 @@ Nodes (55): PRIORITIES, STATUS_ACTIONS, AttendanceAnalytics, FoodAnalytics, Host
 
 ### Community 12 - "Community 12"
 Cohesion: 0.04
-Nodes (45): ComparePage(), hostels, metadata, rows, HostelAdminDashboardPageContent(), HostelAdminInquiriesPageContent(), PlatformDashboardPageContent(), PlatformHostelsPageContent() (+37 more)
+Nodes (56): HostelAdminWorkspaceLayout(), HostelAdminWorkspaceLayoutProps, normalize(), PortalSearch(), PortalTone, scoreEntry(), toneStyles, iconMap (+48 more)
 
 ### Community 13 - "Community 13"
-Cohesion: 0.06
-Nodes (49): GET(), POST(), GET(), GET(), POST(), attendanceSettingsSchema, getCommunitySettings(), communitySettingsSchema (+41 more)
+Cohesion: 0.05
+Nodes (54): GET(), resolvePastedLink(), searchCandidates(), geocodeAndCacheHostel(), HostelGeoRecord, refreshStaleNearbyPlaces(), sleep(), hostelAdminGeocodeQuerySchema (+46 more)
 
 ### Community 14 - "Community 14"
 Cohesion: 0.04
-Nodes (39): GET(), PATCH(), RouteContext, listPlatformAuditLogs(), PlatformAuditLogQueryInput, platformAuditLogQuerySchema, GET(), PATCH() (+31 more)
+Nodes (38): PATCH(), RouteContext, listPlatformAuditLogs(), PlatformAuditLogQueryInput, platformAuditLogQuerySchema, GET(), DELETE(), PATCH() (+30 more)
 
 ### Community 15 - "Community 15"
-Cohesion: 0.06
-Nodes (61): demoteToPublicAccount(), POST(), RouteContext, CapacityError, claimBedForRoomType(), listAvailableRoomTypes(), loadConfigurations(), moveBedBetweenRoomTypes() (+53 more)
+Cohesion: 0.08
+Nodes (73): getResidentAttendance(), listAttendanceAlerts(), listCommunityFeed(), listCommunityForModeration(), listPostComments(), namesByUserId(), addComplaintUpdate(), auditComplaintAction() (+65 more)
 
 ### Community 16 - "Community 16"
-Cohesion: 0.09
-Nodes (39): GenericPortalScreen(), portalRows(), portalTitle(), PublicComparePage(), PublicHostel, PublicHostel, LoadState, PublicHostelListingPageContent() (+31 more)
+Cohesion: 0.05
+Nodes (56): RouteContext, authorUserId, mocks, postId, residentId, residentPrincipal, staffPrincipal, AnnouncementInput (+48 more)
 
 ### Community 17 - "Community 17"
-Cohesion: 0.16
-Nodes (42): GenericPortalScreen(), portalRows(), portalTitle(), PublicHostelDetailPage(), PublicHostelListingPage(), PublicInquiryPage(), AnimatedPage(), AuthMode (+34 more)
+Cohesion: 0.05
+Nodes (53): POST(), acceptGuardianInvitation(), daysFromNow(), enabledPermissionLabels(), findResidentOwnedAccess(), GuardianAccessRecord, GuardianInvitationAcceptInput, GuardianInviteInput (+45 more)
 
 ### Community 18 - "Community 18"
-Cohesion: 0.04
-Nodes (29): adminPrincipal, mocks, PLATFORM_LIMITS, MockSessionModel, serviceMocks, session, user, authorUserId (+21 more)
+Cohesion: 0.16
+Nodes (41): GenericPortalScreen(), portalRows(), portalTitle(), PublicHostelDetailPage(), PublicInquiryPage(), AnimatedPage(), AuthMode, Breadcrumbs() (+33 more)
 
 ### Community 19 - "Community 19"
 Cohesion: 0.06
-Nodes (55): extractJsonPayload(), parseModelJson(), sanitizeJsonPayload(), VALID_JSON_ESCAPES, buildMessages(), CHAT_ENDPOINTS, ChatCompletionResponse, ChatMessage (+47 more)
+Nodes (53): demoteToPublicAccount(), CapacityError, claimBedForRoomType(), listAvailableRoomTypes(), loadConfigurations(), moveBedBetweenRoomTypes(), refreshCapacitySummary(), releaseBedForRoomType() (+45 more)
 
 ### Community 20 - "Community 20"
+Cohesion: 0.04
+Nodes (37): adminPrincipal, mocks, PLATFORM_LIMITS, MockSessionModel, serviceMocks, session, user, HostelRef (+29 more)
+
+### Community 21 - "Community 21"
 Cohesion: 0.15
 Nodes (34): accountDeletionCancelledEmail(), accountUpgradedEmail(), verificationEmail(), guardianInvitationEmail(), sosAlertEmail(), cookPortalEnabledEmail(), hostelDocumentsRequestedEmail(), hostelApprovedEmail() (+26 more)
 
-### Community 21 - "Community 21"
+### Community 22 - "Community 22"
+Cohesion: 0.06
+Nodes (54): extractJsonPayload(), parseModelJson(), sanitizeJsonPayload(), VALID_JSON_ESCAPES, buildMessages(), CHAT_ENDPOINTS, ChatCompletionResponse, ChatMessage (+46 more)
+
+### Community 23 - "Community 23"
+Cohesion: 0.04
+Nodes (43): AuthGuard(), Offset, PhotoCropper(), CurrentUser, MeResponse, PortalAccount(), PortalTone, readableRole() (+35 more)
+
+### Community 24 - "Community 24"
+Cohesion: 0.04
+Nodes (45): attachFiles(), ComplaintAttachmentRecord, ComplaintCategory, complaintChildren(), ComplaintCreateInput, ComplaintListQuery, ComplaintRecord, ComplaintReplyInput (+37 more)
+
+### Community 25 - "Community 25"
+Cohesion: 0.05
+Nodes (39): ComparePage(), hostels, metadata, rows, HostelAdminDashboardPageContent(), HostelAdminInquiriesPageContent(), HostelAdminRoomsPageContent(), PlatformDashboardPageContent() (+31 more)
+
+### Community 26 - "Community 26"
 Cohesion: 0.07
 Nodes (48): absenceStreak(), ABSENT_ZONES, runAttendanceMaintenance(), SettingsRecord, AttendanceConfig, AttendanceZone, notifyAdminsOfNewComplaint(), notifyResidentOfComplaintReply() (+40 more)
 
-### Community 22 - "Community 22"
-Cohesion: 0.05
-Nodes (36): GET(), RouteContext, requireGuardianPrincipal(), ApiError, ApiSuccess, GET(), POST(), GET() (+28 more)
-
-### Community 23 - "Community 23"
-Cohesion: 0.05
-Nodes (45): categoryLabel(), PROVIDER_CATEGORIES, ProviderCard(), ProviderDirectoryData, PublicProvider, PublicServiceProviderDirectoryPage(), escapeRegex(), objectIdSchema (+37 more)
-
-### Community 24 - "Community 24"
-Cohesion: 0.07
-Nodes (45): POST(), addUtcDay(), auditFoodAction(), createFoodMenu(), dayRange(), definedUpdate(), FoodFeedbackInput, FoodFeedbackRecord (+37 more)
-
-### Community 25 - "Community 25"
-Cohesion: 0.06
-Nodes (47): addComplaintUpdate(), attachFiles(), auditComplaintAction(), ComplaintAttachmentRecord, ComplaintCategory, complaintChildren(), ComplaintCreateInput, ComplaintListQuery (+39 more)
-
-### Community 26 - "Community 26"
-Cohesion: 0.05
-Nodes (41): AuditLogRecord, PlatformAuditLogQuery, RefRecord, CachedConnection, globalForMongoose, candidateRoots, { loadEnvConfig }, require (+33 more)
-
 ### Community 27 - "Community 27"
-Cohesion: 0.05
-Nodes (46): referralSchema, referralCodeSchema, referralRewardSchema, activeCode, codeId, hostelId, joinedResidentId, mocks (+38 more)
+Cohesion: 0.06
+Nodes (52): receiptSchema, arrangeProof(), leanResult(), mocks, paymentId, residentAId, residentBId, staffPrincipal (+44 more)
 
 ### Community 28 - "Community 28"
-Cohesion: 0.06
-Nodes (29): LegacyHostelAdminAttendancePage(), LegacyHostelAdminCommunityPage(), LegacyHostelAdminComplaintsPage(), HostelAdminMoveChecklistPage(), HostelAdminNightStatusPage(), HostelAdminComplaintsPage(), HostelAdminTransactionsPageContent, HostelAdminWardensPage (+21 more)
+Cohesion: 0.05
+Nodes (47): GoogleAuthButton(), GoogleAuthButtonProps, GoogleAuthResponse, GoogleAuthUser, GoogleCredentialResponse, Window, cook, assertAllowedRole() (+39 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.07
-Nodes (50): receiptSchema, arrangeProof(), leanResult(), mocks, paymentId, residentAId, residentBId, staffPrincipal (+42 more)
+Cohesion: 0.05
+Nodes (45): referralSchema, referralCodeSchema, referralRewardSchema, activeCode, codeId, hostelId, joinedResidentId, mocks (+37 more)
 
 ### Community 30 - "Community 30"
-Cohesion: 0.04
-Nodes (35): AuthGuard(), fadeUp, Feature, features, heroSlides, PublicHostelRegistrationLandingPage(), stagger, stats (+27 more)
+Cohesion: 0.07
+Nodes (44): CSV_COLUMNS, GET(), POST(), safeEqual(), GET(), csvCell(), csvFilename(), csvResponse() (+36 more)
 
 ### Community 31 - "Community 31"
-Cohesion: 0.05
-Nodes (40): CurrentUser, MeResponse, PortalAccount(), PortalTone, readableRole(), toneBg, toneRing, CurrentUser (+32 more)
+Cohesion: 0.04
+Nodes (47): addHostelAdminInquiryNote(), BedCreateInput, BedRecord, BedUpdateInput, comparePublicHostels(), DocumentRequestNotification, findScopedInquiry(), FloorCreateInput (+39 more)
 
 ### Community 32 - "Community 32"
 Cohesion: 0.06
-Nodes (42): PATCH(), POST(), RouteContext, qrActivationSchema, before, expiresAt, mocks, staffPrincipal (+34 more)
+Nodes (27): LegacyHostelAdminAttendancePage(), LegacyHostelAdminCommunityPage(), LegacyHostelAdminComplaintsPage(), HostelAdminMoveChecklistPage(), HostelAdminNightStatusPage(), HostelAdminSOSAlertsPage(), HostelAdminComplaintsPage(), redirectToWorkspaceScreen() (+19 more)
 
 ### Community 33 - "Community 33"
-Cohesion: 0.06
-Nodes (40): ATTENDANCE_DEFAULTS, AttendanceAlertResolveInput, AttendanceListQuery, AttendanceLogRecord, AttendanceOverrideInput, AttendanceServiceError, AttendanceSettingsInput, ConsentInput (+32 more)
+Cohesion: 0.04
+Nodes (34): fadeUp, Feature, features, heroSlides, PublicHostelRegistrationLandingPage(), stagger, stats, cityOptions (+26 more)
 
 ### Community 34 - "Community 34"
 Cohesion: 0.06
-Nodes (37): PaginationMeta, PaginationQuery, paginationQuerySchema, querySchema, deviceTokenSchema, noticeReadStatusSchema, notificationSchema, auditNoticeAction() (+29 more)
+Nodes (40): LegalBody(), PublicPricingPageContent(), PublicPrivacyPage(), sections, PublicTermsPage(), sections, SiteAnnouncementBanner(), toneClasses (+32 more)
 
 ### Community 35 - "Community 35"
 Cohesion: 0.06
-Nodes (34): incidentLogSchema, manualStatusOverrideSchema, nightStatusLogSchema, residentSchema, sosAlertSchema, normalizeObjectId(), ResidentAccessError, ResidentRecord (+26 more)
+Nodes (41): HostelPhotoReminder(), CITY_OPTIONS, FACILITY_STATS, HOSTEL_TYPE_STATS, TRUST_POINTS, CITY_OPTIONS, FACILITY_STATS, HOSTEL_TYPE_STATS (+33 more)
 
 ### Community 36 - "Community 36"
 Cohesion: 0.05
-Nodes (48): API Integration, API reference, APIs Needed, Auth, Auth Screens, code:bash (npm install), code:bash (npm run mobile:start), code:bash (npm run mobile:typecheck) (+40 more)
+Nodes (42): assertHostelAccess(), canAccessHostel(), hostelScopedFilter(), TenantAccessError, TenantPrincipal, notificationCampaignSchema, CampaignListQuery, CampaignRecord (+34 more)
 
 ### Community 37 - "Community 37"
 Cohesion: 0.05
-Nodes (25): field(), GuardianDashboard, GuardianDashboardPageContent(), HostelAdminSOSAlertsPage(), LoadState, NightStatusRow, Notification, NotificationsPageContent() (+17 more)
+Nodes (48): API Integration, API reference, APIs Needed, Auth, Auth Screens, code:bash (npm install), code:bash (npm run mobile:start), code:bash (npm run mobile:typecheck) (+40 more)
 
 ### Community 38 - "Community 38"
-Cohesion: 0.07
-Nodes (32): HostelAdminWorkspaceLayout(), HostelAdminWorkspaceLayoutProps, HostelPhotoReminder(), PortalShell(), navItems, navItems, canAccessWorkspace(), workspaceHostelName() (+24 more)
+Cohesion: 0.06
+Nodes (30): emergencyContactSchema, incidentLogSchema, manualStatusOverrideSchema, nightStatusSchema, nightStatusLogSchema, sosAlertSchema, EmergencyContactRecord, findAdminResident() (+22 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.07
-Nodes (39): addHistory(), addMaintenanceComment(), assertBedInHostel(), assertProviderApproved(), assertRoomInHostel(), auditMaintenanceAction(), BedRecord, createMaintenanceRequest() (+31 more)
+Cohesion: 0.06
+Nodes (23): field(), GuardianDashboard, GuardianDashboardPageContent(), LoadState, NightStatusRow, Notification, NotificationsPageContent(), optionalNumber() (+15 more)
 
 ### Community 40 - "Community 40"
-Cohesion: 0.08
-Nodes (37): getHostelViewStats(), foodFeedbackSchema, listingFlagSchema, paymentProofSchema, ratingReviewSchema, averageResolutionDays(), bucketBoundaries(), collectionRate() (+29 more)
+Cohesion: 0.1
+Nodes (20): PlatformConfigAnnouncementsPageContent, PlatformConfigFacilitiesPageContent, FLAGS, PlatformConfigFeaturesPageContent, PlatformConfigLegalPageContent, PlatformConfigLocationsPageContent, PlatformConfigPricingPageContent, ConfigCard() (+12 more)
 
 ### Community 41 - "Community 41"
-Cohesion: 0.07
-Nodes (36): SiteAnnouncementBanner(), toneClasses, FALLBACK, SiteConfigContext, SiteConfigProvider(), useFeatureFlag(), platformSettingSchema, DEFAULT_SITE_CONFIG (+28 more)
+Cohesion: 0.1
+Nodes (30): cookieAccessToken(), isRole(), loadApiPrincipal(), ImageVariantRecord, optimizeImage(), streamToBuffer(), VARIANT_CONFIG, VariantName (+22 more)
 
 ### Community 42 - "Community 42"
-Cohesion: 0.07
-Nodes (34): notificationCampaignSchema, CampaignListQuery, CampaignRecord, createCampaign(), createHostelNotificationCampaign(), createPlatformNotificationCampaign(), dispatchCampaign(), dispatchDueCampaigns() (+26 more)
+Cohesion: 0.08
+Nodes (26): bedSchema, depositRefundSchema, moveInChecklistSchema, moveOutChecklistSchema, providedItemSchema, auditMoveAction(), createMoveInChecklist(), createMoveOutChecklist() (+18 more)
 
 ### Community 43 - "Community 43"
 Cohesion: 0.07
-Nodes (33): COMMUNITY_DEFAULTS, CommunitySettings, announceFoodReady(), cookEmailForSlug(), CookPortalUpdateInput, CookServiceError, FoodReadyInput, generatePassword() (+25 more)
+Nodes (28): guardianSchema, noticeSchema, paymentSchema, ResidentRecord, objectId(), paymentProofRecord(), paymentRecord(), receiptRecord() (+20 more)
 
 ### Community 44 - "Community 44"
-Cohesion: 0.08
-Nodes (32): accountDeletionRequestedEmail(), accountDeletionRequestSchema, sessionSchema, AccountDeletionError, applyImmediateEffects(), cancelAccountDeletionByToken(), cancelAccountDeletionForUser(), cancelUrlFor() (+24 more)
+Cohesion: 0.06
+Nodes (25): csvField(), field(), Hostel, HostelAdminProfilePageContent(), Inquiry, LoadState, numberField(), optionalField() (+17 more)
 
 ### Community 45 - "Community 45"
-Cohesion: 0.11
-Nodes (17): PlatformConfigAnnouncementsPageContent, PlatformConfigFacilitiesPageContent, FLAGS, PlatformConfigFeaturesPageContent, PlatformConfigLegalPageContent, PlatformConfigLocationsPageContent, PlatformConfigPricingPageContent, ConfigCard() (+9 more)
+Cohesion: 0.1
+Nodes (35): getHostelViewStats(), paymentProofSchema, averageResolutionDays(), bucketBoundaries(), collectionRate(), countByField(), CountingModel, countVacantBeds() (+27 more)
 
 ### Community 46 - "Community 46"
 Cohesion: 0.08
-Nodes (25): AccountDeletionPanel, DeletionPathway, DeletionStatus, PATHWAY_COPY, CancelDeletionPageContent(), Notification, Campaign, HostelAdminNotificationsPageContent (+17 more)
+Nodes (29): escapeRegex(), objectIdSchema, paginationSchema, phoneSchema, serviceProviderApplicationSchema, serviceProviderDocumentSchema, approveServiceProvider(), auditProviderAction() (+21 more)
 
 ### Community 47 - "Community 47"
-Cohesion: 0.11
-Nodes (28): cookieAccessToken(), isRole(), loadApiPrincipal(), ImageVariantRecord, optimizeImage(), streamToBuffer(), VARIANT_CONFIG, VariantName (+20 more)
+Cohesion: 0.06
+Nodes (25): currency(), Input(), TextArea(), ResidentActivationPageContent, ResidentComplaintsPageContent, ResidentFoodPageContent, ResidentNoticesPageContent, ResidentPaymentsPageContent (+17 more)
 
 ### Community 48 - "Community 48"
-Cohesion: 0.06
-Nodes (25): currency(), EmptyState(), TextArea(), ResidentActivationPageContent, ResidentComplaintsPageContent, ResidentFoodPageContent, ResidentNoticesPageContent, ResidentPaymentsPageContent (+17 more)
+Cohesion: 0.08
+Nodes (31): announceFoodReady(), cookEmailForSlug(), CookPortalUpdateInput, CookServiceError, FoodReadyInput, generatePassword(), getCookPortalSettings(), HostelSettingsRecord (+23 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.06
-Nodes (25): HostelAdminFoodPage, Complaint, ComplaintSummary, field(), FoodMenu, HostelAdminFoodPage(), HostelAdminNoticesPage(), HostelAdminPaymentsPage() (+17 more)
+Cohesion: 0.07
+Nodes (21): GET(), RouteContext, POST(), RouteContext, POST(), RouteContext, emergencyContactCreateSchema, guardianCreateSchema (+13 more)
 
 ### Community 50 - "Community 50"
+Cohesion: 0.08
+Nodes (28): qrActivationSchema, before, expiresAt, mocks, staffPrincipal, activateResident(), ActivationCodeGenerateInput, ActivationCodeInput (+20 more)
+
+### Community 51 - "Community 51"
 Cohesion: 0.05
 Nodes (36): 1. Authentication & Authorization Flow, 2. Cloudflare R2 Storage & Optimization Layer, 3. Hard Tenant Isolation, Backend Tasks, Backend Tasks, Backend Tasks, Backend Tasks, Backend Tasks (+28 more)
 
-### Community 51 - "Community 51"
-Cohesion: 0.08
-Nodes (27): CITY_OPTIONS, FACILITY_STATS, HOSTEL_TYPE_STATS, TRUST_POINTS, CITY_OPTIONS, FACILITY_STATS, HOSTEL_TYPE_STATS, MOCK_HOSTELS (+19 more)
-
 ### Community 52 - "Community 52"
-Cohesion: 0.07
-Nodes (19): attendanceAlertResolveSchema, GET(), PATCH(), RouteContext, GET(), GET(), GET(), PATCH() (+11 more)
+Cohesion: 0.09
+Nodes (27): HostelSuggestions(), PublicHostel, checkOnly(), EMPTY_PREFILL, ENVIRONMENT_OPTIONS, IdentityResponse, Prefill, Step (+19 more)
 
 ### Community 53 - "Community 53"
-Cohesion: 0.09
-Nodes (25): depositRefundSchema, moveInChecklistSchema, moveOutChecklistSchema, providedItemSchema, auditMoveAction(), createMoveInChecklist(), createMoveOutChecklist(), findAdminResident() (+17 more)
+Cohesion: 0.07
+Nodes (24): BedRecord, MaintenanceCommentCreateInput, MaintenanceCommentRecord, MaintenanceHistoryRecord, MaintenanceRequestCreateInput, MaintenanceRequestListQuery, MaintenanceRequestRecord, MaintenanceServiceError (+16 more)
 
 ### Community 54 - "Community 54"
-Cohesion: 0.06
-Nodes (34): 10. What Not To Do, 1. Principles, 2. Foundation, 3. Layout Per Portal, 4. Key Screens & Components (Build These as Shared Components), 5. States Every List/Detail View Must Handle, 6. Accessibility, 7. Responsive Breakpoints (+26 more)
+Cohesion: 0.07
+Nodes (21): LoadingRows(), Panel(), field(), HostelAdminReferralsPageContent(), HostelAdminServiceProvidersPageContent(), ListingFlag, LoadState, MaintenanceRequest (+13 more)
 
 ### Community 55 - "Community 55"
 Cohesion: 0.09
-Nodes (23): formatHostelAddress(), hasFood(), hostelTypeToUi(), mapPublicHostelToSummary(), roomTypeLabel(), CATEGORY_LABELS, NEARBY_GROUPS, PublicHostelDetailPage() (+15 more)
+Nodes (29): ATTENDANCE_DEFAULTS, AttendanceAlertResolveInput, AttendanceListQuery, AttendanceLogRecord, AttendanceOverrideInput, AttendanceServiceError, AttendanceSettingsInput, ConsentInput (+21 more)
 
 ### Community 56 - "Community 56"
-Cohesion: 0.08
-Nodes (28): POST(), acceptGuardianInvitation(), daysFromNow(), enabledPermissionLabels(), findResidentOwnedAccess(), GuardianAccessRecord, GuardianInvitationAcceptInput, GuardianInviteInput (+20 more)
+Cohesion: 0.06
+Nodes (34): 10. What Not To Do, 1. Principles, 2. Foundation, 3. Layout Per Portal, 4. Key Screens & Components (Build These as Shared Components), 5. States Every List/Detail View Must Handle, 6. Accessibility, 7. Responsive Breakpoints (+26 more)
 
 ### Community 57 - "Community 57"
-Cohesion: 0.06
-Nodes (33): 1.1 Deliverables, 1.2 Acceptance Tests, 1.3 Phase 1 Definition of Done, 2.1 Deliverables, 2.2 Acceptance Tests, 2.3 Phase 2 Definition of Done, 3.1 Deliverables, 3.2 Acceptance Tests (+25 more)
+Cohesion: 0.07
+Nodes (22): Complaint, ComplaintSummary, field(), FoodMenu, HostelAdminFoodPage(), HostelAdminNoticesPage(), HostelAdminPaymentsPage(), HostelAdminResidentsPage() (+14 more)
 
 ### Community 58 - "Community 58"
 Cohesion: 0.07
-Nodes (27): AttendanceAlert, AttendanceCalendar(), AttendanceRow, HostelAdminAttendancePageContent, Zone, ZONE_ORDER, ZONE_STYLES, HostelAdminCommunityPageContent (+19 more)
+Nodes (27): LoadState, NightStatusRow, AttendanceAlert, AttendanceCalendar(), AttendanceRow, HostelAdminAttendancePageContent, Zone, ZONE_ORDER (+19 more)
 
 ### Community 59 - "Community 59"
+Cohesion: 0.1
+Nodes (26): addUtcDay(), auditFoodAction(), createFoodMenu(), dayRange(), definedUpdate(), FoodFeedbackInput, FoodFeedbackRecord, FoodMenuCreateInput (+18 more)
+
+### Community 60 - "Community 60"
+Cohesion: 0.09
+Nodes (28): BedCreateInput, BedRecord, BedUpdateInput, createHostelAdminBed(), createHostelAdminFloor(), createHostelAdminRoom(), findFloorInHostel(), findRoomInHostel() (+20 more)
+
+### Community 61 - "Community 61"
+Cohesion: 0.06
+Nodes (33): 1.1 Deliverables, 1.2 Acceptance Tests, 1.3 Phase 1 Definition of Done, 2.1 Deliverables, 2.2 Acceptance Tests, 2.3 Phase 2 Definition of Done, 3.1 Deliverables, 3.2 Acceptance Tests (+25 more)
+
+### Community 62 - "Community 62"
+Cohesion: 0.11
+Nodes (29): ApiFailure, apiRequest(), ApiSuccess, AuthUser, getActivationStatus(), getResidentNightStatus(), listNotifications(), listResidentFood() (+21 more)
+
+### Community 63 - "Community 63"
 Cohesion: 0.06
 Nodes (32): 1. Phase Goal, 2. Current Progress Summary, 3.1 Resident Registration, 3.2 QR Activation, 3.3 Resident Dashboard, 3.4 Payment Records, 3.5 Food Transparency, 3.6 Notice System (+24 more)
 
-### Community 60 - "Community 60"
+### Community 64 - "Community 64"
+Cohesion: 0.1
+Nodes (20): CancelDeletionPageContent(), Notification, Campaign, HostelAdminNotificationsPageContent, Resident, NotificationsPageContent, ResidentQuestionCallCard(), ApiPayload (+12 more)
+
+### Community 65 - "Community 65"
+Cohesion: 0.11
+Nodes (26): accountDeletionRequestedEmail(), AccountDeletionError, applyImmediateEffects(), cancelAccountDeletionByToken(), cancelAccountDeletionForUser(), cancelUrlFor(), DeletionPathway, DeletionRequestRecord (+18 more)
+
+### Community 66 - "Community 66"
 Cohesion: 0.11
 Nodes (26): auditWardenAction(), createHostelWarden(), deactivateHostelWarden(), findScopedWarden(), HostelMemberRecord, hydrateUser(), MemberStatus, serializeWarden() (+18 more)
 
-### Community 61 - "Community 61"
-Cohesion: 0.08
-Nodes (19): Panel(), Select(), field(), HostelAdminServiceProvidersPageContent(), ListingFlag, LoadState, MaintenanceRequest, optionalField() (+11 more)
-
-### Community 62 - "Community 62"
-Cohesion: 0.07
-Nodes (21): csvField(), field(), Hostel, HostelAdminRoomsPageContent(), Inquiry, LoadState, numberField(), optionalField() (+13 more)
-
-### Community 63 - "Community 63"
-Cohesion: 0.1
-Nodes (22): normalize(), PortalSearch(), PortalTone, scoreEntry(), toneStyles, iconMap, IconName, NavItem (+14 more)
-
-### Community 64 - "Community 64"
-Cohesion: 0.09
-Nodes (11): PublicHostelListingPage(), ComparePageSkeleton(), HostelDetailPageSkeleton(), HostelListingPageSkeleton(), InquiryPageSkeleton(), emptyFilters, Filters, metadata (+3 more)
-
-### Community 65 - "Community 65"
-Cohesion: 0.09
-Nodes (12): AuthShell(), AuthShellProps, AuthExperiencePage(), ThemeToggle(), ThemeToggleProps, metadata, AuthResponse, OtpRequestData (+4 more)
-
-### Community 66 - "Community 66"
-Cohesion: 0.07
-Nodes (26): 10. Testing Conventions, 11. Formatting/Linting, 12. Best Practices, 13. MongoDB/Mongoose Specifics, 14. Environment Variables, 1. TypeScript, 2. Naming, 3. File/Folder Structure Per Feature (+18 more)
-
 ### Community 67 - "Community 67"
-Cohesion: 0.07
-Nodes (26): 10. Privacy Principles (non-negotiable product rules), 11. Success Criteria (v1 / end of Phase 5), 12. Open Questions / Risks to revisit with the client, 13. Feature Comparison: Web vs Mobile, 14. Key Terminology, 1. Problem Statement, 2. Product Vision, 3. Target Users / Personas (+18 more)
+Cohesion: 0.13
+Nodes (28): userResidentProfileSchema, ageFromDateOfBirth(), cardPhotoImageUrl(), clearResidentIdentityPhoto(), generateResidentId(), getResidentIdentity(), getResidentIdentityQr(), isCardPhotoImage() (+20 more)
 
 ### Community 68 - "Community 68"
-Cohesion: 0.13
-Nodes (22): encryptPersonalData(), userResidentProfileSchema, ageFromDateOfBirth(), generateResidentId(), getResidentIdentity(), getResidentIdentityQr(), lookupResidentProfile(), mintResidentId() (+14 more)
+Cohesion: 0.1
+Nodes (26): addHostelAdminProfilePhoto(), deleteHostelAdminProfilePhoto(), HostelAdminProfileQuery, HostelAdminProfileUpdateInput, HostelChangeRequestInput, HostelPhotoCreateInput, HostelPhotoDeleteQuery, LOCKED_NAME_STATUSES (+18 more)
 
 ### Community 69 - "Community 69"
-Cohesion: 0.09
-Nodes (19): allBlank, blankable, parsed, paths, result, validProfile, BLOOD_GROUP_VALUES, DIETARY_PREFERENCE_VALUES (+11 more)
+Cohesion: 0.1
+Nodes (19): POST(), dayOfWeekSchema, foodFeedbackSchema, foodMenuCreateSchema, foodMenuListQuerySchema, foodMenuUpdateSchema, foodPhotoUploadSchema, foodRoutineSaveSchema (+11 more)
 
 ### Community 70 - "Community 70"
 Cohesion: 0.08
-Nodes (24): 10. Git & Commits, 11. Code Review Checklist (Self-Review Before Asking for Human Review), 12. Performance Considerations, 12. Privacy & Location Tracking Rules, 13. Cook Portal Rules, 13. Debugging & Logging, 14. Common Pitfalls to Avoid, 14. Community Feature Rules (+16 more)
+Nodes (25): dayOfWeekFor(), EMPTY_ROUTINE, FoodRoutine, FoodRoutineRecord, FoodRoutineSaveInput, isMonthEnd(), mealsOn(), ROUTINE_DAYS (+17 more)
 
 ### Community 71 - "Community 71"
-Cohesion: 0.1
-Nodes (25): 4.1 Complaint System, 4.2 Night Safety Status, 4.3 SOS / Emergency, 4.4 Guardian Dashboard, 4.5 Move-In / Move-Out Checklist, 4.6 Ratings and Reviews, 4.7 Notifications Foundation, 4.8 QA Tasks (+17 more)
+Cohesion: 0.11
+Nodes (15): PlatformHostelsPageContent(), PlatformHostelsPageContent, PortalExperiencePage(), PortalPlaceholderAction, PortalPlaceholderPage(), PortalPlaceholderPageProps, ResidentProfilePageContent(), ResidentProfilePageContent (+7 more)
 
 ### Community 72 - "Community 72"
-Cohesion: 0.1
-Nodes (21): GoogleAuthButton(), GoogleAuthButtonProps, GoogleAuthResponse, GoogleAuthUser, GoogleCredentialResponse, Window, DEMO_ACCOUNTS, DemoRole (+13 more)
+Cohesion: 0.12
+Nodes (23): uploadPublicFile(), handles, UploadHandle, UploadStatus, UploadStore, ApiEnvelope, parseEnvelope(), sendUpload() (+15 more)
 
 ### Community 73 - "Community 73"
-Cohesion: 0.13
-Nodes (20): progressCaption(), secondsLabel(), Toast, TOAST_TONE, Toaster(), UploadRow, UploadStack(), useIsHydrated() (+12 more)
+Cohesion: 0.1
+Nodes (17): inferKind(), LightboxItem, MediaLightbox(), CATEGORY_LABELS, NEARBY_GROUPS, PublicReview, PublicReviewData, RoomCard (+9 more)
 
 ### Community 74 - "Community 74"
-Cohesion: 0.08
-Nodes (23): AuthProvider, BedStatus, CommunityPostVisibility, ComplaintCategory, ComplaintStatus, HostelStatus, InquiryStatus, LocationZone (+15 more)
+Cohesion: 0.1
+Nodes (22): progressCaption(), secondsLabel(), Toast, TOAST_TONE, Toaster(), UploadRow, UploadStack(), useIsHydrated() (+14 more)
 
 ### Community 75 - "Community 75"
 Cohesion: 0.08
-Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Project Setup, 3.2 Auth Module, 3.3 Auth APIs, 3.4 Auth Models, 3.5 Auth Rules, 3.6 Role + Permission Module (+15 more)
+Nodes (14): accountDeletionRequestSchema, attendanceLogSchema, communityCommentSchema, communityPostSchema, consentLogSchema, deviceTokenSchema, sessionSchema, purgeAccount() (+6 more)
 
 ### Community 76 - "Community 76"
-Cohesion: 0.08
-Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Complaint System, 3.2 Night Safety Status, 3.3 SOS / Emergency, 3.4 Guardian Dashboard, 3.5 Move-In / Move-Out Checklist, 3.6 Ratings and Reviews (+15 more)
+Cohesion: 0.07
+Nodes (26): 10. Testing Conventions, 11. Formatting/Linting, 12. Best Practices, 13. MongoDB/Mongoose Specifics, 14. Environment Variables, 1. TypeScript, 2. Naming, 3. File/Folder Structure Per Feature (+18 more)
 
 ### Community 77 - "Community 77"
-Cohesion: 0.08
-Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Service Provider Registration, 3.2 Hostel Maintenance Module, 3.3 Hostel Comparison, 3.4 Referral System, 3.5 Duplicate / Ghost Listing Detection, 3.6 Reports (+15 more)
+Cohesion: 0.07
+Nodes (26): 10. Privacy Principles (non-negotiable product rules), 11. Success Criteria (v1 / end of Phase 5), 12. Open Questions / Risks to revisit with the client, 13. Feature Comparison: Web vs Mobile, 14. Key Terminology, 1. Problem Statement, 2. Product Vision, 3. Target Users / Personas (+18 more)
 
 ### Community 78 - "Community 78"
 Cohesion: 0.08
-Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Project Setup, 3.2 Auth Module, 3.3 Auth APIs, 3.4 Auth Models, 3.5 Auth Rules, 3.6 Role + Permission Module (+15 more)
+Nodes (20): allBlank, blankable, parsed, paths, result, validProfile, BLOOD_GROUP_VALUES, DIETARY_PREFERENCE_VALUES (+12 more)
 
 ### Community 79 - "Community 79"
+Cohesion: 0.1
+Nodes (9): ComparePageSkeleton(), HostelDetailPageSkeleton(), HostelListingPageSkeleton(), InquiryPageSkeleton(), emptyFilters, Filters, metadata, PublicHostel (+1 more)
+
+### Community 80 - "Community 80"
+Cohesion: 0.13
+Nodes (18): ConfirmOptions, Resolver, DraggablePinMap, FALLBACK_CENTER, LocationPicker(), LocationPickerValue, PART_LABELS, AlertDialog() (+10 more)
+
+### Community 81 - "Community 81"
+Cohesion: 0.12
+Nodes (17): auditListingFlagAction(), DuplicateCheckResultRecord, escapeRegex(), HostelRecord, ListingFlagListQuery, ListingFlagRecord, ListingFlagResolveInput, ListingFlagServiceError (+9 more)
+
+### Community 82 - "Community 82"
+Cohesion: 0.17
+Nodes (25): sendEmail(), appHostelStatusUrl(), appLoginUrl(), approvePlatformHostel(), createPlatformHostelApplication(), deleteHostelAdminProfilePhoto(), findHostelByIdOrThrow(), findOrCreatePublicHostelOwner() (+17 more)
+
+### Community 83 - "Community 83"
+Cohesion: 0.08
+Nodes (24): 10. Git & Commits, 11. Code Review Checklist (Self-Review Before Asking for Human Review), 12. Performance Considerations, 12. Privacy & Location Tracking Rules, 13. Cook Portal Rules, 13. Debugging & Logging, 14. Common Pitfalls to Avoid, 14. Community Feature Rules (+16 more)
+
+### Community 84 - "Community 84"
+Cohesion: 0.1
+Nodes (25): 4.1 Complaint System, 4.2 Night Safety Status, 4.3 SOS / Emergency, 4.4 Guardian Dashboard, 4.5 Move-In / Move-Out Checklist, 4.6 Ratings and Reviews, 4.7 Notifications Foundation, 4.8 QA Tasks (+17 more)
+
+### Community 85 - "Community 85"
+Cohesion: 0.11
+Nodes (10): AuthShell(), AuthShellProps, AuthExperiencePage(), metadata, AuthResponse, OtpRequestData, RegisterData, SignupForm() (+2 more)
+
+### Community 86 - "Community 86"
+Cohesion: 0.12
+Nodes (18): addHostelAdminInquiryNote(), auditInquiryAction(), findScopedInquiry(), HostelAdminInquiryListQuery, HostelAdminInquiryStatusInput, InquiryNoteCreateInput, InquiryNoteRecord, InquiryRecord (+10 more)
+
+### Community 87 - "Community 87"
+Cohesion: 0.12
+Nodes (20): createHostelAdminBed(), createHostelAdminFloor(), createHostelAdminRoom(), findFloorInHostel(), findRoomInHostel(), listHostelAdminFloors(), listHostelAdminInquiries(), listHostelAdminRooms() (+12 more)
+
+### Community 88 - "Community 88"
+Cohesion: 0.08
+Nodes (23): AuthProvider, BedStatus, CommunityPostVisibility, ComplaintCategory, ComplaintStatus, HostelStatus, InquiryStatus, LocationZone (+15 more)
+
+### Community 89 - "Community 89"
+Cohesion: 0.08
+Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Project Setup, 3.2 Auth Module, 3.3 Auth APIs, 3.4 Auth Models, 3.5 Auth Rules, 3.6 Role + Permission Module (+15 more)
+
+### Community 90 - "Community 90"
+Cohesion: 0.08
+Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Complaint System, 3.2 Night Safety Status, 3.3 SOS / Emergency, 3.4 Guardian Dashboard, 3.5 Move-In / Move-Out Checklist, 3.6 Ratings and Reviews (+15 more)
+
+### Community 91 - "Community 91"
+Cohesion: 0.08
+Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Service Provider Registration, 3.2 Hostel Maintenance Module, 3.3 Hostel Comparison, 3.4 Referral System, 3.5 Duplicate / Ghost Listing Detection, 3.6 Reports (+15 more)
+
+### Community 92 - "Community 92"
+Cohesion: 0.08
+Nodes (23): 1. Phase Goal, 2. Current Progress Summary, 3.1 Project Setup, 3.2 Auth Module, 3.3 Auth APIs, 3.4 Auth Models, 3.5 Auth Rules, 3.6 Role + Permission Module (+15 more)
+
+### Community 93 - "Community 93"
 Cohesion: 0.09
 Nodes (23): [0.3.1] - 2026-07-21 — Phase 1 code-side completion, Added, Added, Added, Added, Added, Added, Changed (+15 more)
 
-### Community 80 - "Community 80"
+### Community 94 - "Community 94"
 Cohesion: 0.09
 Nodes (22): Auth - 4 Screens, Auth/Shared - 5 Screens, Dummy Data Requirements, Final Deliverable, Guardian Mobile - 5 Screens, Guardian Portal - 5 Screens, Hostel Admin/Warden Portal - 13 Screens, Important Privacy And Product Rules (+14 more)
 
-### Community 81 - "Community 81"
-Cohesion: 0.15
-Nodes (18): uploadPublicFile(), ApiEnvelope, parseEnvelope(), sendUpload(), sendWithProgress(), UploadCanceledError, UploadError, UploadProgress (+10 more)
-
-### Community 82 - "Community 82"
-Cohesion: 0.14
-Nodes (9): GoogleMap, HostelMap(), LeafletMap, TYPE_COLORS, Coordinates, GeocodePrecision, MapProvider, NearbyPlace (+1 more)
-
-### Community 83 - "Community 83"
-Cohesion: 0.09
-Nodes (21): 2026-07-21 session — what was done, 2026-07-23 session — Phase 3, what was done, 2026-08-01 session — Phase 5, decisions worth keeping, Bugs & Fixes, code:typescript (// WRONG - client controls hostelId), Completed Work, Context Needed for Future Chats, Cook credentials — locked decisions (2026-07-23) (+13 more)
-
-### Community 84 - "Community 84"
+### Community 95 - "Community 95"
 Cohesion: 0.09
 Nodes (21): A. Do now (agent-completable, in Phase 1 scope) — ✅ DONE, B0. Auth screens — remove the demo shortcuts *(explicitly requested)* ✅, B1. Pagination — specified everywhere, implemented nowhere, B2. Three "nobody gets notified" gaps ✅, B3. Community engagement notifications ✅, B4. Multi-tenancy ✅, B5. Account deletion & data retention — entire feature absent, B5. Account deletion & data retention ✅ *(except §9.3 — moved to B6)* (+13 more)
 
-### Community 85 - "Community 85"
-Cohesion: 0.17
-Nodes (16): dashboardHrefForRole(), destinationForRole(), isAllowedNextPath(), isHostelWorkspacePath(), isSafeLocalPath(), landingPathForRole(), ProtectedRouteRule, protectedRouteRuleForPath() (+8 more)
-
-### Community 86 - "Community 86"
-Cohesion: 0.18
-Nodes (19): AddressParts, addressPartsFromGoogle(), addressPartsFromNominatim(), buildAddressQuery(), definedParts(), geocodeAddress(), geocodeWithGoogle(), geocodeWithNominatim() (+11 more)
-
-### Community 87 - "Community 87"
-Cohesion: 0.13
-Nodes (16): assertHostelAccess(), canAccessHostel(), hostelScopedFilter(), TenantAccessError, TenantPrincipal, DAYS, foodRoutineSchema, MEALS (+8 more)
-
-### Community 88 - "Community 88"
-Cohesion: 0.14
-Nodes (18): fromAddress(), sendEmail(), SendEmailInput, SendEmailResult, ApiPrincipal, activeSuperadminCount(), createPlatformAdmin(), CreatePlatformAdminInput (+10 more)
-
-### Community 89 - "Community 89"
-Cohesion: 0.14
-Nodes (16): addHostelAdminInquiryNote(), auditInquiryAction(), findScopedInquiry(), HostelAdminInquiryListQuery, HostelAdminInquiryStatusInput, InquiryNoteCreateInput, InquiryNoteRecord, InquiryRecord (+8 more)
-
-### Community 90 - "Community 90"
-Cohesion: 0.1
-Nodes (20): 10. Rating and Review System, 12. Hostel Comparison Mode, 13. Referral Loop, 14. User Joining Flow, 15. Service Provider Joining Flow, 16. Privacy and Data Access Rules, 18. Notifications, 19. Technical Stack (+12 more)
-
-### Community 91 - "Community 91"
-Cohesion: 0.1
-Nodes (20): 1. Phase Goal, 2. Current Progress Summary, 3.1 Platform Owner Hostel Approval, 3.2 Public Hostel Listing, 3.3 Inquiry Flow, 3.4 Hostel Profile Management, 3.5 Room + Bed Management, 3. Backend Tasks (+12 more)
-
-### Community 92 - "Community 92"
-Cohesion: 0.12
-Nodes (20): 10. Definition of Done For Any Module, 11. First Production Pilot Scope, 12.1 Do Not Break API Contracts, 12.2 Every Collection Must Have Indexes, 12.3 Use Soft Delete For Important Records, 12.4 Keep Public Data Separate From Private Data, 12.5 Build For Nepal Reality, 12. Development Rules For The Team (+12 more)
-
-### Community 93 - "Community 93"
-Cohesion: 0.12
-Nodes (21): 5.1 Service Provider Registration, 5.2 Hostel Maintenance Module, 5.3 Hostel Comparison, 5.4 Referral System, 5.5 Duplicate / Ghost Listing Detection, 5.6 Reports, 5.7 Production Hardening, 5.8 QA Tasks (+13 more)
-
-### Community 94 - "Community 94"
-Cohesion: 0.12
-Nodes (21): 3.1 Resident Registration, 3.2 QR Activation, 3.3 Resident Dashboard, 3.4 Payment Records, 3.5 Food Transparency, 3.6 Notice System, 3.7 Mobile Tasks, 3.8 QA Tasks (+13 more)
-
-### Community 95 - "Community 95"
-Cohesion: 0.14
-Nodes (17): ApiFailure, ApiSuccess, AuthUser, getResidentReferral(), listResidentFood(), ResidentFoodMenu, ResidentFoodPhoto, ResidentFoodRoutine (+9 more)
-
 ### Community 96 - "Community 96"
-Cohesion: 0.15
-Nodes (18): categoryForRole(), countHits(), HIGH_KEYWORDS, MaintenanceCategory, normalize(), PROVIDER_ROLES, ProviderRole, providerRoleLabel() (+10 more)
+Cohesion: 0.09
+Nodes (21): 2026-07-21 session — what was done, 2026-07-23 session — Phase 3, what was done, 2026-08-01 session — Phase 5, decisions worth keeping, Bugs & Fixes, code:typescript (// WRONG - client controls hostelId), Completed Work, Context Needed for Future Chats, Cook credentials — locked decisions (2026-07-23) (+13 more)
 
 ### Community 97 - "Community 97"
-Cohesion: 0.1
-Nodes (20): [0.3.0] - 2026-07-20 — Phase 1 alignment (in progress, ~90%), Added, Added, Added, Added, Added, Added, Changed (+12 more)
+Cohesion: 0.11
+Nodes (21): 10. Definition of Done For Any Module, 11. First Production Pilot Scope, 12.1 Do Not Break API Contracts, 12.2 Every Collection Must Have Indexes, 12.3 Use Soft Delete For Important Records, 12.4 Keep Public Data Separate From Private Data, 12.5 Build For Nepal Reality, 12. Development Rules For The Team (+13 more)
 
 ### Community 98 - "Community 98"
 Cohesion: 0.1
-Nodes (19): 14. Git Branching Strategy, 15. Privacy And Security Lock, 16. Audit Log Lock, 17. Definition Of Done For Any Module, 18. Phase 1 Handoff Checklist, 19. External Decisions Still Needed, 19. User Action Needed Later, 20. Current Phase 0 Result (+11 more)
+Nodes (20): 10. Rating and Review System, 12. Hostel Comparison Mode, 13. Referral Loop, 14. User Joining Flow, 15. Service Provider Joining Flow, 16. Privacy and Data Access Rules, 18. Notifications, 19. Technical Stack (+12 more)
 
 ### Community 99 - "Community 99"
-Cohesion: 0.15
-Nodes (14): activateResident(), login(), submitResidentReview(), triggerSOS(), RootStackParamList, Props, Props, ResidentActivationScreen() (+6 more)
+Cohesion: 0.1
+Nodes (20): 1. Phase Goal, 2. Current Progress Summary, 3.1 Platform Owner Hostel Approval, 3.2 Public Hostel Listing, 3.3 Inquiry Flow, 3.4 Hostel Profile Management, 3.5 Room + Bed Management, 3. Backend Tasks (+12 more)
 
 ### Community 100 - "Community 100"
-Cohesion: 0.14
-Nodes (15): questionCallClickSchema, ClickRecord, dayKey(), getQuestionCallAnalytics(), QuestionCallAnalyticsQuery, questionCallBaseUrl(), QuestionCallClickInput, QuestionCallConversionInput (+7 more)
+Cohesion: 0.12
+Nodes (21): 3.1 Resident Registration, 3.2 QR Activation, 3.3 Resident Dashboard, 3.4 Payment Records, 3.5 Food Transparency, 3.6 Notice System, 3.7 Mobile Tasks, 3.8 QA Tasks (+13 more)
 
 ### Community 101 - "Community 101"
-Cohesion: 0.16
-Nodes (19): AttendanceAlert, AttendanceLog, code:typescript ({), code:typescript ({), code:typescript (interface IFoodReadyLog {), code:typescript ({), code:typescript ({), code:typescript ({) (+11 more)
+Cohesion: 0.15
+Nodes (18): categoryForRole(), countHits(), HIGH_KEYWORDS, MaintenanceCategory, normalize(), PROVIDER_ROLES, ProviderRole, providerRoleLabel() (+10 more)
 
 ### Community 102 - "Community 102"
-Cohesion: 0.11
-Nodes (18): 14. Git Branching Strategy, 15. Privacy And Security Lock, 16. Audit Log Lock, 17. Definition Of Done For Any Module, 18. Phase 1 Handoff Checklist, 19. User Action Needed Later, 20. Current Phase 0 Result, 21. Current Phase 1 Local Foundation Result (+10 more)
+Cohesion: 0.1
+Nodes (20): [0.3.0] - 2026-07-20 — Phase 1 alignment (in progress, ~90%), Added, Added, Added, Added, Added, Added, Changed (+12 more)
 
 ### Community 103 - "Community 103"
 Cohesion: 0.13
-Nodes (12): ADMIN_ISSUABLE_ROLES, AdminIssuableRole, generateTemporaryPassword(), HIGH_PRIVILEGE_ROLES, loginUrl(), RegisterOrUpgradeInput, registerOrUpgradeUserByEmail(), ROLE_LABELS (+4 more)
+Nodes (20): 5.1 Service Provider Registration, 5.2 Hostel Maintenance Module, 5.3 Hostel Comparison, 5.4 Referral System, 5.5 Duplicate / Ghost Listing Detection, 5.6 Reports, 5.7 Production Hardening, 5.8 QA Tasks (+12 more)
 
 ### Community 104 - "Community 104"
-Cohesion: 0.14
-Nodes (16): ServiceProviderRegistrationPageContent(), isActive(), UploadKind, AttachedFile(), FileUploader(), FileUploaderPresentation, FileUploaderProps, FileUploaderView() (+8 more)
+Cohesion: 0.1
+Nodes (19): 14. Git Branching Strategy, 15. Privacy And Security Lock, 16. Audit Log Lock, 17. Definition Of Done For Any Module, 18. Phase 1 Handoff Checklist, 19. External Decisions Still Needed, 19. User Action Needed Later, 20. Current Phase 0 Result (+11 more)
 
 ### Community 105 - "Community 105"
-Cohesion: 0.12
-Nodes (16): Color Palette, Component Style, Design Principles, Design System & Color Theme, Guardian Dashboard, Hostel Admin/Warden Portal, Icons, Platform Owner Portal (+8 more)
+Cohesion: 0.23
+Nodes (18): drawBack(), drawBrandLockup(), drawFooterSweep(), drawFront(), drawHeaderSweep(), drawIdCard(), drawLogoMark(), drawPortrait() (+10 more)
 
 ### Community 106 - "Community 106"
-Cohesion: 0.12
-Nodes (16): 10. File Uploads, 11. QR Activation (Public/Resident), 12. Platform Config (Public - Limited Fields), 13. Cron Jobs (Internal, Auth-Protected by Shared Secret), 14. Duplicate/Ghost Listing Detection (Internal Logic), 16. Cook Account Setup (Internal), 17. Notifications (all authenticated roles), 2. Auth (+8 more)
+Cohesion: 0.11
+Nodes (18): hostelRejectSchema, hostelRequestDocumentsSchema, hostelResubmitDocumentsSchema, hostelTypeSchema, hostelUnpublishSchema, inquiryStatusSchema, objectIdSchema, optionalHostelScopeSchema (+10 more)
 
 ### Community 107 - "Community 107"
-Cohesion: 0.12
-Nodes (17): 2.1 API Pattern, 2.2 Multi-Tenant Rule, 2.3 Role-Based Access Control, 2.4 Authentication Direction, 2.5 File Upload Rule, 2.6 API Response Standard, 2.7 Audit Log Rule, 2. Backend Best Practices For This Project (+9 more)
+Cohesion: 0.14
+Nodes (16): fromAddress(), SendEmailInput, SendEmailResult, activeSuperadminCount(), createPlatformAdmin(), CreatePlatformAdminInput, generateTemporaryPassword(), loginUrl() (+8 more)
 
 ### Community 108 - "Community 108"
-Cohesion: 0.16
-Nodes (13): HostelGeoRecord, refreshStaleNearbyPlaces(), sleep(), fetchNearbyPlaces(), fetchNearbyWithGoogle(), fetchNearbyWithOverpass(), GOOGLE_PLACE_TYPES, GooglePlacesResponse (+5 more)
+Cohesion: 0.11
+Nodes (18): 14. Git Branching Strategy, 15. Privacy And Security Lock, 16. Audit Log Lock, 17. Definition Of Done For Any Module, 18. Phase 1 Handoff Checklist, 19. User Action Needed Later, 20. Current Phase 0 Result, 21. Current Phase 1 Local Foundation Result (+10 more)
 
 ### Community 109 - "Community 109"
-Cohesion: 0.23
-Nodes (13): GET(), resolvePastedLink(), searchCandidates(), hostelAdminGeocodeQuerySchema, ParsedMapLink, parseMapLink(), placeFromPath(), POINT_PARAMS (+5 more)
+Cohesion: 0.16
+Nodes (13): activateResident(), register(), verifyOtp(), RootStackParamList, OtpVerificationScreen(), Props, Props, ResidentActivationScreen() (+5 more)
 
 ### Community 110 - "Community 110"
-Cohesion: 0.3
-Nodes (11): CSV_COLUMNS, GET(), GET(), csvCell(), csvFilename(), csvResponse(), FORMULA_TRIGGERS, neutralize() (+3 more)
+Cohesion: 0.15
+Nodes (11): chelseaMarket, geistMono, geistSans, metadata, poppins, MediaViewerContext, MediaViewerContextValue, MediaViewerProvider() (+3 more)
 
 ### Community 111 - "Community 111"
-Cohesion: 0.21
-Nodes (16): AuditLog, code:typescript (interface IInquiry {), code:typescript (interface IHostelPageView {), code:typescript (// One per resident, per hostel. Minted lazily on first dash), code:typescript (interface ISubscription {), code:typescript (interface IPlatformSetting {), code:typescript (interface IAuditLog {), HostelPageView (+8 more)
+Cohesion: 0.2
+Nodes (17): addHistory(), addMaintenanceComment(), assertBedInHostel(), assertProviderApproved(), assertRoomInHostel(), auditMaintenanceAction(), createMaintenanceRequest(), findScopedMaintenanceRequest() (+9 more)
 
 ### Community 112 - "Community 112"
 Cohesion: 0.12
-Nodes (16): 2. Environment Variables, App, Auth / JWT, Cloudflare R2, Cookies, limits, logging, Cron, Database, Email (Resend) (+8 more)
+Nodes (16): Color Palette, Component Style, Design Principles, Design System & Color Theme, Guardian Dashboard, Hostel Admin/Warden Portal, Icons, Platform Owner Portal (+8 more)
 
 ### Community 113 - "Community 113"
+Cohesion: 0.12
+Nodes (16): 10. File Uploads, 11. QR Activation (Public/Resident), 12. Platform Config (Public - Limited Fields), 13. Cron Jobs (Internal, Auth-Protected by Shared Secret), 14. Duplicate/Ghost Listing Detection (Internal Logic), 16. Cook Account Setup (Internal), 17. Notifications (all authenticated roles), 2. Auth (+8 more)
+
+### Community 114 - "Community 114"
+Cohesion: 0.12
+Nodes (17): 2.1 API Pattern, 2.2 Multi-Tenant Rule, 2.3 Role-Based Access Control, 2.4 Authentication Direction, 2.5 File Upload Rule, 2.6 API Response Standard, 2.7 Audit Log Rule, 2. Backend Best Practices For This Project (+9 more)
+
+### Community 115 - "Community 115"
+Cohesion: 0.23
+Nodes (13): FileUploadArea(), acceptAttribute(), EXTENSION_BY_MIME, formatBytes(), joinTypes(), KIND_RULES, KindRule, labelsFor() (+5 more)
+
+### Community 116 - "Community 116"
+Cohesion: 0.12
+Nodes (16): 2. Environment Variables, App, Auth / JWT, Cloudflare R2, Cookies, limits, logging, Cron, Database, Email (Resend) (+8 more)
+
+### Community 117 - "Community 117"
 Cohesion: 0.16
 Nodes (16): 2.1 Platform Owner Hostel Approval, 2.2 Public Hostel Listing, 2.3 Inquiry Flow, 2.4 Hostel Profile Management, 2.5 Room + Bed Management, 2.6 QA Tasks, 2.7 Phase 2 Done Means, code:txt (Hostel) (+8 more)
 
-### Community 114 - "Community 114"
-Cohesion: 0.2
-Nodes (8): LegalBody(), PublicHomePageContent(), PublicPricingPageContent(), PublicPrivacyPage(), sections, PublicTermsPage(), sections, useSiteConfig()
-
-### Community 115 - "Community 115"
-Cohesion: 0.21
-Nodes (13): buildPlatformReportExport(), complaintVolume(), HostelAdminReportExportInput, hostelNamesByIdFor(), hostelsByStatus(), normalizeObjectId(), paymentVolume(), PlatformReportExportInput (+5 more)
-
-### Community 116 - "Community 116"
-Cohesion: 0.13
-Nodes (15): 4.1 Provider Selection Logic, 4.2 Runtime Detection Flow, 4.3 Geocoding (Address → Coordinates), 4.4 Map Rendering (Hostel Profile Page), 4.5 Nearby Points of Interest, 4.6 College Proximity Search, 4.7 Security & Cost Control, 4.8 Configuration Example (+7 more)
-
-### Community 117 - "Community 117"
-Cohesion: 0.13
-Nodes (13): [0.4.0] - 2026-07-22 — Phase 2: Public discovery + hostel core (gap completion), Added, Added, Added, Added, Changed, Changed, Changed (+5 more)
-
 ### Community 118 - "Community 118"
-Cohesion: 0.18
-Nodes (15): AccountDeletionRequest, code:typescript ({), code:typescript ({), code:typescript (interface IAccountDeletionRequest {), code:block44 (packages/db/migrations/), code:block45 (packages/db/migrations/), code:block46 (packages/db/migrations/), Consent & Privacy (+7 more)
+Cohesion: 0.16
+Nodes (10): AuthSession, requestOtp(), signInWithGoogle(), AppNavigator(), Stack, LoginScreen(), Props, ResidentReviewsScreen() (+2 more)
 
 ### Community 119 - "Community 119"
-Cohesion: 0.13
-Nodes (15): 1.1 Email Verification (PUBLIC Signup), 1.2 Hostel Admin Credentials (Post-Approval), 1.3 Warden Credentials, 1.4 Resident QR Activation, 1.5 Guardian Invitation, 1.6 Password Reset, 1.7 Account Upgraded, 1. Authentication & Account Emails (+7 more)
+Cohesion: 0.15
+Nodes (13): ProviderDirectoryData, DirectoryPageProps, EMPTY, metadata, ServiceProviderDirectoryPage(), listPublicServiceProviders(), hostelAdminServiceProviderListQuerySchema, objectIdSchema (+5 more)
 
 ### Community 120 - "Community 120"
 Cohesion: 0.13
-Nodes (14): Admin Recovery, Backups, code:bash (npm run web:seed:demo), code:bash (ADMIN_RECOVERY_EMAIL=owner@example.com ADMIN_RECOVERY_PASSWO), code:bash (npm run web:check:private-documents), code:powershell (.\scripts\mongodb-backup.ps1 -MongoUri "$env:MONGODB_URI"), code:bash (npm run web:deploy:check), Deployment Checks (+6 more)
+Nodes (15): 4.1 Provider Selection Logic, 4.2 Runtime Detection Flow, 4.3 Geocoding (Address → Coordinates), 4.4 Map Rendering (Hostel Profile Page), 4.5 Nearby Points of Interest, 4.6 College Proximity Search, 4.7 Security & Cost Control, 4.8 Configuration Example (+7 more)
 
 ### Community 121 - "Community 121"
+Cohesion: 0.18
+Nodes (15): AccountDeletionRequest, code:typescript ({), code:typescript ({), code:typescript (interface IAccountDeletionRequest {), code:block44 (packages/db/migrations/), code:block45 (packages/db/migrations/), code:block46 (packages/db/migrations/), Consent & Privacy (+7 more)
+
+### Community 122 - "Community 122"
+Cohesion: 0.23
+Nodes (15): AttendanceAlert, AttendanceLog, code:typescript ({), code:typescript ({), code:typescript ({), code:typescript ({), code:typescript ({), code:typescript (interface IQuestionCallClick {) (+7 more)
+
+### Community 123 - "Community 123"
+Cohesion: 0.13
+Nodes (15): 1.1 Email Verification (PUBLIC Signup), 1.2 Hostel Admin Credentials (Post-Approval), 1.3 Warden Credentials, 1.4 Resident QR Activation, 1.5 Guardian Invitation, 1.6 Password Reset, 1.7 Account Upgraded, 1. Authentication & Account Emails (+7 more)
+
+### Community 124 - "Community 124"
+Cohesion: 0.15
+Nodes (15): 7.2 Role Gate Test Template, 7.3 Privacy/Guardian Permissions Test Template, 7.4 Account-Upgrade Test Template, 7. Mandatory Test Templates, 9.1 Seed Scripts, 9.2 Test Database Isolation, 9.3 Test Helpers, 9. Test Data & Seeding (+7 more)
+
+### Community 125 - "Community 125"
+Cohesion: 0.13
+Nodes (14): Admin Recovery, Backups, code:bash (npm run web:seed:demo), code:bash (ADMIN_RECOVERY_EMAIL=owner@example.com ADMIN_RECOVERY_PASSWO), code:bash (npm run web:check:private-documents), code:powershell (.\scripts\mongodb-backup.ps1 -MongoUri "$env:MONGODB_URI"), code:bash (npm run web:deploy:check), Deployment Checks (+6 more)
+
+### Community 126 - "Community 126"
 Cohesion: 0.13
 Nodes (14): Auth/Shared Screens - 5, Desktop Web UI Assistant Prompt - Multi-Hostel SaaS Platform, Dummy Data Requirements, Final Deliverable, Guardian Portal Screens - 5, Hostel Admin/Warden Portal Screens - 13, Platform Owner Portal Screens - 9, Product And Privacy Rules (+6 more)
 
-### Community 122 - "Community 122"
+### Community 127 - "Community 127"
 Cohesion: 0.13
 Nodes (14): Auth Screens - 4, Dummy Data Requirements, Final Deliverable, Guardian Mobile Screens - 5, Mobile App UI Assistant Prompt - Multi-Hostel SaaS Platform, Product And Privacy Rules, Product Summary, Public Browsing Screens - 5 (+6 more)
 
-### Community 123 - "Community 123"
+### Community 128 - "Community 128"
 Cohesion: 0.15
 Nodes (15): 1.1 Backend Tasks, 1.2 Web Frontend Tasks, 1.3 Mobile Tasks, 1.4 QA Tasks, 1.5 Phase 1 Done Means, Auth Module, code:txt (POST /api/v1/auth/otp/request), code:txt (User) (+7 more)
 
-### Community 124 - "Community 124"
-Cohesion: 0.18
-Nodes (12): apiRequest(), confirmComplaintResolution(), createResidentComplaint(), getActivationStatus(), listResidentComplaints(), refreshSession(), requestOtp(), ResidentComplaint (+4 more)
+### Community 129 - "Community 129"
+Cohesion: 0.2
+Nodes (12): ServiceProviderRegistrationPageContent(), FileUploader(), FileUploaderPresentation, FileUploaderProps, FileUploaderView(), TONE_CLASSES, UploaderTone, UploadOptions (+4 more)
 
-### Community 125 - "Community 125"
-Cohesion: 0.27
-Nodes (11): FileUploadArea(), acceptAttribute(), EXTENSION_BY_MIME, formatBytes(), joinTypes(), KIND_RULES, KindRule, labelsFor() (+3 more)
+### Community 130 - "Community 130"
+Cohesion: 0.22
+Nodes (9): createExpertConsultationRequest(), ExpertConsultationCreateInput, ExpertConsultationError, ExpertConsultationRequestRecord, getMyExpertConsultationRequest(), notifyTeamOfRequest(), expertConsultationCreateSchema, expertConsultationRequestSchema (+1 more)
 
-### Community 126 - "Community 126"
+### Community 131 - "Community 131"
 Cohesion: 0.14
 Nodes (13): 10. Background/Scheduled Jobs, 11. Deployment Architecture, 12. MongoDB Collection Structure (High-Level), 1. Final Tech Stack (decision locked), 2. Multi-Tenancy Model, 6. Payments Architecture (v1 = manual), 7. Notifications, 8. High-Level Data Flow (public inquiry → resident) (+5 more)
 
-### Community 127 - "Community 127"
-Cohesion: 0.18
-Nodes (9): AuthSession, getResidentProfile(), AppNavigator(), Stack, LoginScreen(), Profile, Props, ResidentProfileScreen() (+1 more)
+### Community 132 - "Community 132"
+Cohesion: 0.22
+Nodes (14): AuditLog, code:typescript ({), code:typescript ({), code:typescript (interface IFoodReadyLog {), code:typescript ({), FoodReadyLog, Notification, Notification (+6 more)
 
-### Community 128 - "Community 128"
-Cohesion: 0.17
-Nodes (10): getResidentDashboard(), listPublicHostels(), logout(), PublicHostel, ResidentDashboard, Props, PublicHomeScreen(), money() (+2 more)
-
-### Community 129 - "Community 129"
+### Community 133 - "Community 133"
 Cohesion: 0.15
 Nodes (11): byType, capacitySummary, dirname, dryRun, hostelRooms, names, next, occupiedByType (+3 more)
 
-### Community 130 - "Community 130"
-Cohesion: 0.19
-Nodes (8): chelseaMarket, geistMono, geistSans, metadata, poppins, QueryProvider(), SmoothScrollProvider(), ThemeProvider()
-
-### Community 131 - "Community 131"
+### Community 134 - "Community 134"
 Cohesion: 0.15
 Nodes (10): guardianId, guardianUserId, hostelId, ids, input, mocks, ownerId, recipients (+2 more)
 
-### Community 132 - "Community 132"
+### Community 135 - "Community 135"
 Cohesion: 0.15
 Nodes (13): 7.10 Emergency/SOS, 7.11 Move-in / Move-out Checklist, 7.1 Hostel Profile Management, 7.2 Room + Bed Digital Map, 7.3 Resident Management, 7.4 QR Activation, 7.5 Payments & Records, 7.6 Food Quality Proof System (+5 more)
 
-### Community 133 - "Community 133"
+### Community 136 - "Community 136"
 Cohesion: 0.17
 Nodes (12): Checks, code:bash (npm run web:dev), code:bash (npm run web:seed:platform-owner), code:txt (x-hostelhub-client: mobile), code:json ({), code:bash (npm --prefix apps/web run format:check), Deploy on Vercel, First Platform Owner (+4 more)
 
-### Community 134 - "Community 134"
+### Community 137 - "Community 137"
 Cohesion: 0.19
 Nodes (13): [0.6.0] - 2026-08-01 — Phases 1-3 closed out, [0.7.0] - 2026-08-01 — Phase 4: Trust, Safety & Guardian, [0.8.0] - 2026-08-01 — Phase 5: Growth, Maintenance & Polish, Added, Added, Changed, Changed, Fixed (+5 more)
 
-### Community 135 - "Community 135"
+### Community 138 - "Community 138"
 Cohesion: 0.15
 Nodes (12): Account deletion purge, Attendance maintenance (absence alerts + retention purge), Authentication, Complaint SLA breach check, cron-job.org setup (per job), CRON.md — Scheduled Jobs, Dispatch scheduled notifications, Endpoints (+4 more)
 
-### Community 136 - "Community 136"
+### Community 139 - "Community 139"
 Cohesion: 0.19
 Nodes (13): code:typescript (interface IUser {), code:typescript (interface IUserResidentProfile {), code:typescript (interface INearbyPlace {), code:typescript (interface IHostelDocument {), code:typescript (type HostelCapability =), Core Identity, Hostel, Hostel & Verification (+5 more)
 
-### Community 137 - "Community 137"
+### Community 140 - "Community 140"
+Cohesion: 0.27
+Nodes (13): code:typescript (interface IHostelPageView {), code:typescript (// One per resident, per hostel. Minted lazily on first dash), code:typescript (interface ISubscription {), code:typescript (interface IPlatformSetting {), code:typescript (interface IAuditLog {), HostelPageView, Inquiries, Referral, Notifications, Subscriptions, Inquiry (+5 more)
+
+### Community 141 - "Community 141"
+Cohesion: 0.15
+Nodes (12): 5.1 SOS Triggered, 5. Safety & Emergency Emails, 8.1 Community Post Engagement (Batched), 8. Community & Notification Emails, code:typescript ({), code:typescript ({), Email Opt-In/Opt-Out Matrix, EMAIL_SYSTEM.md — Email Triggers & Templates (+4 more)
+
+### Community 142 - "Community 142"
+Cohesion: 0.18
+Nodes (9): createPublicInquiry(), getPublicHostel(), listPublicHostels(), PublicHostel, Props, PublicHomeScreen(), Props, PublicHostelDetailScreen() (+1 more)
+
+### Community 143 - "Community 143"
 Cohesion: 0.17
 Nodes (10): dirname, dryRun, email, emailArg, hostels, name, repoRoot, residents (+2 more)
 
-### Community 138 - "Community 138"
+### Community 144 - "Community 144"
 Cohesion: 0.18
 Nodes (11): demoDataFields, dirname, hostels, looseSchema, moveInDate, now, repoRoot, seededHostels (+3 more)
 
-### Community 139 - "Community 139"
-Cohesion: 0.23
-Nodes (10): cook, assertAllowedRole(), AUTHENTICATED_ROLES, hasAllowedRole(), HOSTEL_STAFF_ROLES, PermissionError, PLATFORM_ROLES, Principal (+2 more)
+### Community 145 - "Community 145"
+Cohesion: 0.27
+Nodes (10): decodeKey(), decryptPersonalData(), encryptionKey(), encryptPersonalData(), isPersonalDataEncryptionConfigured(), resetPersonalDataKeyCache(), envelope, flipped (+2 more)
 
-### Community 140 - "Community 140"
-Cohesion: 0.24
-Nodes (10): decodeKey(), decryptPersonalData(), encryptionKey(), isPersonalDataEncryptionConfigured(), resetPersonalDataKeyCache(), envelope, flipped, profile (+2 more)
-
-### Community 141 - "Community 141"
+### Community 146 - "Community 146"
 Cohesion: 0.17
-Nodes (11): 5.1 SOS Triggered, 5. Safety & Emergency Emails, 7.1 Attendance Alert (Resident Absent), 7. Attendance & Location Tracking Emails, 8.1 Community Post Engagement (Batched), 8. Community & Notification Emails, code:typescript ({), code:typescript ({) (+3 more)
+Nodes (5): AuditLogRecord, PlatformAuditLogQuery, RefRecord, mocks, auditLogSchema
 
-### Community 142 - "Community 142"
+### Community 147 - "Community 147"
 Cohesion: 0.17
 Nodes (11): 10. Location Tracking Configuration Defaults, 10. Troubleshooting, 11. Location Tracking Defaults, 1. Prerequisites, 3. Secrets Handling, 5. Development Commands, 9. Phase 6 (Mobile) Additional Setup, 9. QuestionCall Integration (Phase 5) (+3 more)
 
-### Community 143 - "Community 143"
-Cohesion: 0.2
-Nodes (12): 7.1 Multi-Tenant Isolation Test Template, 7.2 Role Gate Test Template, 7.3 Privacy/Guardian Permissions Test Template, 7.5 Payment Precision Test Template, 7. Mandatory Test Templates, 9.2 Test Database Isolation, code:typescript (describe('GET /api/v1/hostel/rooms/:id - tenant isolation', ), code:typescript (describe('GET /api/v1/hostel/rooms - role access', () => {) (+4 more)
-
-### Community 144 - "Community 144"
+### Community 148 - "Community 148"
 Cohesion: 0.17
 Nodes (11): FACILITIES, Hostel, HostelType, InquiryStatus, KATHMANDU_AREAS, mockHostels, mockServiceProviders, NEPAL_CITIES (+3 more)
 
-### Community 145 - "Community 145"
-Cohesion: 0.18
-Nodes (6): HostelAdminProfilePageContent(), emptyForm, HostelProfile, LegacyHostelAdminProfilePage(), ProfileData, ProfileForm
-
-### Community 146 - "Community 146"
-Cohesion: 0.33
-Nodes (7): robots(), sitemap(), STATIC_ROUTES, listPublishedHostelSlugs(), r2Configured(), storePublicAsset(), siteUrl()
-
-### Community 147 - "Community 147"
+### Community 149 - "Community 149"
 Cohesion: 0.18
 Nodes (10): 1. State right now, 2. What this session did, 3. Decisions locked this session — do not re-open, 4. The rule that keeps producing bugs, 5. Gotchas that will cost you time, 6. Resume here — `TODO.md` Track B3 onward, 6. Resume here — `TODO.md` Track B6 onward, 7. Deliberately deferred (TODO.md B8) (+2 more)
 
-### Community 148 - "Community 148"
+### Community 150 - "Community 150"
 Cohesion: 0.18
 Nodes (11): [0.1.0] - 2026-07-14, Added, Added, Added, Added, Added, Added, Added (+3 more)
 
-### Community 149 - "Community 149"
-Cohesion: 0.22
-Nodes (11): code:typescript (interface INotice {), code:typescript (interface IComplaint {), code:typescript (interface IComplaintUpdate {), code:typescript ({), code:typescript (interface IMoveInChecklistItem {), Complaint, ComplaintUpdate, Notice (+3 more)
-
-### Community 150 - "Community 150"
+### Community 151 - "Community 151"
 Cohesion: 0.18
 Nodes (11): 3.1 Payment Due Reminder, 3.2 Payment Overdue, 3.3 Payment Proof Uploaded (to Admin), 3.4 Payment Verified (to Resident), 3.5 Payment Rejected (to Resident), 3. Payment Emails, code:typescript ({), code:typescript ({) (+3 more)
 
-### Community 151 - "Community 151"
-Cohesion: 0.18
-Nodes (11): 4. Payment Flow, code:typescript ({), code:typescript (// eSewa HMAC signature generation), code:block14 (ESEWA_MERCHANT_ID), Environment Variables Needed, How It Works, Key Files, Reusable Code Snippets (+3 more)
-
 ### Community 152 - "Community 152"
 Cohesion: 0.18
-Nodes (11): 2. App / Web Navigation & Core Flow, Architecture Overview, code:typescript (// MongoDB connection singleton (web)), code:typescript (// Web Axios instance with error normalization), code:block7 (MONGODB_URI), Data Fetching, Environment Variables Needed, Key Files (+3 more)
+Nodes (11): 1. Authentication & Authorization Flow, code:block1 (getAuthenticatedUser(request?)), code:typescript (// Unified auth — works for both web and mobile API routes), code:typescript (// Mobile Axios with auto-refresh), code:block4 (NEXTAUTH_SECRET), Environment Variables Needed, How It Works, Key Files (+3 more)
 
 ### Community 153 - "Community 153"
 Cohesion: 0.18
-Nodes (11): 1. Authentication & Authorization Flow, code:block1 (getAuthenticatedUser(request?)), code:typescript (// Unified auth — works for both web and mobile API routes), code:typescript (// Mobile Axios with auto-refresh), code:block4 (NEXTAUTH_SECRET), Environment Variables Needed, How It Works, Key Files (+3 more)
+Nodes (11): 4. Payment Flow, code:typescript ({), code:typescript (// eSewa HMAC signature generation), code:block14 (ESEWA_MERCHANT_ID), Environment Variables Needed, How It Works, Key Files, Reusable Code Snippets (+3 more)
 
 ### Community 154 - "Community 154"
 Cohesion: 0.18
@@ -958,7 +959,7 @@ Nodes (11): 3. Notification Flow, code:typescript (// Push notification dispatch
 
 ### Community 155 - "Community 155"
 Cohesion: 0.18
-Nodes (11): 11.1 Public Website, 11.2 Platform Owner Portal, 11.3 Hostel Admin/Warden Portal, 11.4 Resident Portal, 11.5 Guardian Portal, 11. UI Sitemap Lock, code:txt (/), code:txt (/platform/dashboard) (+3 more)
+Nodes (11): 2. App / Web Navigation & Core Flow, Architecture Overview, code:typescript (// MongoDB connection singleton (web)), code:typescript (// Web Axios instance with error normalization), code:block7 (MONGODB_URI), Data Fetching, Environment Variables Needed, Key Files (+3 more)
 
 ### Community 156 - "Community 156"
 Cohesion: 0.18
@@ -970,247 +971,247 @@ Nodes (11): 11.1 Public Website, 11.2 Platform Owner Portal, 11.3 Hostel Admin/W
 
 ### Community 158 - "Community 158"
 Cohesion: 0.18
-Nodes (11): 10.1 Base Rules, 10.2 Response Shape, 10.3 Route Groups, 10.4 Core Phase 1 API Contracts, 10.5 Core Phase 2 API Contracts, 10. API Naming Convention, code:txt (POST /api/v1/auth/login), code:txt (POST  /api/v1/platform/hostels) (+3 more)
+Nodes (11): 11.1 Public Website, 11.2 Platform Owner Portal, 11.3 Hostel Admin/Warden Portal, 11.4 Resident Portal, 11.5 Guardian Portal, 11. UI Sitemap Lock, code:txt (/), code:txt (/platform/dashboard) (+3 more)
 
 ### Community 159 - "Community 159"
+Cohesion: 0.18
+Nodes (11): 10.1 Base Rules, 10.2 Response Shape, 10.3 Route Groups, 10.4 Core Phase 1 API Contracts, 10.5 Core Phase 2 API Contracts, 10. API Naming Convention, code:txt (POST /api/v1/auth/login), code:txt (POST  /api/v1/platform/hostels) (+3 more)
+
+### Community 160 - "Community 160"
 Cohesion: 0.27
 Nodes (9): generateMetadata(), HOSTEL_TYPE_LABEL, HostelDetailData, HostelDetailPage(), PageParams, primaryPhoto(), PublicHostel, rentRange() (+1 more)
 
-### Community 160 - "Community 160"
+### Community 161 - "Community 161"
+Cohesion: 0.2
+Nodes (5): hostelId, mocks, NOW, residentId, userId
+
+### Community 162 - "Community 162"
 Cohesion: 0.22
 Nodes (8): accessId, guardianId, guardianPrincipal, leanResult(), mocks, residentId, serialized, setPermissions()
 
-### Community 161 - "Community 161"
+### Community 163 - "Community 163"
 Cohesion: 0.24
 Nodes (9): Agent Context, code:block1 (apps/web          Next.js (App Router) — web app + REST API ), code:bash (# 1. Install dependencies (root — installs all workspaces)), Common Commands, Documentation, hostel-management-software, Local Setup, Monorepo Layout (+1 more)
 
-### Community 162 - "Community 162"
+### Community 164 - "Community 164"
 Cohesion: 0.2
 Nodes (10): [0.3.2] - 2026-07-21 — Infra: R2, email, cron (patterns ported from QuestionCall), Added, Added, Added, Added, Changed, Changed, Changed (+2 more)
 
-### Community 163 - "Community 163"
+### Community 165 - "Community 165"
 Cohesion: 0.2
 Nodes (10): [0.5.1] - 2026-07-23 — Cook credentials at approval + shared-credential hardening, Added, Added, Added, Added, Changed, Changed, Changed (+2 more)
 
-### Community 164 - "Community 164"
+### Community 166 - "Community 166"
 Cohesion: 0.24
-Nodes (10): code:typescript (interface IQRActivation {), code:typescript (interface IPayment {), code:typescript (interface IPaymentProof {), code:typescript (interface IReceipt {), code:typescript (interface INightStatusLog {), Payment, PaymentProof, Payments (+2 more)
+Nodes (10): code:typescript (interface IMoveOutChecklistItem {), code:typescript (interface IServiceProvider {), code:typescript (interface IMaintenanceRequest {), code:typescript (interface IInquiry {), MaintenanceRequest, Move-in / Move-out, MoveInChecklist, MoveOutChecklist (+2 more)
 
-### Community 165 - "Community 165"
+### Community 167 - "Community 167"
+Cohesion: 0.24
+Nodes (10): code:typescript (interface IComplaint {), code:typescript (interface IComplaintUpdate {), code:typescript ({), code:typescript (interface IMoveInChecklistItem {), Complaint, ComplaintUpdate, Notice, Notices, Complaints (+2 more)
+
+### Community 168 - "Community 168"
+Cohesion: 0.2
+Nodes (9): Build status (end of Phase 3), Build status (end of Phase 5 — verified 2026-08-02), code:typescript (export enum Role {), Conventions, Cook Portal, DATABASE.md — Schema & Relationships, Enums, Indexing Strategy Summary (+1 more)
+
+### Community 169 - "Community 169"
+Cohesion: 0.24
+Nodes (10): Attendance / Night Safety, code:typescript (interface INightStatusLog {), code:typescript (interface IFoodRoutine {), code:typescript (interface IFoodPhoto {), code:typescript (interface INotice {), Food, FoodMenu, FoodPhoto (+2 more)
+
+### Community 170 - "Community 170"
+Cohesion: 0.2
+Nodes (10): 6.1 Multi-Tenant Isolation ⭐ HIGHEST PRIORITY, 6.2 Auth & Account-Upgrade Logic ⭐ CRITICAL, 6.3 Role-Based Access Control (Every Endpoint), 6.4 Payments, 6.5 Privacy-Sensitive Views, 6.6 Business-Rule Constraints, 6.7 Audit Logging, 6. What Must Be Tested (Non-Negotiable) (+2 more)
+
+### Community 171 - "Community 171"
 Cohesion: 0.2
 Nodes (10): 11.1 Before Every Phase Sign-Off, 11.2 Phase-Specific Checklists, 11.3 Auth Edge Cases (critical — test thoroughly), 11.4 Privacy Verification (audit before production), 11. Manual QA Checklist, Phase 1 Checklist, Phase 2 Checklist, Phase 3 Checklist (+2 more)
 
-### Community 166 - "Community 166"
+### Community 172 - "Community 172"
+Cohesion: 0.2
+Nodes (10): 10.1 GitHub Actions Workflow, 10.2 Merge Rules, 10. CI/CD Integration, 7.1 Multi-Tenant Isolation Test Template, 7.5 Payment Precision Test Template, code:typescript (describe('GET /api/v1/hostel/rooms/:id - tenant isolation', ), code:typescript (describe('Payment calculations - decimal precision', () => {), code:yaml (# .github/workflows/test.yml) (+2 more)
+
+### Community 173 - "Community 173"
 Cohesion: 0.22
 Nodes (7): dirname, dryRun, emailArg, repoRoot, residents, stranded, users
 
-### Community 167 - "Community 167"
-Cohesion: 0.25
-Nodes (7): PlatformHostelReviewPageContent(), PlatformHostelReviewPageContent, PlatformApplication, PlatformHostel, PlatformHostelDetailData, PlatformHostelReviewPage(), rentRange()
-
-### Community 168 - "Community 168"
-Cohesion: 0.31
-Nodes (6): GET(), GET(), getHostelAdminMaintenanceReport(), objectIdSchema, platformReportExportSchema, reportQuerySchema
-
-### Community 169 - "Community 169"
+### Community 174 - "Community 174"
 Cohesion: 0.31
 Nodes (7): hashUserAgent(), HostelRef, newVisitorKey(), recordHostelPageView(), resolveVisitorKey(), hostelPageViewSchema, evaluateProfilePrompt()
 
-### Community 170 - "Community 170"
+### Community 175 - "Community 175"
+Cohesion: 0.25
+Nodes (6): authorUserId, leanResult(), mocks, postId, reactorUserId, residentIn()
+
+### Community 176 - "Community 176"
 Cohesion: 0.22
 Nodes (9): 1.1 Response envelope, 1.2 Standard error codes, 1.3 Auth header/cookie convention, 1.4 Pagination, 1.5 Path conventions and build status, 1. Conventions, code:json ({ "success": true, "message": "Request successful", "data": ), code:json ({ "success": false, "message": "Human-readable message", "er) (+1 more)
 
-### Community 171 - "Community 171"
+### Community 177 - "Community 177"
 Cohesion: 0.22
 Nodes (9): 8.1 Privacy-First Design, 8.2 Mobile Background Service, 8.3 Server-Side Zone Calculation, 8.4 Configuration Hierarchy, 8.5 Data Retention, 8. Location Tracking & Auto-Attendance Architecture, code:typescript (// Background task that runs at configured times), code:typescript (// apps/web/app/api/resident/location/ping/route.ts) (+1 more)
 
-### Community 172 - "Community 172"
+### Community 178 - "Community 178"
 Cohesion: 0.22
 Nodes (9): [0.5.2] - 2026-07-23 — Cook credential hand-off + dashboard visibility, Added, Added, Changed, Changed, Changed, Fixed, Fixed (+1 more)
 
-### Community 173 - "Community 173"
-Cohesion: 0.31
-Nodes (9): Bed, code:typescript (interface IRoomConfiguration {), code:typescript (interface IResident {), code:typescript (interface IGuardianAccessPermissions {), Guardian, Resident, Residents & Guardians, Room (+1 more)
-
-### Community 174 - "Community 174"
-Cohesion: 0.22
-Nodes (8): Build status (end of Phase 3), Build status (end of Phase 5 — verified 2026-08-02), code:typescript (export enum Role {), Conventions, Cook Portal, DATABASE.md — Schema & Relationships, Enums, Indexing Strategy Summary
-
-### Community 175 - "Community 175"
-Cohesion: 0.36
-Nodes (9): code:typescript ({), code:typescript ({), code:typescript (interface IQuestionCallClick {), Community Feature, CommunityComment, CommunityReaction, CommunityReport, QuestionCall Integration & Analytics (+1 more)
-
-### Community 176 - "Community 176"
-Cohesion: 0.28
-Nodes (9): code:typescript (interface IMoveOutChecklistItem {), code:typescript (interface IServiceProvider {), code:typescript (interface IMaintenanceRequest {), MaintenanceRequest, Move-in / Move-out, MoveInChecklist, MoveOutChecklist, Service Providers & Maintenance (+1 more)
-
-### Community 177 - "Community 177"
-Cohesion: 0.22
-Nodes (9): 2.1 Hostel Submission Received, 2.2 Hostel Approved, 2.3 Hostel Rejected, 2.4 Inquiry Received (to Hostel Admin), 2. Hostel Management Emails, code:typescript ({), code:block11 (---), code:typescript ({) (+1 more)
-
-### Community 178 - "Community 178"
-Cohesion: 0.22
-Nodes (9): 6. Production Deployment (Vercel), 8. Monitoring & Logging, code:json ({ "level": "warn", "action": "public_asset_store_failed", "m), code:json ({), code:typescript (// app/api/cron/payment-reminders/route.ts), Deployment Steps, Post-Deployment Checks, Prerequisites (+1 more)
-
 ### Community 179 - "Community 179"
 Cohesion: 0.22
-Nodes (9): 6.1 Multi-Tenant Isolation ⭐ HIGHEST PRIORITY, 6.2 Auth & Account-Upgrade Logic ⭐ CRITICAL, 6.3 Role-Based Access Control (Every Endpoint), 6.4 Payments, 6.5 Privacy-Sensitive Views, 6.6 Business-Rule Constraints, 6.7 Audit Logging, 6. What Must Be Tested (Non-Negotiable) (+1 more)
+Nodes (9): [0.4.0] - 2026-07-22 — Phase 2: Public discovery + hostel core (gap completion), Added, Added, Added, Added, Changed, Changed, Changed (+1 more)
 
 ### Community 180 - "Community 180"
 Cohesion: 0.31
-Nodes (9): 4. Commands, Backend Tests, code:bash (npm run web:test), code:bash (npm --prefix apps/web run test:watch), code:bash (npm --prefix apps/web run test -- attendance-zone), Frontend/Web Tests, Not yet wired up, Run All Tests (Monorepo Root) (+1 more)
+Nodes (9): Bed, code:typescript (interface IRoomConfiguration {), code:typescript (interface IResident {), code:typescript (interface IGuardianAccessPermissions {), Guardian, Resident, Residents & Guardians, Room (+1 more)
 
 ### Community 181 - "Community 181"
-Cohesion: 0.22
-Nodes (9): 8.1 Public Visitor Journey, 8.2 Hostel Onboarding, 8.3 Resident Lifecycle, 8.4 Complaint Lifecycle, 8.5 Guardian Flow, 8.6 SOS Flow, 8.7 Service Provider & Maintenance, 8.8 Unified Login & Account-Upgrade E2E (+1 more)
+Cohesion: 0.28
+Nodes (9): code:typescript (interface IQRActivation {), code:typescript (interface IPayment {), code:typescript (interface IPaymentProof {), code:typescript (interface IReceipt {), Payment, PaymentProof, Payments, QR Activation (+1 more)
 
 ### Community 182 - "Community 182"
 Cohesion: 0.22
-Nodes (8): 13. Resources & Further Reading, 1. Goals & Philosophy, 2. Test Pyramid, 3. Tooling & Frameworks, 5. Coverage Expectations, code:block1 (e2e   (few, critical flows only)), Table of Contents, TESTING.md — Testing Strategy & Quality Assurance
+Nodes (9): 2.1 Hostel Submission Received, 2.2 Hostel Approved, 2.3 Hostel Rejected, 2.4 Inquiry Received (to Hostel Admin), 2. Hostel Management Emails, code:typescript ({), code:block11 (---), code:typescript ({) (+1 more)
 
 ### Community 183 - "Community 183"
 Cohesion: 0.22
-Nodes (9): Authentication, Core Infrastructure, Email, File Storage, Monitoring, Payments, Push Notifications, Quick Setup Checklist (+1 more)
+Nodes (9): 6. Production Deployment (Vercel), 8. Monitoring & Logging, code:json ({ "level": "warn", "action": "public_asset_store_failed", "m), code:json ({), code:typescript (// app/api/cron/payment-reminders/route.ts), Deployment Steps, Post-Deployment Checks, Prerequisites (+1 more)
 
 ### Community 184 - "Community 184"
 Cohesion: 0.22
-Nodes (8): Completed In This Pass, Demo Seed Accounts, HostelHub Auth Flow, HostelHub Auth Target, HostelHub Notification Flow, Overall Flow, Reference Reviewed, Remaining Work
+Nodes (8): 13. Resources & Further Reading, 1. Goals & Philosophy, 2. Test Pyramid, 3. Tooling & Frameworks, 5. Coverage Expectations, code:block1 (e2e   (few, critical flows only)), Table of Contents, TESTING.md — Testing Strategy & Quality Assurance
 
 ### Community 185 - "Community 185"
+Cohesion: 0.22
+Nodes (9): 8.1 Public Visitor Journey, 8.2 Hostel Onboarding, 8.3 Resident Lifecycle, 8.4 Complaint Lifecycle, 8.5 Guardian Flow, 8.6 SOS Flow, 8.7 Service Provider & Maintenance, 8.8 Unified Login & Account-Upgrade E2E (+1 more)
+
+### Community 186 - "Community 186"
+Cohesion: 0.31
+Nodes (9): 4. Commands, Backend Tests, code:bash (npm run web:test), code:bash (npm --prefix apps/web run test:watch), code:bash (npm --prefix apps/web run test -- attendance-zone), Frontend/Web Tests, Not yet wired up, Run All Tests (Monorepo Root) (+1 more)
+
+### Community 187 - "Community 187"
+Cohesion: 0.22
+Nodes (9): Authentication, Core Infrastructure, Email, File Storage, Monitoring, Payments, Push Notifications, Quick Setup Checklist (+1 more)
+
+### Community 188 - "Community 188"
+Cohesion: 0.22
+Nodes (8): Completed In This Pass, Demo Seed Accounts, HostelHub Auth Flow, HostelHub Auth Target, HostelHub Notification Flow, Overall Flow, Reference Reviewed, Remaining Work
+
+### Community 189 - "Community 189"
 Cohesion: 0.25
 Nodes (6): listResidentPayments(), ResidentPayment, ResidentPaymentProof, submitPaymentProof(), Props, ResidentPaymentsScreen()
 
-### Community 186 - "Community 186"
+### Community 190 - "Community 190"
 Cohesion: 0.25
 Nodes (6): cursor, dirname, privateReferences, repoRoot, violations, warnings
 
-### Community 187 - "Community 187"
+### Community 191 - "Community 191"
 Cohesion: 0.25
 Nodes (7): dirname, email, name, phone, repoRoot, update, userSchema
 
-### Community 188 - "Community 188"
-Cohesion: 0.29
-Nodes (4): DeletionQueue, DeletionRequest, PlatformAccountDeletionsPageContent, ListPager()
-
-### Community 189 - "Community 189"
+### Community 192 - "Community 192"
 Cohesion: 0.36
 Nodes (7): DEFAULT_DOCUMENT_MIME_TYPES, DEFAULT_IMAGE_MIME_TYPES, fileAssetLimits(), mimeList(), PLATFORM_ACCEPTED_MIME_TYPES, positiveInteger(), validateFileAssetMetadata()
 
-### Community 190 - "Community 190"
+### Community 193 - "Community 193"
 Cohesion: 0.36
 Nodes (7): configuredLevel(), levelPriority, logger, LogLevel, normalizeMeta(), shouldLog(), write()
 
-### Community 191 - "Community 191"
-Cohesion: 0.25
-Nodes (6): DraggablePinMap, FALLBACK_CENTER, LocationPicker(), LocationPickerValue, PART_LABELS, AddressParts
-
-### Community 192 - "Community 192"
-Cohesion: 0.25
-Nodes (8): 4.1 Platform Owner / Super Admin, 4.2 Hostel Owner / Hostel Admin, 4.3 Warden / Staff, 4.4 Resident / Student, 4.5 Public Visitor, 4.6 Guardian, 4.7 Service Provider / Side-Hustle Worker, 4. User Roles
-
-### Community 193 - "Community 193"
-Cohesion: 0.25
-Nodes (8): [0.2.0] - 2026-07-14 (Late), Added, Added, Added, Added, Added, Added, Added
-
 ### Community 194 - "Community 194"
-Cohesion: 0.25
-Nodes (8): [0.5.0] - 2026-07-23 — Phase 3: Resident system (gap completion), Added, Added, Added, Changed, Changed, Changed, Changed
+Cohesion: 0.43
+Nodes (5): robots(), sitemap(), STATIC_ROUTES, listPublishedHostelSlugs(), siteUrl()
 
 ### Community 195 - "Community 195"
-Cohesion: 0.32
-Nodes (8): Attendance / Night Safety, code:typescript (interface IFoodRoutine {), code:typescript (interface IFoodPhoto {), Food, FoodMenu, FoodPhoto, FoodRoutine, NightStatusLog
+Cohesion: 0.39
+Nodes (5): CachedConnection, disconnectFromDatabase(), globalForMongoose, main(), main()
 
 ### Community 196 - "Community 196"
 Cohesion: 0.25
-Nodes (7): 10. International Data Transfers, 12.1 Questions or Concerns, 12.2 Complaints, 12. Contact & Data Protection Officer, 13. Platform Owner Information, 9. Children's Privacy, PRIVACY_POLICY.md — Privacy Policy & Data Protection
+Nodes (8): 4.1 Platform Owner / Super Admin, 4.2 Hostel Owner / Hostel Admin, 4.3 Warden / Staff, 4.4 Resident / Student, 4.5 Public Visitor, 4.6 Guardian, 4.7 Service Provider / Side-Hustle Worker, 4. User Roles
 
 ### Community 197 - "Community 197"
-Cohesion: 0.39
-Nodes (6): DEFAULT_DOCUMENT_MIME_TYPES, DEFAULT_IMAGE_MIME_TYPES, fileAssetLimits(), mimeList(), positiveInteger(), validateFileAssetMetadata()
+Cohesion: 0.25
+Nodes (8): [0.5.0] - 2026-07-23 — Phase 3: Resident system (gap completion), Added, Added, Added, Changed, Changed, Changed, Changed
 
 ### Community 198 - "Community 198"
 Cohesion: 0.25
-Nodes (8): 5. Other Important Flows, 5a. File/Media Upload & Storage, 5b. Realtime Features (Pusher + LiveKit), 5c. Analytics & Logging, 5d. Cron Jobs / Background Workers, 5e. Error Handling & Monitoring, 5f. CI/CD & Deployment, code:typescript (// R2 presigned upload URL)
+Nodes (8): [0.2.0] - 2026-07-14 (Late), Added, Added, Added, Added, Added, Added, Added
 
 ### Community 199 - "Community 199"
 Cohesion: 0.25
-Nodes (8): 7.1 Foundation Modules, 7.2 Platform Owner Modules, 7.3 Public Modules, 7.4 Hostel Admin/Warden Modules, 7.5 Resident Modules, 7.6 Guardian Modules, 7.7 Service Provider/Maintenance Modules, 7. Locked Module List
+Nodes (7): 10. International Data Transfers, 13. Platform Owner Information, 6.1 Cookies We Use, 6.2 You Can Control Cookies, 6. Cookies & Tracking Technologies, 9. Children's Privacy, PRIVACY_POLICY.md — Privacy Policy & Data Protection
 
 ### Community 200 - "Community 200"
-Cohesion: 0.25
-Nodes (7): Brand & Style, Colors, Components, Elevation & Depth, Layout & Spacing, Shapes, Typography
+Cohesion: 0.39
+Nodes (6): DEFAULT_DOCUMENT_MIME_TYPES, DEFAULT_IMAGE_MIME_TYPES, fileAssetLimits(), mimeList(), positiveInteger(), validateFileAssetMetadata()
 
 ### Community 201 - "Community 201"
 Cohesion: 0.25
-Nodes (7): Brand & Style, Colors, Components, Elevation & Depth, Layout & Spacing, Shapes, Typography
+Nodes (8): 5. Other Important Flows, 5a. File/Media Upload & Storage, 5b. Realtime Features (Pusher + LiveKit), 5c. Analytics & Logging, 5d. Cron Jobs / Background Workers, 5e. Error Handling & Monitoring, 5f. CI/CD & Deployment, code:typescript (// R2 presigned upload URL)
 
 ### Community 202 - "Community 202"
 Cohesion: 0.25
 Nodes (8): 7.1 Foundation Modules, 7.2 Platform Owner Modules, 7.3 Public Modules, 7.4 Hostel Admin/Warden Modules, 7.5 Resident Modules, 7.6 Guardian Modules, 7.7 Service Provider/Maintenance Modules, 7. Locked Module List
 
 ### Community 203 - "Community 203"
-Cohesion: 0.29
-Nodes (6): listNotifications(), markNotificationRead(), NotificationItem, saveDeviceToken(), Props, ResidentNotificationsScreen()
+Cohesion: 0.25
+Nodes (7): Brand & Style, Colors, Components, Elevation & Depth, Layout & Spacing, Shapes, Typography
 
 ### Community 204 - "Community 204"
-Cohesion: 0.29
-Nodes (6): dirname, { loadEnvConfig }, nextConfig, repoRoot, require, SECURITY_HEADERS
+Cohesion: 0.25
+Nodes (7): Brand & Style, Colors, Components, Elevation & Depth, Layout & Spacing, Shapes, Typography
+
+### Community 205 - "Community 205"
+Cohesion: 0.25
+Nodes (8): 7.1 Foundation Modules, 7.2 Platform Owner Modules, 7.3 Public Modules, 7.4 Hostel Admin/Warden Modules, 7.5 Resident Modules, 7.6 Guardian Modules, 7.7 Service Provider/Maintenance Modules, 7. Locked Module List
 
 ### Community 206 - "Community 206"
 Cohesion: 0.29
-Nodes (5): toast, ToastInput, ToastItem, ToastStore, ToastTone
+Nodes (6): confirmComplaintResolution(), createResidentComplaint(), listResidentComplaints(), ResidentComplaint, Props, ResidentComplaintsScreen()
+
+### Community 207 - "Community 207"
+Cohesion: 0.33
+Nodes (6): getResidentDashboard(), logout(), ResidentDashboard, money(), Props, ResidentHomeScreen()
 
 ### Community 208 - "Community 208"
 Cohesion: 0.29
-Nodes (4): hostelId, mocks, now, ownerId
-
-### Community 209 - "Community 209"
-Cohesion: 0.29
-Nodes (7): 10.1 Account & Credentials, 10.2 Device Fingerprint Tracking, 10.3 Food Ready Notification Flow, 10.4 Analytics, 10. Cook Portal Architecture, code:typescript (// On cook's first login from mobile app), code:typescript (// FoodReadyLog includes cookDeviceFingerprint)
+Nodes (6): dirname, { loadEnvConfig }, nextConfig, repoRoot, require, SECURITY_HEADERS
 
 ### Community 210 - "Community 210"
-Cohesion: 0.29
-Nodes (7): 4.1 New Notice Posted, 4.2 Complaint Status Updated, 4.3 Complaint Resolved, 4. Resident Activity Emails, code:typescript ({), code:typescript ({), code:typescript ({)
-
-### Community 211 - "Community 211"
-Cohesion: 0.29
-Nodes (7): 6.1 Service Provider Registration Received, 6.2 Service Provider Approved, 6.3 Service Provider Rejected, 6. Service Provider Emails, code:typescript ({), code:typescript ({), code:typescript ({)
+Cohesion: 0.38
+Nodes (6): resetRoleHealForTests(), fetchMock, forbidden(), jsonResponse(), ok(), refreshSessionMock
 
 ### Community 212 - "Community 212"
 Cohesion: 0.29
-Nodes (7): 3.1 What We Track, 3.2 What We Store, 3.3 How Long We Keep It, 3.4 Who Can See It, 3.5 Why We Need It, 3.6 Your Consent, 3. Location Tracking Details **⚠️ READ CAREFULLY**
+Nodes (6): code:bash (npm --prefix apps/mobile install), code:bash (EXPO_PUBLIC_API_BASE_URL=http://localhost:3000), HostelHub Mobile, Mobile App, Phase 1 Auth Contract, Setup
 
 ### Community 213 - "Community 213"
 Cohesion: 0.29
-Nodes (7): 7.1 Right to Access, 7.2 Right to Rectification, 7.3 Right to Erasure ("Right to be Forgotten"), 7.4 Right to Data Portability, 7.5 Right to Object, 7.6 Right to Restrict Processing, 7. Your Rights (GDPR-Style)
+Nodes (7): 10.1 Account & Credentials, 10.2 Device Fingerprint Tracking, 10.3 Food Ready Notification Flow, 10.4 Analytics, 10. Cook Portal Architecture, code:typescript (// On cook's first login from mobile app), code:typescript (// FoodReadyLog includes cookDeviceFingerprint)
 
 ### Community 214 - "Community 214"
 Cohesion: 0.29
-Nodes (7): 7.4 Account-Upgrade Test Template, 9.1 Seed Scripts, 9.3 Test Helpers, 9. Test Data & Seeding, code:typescript (describe('POST /api/v1/hostel/residents - account upgrade', ), code:typescript (// tests/helpers/auth.ts), code:typescript (it.each([)
+Nodes (7): 6.1 Service Provider Registration Received, 6.2 Service Provider Approved, 6.3 Service Provider Rejected, 6. Service Provider Emails, code:typescript ({), code:typescript ({), code:typescript ({)
 
 ### Community 215 - "Community 215"
 Cohesion: 0.29
-Nodes (7): 10.1 GitHub Actions Workflow, 10.2 Merge Rules, 10. CI/CD Integration, code:typescript (describe('Payment calculations - decimal precision', () => {), code:typescript (// In test setup (e.g., jest.setup.ts)), code:yaml (# .github/workflows/test.yml), code:yaml (# .github/workflows/e2e.yml)
+Nodes (7): 4.1 New Notice Posted, 4.2 Complaint Status Updated, 4.3 Complaint Resolved, 4. Resident Activity Emails, code:typescript ({), code:typescript ({), code:typescript ({)
 
 ### Community 216 - "Community 216"
 Cohesion: 0.29
-Nodes (6): Architecture Diagram (Textual), code:bash (# ─── Database ─────────────────────────────────────────────), code:block17 (┌───────────────────────────────────────────────────────────), Complete Environment Variables Reference, 🏗️ Jiwan-Mijhar — Reusable Architecture Extraction Document, Project Overview
+Nodes (7): 3.1 What We Track, 3.2 What We Store, 3.3 How Long We Keep It, 3.4 Who Can See It, 3.5 Why We Need It, 3.6 Your Consent, 3. Location Tracking Details **⚠️ READ CAREFULLY**
 
 ### Community 217 - "Community 217"
 Cohesion: 0.29
-Nodes (7): 1.1 Recommended Project Structure, 1. Final Technical Direction, 3. Team Work Lanes, 4. Phase Overview, code:txt (hostel-saas/), code:txt (src/), Multi-Hostel SaaS Platform — Phase-Wise Development Plan
+Nodes (7): 7.1 Right to Access, 7.2 Right to Rectification, 7.3 Right to Erasure ("Right to be Forgotten"), 7.4 Right to Data Portability, 7.5 Right to Object, 7.6 Right to Restrict Processing, 7. Your Rights (GDPR-Style)
 
 ### Community 218 - "Community 218"
 Cohesion: 0.29
-Nodes (6): code:bash (npm --prefix apps/mobile install), code:bash (EXPO_PUBLIC_API_BASE_URL=http://localhost:3000), HostelHub Mobile, Mobile App, Phase 1 Auth Contract, Setup
+Nodes (6): Architecture Diagram (Textual), code:bash (# ─── Database ─────────────────────────────────────────────), code:block17 (┌───────────────────────────────────────────────────────────), Complete Environment Variables Reference, 🏗️ Jiwan-Mijhar — Reusable Architecture Extraction Document, Project Overview
 
-### Community 220 - "Community 220"
-Cohesion: 0.33
-Nodes (5): getResidentNightStatus(), ResidentNightStatus, updateResidentNightStatus(), Props, ResidentNightStatusScreen()
+### Community 219 - "Community 219"
+Cohesion: 0.29
+Nodes (7): 1.1 Recommended Project Structure, 1. Final Technical Direction, 3. Team Work Lanes, 4. Phase Overview, code:txt (hostel-saas/), code:txt (src/), Multi-Hostel SaaS Platform — Phase-Wise Development Plan
 
 ### Community 221 - "Community 221"
-Cohesion: 0.4
-Nodes (5): createPublicInquiry(), getPublicHostel(), Props, PublicHostelDetailScreen(), rentRange()
+Cohesion: 0.33
+Nodes (5): getResidentReferral(), ResidentReferral, ResidentReferralCode, Props, ResidentReferralScreen()
 
 ### Community 222 - "Community 222"
 Cohesion: 0.33
@@ -1224,17 +1225,21 @@ Nodes (3): ResidentIdSharePage(), metadata, PageParams
 Cohesion: 0.4
 Nodes (3): contactMethods, faqs, PublicContactPage()
 
-### Community 226 - "Community 226"
+### Community 225 - "Community 225"
 Cohesion: 0.53
 Nodes (5): graphify - READ THIS FIRST, graphify - READ THIS FIRST then docs folder PHASES.md, Keeping the graph fresh, What you MUST do at the start of every session, What you MUST NOT do
 
-### Community 227 - "Community 227"
+### Community 226 - "Community 226"
 Cohesion: 0.33
 Nodes (6): 23. Recommended Development Order, Phase 1 - Foundation, Phase 2 - Public + Hostel Core, Phase 3 - Resident System, Phase 4 - Trust, Safety, and Daily Use, Phase 5 - Growth and Maintenance
 
-### Community 228 - "Community 228"
+### Community 227 - "Community 227"
 Cohesion: 0.33
 Nodes (6): 18.1 Own identity (any authenticated role), 18.2 Staff lookup (Hostel Admin / Warden), 18.3 View tracking + when we ask for the profile, 18.4 Public share page, 18. Resident Identity (Portable Profile + QR), code:json ({)
+
+### Community 228 - "Community 228"
+Cohesion: 0.33
+Nodes (6): 3.1 Unified login gateway, 3.2 Account upgrade on admin-issued registration (critical flow — build this exactly), 3.3 Roles & permissions, 3.4 Tokens & session, 3. Authentication & Authorization Architecture, code:block1 (POST /api/auth/login           { email, password })
 
 ### Community 229 - "Community 229"
 Cohesion: 0.33
@@ -1246,7 +1251,7 @@ Nodes (6): 5.1 Concept, 5.2 Implementation, 5. PlatformConfig Pattern (Runtime-C
 
 ### Community 231 - "Community 231"
 Cohesion: 0.33
-Nodes (6): 3.1 Unified login gateway, 3.2 Account upgrade on admin-issued registration (critical flow — build this exactly), 3.3 Roles & permissions, 3.4 Tokens & session, 3. Authentication & Authorization Architecture, code:block1 (POST /api/auth/login           { email, password })
+Nodes (4): code:markdown (## [Phase X] - YYYY-MM-DD), Planned, Template for Phase Completions, [Unreleased]
 
 ### Community 232 - "Community 232"
 Cohesion: 0.33
@@ -1266,11 +1271,11 @@ Nodes (6): 12.1 Flaky Tests, 12.2 Tenant Isolation Bugs, 12.3 E2E Tests Timing O
 
 ### Community 236 - "Community 236"
 Cohesion: 0.33
-Nodes (6): 13.1 Required Tooling, 13.2 Required Environment Variables, 13.3 Environment Files, 13. Environment Setup Plan, code:txt (NODE_ENV=), code:txt (.env.example)
+Nodes (6): 12.1 Phase 1 Mobile, 12.2 Phase 2 Mobile, 12.3 Phase 3 Mobile, 12.4 Phase 4 Mobile, 12.5 Phase 5 Mobile, 12. Mobile Screen List Lock
 
 ### Community 237 - "Community 237"
 Cohesion: 0.33
-Nodes (6): 12.1 Phase 1 Mobile, 12.2 Phase 2 Mobile, 12.3 Phase 3 Mobile, 12.4 Phase 4 Mobile, 12.5 Phase 5 Mobile, 12. Mobile Screen List Lock
+Nodes (6): 13.1 Required Tooling, 13.2 Required Environment Variables, 13.3 Environment Files, 13. Environment Setup Plan, code:txt (NODE_ENV=), code:txt (.env.example)
 
 ### Community 238 - "Community 238"
 Cohesion: 0.33
@@ -1286,7 +1291,7 @@ Nodes (6): 12.1 Phase 1 Mobile, 12.2 Phase 2 Mobile, 12.3 Phase 3 Mobile, 12.4 P
 
 ### Community 241 - "Community 241"
 Cohesion: 0.4
-Nodes (4): register(), verifyOtp(), OtpVerificationScreen(), Props
+Nodes (4): getResidentProfile(), Profile, Props, ResidentProfileScreen()
 
 ### Community 242 - "Community 242"
 Cohesion: 0.4
@@ -1336,6 +1341,10 @@ Nodes (5): 8.1 Request Account Deletion, 8.2 60-Day Grace Period, 8.3 What Gets 
 Cohesion: 0.4
 Nodes (5): 2.1 Core Services, 2.2 Attendance Tracking, 2.3 Community Features, 2.4 Analytics & Improvement, 2. How We Use Your Information
 
+### Community 259 - "Community 259"
+Cohesion: 0.5
+Nodes (3): candidateRoots, { loadEnvConfig }, require
+
 ### Community 260 - "Community 260"
 Cohesion: 0.5
 Nodes (3): LEGACY_ROLE_MAP, Role, ROLE_VALUES
@@ -1346,27 +1355,27 @@ Nodes (4): 11.1 Owner Identity & Ownership Proof, 11.2 Verified Hostel Badge / C
 
 ### Community 262 - "Community 262"
 Cohesion: 0.5
-Nodes (4): 12.1 User Notifications, 12.2 Admin Notification Creation, 12.3 Superadmin Platform-Wide Notifications, 12. Notifications & Push Messaging
+Nodes (4): 11.1 Resident Location (Mobile Only), 11.1 Resident (see section 7 for the full rows), 11.2 Admin Attendance Dashboard, 11. Location Tracking & Auto-Attendance
 
 ### Community 263 - "Community 263"
 Cohesion: 0.5
-Nodes (4): 11.1 Resident Location (Mobile Only), 11.1 Resident (see section 7 for the full rows), 11.2 Admin Attendance Dashboard, 11. Location Tracking & Auto-Attendance
+Nodes (4): 12.1 User Notifications, 12.2 Admin Notification Creation, 12.3 Superadmin Platform-Wide Notifications, 12. Notifications & Push Messaging
 
 ### Community 264 - "Community 264"
 Cohesion: 0.5
-Nodes (4): 13.0 "Delete my account" is four different actions, 13.1 60-Day Grace Period, 13.2 What Gets Deleted, 13. Account Deletion & Data Retention Architecture
+Nodes (4): 7.1 Infrastructure, 7.2 Flow, 7.3 Notification Categories, 7. Push Notification Architecture (Phase 6)
 
 ### Community 265 - "Community 265"
 Cohesion: 0.5
-Nodes (4): 12.1 Redirect Flow, 12.2 Analytics Tracking, 12. QuestionCall Integration Architecture, code:block21 (Resident (STUDENT) clicks button)
+Nodes (4): 13.0 "Delete my account" is four different actions, 13.1 60-Day Grace Period, 13.2 What Gets Deleted, 13. Account Deletion & Data Retention Architecture
 
 ### Community 266 - "Community 266"
 Cohesion: 0.5
-Nodes (4): 7.1 Infrastructure, 7.2 Flow, 7.3 Notification Categories, 7. Push Notification Architecture (Phase 6)
+Nodes (4): 12.1 Redirect Flow, 12.2 Analytics Tracking, 12. QuestionCall Integration Architecture, code:block21 (Resident (STUDENT) clicks button)
 
 ### Community 267 - "Community 267"
 Cohesion: 0.5
-Nodes (4): Email Opt-In/Opt-Out Matrix, Guardian Control, Platform Control (PlatformConfig), Resident Control
+Nodes (4): 4.1 We Share Your Data With:, 4.2 We DO NOT Share With:, 4.3 Legal Disclosure, 4. Data Sharing & Disclosure
 
 ### Community 268 - "Community 268"
 Cohesion: 0.5
@@ -1374,27 +1383,27 @@ Nodes (4): Appendix: Location Tracking Technical Details (For Transparency), Bat
 
 ### Community 269 - "Community 269"
 Cohesion: 0.5
-Nodes (4): 4.1 We Share Your Data With:, 4.2 We DO NOT Share With:, 4.3 Legal Disclosure, 4. Data Sharing & Disclosure
+Nodes (4): 8. Locked Database Entity List, code:txt (users), code:txt (hostelId), code:txt (isDeleted)
 
 ### Community 270 - "Community 270"
 Cohesion: 0.5
-Nodes (4): 8. Locked Database Entity List, code:txt (users), code:txt (hostelId), code:txt (isDeleted)
-
-### Community 271 - "Community 271"
-Cohesion: 0.5
 Nodes (4): 1.1 Required Phase 0 Outputs, 1.2 Phase 0 Done Gate, 1.3 Phase 0 Completion Boundary, 1. Completion Tracker
+
+### Community 272 - "Community 272"
+Cohesion: 0.5
+Nodes (4): 1.1 Required Phase 0 Outputs, 1.2 Phase 0 Done Gate, 1.3 Step 1 Completion Boundary, 1. Completion Tracker
 
 ### Community 273 - "Community 273"
 Cohesion: 0.5
 Nodes (4): 8. Locked Database Entity List, code:txt (users), code:txt (hostelId), code:txt (isDeleted)
 
-### Community 274 - "Community 274"
-Cohesion: 0.5
-Nodes (4): 1.1 Required Phase 0 Outputs, 1.2 Phase 0 Done Gate, 1.3 Step 1 Completion Boundary, 1. Completion Tracker
+### Community 277 - "Community 277"
+Cohesion: 0.67
+Nodes (3): 17.1 Hostel to Platform, 17.2 Resident to Hostel, 17. Payment Scope
 
 ### Community 278 - "Community 278"
 Cohesion: 0.67
-Nodes (3): 17.1 Hostel to Platform, 17.2 Resident to Hostel, 17. Payment Scope
+Nodes (3): 13.1 Resident QuestionCall Access, 13.2 Superadmin QuestionCall Analytics, 13. QuestionCall Integration & Analytics
 
 ### Community 279 - "Community 279"
 Cohesion: 0.67
@@ -1406,15 +1415,15 @@ Nodes (3): 14.1 Hostel Settings (Hostel Admin), 14.2 Platform Configuration (Sup
 
 ### Community 281 - "Community 281"
 Cohesion: 0.67
-Nodes (3): 13.1 Resident QuestionCall Access, 13.2 Superadmin QuestionCall Analytics, 13. QuestionCall Integration & Analytics
+Nodes (3): 7.1 Attendance Alert (Resident Absent), 7. Attendance & Location Tracking Emails, code:typescript ({)
 
 ### Community 282 - "Community 282"
 Cohesion: 0.67
-Nodes (3): 7. Database Migrations (Mongoose), code:block6 (migrations/), code:bash (pnpm --filter @packages/db run-migration 001)
+Nodes (3): 8. Monitoring & Logging (Production), code:bash (pnpm add @sentry/nextjs), code:typescript (console.log(JSON.stringify({)
 
 ### Community 283 - "Community 283"
 Cohesion: 0.67
-Nodes (3): 8. Monitoring & Logging (Production), code:bash (pnpm add @sentry/nextjs), code:typescript (console.log(JSON.stringify({)
+Nodes (3): 7. Database Migrations (Mongoose), code:block6 (migrations/), code:bash (pnpm --filter @packages/db run-migration 001)
 
 ### Community 284 - "Community 284"
 Cohesion: 0.67
@@ -1422,7 +1431,7 @@ Nodes (3): 8. Push Notifications (Phase 6 - Mobile), code:bash (# Firebase Admin
 
 ### Community 285 - "Community 285"
 Cohesion: 0.67
-Nodes (3): 11.1 Updates, 11.2 Your Consent to Changes, 11. Changes to Privacy Policy
+Nodes (3): 12.1 Questions or Concerns, 12.2 Complaints, 12. Contact & Data Protection Officer
 
 ### Community 286 - "Community 286"
 Cohesion: 0.67
@@ -1430,7 +1439,7 @@ Nodes (3): 5.1 Security Measures, 5.2 Your Responsibility, 5. Data Security
 
 ### Community 287 - "Community 287"
 Cohesion: 0.67
-Nodes (3): 6.1 Cookies We Use, 6.2 You Can Control Cookies, 6. Cookies & Tracking Technologies
+Nodes (3): 11.1 Updates, 11.2 Your Consent to Changes, 11. Changes to Privacy Policy
 
 ### Community 288 - "Community 288"
 Cohesion: 0.67
@@ -1441,24 +1450,24 @@ Cohesion: 0.67
 Nodes (3): 4. Recommended Repo Structure, code:txt (hostel-saas/), code:txt (src/)
 
 ## Knowledge Gaps
-- **2317 isolated node(s):** `AuthUser`, `ResidentSummary`, `ResidentFoodRoutine`, `ApiSuccess`, `ApiFailure` (+2312 more)
+- **2340 isolated node(s):** `AuthUser`, `ResidentSummary`, `ResidentFoodRoutine`, `ApiSuccess`, `ApiFailure` (+2335 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Role` connect `Community 18` to `Community 0`, `Community 1`, `Community 3`, `Community 4`, `Community 5`, `Community 8`, `Community 139`, `Community 13`, `Community 14`, `Community 15`, `Community 21`, `Community 22`, `Community 24`, `Community 25`, `Community 29`, `Community 31`, `Community 160`, `Community 33`, `Community 32`, `Community 38`, `Community 43`, `Community 44`, `Community 51`, `Community 52`, `Community 56`, `Community 60`, `Community 65`, `Community 72`, `Community 85`, `Community 87`, `Community 88`, `Community 103`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
-- **Why does `cn()` connect `Community 2` to `Community 3`, `Community 6`, `Community 7`, `Community 9`, `Community 11`, `Community 12`, `Community 16`, `Community 17`, `Community 30`, `Community 31`, `Community 38`, `Community 41`, `Community 45`, `Community 49`, `Community 51`, `Community 55`, `Community 58`, `Community 61`, `Community 63`, `Community 64`, `Community 65`, `Community 73`, `Community 104`, `Community 125`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
-- **Why does `connectToDatabase()` connect `Community 0` to `Community 1`, `Community 4`, `Community 5`, `Community 8`, `Community 10`, `Community 13`, `Community 15`, `Community 21`, `Community 23`, `Community 24`, `Community 25`, `Community 26`, `Community 27`, `Community 28`, `Community 29`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 39`, `Community 40`, `Community 169`, `Community 42`, `Community 43`, `Community 41`, `Community 44`, `Community 168`, `Community 53`, `Community 56`, `Community 60`, `Community 68`, `Community 87`, `Community 88`, `Community 89`, `Community 100`, `Community 103`, `Community 108`, `Community 115`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **Are the 233 inferred relationships involving `connectToDatabase()` (e.g. with `POST()` and `GET()`) actually correct?**
-  _`connectToDatabase()` has 233 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `Role` connect `Community 20` to `Community 0`, `Community 1`, `Community 3`, `Community 6`, `Community 9`, `Community 12`, `Community 16`, `Community 17`, `Community 19`, `Community 23`, `Community 24`, `Community 27`, `Community 28`, `Community 31`, `Community 162`, `Community 35`, `Community 36`, `Community 43`, `Community 175`, `Community 48`, `Community 49`, `Community 50`, `Community 55`, `Community 65`, `Community 66`, `Community 68`, `Community 69`, `Community 70`, `Community 85`, `Community 87`, `Community 107`?**
+  _High betweenness centrality (0.069) - this node is a cross-community bridge._
+- **Why does `cn()` connect `Community 8` to `Community 129`, `Community 2`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 11`, `Community 12`, `Community 18`, `Community 23`, `Community 25`, `Community 33`, `Community 34`, `Community 35`, `Community 39`, `Community 40`, `Community 52`, `Community 54`, `Community 57`, `Community 58`, `Community 73`, `Community 74`, `Community 80`, `Community 115`?**
+  _High betweenness centrality (0.057) - this node is a cross-community bridge._
+- **Why does `browserApi()` connect `Community 64` to `Community 2`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 8`, `Community 11`, `Community 23`, `Community 25`, `Community 160`, `Community 33`, `Community 35`, `Community 39`, `Community 40`, `Community 44`, `Community 47`, `Community 52`, `Community 54`, `Community 57`, `Community 58`, `Community 71`, `Community 72`, `Community 73`, `Community 79`, `Community 80`, `Community 210`?**
+  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+- **Are the 238 inferred relationships involving `connectToDatabase()` (e.g. with `POST()` and `GET()`) actually correct?**
+  _`connectToDatabase()` has 238 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `AuthUser`, `ResidentSummary`, `ResidentFoodRoutine` to the rest of the system?**
-  _2317 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _2340 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.02 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.03 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.03 - nodes in this community are weakly interconnected._
