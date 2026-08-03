@@ -5,8 +5,10 @@ import { Types } from "mongoose";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { decryptPersonalData, encryptPersonalData } from "@/lib/personal-data-crypto";
+import { getPresignedReadUrl } from "@/lib/r2";
 import { siteUrl } from "@/lib/site";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { HostelPageViewModel } from "@hostel/db/models/HostelPageView";
 import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { NotificationModel } from "@hostel/db/models/Notification";
@@ -32,6 +34,8 @@ type ProfileRecord = {
   completedAt?: Date;
   encryptedData: string;
   lastSharedAt?: Date;
+  photoAssetId?: Types.ObjectId | null;
+  photoUpdatedAt?: Date | null;
   shareCount?: number;
   sharingEnabled?: boolean;
   updatedAt?: Date;
@@ -195,8 +199,12 @@ export async function getResidentIdentity(userId: string) {
     identity: {
       accountEmail: user.email ?? null,
       accountName: user.name,
+      hasPhoto: Boolean(record?.photoAssetId),
       hasProfile: Boolean(record?.completedAt),
       lastSharedAt: record?.lastSharedAt?.toISOString() ?? null,
+      // The ID card reads this straight into the photo URL's query string, so a
+      // freshly uploaded photo is never served from the browser's cache.
+      photoUpdatedAt: record?.photoUpdatedAt?.toISOString() ?? null,
       residentId: user.userResidentId ?? null,
       shareCount: record?.shareCount ?? 0,
       shareUrl: user.userResidentId ? residentIdShareUrl(user.userResidentId) : null,
@@ -296,6 +304,216 @@ function normalizeUserId(value: string) {
   }
 
   return new Types.ObjectId(value);
+}
+
+/* ── ID-card photo ── */
+
+type PhotoAssetRecord = {
+  _id: Types.ObjectId;
+  key: string;
+  mimeType: string;
+  ownerId?: Types.ObjectId | null;
+};
+
+const CARD_PHOTO_PATH = "/api/v1/users/resident-identity/photo";
+
+/** The version query is what makes a replaced photo bypass the browser cache. */
+function cardPhotoImageUrl(version: Date) {
+  return `${CARD_PHOTO_PATH}?v=${version.getTime()}`;
+}
+
+function isCardPhotoImage(value?: string | null) {
+  return typeof value === "string" && value.startsWith(CARD_PHOTO_PATH);
+}
+
+/**
+ * Keeps the account avatar in step with the card photo.
+ *
+ * Only fills an empty avatar, or replaces one this same feature set earlier — a
+ * picture that came from somewhere else (a Google sign-in, say) is the user's
+ * and is not ours to overwrite.
+ */
+async function syncAvatarWithCardPhoto(
+  userId: Types.ObjectId,
+  photo: { version: Date } | null,
+) {
+  const current = await UserModel.findById(userId)
+    .select("image")
+    .lean<{ image?: string | null } | null>();
+
+  if (current?.image && !isCardPhotoImage(current.image)) {
+    return;
+  }
+
+  await UserModel.updateOne(
+    { _id: userId },
+    { $set: { image: photo ? cardPhotoImageUrl(photo.version) : null } },
+  );
+}
+
+/**
+ * Attaches an already-uploaded image to the resident's ID card.
+ *
+ * The asset id arrives from the browser, so ownership is re-checked here rather
+ * than taken on trust — otherwise anyone could point their card at somebody
+ * else's private upload and then read it back through the photo proxy below.
+ */
+export async function setResidentIdentityPhoto(userId: string, photoAssetId: string) {
+  await connectToDatabase();
+
+  const owner = normalizeUserId(userId);
+  const asset = await FileAssetModel.findOne({
+    _id: photoAssetId,
+    isDeleted: { $ne: true },
+    status: "ACTIVE",
+  })
+    .select("key mimeType ownerId")
+    .lean<PhotoAssetRecord | null>();
+
+  if (!asset) {
+    throw new ResidentIdentityError(
+      "That upload could not be found. Please pick the photo again.",
+      "PHOTO_NOT_FOUND",
+      404,
+    );
+  }
+
+  if (!asset.ownerId || asset.ownerId.toString() !== owner.toString()) {
+    throw new ResidentIdentityError(
+      "That upload does not belong to you.",
+      "PHOTO_FORBIDDEN",
+      403,
+    );
+  }
+
+  if (!asset.mimeType?.startsWith("image/")) {
+    throw new ResidentIdentityError(
+      "Your ID card photo has to be an image.",
+      "PHOTO_NOT_AN_IMAGE",
+      422,
+    );
+  }
+
+  const photoUpdatedAt = new Date();
+  const updated = await UserResidentProfileModel.findOneAndUpdate(
+    { isDeleted: { $ne: true }, userId: owner },
+    { $set: { photoAssetId: asset._id, photoUpdatedAt } },
+    { new: true },
+  ).lean<ProfileRecord | null>();
+
+  if (!updated) {
+    throw new ResidentIdentityError(
+      "Save your resident details first, then add a photo.",
+      "RESIDENT_PROFILE_MISSING",
+      404,
+    );
+  }
+
+  /*
+   * Mongoose keeps a compiled schema per process, so a `$set` of a field the
+   * running model does not know about is dropped in silence. That produced a
+   * photo that uploaded fine and then never appeared — fail loudly instead.
+   */
+  if (!updated.photoAssetId) {
+    throw new ResidentIdentityError(
+      "The photo could not be saved. Restart the server so the profile schema reloads.",
+      "PHOTO_NOT_PERSISTED",
+      500,
+    );
+  }
+
+  await syncAvatarWithCardPhoto(owner, { version: photoUpdatedAt });
+
+  return getResidentIdentity(userId);
+}
+
+export async function clearResidentIdentityPhoto(userId: string) {
+  await connectToDatabase();
+
+  const owner = normalizeUserId(userId);
+  const updated = await UserResidentProfileModel.findOneAndUpdate(
+    { isDeleted: { $ne: true }, userId: owner },
+    { $unset: { photoAssetId: "", photoUpdatedAt: "" } },
+    { new: true },
+  ).lean<ProfileRecord | null>();
+
+  if (updated) {
+    await syncAvatarWithCardPhoto(owner, null);
+  }
+
+  if (!updated) {
+    throw new ResidentIdentityError(
+      "You have not saved a resident profile yet.",
+      "RESIDENT_PROFILE_MISSING",
+      404,
+    );
+  }
+
+  return getResidentIdentity(userId);
+}
+
+/**
+ * Streams the owner's own card photo back through our origin.
+ *
+ * Redirecting to a presigned R2 URL would be cheaper, but the ID card is drawn
+ * on a `<canvas>` the user then downloads, and a cross-origin image taints that
+ * canvas so `toBlob()` throws. Proxying keeps the image same-origin while the
+ * bucket itself stays private.
+ */
+export async function readResidentIdentityPhoto(userId: string) {
+  await connectToDatabase();
+
+  const record = await UserResidentProfileModel.findOne({
+    isDeleted: { $ne: true },
+    userId: normalizeUserId(userId),
+  })
+    .select("photoAssetId")
+    .lean<ProfileRecord | null>();
+
+  if (!record?.photoAssetId) {
+    throw new ResidentIdentityError(
+      "You have not added a photo yet.",
+      "PHOTO_MISSING",
+      404,
+    );
+  }
+
+  const asset = await FileAssetModel.findOne({
+    _id: record.photoAssetId,
+    isDeleted: { $ne: true },
+    status: "ACTIVE",
+  })
+    .select("key mimeType")
+    .lean<PhotoAssetRecord | null>();
+
+  if (!asset) {
+    throw new ResidentIdentityError(
+      "Your photo is no longer available. Please upload it again.",
+      "PHOTO_MISSING",
+      404,
+    );
+  }
+
+  // Covers both "R2 is not configured" and "R2 is having a bad day": either way
+  // the card falls back to initials rather than failing to render at all.
+  try {
+    const response = await fetch(await getPresignedReadUrl(asset.key));
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Storage answered ${response.status}`);
+    }
+
+    return {
+      body: response.body,
+      contentType: asset.mimeType || "application/octet-stream",
+    };
+  } catch {
+    throw new ResidentIdentityError(
+      "Could not load your photo right now.",
+      "PHOTO_UNAVAILABLE",
+      502,
+    );
+  }
 }
 
 /** Guardian is stored as one name but persisted as first + last. */

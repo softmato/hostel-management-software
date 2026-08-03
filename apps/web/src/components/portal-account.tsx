@@ -217,7 +217,7 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
               type="button"
             >
               <QrCode className="size-4" />
-              Show resident QR code
+              Resident ID card
             </button>
           ) : (
             <button

@@ -178,19 +178,15 @@ const toneStyles: Record<
   },
 };
 
-const planCopy: Record<PortalTone, { cta: string; label: string; renews: string }> = {
+const planCopy: Partial<
+  Record<PortalTone, { cta: string; label: string; renews: string }>
+> = {
   admin: { cta: "Manage Plan", label: "Premium", renews: "Valid till 25 Dec 2026" },
   guardian: {
     cta: "Contact Hostel",
     label: "Guardian Access",
     renews: "Linked resident view",
   },
-  platform: {
-    cta: "Manage Subscription",
-    label: "Enterprise",
-    renews: "Renews on Jul 25, 2026",
-  },
-  resident: { cta: "View Plan", label: "Standard", renews: "Valid till 10 Dec 2026" },
 };
 
 /**
@@ -385,9 +381,10 @@ export function PortalShell({
   }
 
   function renderSidebarFooter(collapsed = false) {
-    // The platform owner runs the product — a subscription upsell makes no
-    // sense in their own admin, and the space is better given to the nav list.
-    if (collapsed || tone === "platform") {
+    // Only the hostel workspace buys a plan. The platform owner runs the
+    // product, and a resident pays their hostel rent — not us — so a
+    // subscription card in either sidebar is noise.
+    if (collapsed || !plan) {
       return null;
     }
 

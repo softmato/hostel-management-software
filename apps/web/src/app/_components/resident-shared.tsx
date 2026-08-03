@@ -17,6 +17,13 @@ export type ResidentSummary = {
 };
 
 export type ResidentDashboard = {
+  /**
+   * Residents are placed by room type (the sharing tier they pay for), not by
+   * an individual room or bed record — see the note on the Resident model.
+   */
+  accommodation: {
+    roomType: string;
+  };
   complaints: {
     openCount: number;
   };
@@ -33,11 +40,14 @@ export type ResidentDashboard = {
       phone?: string;
     };
     location?: {
+      address?: string;
       area?: string;
       city?: string;
     };
     name: string;
+    /** First EXTERIOR photo when there is one, else the first photo at all. */
     photoUrl?: string;
+    slug?: string;
   } | null;
   nightStatus: {
     checkedAt: string | null;
@@ -45,16 +55,6 @@ export type ResidentDashboard = {
   };
   notices: Notice[];
   resident: ResidentSummary;
-  roomBed: {
-    bed: {
-      bedNumber: string;
-      status: string;
-    } | null;
-    room: {
-      roomNumber: string;
-      roomType: string;
-    } | null;
-  };
 };
 
 export type Payment = {

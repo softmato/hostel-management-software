@@ -2,10 +2,14 @@
 
 import {
   AlertTriangle,
+  ArrowUpRight,
+  BedDouble,
   Bell,
   CreditCard,
-  Home,
+  Mail,
+  MapPin,
   Moon,
+  Phone,
   Siren,
   Star,
   Utensils,
@@ -51,9 +55,7 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
 
   const firstName = dashboard?.resident.firstName ?? "Resident";
   const unreadNotices = dashboard?.notices.filter((notice) => !notice.isRead).length ?? 0;
-  const roomLabel = dashboard
-    ? `${dashboard.roomBed.room?.roomNumber ?? "—"} / ${dashboard.roomBed.bed?.bedNumber ?? "—"}`
-    : "—";
+  const bedTypeLabel = dashboard?.accommodation.roomType?.replaceAll("_", " ") || "—";
   const latestPayment = dashboard?.feeStatus.latestPayment;
 
   return (
@@ -68,14 +70,89 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
 
       {dashboard ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              icon={Home}
-              label="Room / Bed"
-              tone="green"
-              trend={dashboard.hostel?.name ?? "Your room"}
-              value={roomLabel}
-            />
+          {/* The hostel leads the page: it is the one thing every other card on
+              this dashboard is *about*, and the exterior photo is what makes a
+              resident recognise their own place at a glance. */}
+          <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <div className="grid md:grid-cols-[minmax(0,320px)_1fr]">
+              <div className="relative h-44 md:h-full md:min-h-[208px]">
+                {dashboard.hostel?.photoUrl ? (
+                  <div
+                    aria-label={`${dashboard.hostel.name} exterior`}
+                    className="size-full bg-cover bg-center"
+                    role="img"
+                    style={{ backgroundImage: `url("${dashboard.hostel.photoUrl}")` }}
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center bg-role-resident-soft">
+                    <InitialsAvatar
+                      name={dashboard.hostel?.name ?? "Hostel"}
+                      size="lg"
+                      tone="resident"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col justify-center gap-3 p-5">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-xl font-bold text-foreground">
+                      {dashboard.hostel?.name ?? "Your hostel"}
+                    </h2>
+                    <SoftBadge tone="green">Verified</SoftBadge>
+                  </div>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <MapPin className="size-3.5 shrink-0" />
+                    {[
+                      dashboard.hostel?.location?.address,
+                      dashboard.hostel?.location?.area,
+                      dashboard.hostel?.location?.city,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "Location not set"}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/20 px-2.5 py-1.5 font-semibold text-foreground">
+                    <BedDouble className="size-3.5 text-role-resident" />
+                    {bedTypeLabel}
+                  </span>
+                  {dashboard.hostel?.contact?.phone ? (
+                    <a
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground transition hover:bg-muted"
+                      href={`tel:${dashboard.hostel.contact.phone}`}
+                    >
+                      <Phone className="size-3.5 text-role-resident" />
+                      {dashboard.hostel.contact.phone}
+                    </a>
+                  ) : null}
+                  {dashboard.hostel?.contact?.email ? (
+                    <a
+                      className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground transition hover:bg-muted"
+                      href={`mailto:${dashboard.hostel.contact.email}`}
+                    >
+                      <Mail className="size-3.5 shrink-0 text-role-resident" />
+                      <span className="truncate">{dashboard.hostel.contact.email}</span>
+                    </a>
+                  ) : null}
+                  {dashboard.hostel?.slug ? (
+                    <Link
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-role-resident transition hover:bg-role-resident-soft/40"
+                      href={`/hostels/${dashboard.hostel.slug}`}
+                    >
+                      View hostel page
+                      <ArrowUpRight className="size-3.5" />
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Bed type is not repeated here — it sits in the hostel card above. */}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <MetricCard
               icon={WalletCards}
               label="Fee Status"
@@ -285,56 +362,6 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
               </SectionCard>
             </div>
           </div>
-
-          <SectionCard title="Your Hostel">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-4">
-                {dashboard.hostel?.photoUrl ? (
-                  <div
-                    className="size-16 rounded-xl bg-cover bg-center shadow-sm"
-                    style={{ backgroundImage: `url("${dashboard.hostel.photoUrl}")` }}
-                  />
-                ) : (
-                  <InitialsAvatar
-                    name={dashboard.hostel?.name ?? "Hostel"}
-                    size="lg"
-                    tone="resident"
-                  />
-                )}
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-lg font-bold text-foreground">
-                      {dashboard.hostel?.name ?? "Hostel"}
-                    </p>
-                    <SoftBadge tone="green">Verified</SoftBadge>
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {[dashboard.hostel?.location?.area, dashboard.hostel?.location?.city]
-                      .filter(Boolean)
-                      .join(", ") || "Location not set"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {[dashboard.hostel?.contact?.phone, dashboard.hostel?.contact?.email]
-                      .filter(Boolean)
-                      .join(" · ") || "Contact details unavailable"}
-                  </p>
-                </div>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Your assignment
-                </p>
-                <p className="mt-1 font-semibold text-foreground">
-                  Room {dashboard.roomBed.room?.roomNumber ?? "—"} · Bed{" "}
-                  {dashboard.roomBed.bed?.bedNumber ?? "—"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {dashboard.roomBed.room?.roomType?.replaceAll("_", " ") ??
-                    "Room type n/a"}
-                </p>
-              </div>
-            </div>
-          </SectionCard>
 
           {/* Students only — a working professional has no use for it, and the
               API repeats the check so hiding the card is not the gate. */}

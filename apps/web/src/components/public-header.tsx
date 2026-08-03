@@ -231,6 +231,12 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                       width={32}
                       height={32}
                       className="size-8 rounded-full object-cover"
+                      /*
+                       * A resident's card photo is served from an authenticated
+                       * route; the image optimizer fetches without their cookies
+                       * and would only ever get a 401 back.
+                       */
+                      unoptimized
                     />
                   ) : (
                     <span className="flex size-8 items-center justify-center rounded-full bg-brand-teal/10 text-sm font-semibold text-brand-teal">
@@ -269,7 +275,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                         className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground transition hover:bg-muted"
                       >
                         <QrCode className="size-4" />
-                        Show resident QR code
+                        Resident ID card
                       </button>
                     ) : (
                       <button

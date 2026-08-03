@@ -186,11 +186,16 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
           params.set(key, String(value));
         }
       }
-      // Keep the raw sentence in the box on the listing page unless the parse
-      // already produced a better free-text term.
-      if (!params.has("q")) {
-        params.set("search", query);
-      } else {
+      // The listing page ANDs `search` with every other filter rather than
+      // just displaying it, so it must only carry a term the parse actually
+      // resolved to free text (a hostel/college name it couldn't place
+      // elsewhere). When the sentence resolved to structured filters instead
+      // (area, facility, budget, ...), those already explain the query —
+      // layering the raw sentence back in as a literal substring match would
+      // just cancel them out (e.g. "hostel near Ghattekulo" correctly
+      // resolves to area=Ghattekulo, but re-adding the full sentence as
+      // search text means no hostel's name/area contains that exact phrase).
+      if (params.has("q")) {
         params.set("search", String(filters.q));
         params.delete("q");
       }

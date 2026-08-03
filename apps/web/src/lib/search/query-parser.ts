@@ -66,6 +66,7 @@ export const AREAS = [
   "Dillibazar",
   "Bagbazar",
   "Anamnagar",
+  "Ghattekulo",
   "Sinamangal",
   "Tinkune",
   "Jadibuti",
@@ -120,8 +121,34 @@ const ROOM_TYPE_ALIASES: Array<[RegExp, string]> = [
 export const ROOM_TYPES = ROOM_TYPE_ALIASES.map(([, value]) => value);
 export const FACILITIES = FACILITY_ALIASES.map(([, value]) => value);
 
+/**
+ * Carries no location/name signal on its own. Stripped before an unexplained
+ * sentence becomes a `q` substring search, so "hostel near Ghattekulo" can
+ * still match a hostel whose area is exactly "Ghattekulo" instead of requiring
+ * that whole sentence to appear literally in the data.
+ */
+const SEARCH_FILLER_WORDS = new Set([
+  "a", "an", "the", "any", "some", "good", "best", "nice",
+  "hostel", "hostels", "room", "rooms", "place", "places", "stay", "staying",
+  "near", "nearby", "around", "close", "closeby", "beside",
+  "in", "at", "on", "of", "to", "for", "with",
+  "find", "looking", "look", "search", "searching", "want", "need",
+  "please", "show", "me", "is", "are", "there", "i", "my",
+]);
+
+/** Drops filler words, keeping the proper nouns a substring search needs. */
+function stripFillerWords(query: string): string {
+  const kept = query
+    .split(/\s+/)
+    .filter((word) => !SEARCH_FILLER_WORDS.has(word.toLowerCase().replace(/[^\w]/g, "")));
+  const joined = kept.join(" ").trim();
+  // A sentence that was nothing but filler words is safer searched whole
+  // than reduced to nothing.
+  return joined || query;
+}
+
 /** "8k" / "8 thousand" / "8,000" / "8 hajar" → 8000. */
-function parseAmount(raw: string, suffix?: string): number {
+export function parseAmount(raw: string, suffix?: string): number {
   const base = Number(raw.replace(/[, ]/g, ""));
   if (!Number.isFinite(base)) {
     return Number.NaN;
@@ -138,7 +165,7 @@ function parseAmount(raw: string, suffix?: string): number {
   return base;
 }
 
-const AMOUNT = String.raw`(\d[\d,]*)\s*(k|thousand|hajar|hazar)?`;
+export const AMOUNT = String.raw`(\d[\d,]*)\s*(k|thousand|hajar|hazar)?`;
 
 function matchArea(query: string): string | undefined {
   // Longest first so "New Baneshwor" wins over "Baneshwor".
@@ -295,7 +322,7 @@ export function parseSearchQuery(input: string): ParsedSearch {
   // works when nothing structured matched.
   const rawTextOnly = !filters.q && signals === 0;
   if (rawTextOnly) {
-    filters.q = query.slice(0, 160);
+    filters.q = stripFillerWords(query).slice(0, 160);
   }
 
   return { confidence, filters, rawTextOnly, source: "keyword" };

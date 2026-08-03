@@ -21,6 +21,10 @@ describe("parseSearchQuery", () => {
     expect(parseSearchQuery("hostels in Pokhara").filters.area).toBe("Pokhara");
   });
 
+  it("matches Ghattekulo as a known area", () => {
+    expect(parseSearchQuery("hostel near Ghattekulo").filters.area).toBe("Ghattekulo");
+  });
+
   it("expands shorthand budgets to rupees", () => {
     expect(parseSearchQuery("under 8k").filters.maxPrice).toBe(8000);
     expect(parseSearchQuery("under 8 thousand").filters.maxPrice).toBe(8000);
@@ -86,6 +90,20 @@ describe("parseSearchQuery", () => {
 
     expect(parsed.filters.q).toBe("Sunrise Residency");
     expect(parsed.confidence).toBe(0);
+  });
+
+  it("strips filler words before falling back to free text", () => {
+    // "Xyzpuram" is not a known area/city/college, so this must fall through
+    // to the raw-text pass — and the sentence noise around it must not become
+    // part of the substring search or it would never match real data.
+    const parsed = parseSearchQuery("looking for a hostel near Xyzpuram");
+
+    expect(parsed.filters.q).toBe("Xyzpuram");
+    expect(parsed.filters.area).toBeUndefined();
+  });
+
+  it("searches the whole sentence when it is only filler words", () => {
+    expect(parseSearchQuery("any good hostel").filters.q).toBe("any good hostel");
   });
 
   it("is confident enough about a plain area search to skip the model", () => {

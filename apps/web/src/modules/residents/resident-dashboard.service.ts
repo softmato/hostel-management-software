@@ -27,6 +27,7 @@ type HostelRecord = {
   };
   name: string;
   photos?: Array<{
+    kind?: string;
     url?: string;
   }>;
   slug: string;
@@ -73,12 +74,17 @@ function serializeHostel(hostel: HostelRecord | null) {
     return null;
   }
 
+  // The building, not a bedroom: EXTERIOR leads the public listing for the same
+  // reason it should lead the resident's dashboard. Any photo beats none.
+  const photos = hostel.photos ?? [];
+  const cover = photos.find((photo) => photo.kind === "EXTERIOR" && photo.url) ?? photos[0];
+
   return {
     contact: hostel.contact ?? {},
     id: hostel._id.toString(),
     location: hostel.location ?? {},
     name: hostel.name,
-    photoUrl: hostel.photos?.[0]?.url ?? "",
+    photoUrl: cover?.url ?? "",
     slug: hostel.slug,
   };
 }
@@ -87,7 +93,7 @@ function serializeHostel(hostel: HostelRecord | null) {
  * Residents are placed by room type, not by room number, so this is all the
  * accommodation detail there is to show them.
  */
-function serializeRoomBed(roomType: string) {
+function serializeAccommodation(roomType: string) {
   return { roomType };
 }
 
@@ -188,6 +194,7 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
 
   return {
     dashboard: {
+      accommodation: serializeAccommodation(roomType),
       complaints: {
         openCount: 0,
         recent: [],
@@ -201,7 +208,6 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
       },
       notices: notices.map(serializeNotice),
       resident: serializeResidentSummary(resident),
-      roomBed: serializeRoomBed(roomType),
     },
   };
 }
@@ -222,11 +228,11 @@ export async function getResidentProfile(principal: ApiPrincipal) {
 
   return {
     profile: {
+      accommodation: serializeAccommodation(roomType),
       emergencyContacts: emergencyContacts.map(serializeEmergencyContact),
       guardians: guardians.map(serializeGuardian),
       hostel: serializeHostel(hostel),
       resident: serializeResidentSummary(resident),
-      roomBed: serializeRoomBed(roomType),
     },
   };
 }

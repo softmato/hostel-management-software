@@ -546,22 +546,14 @@ export const RESIDENT_NAV: PortalNavGroup[] = [
     items: [
       { href: "/resident/dashboard", icon: "dashboard", label: "Dashboard" },
       { href: "/resident/profile", icon: "user", label: "My Profile" },
-      { href: "/resident/room-bed", icon: "bed", label: "Room & Bed" },
     ],
   },
   {
     items: [
       {
-        children: [
-          { href: "/resident/payments", keywords: ["due", "rent"], label: "Payments" },
-          {
-            href: "/resident/payment-proof",
-            keywords: ["upload", "receipt", "esewa"],
-            label: "Payment Proof",
-          },
-        ],
         href: "/resident/payments",
         icon: "card",
+        keywords: ["due", "rent", "upload", "receipt", "esewa", "proof"],
         label: "Fees & Payments",
       },
       { href: "/resident/food", icon: "food", label: "Food Menu" },
@@ -598,16 +590,8 @@ export const RESIDENT_NAV: PortalNavGroup[] = [
   },
   {
     items: [
-      {
-        href: "/resident/move-checklist",
-        icon: "clipboard",
-        keywords: ["move in", "move out", "handover", "deposit"],
-        label: "Move Checklist",
-      },
       { href: "/resident/referral", icon: "gift", label: "Referral" },
       { href: "/resident/notifications", icon: "bell", label: "Notifications" },
-      { href: "/resident/documents", icon: "file", label: "Documents" },
-      { href: "/resident/settings", icon: "settings", label: "Settings" },
     ],
     label: "Account",
   },

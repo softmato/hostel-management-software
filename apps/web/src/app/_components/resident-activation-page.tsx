@@ -89,12 +89,6 @@ export const ResidentActivationPageContent = memo(
               >
                 My Profile
               </Link>
-              <Link
-                href="/resident/room-bed"
-                className="hover:text-[#0A8A4B] transition flex items-center h-full"
-              >
-                My Stays
-              </Link>
               <span className="text-[#0A8A4B] border-b-2 border-[#0A8A4B] h-full flex items-center px-1 font-bold">
                 Activate Access
               </span>
@@ -331,10 +325,10 @@ export const ResidentActivationPageContent = memo(
                             </div>
                             <div>
                               <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
-                                Room & Bed
+                                Bed Type
                               </span>
                               <span className="text-xs font-bold text-[#0F172A] block truncate">
-                                Room 101, Bed 101-A
+                                Double Sharing
                               </span>
                             </div>
                           </div>

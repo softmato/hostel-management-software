@@ -18,6 +18,15 @@ const userResidentProfileSchema = new Schema(
     /** Schema version of the decrypted payload, so future migrations can branch. */
     payloadVersion: { type: Number, default: 1 },
     completedAt: Date,
+    /*
+     * The ID-card photo. Deliberately NOT inside `encryptedData`: the bytes live
+     * in R2 as a PRIVATE FileAsset and this is only an opaque handle to them, so
+     * encrypting it would buy nothing while forcing every photo change to
+     * re-write the whole personal blob.
+     */
+    photoAssetId: { ref: "FileAsset", type: Schema.Types.ObjectId },
+    /** Cache-buster for the photo proxy — a new photo must not serve a stale one. */
+    photoUpdatedAt: Date,
     /** Bumped every time a hostel pulls this profile via QR / resident id. */
     shareCount: { type: Number, default: 0, min: 0 },
     lastSharedAt: Date,

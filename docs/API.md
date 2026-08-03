@@ -315,7 +315,6 @@ All routes require `role = RESIDENT`; every query is scoped to `resident.id` der
 | POST | `/api/v1/resident/guardians` | `{ email, firstName, lastName, phone, relation, permissions }` | Invites a guardian by email; 7-day single-use token (EMAIL_SYSTEM.md §1.5). Every permission defaults to `false` |
 | PATCH | `/api/v1/resident/guardians/[id]` | `{ canViewPayments?, canViewReceipts?, canViewNotices?, canViewFood?, canViewSafety?, canViewComplaintStatus? }` | Resident retunes access at any time; takes effect on the guardian's next request |
 | DELETE | `/api/v1/resident/guardians/[id]` | — | Revokes the guardian entirely |
-| GET | `/api/v1/resident/move-checklist` | — | Own move-in / move-out checklist, read-only |
 | GET | `/api/v1/resident/community` | `?scope=hostel\|mine` | Own hostel's feed, announcements pinned first |
 | POST | `/api/v1/resident/community` | `{ body, visibility, isAnonymous, mediaAssetIds[] }` | Create a post; body is profanity-masked on write |
 | DELETE | `/api/v1/resident/community/[postId]` | — | Soft-deletes own post |

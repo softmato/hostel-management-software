@@ -166,6 +166,15 @@ export const residentIdentitySharingSchema = z.object({
 });
 
 /**
+ * The ID-card photo is set by handle, never by upload: the bytes already went to
+ * R2 through the universal uploader, so all this endpoint accepts is the
+ * FileAsset id it minted. Ownership of that asset is re-checked server-side.
+ */
+export const residentIdentityPhotoSchema = z.object({
+  photoAssetId: z.string().regex(/^[a-f\d]{24}$/i, "That is not a valid upload id."),
+});
+
+/**
  * Accepts anything the warden might realistically paste: `HH-4K7M-9XQ2`,
  * `hh4k7m9xq2`, or the full scan URL. normalizeResidentId() in the service does
  * the actual parsing and rejects what is not an ID.

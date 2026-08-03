@@ -13,11 +13,13 @@ import {
   SoftBadge,
   statusToneFromLabel,
 } from "@/app/_components/portal-dashboard-ui";
+import { ResidentIdCard } from "@/components/resident-identity";
 import { usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
 import { type ResidentDashboard, type ResidentSummary, Message } from "./resident-shared";
 
 type Profile = {
+  accommodation: ResidentDashboard["accommodation"];
   emergencyContacts: Array<{
     id: string;
     name: string;
@@ -31,8 +33,8 @@ type Profile = {
     phone: string;
     relation: string;
   }>;
+  hostel: ResidentDashboard["hostel"];
   resident: ResidentSummary;
-  roomBed: ResidentDashboard["roomBed"];
 };
 
 function InfoRow({
@@ -68,6 +70,7 @@ export const ResidentProfilePageContent = memo(function ResidentProfilePageConte
   const profile = profileResource.data?.profile ?? null;
   const state = profileResource.state;
   const message = profileResource.message;
+  const bedTypeLabel = profile?.accommodation.roomType?.replaceAll("_", " ") || "—";
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-5">
@@ -97,8 +100,10 @@ export const ResidentProfilePageContent = memo(function ResidentProfilePageConte
                     <SoftBadge tone={statusToneFromLabel(profile.resident.status)}>
                       {profile.resident.status}
                     </SoftBadge>
+                    {/* The resident ID lives on the ID card below — the record's
+                        own _id is an internal key, not something to label as one. */}
                     <span className="text-[11.5px] text-muted-foreground">
-                      Resident ID · {profile.resident.id.slice(-6).toUpperCase()}
+                      {profile.hostel?.name ?? "Your hostel"}
                     </span>
                   </div>
                 </div>
@@ -109,10 +114,10 @@ export const ResidentProfilePageContent = memo(function ResidentProfilePageConte
           <div className="grid gap-4 sm:grid-cols-3">
             <MetricCard
               icon={BedDouble}
-              label="Room / Bed"
-              note="Your assignment"
+              label="Bed Type"
+              note="Your allotment"
               tone="green"
-              value={`${profile.roomBed.room?.roomNumber ?? "—"} / ${profile.roomBed.bed?.bedNumber ?? "—"}`}
+              value={bedTypeLabel}
             />
             <MetricCard
               icon={Users}
@@ -130,6 +135,10 @@ export const ResidentProfilePageContent = memo(function ResidentProfilePageConte
             />
           </div>
 
+          <SectionCard title="My Resident ID Card">
+            <ResidentIdCard />
+          </SectionCard>
+
           <div className="grid gap-5 md:grid-cols-2">
             <SectionCard title="Personal Information">
               <div className="divide-y divide-border/50">
@@ -142,8 +151,8 @@ export const ResidentProfilePageContent = memo(function ResidentProfilePageConte
                 <InfoRow icon={Mail} label="Email" value={profile.resident.email} />
                 <InfoRow
                   icon={BedDouble}
-                  label="Room type"
-                  value={profile.roomBed.room?.roomType?.replaceAll("_", " ")}
+                  label="Bed type"
+                  value={bedTypeLabel}
                 />
               </div>
             </SectionCard>

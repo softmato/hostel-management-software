@@ -36,8 +36,11 @@ const SECURITY_HEADERS = [
     key: "Strict-Transport-Security",
     value: "max-age=31536000; includeSubDomains",
   },
-  // Signed R2 URLs and cron secrets must never leak through a referrer.
-  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  // Isolate this document from other browsing contexts, but keep `window.opener`
+  // alive for popups we open ourselves — Google Identity Services signs in via a
+  // popup that posts the credential back to the opener, and plain `same-origin`
+  // silently strands it on accounts.google.com/gsi/transform.
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
 ];
 
 const nextConfig: NextConfig = {
