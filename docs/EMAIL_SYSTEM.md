@@ -698,6 +698,25 @@ Note: Multiple cooks can share these credentials.
 - Profile link
 - What to expect (hostels may contact you)
 
+**Planned for Phase 6 (PRD.md §8.6):** registration is now gated behind Google
+sign-in, so approval also upgrades the applicant's account (`PUBLIC` →
+`SERVICE_PROVIDER`) and must hand off login credentials — the same moment
+Cook Portal's `cookPortalEnabledEmail` handles for cooks. Add to the data
+shape:
+```typescript
+{
+  // ...fields above, plus:
+  credentials: { email: string; temporaryPassword: string };
+  loginUrl: string; // opens the app / app-store listing, not a web dashboard
+}
+```
+Unlike the Cook Portal email (sent to the hostel admin, because a shared
+kitchen account has no real mailbox), this goes straight to the provider's
+own inbox — it *is* the Google account they just registered with. Content
+adds: the temporary password, "you'll be asked to choose your own password
+the first time you log in," and that the app (not the website) is where jobs
+appear.
+
 ---
 
 ### 6.3 Service Provider Rejected
@@ -721,6 +740,35 @@ Note: Multiple cooks can share these credentials.
 - Reason
 - Option to resubmit with corrections
 - Support contact
+
+---
+
+### 6.4 Service Provider Login Credentials Reissued (Planned for Phase 6)
+
+**Trigger:** A `SERVICE_PROVIDER` account's password is rotated — e.g. the
+provider is locked out with no self-serve reset (the app is mobile-only,
+same constraint Cook Portal has) and support/an admin issues a fresh one.
+Mirrors Cook Portal's rotation path (`updateCookPortal` issuing a fresh
+`temporaryPassword` on re-enable), scoped to a single provider instead of a
+whole hostel's shared account.
+
+**Recipients:** Service provider's email
+**Template:** `service-provider/credentials-reissued`
+**Subject:** "Your HostelHub login was reset"
+
+**Data:**
+```typescript
+{
+  providerName: string;
+  credentials: { email: string; temporaryPassword: string };
+  loginUrl: string;
+}
+```
+
+**Content:**
+- States plainly that the old password no longer works
+- New temporary password, same "you'll choose your own on next login" framing as §6.2
+- Note to contact support if this wasn't requested
 
 ---
 

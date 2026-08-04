@@ -62,6 +62,11 @@ export enum Role {
   RESIDENT = 'RESIDENT',
   GUARDIAN = 'GUARDIAN',
   PUBLIC = 'PUBLIC',
+  // Planned for Phase 6 (PRD.md §8.6) — not in the codebase yet. A
+  // SERVICE_PROVIDER role existed once and was folded back into PUBLIC
+  // (see LEGACY_ROLE_MAP in packages/shared/src/types/roles.ts); re-adding
+  // it now is deliberate, not a resurrection of dead code.
+  // SERVICE_PROVIDER = 'SERVICE_PROVIDER',
 }
 
 export enum AuthProvider {
@@ -1353,6 +1358,38 @@ ServiceProviderSchema.index({ category: 1, area: 1, status: 1 });
 export const ServiceProviderModel = model<IServiceProvider>('ServiceProvider', ServiceProviderSchema);
 ```
 
+#### Planned for Phase 6 — app account + job marketplace (PRD.md §8.6/§9.6, not yet built)
+
+Today a `ServiceProvider` is a directory listing with no account behind it — registration is anonymous and approval only sends an email. The mobile job-marketplace flow needs the listing linked to a real, logged-in account:
+
+```typescript
+interface IServiceProvider {
+  // ...existing fields above, plus:
+
+  /**
+   * The applicant's account, captured at registration because registration
+   * now requires signing in with Google first (PRD.md §8.6). Absent on any
+   * provider that predates this flow. On approval, THIS user's role is
+   * upgraded PUBLIC → SERVICE_PROVIDER (§8.3's account-upgrade pattern) —
+   * unlike the Cook Portal, which mints a synthetic per-hostel account
+   * because a shared kitchen has no one real mailbox.
+   */
+  userId?: ObjectId; // ref User
+
+  /**
+   * Stable public code minted on approval, e.g. "HH-SP-4K7M" — same alphabet
+   * and collision-retry approach as generateResidentId() in
+   * resident-identity.service.ts, prefixed to be visually distinguishable
+   * from a resident ID at a glance. Encoded in the provider's ID card QR;
+   * looked up by the hostel-admin "scan provider card" action. Absent until
+   * APPROVED — the card does not exist before then.
+   */
+  providerCode?: string;
+}
+```
+
+`ServiceProviderApplication` and `ServiceProviderDocument` (the review-queue snapshot and uploaded-document rows created alongside `ServiceProvider` in `registerPublicServiceProvider`) are unaffected by this change.
+
 ### MaintenanceRequest
 
 ```typescript
@@ -1390,6 +1427,32 @@ export const MaintenanceRequestModel =
 Per-request discussion lives in `MaintenanceComment`, and the status trail in
 `MaintenanceHistory`, rather than being embedded here.
 
+#### Planned for Phase 6 — job broadcast + claim (PRD.md §8.6/§9.6, not yet built)
+
+Today `providerId` is only ever set by a hostel admin hand-picking a provider — there is no "open to whoever gets there first" state. Broadcasting is additive, not a new `status` value, so a claimed broadcast still flows through the existing PENDING → CONTACTED → SCHEDULED → COMPLETED/CANCELLED lifecycle unchanged:
+
+```typescript
+interface IMaintenanceRequest {
+  // ...existing fields above, plus:
+
+  /** True while the request is open for any matching approved provider to claim. */
+  broadcast: boolean; // default false
+  broadcastAt?: Date;
+
+  /**
+   * Set the instant a provider claims a broadcast request. Distinguishes
+   * "picked by the admin" (providerId set, claimedAt absent) from "claimed
+   * off the feed" (both set) for reporting, without a separate status.
+   */
+  claimedAt?: Date;
+
+  /** The hostel-admin "scan provider card" check-in on arrival (PRD.md §9.6). */
+  checkedInAt?: Date;
+  checkedInBy?: ObjectId; // ref User (the hostel admin who scanned the card)
+}
+```
+
+**Claiming is a single atomic update, not read-then-write** — the same shape as `mintResidentId()`'s collision retry in `resident-identity.service.ts`: `findOneAndUpdate({ _id, broadcast: true, providerId: null }, { $set: { providerId, status: 'CONTACTED', broadcast: false, claimedAt: now } })`. Whichever request reaches Mongo first gets a match and the update; every later request matches zero documents and reports "already claimed" instead of overwriting the winner. Notifying providers when a request is broadcast, and dropping it from every other provider's feed once claimed, follow the same push-notification path already used for other roles (MOBILE_STATUS.md's push-delivery gap applies here too — today that would land as an in-app `Notification` only).
 
 ## Inquiries, Referral, Notifications, Subscriptions
 

@@ -36,7 +36,7 @@ This is not a listing site with a contact form bolted on — it is the operating
 | Resident/student | Already living in a hostel | See their own fees, food, notices, raise complaints |
 | Platform owner (you) | Runs the SaaS business | Approve hostels, catch fraud/duplicates, see platform health, bill hostels |
 | Platform moderator | Assists platform owner | Limited subset of superadmin permissions for day-to-day operations |
-| Service provider | Local plumber/electrician/doctor/etc. | Get discovered by hostels needing work done |
+| Service provider | Local plumber/electrician/doctor/etc. | Pick up part-time repair/maintenance jobs from nearby hostels via the app and get paid per job |
 
 ## 4. Goals
 
@@ -74,14 +74,16 @@ See ARCHITECTURE.md §3 for the technical auth model. Functionally:
 
 | Portal | Roles | Access |
 |---|---|---|
-| Public Portal | Anonymous + `PUBLIC` role | Browse, search, compare, inquire, register as service provider |
+| Public Portal | Anonymous + `PUBLIC` role | Browse, search, compare, inquire, apply to become a service provider |
 | Platform Owner Portal | `SUPERADMIN` | Full platform control |
 | Platform Moderator Portal | `PLATFORM_MODERATOR` | Limited subset: hostel approval, review moderation, service provider approval, reports (no financial/billing access, no API key management, no platform config changes) |
 | Hostel Owner/Warden Portal | `HOSTEL_ADMIN`, `WARDEN` | Manage one hostel (warden = restricted subset of admin permissions) |
 | **Cook Portal** | **`COOK`** | **Mobile-only: Food ready notifications, photo uploads, view resident names** |
 | Resident Portal | `RESIDENT` | Own hostel dashboard only (web + mobile app) |
 | Guardian Dashboard | `GUARDIAN` | Read-only, limited, opt-in visibility into one resident |
-| Service Provider Directory | No login | Public registration form only, reviewed by SUPERADMIN/PLATFORM_MODERATOR |
+| **Service Provider App** | **`SERVICE_PROVIDER`** | **Mobile-only, no web dashboard: browse/accept nearby maintenance-job broadcasts, digital ID card (§8.6)** |
+
+Before approval, an applicant is just a `PUBLIC` account with a `ServiceProvider` record pending review — the row above only applies once `SUPERADMIN`/`PLATFORM_MODERATOR` approves them (§8.6). `ServiceProvider` itself is a directory listing, not an account; a public visitor can still browse the read-only `/service-providers` directory with no login, same as today.
 
 A single account can hold **one** role at a time. Role transitions (e.g., PUBLIC → RESIDENT) happen via the account-upgrade mechanism (see §8).
 
@@ -131,7 +133,7 @@ This is an explicit product decision, not an implementation detail — documente
 - No duplicate account created, seamless experience
 
 **Security Safeguard (required):**
-Upgrading a `PUBLIC` account into `HOSTEL_ADMIN` or `SUPERADMIN` (high-privilege roles) must not happen silently. For these two roles specifically, send a confirmation email and require the recipient to click a confirmation link before the upgrade takes effect. `RESIDENT`, `WARDEN`, and `GUARDIAN` upgrades can proceed immediately since they're lower-privilege and the admin doing the registration has already vetted the person.
+Upgrading a `PUBLIC` account into `HOSTEL_ADMIN` or `SUPERADMIN` (high-privilege roles) must not happen silently. For these two roles specifically, send a confirmation email and require the recipient to click a confirmation link before the upgrade takes effect. `RESIDENT`, `WARDEN`, `GUARDIAN`, and `SERVICE_PROVIDER` upgrades can proceed immediately since they're lower-privilege and a human (the registering admin, or the SUPERADMIN/PLATFORM_MODERATOR reviewing the provider application) has already vetted the person.
 
 ### 8.4 Hostel Owner Registration Flow
 
@@ -155,11 +157,25 @@ After successful login, backend returns `{ role, redirectPath }`:
 - `RESIDENT` → `/resident/dashboard` (web) or the resident app (mobile)
 - `GUARDIAN` → `/guardian/dashboard`
 - `COOK` → `/` (no portal — mobile-only, single endpoint)
+- `SERVICE_PROVIDER` → `/` with an "Open the HostelHub app" notice (no web dashboard at all — see §8.6)
 
 See ARCHITECTURE.md §3.1 for why moderator and superadmin share one `/platform`
 portal instead of having separate `/superadmin` and `/moderator` trees.
 
 Frontend never decides the redirect path — always trusts the backend's response based on the user's current role.
+
+### 8.6 Service Provider Registration Flow
+
+Structurally the same self-apply-then-get-upgraded shape as §8.4 (Hostel Owner), with one difference: the applicant authenticates with Google *before* the form, so the account and the application share a verified email from the start rather than needing a later match.
+
+1. Provider opens the app (or the public site) and taps "Register as a service provider." First screen is **"Continue with Google"** — not optional, not one of two choices: registration only proceeds once the person is signed in with a verified Google account. This creates (or reuses) their `PUBLIC` account.
+2. Once signed in, they fill the provider form (name, category, phone, area, city, availability, experience, description, photo, documents). **Email is pre-filled from the Google account and not editable** — it is the account's own verified address, not a freestanding form field (today's `serviceProviderRegisterSchema.email` is optional and free-text; under this flow it becomes required and derived from the session, matching how §8.4's hostel-registration form is filled by an already-authenticated `PUBLIC` account).
+3. Submission creates a `ServiceProvider` record with `status: PENDING_APPROVAL`, **linked to the submitter's `userId`** (today's `ServiceProvider` model has no such link — see DATABASE.md). A "registration received" email goes out (EMAIL_SYSTEM.md §6.1, unchanged).
+4. `SUPERADMIN`/`PLATFORM_MODERATOR` reviews the application and documents, same queue as today.
+5. **On approval:** the linked `PUBLIC` account is upgraded to `SERVICE_PROVIDER` in place (§8.3's pattern, not Cook's synthetic-shared-account pattern — the provider has a real personal mailbox because it came from Google). A temporary password is generated and emailed alongside the approval notice (EMAIL_SYSTEM.md §6.2), and `mustChangePassword` is set so the first login forces a password of their own choosing.
+   - **On rejection:** the account stays `PUBLIC`; no credentials are issued. The rejection email (§6.3) states the reason and invites resubmission.
+6. Provider opens the app and logs in with **email + the emailed password** — not Google again. Google was the registration-time identity gate; the password is the app's standing login, exactly like every other admin-issued role in §8.2. First login forces them to set their own password.
+7. Signed in, the app *is* their job board: open maintenance requests from hostels in their category/area appear as a feed; first to accept claims the job (§9.6); no web dashboard exists for this role (§8.5).
 
 ## 9. Feature Scope Summary
 
@@ -223,11 +239,14 @@ All feature detail lives in the original source brief and is broken into buildab
 - Food menu view (if permitted)
 - **NO ACCESS TO:** Raw payment proofs, complaint details unless shared, resident's private data, other residents' data
 
-### 9.6 Service Provider Directory
-- Public registration form (category, name, phone, area, availability, profile, ID upload)
-- Status workflow (pending → approved/rejected by platform moderator/superadmin)
-- Provider search by hostel admin (filter by category, area, availability)
-- Maintenance request lifecycle (hostel creates request, contacts provider, updates status)
+### 9.6 Service Provider Directory & Job Marketplace (app, Phase 6 — see §8.6)
+- Registration gated behind Google sign-in; form (category, name, phone, area, availability, profile, ID upload) with email locked to the Google account
+- Status workflow unchanged (pending → approved/rejected by platform moderator/superadmin), but approval now also upgrades the account and issues app credentials
+- Public read-only directory (`/service-providers`) is unchanged: counts and approved listings, no login, no phone numbers
+- Hostel admin still creates maintenance requests and can still hand-pick a provider to contact directly (today's flow, unchanged) — **or** broadcast the request to every approved, matching provider in the category/area; the first to accept claims it and every other provider's feed drops it
+- Provider app: job feed (open broadcasts matching their category/area), accept/claim, active-job detail (hostel contact + address revealed only after claiming), mark complete
+- Digital service-provider ID card, same canvas-rendering approach as the resident ID card (`resident-id-card.ts`) with a distinct visual skin, downloadable, QR-scannable by hostel staff to confirm identity + approval status on arrival
+- No web dashboard for this role — mobile app only
 
 ## 10. Privacy Principles (non-negotiable product rules)
 
@@ -236,6 +255,7 @@ All feature detail lives in the original source brief and is broken into buildab
 - Complaint visibility to guardians is **opt-in by the resident**, not default.
 - Residents never see other residents' private data.
 - Service providers never receive resident personal data — only maintenance-request details relevant to the job.
+- Broadcasting a job to multiple providers (§9.6) must not multiply that exposure: the hostel's exact address/contact stays hidden in the feed and is revealed only to whichever provider actually claims the job — the rest see it disappear, not the details behind it.
 - Payment proofs, ID documents, and complaint content are private — served via signed URLs with short expiry.
 - No PII (names, emails, phones) in server logs.
 - Full data-access matrix is in the source brief §16 — treat it as the authoritative privacy spec. Any new feature must be checked against that table before shipping.

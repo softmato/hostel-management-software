@@ -1297,6 +1297,22 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☐ Device fingerprint auto-registration on first login
 - ☐ Analytics: view food timing patterns (if cook wants to improve)
 
+**Service Provider Mobile App (Job Marketplace)** — see PRD.md §8.6/§9.6, DATABASE.md "Service Providers & Maintenance"
+- ☐ Registration gated behind Google sign-in (Expo AuthSession / native Google Sign-In SDK — today's mobile Google auth is a placeholder per MOBILE_STATUS.md and must be wired for real first)
+- ☐ Registration form: category, name, phone, area, city, availability, experience, description, photo, documents — email field is read-only, pre-filled from the Google identity
+- ☐ Submission creates `ServiceProvider` with `status: PENDING_APPROVAL`, now linked to the submitter's `userId` (new field — see DATABASE.md)
+- ☐ Approval upgrades the linked `PUBLIC` account to `SERVICE_PROVIDER` (§8.3/§8.6 pattern — real personal email, not Cook's synthetic shared account), generates a temporary password, sets `mustChangePassword`, and emails both the approval notice and the credentials in one email (EMAIL_SYSTEM.md §6.2)
+- ☐ App login screen: email + password (not Google — Google was the registration-time gate only), with a forced "choose your own password" step on first login
+- ☐ Hostel admin: broadcast a maintenance request to every approved provider matching its category + area, instead of (or in addition to) hand-picking one provider to contact — new `MaintenanceRequest` status for "open to claim" (see DATABASE.md)
+- ☐ Provider push notification when a matching job is broadcast in their area
+- ☐ Job feed screen: open broadcasts in the provider's category/area, newest first; hostel name + area + category + priority shown, exact address withheld until claimed
+- ☐ Claim a job: first accept wins — atomic claim (same optimistic-update-with-retry shape as `mintResidentId`/QR activation elsewhere in this codebase), losing providers see the job disappear from their feed rather than an error
+- ☐ Active job detail screen: hostel address + contact revealed now that it's claimed, "mark complete" action
+- ☐ Service provider digital ID card: reuses the resident ID card's canvas renderer (`resident-id-card.ts`) with a visually distinct skin (different accent treatment, provider fields — category/area/status/rating instead of DOB/blood group), front + back, downloadable PNG, QR-encoded stable provider code
+- ☐ Card is only valid/visible once `APPROVED` — a pending or rejected applicant sees a status screen, not a card
+- ☐ Hostel-admin (web) counterpart: a "scan provider card" action on the existing Maintenance tab — camera scan or manual code entry (mirrors `lookupResidentProfile`), shows the provider's name/photo/category/approval status and whether they hold an accepted job at this hostel, then a check-in action
+- ☐ No web dashboard for this role at all — a `SERVICE_PROVIDER` account signing into the website gets a "use the app" notice, not a portal
+
 **Community Feature Mobile**
 - ☐ Community tab in bottom navigation
 - ☐ Feed view: infinite scroll, pull-to-refresh
@@ -1397,6 +1413,18 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 **Deep Linking**
 - ☐ Tapping notification opens correct screen
 - ☐ Tapping referral link opens app (if installed) or Play Store
+
+**Service Provider Job Marketplace**
+- ☐ Registration blocked until Google sign-in completes; email field is not editable and matches the Google account
+- ☐ Applicant submitted, PENDING → approval upgrades their `PUBLIC` account to `SERVICE_PROVIDER` and emails a temporary password
+- ☐ First app login with the emailed password forces a new password before anything else is reachable
+- ☐ Rejected applicant's account stays `PUBLIC`; no credentials are ever generated for a rejected application
+- ☐ Hostel admin broadcasts a maintenance request → only approved providers in the matching category + area are notified
+- ☐ Two providers tap "Accept" within the same second on the same job → exactly one gets it, the other sees it removed from their feed, not an error
+- ☐ Claimed job reveals the hostel's address/contact; the same job in a non-claiming provider's history (if shown at all) never reveals those details
+- ☐ Provider's ID card is unreachable (status screen instead) while `PENDING_APPROVAL` or `REJECTED`, and appears immediately on `APPROVED`
+- ☐ Hostel admin scans/enters a provider's card code → sees name, category, approval status, and current claimed job at that hostel, not any other hostel's job
+- ☐ Signing into the website with a `SERVICE_PROVIDER` account never reaches a dashboard
 
 ### 6.3 Phase 6 Definition of Done
 
