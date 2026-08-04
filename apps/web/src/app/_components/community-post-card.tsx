@@ -142,7 +142,7 @@ function Avatar({
   );
 }
 
-function mediaUrl(assetId: string, variant = "ORIGINAL") {
+export function mediaUrl(assetId: string, variant = "ORIGINAL") {
   return `/api/v1/files/${assetId}/url?variant=${variant}`;
 }
 

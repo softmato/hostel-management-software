@@ -1,6 +1,6 @@
 "use client";
 
-import { Globe, ImagePlus, Loader2, Search, Send, Users, X } from "lucide-react";
+import { Globe, ImagePlus, Loader2, Play, Search, Send, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -8,6 +8,7 @@ import { PublicShell } from "@/app/_components/shared";
 import {
   COMMUNITY_ENDPOINT,
   CommunityPostCard,
+  mediaUrl,
   type CommunityPost,
 } from "@/app/_components/community-post-card";
 import {
@@ -324,23 +325,62 @@ export function CommunityPageContent({ initialPostId }: { initialPostId?: string
                   />
 
                   {media.files.length > 0 ? (
-                    <div className="mb-2 flex flex-wrap gap-2">
-                      {media.files.map((file) => (
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-foreground"
-                          key={file.id}
-                        >
-                          {file.mimeType.startsWith("video/") ? "🎬" : "🖼"}
-                          <span className="max-w-[140px] truncate">{file.name}</span>
-                          <button
-                            aria-label={`Remove ${file.name}`}
-                            onClick={() => media.remove(file.id)}
-                            type="button"
+                    <div
+                      className={cn(
+                        "mb-2 grid gap-1.5",
+                        media.files.length === 1 ? "grid-cols-1" : "grid-cols-2",
+                      )}
+                    >
+                      {media.files.map((file) => {
+                        const isVideo = file.mimeType.startsWith("video/");
+                        const src = mediaUrl(
+                          file.assetId as string,
+                          media.files.length === 1 ? "LARGE" : "MEDIUM",
+                        );
+
+                        return (
+                          <div
+                            className="relative overflow-hidden rounded-lg bg-muted"
+                            key={file.id}
                           >
-                            <X className="size-3" />
-                          </button>
-                        </span>
-                      ))}
+                            {isVideo ? (
+                              <>
+                                <video
+                                  className={cn(
+                                    "w-full object-cover",
+                                    media.files.length === 1 ? "max-h-72" : "h-36",
+                                  )}
+                                  muted
+                                  src={src}
+                                />
+                                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                  <span className="flex size-10 items-center justify-center rounded-full bg-black/50">
+                                    <Play className="size-4 fill-white text-white" />
+                                  </span>
+                                </span>
+                              </>
+                            ) : (
+                              // eslint-disable-next-line @next/next/no-img-element -- preview of a freshly uploaded asset.
+                              <img
+                                alt={file.name}
+                                className={cn(
+                                  "w-full object-cover",
+                                  media.files.length === 1 ? "max-h-72" : "h-36",
+                                )}
+                                src={src}
+                              />
+                            )}
+                            <button
+                              aria-label={`Remove ${file.name}`}
+                              className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
+                              onClick={() => media.remove(file.id)}
+                              type="button"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : null}
 
