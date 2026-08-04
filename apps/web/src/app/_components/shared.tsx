@@ -397,7 +397,14 @@ export function PublicShell({
   active,
   children,
 }: {
-  active?: "blog" | "browse" | "compare" | "pricing" | "providers" | "register-hostel";
+  active?:
+    | "blog"
+    | "browse"
+    | "community"
+    | "compare"
+    | "pricing"
+    | "providers"
+    | "register-hostel";
   children: ReactNode;
 }) {
   return (

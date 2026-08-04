@@ -3,6 +3,8 @@ import {
   DEFAULT_DOCUMENT_MIME_TYPES,
   DEFAULT_IMAGE_BYTES,
   DEFAULT_IMAGE_MIME_TYPES,
+  DEFAULT_VIDEO_BYTES,
+  DEFAULT_VIDEO_MIME_TYPES,
   PLATFORM_ACCEPTED_MIME_TYPES,
 } from "@hostel/shared/utils/file-assets";
 
@@ -16,7 +18,7 @@ import {
  * `UPLOAD_MAX_*_BYTES`) are server-only, so a file that passes here can still be
  * rejected server-side; that path surfaces as a normal upload error.
  */
-export type UploadKind = "any" | "document" | "image";
+export type UploadKind = "any" | "document" | "image" | "media" | "video";
 
 type KindRule = {
   /** Human label used in error copy, e.g. "Image must be JPG, PNG or WebP." */
@@ -29,7 +31,7 @@ const KIND_RULES: Record<UploadKind, KindRule> = {
   any: {
     label: "File",
     // The widest limit any accepted type allows; per-type limits still apply below.
-    maxBytes: Math.max(DEFAULT_DOCUMENT_BYTES, DEFAULT_IMAGE_BYTES),
+    maxBytes: Math.max(DEFAULT_DOCUMENT_BYTES, DEFAULT_IMAGE_BYTES, DEFAULT_VIDEO_BYTES),
     mimeTypes: PLATFORM_ACCEPTED_MIME_TYPES,
   },
   document: {
@@ -42,6 +44,17 @@ const KIND_RULES: Record<UploadKind, KindRule> = {
     maxBytes: DEFAULT_IMAGE_BYTES,
     mimeTypes: DEFAULT_IMAGE_MIME_TYPES,
   },
+  /** Photos and clips together — what a community post attaches. */
+  media: {
+    label: "Photo or video",
+    maxBytes: Math.max(DEFAULT_IMAGE_BYTES, DEFAULT_VIDEO_BYTES),
+    mimeTypes: [...DEFAULT_IMAGE_MIME_TYPES, ...DEFAULT_VIDEO_MIME_TYPES],
+  },
+  video: {
+    label: "Video",
+    maxBytes: DEFAULT_VIDEO_BYTES,
+    mimeTypes: DEFAULT_VIDEO_MIME_TYPES,
+  },
 };
 
 const EXTENSION_BY_MIME: Record<string, string> = {
@@ -50,6 +63,9 @@ const EXTENSION_BY_MIME: Record<string, string> = {
   "image/png": "PNG",
   "image/webp": "WebP",
   "text/plain": "TXT",
+  "video/mp4": "MP4",
+  "video/quicktime": "MOV",
+  "video/webm": "WebM",
 };
 
 export function uploadKindRule(kind: UploadKind = "any") {
@@ -79,35 +95,51 @@ function labelsFor(mimeTypes: string[]) {
 }
 
 /**
- * "JPG, PNG or WebP up to 5 MB" — the hint shown under a drop zone.
- *
- * Images and documents have different server caps, so a field that accepts both
- * spells out each rather than quoting one limit that is wrong for half the list.
+ * Which server cap a MIME type answers to. A field that accepts several
+ * families (a community post takes photos *and* clips) must quote each one
+ * separately — a single number would be wrong for half the list.
  */
-export function uploadHint(kind: UploadKind = "any", override?: string) {
-  const rule = uploadKindRule(kind);
-  const mimeTypes = (override ? override.split(",") : rule.mimeTypes).map((mime) =>
-    mime.trim().toLowerCase(),
-  );
+type MimeFamily = "image" | "other" | "video";
 
-  const imageMax = Math.min(rule.maxBytes, DEFAULT_IMAGE_BYTES);
-  const images = labelsFor(
-    mimeTypes.filter((mime) => DEFAULT_IMAGE_MIME_TYPES.includes(mime)),
-  );
-  const others = labelsFor(
-    mimeTypes.filter((mime) => !DEFAULT_IMAGE_MIME_TYPES.includes(mime)),
-  );
+const FAMILY_ORDER: MimeFamily[] = ["image", "video", "other"];
 
-  if (images.length > 0 && others.length > 0 && imageMax !== rule.maxBytes) {
-    return `${joinTypes(images)} up to ${formatBytes(imageMax)} · ${joinTypes(
-      others,
-    )} up to ${formatBytes(rule.maxBytes)}`;
+const FAMILY_BYTES: Record<MimeFamily, number> = {
+  image: DEFAULT_IMAGE_BYTES,
+  other: DEFAULT_DOCUMENT_BYTES,
+  video: DEFAULT_VIDEO_BYTES,
+};
+
+function familyOf(mimeType: string): MimeFamily {
+  if (DEFAULT_IMAGE_MIME_TYPES.includes(mimeType)) {
+    return "image";
   }
 
-  const allLabels = labelsFor(mimeTypes);
-  const max = others.length === 0 ? imageMax : rule.maxBytes;
+  return DEFAULT_VIDEO_MIME_TYPES.includes(mimeType) ? "video" : "other";
+}
 
-  return `${joinTypes(allLabels)} up to ${formatBytes(max)}`;
+/** The effective cap for one file: never looser than its own family allows. */
+function maxBytesFor(mimeType: string, kind: UploadKind) {
+  return Math.min(uploadKindRule(kind).maxBytes, FAMILY_BYTES[familyOf(mimeType)]);
+}
+
+/** "JPG, PNG or WebP up to 5 MB" — the hint shown under a drop zone. */
+export function uploadHint(kind: UploadKind = "any", override?: string) {
+  const mimeTypes = (override ? override.split(",") : uploadKindRule(kind).mimeTypes).map(
+    (mime) => mime.trim().toLowerCase(),
+  );
+
+  const parts = FAMILY_ORDER.map((family) => {
+    const inFamily = mimeTypes.filter((mime) => familyOf(mime) === family);
+    const labels = labelsFor(inFamily);
+
+    if (labels.length === 0) {
+      return null;
+    }
+
+    return `${joinTypes(labels)} up to ${formatBytes(maxBytesFor(inFamily[0], kind))}`;
+  }).filter((part): part is string => Boolean(part));
+
+  return parts.length > 0 ? parts.join(" · ") : "Any file";
 }
 
 export function formatBytes(bytes: number) {
@@ -157,10 +189,8 @@ export function validateFileForUpload(
     )}.`;
   }
 
-  // Images carry the tighter of the two server limits even inside an "any" picker.
-  const maxBytes = DEFAULT_IMAGE_MIME_TYPES.includes(mimeType)
-    ? Math.min(rule.maxBytes, DEFAULT_IMAGE_BYTES)
-    : rule.maxBytes;
+  // Each family carries its own server limit even inside a wider picker.
+  const maxBytes = maxBytesFor(mimeType, options.kind ?? "any");
 
   if (file.size <= 0) {
     return `${file.name} is empty.`;

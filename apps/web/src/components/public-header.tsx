@@ -22,6 +22,7 @@ type PublicHeaderProps = {
     | "about"
     | "blog"
     | "browse"
+    | "community"
     | "compare"
     | "contact"
     | "home"
@@ -73,6 +74,9 @@ function dashboardHrefForRole(role: Role) {
 const navItems = [
   { href: "/", id: "home", label: "Home" },
   { href: "/hostels", id: "browse", label: "Hostels" },
+  // One community for the whole platform, reachable from every header rather
+  // than buried in a portal sidebar — signed-out readers included.
+  { href: "/community", id: "community", label: "Community" },
   { href: "/compare", id: "compare", label: "Compare" },
   { href: "/register-hostel", id: "register-hostel", label: "Register Hostel" },
   // Lands on the public directory; registering is the CTA on that page.

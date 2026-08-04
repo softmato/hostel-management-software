@@ -48,6 +48,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];
   },
+  async redirects() {
+    return [
+      // The resident feed became one platform-wide community. Old links and
+      // bookmarks land where the conversation actually moved to.
+      { destination: "/community", permanent: true, source: "/resident/community" },
+    ];
+  },
   turbopack: {
     root: repoRoot,
   },

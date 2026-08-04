@@ -128,6 +128,34 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         keywords: ["abuse", "duplicate", "ghost", "spam", "report", "fraud"],
         label: "Abuse Flags",
       },
+      {
+        /*
+         * Public-space posts belong to no hostel, so no hostel admin can reach
+         * them. Without this queue they would go unreviewed entirely.
+         */
+        description:
+          "Reported posts from every community space, including posts that belong to no hostel.",
+        href: "/platform/community",
+        icon: "message",
+        keywords: ["community", "posts", "moderation", "reports", "flagged", "abuse"],
+        label: "Community Reports",
+      },
+      {
+        description:
+          "Paid placements in the community sidebar — colleges, hostels and local businesses, ordered by priority.",
+        href: "/platform/sponsors",
+        icon: "megaphone",
+        keywords: [
+          "sponsors",
+          "ads",
+          "advertising",
+          "placement",
+          "colleges",
+          "priority",
+          "campaign",
+        ],
+        label: "Sponsors",
+      },
     ],
     label: "Hostels",
   },
@@ -492,11 +520,16 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Attendance",
       },
       {
-        description: "Moderate the resident feed and post official announcements.",
+        /*
+         * Not a feed — the feed itself lives at `/community` and is reached
+         * from the header. What stays in the portal is the queue of this
+         * hostel's posts that people reported.
+         */
+        description: "Review reported posts from your hostel and post announcements.",
         href: "/hostel-admin/community",
-        icon: "users",
-        keywords: ["community", "feed", "posts", "moderation", "reports"],
-        label: "Community",
+        icon: "flag",
+        keywords: ["community", "feed", "posts", "moderation", "reports", "flagged"],
+        label: "Community Reports",
       },
     ],
     label: "Operations",
@@ -557,13 +590,9 @@ export const RESIDENT_NAV: PortalNavGroup[] = [
         label: "Fees & Payments",
       },
       { href: "/resident/food", icon: "food", label: "Food Menu" },
+      // No Community entry: it is one platform-wide room at `/community`,
+      // linked from the portal header instead of each portal's sidebar.
       { href: "/resident/notices", icon: "megaphone", label: "Notices" },
-      {
-        href: "/resident/community",
-        icon: "users",
-        keywords: ["feed", "posts", "social", "chat"],
-        label: "Community",
-      },
     ],
     label: "Daily",
   },

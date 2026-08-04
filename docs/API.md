@@ -315,12 +315,6 @@ All routes require `role = RESIDENT`; every query is scoped to `resident.id` der
 | POST | `/api/v1/resident/guardians` | `{ email, firstName, lastName, phone, relation, permissions }` | Invites a guardian by email; 7-day single-use token (EMAIL_SYSTEM.md §1.5). Every permission defaults to `false` |
 | PATCH | `/api/v1/resident/guardians/[id]` | `{ canViewPayments?, canViewReceipts?, canViewNotices?, canViewFood?, canViewSafety?, canViewComplaintStatus? }` | Resident retunes access at any time; takes effect on the guardian's next request |
 | DELETE | `/api/v1/resident/guardians/[id]` | — | Revokes the guardian entirely |
-| GET | `/api/v1/resident/community` | `?scope=hostel\|mine` | Own hostel's feed, announcements pinned first |
-| POST | `/api/v1/resident/community` | `{ body, visibility, isAnonymous, mediaAssetIds[] }` | Create a post; body is profanity-masked on write |
-| DELETE | `/api/v1/resident/community/[postId]` | — | Soft-deletes own post |
-| GET/POST | `/api/v1/resident/community/[postId]/comments` | `{ body, isAnonymous }` | List / add comments; adding notifies the post author |
-| POST | `/api/v1/resident/community/[postId]/reactions` | `{ type }` | Toggle — the same type twice removes it |
-| POST | `/api/v1/resident/community/[postId]/report` | `{ reason }` | Flags for hostel-admin review; one report per user per post |
 | GET | `/api/v1/resident/attendance` | — | Own zone history (last 60 days) + current consent state |
 | DELETE | `/api/v1/resident/attendance` | — | Erases own location history immediately (PRIVACY_POLICY.md) |
 | POST | `/api/v1/resident/consent` | `{ consentType, granted, policyVersion?, source? }` | Grants or withdraws a consent; appends a ConsentLog row, never updates one |
@@ -370,24 +364,98 @@ All routes require `role = COOK`, scoped to `cook.hostelId`.
 
 ## 10. Community Feature
 
-Shipped 2026-08-01. Feed routes live under the resident tree (`/api/v1/resident/community/*`, listed
-in section 7); moderation lives under the hostel-admin tree. There is no top-level `/api/community`.
+One platform-wide community at `/community`, served by a top-level `/api/v1/community/*` tree.
+Reading needs no account; writing needs any account. The per-portal resident feed
+(`/api/v1/resident/community/*`) was removed — `/resident/community` now redirects to `/community`.
 
-**Anonymity is a serialization rule, not missing data.** `authorId` is stored on every post and
-comment. The resident feed renders anonymous authors as "Anonymous Resident"; the hostel-admin
-moderation view shows the real name, because an admin handling abuse has to know who wrote it.
-`community-anonymity.test.ts` locks both directions.
+**The author never picks a space.** An account with no hostel behind it posts into the *public
+space*; an account attached to a hostel posts into *that hostel's space*. What the author does pick
+is the audience: `visibility` defaults to `PUBLIC`, and `HOSTEL_ONLY` is honoured only on a hostel
+post — a public-space post has no smaller room to fall back to, so the server forces it back to
+`PUBLIC`. Readers see public posts plus the hostels they belong to; platform moderators see
+everything. `community-spaces.test.ts` locks both directions.
 
-### 10.1 Community Admin (Hostel Admin / Warden)
+Posts are never anonymous. Author name and photo are on every post and comment.
+
+### 10.1 Community (all readers)
+
+| Method | Path | Body/Query | Notes |
+|---|---|---|---|
+| GET | `/api/v1/community` | `?space=all\|public\|mine\|<hostelId>&sort=new\|top&q=&page=` | Open to signed-out readers. Announcements pinned first. `q` is a case-insensitive substring match on the body — a regex, not `$text`, so "banesh" finds "Baneshwor" |
+| GET | `/api/v1/community/spaces` | — | Space rail: public space plus every hostel with readable posts, and a `viewer` block saying where *this* account would post |
+| GET | `/api/v1/community/sidebar` | — | Right rail in one call: live `sponsors` (§10.4), `trendingTags` derived from hashtags in the last 200 readable posts, and `popularHostels` |
+| POST | `/api/v1/community` | `{ body, visibility, media: [{ assetId, kind: IMAGE\|VIDEO }] }` | Any authenticated account. Space is resolved server-side; body is profanity-masked when the hostel enables the filter |
+| GET | `/api/v1/community/[postId]` | — | Single post — the permalink behind "share" |
+| DELETE | `/api/v1/community/[postId]` | — | Soft-deletes own post |
+| GET/POST | `/api/v1/community/[postId]/comments` | `{ body, parentId? }` | The whole thread, flat, in reading order with a `depth` per row (see below). `parentId` makes it a reply |
+| POST | `/api/v1/community/[postId]/comments/[commentId]/vote` | `{ value: -1\|0\|1 }` | `0` clears the caller's vote. One vote per person per comment, enforced by a unique index |
+| POST | `/api/v1/community/[postId]/reactions` | `{ type }` | Toggle — the same type twice removes it |
+| POST | `/api/v1/community/[postId]/report` | `{ reason }` | One report per user per post. See §10.3 |
+
+Media is uploaded through the normal `/api/v1/files` pipeline with `accessLevel: PUBLIC` (images
+≤5 MB, video ≤50 MB, `video/mp4\|webm\|quicktime`). Nothing transcodes video; it is played from a
+plain `<video>` element.
+
+**Comment threads are flattened server-side.** `GET .../comments` returns every comment on the post
+in reading order — each one followed by its replies, best-scoring first — with a `depth` on each row
+rather than a nested structure. Order is then identical for every reader, and a client cannot invent
+a nesting the server did not sanction. `depth` is capped at 5 for display; a deeper reply still
+renders, it just stops indenting. The tree is never paginated: cutting it would separate replies
+from the comments they answer, so `pageSize` caps the total instead.
+
+`score` is denormalised onto the comment but recomputed by summing `CommunityCommentVote` rows on
+every vote, never incremented — a double-submit or a lost response cannot drift it away from the
+votes people actually cast.
+
+### 10.2 Community Moderation (Hostel Admin / Warden)
 
 Requires `role IN (HOSTEL_ADMIN, WARDEN)`, scoped to own hostel.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| GET | `/api/v1/hostel-admin/community` | `?status=VISIBLE\|HIDDEN` | All posts in own hostel, most-reported first. Author names are unmasked here. Returns `{ posts, summary: { total, reported, hidden } }` |
-| POST | `/api/v1/hostel-admin/community` | `{ body }` | Official announcement, pinned above the resident feed |
+| GET | `/api/v1/hostel-admin/community` | `?filter=flagged\|hidden\|all` | Own hostel's posts, flagged first. Returns `{ posts, summary: { flagged, hidden, total } }` |
+| POST | `/api/v1/hostel-admin/community` | `{ body }` | Official announcement, pinned above that hostel's space |
 | PATCH | `/api/v1/hostel-admin/community/[postId]/hide` | `{ reason }` | Hides the post and marks its open reports `ACTIONED`. Writes an AuditLog entry |
-| DELETE | `/api/v1/hostel-admin/community/[postId]/hide` | `{ reason }` | Restores the post and marks its open reports `DISMISSED` |
+| DELETE | `/api/v1/hostel-admin/community/[postId]/hide` | `{ reason }` | Clears the flag, restores the post, and marks its open reports `DISMISSED` — the "this is fine" verdict |
+
+### 10.3 Community Moderation (Platform)
+
+Requires `role IN (SUPERADMIN, PLATFORM_MODERATOR)`. Same service, wider scope: public-space posts
+belong to no hostel, so without this queue nobody could review them.
+
+| Method | Path | Body/Query | Notes |
+|---|---|---|---|
+| GET | `/api/v1/platform/community` | `?filter=flagged\|hidden\|all&hostelId=` | Every space |
+| PATCH | `/api/v1/platform/community/[postId]/hide` | `{ reason }` | As above, unscoped |
+| DELETE | `/api/v1/platform/community/[postId]/hide` | `{ reason }` | As above, unscoped |
+
+**How a post reaches a queue.** One report is never enough on its own. A post is flagged when
+either three distinct people report it, or the automated check (`community-triage.ts`, on the shared
+free-tier LLM router) reads the post and the reasons given and judges it likely to break the rules —
+which catches the first report on something genuinely bad. Flagging never hides anything: only a
+person takes a post down. That keeps a coordinated pile-on from silencing someone, and keeps a
+confidently wrong 8B model from doing the same. With no LLM configured, the volume threshold is the
+whole mechanism.
+
+### 10.4 Sponsors
+
+Paid placements in the community's right rail — colleges, hostels, local businesses. Writes require
+`role = SUPERADMIN`, **not** PLATFORM_MODERATOR: selling a slot is a commercial decision, and a
+moderator moderates content. `/platform/sponsors` carries a matching superadmin-only route rule.
+
+| Method | Path | Body/Query | Notes |
+|---|---|---|---|
+| GET | `/api/v1/platform/sponsors` | `?status=active\|inactive\|all&page=` | Full records with impression and click totals |
+| POST | `/api/v1/platform/sponsors` | `{ name, kind, subtitle?, highlight?, imageUrl?, imageAssetId?, accentColor?, linkUrl?, ctaLabel?, priority?, isActive?, startsAt?, endsAt? }` | `kind` is COLLEGE / HOSTEL / BUSINESS / OTHER |
+| PATCH | `/api/v1/platform/sponsors/[sponsorId]` | Any subset of the above | Also how the priority arrows and the pause toggle save |
+| DELETE | `/api/v1/platform/sponsors/[sponsorId]` | — | Removes the placement and its counters |
+| POST | `/api/v1/community/sponsors/[sponsorId]/click` | — | Click-through counter. **Unauthenticated on purpose** — a signed-out visitor clicking an ad is the traffic a sponsor pays for, and requiring an account would undercount it to nearly nothing |
+
+Ordering is `priority` descending, newest first inside a tie — a higher number wins, so promoting one
+sponsor never means renumbering the rest. `startsAt`/`endsAt` are evaluated per request rather than
+by a cron flipping `isActive`, so a campaign starts and ends on time without anything having to run.
+Impressions are counted server-side per rail render; a client-reported impression is a number anyone
+could inflate.
 
 ⏳ Not built: community analytics (most active residents, post frequency, sentiment) — the Phase 5
 reports work covered food and attendance analytics; community engagement analytics did not make the

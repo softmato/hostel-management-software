@@ -1,57 +1,58 @@
 "use client";
 
-import { MapPin } from "lucide-react";
+import { MapPin, Sparkles } from "lucide-react";
 import Link from "next/link";
 
-import {
-  mapPublicHostelToSummary,
-  type PublicHostel,
-} from "@/app/_components/public-hostel-data";
+import { mapPublicHostelToSummary } from "@/app/_components/public-hostel-data";
 import { formatMoney, SectionCard } from "@/app/_components/shared";
 import { TalkToExpertButton } from "@/components/talk-to-expert";
-import { useMyExpertConsultationRequest } from "@/hooks/use-expert-consultation";
-import { parseBudgetRange, topHostelMatches } from "@/lib/hostel-recommendation";
-import { cn } from "@/lib/utils";
+import type { MyExpertConsultationRequest } from "@/hooks/use-expert-consultation";
+import { parseBudgetRange, type HostelMatch } from "@/lib/hostel-recommendation";
 
 /**
- * The compare page's "platform suggestion" strip. Gated entirely by whether
- * the visitor has answered the "Talk to an Expert" form — `TalkToExpertButton`
- * already owns the sign-in → resident-profile → form gate, so this component
- * only adds one more check on top: does a saved request exist yet.
+ * The compare page's "platform suggestion" strip.
+ *
+ * `myRequest` and `matches` are computed once in `PublicComparePage` (not
+ * re-fetched here) because the comparison grid up top needs the same match
+ * list to badge a hostel the visitor already added — this component only
+ * renders the ones they *haven't* picked yet, so nothing is shown twice.
  */
 export function HostelSuggestions({
-  available,
   compareIds,
+  isLoading,
+  matches,
+  myRequest,
   onAddToCompare,
+  onSubmitted,
 }: {
-  available: PublicHostel[];
   compareIds: string[];
+  isLoading: boolean;
+  matches: HostelMatch[];
+  myRequest: MyExpertConsultationRequest | null | undefined;
   onAddToCompare: (hostelId: string) => void;
+  onSubmitted: () => void;
 }) {
-  const { data: myRequest, isLoading, refetch } = useMyExpertConsultationRequest();
-
   if (isLoading) {
-    return <div className="mb-6 h-32 animate-pulse rounded-xl border border-border bg-muted" />;
+    return <div className="mb-4 h-10 animate-pulse rounded-lg border border-border bg-muted" />;
   }
 
   if (!myRequest) {
     return (
-      <SectionCard
-        action={<TalkToExpertButton onSubmitted={() => void refetch()} />}
-        className="mb-6"
-        title="Get hostels matched to you"
-      >
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Answer a few quick questions — your budget and preferred college — and
-          we&apos;ll suggest hostels that actually fit, right here on this page.
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2.5">
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Sparkles className="size-3.5 shrink-0 text-brand-teal" />
+          Tell us your budget & college for hostels matched to you.
         </p>
-      </SectionCard>
+        <TalkToExpertButton onSubmitted={onSubmitted} />
+      </div>
     );
   }
 
-  const matches = topHostelMatches(available, myRequest, 3);
+  // Already-added hostels are tagged on the comparison grid above instead of
+  // getting a second card here.
+  const remaining = matches.filter(({ hostel }) => !compareIds.includes(hostel.id));
 
-  if (matches.length === 0) {
+  if (remaining.length === 0) {
     return null;
   }
 
@@ -61,19 +62,18 @@ export function HostelSuggestions({
 
   return (
     <SectionCard
-      action={<TalkToExpertButton onSubmitted={() => void refetch()} />}
+      action={<TalkToExpertButton onSubmitted={onSubmitted} />}
       className="mb-6"
       description={
         hasSignal
           ? "Matched to the budget and college you told our expert about."
           : "Popular verified hostels — add a budget and college next time for a tighter match."
       }
-      title="Suggested for you"
+      title="You might also like these hostels"
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {matches.map(({ distanceKm, hostel, withinBudget }) => {
+        {remaining.map(({ distanceKm, hostel, withinBudget }) => {
           const summary = mapPublicHostelToSummary(hostel);
-          const alreadyAdded = compareIds.includes(hostel.id);
 
           return (
             <div
@@ -111,17 +111,11 @@ export function HostelSuggestions({
                   ) : null}
                 </div>
                 <button
-                  className={cn(
-                    "w-full rounded-md py-1.5 text-xs font-bold transition",
-                    alreadyAdded
-                      ? "cursor-default bg-success/10 text-success"
-                      : "bg-brand-teal text-white hover:brightness-105",
-                  )}
-                  disabled={alreadyAdded}
+                  className="w-full rounded-md bg-brand-teal py-1.5 text-xs font-bold text-white transition hover:brightness-105"
                   onClick={() => onAddToCompare(hostel.id)}
                   type="button"
                 >
-                  {alreadyAdded ? "Added to compare" : "Add to compare"}
+                  Add to compare
                 </button>
               </div>
             </div>

@@ -519,6 +519,17 @@ export function PortalShell({
               />
 
               <div className="ml-auto flex items-center gap-1.5 md:gap-2">
+                {/* The community is one platform-wide room at `/community`, not
+                    a per-portal feed — so it lives in every header instead of
+                    four sidebars. */}
+                <Link
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-medium text-slate-600 transition-colors hover:bg-muted hover:text-foreground dark:text-slate-300"
+                  href="/community"
+                >
+                  <Users className="size-4" />
+                  <span className="hidden sm:inline">Community</span>
+                </Link>
+
                 {tone === "admin" ? (
                   <HostelPreviewLink className="hidden lg:inline-flex" />
                 ) : null}

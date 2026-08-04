@@ -19,7 +19,9 @@
     "migrate:rooms-to-counts": "node scripts/migrate-rooms-to-counts.mjs",
     "backfill:resident-accounts": "node scripts/backfill-resident-accounts.mjs",
     "repair:archived-residents": "node scripts/repair-archived-residents.mjs",
-    "deploy:check": "next build"
+    "deploy:check": "next build",
+    "seed:community": "node scripts/seed-community-posts.mjs",
+    "seed:community:clean": "node scripts/seed-community-posts.mjs --clean"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",

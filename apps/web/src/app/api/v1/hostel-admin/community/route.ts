@@ -4,7 +4,7 @@ import { requireHostelStaffPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
 import {
   createCommunityAnnouncement,
-  listCommunityForModeration,
+  listCommunityModeration,
 } from "@/modules/community/community.service";
 import {
   communityAnnouncementSchema,
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const query = communityModerationQuerySchema.parse(
       Object.fromEntries(request.nextUrl.searchParams.entries()),
     );
-    const result = await listCommunityForModeration(query, principal);
+    const result = await listCommunityModeration(query, principal);
 
     return successResponse(result, "Community posts loaded");
   } catch (error) {
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** Official hostel announcement, pinned to the top of the resident feed. */
+/** Official hostel announcement, pinned to the top of that hostel's space. */
 export async function POST(request: NextRequest) {
   try {
     const principal = await requireHostelStaffPrincipal(request);

@@ -30,6 +30,11 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     roles: [Role.SUPERADMIN],
   },
   {
+    // Selling a placement is a commercial decision, not a moderation one.
+    prefix: "/platform/sponsors",
+    roles: [Role.SUPERADMIN],
+  },
+  {
     prefix: "/platform",
     roles: [Role.SUPERADMIN, Role.PLATFORM_MODERATOR],
   },

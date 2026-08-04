@@ -1,6 +1,13 @@
 export const DEFAULT_IMAGE_BYTES = 5 * 1024 * 1024;
 export const DEFAULT_DOCUMENT_BYTES = 10 * 1024 * 1024;
+/**
+ * Community posts carry video. Nothing transcodes it, so the cap is the size a
+ * phone can upload and a browser can stream back without a pipeline behind it.
+ */
+export const DEFAULT_VIDEO_BYTES = 50 * 1024 * 1024;
 export const DEFAULT_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+/** Types every current browser can play from a plain `<video>` element. */
+export const DEFAULT_VIDEO_MIME_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 export const DEFAULT_DOCUMENT_MIME_TYPES = [
   "application/pdf",
   "image/jpeg",
@@ -16,7 +23,11 @@ export const DEFAULT_DOCUMENT_MIME_TYPES = [
  * the `ALLOWED_*_MIME_TYPES` env overrides that a client cannot see.
  */
 export const PLATFORM_ACCEPTED_MIME_TYPES = Array.from(
-  new Set([...DEFAULT_IMAGE_MIME_TYPES, ...DEFAULT_DOCUMENT_MIME_TYPES]),
+  new Set([
+    ...DEFAULT_IMAGE_MIME_TYPES,
+    ...DEFAULT_DOCUMENT_MIME_TYPES,
+    ...DEFAULT_VIDEO_MIME_TYPES,
+  ]),
 );
 
 function positiveInteger(value: string | undefined, fallback: number) {
@@ -52,6 +63,14 @@ export function fileAssetLimits() {
       process.env.UPLOAD_MAX_IMAGE_BYTES,
       DEFAULT_IMAGE_BYTES,
     ),
+    allowedVideoMimeTypes: mimeList(
+      process.env.ALLOWED_VIDEO_MIME_TYPES,
+      DEFAULT_VIDEO_MIME_TYPES,
+    ),
+    maxVideoBytes: positiveInteger(
+      process.env.UPLOAD_MAX_VIDEO_BYTES,
+      DEFAULT_VIDEO_BYTES,
+    ),
   };
 }
 
@@ -75,6 +94,12 @@ export function validateFileAssetMetadata(input: {
     return sizeBytes <= limits.maxImageBytes
       ? null
       : `Image exceeds the ${limits.maxImageBytes} byte upload limit.`;
+  }
+
+  if (limits.allowedVideoMimeTypes.includes(mimeType)) {
+    return sizeBytes <= limits.maxVideoBytes
+      ? null
+      : `Video exceeds the ${limits.maxVideoBytes} byte upload limit.`;
   }
 
   if (limits.allowedDocumentMimeTypes.includes(mimeType)) {

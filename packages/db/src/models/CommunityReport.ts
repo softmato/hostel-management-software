@@ -5,7 +5,8 @@ const communityReportSchema = new Schema(
   {
     postId: { ref: "CommunityPost", required: true, type: Schema.Types.ObjectId },
     commentId: { ref: "CommunityComment", type: Schema.Types.ObjectId },
-    hostelId: { ref: "Hostel", required: true, type: Schema.Types.ObjectId },
+    /** Mirrors the post's space: null on a public-space post. */
+    hostelId: { default: null, ref: "Hostel", type: Schema.Types.ObjectId },
     reportedBy: { ref: "User", required: true, type: Schema.Types.ObjectId },
     reason: { maxlength: 500, required: true, trim: true, type: String },
     status: {

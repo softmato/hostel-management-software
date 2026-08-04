@@ -19,8 +19,9 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { HostelSuggestions } from "@/components/hostel-suggestions";
 import { HostelMap } from "@/components/maps/hostel-map";
 import { MediaLightbox, type LightboxItem } from "@/components/media-lightbox";
-import { TalkToExpertButton } from "@/components/talk-to-expert";
 import { useCompareHostels, useHostels, useHostelsReviews } from "@/hooks/use-hostels";
+import { useMyExpertConsultationRequest } from "@/hooks/use-expert-consultation";
+import { topHostelMatches } from "@/lib/hostel-recommendation";
 import { useComparisonStore } from "@/stores/comparison-store";
 import { cn } from "@/lib/utils";
 import { PublicShell, SectionCard, StatusPill, formatMoney } from "./shared";
@@ -148,6 +149,23 @@ export function PublicComparePage() {
     [available],
   );
 
+  // Computed here, not inside `HostelSuggestions`, because the comparison
+  // grid below needs the same match list to badge a hostel the visitor
+  // already added instead of that component rendering it a second time.
+  const {
+    data: myMatchRequest,
+    isLoading: isLoadingMatches,
+    refetch: refetchMatchRequest,
+  } = useMyExpertConsultationRequest();
+  const matches = useMemo(
+    () => topHostelMatches(available, myMatchRequest ?? null, 3),
+    [available, myMatchRequest],
+  );
+  const matchedIds = useMemo(
+    () => new Set(matches.map(({ hostel }) => hostel.id)),
+    [matches],
+  );
+
   const isLoading = availableQuery.isPending || comparisonQuery.isFetching;
 
   const message = availableQuery.isError
@@ -199,7 +217,7 @@ export function PublicComparePage() {
 
   return (
     <PublicShell active="compare">
-      <section className="mx-auto max-w-[1360px] px-6 pt-8 pb-28">
+      <section className="mx-auto max-w-[1360px] px-6 pt-8 pb-16">
         <div className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Compare Hostels</h1>
@@ -228,9 +246,12 @@ export function PublicComparePage() {
         </div>
 
         <HostelSuggestions
-          available={available}
           compareIds={compareIds}
+          isLoading={isLoadingMatches}
+          matches={matches}
+          myRequest={myMatchRequest}
           onAddToCompare={addSpecificHostel}
+          onSubmitted={() => void refetchMatchRequest()}
         />
 
         {message ? (
@@ -329,12 +350,20 @@ export function PublicComparePage() {
                           </span>
                         ) : null}
                         <div className="relative z-10 pt-24 pointer-events-none">
-                          <StatusPill
-                            tone="success"
-                            className="text-[9px] py-0 px-1 rounded-sm w-fit mb-1"
-                          >
-                            Verified
-                          </StatusPill>
+                          <div className="mb-1 flex flex-wrap items-center gap-1">
+                            <StatusPill
+                              tone="success"
+                              className="text-[9px] py-0 px-1 rounded-sm w-fit"
+                            >
+                              Verified
+                            </StatusPill>
+                            {matchedIds.has(hostel.id) ? (
+                              <span className="inline-flex items-center gap-0.5 rounded-sm bg-warning px-1 py-0 text-[9px] font-bold text-white">
+                                <Star className="size-2.5 fill-white" />
+                                Suggested match
+                              </span>
+                            ) : null}
+                          </div>
                           <h2
                             className="font-bold text-sm text-foreground truncate"
                             title={summary.name}
@@ -815,29 +844,6 @@ export function PublicComparePage() {
         )}
 
       </section>
-
-      {/* Support helper — floating so the offer to talk to an expert stays
-          reachable no matter how far down the comparison the visitor scrolls,
-          matching the floating compare tray on the listing page. */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-        <div className="mx-auto flex max-w-[1360px] flex-col items-center justify-between gap-3 px-6 py-4 md:flex-row">
-          <div className="flex items-center gap-4 text-left">
-            <div className="size-12 rounded-full bg-brand-teal-soft flex items-center justify-center text-brand-teal shrink-0">
-              <PhoneCall className="size-6" />
-            </div>
-            <div>
-              <p className="font-bold text-sm text-foreground">
-                Need help choosing the right hostel?
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
-                Our discovery experts will guide you to find the ideal accommodation based
-                on your college or workplace location.
-              </p>
-            </div>
-          </div>
-          <TalkToExpertButton />
-        </div>
-      </div>
 
       {lightbox ? (
         <MediaLightbox
