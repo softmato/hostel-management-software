@@ -9,6 +9,8 @@ import {
   paginationRange,
   type PaginationQuery,
 } from "@/lib/pagination";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
@@ -170,6 +172,14 @@ export async function createResidentReview(
   ).lean<ReviewRecord>()) as ReviewRecord;
 
   await auditReviewAction(principal, review, "REVIEW_SUBMITTED");
+
+  // A new review lands in the platform moderation queue and moves the hostel's
+  // average, so both sides refresh.
+  await publishResourceChange({
+    hostelIds: [review.hostelId.toString()],
+    platform: true,
+    topics: [REALTIME_TOPIC.REVIEWS],
+  });
 
   return {
     resident: serializeResidentSummary(resident),
@@ -348,6 +358,14 @@ async function moderateReview(
     }),
     auditReviewAction(principal, review, `REVIEW_${action}`, { reason: input.reason }),
   ]);
+
+  // Both audiences care: the platform moderation queue this was actioned from,
+  // and the hostel whose public rating just changed.
+  await publishResourceChange({
+    hostelIds: [review.hostelId.toString()],
+    platform: true,
+    topics: [REALTIME_TOPIC.REVIEWS],
+  });
 
   return {
     review: serializeReview(review),

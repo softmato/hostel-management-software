@@ -9,6 +9,13 @@ import {
   paginationRange,
   type PaginationQuery,
 } from "@/lib/pagination";
+// Note: `recordLocationPing` deliberately does NOT publish. Pings arrive
+// continuously from every resident device; broadcasting each one would swamp
+// the socket to redraw a board that only changes at zone boundaries. The
+// attendance panels poll for those, and publish on the events that matter —
+// a manual override and an alert being resolved.
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AttendanceAlertModel } from "@hostel/db/models/AttendanceAlert";
 import { AttendanceLogModel } from "@hostel/db/models/AttendanceLog";
@@ -420,6 +427,13 @@ export async function overrideAttendance(
     },
   });
 
+  // A manual override changes what the warden's attendance board and the
+  // guardian's summary both show.
+  await publishResourceChange({
+    hostelIds: [hostelId.toString()],
+    topics: [REALTIME_TOPIC.ATTENDANCE],
+  });
+
   return { attendance: serializeLog(log) };
 }
 
@@ -585,6 +599,12 @@ export async function resolveAttendanceAlert(
     entityType: "AttendanceAlert",
     hostelId,
     metadata: { note: input.note },
+  });
+
+  // Clears the alert from every warden's board, not just the one who acted.
+  await publishResourceChange({
+    hostelIds: [hostelId.toString()],
+    topics: [REALTIME_TOPIC.ATTENDANCE],
   });
 
   return { alertId: alert._id.toString(), status: "RESOLVED" as const };

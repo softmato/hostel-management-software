@@ -11,19 +11,44 @@ import {
 } from "@/lib/pagination";
 import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
 import { NotificationModel } from "@hostel/db/models/Notification";
+import { topicsForCategory } from "@/lib/realtime/channels";
+import {
+  publishNotification,
+  publishNotificationUpdated,
+  publishResourceChange,
+} from "@/lib/realtime/server";
 import { normalizeObjectId } from "@/modules/residents/resident-access";
 import type { deviceTokenSaveSchema } from "@/modules/notifications/notification.validation";
 
 type DeviceTokenSaveInput = z.infer<typeof deviceTokenSaveSchema>;
 
+export type NotificationKind = "NORMAL" | "ACTION";
+export type NotificationActionState = "PENDING" | "COMPLETED" | "DISMISSED";
+
+export type NotificationAction = {
+  endpoint: string;
+  key: string;
+  label: string;
+  method?: "POST" | "PATCH" | "PUT" | "DELETE";
+  payload?: Record<string, unknown>;
+  tone?: "default" | "primary" | "danger";
+};
+
 type NotificationRecord = {
   _id: Types.ObjectId;
+  actions?: NotificationAction[];
+  actionState?: NotificationActionState;
+  actionTakenAt?: Date;
+  actionTakenKey?: string;
+  actionUrl?: string;
   body: string;
   category: string;
   channel: "IN_APP" | "PUSH" | "EMAIL" | "SMS";
   createdAt?: Date;
   data?: Record<string, unknown>;
   hostelId?: Types.ObjectId;
+  kind?: NotificationKind;
+  priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   readAt?: Date;
   status: "QUEUED" | "SENT" | "FAILED";
   title: string;
@@ -41,7 +66,16 @@ export class NotificationServiceError extends Error {
 }
 
 function serializeNotification(notification: NotificationRecord) {
+  const kind: NotificationKind = notification.kind ?? "NORMAL";
+
   return {
+    // Only ACTION rows carry buttons; sending an empty array for the rest keeps
+    // the client from having to special-case `undefined`.
+    actions: kind === "ACTION" ? (notification.actions ?? []) : [],
+    actionState: notification.actionState ?? "PENDING",
+    actionTakenAt: notification.actionTakenAt?.toISOString(),
+    actionTakenKey: notification.actionTakenKey,
+    actionUrl: notification.actionUrl,
     body: notification.body,
     category: notification.category,
     channel: notification.channel,
@@ -50,6 +84,10 @@ function serializeNotification(notification: NotificationRecord) {
     hostelId: notification.hostelId?.toString(),
     id: notification._id.toString(),
     isRead: Boolean(notification.readAt),
+    kind,
+    /** True while this row is still waiting on the recipient to decide. */
+    needsAction: kind === "ACTION" && (notification.actionState ?? "PENDING") === "PENDING",
+    priority: notification.priority ?? "NORMAL",
     readAt: notification.readAt?.toISOString(),
     status: notification.status,
     title: notification.title,
@@ -57,28 +95,88 @@ function serializeNotification(notification: NotificationRecord) {
   };
 }
 
+export type SerializedNotification = ReturnType<typeof serializeNotification>;
+
+/**
+ * Read a freshly created document as a plain record.
+ *
+ * `NotificationModel.create` hands back a hydrated Mongoose document, but the
+ * unit tests substitute plain objects for the model — so this only calls
+ * `toObject` when it is actually there rather than assuming a real document.
+ */
+function asRecord(document: unknown): NotificationRecord {
+  const candidate = document as { toObject?: () => unknown };
+
+  return (
+    typeof candidate?.toObject === "function" ? candidate.toObject() : document
+  ) as NotificationRecord;
+}
+
+/**
+ * Push a freshly written row to the recipient's socket, and refresh the panels
+ * its category implies.
+ *
+ * Wholly best-effort: the notification is already committed by the time this
+ * runs, so nothing in here — a serialisation problem, an unreachable Pusher —
+ * is allowed to propagate. The worst case is that the recipient sees the row on
+ * their next poll instead of instantly.
+ */
+async function publishNewNotification(userId: string, document: unknown, category: string) {
+  try {
+    await publishNotification(userId, serializeNotification(asRecord(document)));
+
+    const topics = topicsForCategory(category);
+
+    if (topics.length > 0) {
+      await publishResourceChange({ topics, userIds: [userId] });
+    }
+  } catch {
+    // Delivery is durable in Mongo; the live push is an optimisation.
+  }
+}
+
 export async function createInAppNotification(input: {
+  /** Inline buttons for ACTION rows. Ignored when `kind` is NORMAL. */
+  actions?: NotificationAction[];
+  /** Deep link to the screen that resolves this. Implies `kind: "ACTION"`. */
+  actionUrl?: string;
   body: string;
   category: string;
   createdBy?: string;
   data?: Record<string, unknown>;
   hostelId?: string;
+  kind?: NotificationKind;
+  priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   title: string;
   userId: string;
 }) {
   await connectToDatabase();
 
-  return NotificationModel.create({
+  // Callers that pass a destination or buttons mean "someone must deal with
+  // this", so they do not also have to remember to set `kind`.
+  const kind: NotificationKind =
+    input.kind ?? (input.actionUrl || input.actions?.length ? "ACTION" : "NORMAL");
+
+  const notification = await NotificationModel.create({
+    actions: kind === "ACTION" ? input.actions : undefined,
+    actionState: "PENDING",
+    actionUrl: input.actionUrl,
     body: input.body,
     category: input.category,
     channel: "IN_APP",
     createdBy: input.createdBy,
     data: input.data,
     hostelId: input.hostelId,
+    kind,
+    priority: input.priority,
     status: "SENT",
     title: input.title,
     userId: input.userId,
   });
+
+  await publishNewNotification(input.userId, notification, input.category);
+
+  return notification;
 }
 
 /**
@@ -126,6 +224,10 @@ export async function createOrUpdateBatchedNotification(input: {
   );
 
   if (existing) {
+    // Re-push the rewritten row so an open bell shows "5 people reacted"
+    // replacing "4 people reacted" rather than waiting for its next poll.
+    await publishNewNotification(input.userId, existing, input.category);
+
     return existing;
   }
 
@@ -139,16 +241,28 @@ export async function createOrUpdateBatchedNotification(input: {
   });
 }
 
+export type NotificationFilter = "all" | "unread" | "action";
+
 export async function listNotifications(
   principal: ApiPrincipal,
   query: PaginationQuery = { page: 1, pageSize: MAX_PAGE_SIZE },
+  filterBy: NotificationFilter = "all",
 ) {
   await connectToDatabase();
 
-  const filter = { userId: normalizeObjectId(principal.userId, "user id") };
+  const mine = { userId: normalizeObjectId(principal.userId, "user id") };
+  const unreadFilter = { ...mine, readAt: { $exists: false } };
+  // "Needs action" is not "unread": an admin can read "a hostel is waiting for
+  // approval" and still not have approved it, so this queue keys off
+  // `actionState`, not the read receipt.
+  const actionFilter = { ...mine, actionState: "PENDING", kind: "ACTION" };
+
+  const filter =
+    filterBy === "unread" ? unreadFilter : filterBy === "action" ? actionFilter : mine;
+
   const { limit, skip } = paginationRange(query);
 
-  const [notifications, total, unread] = await Promise.all([
+  const [notifications, total, unread, pendingActions] = await Promise.all([
     NotificationModel.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -157,10 +271,12 @@ export async function listNotifications(
     NotificationModel.countDocuments(filter),
     // The bell badge counts every unread notification, not the unread ones on
     // this page.
-    NotificationModel.countDocuments({ ...filter, readAt: { $exists: false } }),
+    NotificationModel.countDocuments(unreadFilter),
+    NotificationModel.countDocuments(actionFilter),
   ]);
 
   return {
+    actionCount: pendingActions,
     notifications: notifications.map(serializeNotification),
     pagination: paginationMeta(query, total),
     unreadCount: unread,
@@ -190,9 +306,79 @@ export async function markNotificationRead(
     );
   }
 
+  await publishNotificationUpdated(principal.userId, notificationId);
+
   return {
     notification: serializeNotification(notification),
   };
+}
+
+/** Clear the whole unread badge in one call, for the bell's "Mark all read". */
+export async function markAllNotificationsRead(principal: ApiPrincipal) {
+  await connectToDatabase();
+
+  const result = await NotificationModel.updateMany(
+    {
+      readAt: { $exists: false },
+      userId: normalizeObjectId(principal.userId, "user id"),
+    },
+    { $set: { readAt: new Date(), updatedBy: principal.userId } },
+  );
+
+  await publishNotificationUpdated(principal.userId, "all");
+
+  return { markedRead: result.modifiedCount ?? 0 };
+}
+
+/**
+ * Record that an ACTION notification has been dealt with.
+ *
+ * This only moves the notification out of the "Needs action" queue — the actual
+ * work (approving the hostel, rejecting the application) is done by that
+ * domain's own endpoint, which the bell calls first. Keeping the two separate
+ * means the queue can be cleared for a request that was resolved from the full
+ * admin panel instead of the bell, and no permission decision is ever made
+ * here: this route can only ever touch the caller's own rows.
+ */
+export async function resolveNotificationAction(
+  notificationId: string,
+  principal: ApiPrincipal,
+  input: { actionKey?: string; state?: Exclude<NotificationActionState, "PENDING"> },
+) {
+  await connectToDatabase();
+
+  const now = new Date();
+  const notification = await NotificationModel.findOneAndUpdate(
+    {
+      _id: normalizeObjectId(notificationId, "notification id"),
+      kind: "ACTION",
+      userId: normalizeObjectId(principal.userId, "user id"),
+    },
+    {
+      $set: {
+        actionState: input.state ?? "COMPLETED",
+        actionTakenAt: now,
+        actionTakenKey: input.actionKey,
+        // Answering a request is a stronger signal than opening it, so this
+        // marks it read as well rather than leaving a stale unread badge.
+        readAt: now,
+        updatedBy: principal.userId,
+      },
+    },
+    { new: true },
+  ).lean<NotificationRecord | null>();
+
+  if (!notification) {
+    throw new NotificationServiceError(
+      "Notification was not found.",
+      "NOTIFICATION_NOT_FOUND",
+      404,
+    );
+  }
+
+  await publishNotificationUpdated(principal.userId, notificationId);
+
+  return { notification: serializeNotification(notification) };
 }
 
 export async function saveDeviceToken(

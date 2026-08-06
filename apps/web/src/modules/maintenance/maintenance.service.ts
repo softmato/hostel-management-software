@@ -3,6 +3,8 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { MaintenanceCommentModel } from "@hostel/db/models/MaintenanceComment";
@@ -195,6 +197,18 @@ async function auditMaintenanceAction(
     entityType: "MaintenanceRequest",
     hostelId: request.hostelId,
     metadata,
+  });
+
+  // Creation, status change and comment all pass through here, so one publish
+  // keeps the admin queue and the resident's request view in step.
+  //
+  // The assigned service provider is not covered: they are not a member of the
+  // hostel, so they are not on its channel, and `request.providerId` is a
+  // ServiceProvider id rather than the User id the personal channel is keyed
+  // on. Their job list refreshes by polling until that lookup is worth adding.
+  await publishResourceChange({
+    hostelIds: [request.hostelId.toString()],
+    topics: [REALTIME_TOPIC.MAINTENANCE],
   });
 }
 

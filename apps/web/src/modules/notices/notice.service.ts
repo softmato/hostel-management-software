@@ -13,6 +13,8 @@ import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { NoticeModel } from "@hostel/db/models/Notice";
 import { NoticeReadStatusModel } from "@hostel/db/models/NoticeReadStatus";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import {
@@ -217,10 +219,16 @@ async function deliverNoticeBroadcast(notice: NoticeRecord) {
   for (const recipient of recipients) {
     if (recipient.userId) {
       await createInAppNotification({
+        actionUrl: "/resident/notices",
         body: notice.title,
         category: "NOTICE",
         data: { noticeId: notice._id.toString() },
         hostelId: notice.hostelId.toString(),
+        // A notice is an announcement, not a request — NORMAL even when
+        // urgent. Urgency rides on `priority`, which is what decides whether
+        // the incoming toast pins itself.
+        kind: "NORMAL",
+        priority: notice.isUrgent ? "URGENT" : "NORMAL",
         title: notice.isUrgent ? "Urgent notice" : "New notice",
         userId: recipient.userId,
       });
@@ -241,6 +249,13 @@ async function deliverNoticeBroadcast(notice: NoticeRecord) {
       emailed += 1;
     }
   }
+
+  // Everyone in the hostel — residents, guardians, staff — gets the notice
+  // board refreshed, not just the recipients who happen to have accounts.
+  await publishResourceChange({
+    hostelIds: [notice.hostelId.toString()],
+    topics: [REALTIME_TOPIC.NOTICES],
+  });
 
   return { emailed, notified: recipients.length };
 }

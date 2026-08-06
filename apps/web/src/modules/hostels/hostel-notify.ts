@@ -1,5 +1,7 @@
 import type { Types } from "mongoose";
 
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { Role } from "@/lib/roles";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import {
@@ -75,15 +77,23 @@ export async function notifyHostelOfInquiry(
       }
 
       await createInAppNotification({
+        actionUrl: "/hostel-admin/inquiries",
         body: `${visitor.name} enquired about ${hostel.name}.`,
         category: "INQUIRY",
         data: { hostelId: hostel._id.toString() },
         hostelId: hostel._id.toString(),
+        // An inquiry needs a human reply, not a button — deep link only.
+        kind: "ACTION",
         title: "New inquiry",
         userId: contact.userId,
       }).catch(() => {});
     }),
   );
+
+  await publishResourceChange({
+    hostelIds: [hostel._id.toString()],
+    topics: [REALTIME_TOPIC.INQUIRIES],
+  });
 }
 
 /**
@@ -128,12 +138,35 @@ export async function notifyPlatformOfPendingHostel(
       }
 
       await createInAppNotification({
-        body: `${hostel.name} was submitted and is waiting for approval.`,
+        // Approving is a single decision with no required input, so it is
+        // offered inline. Rejection asks for a reason, so it stays on the
+        // review screen behind `actionUrl`.
+        actions: [
+          {
+            endpoint: `/api/v1/platform/hostels/${hostel._id.toString()}/approve`,
+            key: "approve",
+            label: "Approve hostel",
+            method: "PATCH",
+            payload: {},
+            tone: "primary",
+          },
+        ],
+        actionUrl: "/platform/hostels",
+        body: `${hostel.name}${
+          hostel.location?.city ? ` (${hostel.location.city})` : ""
+        } was submitted and is waiting for approval.`,
         category: "HOSTEL_APPROVAL",
         data: { hostelId: hostel._id.toString() },
+        kind: "ACTION",
         title: "Hostel awaiting approval",
         userId: member._id.toString(),
       }).catch(() => {});
     }),
   );
+
+  // Refresh the platform approval queue for any staff member with it open.
+  await publishResourceChange({
+    platform: true,
+    topics: [REALTIME_TOPIC.HOSTELS],
+  });
 }

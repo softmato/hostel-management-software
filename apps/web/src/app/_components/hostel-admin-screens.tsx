@@ -22,6 +22,7 @@ import { HostelAdminSettingsPageContent } from "@/app/_components/hostel-admin-s
 import { HostelAdminSOSAlertsPage } from "@/app/_components/hostel-admin-sos-alerts-page";
 import { HostelAdminTransactionsPageContent } from "@/app/_components/hostel-admin-transactions-page";
 import { HostelAdminWardensPage } from "@/app/_components/hostel-admin-wardens-page";
+import { NotificationsPageContent } from "@/app/_components/notifications-page";
 
 /**
  * Every screen of the hostel-owner portal, keyed by the URL segment after
@@ -35,6 +36,10 @@ export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> =
   dashboard: () => <HostelAdminDashboardPageContent />,
   "fee-plans": () => <HostelAdminFeePlansPageContent />,
   food: () => <HostelAdminFoodPage />,
+  // The admin's *personal* notification feed. `notifications` below is the
+  // outbound campaign composer — a different thing that happens to share a
+  // word, which is why the bell points here instead.
+  inbox: () => <NotificationsPageContent />,
   inquiries: () => <HostelAdminInquiriesPageContent />,
   maintenance: () => <HostelAdminMaintenancePageContent />,
   "move-in-out": () => <HostelAdminMoveChecklistPage />,

@@ -49,6 +49,7 @@ import { HostelPreviewLink } from "@/components/hostel-preview-link";
 import { NotificationBell } from "@/components/notification-bell";
 import { PortalAccount } from "@/components/portal-account";
 import { PortalSearch } from "@/components/portal-search";
+import { RealtimeProvider } from "@/components/realtime-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,10 +119,18 @@ const iconMap: Record<PortalIconName, LucideIcon> = {
  * notifications surface of their own (see MEMORY.md), so they land on the
  * audit log, which is the equivalent feed for that role.
  */
+/**
+ * Where each portal's bell sends "View all".
+ *
+ * Admin and platform point at an *inbox* rather than at
+ * `/hostel-admin/notifications` (the outbound campaign composer) or
+ * `/platform/audit-logs` (a record of what everyone did) — neither of which is
+ * the reader's own feed.
+ */
 const NOTIFICATIONS_HREF: Record<PortalTone, string> = {
-  admin: "/hostel-admin/notifications",
+  admin: "/hostel-admin/inbox",
   guardian: "/guardian/notifications",
-  platform: "/platform/audit-logs",
+  platform: "/platform/inbox",
   resident: "/resident/notifications",
 };
 
@@ -452,8 +461,12 @@ export function PortalShell({
   }
 
   return (
-    /* Viewport-height frame: the brand rail, top bar, and copyright bar stay
-       put while only the nav list and the content pane scroll. */
+    /* One socket per portal tab, opened here rather than in the root layout so
+       the public pages never attempt an authenticated subscription. Everything
+       inside — the bell and every panel's cached queries — updates from it. */
+    <RealtimeProvider>
+    {/* Viewport-height frame: the brand rail, top bar, and copyright bar stay
+        put while only the nav list and the content pane scroll. */}
     <div className="flex h-screen flex-col overflow-hidden bg-[#f4f7fb] text-foreground dark:bg-background">
       <div className="flex min-h-0 flex-1">
         <aside
@@ -595,6 +608,7 @@ export function PortalShell({
         </div>
       </footer>
     </div>
+    </RealtimeProvider>
   );
 }
 

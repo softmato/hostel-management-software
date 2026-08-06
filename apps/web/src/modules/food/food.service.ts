@@ -3,6 +3,8 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { FoodFeedbackModel } from "@hostel/db/models/FoodFeedback";
@@ -149,6 +151,13 @@ export async function uploadFoodPhoto(
     "FOOD_PHOTO_UPLOADED",
   );
 
+  // Food transparency is the point of the photo feed — residents watching it
+  // should see today's meal appear as it is posted.
+  await publishResourceChange({
+    hostelIds: [hostelId.toString()],
+    topics: [REALTIME_TOPIC.FOOD],
+  });
+
   return {
     photo: serializeFoodPhoto(photo as FoodPhotoRecord),
     resident: resident ? serializeResidentSummary(resident) : null,
@@ -193,6 +202,12 @@ export async function submitFoodFeedback(
     "FoodFeedback",
     "FOOD_FEEDBACK_SUBMITTED",
   );
+
+  // The admin's food analytics panel aggregates these ratings live.
+  await publishResourceChange({
+    hostelIds: [resident.hostelId.toString()],
+    topics: [REALTIME_TOPIC.FOOD],
+  });
 
   return {
     feedback: serializeFoodFeedback(feedback as FoodFeedbackRecord),

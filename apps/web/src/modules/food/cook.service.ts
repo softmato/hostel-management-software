@@ -5,6 +5,8 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
@@ -422,6 +424,14 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
     entityType: "FoodReadyLog",
     hostelId,
     metadata: { mealType: input.mealType, notifiedCount },
+  });
+
+  // "Food is ready" is time-critical and goes to the whole hostel — including
+  // residents with no account, whose food screen would otherwise wait out a
+  // poll interval before showing it.
+  await publishResourceChange({
+    hostelIds: [hostelId.toString()],
+    topics: [REALTIME_TOPIC.FOOD],
   });
 
   return {

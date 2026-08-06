@@ -38,6 +38,16 @@ export const serverEnvSchema = z.object({
   QUESTIONCALL_URL: z.string().url().optional(),
   QUESTIONCALL_SSO_SECRET: z.string().optional(),
   QUESTIONCALL_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * Pusher Channels, for real-time notifications and live portal panels. All
+   * four are optional together: with any of them missing the realtime layer
+   * no-ops and the portals fall back to TanStack Query polling, so local
+   * development and CI need no Pusher account.
+   */
+  PUSHER_APP_ID: z.string().optional(),
+  PUSHER_KEY: z.string().optional(),
+  PUSHER_SECRET: z.string().optional(),
+  PUSHER_CLUSTER: z.string().optional(),
   COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: z
     .string()

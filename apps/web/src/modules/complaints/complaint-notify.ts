@@ -1,5 +1,7 @@
 import type { Types } from "mongoose";
 
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { complaintResolvedEmail } from "@hostel/shared/email/templates/resident/complaint-resolved";
@@ -51,10 +53,15 @@ export async function notifyAdminsOfNewComplaint(input: {
         if (admin.userId) {
           jobs.push(
             createInAppNotification({
+              // Every complaint needs someone to pick it up, and there is no
+              // one-click resolution — so it deep-links rather than offering
+              // inline buttons.
+              actionUrl: "/hostel-admin/complaints",
               body,
               category: "COMPLAINT",
               data: { complaintId: input.complaintId },
               hostelId: input.hostelId.toString(),
+              kind: "ACTION",
               title: "New complaint",
               userId: admin.userId,
             }),
@@ -64,6 +71,13 @@ export async function notifyAdminsOfNewComplaint(input: {
         return jobs;
       }),
     );
+
+    // Wider than the recipients: anyone with the complaints tab open in this
+    // hostel should see the new row, staff or not.
+    await publishResourceChange({
+      hostelIds: [input.hostelId.toString()],
+      topics: [REALTIME_TOPIC.COMPLAINTS],
+    });
   } catch (error) {
     console.warn(
       JSON.stringify({

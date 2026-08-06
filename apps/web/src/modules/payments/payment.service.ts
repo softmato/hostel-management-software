@@ -24,6 +24,8 @@ import {
   sendNotificationEmail,
 } from "@/modules/residents/resident-notify";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { markReferralConverted } from "@/modules/referrals/referral.service";
 import { paymentProofUploadedEmail } from "@hostel/shared/email/templates/payment/proof-uploaded";
@@ -539,7 +541,15 @@ export async function submitPaymentProof(
     { paymentId: payment._id.toString() },
   );
 
-  await notifyAdminsOfProof(resident, payment, input);
+  await notifyAdminsOfProof(resident, payment, input, proof._id.toString());
+
+  // Live-refresh every payments panel in this hostel, plus the resident's own
+  // screens, so the proof appears in the verification queue without a reload.
+  await publishResourceChange({
+    hostelIds: [resident.hostelId.toString()],
+    topics: [REALTIME_TOPIC.PAYMENTS],
+    userIds: [principal.userId],
+  });
 
   return {
     payment: updatedPayment
@@ -555,9 +565,10 @@ async function notifyAdminsOfProof(
   resident: ResidentRecord,
   payment: PaymentRecord,
   input: PaymentProofSubmitInput,
+  proofId: string,
 ) {
   try {
-    await deliverProofNotification(resident, payment, input);
+    await deliverProofNotification(resident, payment, input, proofId);
   } catch (error) {
     console.warn(
       JSON.stringify({
@@ -574,12 +585,13 @@ async function deliverProofNotification(
   resident: ResidentRecord,
   payment: PaymentRecord,
   input: PaymentProofSubmitInput,
+  proofId: string,
 ) {
+  // `sendPaymentEmails` is an *email* switch. It used to return early here,
+  // which silently took the in-app notification down with it and left the
+  // verification queue with nothing pointing at it — so the gate now sits on
+  // the email send alone, further down.
   const config = await getOperationsConfig();
-
-  if (!config.sendPaymentEmails) {
-    return;
-  }
 
   const [hostelName, admins] = await Promise.all([
     getHostelName(resident.hostelId),
@@ -600,21 +612,37 @@ async function deliverProofNotification(
     admins.map(async (admin) => {
       if (admin.userId) {
         await createInAppNotification({
-          body: `${residentName} uploaded a payment proof for ${payment.month}.`,
+          // Verifying is a one-click decision, so it happens in the bell.
+          // Rejecting needs a written reason, so that one only deep-links.
+          actions: [
+            {
+              endpoint: `/api/v1/hostel-admin/payment-proofs/${proofId}/approve`,
+              key: "approve",
+              label: "Verify payment",
+              method: "PATCH",
+              payload: {},
+              tone: "primary",
+            },
+          ],
+          actionUrl: "/hostel-admin/payments",
+          body: `${residentName} uploaded a payment proof of Rs. ${input.amount} for ${payment.month}.`,
           category: "PAYMENT",
-          data: { paymentId: payment._id.toString() },
+          data: { paymentId: payment._id.toString(), proofId },
           hostelId: resident.hostelId.toString(),
+          kind: "ACTION",
           title: "Payment proof to verify",
           userId: admin.userId,
         });
       }
 
-      await sendNotificationEmail({
-        action: "payment_proof_uploaded",
-        html: email.html,
-        subject: email.subject,
-        to: admin.email,
-      });
+      if (config.sendPaymentEmails) {
+        await sendNotificationEmail({
+          action: "payment_proof_uploaded",
+          html: email.html,
+          subject: email.subject,
+          to: admin.email,
+        });
+      }
     }),
   );
 }
@@ -791,6 +819,12 @@ async function notifyResidentOfReview(
 ) {
   try {
     await deliverReviewNotification(payment, outcome);
+    // The verification queue shrank and the resident's balance moved — refresh
+    // both sides' payment panels.
+    await publishResourceChange({
+      hostelIds: [payment.hostelId.toString()],
+      topics: [REALTIME_TOPIC.PAYMENTS],
+    });
   } catch (error) {
     console.warn(
       JSON.stringify({

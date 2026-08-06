@@ -1,5 +1,7 @@
 import type { Types } from "mongoose";
 
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { HostelModel } from "@hostel/db/models/Hostel";
 
 /**
@@ -74,6 +76,14 @@ async function writeConfigurations(
       },
     },
   );
+
+  // Every claim, release and move lands here, so one publish covers all three.
+  // Vacancy counts drive the intake form's room-type dropdown — two admins
+  // admitting residents at once must not both be shown the same free bed.
+  await publishResourceChange({
+    hostelIds: [hostelId.toString()],
+    topics: [REALTIME_TOPIC.ROOMS, REALTIME_TOPIC.RESIDENTS],
+  });
 }
 
 /** Recomputes capacitySummary from roomConfigurations. */

@@ -9,6 +9,11 @@ import {
   paginationRange,
   type PaginationQuery,
 } from "@/lib/pagination";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import {
+  publishGlobalAnnouncement,
+  publishResourceChange,
+} from "@/lib/realtime/server";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
@@ -203,6 +208,30 @@ export async function dispatchCampaign(campaign: CampaignRecord) {
       },
     },
   );
+
+  // The rows above go in with `insertMany` rather than one at a time, so none
+  // of them produced a per-recipient socket push. The live signal is sent once,
+  // here, at the right scope:
+  //
+  //  - a platform campaign has no hostel and is aimed at everyone, so it goes
+  //    out on the global channel as a single broadcast — fanning out one socket
+  //    message per recipient is not affordable at that size;
+  //  - a hostel campaign goes to that hostel's channel, which reaches exactly
+  //    the accounts whose rows were just written.
+  if (campaign.hostelId) {
+    await publishResourceChange({
+      hostelIds: [campaign.hostelId.toString()],
+      topics: [REALTIME_TOPIC.NOTIFICATIONS],
+    });
+  } else {
+    await publishGlobalAnnouncement({
+      body: campaign.body,
+      campaignId: campaign._id.toString(),
+      category: campaign.category,
+      priority: campaign.priority,
+      title: campaign.title,
+    });
+  }
 
   return { recipientCount: recipients.length };
 }

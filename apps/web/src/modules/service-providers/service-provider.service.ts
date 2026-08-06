@@ -19,6 +19,7 @@ import { serviceProviderRejectedEmail } from "@hostel/shared/email/templates/ser
 import { loadSiteConfig } from "@/lib/site-config-server";
 import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
 import { normalizeProviderCategories } from "@/modules/service-providers/service-provider.validation";
+import { notifyPlatformOfServiceProviderApplication } from "@/modules/service-providers/service-provider-notify";
 import type {
   hostelAdminServiceProviderListQuerySchema,
   platformServiceProviderListQuerySchema,
@@ -441,6 +442,14 @@ export async function registerPublicServiceProvider(
       }),
     });
   }
+
+  // The applicant has been acknowledged; now tell the people who review.
+  await notifyPlatformOfServiceProviderApplication({
+    _id: provider._id,
+    category: provider.category,
+    city: provider.city,
+    fullName: provider.fullName,
+  });
 
   return {
     application: serializeApplication(application),

@@ -3,6 +3,8 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { FoodRoutineModel } from "@hostel/db/models/FoodRoutine";
 import type { foodRoutineSaveSchema } from "@/modules/food/food.validation";
@@ -165,6 +167,11 @@ export async function saveFoodRoutine(
       meals: input.meals.length,
       monthEndSpecial: monthEndItems.length > 0,
     },
+  });
+
+  await publishResourceChange({
+    hostelIds: [hostelId.toString()],
+    topics: [REALTIME_TOPIC.FOOD],
   });
 
   return { routine: serializeRoutine(routine) };

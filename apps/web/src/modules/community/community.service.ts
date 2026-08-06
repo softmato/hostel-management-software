@@ -9,6 +9,8 @@ import {
   paginationRange,
   type PaginationQuery,
 } from "@/lib/pagination";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
@@ -75,6 +77,28 @@ type PostRecord = {
   status: "VISIBLE" | "HIDDEN";
   visibility: "PUBLIC" | "HOSTEL_ONLY";
 };
+
+/**
+ * Refresh whoever can see this post.
+ *
+ * The community is the one platform-wide surface, so its scope is decided per
+ * post rather than per module: a `PUBLIC` post goes out on the global channel
+ * because anyone signed in can read it, while a `HOSTEL_ONLY` post is confined
+ * to its hostel's channel. Publishing the latter globally would tell every
+ * account on the platform that a private hostel space had just changed.
+ */
+async function publishCommunityChange(post: {
+  hostelId: Types.ObjectId | null;
+  visibility?: "PUBLIC" | "HOSTEL_ONLY";
+}) {
+  const hostelOnly = post.visibility === "HOSTEL_ONLY" && post.hostelId;
+
+  await publishResourceChange({
+    global: !hostelOnly,
+    hostelIds: post.hostelId ? [post.hostelId.toString()] : [],
+    topics: [REALTIME_TOPIC.COMMUNITY],
+  });
+}
 
 type CommentRecord = {
   _id: Types.ObjectId;
@@ -668,6 +692,8 @@ export async function createCommunityPost(
 
   const [decorated] = await decoratePosts([post], principal);
 
+  await publishCommunityChange(post);
+
   return { post: decorated };
 }
 
@@ -743,6 +769,8 @@ export async function commentOnPost(
 
   const names = await namesByUserId([comment.authorId]);
 
+  await publishCommunityChange(post);
+
   return {
     comment: serializeComment(comment, {
       author: comment.authorId ? names.get(comment.authorId.toString()) : undefined,
@@ -773,6 +801,8 @@ export async function reactToPost(
       { $inc: { reactionCount: -1 } },
     );
 
+    await publishCommunityChange(post);
+
     return { reaction: null };
   }
 
@@ -786,6 +816,8 @@ export async function reactToPost(
     await CommunityPostModel.updateOne({ _id: post._id }, { $inc: { reactionCount: 1 } });
     await notifyPostReaction(post, principal.userId);
   }
+
+  await publishCommunityChange(post);
 
   return { reaction: input.type };
 }
@@ -911,7 +943,9 @@ async function flagPost(post: PostRecord, reason: string) {
 export async function deleteOwnPost(postId: string, principal: ApiPrincipal) {
   await connectToDatabase();
 
-  const result = await CommunityPostModel.updateOne(
+  // `findOneAndUpdate` rather than `updateOne` so the removed post's scope is
+  // in hand — the live refresh has to reach the same audience that could see it.
+  const removed = await CommunityPostModel.findOneAndUpdate(
     {
       _id: normalizeObjectId(postId, "post id"),
       authorId: normalizeObjectId(principal.userId, "user id"),
@@ -919,11 +953,14 @@ export async function deleteOwnPost(postId: string, principal: ApiPrincipal) {
     {
       $set: { hiddenAt: new Date(), hiddenReason: "Removed by author", status: "HIDDEN" },
     },
-  );
+    { new: true },
+  ).lean<Pick<PostRecord, "hostelId" | "visibility"> | null>();
 
-  if (result.matchedCount === 0) {
+  if (!removed) {
     throw new CommunityServiceError("Post was not found.", "POST_NOT_FOUND", 404);
   }
+
+  await publishCommunityChange(removed);
 
   return { postId, status: "HIDDEN" as const };
 }
@@ -1073,6 +1110,8 @@ export async function hideCommunityPost(
 
   const [decorated] = await decoratePosts([post], principal, true);
 
+  await publishCommunityChange(post);
+
   return { post: decorated };
 }
 
@@ -1126,6 +1165,8 @@ export async function unhideCommunityPost(
 
   const [decorated] = await decoratePosts([post], principal, true);
 
+  await publishCommunityChange(post);
+
   return { post: decorated };
 }
 
@@ -1157,6 +1198,8 @@ export async function createCommunityAnnouncement(
   })) as PostRecord;
 
   const [decorated] = await decoratePosts([post], principal, true);
+
+  await publishCommunityChange(post);
 
   return { post: decorated };
 }

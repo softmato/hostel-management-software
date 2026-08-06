@@ -1,5 +1,7 @@
 import type { Types } from "mongoose";
 
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { Role } from "@/lib/roles";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
@@ -141,10 +143,13 @@ export async function fanOutSOSAlert(input: {
     if (contact.userId) {
       deliveries.push(
         createInAppNotification({
+          actionUrl: "/hostel-admin/sos-alerts",
           body: `${input.residentName} raised an emergency SOS. Respond immediately.`,
           category: "SOS",
           data: { alertId: input.alertId, priority: "URGENT" },
           hostelId: input.hostelId.toString(),
+          kind: "ACTION",
+          priority: "URGENT",
           title: "🚨 Emergency SOS",
           userId: contact.userId,
         }),
@@ -179,6 +184,7 @@ export async function fanOutSOSAlert(input: {
           category: "SOS",
           data: { alertId: input.alertId, priority: "URGENT" },
           hostelId: input.hostelId.toString(),
+          priority: "URGENT",
           title: "🚨 Emergency SOS",
           userId: contact.userId,
         }),
@@ -187,6 +193,13 @@ export async function fanOutSOSAlert(input: {
   }
 
   const results = await Promise.allSettled(deliveries);
+
+  // An SOS is the one event where a stale panel is genuinely dangerous, so the
+  // whole hostel's safety screens are refreshed, not just the recipients'.
+  await publishResourceChange({
+    hostelIds: [input.hostelId.toString()],
+    topics: [REALTIME_TOPIC.SAFETY],
+  });
 
   return {
     guardiansNotified: guardians.length,
