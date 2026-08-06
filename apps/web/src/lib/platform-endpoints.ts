@@ -1,6 +1,13 @@
 import { FULL_PAGE } from "@/lib/hostel-admin-endpoints";
 
-/** See `FULL_PAGE` — screens still owing a `ListPager`. Grep to find them. */
+/**
+ * See `FULL_PAGE` — screens still owing a `ListPager`. Grep to find them.
+ *
+ * The returned URL carries a query string, so it is a *list* URL only. Never
+ * build a detail or action URL by appending to one — `${listUrl}/${id}/approve`
+ * yields `...?pageSize=100/<id>/approve`, which 404s or 405s instead of doing
+ * anything. Use the single-resource helpers below.
+ */
 function withFullPage(url: string) {
   return `${url}${url.includes("?") ? "&" : "?"}${FULL_PAGE}`;
 }
@@ -23,9 +30,15 @@ export const platformEndpoints = {
   /** Prefix form for `useInvalidateResources` — drops every hostel detail. */
   hostelDetails: "/api/v1/platform/hostels/*",
   hostels: withFullPage("/api/v1/platform/hostels"),
+  listingFlag: (flagId: string) => `/api/v1/platform/listing-flags/${flagId}`,
   listingFlags: withFullPage("/api/v1/platform/listing-flags"),
   payments: "/api/v1/platform/payments",
+  review: (reviewId: string) => `/api/v1/platform/reviews/${reviewId}`,
   reviews: withFullPage("/api/v1/platform/reviews"),
+  serviceProvider: (providerId: string) =>
+    `/api/v1/platform/service-providers/${providerId}`,
+  /** Prefix form for `useInvalidateResources` — drops every provider detail. */
+  serviceProviderDetails: "/api/v1/platform/service-providers/*",
   serviceProviders: withFullPage("/api/v1/platform/service-providers"),
   siteConfig: "/api/v1/platform/site-config",
   users: "/api/v1/platform/users",

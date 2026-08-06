@@ -55,7 +55,7 @@ const PATHWAY_COPY: Record<
   GUARDIAN_RELEASE: {
     action: "Remove my guardian access",
     heading: "Remove your guardian access",
-    body: "You are here as a guardian. Removing your access stops you seeing your resident's information and turns this into an ordinary account — it does not erase you from HostelHub. Once it is an ordinary account you can delete it outright from this same page.",
+    body: "You are here as a guardian. Removing your access stops you seeing your resident's information and turns this into an ordinary account — it does not erase you from this platform. Once it is an ordinary account you can delete it outright from this same page.",
     confirmDescription:
       "You will immediately stop seeing your resident's attendance, payments and complaints. Getting it back needs a fresh invitation from them. Your account itself stays.",
     confirmTitle: "Remove your guardian access?",

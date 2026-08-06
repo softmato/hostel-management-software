@@ -33,6 +33,7 @@ import {
   type OwnerApplication,
 } from "@/app/_components/public-hostel-registration-page";
 import { PublicShell } from "@/app/_components/shared";
+import { useSiteConfig } from "@/components/site-config-provider";
 
 const SYMBOLS = "0SCB87675HJGS##&";
 
@@ -224,8 +225,9 @@ async function fetchOwnerApplication(): Promise<OwnerApplication | null> {
 }
 
 export function PublicHostelRegistrationLandingPage() {
+  const siteName = useSiteConfig().identity.siteName;
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [displayedWord, setDisplayedWord] = useState("HostelHub");
+  const [displayedWord, setDisplayedWord] = useState(siteName);
   const [showBottomCta, setShowBottomCta] = useState(false);
   const [bordersDone, setBordersDone] = useState(false);
   const featureRef = useRef<HTMLDivElement>(null);
@@ -265,7 +267,7 @@ export function PublicHostelRegistrationLandingPage() {
 
   useEffect(() => {
     const doScramble = () => {
-      const steps = scrambleWord("HostelHub");
+      const steps = scrambleWord(siteName);
       steps.forEach((step, index) => {
         setTimeout(() => setDisplayedWord(step), index * 80);
       });
@@ -278,7 +280,7 @@ export function PublicHostelRegistrationLandingPage() {
       clearTimeout(scrambleTimeout);
       clearInterval(scrambleInterval);
     };
-  }, []);
+  }, [siteName]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -654,7 +656,7 @@ export function PublicHostelRegistrationLandingPage() {
                   <ArrowRight className="size-4" />
                 </Link>
                 <Link
-                  href="/service-providers/register"
+                  href="/service-providers"
                   className="inline-flex h-13 items-center gap-1 rounded-xl border border-border px-7 text-sm font-semibold text-foreground transition hover:bg-muted md:h-14 md:text-base md:px-8"
                 >
                   Register as Service Provider

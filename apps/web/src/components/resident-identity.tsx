@@ -27,6 +27,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { PhotoCropper } from "@/components/photo-cropper";
+import { useSiteConfig } from "@/components/site-config-provider";
 import { refreshSession } from "@/lib/auth-refresh";
 import { acceptAttribute, uploadHint } from "@/lib/uploads/accepts";
 import { uploadFile } from "@/lib/uploads/uploader";
@@ -34,9 +35,11 @@ import { ApiRequestError, browserApi } from "@/lib/browser-api";
 import {
   loadCardImage,
   paintIdCard,
+  idCardNoun,
   renderIdCardSheet,
   type IdCardData,
-} from "@/lib/resident-id-card";
+  type PlatformIdCardType,
+} from "@/lib/platform-id-card";
 import { cn } from "@/lib/utils";
 
 /*
@@ -107,6 +110,10 @@ function snoozePrompt() {
 type ResidentIdentity = {
   accountEmail: string | null;
   accountName: string;
+  /** Which card variant this account holds — derived by the server. */
+  cardType?: PlatformIdCardType;
+  /** Printed under the name. Null for residents, who use their own profile. */
+  cardRole?: string | null;
   hasPhoto: boolean;
   hasProfile: boolean;
   lastSharedAt: string | null;
@@ -890,8 +897,11 @@ function buildIdCardData(
   identity: ResidentIdentity,
   profile: ResidentProfile | null,
   images: { photo: HTMLImageElement | null; qr: HTMLImageElement | null },
+  brandName: string,
 ): IdCardData {
   return {
+    brandName,
+    cardType: identity.cardType ?? "RESIDENT",
     // "UNKNOWN" is the schema's placeholder, not something to print on a card
     // that a paramedic might read.
     bloodGroup:
@@ -904,7 +914,10 @@ function buildIdCardData(
     photo: images.photo,
     qr: images.qr,
     residentId: identity.residentId ?? "—",
+    // An approved provider's trade (or "Hostel Owner") outranks the resident
+    // profile's course/occupation — it is what the card is now for.
     role:
+      identity.cardRole ||
       profile?.courseOrDesignation ||
       profile?.institution ||
       OCCUPATION_LABELS[profile?.occupation ?? ""] ||
@@ -1046,9 +1059,10 @@ function IdCardPanel({
     };
   }, [photoUrl, qrDataUrl]);
 
+  const siteName = useSiteConfig().identity.siteName;
   const cardData = useMemo<IdCardData>(
-    () => buildIdCardData(identity, profile, images),
-    [identity, images, profile],
+    () => buildIdCardData(identity, profile, images, siteName),
+    [identity, images, profile, siteName],
   );
 
   useEffect(() => {
@@ -1216,8 +1230,12 @@ function IdCardPanel({
   return (
     <Modal
       onClose={onClose}
-      subtitle="Show this to a hostel and they can fill your registration without asking you to write anything down."
-      title="My resident ID card"
+      subtitle={
+        cardData.cardType === "RESIDENT"
+          ? "Show this to a hostel and they can fill your registration without asking you to write anything down."
+          : "Show this at a hostel to confirm who you are. Your ID stays the same as before."
+      }
+      title={`My ${idCardNoun(cardData.cardType)} ID card`}
     >
       {pendingFile ? (
         <PhotoCropper
@@ -1247,13 +1265,13 @@ function IdCardPanel({
               )}
             >
               <canvas
-                aria-label="Front of your HostelHub resident ID card"
+                aria-label={`Front of your ${siteName} ${idCardNoun(cardData?.cardType)} ID card`}
                 className="absolute inset-0 size-full rounded-2xl shadow-lg [backface-visibility:hidden]"
                 ref={frontRef}
                 role="img"
               />
               <canvas
-                aria-label="Back of your HostelHub resident ID card"
+                aria-label={`Back of your ${siteName} ${idCardNoun(cardData?.cardType)} ID card`}
                 className="absolute inset-0 size-full rounded-2xl shadow-lg [backface-visibility:hidden] [transform:rotateY(180deg)]"
                 ref={backRef}
                 role="img"
@@ -1765,12 +1783,13 @@ export function ResidentIdCard() {
     };
   }, [hasCard, identity]);
 
+  const siteName = useSiteConfig().identity.siteName;
   const cardData = useMemo<IdCardData | null>(
     () =>
       identity && hasCard
-        ? buildIdCardData(identity, data?.profile ?? null, images)
+        ? buildIdCardData(identity, data?.profile ?? null, images, siteName)
         : null,
-    [data, hasCard, identity, images],
+    [data, hasCard, identity, images, siteName],
   );
 
   useEffect(() => {
@@ -1876,13 +1895,13 @@ export function ResidentIdCard() {
             )}
           >
             <canvas
-              aria-label="Front of your HostelHub resident ID card"
+              aria-label={`Front of your ${siteName} ${idCardNoun(cardData?.cardType)} ID card`}
               className="absolute inset-0 size-full rounded-2xl shadow-lg [backface-visibility:hidden]"
               ref={frontRef}
               role="img"
             />
             <canvas
-              aria-label="Back of your HostelHub resident ID card"
+              aria-label={`Back of your ${siteName} ${idCardNoun(cardData?.cardType)} ID card`}
               className="absolute inset-0 size-full rounded-2xl shadow-lg [backface-visibility:hidden] [transform:rotateY(180deg)]"
               ref={backRef}
               role="img"

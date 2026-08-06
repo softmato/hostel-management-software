@@ -14,14 +14,14 @@ import {
   Mail,
 } from "lucide-react";
 
-const sections = [
+const buildSections = (siteName: string) => [
   {
     icon: FileText,
     title: "Acceptance of Terms",
     content: [
-      "By accessing or using HostelHub, you agree to be bound by these Terms & Regulations.",
+      `By accessing or using ${siteName}, you agree to be bound by these Terms & Regulations.`,
       "If you do not agree with any part of these terms, you must not use the platform.",
-      "HostelHub reserves the right to update these terms at any time. Users will be notified of material changes via email or platform notice.",
+      `${siteName} reserves the right to update these terms at any time. Users will be notified of material changes via email or platform notice.`,
       "Continued use of the platform after changes constitutes acceptance of the updated terms.",
     ],
   },
@@ -32,9 +32,9 @@ const sections = [
       "You must provide accurate, current, and complete information when creating an account.",
       "You are solely responsible for maintaining the confidentiality of your login credentials.",
       "Sharing your account with unauthorised individuals is strictly prohibited.",
-      "You must notify HostelHub immediately of any unauthorised use of your account.",
+      `You must notify ${siteName} immediately of any unauthorised use of your account.`,
       "Each user may hold only one active account unless otherwise authorised.",
-      "Users must be at least 16 years of age to create an account on HostelHub.",
+      `Users must be at least 16 years of age to create an account on ${siteName}.`,
     ],
   },
   {
@@ -45,16 +45,16 @@ const sections = [
       "Photos submitted must be genuine representations of the property — stock photos or misleading imagery are prohibited.",
       "Hostel admins are responsible for keeping room inventory, pricing, and vacancy status current.",
       "Any form of discriminatory listing criteria based on caste, religion, gender, or ethnicity is strictly forbidden.",
-      "HostelHub reserves the right to remove or suspend listings that violate these rules.",
+      `${siteName} reserves the right to remove or suspend listings that violate these rules.`,
     ],
   },
   {
     icon: CreditCard,
     title: "Payments & Financial Terms",
     content: [
-      "All fee payments processed through HostelHub are subject to the stated service charges.",
-      "HostelHub uses third-party payment processors and is not liable for any issues arising from their services.",
-      "Refund policies are determined by individual hostels — HostelHub does not guarantee refunds.",
+      `All fee payments processed through ${siteName} are subject to the stated service charges.`,
+      `${siteName} uses third-party payment processors and is not liable for any issues arising from their services.`,
+      `Refund policies are determined by individual hostels — ${siteName} does not guarantee refunds.`,
       "Platform owners and hostel admins are responsible for accurate financial reporting and tax compliance.",
       "Any disputes regarding payments must be raised within 14 days of the transaction date.",
     ],
@@ -66,7 +66,7 @@ const sections = [
       "Using the platform for any unlawful purpose or in violation of any applicable laws.",
       "Attempting to gain unauthorised access to any part of the platform, user accounts, or systems.",
       "Uploading or transmitting viruses, malware, or any code designed to disrupt the platform.",
-      "Harassing, threatening, or abusing other users, hostel staff, or HostelHub personnel.",
+      `Harassing, threatening, or abusing other users, hostel staff, or ${siteName} personnel.`,
       "Engaging in any activity that interferes with or disrupts the platform's services.",
       "Using bots, scrapers, or automated tools to extract data without prior written consent.",
     ],
@@ -75,11 +75,11 @@ const sections = [
     icon: AlertTriangle,
     title: "Limitation of Liability",
     content: [
-      "HostelHub is provided &ldquo;as is&rdquo; without warranties of any kind, either express or implied.",
+      `${siteName} is provided &ldquo;as is&rdquo; without warranties of any kind, either express or implied.`,
       "We do not guarantee that the platform will be uninterrupted, secure, or error-free at all times.",
-      "HostelHub is not responsible for the actions, conduct, or content of hostel admins, residents, or guardians.",
-      "In no event shall HostelHub be liable for any indirect, incidental, or consequential damages.",
-      "The total liability of HostelHub for any claims shall not exceed the fees paid by you in the preceding 12 months.",
+      `${siteName} is not responsible for the actions, conduct, or content of hostel admins, residents, or guardians.`,
+      `In no event shall ${siteName} be liable for any indirect, incidental, or consequential damages.`,
+      `The total liability of ${siteName} for any claims shall not exceed the fees paid by you in the preceding 12 months.`,
     ],
   },
   {
@@ -97,7 +97,7 @@ const sections = [
     title: "Contact & Support",
     content: [
       "For questions about these terms, contact us at support@hostelhub.com.",
-      "Legal notices should be sent to: HostelHub Legal, Kathmandu, Nepal.",
+      `Legal notices should be sent to: ${siteName} Legal, Kathmandu, Nepal.`,
       "Response times for legal inquiries are typically within 5–7 business days.",
       "For urgent platform issues, use the in-app support system for fastest resolution.",
     ],
@@ -106,6 +106,8 @@ const sections = [
 
 export function PublicTermsPage() {
   const { legal } = useSiteConfig();
+  const siteName = useSiteConfig().identity.siteName;
+  const sections = buildSections(siteName);
   const customBody = legal.terms.body.trim();
 
   return (
@@ -128,8 +130,8 @@ export function PublicTermsPage() {
         {/* Intro */}
         <div className="mb-14 text-sm leading-relaxed text-muted-foreground">
           <p>
-            Welcome to HostelHub. These Terms &amp; Regulations (&ldquo;Terms&rdquo;)
-            govern your access to and use of the HostelHub platform, including any related
+            Welcome to {siteName}. These Terms &amp; Regulations (&ldquo;Terms&rdquo;)
+            govern your access to and use of the {siteName} platform, including any related
             services, content, and functionality offered through our website and mobile
             applications.
           </p>

@@ -35,13 +35,10 @@ export const PlatformListingFlagsPageContent = React.memo(
         const currentForm = event.currentTarget;
 
         try {
-          await browserApi(
-            `${platformEndpoints.hostels}/${hostelId}/run-duplicate-check`,
-            {
-              body: JSON.stringify({}),
-              method: "POST",
-            },
-          );
+          await browserApi(`${platformEndpoints.hostel(hostelId)}/run-duplicate-check`, {
+            body: JSON.stringify({}),
+            method: "POST",
+          });
           setActionMessage("Duplicate check completed.");
           currentForm.reset();
           invalidate(platformEndpoints.listingFlags);
@@ -63,7 +60,7 @@ export const PlatformListingFlagsPageContent = React.memo(
         }
 
         try {
-          await browserApi(`${platformEndpoints.listingFlags}/${flagId}/resolve`, {
+          await browserApi(`${platformEndpoints.listingFlag(flagId)}/resolve`, {
             body: JSON.stringify({ resolutionNote, status }),
             method: "PATCH",
           });

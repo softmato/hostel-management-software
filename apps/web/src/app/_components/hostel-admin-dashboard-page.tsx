@@ -14,7 +14,9 @@ import {
 import Link from "next/link";
 import { memo } from "react";
 
-import { currency, LoadingRows } from "@/app/_components/shared-ui";
+import { currency } from "@/app/_components/shared-ui";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceHref } from "@/hooks/use-workspace-href";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
@@ -28,6 +30,61 @@ import {
 
 function num(value: unknown) {
   return typeof value === "number" ? value : 0;
+}
+
+/** Mirrors the metric grid + snapshot/quick-actions layout below so the page
+ * doesn't jump around once the real numbers arrive. */
+function HostelAdminDashboardSkeleton() {
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <Card className="shadow-sm ring-border/60" key={index} size="sm">
+            <CardContent>
+              <div className="flex items-start gap-2.5">
+                <Skeleton className="size-9 shrink-0 rounded-lg" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-5 w-14" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
+        <Card className="shadow-sm ring-border/60" size="sm">
+          <CardHeader className="border-b border-border/60 pb-3">
+            <Skeleton className="h-3.5 w-40" />
+          </CardHeader>
+          <CardContent className="pt-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div className="rounded-lg border border-border bg-muted/20 p-4" key={index}>
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                  <Skeleton className="mt-3 h-6 w-10" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm ring-border/60" size="sm">
+          <CardHeader className="border-b border-border/60 pb-3">
+            <Skeleton className="h-3.5 w-28" />
+          </CardHeader>
+          <CardContent className="pt-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton className="h-11 rounded-lg" key={index} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
 }
 
 export const HostelAdminDashboardPageContent = memo(
@@ -153,7 +210,7 @@ export const HostelAdminDashboardPageContent = memo(
           title="Dashboard"
         />
         <Message value={message} />
-        {loading ? <LoadingRows /> : null}
+        {loading ? <HostelAdminDashboardSkeleton /> : null}
 
         {!loading ? (
           <>

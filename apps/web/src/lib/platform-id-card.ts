@@ -1,11 +1,19 @@
 /**
- * The resident ID card, drawn on a 2D canvas.
+ * The platform ID card, drawn on a 2D canvas.
+ *
+ * One template, three variants — resident, hostel owner and service provider.
+ * They share the palette, the geometry and every field position, and differ
+ * only in the accent shade, the header curve, the logo glyph and the copy, so
+ * the three read as one family of documents issued by the same platform. A
+ * resident who is approved as an owner or provider keeps their ID and simply
+ * gets re-issued in the matching variant.
  *
  * Canvas rather than DOM-to-image because the card is a *document*: the same
- * drawing code paints the on-screen preview and the file the resident
- * downloads, so what they save is pixel-for-pixel what they saw. It also keeps
- * the layout independent of the app's theme — a printed ID card that turns dark
- * because the viewer had dark mode on is not an ID card.
+ * drawing code paints the on-screen preview, the file the holder downloads, and
+ * the PNG attached to their approval email, so all three are pixel-for-pixel
+ * identical. It also keeps the layout independent of the app's theme — a
+ * printed ID card that turns dark because the viewer had dark mode on is not an
+ * ID card.
  *
  * Every image handed in here MUST be same-origin (or a `data:` URL). A
  * cross-origin one taints the canvas and makes `toBlob()` throw, which is why
@@ -19,8 +27,19 @@ export const CARD_HEIGHT = 1000;
 
 export type IdCardFace = "front" | "back";
 
+/**
+ * Which variant of the card to draw. Derived from what the platform has
+ * approved the holder for, never stored separately — see
+ * `resolvePlatformIdCard`.
+ */
+export type PlatformIdCardType = "RESIDENT" | "HOSTEL_OWNER" | "SERVICE_PROVIDER";
+
 export type IdCardData = {
   bloodGroup?: string | null;
+  /** Platform name from the owner's site config — printed on the card header. */
+  brandName: string;
+  /** Defaults to the resident variant when a caller has nothing better. */
+  cardType?: PlatformIdCardType;
   dateOfBirth?: string | null;
   email?: string | null;
   fullName: string;
@@ -37,7 +56,7 @@ export type IdCardData = {
 /*
  * Fixed palette, not theme tokens: see the note above about dark mode. The
  * greens are the brand's (--brand-teal is #0a8a4b) darkened and lightened for
- * ink and accent, so the card still reads as HostelHub.
+ * ink and accent, so every variant still reads as the same platform.
  */
 const INK = "#04301c";
 const BRAND = "#0a8a4b";
@@ -45,6 +64,78 @@ const ACCENT = "#48c98a";
 const PAPER = "#ffffff";
 const MUTED = "#5d6f66";
 const HAIRLINE = "#d9e5dd";
+
+/**
+ * The per-variant deltas. Accents stay inside the brand green so the three
+ * cards are recognisably the same document; everything that changes is there to
+ * tell them apart at a glance across a desk.
+ */
+type CardVariant = {
+  accent: string;
+  /** How far the header's bottom edge bows — the variant's silhouette. */
+  bulge: { back: number; front: number };
+  backBullets: string[];
+  idLabel: string;
+  logo: "house" | "building" | "tools";
+  title: string;
+};
+
+const VARIANTS: Record<PlatformIdCardType, CardVariant> = {
+  HOSTEL_OWNER: {
+    accent: "#2fae72",
+    backBullets: [
+      "Show this card to confirm you are the registered owner of your hostel on the platform.",
+      "No hostel or resident detail is stored in the code itself — it only carries your platform ID.",
+      "Report a lost card from your account menu and the ID stops resolving straight away.",
+    ],
+    bulge: { back: 30, front: 44 },
+    idLabel: "OWNER ID",
+    logo: "building",
+    title: "HOSTEL OWNER IDENTITY CARD",
+  },
+  RESIDENT: {
+    accent: ACCENT,
+    backBullets: [
+      "Show the QR code to a hostel and they can fill your registration without asking you to write anything down.",
+      "No personal detail is stored in the code itself — it only carries your resident ID.",
+      "Turn sharing off from your account menu and the ID stops opening your details straight away.",
+    ],
+    bulge: { back: 74, front: 105 },
+    idLabel: "RESIDENT ID",
+    logo: "house",
+    title: "RESIDENT IDENTITY CARD",
+  },
+  SERVICE_PROVIDER: {
+    accent: "#6fdda6",
+    backBullets: [
+      "Show this card when you arrive for a job so the hostel can confirm you are a verified provider.",
+      "No job or resident detail is stored in the code itself — it only carries your platform ID.",
+      "Jobs are broadcast to the provider mobile app you signed in to with this ID.",
+    ],
+    bulge: { back: 0, front: 0 },
+    idLabel: "PROVIDER ID",
+    logo: "tools",
+    title: "SERVICE PROVIDER IDENTITY CARD",
+  },
+};
+
+function variantOf(data: IdCardData) {
+  return VARIANTS[data.cardType ?? "RESIDENT"];
+}
+
+/**
+ * What to call this card in prose — "your **resident** ID card". Kept beside
+ * the variants so a new card type cannot be added without naming it.
+ */
+const CARD_NOUNS: Record<PlatformIdCardType, string> = {
+  HOSTEL_OWNER: "hostel owner",
+  RESIDENT: "resident",
+  SERVICE_PROVIDER: "service provider",
+};
+
+export function idCardNoun(cardType: PlatformIdCardType = "RESIDENT") {
+  return CARD_NOUNS[cardType];
+}
 
 const SANS = '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif';
 
@@ -118,7 +209,12 @@ function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number
  * The signature curve of the reference template: a dark block whose bottom edge
  * bulges downward, trailed by a lighter accent stroke.
  */
-function drawHeaderSweep(ctx: CanvasRenderingContext2D, edgeY: number, bulge: number) {
+function drawHeaderSweep(
+  ctx: CanvasRenderingContext2D,
+  edgeY: number,
+  bulge: number,
+  accent: string,
+) {
   ctx.fillStyle = INK;
   ctx.beginPath();
   ctx.moveTo(0, 0);
@@ -135,7 +231,7 @@ function drawHeaderSweep(ctx: CanvasRenderingContext2D, edgeY: number, bulge: nu
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = ACCENT;
+  ctx.strokeStyle = accent;
   ctx.lineWidth = 6;
   ctx.beginPath();
   ctx.moveTo(0, edgeY + 20);
@@ -168,15 +264,55 @@ function drawFooterSweep(ctx: CanvasRenderingContext2D, edgeY: number) {
   ctx.fill();
 }
 
-/** Small house mark, matching the glyph used on the auth screens. */
-function drawLogoMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
+/**
+ * The variant's glyph, drawn in a 24×24 box: the auth screens' house for a
+ * resident, a taller block for an owner, a crossed tool for a provider.
+ */
+function drawLogoMark(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  variant: CardVariant,
+) {
   const s = size / 24;
 
   ctx.save();
   ctx.translate(cx - size / 2, cy - size / 2);
   ctx.scale(s, s);
-  ctx.fillStyle = ACCENT;
+  ctx.fillStyle = variant.accent;
   ctx.beginPath();
+
+  if (variant.logo === "building") {
+    // Two stacked blocks with a doorway — a property, not a home.
+    ctx.rect(4, 4, 7, 17);
+    ctx.rect(13, 9, 7, 12);
+    ctx.fill();
+    ctx.fillStyle = INK;
+    ctx.fillRect(6, 14, 3, 7);
+    ctx.restore();
+    return;
+  }
+
+  if (variant.logo === "tools") {
+    // A wrench laid across a bar: the trade mark.
+    ctx.moveTo(4, 18);
+    ctx.lineTo(14, 8);
+    ctx.lineTo(17, 11);
+    ctx.lineTo(7, 21);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(18, 7, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = INK;
+    ctx.beginPath();
+    ctx.arc(19.5, 5.5, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
   ctx.moveTo(3, 9.5);
   ctx.lineTo(12, 3);
   ctx.lineTo(21, 9.5);
@@ -193,19 +329,32 @@ function drawLogoMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, siz
   ctx.restore();
 }
 
-function drawBrandLockup(ctx: CanvasRenderingContext2D, centerY: number) {
+function drawBrandLockup(
+  ctx: CanvasRenderingContext2D,
+  centerY: number,
+  brandName: string,
+  variant: CardVariant,
+) {
   ctx.textAlign = "center";
-  drawLogoMark(ctx, CARD_WIDTH / 2, centerY, 44);
+  drawLogoMark(ctx, CARD_WIDTH / 2, centerY, 44, variant);
 
   ctx.fillStyle = PAPER;
   ctx.font = font(800, 30);
   ctx.letterSpacing = "3px";
-  ctx.fillText("HOSTELHUB", CARD_WIDTH / 2, centerY + 60);
+  ctx.fillText(
+    ellipsize(ctx, brandName.toUpperCase(), CARD_WIDTH - 80),
+    CARD_WIDTH / 2,
+    centerY + 60,
+  );
 
-  ctx.fillStyle = ACCENT;
+  ctx.fillStyle = variant.accent;
   ctx.font = font(600, 14);
   ctx.letterSpacing = "2px";
-  ctx.fillText("RESIDENT IDENTITY CARD", CARD_WIDTH / 2, centerY + 88);
+  ctx.fillText(
+    ellipsize(ctx, variant.title, CARD_WIDTH - 80),
+    CARD_WIDTH / 2,
+    centerY + 88,
+  );
   ctx.letterSpacing = "0px";
 }
 
@@ -264,7 +413,7 @@ function drawPortrait(
 
   ctx.restore();
 
-  ctx.strokeStyle = ACCENT;
+  ctx.strokeStyle = variantOf(data).accent;
   ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.arc(cx, cy, radius + 9, 0, Math.PI * 2);
@@ -274,8 +423,10 @@ function drawPortrait(
 /* ── faces ── */
 
 function drawFront(ctx: CanvasRenderingContext2D, data: IdCardData) {
-  drawHeaderSweep(ctx, 262, 105);
-  drawBrandLockup(ctx, 96);
+  const variant = variantOf(data);
+
+  drawHeaderSweep(ctx, 262, variant.bulge.front, variant.accent);
+  drawBrandLockup(ctx, 96, data.brandName, variant);
   drawPortrait(ctx, data, CARD_WIDTH / 2, 322, 94);
 
   ctx.textAlign = "center";
@@ -358,8 +509,10 @@ function drawFront(ctx: CanvasRenderingContext2D, data: IdCardData) {
 }
 
 function drawBack(ctx: CanvasRenderingContext2D, data: IdCardData) {
-  drawHeaderSweep(ctx, 168, 74);
-  drawBrandLockup(ctx, 62);
+  const variant = variantOf(data);
+
+  drawHeaderSweep(ctx, 168, variant.bulge.back, variant.accent);
+  drawBrandLockup(ctx, 62, data.brandName, variant);
 
   ctx.textAlign = "left";
   ctx.fillStyle = BRAND;
@@ -368,16 +521,10 @@ function drawBack(ctx: CanvasRenderingContext2D, data: IdCardData) {
   ctx.fillText("HOW THIS CARD WORKS", 62, 336);
   ctx.letterSpacing = "0px";
 
-  const bullets = [
-    "Show the QR code to a hostel and they can fill your registration without asking you to write anything down.",
-    "No personal detail is stored in the code itself — it only carries your resident ID.",
-    "Turn sharing off from your account menu and the ID stops opening your details straight away.",
-  ];
-
   let y = 380;
 
-  for (const bullet of bullets) {
-    ctx.fillStyle = ACCENT;
+  for (const bullet of variant.backBullets) {
+    ctx.fillStyle = variant.accent;
     ctx.beginPath();
     ctx.arc(70, y - 6, 6, 0, Math.PI * 2);
     ctx.fill();
@@ -403,7 +550,7 @@ function drawBack(ctx: CanvasRenderingContext2D, data: IdCardData) {
   ctx.fillStyle = BRAND;
   ctx.font = font(800, 14);
   ctx.letterSpacing = "2px";
-  ctx.fillText("RESIDENT ID", 62, y + 58);
+  ctx.fillText(variant.idLabel, 62, y + 58);
   ctx.letterSpacing = "0px";
 
   ctx.fillStyle = INK;

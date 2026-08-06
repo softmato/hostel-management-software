@@ -54,6 +54,7 @@ export const PlatformConfigPricingPageContent = memo(
               ctaHref: "/register-hostel",
               ctaLabel: "Get Started",
               description: "",
+              enabled: true,
               features: [],
               highlighted: false,
               name: "",
@@ -64,6 +65,26 @@ export const PlatformConfigPricingPageContent = memo(
             onChange={(next) => setValue("pricing", next)}
             renderRow={(plan, patch) => (
               <div className="space-y-2.5">
+                {/* An off plan keeps its content but disappears from the public
+                    site — dim the row so that is obvious at a glance. */}
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {plan.enabled
+                      ? "Live on the public pricing page."
+                      : "Turned off — hidden from the public site."}
+                  </p>
+                  <ToggleSwitch
+                    checked={plan.enabled}
+                    label="Plan active"
+                    onChange={(enabled) => patch({ enabled })}
+                  />
+                </div>
+
+                <div
+                  className={
+                    plan.enabled ? "space-y-2.5" : "space-y-2.5 opacity-55 grayscale"
+                  }
+                >
                 <div className="grid gap-2.5 sm:grid-cols-3">
                   <TextField
                     label="Plan name"
@@ -116,6 +137,7 @@ export const PlatformConfigPricingPageContent = memo(
                     label="Featured plan"
                     onChange={(highlighted) => patch({ highlighted })}
                   />
+                </div>
                 </div>
               </div>
             )}

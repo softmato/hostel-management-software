@@ -1,14 +1,15 @@
 "use client";
 
 import { PublicShell } from "@/app/_components/shared";
+import { useSiteConfig } from "@/components/site-config-provider";
 import { Calendar, Clock, Tag, User } from "lucide-react";
 
-const posts = [
+const buildPosts = (siteName: string) => [
   {
     title: "How to Choose the Perfect Hostel in Kathmandu",
     excerpt:
       "From location to facilities — a complete guide for students and parents looking for the ideal accommodation in the valley.",
-    author: "HostelHub Team",
+    author: `${siteName} Team`,
     date: "July 8, 2026",
     readTime: "5 min read",
     category: "Guides",
@@ -19,7 +20,7 @@ const posts = [
     title: "Top 10 Facilities to Look for in a Student Hostel",
     excerpt:
       "Wi-Fi, food quality, security, and more — here is what every student should check before moving into a hostel.",
-    author: "HostelHub Team",
+    author: `${siteName} Team`,
     date: "July 5, 2026",
     readTime: "7 min read",
     category: "Tips",
@@ -30,7 +31,7 @@ const posts = [
     title: "Understanding Hostel Fee Structures in Nepal",
     excerpt:
       "Breaking down rent, deposits, meal plans, and hidden costs so you can budget with confidence.",
-    author: "HostelHub Team",
+    author: `${siteName} Team`,
     date: "July 1, 2026",
     readTime: "6 min read",
     category: "Finance",
@@ -41,7 +42,7 @@ const posts = [
     title: "A Day in the Life of a Hostel Resident",
     excerpt:
       "From morning routines to late-night study sessions — experience what life is really like in a Nepali student hostel.",
-    author: "HostelHub Team",
+    author: `${siteName} Team`,
     date: "June 28, 2026",
     readTime: "4 min read",
     category: "Lifestyle",
@@ -51,8 +52,8 @@ const posts = [
   {
     title: "Why Hostel Verification Matters for Parents",
     excerpt:
-      "Learn how HostelHub verified listings give families peace of mind when sending their children to a new city.",
-    author: "HostelHub Team",
+      `Learn how ${siteName} verified listings give families peace of mind when sending their children to a new city.`,
+    author: `${siteName} Team`,
     date: "June 22, 2026",
     readTime: "5 min read",
     category: "Trust & Safety",
@@ -63,7 +64,7 @@ const posts = [
     title: "Comparing Hostels vs. Renting a Private Room",
     excerpt:
       "Cost, convenience, community — a balanced look at the pros and cons of hostel living versus private renting in Nepal.",
-    author: "HostelHub Team",
+    author: `${siteName} Team`,
     date: "June 18, 2026",
     readTime: "8 min read",
     category: "Guides",
@@ -73,6 +74,9 @@ const posts = [
 ];
 
 export function PublicBlogPage() {
+  const siteName = useSiteConfig().identity.siteName;
+  const posts = buildPosts(siteName);
+
   return (
     <PublicShell>
       <div className="mx-auto max-w-5xl px-6 py-20">
@@ -85,7 +89,7 @@ export function PublicBlogPage() {
             Blog
           </h1>
           <p className="mt-3 text-muted-foreground">
-            Tips, guides, and updates from the HostelHub team
+            Tips, guides, and updates from the {siteName} team
           </p>
           <div className="mx-auto mt-4 h-px max-w-xs bg-border" />
         </div>

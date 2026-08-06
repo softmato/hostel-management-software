@@ -1298,20 +1298,36 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☐ Analytics: view food timing patterns (if cook wants to improve)
 
 **Service Provider Mobile App (Job Marketplace)** — see PRD.md §8.6/§9.6, DATABASE.md "Service Providers & Maintenance"
-- ☐ Registration gated behind Google sign-in (Expo AuthSession / native Google Sign-In SDK — today's mobile Google auth is a placeholder per MOBILE_STATUS.md and must be wired for real first)
-- ☐ Registration form: category, name, phone, area, city, availability, experience, description, photo, documents — email field is read-only, pre-filled from the Google identity
-- ☐ Submission creates `ServiceProvider` with `status: PENDING_APPROVAL`, now linked to the submitter's `userId` (new field — see DATABASE.md)
-- ☐ Approval upgrades the linked `PUBLIC` account to `SERVICE_PROVIDER` (§8.3/§8.6 pattern — real personal email, not Cook's synthetic shared account), generates a temporary password, sets `mustChangePassword`, and emails both the approval notice and the credentials in one email (EMAIL_SYSTEM.md §6.2)
-- ☐ App login screen: email + password (not Google — Google was the registration-time gate only), with a forced "choose your own password" step on first login
+> **Superseded, 2026-08-06.** Two decisions in the original plan were dropped
+> after the web side shipped, and the entries below reflect what was actually
+> built:
+>
+> 1. **There is no `SERVICE_PROVIDER` role.** The `Role` enum never gained one
+>    (`LEGACY_ROLE_MAP` maps the legacy value to `PUBLIC`), and approval does not
+>    touch the account's role. A provider *is* a `PUBLIC` account with an
+>    `APPROVED` `ServiceProvider` record linked by `userId` — a single fact,
+>    derived where it is needed, rather than a role that could drift out of step
+>    with the record. This also removes the temporary-password / forced-reset
+>    flow: the account already has its own sign-in.
+> 2. **Providers do get a web surface** — a trimmed one, not a portal. See the
+>    last two entries.
+
+- ☑ Registration gated behind Google sign-in on the **web** form, and enforced server-side: `POST /api/v1/public/service-providers/register` requires a session, so every application is linked to an account (mobile Google auth is still a placeholder per MOBILE_STATUS.md)
+- ☑ Registration form: category, name, phone, area, city, availability, experience, description, photo, documents — email read-only from the Google identity; the profile photo goes through the shared crop-and-zoom step before upload
+- ☑ Submission creates `ServiceProvider` with `status: PENDING_APPROVAL`, linked to the submitter's `userId`
+- ☑ Approval keeps the account `PUBLIC` and re-issues its ID card as a provider card (see below). The approval email is unchanged apart from the attached card
+- ☐ Mobile app login screen: the applicant's own credentials — no separate provisioned account, so no first-login password step
 - ☐ Hostel admin: broadcast a maintenance request to every approved provider matching its category + area, instead of (or in addition to) hand-picking one provider to contact — new `MaintenanceRequest` status for "open to claim" (see DATABASE.md)
 - ☐ Provider push notification when a matching job is broadcast in their area
-- ☐ Job feed screen: open broadcasts in the provider's category/area, newest first; hostel name + area + category + priority shown, exact address withheld until claimed
 - ☐ Claim a job: first accept wins — atomic claim (same optimistic-update-with-retry shape as `mintResidentId`/QR activation elsewhere in this codebase), losing providers see the job disappear from their feed rather than an error
 - ☐ Active job detail screen: hostel address + contact revealed now that it's claimed, "mark complete" action
-- ☐ Service provider digital ID card: reuses the resident ID card's canvas renderer (`resident-id-card.ts`) with a visually distinct skin (different accent treatment, provider fields — category/area/status/rating instead of DOB/blood group), front + back, downloadable PNG, QR-encoded stable provider code
-- ☐ Card is only valid/visible once `APPROVED` — a pending or rejected applicant sees a status screen, not a card
+- ☑ Provider digital ID card: the resident card renderer generalised into `platform-id-card.ts` — one template, three variants (resident / hostel owner / service provider) differing in accent shade, header curve, logo glyph and copy, front + back, downloadable PNG. The variant is *derived* (`resolvePlatformIdCardType`), so approval converts the card with no stored card-type to keep in sync
+- ☑ Card PNGs emailed on issue: when a resident first completes their card, and again when an approval re-issues it as an owner or provider card. Rendered server-side through `@napi-rs/canvas` by the *same* `drawIdCard`, so the emailed card cannot drift from the in-app one
+- ☐ Card renders immediately once the form is submitted (not deferred to approval), carrying a visible status tag that clears automatically the moment `status` flips to `APPROVED` — today the card requires a completed resident profile, so an applicant without one has no card until they fill it in
 - ☐ Hostel-admin (web) counterpart: a "scan provider card" action on the existing Maintenance tab — camera scan or manual code entry (mirrors `lookupResidentProfile`), shows the provider's name/photo/category/approval status and whether they hold an accepted job at this hostel, then a check-in action
-- ☐ No web dashboard for this role at all — a `SERVICE_PROVIDER` account signing into the website gets a "use the app" notice, not a portal
+- ☑ **Web surface for approved providers — trimmed public site, not a portal.** The public header swaps the hostel-shopping tabs (Hostels, Compare, Register Hostel, Service Providers) for **Home · Jobs · Community** once `status` is `APPROVED`. No sidebar, no dashboard, nothing else on the site changes
+- ☑ `/jobs`: the maintenance requests a hostel admin has assigned to this provider, open work first, as cards — title, hostel, priority/status, category, location, schedule, tap-to-call hostel number. No resident data: a maintenance job is about a place, not the people living in it. Backed by `GET /api/v1/public/service-providers/me/jobs`, which returns an empty list (not a 403) for anyone who is not an approved provider
+- ☐ `/jobs` shows only directly-assigned work until the broadcast-and-claim model above exists; open broadcasts in the provider's category/area, with the exact address withheld until claimed, land on this same screen
 
 **Community Feature Mobile**
 - ☐ Community tab in bottom navigation
@@ -1415,16 +1431,17 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☐ Tapping referral link opens app (if installed) or Play Store
 
 **Service Provider Job Marketplace**
-- ☐ Registration blocked until Google sign-in completes; email field is not editable and matches the Google account
-- ☐ Applicant submitted, PENDING → approval upgrades their `PUBLIC` account to `SERVICE_PROVIDER` and emails a temporary password
-- ☐ First app login with the emailed password forces a new password before anything else is reachable
-- ☐ Rejected applicant's account stays `PUBLIC`; no credentials are ever generated for a rejected application
+- ☑ Registration blocked until Google sign-in completes; email field is not editable and matches the Google account. Enforced on the server too — an unauthenticated `POST` to the register route is refused, so no application can exist without an account behind it
+- ☑ Applicant submitted, PENDING → approval leaves the account `PUBLIC` and re-issues its ID card as a provider card, attached to the approval email. No role change and no credentials are generated (see the note under §6.1)
+- ☑ Rejected applicant keeps whatever card they already held; nothing is re-issued
 - ☐ Hostel admin broadcasts a maintenance request → only approved providers in the matching category + area are notified
 - ☐ Two providers tap "Accept" within the same second on the same job → exactly one gets it, the other sees it removed from their feed, not an error
 - ☐ Claimed job reveals the hostel's address/contact; the same job in a non-claiming provider's history (if shown at all) never reveals those details
-- ☐ Provider's ID card is unreachable (status screen instead) while `PENDING_APPROVAL` or `REJECTED`, and appears immediately on `APPROVED`
+- ☐ Card is visible with a "Pending approval" tag immediately after submission; the tag clears (same card, no screen swap) the moment an admin approves — and a hostel admin scanning a `PENDING_APPROVAL` or `REJECTED` provider's code is told plainly it isn't valid yet, regardless of what the card itself displays
 - ☐ Hostel admin scans/enters a provider's card code → sees name, category, approval status, and current claimed job at that hostel, not any other hostel's job
-- ☐ Signing into the website with a `SERVICE_PROVIDER` account never reaches a dashboard
+- ☑ Signing into the website as an approved provider never reaches a dashboard — the public header drops the hostel-shopping tabs for **Home · Jobs · Community**, and that is the whole surface
+- ☑ A pending or rejected applicant keeps the ordinary public navigation; only `APPROVED` swaps it
+- ☑ `/jobs` returns an empty list, not a 403, for an account that is not an approved provider
 
 ### 6.3 Phase 6 Definition of Done
 

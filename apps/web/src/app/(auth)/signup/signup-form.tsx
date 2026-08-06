@@ -31,6 +31,7 @@ import { Role } from "@/lib/roles";
 
 import { GoogleAuthButton } from "../google-auth-button";
 import { AuthShell } from "../auth-shell";
+import { SiteName } from "@/components/site-config-provider";
 
 type AuthResponse<T> =
   | {
@@ -475,7 +476,7 @@ function SignupFormContent({ googleClientId }: SignupFormProps) {
                   </h3>
                   <p className="text-xs text-slate-400 mt-1 max-w-[240px] leading-relaxed">
                     Once verified, you&apos;ll get full access to your account and all
-                    HostelHub features.
+                    <SiteName /> features.
                   </p>
                 </div>
 
@@ -525,7 +526,7 @@ function SignupFormContent({ googleClientId }: SignupFormProps) {
 
         {/* Footer */}
         <footer className="text-center text-[10px] text-slate-400 font-semibold border-t border-slate-100 pt-3 flex items-center justify-center gap-3">
-          <span>&copy; 2026 HostelHub Platform. All rights reserved.</span>
+          <span>&copy; 2026 <SiteName /> Platform. All rights reserved.</span>
           <span className="text-slate-200">|</span>
           <span className="flex items-center gap-1">
             Made with <span className="text-red-500">❤️</span> in Nepal 🇳🇵
@@ -545,7 +546,7 @@ function SignupFormContent({ googleClientId }: SignupFormProps) {
             Create your account
           </h2>
           <p className="text-xs text-slate-400 mt-1 font-normal">
-            Join HostelHub to discover and book the best hostels.
+            Join <SiteName /> to discover and book the best hostels.
           </p>
         </div>
 

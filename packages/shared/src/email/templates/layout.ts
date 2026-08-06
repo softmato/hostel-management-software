@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from "../../index";
+
 export type EmailContent = {
   subject: string;
   html: string;
@@ -22,9 +24,17 @@ export { escapeHtml };
 export function emailLayout(options: {
   heading: string;
   bodyHtml: string;
+  /**
+   * The platform owner's configured site name. Templates that have it should
+   * pass it; the rest fall back to the shipped product name, which is why this
+   * is optional rather than required — a half-migrated set of templates should
+   * still render.
+   */
+  siteName?: string;
   urgent?: boolean;
 }) {
   const headerBackground = options.urgent ? "#b91c1c" : "#0f766e";
+  const brand = escapeHtml(options.siteName?.trim() || PRODUCT_NAME);
 
   return `<!doctype html>
 <html>
@@ -42,7 +52,7 @@ export function emailLayout(options: {
       </tr>
       <tr>
         <td style="padding:20px 32px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px;">
-          HostelHub — Multi-Hostel Platform. If you were not expecting this email you can safely ignore it.
+          ${brand} — Multi-Hostel Platform. If you were not expecting this email you can safely ignore it.
         </td>
       </tr>
     </table>

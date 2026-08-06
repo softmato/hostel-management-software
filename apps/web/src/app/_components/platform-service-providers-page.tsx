@@ -4,13 +4,19 @@ import {
   BadgeCheck,
   CircleSlash,
   Clock3,
+  ExternalLink,
   EyeOff,
+  FileText,
+  Loader2,
   Phone,
   ShieldCheck,
   SlidersHorizontal,
   Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import React, { useCallback, useMemo, useState } from "react";
 
 import { EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
@@ -41,8 +47,14 @@ import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
 import { Message, type ServiceProvider } from "./portal-shared";
 
+/**
+ * Keys are the raw `ServiceProvider.status` values — the tab filter compares
+ * against them directly. `PENDING_APPROVAL` is deliberately spelled out: it used
+ * to read `PENDING` here, which matched nothing, so the Pending tab and the
+ * Pending Review stat both sat at zero while the applications showed up under All.
+ */
 const TABS = [
-  { key: "PENDING", label: "Pending" },
+  { key: "PENDING_APPROVAL", label: "Pending" },
   { key: "APPROVED", label: "Approved" },
   { key: "HIDDEN", label: "Hidden" },
   { key: "REJECTED", label: "Rejected" },
@@ -58,22 +70,128 @@ const PAGE_SIZE = 10;
  */
 const NO_RATING = "—";
 
+/** Uploaded file on a provider application, from the detail endpoint. */
+type ProviderDocument = {
+  documentType: string;
+  fileUrl: string;
+  id: string;
+  status: string;
+};
+
+/** `PENDING_APPROVAL` → `Pending approval` — raw enums do not belong on screen. */
+function statusLabel(status: string) {
+  const words = status.toLowerCase().split("_");
+
+  return words
+    .map((word, index) =>
+      index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word,
+    )
+    .join(" ");
+}
+
+/** `DOCTOR_CLINIC` → `Doctor Clinic`, for badges. */
+function categoryLabel(category: string) {
+  return category
+    .split("_")
+    .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function humanizeDocumentType(documentType: string) {
+  return statusLabel(documentType);
+}
+
+function formatDate(value?: string) {
+  return value ? new Date(value).toLocaleDateString() : "—";
+}
+
+/** All trades a provider works in, tolerating pre-multi-trade records. */
+function providerTrades(provider: ServiceProvider) {
+  return provider.categories?.length ? provider.categories : [provider.category];
+}
+
+type ModerationAction = "approve" | "hide" | "reject";
+
+/** Present-tense labels shown while a moderation request is still in flight. */
+const ACTION_PROGRESS: Record<ModerationAction, string> = {
+  approve: "Approving",
+  hide: "Hiding",
+  reject: "Rejecting",
+};
+
+/**
+ * A moderation button that reports its own progress. The PATCH plus the list
+ * refetch behind it can run for seconds; a button that neither moves nor
+ * disables during that reads as broken and invites a second click.
+ *
+ * While *any* action is running every button locks, because they all mutate the
+ * same records and a second request landing mid-flight would race the refetch.
+ */
+function ModerationButton({
+  action,
+  busyAction,
+  className,
+  icon: Icon,
+  label,
+  onRun,
+  providerId,
+}: {
+  action: ModerationAction;
+  busyAction: { action: ModerationAction; providerId: string } | null;
+  className: string;
+  icon: LucideIcon;
+  label: string;
+  onRun: (providerId: string, action: ModerationAction) => void;
+  providerId: string;
+}) {
+  const isRunning = busyAction?.providerId === providerId && busyAction.action === action;
+  const isLocked = Boolean(busyAction);
+
+  return (
+    <button
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
+      disabled={isLocked}
+      onClick={(event) => {
+        event.stopPropagation();
+        onRun(providerId, action);
+      }}
+      type="button"
+    >
+      {isRunning ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <Icon className="size-3.5" />
+      )}
+      {isRunning ? `${ACTION_PROGRESS[action]}…` : label}
+    </button>
+  );
+}
+
 export const PlatformServiceProvidersPageContent = React.memo(
   function PlatformServiceProvidersPageContent() {
     const [actionMessage, setActionMessage] = useState("");
+    const router = useRouter();
     const invalidate = useInvalidateResources();
     const providersResource = usePortalResource<{ providers: ServiceProvider[] }>(
       platformEndpoints.serviceProviders,
       { errorMessage: "Could not load providers." },
     );
     const [query, setQuery] = useState("");
-    const [tab, setTab] = useState("PENDING");
+    const [tab, setTab] = useState("PENDING_APPROVAL");
     const [categoryFilter, setCategoryFilter] = useState("");
     const [areaFilter, setAreaFilter] = useState("");
     const [availabilityFilter, setAvailabilityFilter] = useState("");
     const [verifiedOnly, setVerifiedOnly] = useState(false);
     const [page, setPage] = useState(1);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    /** Which moderation request is in flight, so its button can say so. */
+    const [busyAction, setBusyAction] = useState<{
+      action: ModerationAction;
+      providerId: string;
+    } | null>(null);
 
     const providers = useMemo(
       () => providersResource.data?.providers ?? [],
@@ -91,20 +209,32 @@ export const PlatformServiceProvidersPageContent = React.memo(
           return;
         }
 
+        // The PATCH plus the list refetch behind it can take several seconds.
+        // Without this the row looks inert and the obvious move is to click
+        // again — which fires a second moderation request.
+        setBusyAction({ action, providerId });
+        setActionMessage(`${ACTION_PROGRESS[action]}…`);
+
         try {
-          await browserApi(
-            `${platformEndpoints.serviceProviders}/${providerId}/${action}`,
-            {
-              body: JSON.stringify(reason ? { reason } : {}),
-              method: "PATCH",
-            },
-          );
+          // `serviceProviders` already carries `?pageSize=100`, so appending a
+          // path to it produced `...?pageSize=100/<id>/approve` — a 405 that made
+          // every moderation action on this page silently impossible. Detail URLs
+          // must be built from the `serviceProvider(id)` helper.
+          await browserApi(`${platformEndpoints.serviceProvider(providerId)}/${action}`, {
+            body: JSON.stringify(reason ? { reason } : {}),
+            method: "PATCH",
+          });
           setActionMessage(`Provider ${action}d.`);
-          invalidate(platformEndpoints.serviceProviders);
+          invalidate(
+            platformEndpoints.serviceProviders,
+            platformEndpoints.serviceProviderDetails,
+          );
         } catch (error) {
           setActionMessage(
             error instanceof Error ? error.message : "Could not update provider.",
           );
+        } finally {
+          setBusyAction(null);
         }
       },
       [invalidate],
@@ -116,16 +246,18 @@ export const PlatformServiceProvidersPageContent = React.memo(
       return {
         approved: by("APPROVED"),
         hidden: by("HIDDEN"),
-        pending: by("PENDING"),
+        pending: by("PENDING_APPROVAL"),
         total: providers.length,
       };
     }, [providers]);
 
+    // Every trade a provider works in, so a plumber-and-carpenter shows up under
+    // both the filter dropdown and a search for either word.
     const categories = useMemo(
       () =>
-        Array.from(new Set(providers.map((provider) => provider.category))).filter(
-          Boolean,
-        ),
+        Array.from(
+          new Set(providers.flatMap((provider) => providerTrades(provider))),
+        ).filter(Boolean),
       [providers],
     );
 
@@ -141,14 +273,16 @@ export const PlatformServiceProvidersPageContent = React.memo(
       return providers.filter((provider) => {
         if (tab !== "ALL" && provider.status !== tab) return false;
         if (verifiedOnly && provider.status !== "APPROVED") return false;
-        if (categoryFilter && provider.category !== categoryFilter) return false;
+        const trades = providerTrades(provider);
+
+        if (categoryFilter && !trades.includes(categoryFilter)) return false;
         if (areaFilter && provider.area !== areaFilter) return false;
         if (availabilityFilter && provider.availability !== availabilityFilter) {
           return false;
         }
         if (!term) return true;
 
-        return `${provider.fullName} ${provider.category} ${provider.area} ${provider.phone}`
+        return `${provider.fullName} ${trades.join(" ")} ${provider.area} ${provider.phone}`
           .toLowerCase()
           .includes(term);
       });
@@ -168,11 +302,34 @@ export const PlatformServiceProvidersPageContent = React.memo(
     );
 
     const pending = useMemo(
-      () => providers.filter((provider) => provider.status === "PENDING").slice(0, 6),
+      () =>
+        providers
+          .filter((provider) => provider.status === "PENDING_APPROVAL")
+          .slice(0, 6),
       [providers],
     );
 
     const selected = providers.find((provider) => provider.id === selectedId) ?? null;
+    // The list endpoint carries no documents, so the review panel loads the full
+    // application — same shape the Hostel Approvals review screen works from.
+    // Approving without seeing the citizenship or licence scan is exactly what
+    // this panel exists to prevent.
+    const detailResource = usePortalResource<{
+      documents: ProviderDocument[];
+      provider: ServiceProvider;
+    }>(selectedId ? platformEndpoints.serviceProvider(selectedId) : null, {
+      errorMessage: "Could not load this application.",
+    });
+    const documents = detailResource.data?.documents ?? [];
+    const detail = detailResource.data?.provider ?? selected;
+    /** The action running against the *selected* provider, for the rail buttons. */
+    const railBusy =
+      busyAction && busyAction.providerId === selectedId ? busyAction.action : null;
+    const selectedCategories = detail?.categories?.length
+      ? detail.categories
+      : detail
+        ? [detail.category]
+        : [];
 
     const tabCount = (key: string) =>
       key === "ALL"
@@ -339,6 +496,9 @@ export const PlatformServiceProvidersPageContent = React.memo(
                         )}
                         key={provider.id}
                         onClick={() => setSelectedId(provider.id)}
+                        onDoubleClick={() =>
+                          router.push(`/platform/service-providers/${provider.id}`)
+                        }
                       >
                         <TableCell>
                           <div className="flex items-center gap-2.5">
@@ -363,7 +523,18 @@ export const PlatformServiceProvidersPageContent = React.memo(
                           </div>
                         </TableCell>
                         <TableCell>
-                          <SoftBadge tone="teal">{provider.category || "—"}</SoftBadge>
+                          <div className="flex flex-wrap gap-1">
+                            {(provider.categories?.length
+                              ? provider.categories
+                              : [provider.category]
+                            )
+                              .filter(Boolean)
+                              .map((category) => (
+                                <SoftBadge key={category} tone="teal">
+                                  {categoryLabel(category)}
+                                </SoftBadge>
+                              ))}
+                          </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {provider.area || "—"}
@@ -383,6 +554,18 @@ export const PlatformServiceProvidersPageContent = React.memo(
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
+                            {/* The decision belongs on the full review screen —
+                                the form data, photo and paperwork all live
+                                there, and approving from the row alone means
+                                approving documents nobody opened. */}
+                            <Link
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-role-platform transition hover:bg-role-platform-soft"
+                              href={`/platform/service-providers/${provider.id}`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <FileText className="size-3.5" />
+                              Review
+                            </Link>
                             {provider.phone ? (
                               <a
                                 className="rounded-md border border-border p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
@@ -394,41 +577,35 @@ export const PlatformServiceProvidersPageContent = React.memo(
                               </a>
                             ) : null}
                             {provider.status !== "APPROVED" ? (
-                              <button
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void moderate(provider.id, "approve");
-                                }}
-                                type="button"
-                              >
-                                <BadgeCheck className="size-3.5" />
-                                Approve
-                              </button>
+                              <ModerationButton
+                                action="approve"
+                                busyAction={busyAction}
+                                className="text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                                icon={BadgeCheck}
+                                label="Approve"
+                                onRun={moderate}
+                                providerId={provider.id}
+                              />
                             ) : (
-                              <button
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void moderate(provider.id, "hide");
-                                }}
-                                type="button"
-                              >
-                                <EyeOff className="size-3.5" />
-                                Hide
-                              </button>
+                              <ModerationButton
+                                action="hide"
+                                busyAction={busyAction}
+                                className="text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                                icon={EyeOff}
+                                label="Hide"
+                                onRun={moderate}
+                                providerId={provider.id}
+                              />
                             )}
-                            <button
-                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/40"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void moderate(provider.id, "reject");
-                              }}
-                              type="button"
-                            >
-                              <X className="size-3.5" />
-                              Reject
-                            </button>
+                            <ModerationButton
+                              action="reject"
+                              busyAction={busyAction}
+                              className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                              icon={X}
+                              label="Reject"
+                              onRun={moderate}
+                              providerId={provider.id}
+                            />
                           </div>
                         </TableCell>
                       </TableRow>
@@ -472,7 +649,10 @@ export const PlatformServiceProvidersPageContent = React.memo(
                           {provider.fullName}
                         </p>
                         <p className="text-[10.5px] text-muted-foreground">
-                          {provider.category || "Uncategorised"}
+                          {providerTrades(provider)
+                            .filter(Boolean)
+                            .map(categoryLabel)
+                            .join(", ") || "Uncategorised"}
                           {provider.area ? ` · ${provider.area}` : ""}
                         </p>
                       </div>
@@ -511,8 +691,16 @@ export const PlatformServiceProvidersPageContent = React.memo(
                     <X className="size-3.5" />
                   </button>
                 }
-                title="Provider Details"
+                title="Application Review"
               >
+                <Link
+                  className="mb-2.5 flex items-center justify-center gap-1.5 rounded-md bg-role-platform px-3 py-2 text-[12px] font-bold text-white transition hover:opacity-90"
+                  href={`/platform/service-providers/${selected.id}`}
+                >
+                  <ExternalLink className="size-3.5" />
+                  Open full review
+                </Link>
+
                 <div className="mb-2 flex items-center gap-2.5">
                   <InitialsAvatar name={selected.fullName} size="md" tone="platform" />
                   <div className="min-w-0">
@@ -520,23 +708,67 @@ export const PlatformServiceProvidersPageContent = React.memo(
                       {selected.fullName}
                     </p>
                     <SoftBadge tone={statusToneFromLabel(selected.status)}>
-                      {selected.status}
+                      {statusLabel(selected.status)}
                     </SoftBadge>
                   </div>
                 </div>
 
-                <DetailField label="Category" value={selected.category || "—"} />
-                <DetailField label="Service area" value={selected.area || "—"} />
-                <DetailField label="Phone" value={selected.phone || "—"} />
-                <DetailField label="Experience" value={selected.experience || "—"} />
-                <DetailField label="Availability" value={selected.availability || "—"} />
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {selectedCategories.map((category) => (
+                    <SoftBadge key={category} tone="teal">
+                      {categoryLabel(category)}
+                    </SoftBadge>
+                  ))}
+                </div>
+
+                <DetailField label="Service area" value={detail?.area || "—"} />
+                <DetailField label="City" value={detail?.city || "—"} />
+                <DetailField label="Phone" value={detail?.phone || "—"} />
+                <DetailField label="Email" value={detail?.email || "—"} />
+                <DetailField label="Experience" value={detail?.experience || "—"} />
+                <DetailField label="Availability" value={detail?.availability || "—"} />
+                <DetailField label="Submitted" value={formatDate(detail?.createdAt)} />
                 <DetailField label="Rating" value={NO_RATING} />
 
-                {selected.description ? (
+                {detail?.description ? (
                   <p className="mt-2 border-t border-border/50 pt-2 text-[11.5px] leading-4 text-muted-foreground">
-                    {selected.description}
+                    {detail.description}
                   </p>
                 ) : null}
+
+                <div className="mt-3 border-t border-border/50 pt-2">
+                  <p className="mb-1.5 text-[11px] font-bold text-foreground">
+                    Documents{" "}
+                    <span className="font-normal text-muted-foreground">
+                      ({documents.length})
+                    </span>
+                  </p>
+                  {detailResource.state === "loading" ? (
+                    <p className="text-[11px] text-muted-foreground">Loading…</p>
+                  ) : documents.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      No documents were attached to this application.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {documents.map((document) => (
+                        <li key={document.id}>
+                          <a
+                            className="flex items-center gap-1.5 text-[11.5px] font-semibold text-role-platform hover:underline"
+                            href={document.fileUrl || "#"}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            <FileText className="size-3.5 shrink-0" />
+                            <span className="truncate">
+                              {humanizeDocumentType(document.documentType)}
+                            </span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
 
                 <div className="mt-2.5 flex flex-wrap gap-1.5">
                   {selected.phone ? (
@@ -549,22 +781,47 @@ export const PlatformServiceProvidersPageContent = React.memo(
                   ) : null}
                   {selected.status === "APPROVED" ? (
                     <RoleButton
+                      disabled={Boolean(busyAction)}
                       onClick={() => void moderate(selected.id, "hide")}
                       tone="platform"
                       variant="outline"
                     >
-                      <EyeOff className="size-3.5" />
-                      Hide
+                      {railBusy === "hide" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <EyeOff className="size-3.5" />
+                      )}
+                      {railBusy === "hide" ? "Hiding…" : "Hide"}
                     </RoleButton>
                   ) : (
                     <RoleButton
+                      disabled={Boolean(busyAction)}
                       onClick={() => void moderate(selected.id, "approve")}
                       tone="platform"
                     >
-                      <BadgeCheck className="size-3.5" />
-                      Approve
+                      {railBusy === "approve" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <BadgeCheck className="size-3.5" />
+                      )}
+                      {railBusy === "approve" ? "Approving…" : "Approve"}
                     </RoleButton>
                   )}
+                  {selected.status !== "REJECTED" ? (
+                    <RoleButton
+                      disabled={Boolean(busyAction)}
+                      onClick={() => void moderate(selected.id, "reject")}
+                      tone="platform"
+                      variant="outline"
+                    >
+                      {railBusy === "reject" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <CircleSlash className="size-3.5" />
+                      )}
+                      {railBusy === "reject" ? "Rejecting…" : "Reject"}
+                    </RoleButton>
+                  ) : null}
                 </div>
               </RailCard>
             ) : (

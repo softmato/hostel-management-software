@@ -9,8 +9,14 @@ type LoadState = "idle" | "loading" | "ready" | "error";
 type ServiceProvider = {
   area: string;
   availability: string;
+  /** Every trade the provider works in; absent on pre-multi-trade records. */
+  categories?: string[];
+  /** Headline trade — always `categories[0]` where the list exists. */
   category: string;
+  city?: string;
+  createdAt?: string;
   description: string;
+  email?: string;
   experience: string;
   fullName: string;
   id: string;

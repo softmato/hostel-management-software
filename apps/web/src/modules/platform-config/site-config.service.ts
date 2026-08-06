@@ -144,7 +144,7 @@ export async function getPublicSiteConfig() {
     identity: config.identity,
     legal: config.legal,
     locations: config.locations.filter((location) => location.enabled),
-    pricing: config.pricing,
+    pricing: config.pricing.filter((plan) => plan.enabled),
     social: config.social,
     stats: config.stats,
     trustPoints: config.trustPoints,

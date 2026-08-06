@@ -1377,16 +1377,26 @@ interface IServiceProvider {
   userId?: ObjectId; // ref User
 
   /**
-   * Stable public code minted on approval, e.g. "HH-SP-4K7M" — same alphabet
-   * and collision-retry approach as generateResidentId() in
+   * Stable public code minted the moment the application is submitted (same
+   * alphabet and collision-retry approach as generateResidentId() in
    * resident-identity.service.ts, prefixed to be visually distinguishable
-   * from a resident ID at a glance. Encoded in the provider's ID card QR;
-   * looked up by the hostel-admin "scan provider card" action. Absent until
-   * APPROVED — the card does not exist before then.
+   * from a resident ID at a glance) — NOT deferred to approval. The card
+   * renders immediately at registration, status and all, so it exists
+   * before `providerCode` would otherwise be available.
    */
   providerCode?: string;
 }
 ```
+
+The ID card is a single object that exists for the lifetime of the application, not
+something that appears on approval — it renders right after the form is submitted,
+carrying a visible status tag (`PENDING_APPROVAL`/`REJECTED`/`HIDDEN`/`INACTIVE`), and
+the tag simply clears once `status` flips to `APPROVED`. **The card's own display is
+never the authority for whether someone may work** — the hostel-admin "scan provider
+card" lookup re-reads live `status` from the database on every scan, so a pending or
+rejected provider's code can never resolve as valid no matter what the card shows
+(the same principle as `lookupResidentProfile` re-checking `sharingEnabled` live
+rather than trusting anything client-side).
 
 `ServiceProviderApplication` and `ServiceProviderDocument` (the review-queue snapshot and uploaded-document rows created alongside `ServiceProvider` in `registerPublicServiceProvider`) are unaffected by this change.
 

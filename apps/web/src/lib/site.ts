@@ -9,5 +9,3 @@ export function siteUrl() {
 
   return raw.replace(/\/+$/, "");
 }
-
-export const SITE_NAME = "HostelHub";

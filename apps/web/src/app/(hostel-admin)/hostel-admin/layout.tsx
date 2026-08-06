@@ -9,7 +9,6 @@ export default function HostelAdminLayout({
   return (
     <PortalShell
       navGroups={HOSTEL_ADMIN_NAV}
-      portalName="HostelHub"
       searchEntries={HOSTEL_ADMIN_SEARCH_ENTRIES}
       searchPlaceholder="Search residents, rooms, payments..."
       subtitle="Hostel Admin Portal"

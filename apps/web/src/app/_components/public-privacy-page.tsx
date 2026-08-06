@@ -5,7 +5,7 @@ import { LegalBody } from "@/components/legal-body";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { Shield, Lock, Eye, Database, Mail, Globe } from "lucide-react";
 
-const sections = [
+const buildSections = (siteName: string) => [
   {
     icon: Database,
     title: "Information We Collect",
@@ -21,7 +21,7 @@ const sections = [
     icon: Eye,
     title: "How We Use Your Information",
     content: [
-      "To operate, maintain, and improve the HostelHub platform and all its features.",
+      `To operate, maintain, and improve the ${siteName} platform and all its features.`,
       "To facilitate communication between hostel admins, residents, and guardians.",
       "To process payments, generate receipts, and manage financial records.",
       "To send service-related notifications, updates, and important account information.",
@@ -76,6 +76,8 @@ const sections = [
 
 export function PublicPrivacyPage() {
   const { legal } = useSiteConfig();
+  const siteName = useSiteConfig().identity.siteName;
+  const sections = buildSections(siteName);
   const customBody = legal.privacy.body.trim();
 
   return (
@@ -98,13 +100,13 @@ export function PublicPrivacyPage() {
         {/* Intro */}
         <div className="mb-14 text-sm leading-relaxed text-muted-foreground">
           <p>
-            HostelHub (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;) is
+            {siteName} (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;) is
             committed to protecting your privacy. This Privacy Policy explains how we
             collect, use, disclose, and safeguard your information when you use our hostel
             management platform.
           </p>
           <p className="mt-4">
-            By using HostelHub, you agree to the collection and use of information in
+            By using {siteName}, you agree to the collection and use of information in
             accordance with this policy. If you do not agree, please discontinue use of
             the platform.
           </p>

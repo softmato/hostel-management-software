@@ -58,7 +58,10 @@ export function LeafletMap({
         iconAnchor: [9, 9],
         iconSize: [18, 18],
       });
-      L.marker([center.lat, center.lng], { icon: hostelIcon }).addTo(map).bindPopup(name);
+      L.marker([center.lat, center.lng], { icon: hostelIcon })
+        .addTo(map)
+        .bindPopup(name)
+        .openPopup();
 
       for (const place of nearby) {
         L.circleMarker([place.coordinates.lat, place.coordinates.lng], {

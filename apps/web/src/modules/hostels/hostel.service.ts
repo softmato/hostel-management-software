@@ -18,6 +18,7 @@ import { provisionCookAccount } from "@/modules/food/cook.service";
 import { getFoodRoutine } from "@/modules/food/food-routine.service";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import { sendEmail } from "@hostel/shared/email/sender";
+import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
 import { hostelApprovedEmail } from "@hostel/shared/email/templates/hostel/hostel-approved";
 import { hostelPublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-published";
 import { hostelUnpublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-unpublished";
@@ -1183,6 +1184,10 @@ export async function approvePlatformHostel(hostelId: string, principal: ApiPrin
         ...(cookAccount ? { cookCredentials: cookAccount } : {}),
       }),
     });
+
+    // Approval re-issues any ID card this owner already holds as an owner card
+    // — the conversion the registration form warned them about.
+    await sendIdCardEmail(ownerInfo.owner.id.toString(), "HOSTEL_OWNER");
   }
 
   return result;

@@ -60,6 +60,7 @@ import type {
   PortalNavLeaf,
   PortalSearchEntry,
 } from "@/lib/portal-nav";
+import { useSiteConfig } from "@/components/site-config-provider";
 import { cn } from "@/lib/utils";
 
 type PortalTone = "platform" | "admin" | "resident" | "guardian";
@@ -67,7 +68,8 @@ type PortalTone = "platform" | "admin" | "resident" | "guardian";
 type PortalShellProps = {
   children: ReactNode;
   navGroups: PortalNavGroup[];
-  portalName: string;
+  /** Defaults to the platform-owner-configured site name. */
+  portalName?: string;
   searchEntries?: PortalSearchEntry[];
   searchPlaceholder?: string;
   subtitle: string;
@@ -213,7 +215,7 @@ function getIsDesktopServerSnapshot() {
 export function PortalShell({
   children,
   navGroups,
-  portalName,
+  portalName: portalNameProp,
   searchEntries = [],
   searchPlaceholder = "Search...",
   subtitle,
@@ -221,6 +223,9 @@ export function PortalShell({
   workspaceName,
 }: PortalShellProps) {
   const pathname = usePathname();
+  const { identity } = useSiteConfig();
+  // Admin-configured branding wins; the prop is only an explicit override.
+  const portalName = portalNameProp ?? identity.siteName;
   const styles = toneStyles[tone];
   const plan = planCopy[tone];
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -256,7 +261,8 @@ export function PortalShell({
     return (item.children ?? []).some((child) => isActiveHref(child.href));
   }
 
-  const roleLabel = workspaceName ?? subtitle;
+  const roleLabel = subtitle;
+  const sidebarSubtitle = workspaceName ?? subtitle;
 
   function renderLeaf({
     child = false,
@@ -437,7 +443,7 @@ export function PortalShell({
               {portalName}
             </p>
             <p className="truncate text-[10.5px] font-medium text-slate-500 dark:text-muted-foreground">
-              {subtitle}
+              {sidebarSubtitle}
             </p>
           </div>
         )}
@@ -484,7 +490,7 @@ export function PortalShell({
         </Sheet>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-slate-200/80 bg-white/95 backdrop-blur dark:border-border dark:bg-card/95">
+          <header className="relative z-30 shrink-0 border-b border-slate-200/80 bg-white/95 backdrop-blur dark:border-border dark:bg-card/95">
             <div className="flex h-14 items-center gap-2.5 px-3 md:px-5">
               <Button
                 aria-label={
@@ -569,7 +575,7 @@ export function PortalShell({
 
       <footer className="shrink-0 border-t border-slate-200/80 bg-white px-4 py-2 text-[11px] text-slate-500 dark:border-border dark:bg-card dark:text-muted-foreground md:px-5">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 HostelHub Platform. All rights reserved.</p>
+          <p>© 2026 {portalName} Platform. All rights reserved.</p>
           <div className="flex items-center gap-4">
             {/* Support moved out of the sidebar card — same entry point, but it
                 sits beside the credit instead of eating nav space. */}

@@ -29,6 +29,7 @@ import type {
 import { OAuthAccountModel } from "@hostel/db/models/OAuthAccount";
 import { OtpChallengeModel } from "@hostel/db/models/OtpChallenge";
 import { SessionModel } from "@hostel/db/models/Session";
+import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import { UserModel } from "@hostel/db/models/User";
 import type {
   GoogleAuthInput,
@@ -706,7 +707,27 @@ export async function getCurrentUser(accessToken: string) {
     throw new AuthServiceError("User no longer has access.", "USER_INACTIVE");
   }
 
-  return publicUser(user);
+  /*
+   * There is no SERVICE_PROVIDER role — a provider is a PUBLIC account with an
+   * approved provider record — so the header cannot tell from the role alone
+   * which navigation to draw. Resolving it here rather than in a second client
+   * request means the answer arrives with the session, in one round trip, and
+   * the nav never renders the wrong set first.
+   *
+   * Only asked for PUBLIC accounts: no other role can hold a provider listing,
+   * and this runs on every /me call.
+   */
+  const isServiceProvider =
+    user.role === Role.PUBLIC &&
+    Boolean(
+      await ServiceProviderModel.exists({
+        isDeleted: false,
+        status: "APPROVED",
+        userId: user._id,
+      }),
+    );
+
+  return { ...publicUser(user), isServiceProvider };
 }
 
 export async function logout(refreshToken: string) {

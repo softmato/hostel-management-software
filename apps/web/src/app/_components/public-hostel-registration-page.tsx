@@ -48,6 +48,10 @@ import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 
 import { PublicShell, formatMoney } from "./shared";
+import { SiteName } from "@/components/site-config-provider";
+import { useSiteConfig } from "@/components/site-config-provider";
+import { useConfirm } from "@/app/_components/confirm-dialog";
+import { useHasResidentIdCard } from "@/lib/use-resident-id-card";
 
 type MealInclusion = "Included" | "Not Included" | "Optional";
 
@@ -590,6 +594,11 @@ function FileUploadArea({
 }
 
 export function PublicHostelRegistrationPage() {
+  const siteName = useSiteConfig().identity.siteName;
+  // Approval re-issues an existing resident card as an owner card, so anyone
+  // holding one is told before they submit rather than after it changes.
+  const hasResidentCard = useHasResidentIdCard();
+  const { confirm, confirmDialog } = useConfirm();
   const hostelNameRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const ownerNameRef = useRef<HTMLInputElement>(null);
@@ -1173,6 +1182,19 @@ export function PublicHostelRegistrationPage() {
       setMessage("Please wait for all uploads to complete.");
       return;
     }
+
+    if (
+      hasResidentCard &&
+      !(await confirm({
+        actionLabel: "Yes, submit my hostel",
+        description:
+          "Your resident ID card will be automatically converted into a Hostel Owner card once your hostel registration is approved. You will no longer hold a resident card on this account.",
+        title: "Register this hostel?",
+      }))
+    ) {
+      return;
+    }
+
     setIsSubmitting(true);
     setMessage("");
 
@@ -1366,6 +1388,8 @@ export function PublicHostelRegistrationPage() {
 
   return (
     <PublicShell active="register-hostel">
+      {confirmDialog}
+
       <form className="mx-auto max-w-[1240px] px-4 py-8 md:px-6" onSubmit={submit}>
         {/* Header */}
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -1376,7 +1400,7 @@ export function PublicHostelRegistrationPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               {submitted
                 ? "Your application has been submitted for review."
-                : `Step ${step} of 5 — add your hostel details to get listed on HostelHub.`}
+                : `Step ${step} of 5 — add your hostel details to get listed on ${siteName}.`}
             </p>
           </div>
           {!submitted ? (
@@ -2411,7 +2435,7 @@ export function PublicHostelRegistrationPage() {
                     />
                     <span className="text-sm text-foreground">
                       I confirm that all the information provided is accurate and
-                      complete. I agree to HostelHub&apos;s{" "}
+                      complete. I agree to <SiteName />&apos;s{" "}
                       <Link
                         className="font-semibold text-brand-teal hover:underline"
                         href="/terms"
@@ -2601,7 +2625,7 @@ export function PublicHostelRegistrationPage() {
                   <div className="mt-4 space-y-4">
                     {[
                       {
-                        desc: "Verification helps us ensure trust, safety, and quality across HostelHub.",
+                        desc: `Verification helps us ensure trust, safety, and quality across ${siteName}.`,
                         icon: BadgeCheck,
                         title: "Why We Verify",
                       },

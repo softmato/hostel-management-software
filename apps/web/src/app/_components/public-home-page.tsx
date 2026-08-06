@@ -302,7 +302,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
           ? [["Hostel registration", "/hostels/register"]]
           : []),
         ...(features.serviceProviderSignup
-          ? [["Service providers", "/service-providers/register"]]
+          ? [["Service providers", "/service-providers"]]
           : []),
         ["Pricing", "/pricing"],
       ],
@@ -605,7 +605,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
         </div>
       </section>
 
-      {/* Why students trust HostelHub */}
+      {/* Why students trust the platform */}
       <section className="bg-muted/40 py-14">
         <div className="mx-auto max-w-[1448px] px-6 text-center">
           <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-teal text-white">
@@ -704,7 +704,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
             {/* Provider Card */}
             <Link
               className="w-full lg:w-[350px] rounded-xl border border-dashed border-brand-teal/40 bg-brand-teal-soft/10 p-5 flex items-start gap-4 shrink-0 transition hover:border-brand-teal hover:bg-brand-teal-soft/20"
-              href="/service-providers/register"
+              href="/service-providers"
             >
               <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-brand-teal-soft/30 text-brand-teal border border-brand-teal/10">
                 <Users className="size-5" />

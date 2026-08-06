@@ -1,6 +1,17 @@
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
+/**
+ * A file to send alongside the email. `content` is raw bytes; the sender
+ * base64-encodes them, which is what Resend's API expects.
+ */
+export type EmailAttachment = {
+  content: Uint8Array;
+  /** Shown to the recipient — include the extension. */
+  filename: string;
+};
+
 export type SendEmailInput = {
+  attachments?: EmailAttachment[];
   to: string | string[];
   subject: string;
   html: string;
@@ -74,6 +85,14 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         to: Array.isArray(input.to) ? input.to : [input.to],
         subject: input.subject,
         html: input.html,
+        ...(input.attachments?.length
+          ? {
+              attachments: input.attachments.map((attachment) => ({
+                content: Buffer.from(attachment.content).toString("base64"),
+                filename: attachment.filename,
+              })),
+            }
+          : {}),
         ...(input.replyTo ? { reply_to: input.replyTo } : {}),
       }),
     });

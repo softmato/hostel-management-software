@@ -1,4 +1,5 @@
 import { AccountDeletionPanel } from "@/app/_components/account-deletion-panel";
+import { SiteName } from "@/components/site-config-provider";
 
 export const metadata = {
   title: "Privacy & your data",
@@ -15,7 +16,7 @@ export default function AccountPrivacyPage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-bold text-foreground">Privacy &amp; your data</h1>
         <p className="text-sm text-muted-foreground">
-          Control what HostelHub keeps about you.
+          Control what <SiteName /> keeps about you.
         </p>
       </header>
       <AccountDeletionPanel />

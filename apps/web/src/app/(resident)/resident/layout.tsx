@@ -9,7 +9,6 @@ export default function ResidentLayout({
   return (
     <PortalShell
       navGroups={RESIDENT_NAV}
-      portalName="HostelHub"
       searchEntries={RESIDENT_SEARCH_ENTRIES}
       searchPlaceholder="Search menu, notices, payments..."
       subtitle="Resident Portal"

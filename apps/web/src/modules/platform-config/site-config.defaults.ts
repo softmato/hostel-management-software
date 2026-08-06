@@ -68,6 +68,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
       ctaHref: "/register-hostel",
       ctaLabel: "Start Free",
       description: "For a single small hostel getting online.",
+      enabled: true,
       features: [
         "1 hostel listing",
         "Up to 25 residents",
@@ -83,6 +84,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
       ctaHref: "/register-hostel",
       ctaLabel: "Get Started",
       description: "For growing hostels that need full operations.",
+      enabled: true,
       features: [
         "1 hostel listing",
         "Unlimited residents",
@@ -99,6 +101,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
       ctaHref: "/contact",
       ctaLabel: "Contact Sales",
       description: "For operators running multiple properties.",
+      enabled: true,
       features: [
         "Unlimited hostels",
         "Multi-property reporting",

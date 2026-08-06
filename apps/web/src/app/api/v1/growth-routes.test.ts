@@ -21,6 +21,8 @@ const routeMocks = vi.hoisted(() => ({
   listListingFlags: vi.fn(),
   listMaintenanceRequests: vi.fn(),
   listPlatformServiceProviders: vi.fn(),
+  loadApiPrincipal: vi.fn(),
+  requireApiPrincipal: vi.fn(),
   registerPublicServiceProvider: vi.fn(),
   rejectServiceProvider: vi.fn(),
   requireHostelCapability: vi.fn(),
@@ -33,6 +35,8 @@ const routeMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api-auth", () => ({
+  loadApiPrincipal: routeMocks.loadApiPrincipal,
+  requireApiPrincipal: routeMocks.requireApiPrincipal,
   requireHostelCapability: routeMocks.requireHostelCapability,
   requireHostelStaffPrincipal: routeMocks.requireHostelStaffPrincipal,
   requirePlatformPrincipal: routeMocks.requirePlatformPrincipal,
@@ -155,6 +159,14 @@ function request(
 describe("growth routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    routeMocks.loadApiPrincipal.mockResolvedValue(null);
+    // Provider registration needs a session — the account link is what the
+    // applicant's own status lookup and the ID card re-issue hang off.
+    routeMocks.requireApiPrincipal.mockResolvedValue({
+      hostelIds: [],
+      role: "PUBLIC",
+      userId: secondId,
+    });
     routeMocks.requireHostelStaffPrincipal.mockResolvedValue(staffPrincipal);
     routeMocks.requireHostelCapability.mockResolvedValue(staffPrincipal);
     routeMocks.requirePlatformPrincipal.mockResolvedValue(platformPrincipal);
@@ -226,6 +238,65 @@ describe("growth routes", () => {
     expect(hide.status).toBe(200);
     expect(adminList.status).toBe(200);
     expect(adminDetail.status).toBe(200);
+    expect(routeMocks.registerPublicServiceProvider).toHaveBeenCalledWith(
+      expect.anything(),
+      { userId: secondId },
+    );
+  });
+
+  /**
+   * The Google gate on the public form exists so the application belongs to an
+   * account: that link drives the applicant's own status lookup, the duplicate
+   * check, and the ID card the platform re-issues on approval. If the
+   * submitting account is not carried into the service, all three lose their
+   * target — so it is asserted rather than assumed.
+   */
+  it("links a public provider registration to the submitting account", async () => {
+    routeMocks.registerPublicServiceProvider.mockResolvedValue({
+      provider: { id: entityId },
+    });
+
+    const register = await publicServiceProviderRegisterRoute.POST(
+      request("/api/v1/public/service-providers/register", {
+        body: {
+          area: "Thamel",
+          category: "PLUMBER",
+          fullName: "Siddhant Yadav",
+          phone: "9841002300",
+        },
+        method: "POST",
+      }),
+    );
+
+    expect(register.status).toBe(201);
+    expect(routeMocks.registerPublicServiceProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ area: "Thamel" }),
+      { userId: secondId },
+    );
+  });
+
+  it("refuses an unauthenticated provider registration", async () => {
+    routeMocks.requireApiPrincipal.mockRejectedValue(
+      Object.assign(new Error("Authentication required."), {
+        errorCode: "UNAUTHENTICATED",
+        status: 401,
+      }),
+    );
+
+    const register = await publicServiceProviderRegisterRoute.POST(
+      request("/api/v1/public/service-providers/register", {
+        body: {
+          area: "Thamel",
+          category: "PLUMBER",
+          fullName: "Siddhant Yadav",
+          phone: "9841002300",
+        },
+        method: "POST",
+      }),
+    );
+
+    expect(register.status).not.toBe(201);
+    expect(routeMocks.registerPublicServiceProvider).not.toHaveBeenCalled();
   });
 
   it("handles maintenance requests", async () => {

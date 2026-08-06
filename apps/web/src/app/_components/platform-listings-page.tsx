@@ -91,7 +91,7 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
       try {
         const result = await browserApi<{
           notification?: { reason?: string; sent: boolean; to?: string };
-        }>(`${platformEndpoints.hostels}/${hostelId}/${next}`, {
+        }>(`${platformEndpoints.hostel(hostelId)}/${next}`, {
           body,
           method: "PATCH",
         });

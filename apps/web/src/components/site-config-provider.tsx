@@ -5,6 +5,8 @@ import { createContext, useContext, type ReactNode } from "react";
 import { DEFAULT_SITE_CONFIG } from "@/modules/platform-config/site-config.defaults";
 import type { PublicSiteConfig } from "@/modules/platform-config/site-config.service";
 
+export type { PublicSiteConfig };
+
 /**
  * Platform-owner-editable website content, fetched once on the server in the
  * public layout and handed to client components below it. Falls back to the
@@ -41,6 +43,14 @@ export function SiteConfigProvider({
 
 export function useSiteConfig() {
   return useContext(SiteConfigContext);
+}
+
+/**
+ * The owner-configured platform name as a drop-in JSX node, for the many spots
+ * that only need the word and would otherwise each grow a hook.
+ */
+export function SiteName() {
+  return <>{useSiteConfig().identity.siteName}</>;
 }
 
 /** Convenience reader for the most common check — a single feature flag. */

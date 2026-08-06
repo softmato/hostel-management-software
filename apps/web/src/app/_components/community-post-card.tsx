@@ -1,11 +1,13 @@
 "use client";
 
-import { ExternalLink, Flag, Megaphone, MoreHorizontal, Trash2 } from "lucide-react";
+import { ExternalLink, Flag, Megaphone, MoreHorizontal, Play, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CommunityReportDialog } from "@/app/_components/community-report-dialog";
+import { type LightboxItem } from "@/components/media-lightbox";
+import { useMediaViewer } from "@/components/media-viewer";
 import { browserApi } from "@/lib/browser-api";
 import { usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
@@ -149,45 +151,79 @@ export function mediaUrl(assetId: string, variant = "ORIGINAL") {
 /**
  * One image fills the card; several tile into a grid. Videos are never
  * autoplayed — a feed that starts talking to you is a feed you close.
+ *
+ * Every tile opens the same full-screen viewer the admin portal uses for
+ * hostel photos ({@link useMediaViewer}) rather than playing inline, so a
+ * video's own controls never fight the click for attention.
  */
 function MediaGrid({ media }: { media: CommunityMedia[] }) {
+  const { open: openViewer } = useMediaViewer();
+
   if (media.length === 0) {
     return null;
   }
+
+  const single = media.length === 1;
+  const items: LightboxItem[] = media.map((item) => ({
+    kind: item.kind === "VIDEO" ? "video" : "image",
+    src: mediaUrl(item.assetId, "ORIGINAL"),
+  }));
 
   return (
     <div
       className={cn(
         "mt-3 grid gap-1.5 overflow-hidden rounded-xl",
-        media.length === 1 ? "grid-cols-1" : "grid-cols-2",
+        single ? "grid-cols-1" : "grid-cols-2",
       )}
     >
-      {media.map((item, index) =>
-        item.kind === "VIDEO" ? (
-          <video
-            className="max-h-[520px] w-full rounded-lg bg-black object-contain"
-            controls
-            key={item.assetId}
-            playsInline
-            preload="metadata"
-            src={mediaUrl(item.assetId)}
-          />
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element -- see Avatar.
-          <img
-            alt=""
+      {media.map((item, index) => {
+        const isVideo = item.kind === "VIDEO";
+        // An odd last tile spans both columns rather than leaving a hole.
+        const spansBoth = !single && media.length % 2 === 1 && index === media.length - 1;
+
+        return (
+          <button
             className={cn(
-              "w-full rounded-lg object-cover",
-              media.length === 1 ? "max-h-[520px] object-contain" : "h-44",
-              // An odd last image spans both columns rather than leaving a hole.
-              media.length % 2 === 1 && index === media.length - 1 && "col-span-2 h-56",
+              "group relative block cursor-zoom-in overflow-hidden rounded-lg bg-black",
+              !single && (spansBoth ? "col-span-2 h-56" : "h-44"),
             )}
             key={item.assetId}
-            loading="lazy"
-            src={mediaUrl(item.assetId, media.length === 1 ? "LARGE" : "MEDIUM")}
-          />
-        ),
-      )}
+            onClick={() => openViewer(items, index)}
+            type="button"
+          >
+            {isVideo ? (
+              <video
+                className={cn(
+                  "w-full object-cover",
+                  single ? "max-h-[520px] object-contain" : "h-full",
+                )}
+                muted
+                playsInline
+                preload="metadata"
+                src={mediaUrl(item.assetId)}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- see Avatar.
+              <img
+                alt=""
+                className={cn(
+                  "w-full object-cover transition group-hover:brightness-95",
+                  single ? "max-h-[520px] object-contain" : "h-full",
+                )}
+                loading="lazy"
+                src={mediaUrl(item.assetId, single ? "LARGE" : "MEDIUM")}
+              />
+            )}
+            {isVideo ? (
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <span className="flex size-12 items-center justify-center rounded-full bg-black/45 transition group-hover:bg-black/60">
+                  <Play className="size-5 fill-white text-white" />
+                </span>
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }

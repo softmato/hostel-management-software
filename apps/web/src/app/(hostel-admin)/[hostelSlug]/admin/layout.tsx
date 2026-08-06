@@ -27,7 +27,6 @@ export default async function HostelAdminWorkspaceLayout({
   return (
     <PortalShell
       navGroups={navGroups}
-      portalName="HostelHub"
       searchEntries={searchEntriesFromNav(navGroups)}
       searchPlaceholder="Search residents, rooms, payments..."
       subtitle="Hostel Admin Portal"

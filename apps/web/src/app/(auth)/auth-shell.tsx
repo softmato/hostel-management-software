@@ -1,6 +1,10 @@
+"use client";
+
 import { ArrowLeft, BarChart3, Lock, Search, ShieldCheck, Star, Zap } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+
+import { useSiteConfig } from "@/components/site-config-provider";
 
 type AuthShellProps = {
   children: ReactNode;
@@ -10,7 +14,16 @@ type AuthShellProps = {
 const LOBBY_IMAGE =
   "https://lh3.googleusercontent.com/aida-public/AB6AXuAD0NmbtkszFG87IhrLCwa2eHWDmk4NxOgpfoid2_zjZOx8uWA_hMcSeKmVOMRSjh6cGCyLc1Z9nGlZcL0Ki792qNxyaYBty13f2J3WQOuXIX_srJKrKQdS6r3NM_RDpDB3vErb3M4AXliIEEDa0efsPzIkws2iSLR5sBqDWjn4m6sUtt9ldLyN6Qa-ajl1zvazFY7UZ_2dAjeEU277a2C041A_ZzYl0_2dfHrJqKF0tb0-ivW1NlN_H88HwOtS1kTCG90Xs6WE0dc";
 
-function HostelHubLogo() {
+/**
+ * Wordmark for the owner-configured site name. The first word stays ink and the
+ * remainder picks up the brand green, which reproduces the original
+ * "Hostel/Hub" lockup for any two-part name and degrades to plain ink for a
+ * single word.
+ */
+function SiteWordmark() {
+  const siteName = useSiteConfig().identity.siteName;
+  const [head, ...rest] = siteName.split(" ");
+
   return (
     <Link href="/" className="group flex items-center gap-2.5">
       <span className="flex items-center justify-center size-9 bg-[#0A8A4B]/12 rounded-xl transition group-hover:bg-[#0A8A4B]/20">
@@ -30,7 +43,8 @@ function HostelHubLogo() {
         </svg>
       </span>
       <span className="font-heading text-[22px] font-extrabold tracking-tight text-[#0F172A]">
-        Hostel<span className="text-[#0A8A4B]">Hub</span>
+        {head}
+        {rest.length ? <span className="text-[#0A8A4B]"> {rest.join(" ")}</span> : null}
       </span>
     </Link>
   );
@@ -38,6 +52,7 @@ function HostelHubLogo() {
 
 export function AuthShell({ children, mode }: AuthShellProps) {
   const isLogin = mode === "login";
+  const siteName = useSiteConfig().identity.siteName;
 
   return (
     <main
@@ -64,7 +79,7 @@ export function AuthShell({ children, mode }: AuthShellProps) {
             />
           </div>
 
-          <HostelHubLogo />
+          <SiteWordmark />
 
           {isLogin ? (
             /* Login left content */
@@ -75,7 +90,7 @@ export function AuthShell({ children, mode }: AuthShellProps) {
                 Let&apos;s get you logged in.
               </h1>
               <p className="mt-3 text-[13px] text-slate-500 leading-relaxed max-w-[380px]">
-                HostelHub is the all-in-one platform to discover, manage, and grow your
+                {siteName} is the all-in-one platform to discover, manage, and grow your
                 hostel operations.
               </p>
 
@@ -201,7 +216,7 @@ export function AuthShell({ children, mode }: AuthShellProps) {
             <Link href="/pricing" className="hover:text-slate-600 transition">
               Help Center
             </Link>
-            <span>&copy; 2026 HostelHub. All rights reserved.</span>
+            <span>&copy; 2026 {siteName}. All rights reserved.</span>
           </div>
         ) : (
           <div className="flex items-center gap-1">

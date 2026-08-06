@@ -16,6 +16,7 @@ import { memo, useCallback, useState, type FormEvent } from "react";
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
 import { Message } from "./resident-shared";
+import { SiteName } from "@/components/site-config-provider";
 
 export const ResidentActivationPageContent = memo(
   function ResidentActivationPageContent() {
@@ -424,7 +425,7 @@ export const ResidentActivationPageContent = memo(
 
         {/* Footer */}
         <footer className="text-center text-[10px] text-slate-400 font-semibold border-t border-slate-100 py-4 flex items-center justify-center gap-3 bg-white mt-8 select-none">
-          <span>&copy; 2026 HostelHub Platform. All rights reserved.</span>
+          <span>&copy; 2026 <SiteName /> Platform. All rights reserved.</span>
           <span className="text-slate-200">|</span>
           <span className="flex items-center gap-1">
             Made with <span className="text-red-500">❤️</span> in Nepal 🇳🇵

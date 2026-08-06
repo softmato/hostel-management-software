@@ -74,6 +74,8 @@ export const pricingSchema = z
       ctaHref: trimmed.max(200).default("/register-hostel"),
       ctaLabel: trimmed.max(40).default("Get Started"),
       description: trimmed.max(200).default(""),
+      /** Off plans stay saved but are dropped from every public projection. */
+      enabled: z.boolean().default(true),
       features: z.array(trimmed.min(1).max(120)).max(20).default([]),
       highlighted: z.boolean().default(false),
       name: trimmed.min(1).max(60),

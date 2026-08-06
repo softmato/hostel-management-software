@@ -1,14 +1,15 @@
 "use client";
 
 import { PublicShell } from "@/app/_components/shared";
+import { useSiteConfig } from "@/components/site-config-provider";
 import { Building2, Shield, Users, Target, Eye, Heart } from "lucide-react";
 
-const values = [
+const buildValues = (siteName: string) => [
   {
     icon: Shield,
     title: "Trust & Transparency",
     content:
-      "We believe every student deserves honest, verified information about their accommodation. Every listing on HostelHub goes through a verification process to ensure accuracy.",
+      `We believe every student deserves honest, verified information about their accommodation. Every listing on ${siteName} goes through a verification process to ensure accuracy.`,
   },
   {
     icon: Users,
@@ -32,7 +33,7 @@ const values = [
     icon: Heart,
     title: "Community",
     content:
-      "HostelHub connects not just students to hostels, but also families, guardians, and local service providers into one trusted network.",
+      `${siteName} connects not just students to hostels, but also families, guardians, and local service providers into one trusted network.`,
   },
   {
     icon: Building2,
@@ -43,6 +44,9 @@ const values = [
 ];
 
 export function PublicAboutPage() {
+  const siteName = useSiteConfig().identity.siteName;
+  const values = buildValues(siteName);
+
   return (
     <PublicShell>
       <div className="mx-auto max-w-3xl px-6 py-20">
@@ -52,7 +56,7 @@ export function PublicAboutPage() {
             <Building2 className="size-7 text-primary" />
           </div>
           <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground">
-            About HostelHub
+            About {siteName}
           </h1>
           <p className="mt-3 text-muted-foreground">
             Our mission, our values, and the team behind Nepal&apos;s hostel platform
@@ -63,13 +67,13 @@ export function PublicAboutPage() {
         {/* Intro */}
         <div className="mb-14 text-sm leading-relaxed text-muted-foreground">
           <p>
-            HostelHub was founded with a simple goal — make finding and managing student
+            {siteName} was founded with a simple goal — make finding and managing student
             accommodation in Nepal easy, transparent, and trustworthy. What started as a
             directory has grown into a full-featured platform serving students, hostel
             owners, wardens, and guardians across the country.
           </p>
           <p className="mt-4">
-            Today, HostelHub powers hundreds of verified hostel listings, processes
+            Today, {siteName} powers hundreds of verified hostel listings, processes
             thousands of inquiries every month, and provides hostel teams with modern
             tools to manage rooms, residents, payments, food quality, and safety.
           </p>

@@ -20,7 +20,6 @@ export default async function PlatformLayout({
   return (
     <PortalShell
       navGroups={isModerator ? PLATFORM_MODERATOR_NAV : PLATFORM_NAV}
-      portalName="HostelHub"
       searchEntries={
         isModerator ? PLATFORM_MODERATOR_SEARCH_ENTRIES : PLATFORM_SEARCH_ENTRIES
       }

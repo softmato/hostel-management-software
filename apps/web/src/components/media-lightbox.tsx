@@ -341,7 +341,7 @@ export function MediaLightbox({
 
       {total > 1 ? (
         <div
-          className="no-scrollbar flex shrink-0 gap-2 overflow-x-auto px-4 pb-4"
+          className="no-scrollbar flex shrink-0 justify-center-safe gap-2 overflow-x-auto px-4 pb-4"
           onClick={(event) => event.stopPropagation()}
         >
           {items.map((item, itemIndex) => (

@@ -17,7 +17,6 @@ const STATIC_ROUTES: {
   { path: "/compare", priority: 0.6, changeFrequency: "weekly" },
   { path: "/register-hostel", priority: 0.7, changeFrequency: "monthly" },
   { path: "/service-providers", priority: 0.6, changeFrequency: "weekly" },
-  { path: "/service-providers/register", priority: 0.5, changeFrequency: "monthly" },
   { path: "/about", priority: 0.4, changeFrequency: "monthly" },
   { path: "/contact", priority: 0.4, changeFrequency: "monthly" },
   { path: "/pricing", priority: 0.5, changeFrequency: "monthly" },

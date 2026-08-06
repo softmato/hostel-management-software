@@ -402,6 +402,7 @@ export function PublicShell({
     | "browse"
     | "community"
     | "compare"
+    | "jobs"
     | "pricing"
     | "providers"
     | "register-hostel";

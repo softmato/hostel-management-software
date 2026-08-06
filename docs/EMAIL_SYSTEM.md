@@ -712,10 +712,12 @@ shape:
 ```
 Unlike the Cook Portal email (sent to the hostel admin, because a shared
 kitchen account has no real mailbox), this goes straight to the provider's
-own inbox — it *is* the Google account they just registered with. Content
-adds: the temporary password, "you'll be asked to choose your own password
-the first time you log in," and that the app (not the website) is where jobs
-appear.
+own inbox — it *is* the Google account they just registered with. Tone is
+a congratulations, not a formal notice: "You're approved — your card is
+ready, and here's how to log in." Content adds: the temporary password,
+"you'll be asked to choose your own password the first time you log in,"
+that the "Pending approval" tag on their card is gone now, and that the app
+(not the website) is where jobs appear.
 
 ---
 

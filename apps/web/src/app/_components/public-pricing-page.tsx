@@ -84,7 +84,8 @@ import {
 function PublicPricingPageContent() {
   // Plans come from Platform → Website Config → Pricing Plans, so the owner can
   // change tiers without a deploy.
-  const { pricing } = useSiteConfig();
+  const { identity, pricing } = useSiteConfig();
+  const siteName = identity.siteName;
 
   const plans = pricing.map((plan) => ({
     ctaHref: plan.ctaHref,
@@ -215,7 +216,7 @@ function PublicPricingPageContent() {
               </thead>
               <tbody className="divide-y divide-border/60 text-muted-foreground">
                 {[
-                  ["Public Hostel Listing on HostelHub", true, true, true],
+                  [`Public Hostel Listing on ${siteName}`, true, true, true],
                   ["Resident Management & Room Allocation", true, true, true],
                   ["Fee Tracking & Payments Receipts", true, true, true],
                   ["Food Menu Management", true, true, true],
@@ -280,10 +281,10 @@ function PublicPricingPageContent() {
         <div className="rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-6 md:p-8 flex flex-col md:flex-row justify-between items-center gap-6 text-left">
           <div>
             <h4 className="font-bold text-lg text-foreground">
-              Ready to grow your hostel with HostelHub?
+              Ready to grow your hostel with {siteName}?
             </h4>
             <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-              Join thousands of hostel owners across Nepal who trust HostelHub to manage
+              Join thousands of hostel owners across Nepal who trust {siteName} to manage
               room inventory, track resident monthly fees, issue digital notices, and
               publish listings.
             </p>

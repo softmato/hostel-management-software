@@ -51,6 +51,8 @@ import {
   roomTypeLabel,
   type PublicHostel,
 } from "./public-hostel-data";
+import { SiteName } from "@/components/site-config-provider";
+import { useSiteConfig } from "@/components/site-config-provider";
 
 const GALLERY_PAGE_SIZE = 12;
 
@@ -164,6 +166,7 @@ function iconForFacility(label: string): LucideIcon {
 }
 
 export function PublicHostelDetailPage() {
+  const siteName = useSiteConfig().identity.siteName;
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const [hostel, setHostel] = useState<PublicHostel | null>(null);
@@ -636,7 +639,7 @@ export function PublicHostelDetailPage() {
               </div>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
                 {hostelSummary.description ||
-                  "This verified hostel is published on HostelHub."}
+                  `This verified hostel is published on ${siteName}.`}
               </p>
             </div>
             <div className="flex items-center gap-2 text-lg font-bold text-warning">
@@ -1107,7 +1110,8 @@ export function PublicHostelDetailPage() {
               <div>
                 <p className="font-extrabold text-brand-teal">Safe, Verified & Trusted</p>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  This hostel is verified by HostelHub for your safety and security.
+                  This hostel is verified by <SiteName /> for your safety and
+                  security.
                 </p>
               </div>
             </div>

@@ -45,6 +45,13 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@hostel/db", "@hostel/shared"],
+  /**
+   * `@napi-rs/canvas` ships a prebuilt `.node` binary and must be `require`d
+   * from node_modules at runtime, not bundled. Without this the ID-card
+   * renderer fails silently inside Next — it works under vitest, which does no
+   * bundling, so the gap only shows up in the running app.
+   */
+  serverExternalPackages: ["@napi-rs/canvas"],
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];
   },

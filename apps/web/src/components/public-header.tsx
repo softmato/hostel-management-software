@@ -16,6 +16,7 @@ import {
   requestResidentQr,
 } from "@/components/resident-identity";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useSessionStore, type SessionUser } from "@/stores/session-store";
 
 type PublicHeaderProps = {
   active?:
@@ -26,6 +27,7 @@ type PublicHeaderProps = {
     | "compare"
     | "contact"
     | "home"
+    | "jobs"
     | "pricing"
     | "privacy"
     | "providers"
@@ -33,14 +35,7 @@ type PublicHeaderProps = {
     | "terms";
 };
 
-type CurrentUser = {
-  email: string | null;
-  image: string | null;
-  name: string;
-  role: Role;
-  /** Null until they save their resident profile for the first time. */
-  userResidentId: string | null;
-};
+type CurrentUser = SessionUser;
 
 type MeResponse =
   | {
@@ -83,6 +78,18 @@ const navItems = [
   { href: "/service-providers", id: "providers", label: "Service Providers" },
 ] as const;
 
+/**
+ * An approved provider gets the same header, not a portal — but the
+ * hostel-shopping tabs are noise to them: they are not browsing, comparing or
+ * listing a hostel, and they cannot register as a provider twice. Those four
+ * give way to the one thing they came for.
+ */
+const providerNavItems = [
+  { href: "/", id: "home", label: "Home" },
+  { href: "/jobs", id: "jobs", label: "Jobs" },
+  { href: "/community", id: "community", label: "Community" },
+] as const;
+
 const moreItems = [
   { href: "/blog", id: "blog", label: "Blog" },
   { href: "/about", id: "about", label: "About Us" },
@@ -93,11 +100,17 @@ const moreItems = [
 
 export function PublicHeader({ active }: PublicHeaderProps) {
   const router = useRouter();
-  const [isSessionChecked, setIsSessionChecked] = useState(false);
-  const [user, setUser] = useState<CurrentUser | null>(null);
+  // Read from the shared session cache, so a remount on navigation paints the
+  // right header at once instead of starting over from "signed out".
+  const user = useSessionStore((state) => state.user);
+  const setUser = useSessionStore((state) => state.setUser);
+  const isSessionChecked = useSessionStore((state) => state.status === "resolved");
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Comes with the session in the same request, so there is no second lookup to
+  // wait on and no window where the wrong tabs are on screen.
+  const items = user?.isServiceProvider ? providerNavItems : navItems;
 
   const loadCurrentUser = useCallback(async () => {
     try {
@@ -112,10 +125,8 @@ export function PublicHeader({ active }: PublicHeaderProps) {
       setUser(payload.data.user);
     } catch {
       setUser(null);
-    } finally {
-      setIsSessionChecked(true);
     }
-  }, []);
+  }, [setUser]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -179,7 +190,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
         </Link>
 
         <nav className="hidden h-full items-center gap-6 text-sm font-medium text-foreground md:flex">
-          {navItems.map((item) => (
+          {items.map((item) => (
             <Link
               key={item.id}
               href={item.href}
@@ -279,7 +290,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                         className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground transition hover:bg-muted"
                       >
                         <QrCode className="size-4" />
-                        Resident ID card
+                        {user.isServiceProvider ? "Provider ID card" : "Resident ID card"}
                       </button>
                     ) : (
                       <button

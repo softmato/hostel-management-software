@@ -8,11 +8,17 @@ import { escapeRegex } from "@/lib/validators";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { ServiceProviderApplicationModel } from "@hostel/db/models/ServiceProviderApplication";
 import { ServiceProviderDocumentModel } from "@hostel/db/models/ServiceProviderDocument";
+import { HostelModel } from "@hostel/db/models/Hostel";
+import { MaintenanceRequestModel } from "@hostel/db/models/MaintenanceRequest";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
+import { UserModel } from "@hostel/db/models/User";
 import { appUrl, sendNotificationEmail } from "@/modules/residents/resident-notify";
 import { serviceProviderApprovedEmail } from "@hostel/shared/email/templates/service-provider/provider-approved";
 import { serviceProviderRegistrationReceivedEmail } from "@hostel/shared/email/templates/service-provider/registration-received";
 import { serviceProviderRejectedEmail } from "@hostel/shared/email/templates/service-provider/provider-rejected";
+import { loadSiteConfig } from "@/lib/site-config-server";
+import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
+import { normalizeProviderCategories } from "@/modules/service-providers/service-provider.validation";
 import type {
   hostelAdminServiceProviderListQuerySchema,
   platformServiceProviderListQuerySchema,
@@ -20,6 +26,26 @@ import type {
   serviceProviderRegisterSchema,
   serviceProviderRejectSchema,
 } from "@/modules/service-providers/service-provider.validation";
+
+type MaintenanceJobRecord = {
+  _id: Types.ObjectId;
+  category: string;
+  createdAt?: Date;
+  description?: string;
+  hostelId: Types.ObjectId;
+  location?: string;
+  priority: string;
+  scheduledFor?: Date;
+  status: string;
+  title: string;
+};
+
+type HostelContactRecord = {
+  _id: Types.ObjectId;
+  contact?: { phone?: string };
+  location?: { area?: string; city?: string };
+  name: string;
+};
 
 type ServiceProviderRegisterInput = z.infer<typeof serviceProviderRegisterSchema>;
 type PlatformServiceProviderListQuery = z.infer<
@@ -46,6 +72,7 @@ type ServiceProviderRecord = {
   approvedBy?: Types.ObjectId;
   area: string;
   availability?: string;
+  categories?: string[];
   category: string;
   city?: string;
   createdAt?: Date;
@@ -64,6 +91,8 @@ type ServiceProviderRecord = {
   rejectionReason?: string;
   status: ServiceProviderStatus;
   updatedAt?: Date;
+  /** Account that submitted the public application — the upgrade target on approval. */
+  userId?: Types.ObjectId;
 };
 
 type ServiceProviderApplicationRecord = {
@@ -76,6 +105,7 @@ type ServiceProviderApplicationRecord = {
 
 type ServiceProviderDocumentRecord = {
   _id: Types.ObjectId;
+  createdAt?: Date;
   documentType: string;
   fileAssetId?: Types.ObjectId;
   fileUrl?: string;
@@ -101,11 +131,30 @@ function normalizeObjectId(value: string, label = "id") {
   return new Types.ObjectId(value);
 }
 
+/**
+ * Matches a provider on any trade they work in, not just their headline one.
+ * `categories` holds the full list on multi-trade records; older records have
+ * only the `category` scalar, so both are checked. Since `category` is always
+ * `categories[0]`, this never double-counts.
+ */
+function categoryMatchFilter(category: string) {
+  return { $or: [{ categories: category }, { category }] };
+}
+
+/** All trades a provider works in, tolerating pre-multi-trade records. */
+function providerCategories(provider: ServiceProviderRecord) {
+  return provider.categories?.length ? provider.categories : [provider.category];
+}
+
 /** `DOCTOR_CLINIC` → `Doctor clinic`, for email copy. */
 function providerCategoryLabel(category: string) {
   const words = category.toLowerCase().split("_");
 
-  return words.map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word)).join(" ");
+  return words
+    .map((word, index) =>
+      index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word,
+    )
+    .join(" ");
 }
 
 function serializeProvider(provider: ServiceProviderRecord) {
@@ -114,6 +163,7 @@ function serializeProvider(provider: ServiceProviderRecord) {
     approvedBy: provider.approvedBy?.toString(),
     area: provider.area,
     availability: provider.availability ?? "",
+    categories: providerCategories(provider),
     category: provider.category,
     city: provider.city ?? "Kathmandu",
     createdAt: provider.createdAt?.toISOString(),
@@ -152,8 +202,11 @@ function serializeApplication(application: ServiceProviderApplicationRecord | nu
 
 function serializeDocument(document: ServiceProviderDocumentRecord) {
   return {
+    // The review table shows when each file arrived — a licence uploaded weeks
+    // after the application is worth a second look.
+    createdAt: document.createdAt?.toISOString() ?? null,
     documentType: document.documentType,
-    fileAssetId: document.fileAssetId?.toString(),
+    fileAssetId: document.fileAssetId?.toString() ?? null,
     fileUrl: document.fileUrl ?? "",
     id: document._id.toString(),
     providerId: document.providerId.toString(),
@@ -214,13 +267,128 @@ async function providerBundle(provider: ServiceProviderRecord) {
   };
 }
 
-export async function registerPublicServiceProvider(input: ServiceProviderRegisterInput) {
+/**
+ * Statuses that mean "this account already has an application in play". A
+ * REJECTED provider may apply again; the others may not.
+ */
+const ACTIVE_APPLICATION_STATUSES = [
+  "PENDING_APPROVAL",
+  "APPROVED",
+  "HIDDEN",
+  "INACTIVE",
+] as const;
+
+/**
+ * Finds an account's application by the `userId` link *or* by its verified email.
+ *
+ * The email fallback matters for records created before the `userId` link
+ * existed: without it they would be invisible to the very person who applied —
+ * they would see "become a service provider" while the platform portal showed
+ * their application sitting in Pending. New applications always carry a
+ * `userId`, since the register route requires a session.
+ *
+ * The email comes from the account record, not from anything the caller sent, so
+ * this cannot be used to read someone else's application.
+ */
+async function findOwnProvider(userId: string, filter: Record<string, unknown> = {}) {
+  const objectId = normalizeObjectId(userId, "user id");
+  const account = await UserModel.findById(objectId).select("email").lean<{
+    email?: string;
+  } | null>();
+  const email = account?.email?.trim().toLowerCase();
+
+  return ServiceProviderModel.findOne({
+    ...filter,
+    isDeleted: false,
+    $or: [{ userId: objectId }, ...(email ? [{ email }] : [])],
+  })
+    .sort({ createdAt: -1 })
+    .lean<ServiceProviderRecord | null>();
+}
+
+/**
+ * The signed-in account's own application, or `null` if it has never applied.
+ * Drives the status panel on the public registration landing page, so a returning
+ * applicant sees "under review" instead of a form they would only duplicate.
+ */
+export async function getOwnServiceProviderApplication(userId: string) {
   await connectToDatabase();
 
+  const provider = await findOwnProvider(userId);
+
+  if (!provider) {
+    return { provider: null };
+  }
+
+  // Matched by email on a record that predates the account link — adopt it now,
+  // so approval has a concrete account to upgrade instead of just an address.
+  if (!provider.userId) {
+    await ServiceProviderModel.updateOne(
+      { _id: provider._id, userId: { $exists: false } },
+      { $set: { userId: normalizeObjectId(userId, "user id") } },
+    );
+  }
+
+  const documentCount = await ServiceProviderDocumentModel.countDocuments({
+    isDeleted: false,
+    providerId: provider._id,
+  });
+
+  // Everything here is what this account itself submitted, so it is safe to hand
+  // back — it is what the "view submitted details" panel shows. Nothing derived
+  // from moderation beyond the status and the rejection reason is included.
+  return {
+    provider: {
+      area: provider.area,
+      availability: provider.availability ?? "",
+      categories: providerCategories(provider),
+      category: provider.category,
+      city: provider.city ?? "Kathmandu",
+      description: provider.description ?? "",
+      documentCount,
+      email: provider.email ?? "",
+      experience: provider.experience ?? "",
+      fullName: provider.fullName,
+      id: provider._id.toString(),
+      phone: provider.phone,
+      rejectionReason: provider.rejectionReason ?? "",
+      status: provider.status,
+      submittedAt: provider.createdAt?.toISOString(),
+    },
+  };
+}
+
+export async function registerPublicServiceProvider(
+  input: ServiceProviderRegisterInput,
+  options: { userId: string },
+) {
+  await connectToDatabase();
+
+  // The Google gate means a repeat submission is nearly always a double-click or
+  // a re-opened tab, not a second business — one account, one live application.
+  // Matches on the email too, for the same reason the status lookup does —
+  // otherwise someone whose earlier application predates the `userId` link
+  // could file a second one against the same address.
+  const existing = await findOwnProvider(options.userId, {
+    status: { $in: ACTIVE_APPLICATION_STATUSES },
+  });
+
+  if (existing) {
+    throw new ServiceProviderServiceError(
+      existing.status === "PENDING_APPROVAL"
+        ? "You already have an application under review."
+        : "This account is already registered as a service provider.",
+      "SERVICE_PROVIDER_ALREADY_REGISTERED",
+      409,
+    );
+  }
+
+  const { categories, category } = normalizeProviderCategories(input);
   const provider = (await ServiceProviderModel.create({
     area: input.area,
     availability: input.availability,
-    category: input.category,
+    categories,
+    category,
     city: input.city,
     description: input.description,
     email: input.email,
@@ -229,12 +397,14 @@ export async function registerPublicServiceProvider(input: ServiceProviderRegist
     phone: input.phone,
     photoAssetId: input.photoAssetId,
     status: "PENDING_APPROVAL",
+    userId: options.userId,
   })) as ServiceProviderRecord;
   const application = await ServiceProviderApplicationModel.create({
     providerId: provider._id,
     snapshot: {
       area: input.area,
-      category: input.category,
+      categories,
+      category,
       city: input.city,
       fullName: input.fullName,
       phone: input.phone,
@@ -293,7 +463,7 @@ export async function listPlatformServiceProviders(
   }
 
   if (query.category) {
-    filter.category = query.category;
+    Object.assign(filter, categoryMatchFilter(query.category));
   }
 
   if (query.status) {
@@ -392,12 +562,14 @@ async function updateProviderStatus(
   // EMAIL_SYSTEM.md §6.2 / §6.3. HIDDEN is deliberately silent — hiding is a
   // moderation action, not a decision the provider is owed an email about.
   if (provider.email && (status === "APPROVED" || status === "REJECTED")) {
+    const { identity: siteIdentity } = await loadSiteConfig();
     const email =
       status === "APPROVED"
         ? serviceProviderApprovedEmail({
             category: providerCategoryLabel(provider.category),
-            directoryUrl: appUrl("/service-providers"),
             fullName: provider.fullName,
+            jobsUrl: appUrl("/jobs"),
+            siteName: siteIdentity.siteName,
           })
         : serviceProviderRejectedEmail({
             fullName: provider.fullName,
@@ -412,7 +584,74 @@ async function updateProviderStatus(
     });
   }
 
+  // Approval re-issues any ID card this account already holds as a provider
+  // card — the conversion the registration form warned them about. Records that
+  // predate the `userId` link have no account to re-issue against.
+  if (status === "APPROVED" && provider.userId) {
+    await sendIdCardEmail(provider.userId.toString(), "SERVICE_PROVIDER");
+  }
+
   return providerBundle(provider);
+}
+
+/**
+ * The jobs a hostel has assigned to the signed-in provider.
+ *
+ * The provider's only web surface: they have no portal and no hostel scope, so
+ * this reads through their own approved provider record and returns nothing at
+ * all for anyone else — an unapproved or non-provider account gets an empty
+ * list rather than an error, because "no jobs" is exactly what they have.
+ *
+ * Hostel name, area and phone ride along because a job with no way to reach the
+ * hostel is not actionable. Nothing about residents is included: a maintenance
+ * job is about a place, not the people living in it.
+ */
+export async function listOwnServiceProviderJobs(userId: string) {
+  await connectToDatabase();
+
+  const provider = await findOwnProvider(userId, { status: "APPROVED" });
+
+  if (!provider) {
+    return { jobs: [] };
+  }
+
+  const requests = await MaintenanceRequestModel.find({
+    isDeleted: false,
+    providerId: provider._id,
+  })
+    .sort({ createdAt: -1 })
+    .limit(100)
+    .lean<MaintenanceJobRecord[]>();
+
+  const hostels = await HostelModel.find({
+    _id: { $in: requests.map((request) => request.hostelId) },
+  })
+    .select("contact location name")
+    .lean<HostelContactRecord[]>();
+
+  const hostelById = new Map(hostels.map((hostel) => [hostel._id.toString(), hostel]));
+
+  return {
+    jobs: requests.map((request) => {
+      const hostel = hostelById.get(request.hostelId.toString());
+
+      return {
+        category: request.category,
+        createdAt: request.createdAt?.toISOString() ?? null,
+        description: request.description ?? "",
+        hostelArea: hostel?.location?.area ?? "",
+        hostelCity: hostel?.location?.city ?? "",
+        hostelName: hostel?.name ?? "A hostel",
+        hostelPhone: hostel?.contact?.phone ?? "",
+        id: request._id.toString(),
+        location: request.location ?? "",
+        priority: request.priority,
+        scheduledFor: request.scheduledFor?.toISOString() ?? null,
+        status: request.status,
+        title: request.title,
+      };
+    }),
+  };
 }
 
 export function approveServiceProvider(providerId: string, principal: ApiPrincipal) {
@@ -456,18 +695,28 @@ export async function listApprovedServiceProvidersForHostel(
     filter.area = new RegExp(escapeRegex(query.area), "i");
   }
 
+  // Both clauses below want `$or`, so they are combined under `$and` rather than
+  // assigned to `filter.$or` in turn — the second would silently drop the first.
+  const conditions: Record<string, unknown>[] = [];
+
   if (query.category) {
-    filter.category = query.category;
+    conditions.push(categoryMatchFilter(query.category));
   }
 
   if (query.q) {
     const pattern = new RegExp(escapeRegex(query.q), "i");
-    filter.$or = [
-      { fullName: pattern },
-      { phone: pattern },
-      { area: pattern },
-      { description: pattern },
-    ];
+    conditions.push({
+      $or: [
+        { fullName: pattern },
+        { phone: pattern },
+        { area: pattern },
+        { description: pattern },
+      ],
+    });
+  }
+
+  if (conditions.length > 0) {
+    filter.$and = conditions;
   }
 
   const { limit, skip } = paginationRange(query);
@@ -497,6 +746,7 @@ function serializePublicProvider(provider: ServiceProviderRecord) {
   return {
     area: provider.area,
     availability: provider.availability ?? "",
+    categories: providerCategories(provider),
     category: provider.category,
     city: provider.city ?? "Kathmandu",
     description: provider.description ?? "",
@@ -529,18 +779,36 @@ export async function listPublicServiceProviders(query: PublicServiceProviderLis
     scopeFilter.city = new RegExp(escapeRegex(query.city), "i");
   }
 
-  const [providers, counts] = await Promise.all([
+  const [providers, counts, total] = await Promise.all([
     ServiceProviderModel.find({
       ...scopeFilter,
-      ...(query.category ? { category: query.category } : {}),
+      ...(query.category ? categoryMatchFilter(query.category) : {}),
     })
       .sort({ category: 1, area: 1, fullName: 1 })
       .limit(120)
       .lean<ServiceProviderRecord[]>(),
+    // A multi-trade provider counts once under each trade they work in, so the
+    // list is unwound before grouping. `$ifNull` covers pre-multi-trade records,
+    // which carry only the scalar.
     ServiceProviderModel.aggregate<{ _id: string; count: number }>([
       { $match: scopeFilter },
+      {
+        $project: {
+          category: {
+            $cond: [
+              { $gt: [{ $size: { $ifNull: ["$categories", []] } }, 0] },
+              "$categories",
+              ["$category"],
+            ],
+          },
+        },
+      },
+      { $unwind: "$category" },
       { $group: { _id: "$category", count: { $sum: 1 } } },
     ]),
+    // Counted separately: summing the per-category counts would count a
+    // two-trade provider twice, and this drives the "registered providers" stat.
+    ServiceProviderModel.countDocuments(scopeFilter),
   ]);
 
   const countsByCategory = counts.reduce<Record<string, number>>((totals, entry) => {
@@ -551,8 +819,20 @@ export async function listPublicServiceProviders(query: PublicServiceProviderLis
   return {
     countsByCategory,
     providers: providers.map(serializePublicProvider),
-    total: counts.reduce((sum, entry) => sum + entry.count, 0),
+    total,
   };
+}
+
+/**
+ * Full application for the platform review panel — every field the applicant
+ * submitted plus their uploaded documents. Unlike the hostel-facing read this
+ * one is status-agnostic: the whole point is reviewing a provider who is *not*
+ * approved yet.
+ */
+export async function getPlatformServiceProvider(providerId: string) {
+  await connectToDatabase();
+
+  return providerBundle(await findProviderOrThrow(providerId));
 }
 
 export async function getApprovedServiceProviderForHostel(providerId: string) {

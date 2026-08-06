@@ -1,25 +1,31 @@
 "use client";
 
 import { PublicShell } from "@/app/_components/shared";
+import {
+  useSiteConfig,
+  type PublicSiteConfig,
+} from "@/components/site-config-provider";
 import { Mail, Phone, MapPin, Clock, MessageSquare, HelpCircle } from "lucide-react";
 
-const contactMethods = [
+type SiteIdentity = PublicSiteConfig["identity"];
+
+const buildContactMethods = (identity: SiteIdentity) => [
   {
     icon: Mail,
     title: "Email",
-    details: ["support@hostelhub.com", "hello@hostelhub.com"],
+    details: [identity.supportEmail].filter(Boolean),
     description: "We respond within 24 hours on business days.",
   },
   {
     icon: Phone,
     title: "Phone",
-    details: ["+977-1-5971234", "+977-1-5971235"],
+    details: [identity.supportPhone].filter(Boolean),
     description: "Available Monday to Friday, 9 AM — 5 PM NPT.",
   },
   {
     icon: MapPin,
     title: "Office",
-    details: ["Kathmandu, Nepal", "Near Durbar Marg, 44600"],
+    details: [identity.address].filter(Boolean),
     description: "Walk-ins welcome during business hours.",
   },
   {
@@ -30,7 +36,7 @@ const contactMethods = [
   },
 ];
 
-const faqs = [
+const buildFaqs = (siteName: string) => [
   {
     question: "How do I create an account?",
     answer:
@@ -52,13 +58,18 @@ const faqs = [
       "Use the inquiry system on the hostel detail page, or reach out to our support team directly via email or phone.",
   },
   {
-    question: "Is my data secure on HostelHub?",
+    question: `Is my data secure on ${siteName}?`,
     answer:
       "Absolutely. We use encryption for all data in transit and at rest, and we never share your personal information with third parties without your consent.",
   },
 ];
 
 export function PublicContactPage() {
+  // Support channels come from Platform → Website Config → Site Identity.
+  const { identity } = useSiteConfig();
+  const contactMethods = buildContactMethods(identity);
+  const faqs = buildFaqs(identity.siteName);
+
   return (
     <PublicShell>
       <div className="mx-auto max-w-3xl px-6 py-20">
@@ -71,7 +82,7 @@ export function PublicContactPage() {
             Contact Us
           </h1>
           <p className="mt-3 text-muted-foreground">
-            We are here to help — get in touch with the HostelHub team
+            We are here to help — get in touch with the {identity.siteName} team
           </p>
           <div className="mx-auto mt-4 h-px max-w-xs bg-border" />
         </div>

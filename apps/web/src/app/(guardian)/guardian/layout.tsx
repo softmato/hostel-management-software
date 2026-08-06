@@ -9,7 +9,6 @@ export default function GuardianLayout({
   return (
     <PortalShell
       navGroups={GUARDIAN_NAV}
-      portalName="HostelHub"
       searchEntries={GUARDIAN_SEARCH_ENTRIES}
       searchPlaceholder="Search notices, payments..."
       subtitle="Guardian Portal"

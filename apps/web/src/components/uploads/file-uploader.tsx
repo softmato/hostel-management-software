@@ -3,6 +3,7 @@
 import { FileText, ImageIcon, Loader2, Paperclip, Upload, X } from "lucide-react";
 import { useCallback, useId, useState, type DragEvent } from "react";
 
+import { PhotoCropper } from "@/components/photo-cropper";
 import { formatBytes } from "@/lib/uploads/accepts";
 import { cn } from "@/lib/utils";
 import {
@@ -29,6 +30,15 @@ export type UploaderTone = "admin" | "brand" | "resident";
 
 export type FileUploaderPresentation = {
   className?: string;
+  /**
+   * Run picked images through the square crop-and-zoom step before uploading.
+   *
+   * Use it wherever the image is shown at a fixed shape later — a card portrait,
+   * an avatar — so the person frames it themselves instead of discovering the
+   * app cropped their head off. Non-image files bypass the cropper and upload
+   * as they are.
+   */
+  cropImages?: boolean;
   disabled?: boolean;
   hint?: string;
   label?: string;
@@ -66,6 +76,25 @@ const TONE_CLASSES = {
   },
 } as const;
 
+/**
+ * Where to read a just-uploaded asset back from, for the thumbnail.
+ *
+ * Multipart uploads hand back a directly readable `url`; asset uploads land in
+ * private storage and are read through the files endpoint, which signs a URL for
+ * the requested variant. Anything else has nothing to show.
+ */
+function previewSrc(file: UploadedAsset) {
+  if (!file.mimeType.startsWith("image/") && !file.mimeType.startsWith("video/")) {
+    return null;
+  }
+
+  if (file.url) {
+    return file.url;
+  }
+
+  return file.assetId ? `/api/v1/files/${file.assetId}/url?variant=THUMBNAIL` : null;
+}
+
 function AttachedFile({
   file,
   onRemove,
@@ -76,17 +105,30 @@ function AttachedFile({
   tone: (typeof TONE_CLASSES)[UploaderTone];
 }) {
   const Icon = file.mimeType.startsWith("image/") ? ImageIcon : FileText;
+  const src = previewSrc(file);
+  const isVideo = file.mimeType.startsWith("video/");
 
   return (
     <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2">
       <div className="flex min-w-0 items-center gap-2.5">
+        {/* The thumbnail is the point: a filename tells you nothing about
+            whether you attached the right photo. */}
         <span
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-lg",
-            tone.soft,
+            "flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg",
+            src ? "bg-muted" : tone.soft,
           )}
         >
-          <Icon className="size-4" />
+          {src ? (
+            isVideo ? (
+              <video className="size-full object-cover" muted src={src} />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- preview of a freshly uploaded asset.
+              <img alt={file.name} className="size-full object-cover" src={src} />
+            )
+          ) : (
+            <Icon className="size-4" />
+          )}
         </span>
         <div className="min-w-0">
           <p className="truncate text-xs font-semibold text-foreground">{file.name}</p>
@@ -109,6 +151,7 @@ function AttachedFile({
 
 export function FileUploaderView({
   className,
+  cropImages = false,
   disabled = false,
   hint,
   label = "Upload file",
@@ -118,11 +161,46 @@ export function FileUploaderView({
   variant = "dropzone",
 }: FileUploaderPresentation & { uploader: UploaderApi }) {
   const [isDragging, setIsDragging] = useState(false);
+  // Images waiting to be framed. Cropped one at a time, oldest first, so
+  // picking several at once still gives each one its own decision.
+  const [cropQueue, setCropQueue] = useState<File[]>([]);
   const inputId = useId();
   const toneClasses = TONE_CLASSES[tone];
 
   const busy = uploader.isUploading;
   const locked = disabled || busy || !uploader.canAddMore;
+
+  /**
+   * The single entry point for freshly picked files, whether they arrived by
+   * drop or through the input — so the cropper cannot be sidestepped by
+   * dragging a photo in.
+   */
+  const accept = useCallback(
+    async (picked: File[]) => {
+      if (picked.length === 0) {
+        return;
+      }
+
+      if (!cropImages) {
+        await uploader.uploadMany(picked);
+        return;
+      }
+
+      const images = picked.filter((file) => file.type.startsWith("image/"));
+      const rest = picked.filter((file) => !file.type.startsWith("image/"));
+
+      if (rest.length > 0) {
+        await uploader.uploadMany(rest);
+      }
+
+      if (images.length > 0) {
+        setCropQueue((current) => [...current, ...images]);
+      }
+    },
+    [cropImages, uploader],
+  );
+
+  const dropCropHead = useCallback(() => setCropQueue((current) => current.slice(1)), []);
 
   const handleDrop = useCallback(
     async (event: DragEvent<HTMLElement>) => {
@@ -133,10 +211,22 @@ export function FileUploaderView({
         return;
       }
 
-      await uploader.uploadMany(Array.from(event.dataTransfer.files ?? []));
+      await accept(Array.from(event.dataTransfer.files ?? []));
     },
-    [locked, uploader],
+    [accept, locked],
   );
+
+  const cropper = cropQueue[0] ? (
+    <PhotoCropper
+      file={cropQueue[0]}
+      key={cropQueue[0].name + cropQueue[0].lastModified}
+      onCancel={dropCropHead}
+      onCropped={async (cropped) => {
+        dropCropHead();
+        await uploader.uploadMany([cropped]);
+      }}
+    />
+  ) : null;
 
   const fileInput = (
     <input
@@ -145,7 +235,13 @@ export function FileUploaderView({
       disabled={locked}
       id={inputId}
       multiple={uploader.maxFiles > 1}
-      onChange={uploader.handleInputChange}
+      onChange={async (event) => {
+        const input = event.currentTarget;
+
+        await accept(Array.from(input.files ?? []));
+        // Cleared so re-picking the same file still fires a change event.
+        input.value = "";
+      }}
       type="file"
     />
   );
@@ -164,6 +260,7 @@ export function FileUploaderView({
 
     return (
       <div className={cn("space-y-2", className)}>
+        {cropper}
         {attached}
         {uploader.canAddMore ? (
           <label
@@ -195,6 +292,7 @@ export function FileUploaderView({
 
   return (
     <div className={cn("space-y-2", className)}>
+      {cropper}
       {attached}
       {uploader.canAddMore ? (
         <label
@@ -260,6 +358,7 @@ export type FileUploaderProps = FileUploaderPresentation & UseUploaderOptions;
 /** Self-managed field: owns its own uploader instance. */
 export function FileUploader({
   className,
+  cropImages,
   disabled,
   hint,
   label,
@@ -273,6 +372,7 @@ export function FileUploader({
   return (
     <FileUploaderView
       className={className}
+      cropImages={cropImages}
       disabled={disabled}
       hint={hint}
       label={label}

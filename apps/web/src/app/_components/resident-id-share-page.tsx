@@ -4,6 +4,7 @@ import { Check, Copy, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import { PublicShell } from "./shared";
+import { SiteName } from "@/components/site-config-provider";
 
 /**
  * Where a phone's camera lands after scanning someone's resident QR code.
@@ -34,7 +35,7 @@ export function ResidentIdSharePage({ residentId }: { residentId: string }) {
           <ShieldCheck className="size-7" />
         </span>
         <h1 className="mt-5 font-heading text-2xl font-extrabold text-foreground">
-          HostelHub resident ID
+          <SiteName /> resident ID
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           Give this ID to the hostel and they can fill your registration from the details

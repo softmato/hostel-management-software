@@ -34,7 +34,7 @@ export const PlatformReviewsPageContent = memo(function PlatformReviewsPageConte
     async (reviewId: string, action: "hide" | "unhide") => {
       setActionMessage("");
       try {
-        await browserApi(`${platformEndpoints.reviews}/${reviewId}/${action}`, {
+        await browserApi(`${platformEndpoints.review(reviewId)}/${action}`, {
           body: JSON.stringify({}),
           method: "PATCH",
         });

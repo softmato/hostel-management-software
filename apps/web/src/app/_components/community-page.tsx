@@ -16,6 +16,8 @@ import {
   type CommunitySponsor,
   type PopularHostel,
 } from "@/app/_components/community-sponsor-rail";
+import { type LightboxItem } from "@/components/media-lightbox";
+import { useMediaViewer } from "@/components/media-viewer";
 import { useUploader } from "@/components/uploads";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
@@ -89,6 +91,13 @@ export function CommunityPageContent({ initialPostId }: { initialPostId?: string
     maxFiles: 6,
     optimizeImage: true,
   });
+  const { open: openViewer } = useMediaViewer();
+  // Same shape the feed itself opens — lets a draft attachment be previewed
+  // full-screen, in the admin portal's own viewer, before it is ever posted.
+  const mediaItems: LightboxItem[] = media.files.map((file) => ({
+    kind: file.mimeType.startsWith("video/") ? "video" : "image",
+    src: mediaUrl(file.assetId as string, "ORIGINAL"),
+  }));
 
   // Debounced so typing a phrase is one request, not one per keystroke. The
   // input stays fully controlled by `search`; only `query` reaches the server.
@@ -331,7 +340,7 @@ export function CommunityPageContent({ initialPostId }: { initialPostId?: string
                         media.files.length === 1 ? "grid-cols-1" : "grid-cols-2",
                       )}
                     >
-                      {media.files.map((file) => {
+                      {media.files.map((file, index) => {
                         const isVideo = file.mimeType.startsWith("video/");
                         const src = mediaUrl(
                           file.assetId as string,
@@ -343,33 +352,39 @@ export function CommunityPageContent({ initialPostId }: { initialPostId?: string
                             className="relative overflow-hidden rounded-lg bg-muted"
                             key={file.id}
                           >
-                            {isVideo ? (
-                              <>
-                                <video
+                            <button
+                              className="block w-full cursor-zoom-in"
+                              onClick={() => openViewer(mediaItems, index)}
+                              type="button"
+                            >
+                              {isVideo ? (
+                                <>
+                                  <video
+                                    className={cn(
+                                      "w-full object-cover",
+                                      media.files.length === 1 ? "max-h-72" : "h-36",
+                                    )}
+                                    muted
+                                    src={src}
+                                  />
+                                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                    <span className="flex size-10 items-center justify-center rounded-full bg-black/50">
+                                      <Play className="size-4 fill-white text-white" />
+                                    </span>
+                                  </span>
+                                </>
+                              ) : (
+                                // eslint-disable-next-line @next/next/no-img-element -- preview of a freshly uploaded asset.
+                                <img
+                                  alt={file.name}
                                   className={cn(
                                     "w-full object-cover",
                                     media.files.length === 1 ? "max-h-72" : "h-36",
                                   )}
-                                  muted
                                   src={src}
                                 />
-                                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                                  <span className="flex size-10 items-center justify-center rounded-full bg-black/50">
-                                    <Play className="size-4 fill-white text-white" />
-                                  </span>
-                                </span>
-                              </>
-                            ) : (
-                              // eslint-disable-next-line @next/next/no-img-element -- preview of a freshly uploaded asset.
-                              <img
-                                alt={file.name}
-                                className={cn(
-                                  "w-full object-cover",
-                                  media.files.length === 1 ? "max-h-72" : "h-36",
-                                )}
-                                src={src}
-                              />
-                            )}
+                              )}
+                            </button>
                             <button
                               aria-label={`Remove ${file.name}`}
                               className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"

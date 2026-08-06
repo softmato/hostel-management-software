@@ -12,7 +12,10 @@ import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { HostelPageViewModel } from "@hostel/db/models/HostelPageView";
 import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { NotificationModel } from "@hostel/db/models/Notification";
+import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import { UserModel } from "@hostel/db/models/User";
+import { Role } from "@hostel/shared/types/roles";
+import type { PlatformIdCardType } from "@/lib/platform-id-card";
 import { UserResidentProfileModel } from "@hostel/db/models/UserResidentProfile";
 import type {
   ResidentProfileData,
@@ -177,6 +180,63 @@ async function renderQrDataUrl(text: string) {
   }
 }
 
+/**
+ * Which variant of the platform ID card this account holds.
+ *
+ * Derived, never stored: the card follows whatever the platform has already
+ * approved the person for, so an owner approval or a provider approval converts
+ * the card by itself and there is no second copy of that fact to fall out of
+ * step. Hostel admin wins over provider — running a hostel is the stronger
+ * identity to be carrying at the door.
+ */
+export async function resolvePlatformIdCard(userId: string): Promise<{
+  cardType: PlatformIdCardType;
+  /**
+   * The line printed under the holder's name. `null` for a resident, whose
+   * role comes from their own profile (course, institution or occupation) and
+   * is better known to the client that already has it.
+   */
+  cardRole: string | null;
+}> {
+  const objectId = normalizeUserId(userId);
+
+  const user = await UserModel.findById(objectId).select("role").lean<{
+    role?: string;
+  } | null>();
+
+  if (user?.role === Role.HOSTEL_ADMIN) {
+    return { cardRole: "Hostel Owner", cardType: "HOSTEL_OWNER" };
+  }
+
+  const provider = await ServiceProviderModel.findOne({
+    isDeleted: false,
+    status: "APPROVED",
+    userId: objectId,
+  })
+    .select("category")
+    .lean<{ category?: string } | null>();
+
+  if (!provider) {
+    return { cardRole: null, cardType: "RESIDENT" };
+  }
+
+  // Their trade is what a hostel actually wants to read off the card —
+  // "Electrician", not the generic "Service Provider".
+  return {
+    cardRole: provider.category ? titleCaseCategory(provider.category) : "Service Provider",
+    cardType: "SERVICE_PROVIDER",
+  };
+}
+
+/** `SERVICE_PROVIDER`-style constants into something printable. */
+function titleCaseCategory(category: string) {
+  return category
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export async function getResidentIdentity(userId: string) {
   await connectToDatabase();
 
@@ -199,6 +259,7 @@ export async function getResidentIdentity(userId: string) {
     identity: {
       accountEmail: user.email ?? null,
       accountName: user.name,
+      ...(await resolvePlatformIdCard(userId)),
       hasPhoto: Boolean(record?.photoAssetId),
       hasProfile: Boolean(record?.completedAt),
       lastSharedAt: record?.lastSharedAt?.toISOString() ?? null,
@@ -251,6 +312,16 @@ export async function saveResidentIdentity(
 
   const residentId = user.userResidentId || (await mintResidentId(userId));
 
+  // Only the *first* completed save mints a card; later edits are just edits and
+  // must not re-send the card email every time someone fixes a typo.
+  const existing = await UserResidentProfileModel.findOne({
+    isDeleted: { $ne: true },
+    userId: user._id,
+  })
+    .select("completedAt")
+    .lean<{ completedAt?: Date } | null>();
+  const isFirstCard = !existing?.completedAt;
+
   await UserResidentProfileModel.findOneAndUpdate(
     { userId: user._id },
     {
@@ -274,6 +345,14 @@ export async function saveResidentIdentity(
     entityType: "UserResidentProfile",
     metadata: { sharingEnabled: input.sharingEnabled },
   });
+
+  if (isFirstCard) {
+    // Imported here rather than at module scope: the delivery service reads
+    // this one back to build the card, and a static import would be a cycle.
+    const { sendIdCardEmail } = await import("@/modules/users/id-card-delivery.service");
+
+    await sendIdCardEmail(userId, "RESIDENT");
+  }
 
   return getResidentIdentity(userId);
 }
@@ -634,6 +713,25 @@ export async function lookupResidentProfile(
       "No resident profile matches that ID.",
       "RESIDENT_PROFILE_NOT_FOUND",
       404,
+    );
+  }
+
+  /*
+   * The ID is the same string whatever card the holder carries — approval
+   * re-skins the card, it does not mint a new number. So the card *type* is the
+   * only thing standing between a provider's card and being registered as a
+   * resident of the hostel they came to fix a tap in. Checked here because this
+   * is the one path both the QR scan and manual entry go through.
+   */
+  const { cardType } = await resolvePlatformIdCard(user._id.toString());
+
+  if (cardType !== "RESIDENT") {
+    throw new ResidentIdentityError(
+      cardType === "SERVICE_PROVIDER"
+        ? "That is a service provider ID card, not a resident one. It cannot be used to register a resident."
+        : "That is a hostel owner ID card, not a resident one. It cannot be used to register a resident.",
+      "ID_CARD_NOT_A_RESIDENT",
+      409,
     );
   }
 

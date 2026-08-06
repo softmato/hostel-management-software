@@ -3,9 +3,11 @@ import { Geist, Geist_Mono, Poppins } from "next/font/google";
 
 import { MediaViewerProvider } from "@/components/media-viewer";
 import { QueryProvider } from "@/components/query-provider";
+import { SiteConfigProvider } from "@/components/site-config-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/toaster";
-import { SITE_NAME, siteUrl } from "@/lib/site";
+import { siteUrl } from "@/lib/site";
+import { loadSiteConfig } from "@/lib/site-config-server";
 
 import "./globals.css";
 
@@ -25,25 +27,39 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl()),
-  title: {
-    default: `${SITE_NAME} — Find & Manage Hostels in Nepal`,
-    template: `%s · ${SITE_NAME}`,
-  },
-  description: "Nepal-focused multi-hostel SaaS for discovery and hostel operations.",
-  openGraph: {
-    siteName: SITE_NAME,
-    type: "website",
-    locale: "en_NP",
-  },
-};
+/**
+ * Titles and OG metadata carry the owner-configured site name, so renaming the
+ * platform in the admin portal renames the browser tab too.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const { identity } = await loadSiteConfig();
 
-export default function RootLayout({
+  return {
+    metadataBase: new URL(siteUrl()),
+    title: {
+      default: identity.tagline
+        ? `${identity.siteName} — ${identity.tagline}`
+        : identity.siteName,
+      template: `%s · ${identity.siteName}`,
+    },
+    description: "Nepal-focused multi-hostel SaaS for discovery and hostel operations.",
+    openGraph: {
+      siteName: identity.siteName,
+      type: "website",
+      locale: "en_NP",
+    },
+  };
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Loaded here rather than per route group so portals, auth screens, and the
+  // marketing site all read branding from the same admin-owned source.
+  const siteConfig = await loadSiteConfig();
+
   return (
     <html
       lang="en"
@@ -53,8 +69,10 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
           <QueryProvider>
-            {/* Any screen can open images or videos full-screen from here. */}
-            <MediaViewerProvider>{children}</MediaViewerProvider>
+            <SiteConfigProvider config={siteConfig}>
+              {/* Any screen can open images or videos full-screen from here. */}
+              <MediaViewerProvider>{children}</MediaViewerProvider>
+            </SiteConfigProvider>
           </QueryProvider>
           {/* Global feedback surface: live upload progress + one-shot toasts. */}
           <Toaster />
