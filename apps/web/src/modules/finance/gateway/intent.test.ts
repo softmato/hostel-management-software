@@ -557,7 +557,13 @@ describe("the checkout status screen", () => {
 
 describe("expiring stale attempts", () => {
   function staleFind(rows: unknown[]) {
-    return { limit: () => ({ lean: () => Promise.resolve(rows) }) };
+    const chain = {
+      lean: () => Promise.resolve(rows),
+      limit: () => chain,
+      sort: () => chain,
+    };
+
+    return chain;
   }
 
   it("asks the provider before writing anything off", async () => {
@@ -589,7 +595,7 @@ describe("expiring stale attempts", () => {
 
     const result = await expireStaleIntents();
 
-    expect(result).toEqual({ expired: 0, settled: 1 });
+    expect(result).toEqual({ expired: 0, settled: 1, unconfirmed: 0 });
     expect(mocks.settleEvent).toHaveBeenCalled();
   });
 
@@ -599,7 +605,82 @@ describe("expiring stale attempts", () => {
 
     // An unreachable provider is not evidence the payment failed, so the row
     // waits for the next run rather than being expired on a guess.
-    expect(await expireStaleIntents()).toEqual({ expired: 0, settled: 0 });
+    expect(await expireStaleIntents()).toEqual({
+      expired: 0,
+      settled: 0,
+      unconfirmed: 0,
+    });
+  });
+
+  /**
+   * Not forever, though. An attempt nobody can ever confirm would otherwise be
+   * re-queried every five minutes indefinitely and — worse — sit in `CREATED`
+   * looking like a payment still in progress.
+   */
+  it("gives up on an attempt it has failed to confirm for a day", async () => {
+    mocks.intentFind.mockReturnValue(
+      staleFind([
+        {
+          ...intent,
+          expiresAt: new Date("2026-08-08T10:00:00.000Z"),
+          verifyCount: 40,
+        },
+      ]),
+    );
+    mocks.verify.mockRejectedValue(new Error("ETIMEDOUT"));
+
+    const result = await expireStaleIntents({ now: new Date("2026-08-10T12:00:00Z") });
+
+    expect(result.unconfirmed).toBe(1);
+
+    // Closed with a reason that claims no knowledge — "failed" and "expired"
+    // both assert something we do not know.
+    const close = mocks.intentUpdateOne.mock.calls.find(
+      (call) => call[1]?.$set?.status === "EXPIRED",
+    );
+
+    expect(close![1].$set.failureReason).toContain("never confirmed");
+    expect(close![1].$set.failureReason).toContain("by hand");
+  });
+
+  it("does not give up on one that is merely old, if we have barely asked", async () => {
+    // A provider down for an afternoon must not be mistaken for an attempt that
+    // can never be resolved.
+    mocks.intentFind.mockReturnValue(
+      staleFind([
+        { ...intent, expiresAt: new Date("2026-08-08T10:00:00.000Z"), verifyCount: 2 },
+      ]),
+    );
+    mocks.verify.mockRejectedValue(new Error("ETIMEDOUT"));
+
+    expect(
+      (await expireStaleIntents({ now: new Date("2026-08-10T12:00:00Z") })).unconfirmed,
+    ).toBe(0);
+  });
+
+  it("does not give up inside the grace period however often it has asked", async () => {
+    mocks.intentFind.mockReturnValue(staleFind([{ ...intent, verifyCount: 99 }]));
+    mocks.verify.mockRejectedValue(new Error("ETIMEDOUT"));
+
+    expect(
+      (await expireStaleIntents({ now: new Date("2026-08-10T11:00:00Z") })).unconfirmed,
+    ).toBe(0);
+  });
+
+  /**
+   * Without an order, a hostel generating attempts faster than the batch size
+   * would starve its own oldest rows forever — and the oldest are exactly the
+   * ones a resident has been staring at.
+   */
+  it("takes the oldest attempts first", async () => {
+    const chain = staleFind([]);
+    const sort = vi.spyOn(chain, "sort");
+
+    mocks.intentFind.mockReturnValue(chain);
+
+    await expireStaleIntents();
+
+    expect(sort).toHaveBeenCalledWith({ expiresAt: 1 });
   });
 
   it("only looks at open attempts past their window", async () => {

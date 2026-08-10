@@ -596,11 +596,11 @@ that the item's acceptance statement was **observed** to be true.
 | 3 — Tier 0 screens | 3.1–3.5 | **5 / 5** | ☑ Complete — §5.7 vocabulary outstanding |
 | 4 — Tier 0.5 reconciliation | 4.1–4.5 | **5 / 5** | ☑ Complete — PDF parsing deferred to 4b |
 | 5 — Reliability | 5.1–5.3 | **3 / 3** | ☑ Complete |
-| 6 — Tier 1 gateway | 6.0–6.8 | **7 / 9** | ☐ 6.0–6.6 done; eSewa and Khalti settle end to end. 6.7 monitoring next; 6.8 (Fonepay) waits on merchant credentials |
+| 6 — Tier 1 gateway | 6.0–6.8 | **8 / 9** | ☐ 6.0–6.7 done; eSewa and Khalti settle, monitor and reconcile. Only 6.8 (Fonepay) waits on merchant credentials |
 | 7 — Deferred | — | — | Not scheduled |
-| **Total** | | **39 / 41** | |
+| **Total** | | **40 / 41** | |
 
-**Where the codebase stands.** 1266 tests (from 440 at the start of Block 0);
+**Where the codebase stands.** 1308 tests (from 440 at the start of Block 0);
 typecheck and lint clean across `apps/web`, `packages/db` and `packages/shared`;
 `next build` passes. `Payment`, `PaymentProof`, `payment.service.ts`,
 `payment.validation.ts` and `payment-reminders.service.ts` no longer exist —
@@ -2114,9 +2114,9 @@ the "checking…" status screen. The owner's live feed (§11.7) over Pusher move
 **☑ 6.5** Khalti adapter (initiate → `payment_url` → lookup by `pidx`).
 **☑ 6.6** Owner setup UI for §6.7 — the "I have merchant details" path of target
 §11.8, plus the Fonepay merchant-vs-personal choice.
-**☐ 6.7** Expiry sweep that re-queries the provider before expiring (so a payment
+**☑ 6.7** Expiry sweep that re-queries the provider before expiring (so a payment
 that succeeded while the callback was down is not expired away), gateway health
-monitoring, and weekly settlement-report reconciliation (target §10.2).
+monitoring, and weekly settlement reconciliation (target §10.2).
 **☐ 6.8** Fonepay dynamic QR adapter. **Blocked on merchant credentials** — see
 below. Everything else ships without it.
 
@@ -2290,6 +2290,58 @@ lint and `next build` clean. **Not verified in a browser**: both new screens are
 behind auth and render server-side only (`/hostel-admin/payment-gateways` → 307 →
 tenant URL → 200). They join the seven Block 3–5 screens still awaiting a real
 session.
+
+**6.7 landed 2026-08-10.** `gateway-health.service.ts`,
+`settlement-recon.service.ts`, the `gateway-unhealthy` email, sweep hardening in
+`intent.service.ts`, health on the owner's setup screen, and two cron routes.
+
+**The distinction the whole health module turns on: residents trying and failing
+is not the same as nobody trying.** Both produce an identical dashboard — no
+settlements, invoices staying open, nobody complaining yet — and an owner who
+cannot tell them apart loses a month of rent to a merchant credential that
+changed at the bank. So `FAILING` is *attempts with no successes* and `QUIET` is
+*no attempts at all*, and the alert text leads with the count: "6 residents
+started a payment and none completed" is not misreadable, "gateway degraded" is.
+
+**Not an uptime check, deliberately.** Pinging the provider proves the provider
+answers *us*, which is not the question. A gateway can be perfectly reachable and
+still fail every resident because a key was rotated, a merchant code was updated,
+or a callback URL was never registered.
+
+**A brand-new gateway is never "quiet".** Seven days of settling-in, and silence
+only counts when there are open invoices — otherwise the first week of every
+hostel generates a warning about nothing.
+
+**A daily job must not mail daily.** Worsening always notifies; an unchanged bad
+state waits 24 hours; a recovery is never mailed. A mailbox that gets a daily
+"still broken" is one nobody opens in the fortnight it matters.
+
+**The sweep now gives up, after a day and twelve tries.** An attempt no provider
+will answer for was previously re-queried every five minutes forever *and* left
+sitting in `CREATED`, looking like a payment still in progress. It is now closed
+with a reason that claims no knowledge — "never confirmed either way… needs
+checking by hand" — because `FAILED` and `EXPIRED` both assert something we do
+not know. Health counts these separately and treats them as `FAILING`: money may
+have left a resident's account with no record either way, which is the one state
+that always needs a person.
+
+**The sweep also sorts oldest-first.** Without an order, a hostel generating
+attempts faster than the batch size starves its own oldest rows forever — and the
+oldest are the ones a resident has been staring at.
+
+**Settlement reconciliation works without a settlement report, because there
+isn't one.** Target §10.2 assumed a bulk report; neither eSewa nor Khalti
+publishes one, which is why `listSettlements` is optional on the interface and no
+adapter implements it. Instead: re-ask about every attempt closed unpaid in the
+last fortnight (this recovers money and is the only thing that will), plus two
+cross-checks that report only — a `SUCCEEDED` intent with no ledger row means the
+resident paid and the invoice does not know; a gateway credit with no intent is
+what a forged callback would leave behind.
+
+*Verified:* 1308 tests pass (was 1266) — 23 in `gateway-health.test.ts` covering
+FAILING-vs-QUIET in both directions, the settling-in window and every throttle
+branch; 15 in `settlement-recon.test.ts`; 4 more in `intent.test.ts` for the
+give-up rule and the ordering. Typecheck, lint and `next build` clean.
 
 **6.8 remains blocked on credentials, and no amount of searching changes
 that.** Fonepay publishes no universal sandbox merchant: the merchant code and

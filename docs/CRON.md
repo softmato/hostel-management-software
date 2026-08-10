@@ -137,6 +137,51 @@ Batched at 100 attempts per run, each costing one call to its provider. Returns
   scheduler tier supports that cadence; every 15 minutes still works, it just
   leaves stale attempts on the resident's screen longer.
 
+### Gateway health check
+
+`POST /api/v1/cron/gateway-health`
+
+Answers one question per hostel and provider: **is the online checkout actually
+working** (FINANCE_IMPLEMENTATION_PLAN.md item 6.7)?
+
+**The failure it catches is invisible from every other screen.** A broken
+checkout and a quiet month look identical — no settlements, invoices staying
+open, nobody complaining yet — and the owner finds out when a resident rings to
+say the payment button has not worked since the 3rd. The signal that separates
+them is whether residents are *starting* payments that never complete: attempts
+with no successes is `FAILING`, no attempts at all is `QUIET`. It is not an
+uptime check; a gateway can answer our pings and still fail every resident
+because a key was rotated at the bank.
+
+Writes a `ReconciliationRun` per hostel and emails the hostel's admins when a
+provider is failing or degraded — throttled to once a day per provider, and a
+worsening status always sends. Recoveries are never mailed. Returns
+`{ checked, findings, notified, hostels }`.
+
+- Recommended schedule: daily (e.g. `30 6 * * *`).
+
+### Gateway settlement reconciliation
+
+`POST /api/v1/cron/gateway-settlement-recon`
+
+Weekly reconciliation of gateway payments (item 6.7, target §10.2).
+
+**Neither eSewa nor Khalti publishes a bulk settlement report**, which is what
+§10.2 assumed would exist. So this reconciles the way that is actually
+available: it asks the provider again about every attempt closed unpaid in the
+last fortnight, and cross-checks intents against the ledger both ways.
+
+The recheck is the part that recovers money — an attempt that completed after
+the expiry sweep gave up is cash in the hostel's account against an invoice that
+says unpaid, and nothing else will ever notice. It settles what it finds. The two
+cross-checks only report, like the drift job: a reconciliation that silently
+repairs destroys the evidence that the path producing the discrepancy exists.
+
+Returns `{ rechecked, recovered, findings, hostels }`.
+
+- Recommended schedule: weekly (e.g. `0 4 * * 1`). The fortnight window means
+  consecutive runs overlap, so a missed week is not a gap.
+
 ### Complaint SLA breach check
 
 `POST /api/v1/cron/complaint-sla`

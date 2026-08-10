@@ -510,18 +510,25 @@ export async function handleProviderCallback(
  */
 export async function expireStaleIntents(
   options: { limit?: number; now?: Date } = {},
-): Promise<{ expired: number; settled: number }> {
+): Promise<{ expired: number; settled: number; unconfirmed: number }> {
   await connectToDatabase();
 
+  const now = options.now ?? new Date();
+
   const stale = await PaymentIntentModel.find({
-    expiresAt: { $lt: options.now ?? new Date() },
+    expiresAt: { $lt: now },
     status: "CREATED",
   })
+    // Oldest first. Without an order, a hostel generating attempts faster than
+    // the batch size would starve its own oldest rows forever — and the oldest
+    // are exactly the ones a resident has been staring at.
+    .sort({ expiresAt: 1 })
     .limit(options.limit ?? 100)
-    .lean<IntentRecord[]>();
+    .lean<(IntentRecord & { verifyCount?: number })[]>();
 
   let expired = 0;
   let settled = 0;
+  let unconfirmed = 0;
 
   for (const intent of stale) {
     try {
@@ -533,8 +540,20 @@ export async function expireStaleIntents(
       }
     } catch {
       // Unreachable provider, missing credentials, a removed gateway. None of
-      // those is evidence the payment failed, so the row is left alone for the
-      // next run rather than expired on a guess.
+      // those is evidence the payment failed, so the row is normally left for
+      // the next run rather than expired on a guess.
+      //
+      // Normally, but not forever. An attempt nobody can ever confirm would
+      // otherwise be re-queried every five minutes indefinitely, and — worse —
+      // sit in `CREATED` looking like a payment still in progress. Past the
+      // grace period it is closed with a reason that says plainly that we do
+      // not know what happened, which is what gateway health counts and what
+      // brings a person to look at it.
+      if (isUnconfirmable(intent, now)) {
+        await closeIntent(intent, "EXPIRED", UNCONFIRMED_REASON);
+        unconfirmed += 1;
+      }
+
       continue;
     }
 
@@ -542,7 +561,30 @@ export async function expireStaleIntents(
     expired += 1;
   }
 
-  return { expired, settled };
+  return { expired, settled, unconfirmed };
+}
+
+/** How long we keep asking about an attempt the provider will not answer for. */
+const UNCONFIRMABLE_GRACE_MS = 24 * 60 * 60 * 1000;
+/** And how many times, so a provider down for a day is not mistaken for this. */
+const UNCONFIRMABLE_ATTEMPTS = 12;
+
+/**
+ * The wording gateway health looks for. Deliberately not "failed" or "expired":
+ * those claim knowledge, and the entire point of this state is that we have
+ * none.
+ */
+export const UNCONFIRMED_REASON =
+  "The payment provider could not be reached to confirm this attempt, so it was never confirmed either way. If money left the resident's account, it needs checking by hand.";
+
+function isUnconfirmable(
+  intent: IntentRecord & { verifyCount?: number },
+  now: Date,
+): boolean {
+  return (
+    now.getTime() - new Date(intent.expiresAt).getTime() > UNCONFIRMABLE_GRACE_MS &&
+    (intent.verifyCount ?? 0) >= UNCONFIRMABLE_ATTEMPTS
+  );
 }
 
 async function markSucceeded(

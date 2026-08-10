@@ -66,12 +66,35 @@ const gatewayConfigSchema = new Schema(
     mode: { type: String, enum: ["LIVE", "SANDBOX"], default: "SANDBOX" },
     /** Null until the owner finishes setup. Clearing it is the rollback. */
     enabledAt: Date,
-    /** Last callback or verification we saw. Silence here drives health (6.8). */
+    /** Last callback or verification we saw. Silence here drives health (6.7). */
     lastEventAt: Date,
     /** Last time we successfully reached the provider's API with these details. */
     lastVerifiedAt: Date,
     /** Why we turned it off, when we did it rather than the owner. */
     disabledReason: { type: String, trim: true },
+
+    // ---- Health (item 6.7) ----
+    /**
+     * What the last health check concluded.
+     *
+     * Stored rather than computed on read because the alert needs to know
+     * whether this is *new*. A provider that has been failing for three days
+     * should be mailed about once, not every time the job runs.
+     */
+    healthStatus: {
+      type: String,
+      enum: ["DEGRADED", "FAILING", "HEALTHY", "QUIET", "UNKNOWN"],
+      default: "UNKNOWN",
+    },
+    healthCheckedAt: Date,
+    /**
+     * The sentence behind the status, stored so the setup screen can show it
+     * without recounting a week of attempts on every page load.
+     */
+    healthDetail: { type: String, trim: true },
+    /** When we last told the owner. Throttles a daily job into a useful alert. */
+    healthNotifiedAt: Date,
+
     updatedBy: { ref: "User", type: Schema.Types.ObjectId },
   },
   { timestamps: true },
@@ -125,10 +148,21 @@ export type GatewayProviderName = "ESEWA" | "FONEPAY" | "KHALTI";
 export type GatewayAccountKind = "MERCHANT" | "PERSONAL";
 export type GatewayMode = "LIVE" | "SANDBOX";
 
+export type GatewayHealthStatus =
+  | "DEGRADED"
+  | "FAILING"
+  | "HEALTHY"
+  | "QUIET"
+  | "UNKNOWN";
+
 export type GatewayConfig = {
   accountKind?: GatewayAccountKind;
   disabledReason?: string | null;
   enabledAt?: Date | null;
+  healthCheckedAt?: Date | null;
+  healthDetail?: string | null;
+  healthNotifiedAt?: Date | null;
+  healthStatus?: GatewayHealthStatus;
   lastEventAt?: Date | null;
   lastVerifiedAt?: Date | null;
   merchantCode?: string | null;

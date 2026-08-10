@@ -10,6 +10,7 @@ import {
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import { gatewayUnhealthyEmail } from "@hostel/shared/email/templates/payment/gateway-unhealthy";
 import { paymentProofUploadedEmail } from "@hostel/shared/email/templates/payment/proof-uploaded";
 import { paymentRejectedEmail } from "@hostel/shared/email/templates/payment/payment-rejected";
 import { paymentReversedEmail } from "@hostel/shared/email/templates/payment/payment-reversed";
@@ -94,6 +95,81 @@ export async function notifyAdminsOfClaim(input: {
         eventId: input.eventId,
         level: "warn",
         message: error instanceof Error ? error.message : "Unknown notification error",
+      }),
+    );
+  }
+}
+
+/**
+ * Tell the hostel's admins their online checkout is not working (item 6.7).
+ *
+ * **Outside the `sendPaymentEmails` switch, in-app.** A hostel that turned
+ * payment emails off would otherwise be the hostel least likely to find out its
+ * payment button has been broken for a week, which inverts the point of the
+ * setting: it exists to reduce routine receipts, not to suppress the one message
+ * that says money is not arriving.
+ *
+ * No action button. There is nothing to click that fixes a merchant credential
+ * at the bank — the useful thing is the sentence, and a link to the screen where
+ * the details live.
+ *
+ * **Never throws.** It is called from a scheduled job that has other hostels to
+ * get to.
+ */
+export async function notifyGatewayUnhealthy(input: {
+  detail: string;
+  hostelId: Types.ObjectId | string;
+  provider: string;
+  status: string;
+}): Promise<void> {
+  try {
+    const [hostelName, admins] = await Promise.all([
+      getHostelName(input.hostelId),
+      resolveHostelAdminContacts(input.hostelId),
+    ]);
+    const providerName =
+      input.provider.charAt(0) + input.provider.slice(1).toLowerCase();
+    const title =
+      input.status === "FAILING"
+        ? `${providerName} payments are not going through`
+        : `${providerName} payments are having trouble`;
+
+    const email = gatewayUnhealthyEmail({
+      detail: input.detail,
+      hostelName,
+      providerName,
+      setupUrl: appUrl("/hostel-admin/payment-gateways"),
+      title,
+    });
+
+    await Promise.all(
+      admins.map(async (admin) => {
+        if (admin.userId) {
+          await createInAppNotification({
+            body: input.detail,
+            category: "PAYMENT",
+            data: { provider: input.provider, status: input.status },
+            hostelId: input.hostelId.toString(),
+            title,
+            userId: admin.userId.toString(),
+          });
+        }
+
+        await sendNotificationEmail({
+          action: "gateway_unhealthy",
+          html: email.html,
+          subject: email.subject,
+          to: admin.email,
+        });
+      }),
+    );
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "gateway_health_notification_failed",
+        level: "warn",
+        message: error instanceof Error ? error.message : "Unknown notification error",
+        provider: input.provider,
       }),
     );
   }

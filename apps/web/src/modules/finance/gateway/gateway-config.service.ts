@@ -16,6 +16,7 @@ import {
   FONEPAY_PERSONAL_DAILY_LIMIT,
   type GatewayAccountKind,
   type GatewayConfig,
+  type GatewayHealthStatus,
   type GatewayMode,
   type GatewayProviderName,
   HostelPaymentProfileModel,
@@ -48,6 +49,15 @@ export type GatewayConfigView = {
   /** Whether the owner has switched it on. */
   enabled: boolean;
   enabledAt: string | null;
+  /**
+   * What the last health check concluded, and the sentence behind it.
+   *
+   * Read from the stored verdict rather than recomputed here: this endpoint is
+   * opened whenever an owner edits a merchant code, and recounting a week of
+   * attempts on every one of those would make an infrequent job's work into a
+   * per-request cost. The daily run is what keeps it current.
+   */
+  health: { detail: string | null; status: GatewayHealthStatus } | null;
   lastEventAt: string | null;
   lastVerifiedAt: string | null;
   merchantCode: string | null;
@@ -147,6 +157,15 @@ export async function listGatewayConfigs(
         blockedReason: blockedReasonFor(entry),
         enabled: Boolean(entry?.enabledAt),
         enabledAt: entry?.enabledAt ? new Date(entry.enabledAt).toISOString() : null,
+        // Null until the daily job has run at least once against this entry —
+        // "unknown" is honest, and better than a green tick nobody earned.
+        health:
+          entry?.healthStatus && entry.healthStatus !== "UNKNOWN"
+            ? {
+                detail: entry.healthDetail ?? null,
+                status: entry.healthStatus as GatewayHealthStatus,
+              }
+            : null,
         lastEventAt: entry?.lastEventAt
           ? new Date(entry.lastEventAt).toISOString()
           : null,

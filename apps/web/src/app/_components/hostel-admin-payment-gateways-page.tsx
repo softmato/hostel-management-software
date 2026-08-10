@@ -35,11 +35,14 @@ type SecretView = {
   rotatedAt: string | null;
 };
 
+type GatewayHealthStatus = "DEGRADED" | "FAILING" | "HEALTHY" | "QUIET" | "UNKNOWN";
+
 type GatewayConfig = {
   accountKind: "MERCHANT" | "PERSONAL";
   blockedReason: string | null;
   enabled: boolean;
   enabledAt: string | null;
+  health: { detail: string | null; status: GatewayHealthStatus } | null;
   lastEventAt: string | null;
   merchantCode: string | null;
   mode: "LIVE" | "SANDBOX";
@@ -47,6 +50,59 @@ type GatewayConfig = {
   provider: "ESEWA" | "FONEPAY" | "KHALTI";
   secret: SecretView;
 };
+
+/**
+ * How each verdict reads on the screen.
+ *
+ * `FAILING` gets destructive styling and the plainest wording available, because
+ * it means residents are trying to pay and cannot — the one state where a
+ * softened phrase costs the owner a month of rent.
+ */
+const HEALTH_STYLE: Record<
+  Exclude<GatewayHealthStatus, "UNKNOWN">,
+  { className: string; label: string }
+> = {
+  DEGRADED: {
+    className:
+      "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+    label: "Some payments are failing",
+  },
+  FAILING: {
+    className: "border-destructive/40 bg-destructive/10 text-destructive",
+    label: "Payments are not going through",
+  },
+  HEALTHY: {
+    className:
+      "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    label: "Working",
+  },
+  QUIET: {
+    className: "border-border bg-muted/50 text-muted-foreground",
+    label: "No payments lately",
+  },
+};
+
+function HealthBanner({ health }: { health: GatewayConfig["health"] }) {
+  if (!health || health.status === "UNKNOWN") {
+    return null;
+  }
+
+  const style = HEALTH_STYLE[health.status];
+
+  return (
+    <div className={`rounded-lg border p-3 text-sm ${style.className}`}>
+      <p className="flex items-center gap-2 font-semibold">
+        {health.status === "HEALTHY" ? (
+          <ShieldCheck aria-hidden="true" className="size-4" />
+        ) : (
+          <AlertTriangle aria-hidden="true" className="size-4" />
+        )}
+        {style.label}
+      </p>
+      {health.detail ? <p className="mt-1 leading-5">{health.detail}</p> : null}
+    </div>
+  );
+}
 
 const PROVIDER_COPY: Record<
   GatewayConfig["provider"],
@@ -152,6 +208,7 @@ function GatewayCard({
       title={copy.name}
     >
       <form className="space-y-3" onSubmit={submit}>
+        <HealthBanner health={config.health} />
         <p className="text-sm text-muted-foreground">{copy.help}</p>
 
         {config.provider === "FONEPAY" ? (
