@@ -4,6 +4,21 @@ const hostelSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true, unique: true },
+    /**
+     * Three uppercase letters, unique platform-wide, opening every reference
+     * code this hostel issues — `RUP` in `RUP-4821-K` (target §5.1).
+     *
+     * Nullable only so existing hostels can be backfilled; every hostel must
+     * have one before it can issue an invoice, because the code is what lets a
+     * payment identify itself (P2). Derived from the name, then disambiguated
+     * numerically — see `finance/reference-code.ts`.
+     */
+    referencePrefix: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      match: /^[A-Z]{3}$/,
+    },
     description: String,
     ownerId: { ref: "User", required: true, type: Schema.Types.ObjectId },
     location: {
@@ -150,9 +165,21 @@ const hostelSchema = new Schema(
 );
 
 hostelSchema.index({ slug: 1 }, { unique: true });
+// Partial, because the prefix is nullable until every hostel is backfilled —
+// a plain unique index would collide on the nulls.
+hostelSchema.index(
+  { referencePrefix: 1 },
+  {
+    partialFilterExpression: { referencePrefix: { $type: "string" } },
+    unique: true,
+  },
+);
 hostelSchema.index({ status: 1, "location.area": 1, hostelType: 1 });
 hostelSchema.index({ verificationStatus: 1, status: 1 });
 hostelSchema.index({ ownerId: 1, status: 1 });
-hostelSchema.index({ "pricing.monthlyRentMin": 1, "pricing.monthlyRentMax": 1 });
+hostelSchema.index({
+  "pricing.monthlyRentMin": 1,
+  "pricing.monthlyRentMax": 1,
+});
 
 export const HostelModel = models.Hostel || model("Hostel", hostelSchema);

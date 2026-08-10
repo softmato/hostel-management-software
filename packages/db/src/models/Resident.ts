@@ -13,10 +13,44 @@ const residentSchema = new Schema(
     // resident in decrements that type's vacantBeds, moving them out adds it
     // back. There are no Room or Bed records to point at.
     roomType: { type: String, required: true, trim: true },
+    /**
+     * Canonical pricing vocabulary, derived from `roomType` via
+     * `normalizeBedType`. Additive and nullable on purpose: `roomType` above
+     * stays the capacity key and the display label everywhere outside finance
+     * (plan §3.2, D1). Null means the room type could not be mapped — billing
+     * then fails loudly with BED_TYPE_NOT_PRICED rather than picking a rate.
+     */
+    bedType: {
+      type: String,
+      enum: [
+        "SINGLE",
+        "DOUBLE_SHARING",
+        "TRIPLE_SHARING",
+        "FOUR_SHARING",
+        "DORMITORY",
+        null,
+      ],
+      default: null,
+    },
     moveInDate: { type: Date, required: true },
     depositAmount: { min: 0, default: 0, type: Number },
-    /** Recurring fee used when monthly payment records are generated. */
-    monthlyFee: { min: 0, default: 0, type: Number },
+    /**
+     * Per-resident rent **override**, not the normal path (target §3.3).
+     *
+     * Null — the default — means the hostel's `FeeSchedule` governs, via the
+     * resident's bed type. A value here wins outright and covers the real cases:
+     * a long-staying resident on an old rate, a staff member's child, a
+     * negotiated discount. It must carry a reason, so an unexplained number
+     * cannot become the norm again.
+     *
+     * Nullable rather than `0`-defaulted because zero is a legitimate override
+     * and "not set" is not. Conflating them is what let a misconfigured resident
+     * be billed nothing with nobody noticing (current §5.1 A2).
+     */
+    monthlyFee: { min: 0, default: null, type: Number },
+    feeOverrideReason: { type: String, trim: true },
+    feeOverrideSetBy: { ref: "User", type: Schema.Types.ObjectId },
+    feeOverrideSetAt: Date,
     residentType: {
       type: String,
       enum: ["STUDENT", "WORKING_PROFESSIONAL", "OTHER"],
@@ -50,4 +84,5 @@ residentSchema.index({ hostelId: 1, status: 1 });
 residentSchema.index({ hostelId: 1, roomType: 1 });
 residentSchema.index({ userId: 1, status: 1 });
 
-export const ResidentModel = models.Resident || model("Resident", residentSchema);
+export const ResidentModel =
+  models.Resident || model("Resident", residentSchema);

@@ -39,25 +39,62 @@ export enum ResidentStatus {
   INACTIVE = "INACTIVE",
 }
 
-export enum PaymentStatus {
-  UNPAID = "UNPAID",
+/**
+ * Finance enums, matching the models exactly (D9, plan item 2.8).
+ *
+ * The three that lived here before — `PaymentStatus`, `PaymentMethod`,
+ * `ProofVerificationStatus` — had drifted: `PaymentStatus` was missing
+ * `PENDING_PROOF`, and `ProofVerificationStatus` said `VERIFIED` where Mongoose
+ * said `APPROVED`. Nothing imported them, which is exactly why nobody noticed,
+ * and a shared enum nobody imports is a second source of truth waiting to be
+ * believed. These replace them and are kept in step with
+ * `Invoice.ts` / `PaymentEvent.ts`.
+ */
+
+export enum InvoiceStatus {
+  DRAFT = "DRAFT",
+  OPEN = "OPEN",
   PARTIAL = "PARTIAL",
   PAID = "PAID",
   OVERDUE = "OVERDUE",
+  VOID = "VOID",
+  WRITTEN_OFF = "WRITTEN_OFF",
 }
 
-export enum PaymentMethod {
-  ESEWA = "ESEWA",
-  FONEPAY = "FONEPAY",
-  KHALTI = "KHALTI",
-  BANK_TRANSFER = "BANK_TRANSFER",
-  CASH = "CASH",
-}
-
-export enum ProofVerificationStatus {
+export enum PaymentEventStatus {
   PENDING = "PENDING",
-  VERIFIED = "VERIFIED",
+  SETTLED = "SETTLED",
+  FAILED = "FAILED",
+  EXPIRED = "EXPIRED",
   REJECTED = "REJECTED",
+  REVERSED = "REVERSED",
+}
+
+/** How strongly a payment event is believed (P4). */
+export enum PaymentConfirmation {
+  UNCONFIRMED = "UNCONFIRMED",
+  MANUAL_REVIEW = "MANUAL_REVIEW",
+  STATEMENT_MATCH = "STATEMENT_MATCH",
+  GATEWAY_VERIFIED = "GATEWAY_VERIFIED",
+}
+
+/** `NONE` is real: cash and adjustments have no provider. */
+export enum PaymentProvider {
+  FONEPAY = "FONEPAY",
+  ESEWA = "ESEWA",
+  KHALTI = "KHALTI",
+  BANK = "BANK",
+  CASH = "CASH",
+  NONE = "NONE",
+}
+
+export enum PaymentEventSource {
+  GATEWAY_WEBHOOK = "GATEWAY_WEBHOOK",
+  GATEWAY_POLL = "GATEWAY_POLL",
+  STATEMENT_IMPORT = "STATEMENT_IMPORT",
+  RESIDENT_CLAIM = "RESIDENT_CLAIM",
+  CASH_ENTRY = "CASH_ENTRY",
+  ADJUSTMENT = "ADJUSTMENT",
 }
 
 export enum NightStatusValue {
