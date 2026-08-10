@@ -107,8 +107,8 @@ export type PaymentIntent = {
 export type WebhookClaim = {
   amount: number;
   providerTxnId: string;
-  /** Our reference code, echoed back by the provider. */
-  referenceCode: string | null;
+  /** Our per-attempt merchant reference, echoed back by the provider. */
+  reference: string | null;
 };
 
 /** The provider's own answer, obtained by calling them. This is what settles. */

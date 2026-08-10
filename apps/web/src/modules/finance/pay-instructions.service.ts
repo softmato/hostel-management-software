@@ -6,6 +6,7 @@ import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { findCurrentResident } from "@/modules/residents/resident-access";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
+import { hasProvider } from "@/modules/finance/gateway/registry";
 import { isGatewayPayable } from "@/modules/finance/gateway/secret-store";
 import {
   findGateway,
@@ -109,7 +110,10 @@ function methodsFrom(
   for (const provider of GATEWAY_ORDER) {
     const entry = findGateway(profile, provider);
 
-    if (!isGatewayPayable(entry)) {
+    // `hasProvider` as well as `isGatewayPayable`: a hostel can configure a
+    // provider whose adapter has not shipped, and offering that button gives the
+    // resident a checkout that fails after they have committed to paying.
+    if (!isGatewayPayable(entry) || !hasProvider(provider)) {
       continue;
     }
 

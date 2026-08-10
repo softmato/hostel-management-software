@@ -596,11 +596,11 @@ that the item's acceptance statement was **observed** to be true.
 | 3 — Tier 0 screens | 3.1–3.5 | **5 / 5** | ☑ Complete — §5.7 vocabulary outstanding |
 | 4 — Tier 0.5 reconciliation | 4.1–4.5 | **5 / 5** | ☑ Complete — PDF parsing deferred to 4b |
 | 5 — Reliability | 5.1–5.3 | **3 / 3** | ☑ Complete |
-| 6 — Tier 1 gateway | 6.0–6.8 | **2 / 9** | ☐ 6.0, 6.1 done; reordered so eSewa and Khalti ship first — only 6.8 (Fonepay) waits on merchant credentials |
+| 6 — Tier 1 gateway | 6.0–6.8 | **4 / 9** | ☐ 6.0–6.3 done, eSewa settles end to end; only 6.8 (Fonepay) waits on merchant credentials |
 | 7 — Deferred | — | — | Not scheduled |
-| **Total** | | **34 / 41** | |
+| **Total** | | **36 / 41** | |
 
-**Where the codebase stands.** 1166 tests (from 440 at the start of Block 0);
+**Where the codebase stands.** 1236 tests (from 440 at the start of Block 0);
 typecheck and lint clean across `apps/web`, `packages/db` and `packages/shared`;
 `next build` passes. `Payment`, `PaymentProof`, `payment.service.ts`,
 `payment.validation.ts` and `payment-reminders.service.ts` no longer exist —
@@ -2104,10 +2104,10 @@ adapter even though nothing needed real secrets yet.
 **☑ 6.1** Per-provider configuration: `gateways[]` on the payment profile, the
 secret store keyed by provider, eligibility rules, and the resident pay screen
 offering live checkouts above the manual methods.
-**☐ 6.2** `PaymentIntent` + the settlement path every adapter shares: intent
+**☑ 6.2** `PaymentIntent` + the settlement path every adapter shares: intent
 creation, callback receiver, **independent re-verify against the provider's API**
 before settling (target §6.5 step 7c — never trust the callback body alone).
-**☐ 6.3** eSewa adapter (form POST v2, HMAC-SHA256, status API).
+**☑ 6.3** eSewa adapter (form POST v2, HMAC-SHA256, status API).
 **☐ 6.4** Resident checkout screens — one dedicated flow per provider, plus the
 owner's live feed (§11.7) over the existing Pusher channel (D8) with a poll
 fallback.
@@ -2179,6 +2179,69 @@ recoverable by explaining it afterwards. Owners acceptance-test on staging.
 rewritten in `secret-store.test.ts` including cross-provider ciphertext rejection
 and the production sandbox rule, plus the array cases in `payment-profile.test.ts`
 and the checkout ordering in `pay-instructions.test.ts`. Typecheck and lint clean.
+
+**6.2 and 6.3 landed 2026-08-10.** `PaymentIntent` (model), `intent.service.ts`,
+`registry.ts`, `esewa.provider.ts`, and five routes: resident checkout, checkout
+status, the provider callback receiver, the expiry sweep cron, and the owner's
+gateway setup endpoint.
+
+**An intent is not an event, and the separation is the point.** Most checkouts
+end in nothing — abandoning one is the single most common outcome of opening one
+— so attempts live in their own collection and reach `PaymentEvent` only after a
+provider has been asked directly and agreed. Keeping abandoned attempts out of
+the ledger is what keeps every row there meaning "money someone believes moved";
+a collection where nine rows in ten are noise is one nobody reads carefully.
+
+**One function settles, and everything else only triggers it.** The callback
+receiver, the resident's polling screen and the sweep all call
+`verifyPaymentIntent`, which calls the provider. Concentrating it makes target
+§6.5 step 7c enforceable rather than repeated: a signature proves the provider
+sent the message, never that money moved or how much.
+
+**A verified success still has to match.** The provider's amount must equal what
+we quoted, and a disagreement is audited as `GATEWAY_AMOUNT_MISMATCH` and left
+unsettled. It means the resident was charged something other than what we showed
+them, or a callback was replayed against the wrong attempt — neither is resolved
+by trusting the larger figure.
+
+**Idempotency is the ledger's unique index, not a check in this module.** The
+event key is `gateway:{provider}:{providerTxnId}`, so a replayed callback
+collides rather than crediting twice. A read-then-write guard here would have a
+race; the index does not.
+
+**Unreachable is not failed.** A provider we cannot reach leaves the attempt
+open, on every path — the sweep skips the row, the screen keeps polling. The
+alternative writes off payments residents actually made, which is the one class
+of bug they can prove and we cannot.
+
+**The merchant reference is `{referenceCode}-{attempt}`.** Providers reject a
+repeated merchant reference, so without the suffix a resident who abandoned one
+checkout could never pay that invoice again.
+
+**eSewa was built first because it needs nobody's permission and is the awkward
+shape.** Its test merchant is published in eSewa's own documentation, and its
+checkout is a signed HTML form POST with the signature over a declared subset of
+fields in a declared order — so `IntentHandoff` grew `FORM_POST` alongside
+`REDIRECT` and `QR`, and Khalti's JSON flow drops into the same interface rather
+than bending it. eSewa has **no server-to-server webhook in v2**: the
+confirmation returns through the resident's browser, which is precisely why the
+status API is what settles.
+
+**`AMBIGUOUS` maps to PENDING.** It is eSewa saying *they* do not know. Calling
+it success credits money that may not exist; calling it failure writes off a
+payment that may have happened. Both refund states map to FAILED — the money came
+back, so crediting the invoice would leave the hostel short by exactly that much.
+
+**A poll cooldown of 2s.** The resident's screen polls while they are on eSewa's
+page, and every poll is otherwise a call to eSewa. Being rate-limited is
+indistinguishable from being down at the moment it matters most.
+
+*Verified:* 1236 tests pass (was 1166) — 39 in `intent.test.ts` covering the
+amount mismatch, the callback that must not settle from its own body, the
+unreachable provider on every path, and the sweep settling a payment made while
+the callback was down; 30 in `esewa.test.ts` covering the signed field order, a
+payload edited after signing, `"12,000.0"` parsing, and every status mapping.
+Typecheck, lint and `next build` clean.
 
 **6.8 remains blocked on credentials, and no amount of searching changes
 that.** Fonepay publishes no universal sandbox merchant: the merchant code and

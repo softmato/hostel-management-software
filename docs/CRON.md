@@ -115,6 +115,28 @@ Read-only, therefore safe to run at any time and as often as you like. Returns
 
 - Recommended schedule: nightly (e.g. `0 3 * * *`).
 
+### Gateway checkout expiry sweep
+
+`POST /api/v1/cron/gateway-expiry-sweep`
+
+Closes gateway checkout attempts whose payment window has passed
+(FINANCE_IMPLEMENTATION_PLAN.md item 6.2, target §6.5).
+
+**It asks the provider before writing anything off.** The failure this exists to
+prevent is our callback endpoint being down for an hour while a resident pays
+successfully — a clock-only sweep would record that payment as abandoned, and the
+resident would have the provider's receipt proving otherwise. So the clock
+decides when to *ask*, never what the answer is: an attempt that turns out to
+have succeeded settles here instead of expiring, and one whose provider cannot be
+reached is left alone for the next run rather than expired on a guess.
+
+Batched at 100 attempts per run, each costing one call to its provider. Returns
+`{ expired, settled }`.
+
+- Recommended schedule: every 5 minutes (e.g. `*/5 * * * *`). Confirm the
+  scheduler tier supports that cadence; every 15 minutes still works, it just
+  leaves stale attempts on the resident's screen longer.
+
 ### Complaint SLA breach check
 
 `POST /api/v1/cron/complaint-sla`

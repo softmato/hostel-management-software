@@ -35,6 +35,15 @@ vi.mock("@hostel/db/models/InvoiceBalance", () => ({
   InvoiceBalanceModel: { findOne: mocks.balanceFindOne },
 }));
 
+/**
+ * Which adapters have shipped is a Block 6 schedule detail, not something these
+ * assertions are about — so the registry is stubbed to report both wallets as
+ * available, and one test below covers the case where an adapter is missing.
+ */
+vi.mock("@/modules/finance/gateway/registry", () => ({
+  hasProvider: (provider: string) => provider !== "FONEPAY",
+}));
+
 vi.mock("@hostel/db/models/HostelPaymentProfile", async () => {
   const actual = await vi.importActual<
     typeof import("@hostel/db/models/HostelPaymentProfile")
@@ -256,6 +265,21 @@ describe("live gateways on the pay screen", () => {
 
     expect(result.methods.map((method) => method.kind)).toEqual(["ESEWA"]);
     expect(result.tier).toBe("TIER_0");
+  });
+
+  /**
+   * A hostel can configure a provider whose adapter has not shipped yet.
+   * Offering that button hands the resident a checkout that fails after they
+   * have committed to paying.
+   */
+  it("does not offer a provider with no adapter behind it", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({ bankAccountNumber: "01234567890", gateways: [enabled("FONEPAY")] }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+
+    expect(result.methods.map((method) => method.kind)).toEqual(["BANK"]);
   });
 
   it("does not offer a personal wallet as a checkout", async () => {
