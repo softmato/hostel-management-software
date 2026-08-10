@@ -6,6 +6,7 @@ import { connectToDatabase } from "@/lib/db";
 import { HOSTEL_STAFF_ROLES, PLATFORM_ROLES, assertAllowedRole } from "@/lib/permissions";
 import { assertHostelAccess } from "@/lib/tenant";
 import { Role } from "@/lib/roles";
+import { grantingPermissionKeys } from "@/lib/warden-capability";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import type { WardenPermissionKey } from "@/modules/wardens/warden.validation";
 
@@ -150,8 +151,9 @@ export async function requireHostelCapability(
   const memberships = await HostelMemberModel.find({
     hostelId: { $in: principal.hostelIds.filter((id) => Types.ObjectId.isValid(id)) },
     isDeleted: { $ne: true },
-    // Mongo matches a scalar against array membership.
-    permissions: capability,
+    // Mongo matches a scalar against array membership; `$in` widens that to the
+    // deprecated key a row may still be carrying.
+    permissions: { $in: grantingPermissionKeys(capability) },
     status: "ACTIVE",
     userId: principal.userId,
   })

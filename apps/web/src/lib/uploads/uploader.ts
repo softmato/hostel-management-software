@@ -1,3 +1,4 @@
+import type { FileAssetKind } from "@/lib/file-asset-kinds";
 import { toast } from "@/stores/toast-store";
 import { useUploadStore, type UploadItem } from "@/stores/upload-store";
 
@@ -25,6 +26,11 @@ export type UploadOptions = {
   accessLevel?: "PRIVATE" | "PROTECTED" | "PUBLIC";
   /** Overrides the accept list derived from `kind`, e.g. "image/png". */
   accept?: string;
+  /**
+   * What the file is *for*. Financial kinds are tenant-scoped at presign time
+   * and are rejected if the caller's hostel cannot be resolved.
+   */
+  assetKind?: FileAssetKind;
   kind?: UploadKind;
   /** Human name for the thing being uploaded, e.g. "Payment proof". */
   label?: string;
@@ -88,6 +94,7 @@ async function runOne(file: File, options: UploadOptions): Promise<UploadOutcome
   try {
     const result = await sendUpload(file, {
       accessLevel: options.accessLevel,
+      assetKind: options.assetKind,
       onProgress: ({ loadedBytes, percent }) => {
         useUploadStore.getState().update(item.id, {
           loadedBytes,

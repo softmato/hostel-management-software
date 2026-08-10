@@ -34,6 +34,24 @@ const fileAssetSchema = new Schema(
       default: "PRIVATE",
     },
     publicUrl: String,
+    /**
+     * Set once the bytes are confirmed to exist in storage and to match what
+     * the client declared. Until then the row is a reservation, not a file:
+     * a presign that is never followed by a PUT leaves one behind, and nothing
+     * may use an unconfirmed asset as evidence (target §13.3).
+     */
+    uploadCompletedAt: Date,
+    /** SHA-256 of the stored bytes, read back from storage — never client-sent. */
+    contentHash: String,
+    /**
+     * 64-bit dHash of the image, as 16 hex characters (plan item 3.4).
+     *
+     * Answers "does this *look* like one we have seen?", where `contentHash`
+     * answers "are these the same bytes?". A perceptual match is evidence, not
+     * proof, and may only flag a claim for review — never auto-reject it.
+     * Absent for anything that is not a decodable image.
+     */
+    perceptualHash: String,
     variants: { type: [variantSchema], default: [] },
     status: { type: String, enum: ["ACTIVE", "DELETED"], default: "ACTIVE" },
     createdBy: { ref: "User", type: Schema.Types.ObjectId },
@@ -64,5 +82,8 @@ fileAssetSchema.pre("validate", function validateUploadPolicy() {
 fileAssetSchema.index({ hostelId: 1, status: 1 });
 fileAssetSchema.index({ ownerId: 1, status: 1 });
 fileAssetSchema.index({ key: 1 }, { unique: true });
+// Drives the abandoned-presign sweep: rows with no completion, oldest first.
+fileAssetSchema.index({ uploadCompletedAt: 1, createdAt: 1 });
 
-export const FileAssetModel = models.FileAsset || model("FileAsset", fileAssetSchema);
+export const FileAssetModel =
+  models.FileAsset || model("FileAsset", fileAssetSchema);

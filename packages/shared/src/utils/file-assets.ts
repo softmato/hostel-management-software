@@ -14,6 +14,13 @@ export const DEFAULT_DOCUMENT_MIME_TYPES = [
   "image/png",
   "image/webp",
   "text/plain",
+  /**
+   * Provider statements for Tier 0.5 reconciliation. A CSV is `text/plain` with
+   * a different label, so this widens nothing the platform did not already
+   * accept — but browsers vary on which of the two they report for a `.csv`,
+   * and an owner should not have their monthly statement bounced over it.
+   */
+  "text/csv",
 ];
 
 /**

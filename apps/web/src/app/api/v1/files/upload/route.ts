@@ -7,6 +7,8 @@ import { existsSync } from "fs";
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
 import { generateFileKey, getR2Client } from "@/lib/r2";
+import { hashBytes } from "@/lib/uploads/verify";
+import { computePerceptualHash } from "@/modules/finance/evidence";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
 export const runtime = "nodejs";
@@ -84,6 +86,11 @@ export async function POST(request: NextRequest) {
         status: "ACTIVE",
         createdBy: principal.userId,
         ownerId: principal.userId,
+        // The bytes passed through this process, so type, size and hash are
+        // measured rather than declared — no separate verification leg needed.
+        contentHash: hashBytes(buffer),
+        perceptualHash: (await computePerceptualHash(buffer)) ?? undefined,
+        uploadCompletedAt: new Date(),
       });
     } else {
       const uploadDir = join(process.cwd(), "public", "uploads", "hostel-documents");

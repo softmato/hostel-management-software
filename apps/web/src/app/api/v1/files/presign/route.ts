@@ -2,11 +2,34 @@ import type { NextRequest } from "next/server";
 
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
+import { isFinancialAssetKind } from "@/lib/file-asset-kinds";
 import { validateFileAssetMetadata } from "@/lib/file-assets";
+import { Role } from "@/lib/roles";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { getPresignedUploadUrl, generateFileKey } from "@/lib/r2";
 
 export const runtime = "nodejs";
+
+/**
+ * Which hostel an asset belongs to, or null when it genuinely belongs to none
+ * (a platform admin's own upload). An explicit `hostelId` must be one the caller
+ * can reach; otherwise a caller scoped to exactly one hostel gets that one,
+ * which covers every resident and single-hostel staff member without the client
+ * having to know its own tenancy.
+ */
+function resolveAssetHostelId(
+  principal: { hostelIds: string[]; role: Role },
+  requested?: string,
+) {
+  if (requested) {
+    const allowed =
+      principal.role === Role.SUPERADMIN || principal.hostelIds.includes(requested);
+
+    return allowed ? requested : null;
+  }
+
+  return principal.hostelIds.length === 1 ? principal.hostelIds[0] : null;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,11 +42,20 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       accessLevel?: "PUBLIC" | "PRIVATE" | "PROTECTED";
       fileName?: string;
+      hostelId?: string;
+      kind?: string;
       mimeType?: string;
       sizeBytes?: number;
     };
 
-    const { fileName, mimeType, sizeBytes, accessLevel } = body;
+    const {
+      fileName,
+      hostelId: requestedHostelId,
+      kind,
+      mimeType,
+      sizeBytes,
+      accessLevel,
+    } = body;
 
     if (!fileName || !mimeType || !sizeBytes) {
       return errorResponse(
@@ -39,6 +71,23 @@ export async function POST(request: NextRequest) {
       return errorResponse(validation, "FILE_TYPE_NOT_ALLOWED", 422);
     }
 
+    if (requestedHostelId && !resolveAssetHostelId(principal, requestedHostelId)) {
+      return errorResponse("Access denied", "FORBIDDEN", 403);
+    }
+
+    const hostelId = resolveAssetHostelId(principal, requestedHostelId);
+
+    // Money evidence that is not tenant-scoped cannot be authorized on read, so
+    // it must never be created. Failing here is loud and fixable; failing on
+    // read is a cross-tenant leak.
+    if (isFinancialAssetKind(kind) && !hostelId) {
+      return errorResponse(
+        "A hostelId is required for payment-related uploads.",
+        "HOSTEL_SCOPE_REQUIRED",
+        422,
+      );
+    }
+
     const bucket = process.env.R2_BUCKET_NAME ?? "hostelhub-uploads";
     const key = generateFileKey("uploads", fileName);
     const fileAsset = await FileAssetModel.create({
@@ -46,6 +95,7 @@ export async function POST(request: NextRequest) {
       bucket,
       key,
       fileName,
+      hostelId: hostelId ?? undefined,
       mimeType,
       sizeBytes,
       accessLevel: accessLevel ?? "PRIVATE",

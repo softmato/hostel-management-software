@@ -1,5 +1,6 @@
 import { refreshSession } from "@/lib/auth-refresh";
 import { browserApi } from "@/lib/browser-api";
+import type { FileAssetKind } from "@/lib/file-asset-kinds";
 
 /**
  * Upload transports.
@@ -153,6 +154,7 @@ async function uploadViaPresignedUrl(
   file: File,
   options: {
     accessLevel: "PRIVATE" | "PROTECTED" | "PUBLIC";
+    assetKind?: FileAssetKind;
     onProgress?: (progress: UploadProgress) => void;
     signal?: AbortSignal;
   },
@@ -165,6 +167,7 @@ async function uploadViaPresignedUrl(
     body: JSON.stringify({
       accessLevel: options.accessLevel,
       fileName: file.name,
+      kind: options.assetKind,
       mimeType: file.type,
       sizeBytes: file.size,
     }),
@@ -187,6 +190,11 @@ async function uploadViaPresignedUrl(
       response.status,
     );
   }
+
+  // Third leg: the server reads the object back and confirms it is what was
+  // declared. Until this succeeds the asset is unusable, so a failure here is
+  // an upload failure — not something to swallow and report as success.
+  await browserApi(`/api/v1/files/${presign.assetId}/complete`, { method: "POST" });
 
   return {
     assetId: presign.assetId,
@@ -269,6 +277,7 @@ export function sendUpload(
   file: File,
   options: {
     accessLevel?: "PRIVATE" | "PROTECTED" | "PUBLIC";
+    assetKind?: FileAssetKind;
     onProgress?: (progress: UploadProgress) => void;
     signal?: AbortSignal;
     target: UploadTarget;
@@ -277,6 +286,7 @@ export function sendUpload(
   if (options.target === "asset") {
     return uploadViaPresignedUrl(file, {
       accessLevel: options.accessLevel ?? "PRIVATE",
+      assetKind: options.assetKind,
       onProgress: options.onProgress,
       signal: options.signal,
     });

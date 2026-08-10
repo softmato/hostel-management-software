@@ -24,6 +24,11 @@ vi.mock("@hostel/db/models/HostelMember", () => ({
 }));
 
 import { requireHostelCapability } from "@/lib/api-auth";
+import { grantingPermissionKeys } from "@/lib/warden-capability";
+import {
+  DEFAULT_WARDEN_PERMISSIONS,
+  WARDEN_PERMISSION_KEYS,
+} from "@/modules/wardens/warden.validation";
 
 const HOSTEL_A = "64f0f0f0f0f0f0f0f0f0f0a1";
 const HOSTEL_B = "64f0f0f0f0f0f0f0f0f0f0a2";
@@ -77,7 +82,10 @@ describe("warden capability enforcement", () => {
 
     expect(principal.hostelIds).toEqual([HOSTEL_A]);
     expect(mocks.memberFind).toHaveBeenCalledWith(
-      expect.objectContaining({ permissions: "manageFood", status: "ACTIVE" }),
+      expect.objectContaining({
+        permissions: { $in: ["manageFood"] },
+        status: "ACTIVE",
+      }),
     );
   });
 
@@ -94,7 +102,7 @@ describe("warden capability enforcement", () => {
     signedInAs(Role.WARDEN, [HOSTEL_A, HOSTEL_B]);
     membershipsIn([HOSTEL_B]);
 
-    const principal = await requireHostelCapability(request(), "verifyPayments");
+    const principal = await requireHostelCapability(request(), "approvePayments");
 
     // Services scope every query by principal.hostelIds, so dropping HOSTEL_A
     // here is what actually prevents the warden from touching it.
@@ -116,5 +124,70 @@ describe("warden capability enforcement", () => {
     await expect(requireHostelCapability(request(), "manageFood")).rejects.toMatchObject({
       status: 401,
     });
+  });
+});
+
+/**
+ * Plan item 0.5 / target §13.4. `verifyPayments` was one flag over eight
+ * operations, granted to every warden by default. The split has to hold two
+ * properties at once: an unmigrated row keeps the access a warden should have
+ * had, and does not keep the access that was never meant to travel with it.
+ */
+describe("payment capability split", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each(["viewPayments", "approvePayments", "recordCash"] as const)(
+    "accepts the deprecated verifyPayments key for %s",
+    async (capability) => {
+      signedInAs(Role.WARDEN, [HOSTEL_A]);
+      membershipsIn([HOSTEL_A]);
+
+      await requireHostelCapability(request(), capability);
+
+      expect(grantingPermissionKeys(capability)).toContain("verifyPayments");
+      expect(mocks.memberFind).toHaveBeenCalledWith(
+        expect.objectContaining({
+          permissions: { $in: [capability, "verifyPayments"] },
+        }),
+      );
+    },
+  );
+
+  // The point of the split: honouring the alias for these would preserve the
+  // hole it closes.
+  it.each(["reversePayments", "manageFeeSchedule", "managePaymentProfile"] as const)(
+    "does not let verifyPayments stand in for %s",
+    async (capability) => {
+      signedInAs(Role.WARDEN, [HOSTEL_A]);
+      membershipsIn([HOSTEL_A]);
+
+      await requireHostelCapability(request(), capability);
+
+      expect(grantingPermissionKeys(capability)).toEqual([capability]);
+      expect(mocks.memberFind).toHaveBeenCalledWith(
+        expect.objectContaining({ permissions: { $in: [capability] } }),
+      );
+    },
+  );
+
+  it("gives a new warden view, approve and cash but no reversal or rate-card powers", () => {
+    expect(DEFAULT_WARDEN_PERMISSIONS).toEqual(
+      expect.arrayContaining(["viewPayments", "approvePayments", "recordCash"]),
+    );
+
+    for (const restricted of [
+      "reversePayments",
+      "manageFeeSchedule",
+      "managePaymentProfile",
+    ]) {
+      expect(DEFAULT_WARDEN_PERMISSIONS).not.toContain(restricted);
+    }
+  });
+
+  it("no longer offers the retired key when granting permissions", () => {
+    expect(WARDEN_PERMISSION_KEYS).not.toContain("verifyPayments");
+    expect(DEFAULT_WARDEN_PERMISSIONS).not.toContain("verifyPayments");
   });
 });

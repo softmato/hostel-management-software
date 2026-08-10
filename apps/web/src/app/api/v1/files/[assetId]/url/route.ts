@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, errorResponse } from "@/lib/api-response";
+import { PLATFORM_ROLES } from "@/lib/permissions";
 import { getPresignedReadUrl } from "@/lib/r2";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
@@ -77,12 +78,18 @@ export async function GET(request: NextRequest, context: RouteContext) {
         );
       }
 
-      if (
-        fileAsset.ownerId?.toString() !== principal.userId &&
-        fileAsset.hostelId &&
-        !principal.hostelIds.includes(fileAsset.hostelId.toString()) &&
-        principal.role !== "SUPERADMIN"
-      ) {
+      // Default-deny. Access is granted by a positive reason, never by the
+      // absence of one: the previous form short-circuited on a missing
+      // `hostelId`, and since payment proofs never carried one, every
+      // authenticated user could read every resident's bank screenshot.
+      // An unlabelled asset is now readable by its owner and the platform only.
+      const isOwner = fileAsset.ownerId?.toString() === principal.userId;
+      const isPlatform = PLATFORM_ROLES.includes(principal.role);
+      const isSameHostel = fileAsset.hostelId
+        ? principal.hostelIds.includes(fileAsset.hostelId.toString())
+        : false;
+
+      if (!isOwner && !isPlatform && !isSameHostel) {
         return errorResponse("Access denied", "FORBIDDEN", 403);
       }
 
