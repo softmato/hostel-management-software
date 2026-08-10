@@ -14,9 +14,15 @@ export const residentEndpoints = {
   nightStatus: "/api/v1/resident/night-status",
   notices: "/api/v1/resident/notices",
   payments: "/api/v1/resident/finance/invoices",
-  /** How to pay one invoice: reference code, QR, wallet IDs, bank account. */
+  /** How to pay one invoice: live checkouts, reference code, QR, bank account. */
   payInstructions: (invoiceId: string) =>
     `/api/v1/resident/finance/invoices/${invoiceId}/pay-instructions`,
+  /** Starts a gateway checkout. POST — it creates an attempt and calls the provider. */
+  checkout: (invoiceId: string) =>
+    `/api/v1/resident/finance/invoices/${invoiceId}/checkout`,
+  /** What the "checking…" screen polls. Settles nothing by being visited. */
+  checkoutStatus: (reference: string) =>
+    `/api/v1/resident/finance/checkout/${encodeURIComponent(reference)}`,
   profile: "/api/v1/resident/profile",
   referral: "/api/v1/resident/referral",
   /** A PDF download, not a query — never passed to `usePortalResource`. */

@@ -83,6 +83,8 @@ export const hostelAdminEndpoints = {
   billingRuns: "/api/v1/hostel-admin/finance/billing-runs",
   /** How this hostel takes money — the source for the resident pay screen. */
   paymentProfile: "/api/v1/hostel-admin/finance/payment-profile",
+  /** Per-provider online checkout setup. Separate from the profile: it carries keys. */
+  paymentGateways: "/api/v1/hostel-admin/finance/payment-gateways",
   paymentsReport: "/api/v1/hostel-admin/reports/payments",
   profile: "/api/v1/hostel-admin/profile",
   /** `near` disambiguates a bare place name with the hostel's saved locality. */

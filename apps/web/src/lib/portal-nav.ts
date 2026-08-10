@@ -472,6 +472,21 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
           },
           {
             description:
+              "Let residents pay in one tap through eSewa or Khalti — settles itself, no approval queue.",
+            href: "/hostel-admin/payment-gateways",
+            keywords: [
+              "esewa",
+              "khalti",
+              "fonepay",
+              "gateway",
+              "online",
+              "checkout",
+              "merchant",
+            ],
+            label: "Online Checkout",
+          },
+          {
+            description:
               "Full payment ledger with method, reference, and reconciliation status.",
             href: "/hostel-admin/transactions",
             keywords: ["ledger", "transaction", "history", "reconcile", "refund"],

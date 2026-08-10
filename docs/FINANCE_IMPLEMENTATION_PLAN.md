@@ -596,11 +596,11 @@ that the item's acceptance statement was **observed** to be true.
 | 3 — Tier 0 screens | 3.1–3.5 | **5 / 5** | ☑ Complete — §5.7 vocabulary outstanding |
 | 4 — Tier 0.5 reconciliation | 4.1–4.5 | **5 / 5** | ☑ Complete — PDF parsing deferred to 4b |
 | 5 — Reliability | 5.1–5.3 | **3 / 3** | ☑ Complete |
-| 6 — Tier 1 gateway | 6.0–6.8 | **4 / 9** | ☐ 6.0–6.3 done, eSewa settles end to end; only 6.8 (Fonepay) waits on merchant credentials |
+| 6 — Tier 1 gateway | 6.0–6.8 | **7 / 9** | ☐ 6.0–6.6 done; eSewa and Khalti settle end to end. 6.7 monitoring next; 6.8 (Fonepay) waits on merchant credentials |
 | 7 — Deferred | — | — | Not scheduled |
-| **Total** | | **36 / 41** | |
+| **Total** | | **39 / 41** | |
 
-**Where the codebase stands.** 1236 tests (from 440 at the start of Block 0);
+**Where the codebase stands.** 1266 tests (from 440 at the start of Block 0);
 typecheck and lint clean across `apps/web`, `packages/db` and `packages/shared`;
 `next build` passes. `Payment`, `PaymentProof`, `payment.service.ts`,
 `payment.validation.ts` and `payment-reminders.service.ts` no longer exist —
@@ -2108,11 +2108,11 @@ offering live checkouts above the manual methods.
 creation, callback receiver, **independent re-verify against the provider's API**
 before settling (target §6.5 step 7c — never trust the callback body alone).
 **☑ 6.3** eSewa adapter (form POST v2, HMAC-SHA256, status API).
-**☐ 6.4** Resident checkout screens — one dedicated flow per provider, plus the
-owner's live feed (§11.7) over the existing Pusher channel (D8) with a poll
-fallback.
-**☐ 6.5** Khalti adapter (initiate → `payment_url` → lookup by `pidx`).
-**☐ 6.6** Owner setup UI for §6.7 — the "I have merchant details" path of target
+**☑ 6.4** Resident checkout screens — the pay panel's per-provider handoff and
+the "checking…" status screen. The owner's live feed (§11.7) over Pusher moves to
+6.7 with the rest of the monitoring.
+**☑ 6.5** Khalti adapter (initiate → `payment_url` → lookup by `pidx`).
+**☑ 6.6** Owner setup UI for §6.7 — the "I have merchant details" path of target
 §11.8, plus the Fonepay merchant-vs-personal choice.
 **☐ 6.7** Expiry sweep that re-queries the provider before expiring (so a payment
 that succeeded while the callback was down is not expired away), gateway health
@@ -2242,6 +2242,54 @@ unreachable provider on every path, and the sweep settling a payment made while
 the callback was down; 30 in `esewa.test.ts` covering the signed field order, a
 payload edited after signing, `"12,000.0"` parsing, and every status mapping.
 Typecheck, lint and `next build` clean.
+
+**6.4, 6.5 and 6.6 landed 2026-08-10.** `khalti.provider.ts`,
+`resident-checkout-page.tsx`, `hostel-admin-payment-gateways-page.tsx`, the
+handoff in `resident-pay-invoice-panel.tsx`, and the `payment-gateways` screen in
+the nav and registry.
+
+**Khalti proved the interface.** It is a JSON API where eSewa is a signed form
+POST, it identifies its merchant by key alone, and it works in **paisa** where
+every other number in this codebase is whole rupees — and none of that reached
+`provider.types.ts`. The differences are all inside one file, which is what
+building against the awkward provider first bought.
+
+**Paisa is the one thing that would be a disaster.** A factor of a hundred either
+charges a resident a hundred times their rent or a hundredth of it. Conversion
+happens at exactly two points and is asserted in both directions.
+
+**Khalti's `parseWebhook` returns null unconditionally, on purpose.** Khalti
+sends no signed server-to-server callback — its return is unsigned query
+parameters through the resident's browser. Accepting that would let a stranger
+make us call Khalti: harmless for money, since `verify` is still the authority,
+but a free amplifier against our own rate limit with the provider. Khalti
+attempts settle through the resident's authenticated poll and the sweep.
+
+**A completed-but-refunded Khalti payment maps to FAILED.** It is the one status
+that reads like a success and is not: the money came back, so crediting the
+invoice would leave the hostel short by exactly that amount.
+
+**The handoff is a real form submission, not a fetch.** The resident's browser
+has to be what arrives at eSewa, or our server holds the session and the payment
+can never complete — which is why `IntentHandoff` distinguishes `FORM_POST` from
+`REDIRECT` rather than flattening both to a URL.
+
+**The "upload your screenshot" line is now scoped to the manual methods.**
+Telling a resident who just paid through a gateway to wait for approval is how
+they end up paying twice.
+
+**Online checkout is its own screen, not a section of Payment Setup.** That form
+is a broad PATCH over display text and account numbers; a signing key must not
+travel through it. Both read and write require `managePaymentProfile`, so the
+warden who approves proofs cannot see merchant codes or install keys.
+
+*Verified:* 1266 tests pass (was 1236) — 30 in `khalti.test.ts` covering the
+paisa conversion in both directions, the `Key` auth scheme, every status
+including refunded-completed, and the refusal of the unsigned return. Typecheck,
+lint and `next build` clean. **Not verified in a browser**: both new screens are
+behind auth and render server-side only (`/hostel-admin/payment-gateways` → 307 →
+tenant URL → 200). They join the seven Block 3–5 screens still awaiting a real
+session.
 
 **6.8 remains blocked on credentials, and no amount of searching changes
 that.** Fonepay publishes no universal sandbox merchant: the merchant code and

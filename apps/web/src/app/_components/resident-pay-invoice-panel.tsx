@@ -1,10 +1,20 @@
 "use client";
 
-import { Building2, Check, Copy, QrCode, Smartphone, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Building2,
+  Check,
+  Copy,
+  Loader2,
+  QrCode,
+  Smartphone,
+  X,
+} from "lucide-react";
 import { memo, useCallback, useState } from "react";
 
 import { currency, EmptyState, LoadingRows } from "@/app/_components/shared-ui";
-import { SectionCard, SoftBadge } from "@/app/_components/portal-dashboard-ui";
+import { SectionCard } from "@/app/_components/portal-dashboard-ui";
+import { browserApi } from "@/lib/browser-api";
 import { usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
 
@@ -22,7 +32,10 @@ import { residentEndpoints } from "@/lib/resident-endpoints";
  * deciding what counts as a payment method.
  */
 
+type GatewayProviderName = "ESEWA" | "FONEPAY" | "KHALTI";
+
 type PayMethod =
+  | { kind: "GATEWAY"; provider: GatewayProviderName; sandbox: boolean }
   | {
       kind: "BANK";
       accountName: string | null;
@@ -31,7 +44,18 @@ type PayMethod =
     }
   | { kind: "ESEWA"; id: string }
   | { kind: "KHALTI"; id: string }
-  | { kind: "QR"; assetId: string };
+  | { kind: "QR"; assetId: string; notice: string | null };
+
+type IntentHandoff =
+  | { kind: "REDIRECT"; url: string }
+  | { kind: "FORM_POST"; url: string; fields: Record<string, string> }
+  | { kind: "QR"; payload: string };
+
+const PROVIDER_LABEL: Record<GatewayProviderName, string> = {
+  ESEWA: "eSewa",
+  FONEPAY: "Fonepay",
+  KHALTI: "Khalti",
+};
 
 type PayInstructions = {
   amountDue: number;
@@ -76,7 +100,109 @@ function CopyButton({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MethodRow({ method }: { method: PayMethod }) {
+/**
+ * Sends the browser to the provider.
+ *
+ * A form POST is built and submitted rather than fetched, because the resident's
+ * browser has to be the thing that arrives at eSewa — a `fetch` would put *our*
+ * server in the session and the payment could never complete. The form is
+ * removed either way; a navigation is starting, but a failed one should not
+ * leave hidden inputs holding a signature on the page.
+ */
+function handOff(handoff: IntentHandoff) {
+  if (handoff.kind === "REDIRECT") {
+    window.location.assign(handoff.url);
+    return;
+  }
+
+  if (handoff.kind !== "FORM_POST") {
+    return;
+  }
+
+  const form = document.createElement("form");
+
+  form.action = handoff.url;
+  form.method = "POST";
+  form.style.display = "none";
+
+  for (const [name, value] of Object.entries(handoff.fields)) {
+    const input = document.createElement("input");
+
+    input.name = name;
+    input.type = "hidden";
+    input.value = value;
+    form.append(input);
+  }
+
+  document.body.append(form);
+  form.submit();
+  form.remove();
+}
+
+function GatewayButton({
+  invoiceId,
+  method,
+}: {
+  invoiceId: string;
+  method: Extract<PayMethod, { kind: "GATEWAY" }>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const label = PROVIDER_LABEL[method.provider];
+
+  const start = useCallback(() => {
+    setBusy(true);
+    setError("");
+
+    browserApi<{ handoff: IntentHandoff }>(residentEndpoints.checkout(invoiceId), {
+      body: JSON.stringify({ provider: method.provider }),
+      method: "POST",
+    })
+      .then((result) => handOff(result.handoff))
+      .catch((cause: Error) => {
+        // The navigation never started, so the resident is still here and has to
+        // be told why rather than left looking at a button that did nothing.
+        setError(cause.message || `Could not open ${label}. Please try again.`);
+        setBusy(false);
+      });
+  }, [invoiceId, label, method.provider]);
+
+  return (
+    <div className="rounded-lg border-2 border-role-resident/40 bg-role-resident/5 p-3">
+      <button
+        className="flex w-full items-center justify-center gap-2 rounded-md bg-role-resident px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+        disabled={busy}
+        onClick={start}
+        type="button"
+      >
+        {busy ? (
+          <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+        ) : (
+          <Smartphone aria-hidden="true" className="size-4" />
+        )}
+        {busy ? `Opening ${label}…` : `Pay with ${label}`}
+      </button>
+      <p className="mt-2 text-center text-xs text-muted-foreground">
+        Settles automatically — no screenshot needed.
+      </p>
+      {method.sandbox ? (
+        <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-500/15 p-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          Test mode — this is a sandbox merchant and moves no real money.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mt-2 text-center text-xs font-semibold text-destructive">{error}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function MethodRow({ invoiceId, method }: { invoiceId: string; method: PayMethod }) {
+  if (method.kind === "GATEWAY") {
+    return <GatewayButton invoiceId={invoiceId} method={method} />;
+  }
+
   if (method.kind === "QR") {
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-border p-3">
@@ -90,6 +216,14 @@ function MethodRow({ method }: { method: PayMethod }) {
           <QrCode aria-hidden="true" className="size-3.5" />
           Scan with any payment app
         </span>
+        {/* A personal wallet's daily cap. Told before they try, because the
+            network's rejection afterwards explains nothing. */}
+        {method.notice ? (
+          <p className="flex items-start gap-1.5 rounded-md bg-amber-500/15 p-2 text-xs font-semibold leading-4 text-amber-800 dark:text-amber-300">
+            <AlertTriangle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+            {method.notice}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -225,7 +359,15 @@ export const ResidentPayInvoicePanel = memo(function ResidentPayInvoicePanel({
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 {instructions.methods.map((method) => (
-                  <MethodRow key={method.kind} method={method} />
+                  <MethodRow
+                    invoiceId={instructions.invoiceId}
+                    key={
+                      method.kind === "GATEWAY"
+                        ? `GATEWAY:${method.provider}`
+                        : method.kind
+                    }
+                    method={method}
+                  />
                 ))}
               </div>
               {instructions.instructions ? (
@@ -233,10 +375,15 @@ export const ResidentPayInvoicePanel = memo(function ResidentPayInvoicePanel({
                   {instructions.instructions}
                 </p>
               ) : null}
-              <p className="text-xs text-muted-foreground">
-                After paying, upload the screenshot below. Your hostel confirms it and
-                you get a receipt — the payment is not recorded until they do.
-              </p>
+              {/* Scoped to the manual methods on purpose: a gateway payment
+                  settles itself, and telling a resident who just paid through
+                  one to wait for approval is how they end up paying twice. */}
+              {instructions.methods.some((method) => method.kind !== "GATEWAY") ? (
+                <p className="text-xs text-muted-foreground">
+                  If you paid by QR, wallet or bank transfer, upload the screenshot
+                  below — those are confirmed by your hostel before they count.
+                </p>
+              ) : null}
             </>
           ) : (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">
@@ -250,9 +397,6 @@ export const ResidentPayInvoicePanel = memo(function ResidentPayInvoicePanel({
             </div>
           )}
 
-          {instructions.tier === "TIER_1" ? (
-            <SoftBadge tone="green">Online checkout available</SoftBadge>
-          ) : null}
         </div>
       ) : null}
     </SectionCard>

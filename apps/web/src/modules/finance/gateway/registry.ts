@@ -1,4 +1,5 @@
 import { esewaProvider } from "@/modules/finance/gateway/esewa.provider";
+import { khaltiProvider } from "@/modules/finance/gateway/khalti.provider";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import type {
   GatewayProvider,
@@ -18,12 +19,12 @@ import type {
 /**
  * The adapters that ship today.
  *
- * Khalti lands in 6.5 and Fonepay in 6.8, and until each does, asking for one
- * raises rather than returning something half-built. An owner who has not been
- * offered a provider is a support question; a resident sent to a checkout that
- * throws after they have paid is a refund.
+ * Fonepay lands in 6.8, and until it does, asking for it raises rather than
+ * returning something half-built. An owner who has not been offered a provider
+ * is a support question; a resident sent to a checkout that throws after they
+ * have paid is a refund.
  */
-const SHIPPED: GatewayProvider[] = [esewaProvider];
+const SHIPPED: GatewayProvider[] = [esewaProvider, khaltiProvider];
 
 const adapters = new Map<GatewayProviderName, GatewayProvider>(
   SHIPPED.map((adapter) => [adapter.name, adapter]),

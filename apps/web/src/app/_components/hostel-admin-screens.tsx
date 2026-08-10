@@ -12,6 +12,7 @@ import { HostelAdminMoveChecklistPage } from "@/app/_components/hostel-admin-mov
 import { HostelAdminNightStatusPage } from "@/app/_components/hostel-admin-night-status-page";
 import { HostelAdminNoticesPage } from "@/app/_components/hostel-admin-notices-page";
 import { HostelAdminNotificationsPageContent } from "@/app/_components/hostel-admin-notifications-page";
+import { HostelAdminPaymentGatewaysPageContent } from "@/app/_components/hostel-admin-payment-gateways-page";
 import { HostelAdminPaymentProfilePageContent } from "@/app/_components/hostel-admin-payment-profile-page";
 import { HostelAdminPaymentsPage } from "@/app/_components/hostel-admin-payments-page";
 import { HostelAdminProfilePageContent } from "@/app/_components/hostel-admin-profile-page";
@@ -51,6 +52,10 @@ export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> =
   "night-status": () => <HostelAdminNightStatusPage />,
   notices: () => <HostelAdminNoticesPage />,
   notifications: () => <HostelAdminNotificationsPageContent />,
+  // Its own screen rather than a section of `payment-setup`: that form is a
+  // broad PATCH of display text and account numbers, and a signing key must not
+  // travel through it.
+  "payment-gateways": () => <HostelAdminPaymentGatewaysPageContent />,
   "payment-setup": () => <HostelAdminPaymentProfilePageContent />,
   payments: () => <HostelAdminPaymentsPage />,
   profile: () => <HostelAdminProfilePageContent />,
