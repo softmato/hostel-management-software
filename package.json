@@ -23,13 +23,21 @@
     "web:recover:admin": "npm --prefix apps/web run recover:admin",
     "web:check:private-documents": "npm --prefix apps/web run check:private-documents",
     "web:backfill:resident-accounts": "npm --prefix apps/web run backfill:resident-accounts",
+    "web:backfill:fileasset-hostel": "npm --prefix apps/web run backfill:fileasset-hostel",
+    "web:migrate:payment-caps": "npm --prefix apps/web run migrate:payment-caps",
+    "web:seed:fee-schedules": "npm --prefix apps/web run seed:fee-schedules",
+    "web:backfill:reference-prefix": "npm --prefix apps/web run backfill:reference-prefix",
+    "web:migrate:finance-ledger": "npm --prefix apps/web run migrate:finance-ledger",
+    "web:verify:finance-ledger": "npm --prefix apps/web run verify:finance-ledger",
+    "web:typecheck": "npm --prefix apps/web run typecheck",
     "web:repair:archived-residents": "npm --prefix apps/web run repair:archived-residents",
     "web:deploy:check": "npm --prefix apps/web run deploy:check",
     "mobile:start": "npm --prefix apps/mobile run start",
     "mobile:typecheck": "npm --prefix apps/mobile run typecheck",
     "mobile:build:test": "npm --prefix apps/mobile run build:test",
     "web:seed:community": "npm --prefix apps/web run seed:community",
-    "web:seed:community:clean": "npm --prefix apps/web run seed:community:clean"
+    "web:seed:community:clean": "npm --prefix apps/web run seed:community:clean",
+    "web:rotate:finance-key": "npm --prefix apps/web run rotate:finance-key"
   },
   "devDependencies": {
     "turbo": "^2.5.0"
