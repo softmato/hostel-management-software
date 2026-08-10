@@ -1,0 +1,299 @@
+/**
+ * Fee schedule, charge resolution and proration — Block 1 item 1.3 of
+ * docs/FINANCE_IMPLEMENTATION_PLAN.md (target §3.3–§3.5).
+ *
+ * Two properties this file exists to hold:
+ *
+ * 1. **No silent zero.** The current chain
+ *    `resident.monthlyFee || input.defaultAmount || 0` (current §5.1 A2) bills a
+ *    misconfigured resident nothing, and nobody finds out until someone asks in
+ *    November. Every unpriceable case here raises instead.
+ * 2. **One proration rule.** The matrix view prorates a mid-month move-in and
+ *    the bulk fee run charges full (current §7.8), so a resident's bill depends
+ *    on which screen an admin opened first. There is one rule, and move-out
+ *    prorates too — which nothing does today.
+ */
+import { Types } from "mongoose";
+import { describe, expect, it } from "vitest";
+
+import {
+  computeInvoiceAmount,
+  periodBounds,
+  resolveBedType,
+  resolveMonthlyCharge,
+  type BillableResident,
+  type FeeScheduleRecord,
+} from "@/modules/finance/fee-schedule.service";
+
+const hostelId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a1");
+const scheduleId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0b1");
+
+const schedule: FeeScheduleRecord = {
+  _id: scheduleId,
+  admissionFee: 5000,
+  depositAmount: 10000,
+  effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
+  effectiveTo: null,
+  hostelId,
+  rates: [
+    { bedType: "SINGLE", monthlyAmount: 18000 },
+    { bedType: "DOUBLE_SHARING", monthlyAmount: 14000 },
+    { bedType: "TRIPLE_SHARING", monthlyAmount: 12000 },
+    { bedType: "DORMITORY", monthlyAmount: 8000 },
+  ],
+};
+
+function resident(overrides: Partial<BillableResident> = {}): BillableResident {
+  return {
+    _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c1"),
+    bedType: null,
+    monthlyFee: null,
+    moveInDate: new Date("2025-06-01T00:00:00.000Z"),
+    roomType: "Triple Sharing",
+    ...overrides,
+  };
+}
+
+describe("resolveMonthlyCharge — target §3.4 step by step", () => {
+  it("takes the per-resident override when one is set", () => {
+    const charge = resolveMonthlyCharge(resident({ monthlyFee: 9000 }), schedule);
+
+    expect(charge).toMatchObject({ amount: 9000, basis: "OVERRIDE" });
+    expect(charge.feeScheduleId).toBeNull();
+  });
+
+  /**
+   * Zero is a legitimate override — a staff member's child, a comped room — and
+   * "not set" is not. Testing falsiness instead of nullness is precisely the bug
+   * that makes a misconfigured resident indistinguishable from a free one.
+   */
+  it("honours a zero override rather than falling through to the schedule", () => {
+    expect(resolveMonthlyCharge(resident({ monthlyFee: 0 }), schedule)).toMatchObject({
+      amount: 0,
+      basis: "OVERRIDE",
+    });
+  });
+
+  it("does not need a schedule when an override is set", () => {
+    expect(resolveMonthlyCharge(resident({ monthlyFee: 9000 }), null)).toMatchObject({
+      amount: 9000,
+      basis: "OVERRIDE",
+    });
+  });
+
+  it("prices from the schedule via the resident's bed type", () => {
+    expect(resolveMonthlyCharge(resident({ bedType: "SINGLE" }), schedule)).toMatchObject(
+      { amount: 18000, basis: "SCHEDULE", bedType: "SINGLE", feeScheduleId: scheduleId },
+    );
+  });
+
+  // bedType is a new nullable field that nothing backfills (item 1.1), so the
+  // free text the hostel actually maintains has to keep working.
+  it("falls back to normalising roomType when bedType is unset", () => {
+    expect(
+      resolveMonthlyCharge(
+        resident({ bedType: null, roomType: "Two Sharing" }),
+        schedule,
+      ),
+    ).toMatchObject({ amount: 14000, bedType: "DOUBLE_SHARING" });
+  });
+
+  it("prefers a stored bedType over the roomType text", () => {
+    expect(
+      resolveMonthlyCharge(
+        resident({ bedType: "DORMITORY", roomType: "Single Room" }),
+        schedule,
+      ),
+    ).toMatchObject({ amount: 8000, bedType: "DORMITORY" });
+  });
+
+  it("raises FEE_SCHEDULE_MISSING when no schedule covers the period", () => {
+    expect(() => resolveMonthlyCharge(resident(), null)).toThrow(
+      expect.objectContaining({ errorCode: "FEE_SCHEDULE_MISSING", status: 422 }),
+    );
+  });
+
+  it("raises BED_TYPE_NOT_PRICED when the room type does not map", () => {
+    expect(() =>
+      resolveMonthlyCharge(resident({ roomType: "Shared" }), schedule),
+    ).toThrow(expect.objectContaining({ errorCode: "BED_TYPE_NOT_PRICED", status: 422 }));
+  });
+
+  it("raises BED_TYPE_NOT_PRICED when the schedule has no rate for that bed type", () => {
+    // The schedule above prices four of the five bed types.
+    expect(() =>
+      resolveMonthlyCharge(resident({ bedType: "FOUR_SHARING" }), schedule),
+    ).toThrow(expect.objectContaining({ errorCode: "BED_TYPE_NOT_PRICED" }));
+  });
+
+  it("never returns zero as a fallback", () => {
+    for (const broken of [
+      resident({ roomType: "Deluxe" }),
+      resident({ bedType: "FOUR_SHARING" }),
+    ]) {
+      expect(() => resolveMonthlyCharge(broken, schedule)).toThrow();
+    }
+  });
+
+  it("rejects a fractional override rather than billing it", () => {
+    expect(() =>
+      resolveMonthlyCharge(resident({ monthlyFee: 9000.5 }), schedule),
+    ).toThrow(/whole number of rupees/);
+  });
+
+  it("reports the bed type it could not price, for the owner-facing message", () => {
+    expect(() =>
+      resolveMonthlyCharge(resident({ roomType: "Shared" }), schedule),
+    ).toThrow(/"Shared"/);
+  });
+});
+
+describe("resolveBedType", () => {
+  it("returns null when neither field resolves", () => {
+    expect(resolveBedType(resident({ bedType: null, roomType: "Deluxe" }))).toBeNull();
+  });
+});
+
+describe("periodBounds", () => {
+  it.each([
+    ["2026-01", 31],
+    ["2026-02", 28],
+    ["2028-02", 29],
+    ["2026-04", 30],
+    ["2026-12", 31],
+  ] as const)("counts the days in %s as %s", (period, days) => {
+    expect(periodBounds(period).daysInMonth).toBe(days);
+  });
+
+  it("bounds the month in UTC so a run gives the same answer anywhere", () => {
+    const { end, start } = periodBounds("2026-08");
+
+    expect(start.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+    expect(end.toISOString()).toBe("2026-08-31T23:59:59.999Z");
+  });
+
+  it("rejects a malformed period", () => {
+    expect(() => periodBounds("2026-13")).toThrow(/YYYY-MM/);
+  });
+});
+
+const AUG = "2026-08"; // 31 days
+const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+describe("computeInvoiceAmount — proration, target §3.5", () => {
+  it("charges the full month for a resident present throughout", () => {
+    expect(computeInvoiceAmount(12000, d("2025-01-01"), null, AUG)).toMatchObject({
+      amount: 12000,
+      prorationBasis: null,
+    });
+  });
+
+  it("charges the full month for a move-in on the 1st", () => {
+    expect(computeInvoiceAmount(12000, d("2026-08-01"), null, AUG)).toMatchObject({
+      amount: 12000,
+      billableDays: 31,
+    });
+  });
+
+  it("prorates a mid-month move-in", () => {
+    // 14 Aug → 18 of 31 days. 12000 / 31 * 18 = 6967.74 → 6968.
+    expect(computeInvoiceAmount(12000, d("2026-08-14"), null, AUG)).toMatchObject({
+      amount: 6968,
+      billableDays: 18,
+      prorationBasis: "18/31 days",
+    });
+  });
+
+  // Nothing in the current system does this at all: a resident leaving on the
+  // 8th is charged the whole month.
+  it("prorates a mid-month move-out", () => {
+    expect(
+      computeInvoiceAmount(12000, d("2025-01-01"), d("2026-08-08"), AUG),
+    ).toMatchObject({ amount: 3097, billableDays: 8, prorationBasis: "8/31 days" });
+  });
+
+  it("prorates a move-in and move-out in the same month", () => {
+    // 10 Aug to 20 Aug inclusive → 11 days.
+    expect(
+      computeInvoiceAmount(12000, d("2026-08-10"), d("2026-08-20"), AUG),
+    ).toMatchObject({ amount: 4258, billableDays: 11 });
+  });
+
+  it("charges a single day of tenancy", () => {
+    expect(
+      computeInvoiceAmount(12000, d("2026-08-31"), d("2026-08-31"), AUG),
+    ).toMatchObject({ amount: 387, billableDays: 1, prorationBasis: "1/31 days" });
+  });
+
+  it("charges nothing before the resident arrives", () => {
+    expect(computeInvoiceAmount(12000, d("2026-09-05"), null, AUG)).toMatchObject({
+      amount: 0,
+      prorationBasis: "not yet resident",
+    });
+  });
+
+  it("charges nothing after the resident has left", () => {
+    expect(
+      computeInvoiceAmount(12000, d("2025-01-01"), d("2026-07-20"), AUG),
+    ).toMatchObject({ amount: 0, prorationBasis: "already moved out" });
+  });
+
+  it("charges the full month when tenancy spans it entirely", () => {
+    expect(
+      computeInvoiceAmount(12000, d("2026-07-01"), d("2026-09-30"), AUG),
+    ).toMatchObject({ amount: 12000, billableDays: 31, prorationBasis: null });
+  });
+
+  it("handles a 28-day February", () => {
+    // 1–14 Feb inclusive is exactly half of 28 days.
+    expect(
+      computeInvoiceAmount(12000, d("2026-02-01"), d("2026-02-14"), "2026-02"),
+    ).toMatchObject({ amount: 6000, billableDays: 14, prorationBasis: "14/28 days" });
+  });
+
+  it("handles a leap February", () => {
+    // 29 days, so 14 of them is 5793.10… — not half, and not rounded to half.
+    expect(
+      computeInvoiceAmount(12000, d("2028-02-01"), d("2028-02-14"), "2028-02"),
+    ).toMatchObject({ amount: 5793, billableDays: 14, prorationBasis: "14/29 days" });
+  });
+
+  it("charges the full month for all 29 days of a leap February", () => {
+    expect(
+      computeInvoiceAmount(12000, d("2028-02-01"), d("2028-02-29"), "2028-02"),
+    ).toMatchObject({ amount: 12000, prorationBasis: null });
+  });
+
+  it("leaves no proration basis on a full month, so invoices stay uncluttered", () => {
+    expect(computeInvoiceAmount(12000, null, null, AUG).prorationBasis).toBeNull();
+  });
+
+  it("carries the day count for the resident-facing explanation", () => {
+    expect(computeInvoiceAmount(12000, d("2026-08-14"), null, AUG).prorationBasis).toBe(
+      "18/31 days",
+    );
+  });
+
+  it("always produces a whole amount", () => {
+    for (let day = 1; day <= 31; day += 1) {
+      const iso = `2026-08-${String(day).padStart(2, "0")}`;
+      const { amount } = computeInvoiceAmount(12345, d(iso), null, AUG);
+
+      expect(Number.isInteger(amount)).toBe(true);
+    }
+  });
+
+  it("rejects a fractional monthly charge", () => {
+    expect(() => computeInvoiceAmount(12000.5, null, null, AUG)).toThrow(
+      /whole number of rupees/,
+    );
+  });
+
+  // The move-out-before-move-in case can only arise from bad data, but it must
+  // bill zero rather than a negative amount.
+  it("charges nothing when move-out precedes move-in", () => {
+    expect(
+      computeInvoiceAmount(12000, d("2026-08-20"), d("2026-08-10"), AUG),
+    ).toMatchObject({ amount: 0 });
+  });
+});

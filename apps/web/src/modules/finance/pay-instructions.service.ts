@@ -1,0 +1,157 @@
+import { Types } from "mongoose";
+
+import type { ApiPrincipal } from "@/lib/api-auth";
+import { connectToDatabase } from "@/lib/db";
+import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import { findCurrentResident } from "@/modules/residents/resident-access";
+import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
+import { InvoiceModel } from "@hostel/db/models/Invoice";
+import {
+  HostelPaymentProfileModel,
+  isPaymentProfileUsable,
+  resolvePaymentTier,
+  type PaymentTier,
+} from "@hostel/db/models/HostelPaymentProfile";
+
+/**
+ * How to pay *this* invoice (target §11.1, plan item 3.3).
+ *
+ * Tier-aware by construction: the shape is the same at Tier 0 and Tier 1, and
+ * `tier` says which of them the screen should lead with. Block 6 adds the intent
+ * fields; nothing here changes when it does, which is the point of computing the
+ * tier rather than storing it.
+ *
+ * **The reference code is the load-bearing field.** Everything downstream —
+ * statement matching (Block 4), auto-settlement, the owner's review queue not
+ * filling up with unidentifiable transfers — depends on the resident actually
+ * typing it into their bank's remark box. It is returned first and the screen
+ * gives it the strongest visual treatment on the page.
+ */
+
+export type PayMethod =
+  | { kind: "BANK"; accountName: string | null; accountNumber: string; bankName: string | null }
+  | { kind: "ESEWA"; id: string }
+  | { kind: "KHALTI"; id: string }
+  | { kind: "QR"; assetId: string };
+
+export type PayInstructions = {
+  /** What is still owed. Never the invoice total once part of it is settled. */
+  amountDue: number;
+  displayName: string | null;
+  dueDate: string | null;
+  instructions: string | null;
+  invoiceId: string;
+  /** Empty when the hostel has not set up a single way to be paid. */
+  methods: PayMethod[];
+  period: string | null;
+  /** Null only for invoices migrated in 2.4, which were never on any transfer. */
+  referenceCode: string | null;
+  status: string;
+  tier: PaymentTier;
+  /** False means: tell the resident their hostel has not set this up. */
+  usable: boolean;
+};
+
+type InvoiceRecord = {
+  _id: Types.ObjectId;
+  dueDate?: Date;
+  hostelId: Types.ObjectId;
+  period?: string;
+  referenceCode?: string;
+  status: string;
+  totalAmount: number;
+};
+
+/**
+ * The methods, in the order a resident should see them.
+ *
+ * QR first because scanning is the shortest path and the one least likely to be
+ * mistyped; bank last because it is the slowest and the one where the reference
+ * code matters most. A method with no value is not rendered as an empty row —
+ * it is simply not a way this hostel can be paid.
+ */
+function methodsFrom(profile: {
+  bankAccountName?: string | null;
+  bankAccountNumber?: string | null;
+  bankName?: string | null;
+  esewaId?: string | null;
+  khaltiId?: string | null;
+  staticQrAssetId?: Types.ObjectId | null;
+}): PayMethod[] {
+  const methods: PayMethod[] = [];
+
+  if (profile.staticQrAssetId) {
+    methods.push({ kind: "QR", assetId: profile.staticQrAssetId.toString() });
+  }
+
+  if (profile.esewaId) methods.push({ kind: "ESEWA", id: profile.esewaId });
+  if (profile.khaltiId) methods.push({ kind: "KHALTI", id: profile.khaltiId });
+
+  if (profile.bankAccountNumber) {
+    methods.push({
+      kind: "BANK",
+      accountName: profile.bankAccountName ?? null,
+      accountNumber: profile.bankAccountNumber,
+      bankName: profile.bankName ?? null,
+    });
+  }
+
+  return methods;
+}
+
+export async function getPayInstructions(
+  invoiceId: string,
+  principal: ApiPrincipal,
+): Promise<PayInstructions> {
+  await connectToDatabase();
+
+  const resident = await findCurrentResident(principal);
+
+  const invoice = await InvoiceModel.findOne({
+    _id: Types.ObjectId.isValid(invoiceId) ? invoiceId : new Types.ObjectId(),
+    hostelId: resident.hostelId,
+    residentId: resident._id,
+  }).lean<InvoiceRecord | null>();
+
+  // Out of scope and non-existent answer identically — an invoice id must not
+  // become an existence oracle for anyone probing them (RULES.md §3).
+  if (!invoice || invoice.status === "VOID") {
+    throw new FinanceServiceError("Invoice was not found.", "INVOICE_NOT_FOUND");
+  }
+
+  const [balance, profile] = await Promise.all([
+    InvoiceBalanceModel.findOne({ invoiceId: invoice._id }).lean<{
+      settledAmount?: number;
+    } | null>(),
+    HostelPaymentProfileModel.findOne({ hostelId: resident.hostelId }).lean<{
+      bankAccountName?: string | null;
+      bankAccountNumber?: string | null;
+      bankName?: string | null;
+      displayName?: string | null;
+      esewaId?: string | null;
+      gatewayEnabledAt?: Date | null;
+      gatewayProvider?: string | null;
+      khaltiId?: string | null;
+      paymentInstructions?: string | null;
+      staticQrAssetId?: Types.ObjectId | null;
+    } | null>(),
+  ]);
+
+  // Outstanding, not the invoice total: a resident paying the second half of a
+  // part-paid month must be shown the half, or they pay the whole thing twice.
+  const amountDue = Math.max(0, invoice.totalAmount - (balance?.settledAmount ?? 0));
+
+  return {
+    amountDue,
+    displayName: profile?.displayName ?? null,
+    dueDate: invoice.dueDate ? new Date(invoice.dueDate).toISOString() : null,
+    instructions: profile?.paymentInstructions ?? null,
+    invoiceId: invoice._id.toString(),
+    methods: profile ? methodsFrom(profile) : [],
+    period: invoice.period ?? null,
+    referenceCode: invoice.referenceCode ?? null,
+    status: invoice.status,
+    tier: resolvePaymentTier(profile),
+    usable: isPaymentProfileUsable(profile),
+  };
+}
