@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { validateCronRequest } from "@/lib/cron-auth";
-import { runPaymentReminders } from "@/modules/payments/payment-reminders.service";
+import { runPaymentReminders } from "@/modules/finance/dunning.service";
 
 export const runtime = "nodejs";
 // Emails are external I/O; a large hostel roster needs more than the default.

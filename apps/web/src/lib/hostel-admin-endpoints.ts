@@ -43,6 +43,8 @@ export const hostelAdminEndpoints = {
   complaintsAll: "/api/v1/hostel-admin/complaints*",
   complaintsReport: "/api/v1/hostel-admin/reports/complaints",
   cookPortal: "/api/v1/hostel-admin/cook-portal",
+  /** The rate card, full history newest first. Never edited — only succeeded. */
+  feeSchedules: "/api/v1/hostel-admin/finance/fee-schedules",
   dashboardReport: "/api/v1/hostel-admin/reports/dashboard",
   foodRoutine: "/api/v1/hostel-admin/food/routine",
   foodPhotos: "/api/v1/hostel-admin/food/photos",
@@ -52,10 +54,35 @@ export const hostelAdminEndpoints = {
   moveEvents: "/api/v1/hostel-admin/move-events",
   nightStatus: withFullPage("/api/v1/hostel-admin/night-status"),
   notices: withFullPage("/api/v1/hostel-admin/notices"),
+  /** One row per resident for a period, billed or not. Reads never bill. */
   paymentsMatrix: (month: string) =>
-    `/api/v1/hostel-admin/payments/matrix?month=${month}`,
+    `/api/v1/hostel-admin/finance/invoices?period=${month}`,
   /** Prefix form for `useInvalidateResources` — drops every month. */
-  paymentsMatrixAll: "/api/v1/hostel-admin/payments/matrix*",
+  paymentsMatrixAll: "/api/v1/hostel-admin/finance/invoices*",
+  /** The review queue: resident claims awaiting a decision. */
+  paymentClaims: "/api/v1/hostel-admin/finance/events",
+  paymentClaimApprove: (eventId: string) =>
+    `/api/v1/hostel-admin/finance/events/${eventId}/approve`,
+  paymentClaimReject: (eventId: string) =>
+    `/api/v1/hostel-admin/finance/events/${eventId}/reject`,
+  /** Templated "we could not find this payment" message — decides nothing. */
+  paymentClaimAsk: (eventId: string) =>
+    `/api/v1/hostel-admin/finance/events/${eventId}/ask-resident`,
+  /** Points orphan money at an invoice the owner picked (target §7 Tier D). */
+  paymentEventAssign: (eventId: string) =>
+    `/api/v1/hostel-admin/finance/events/${eventId}/assign`,
+  /** Statement uploads, newest first; POST reads one (target §6.4). */
+  statements: "/api/v1/hostel-admin/finance/statements",
+  /** The three buckets of one import. */
+  statement: (importId: string) =>
+    `/api/v1/hostel-admin/finance/statements/${importId}`,
+  /** `Approve all` — the server re-derives which rows qualify, never the client. */
+  statementApproveMatched: (importId: string) =>
+    `/api/v1/hostel-admin/finance/statements/${importId}/approve-matched`,
+  /** Issues a period's invoices. Amounts come from the fee schedule, never the caller. */
+  billingRuns: "/api/v1/hostel-admin/finance/billing-runs",
+  /** How this hostel takes money — the source for the resident pay screen. */
+  paymentProfile: "/api/v1/hostel-admin/finance/payment-profile",
   paymentsReport: "/api/v1/hostel-admin/reports/payments",
   profile: "/api/v1/hostel-admin/profile",
   /** `near` disambiguates a bare place name with the hostel's saved locality. */
@@ -79,6 +106,6 @@ export const hostelAdminEndpoints = {
   roomTypes: "/api/v1/hostel-admin/room-types",
   serviceProviders: withFullPage("/api/v1/hostel-admin/service-providers"),
   sosAlerts: withFullPage("/api/v1/hostel-admin/sos-alerts"),
-  transactions: withFullPage("/api/v1/hostel-admin/payments"),
+  transactions: withFullPage("/api/v1/hostel-admin/finance/invoices"),
   wardens: "/api/v1/hostel-admin/wardens",
 } as const;

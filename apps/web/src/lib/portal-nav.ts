@@ -434,10 +434,41 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
           },
           {
             description:
-              "Monthly fee plans, deposits, and add-on charges for this hostel.",
-            href: "/hostel-admin/fee-plans",
-            keywords: ["fee", "rent", "plan", "deposit", "charges", "pricing"],
-            label: "Fee Plans",
+              "The rate card every invoice is computed from, by bed type, with history.",
+            href: "/hostel-admin/fee-schedule",
+            keywords: [
+              "fee",
+              "rent",
+              "rate card",
+              "schedule",
+              "deposit",
+              "charges",
+              "pricing",
+            ],
+            label: "Fee Schedule",
+          },
+          {
+            description:
+              "Upload your wallet or bank statement and settle the month against what arrived.",
+            href: "/hostel-admin/reconcile",
+            keywords: [
+              "reconcile",
+              "statement",
+              "esewa",
+              "khalti",
+              "bank",
+              "csv",
+              "import",
+              "unmatched",
+            ],
+            label: "Reconcile",
+          },
+          {
+            description:
+              "Your QR, wallet IDs and bank account — what residents see when they pay.",
+            href: "/hostel-admin/payment-setup",
+            keywords: ["qr", "esewa", "khalti", "bank", "account", "payment setup"],
+            label: "Payment Setup",
           },
           {
             description:
