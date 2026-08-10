@@ -8,6 +8,7 @@ import { CommunityCommentModel } from "@hostel/db/models/CommunityComment";
 import { CommunityPostModel } from "@hostel/db/models/CommunityPost";
 import { ConsentLogModel } from "@hostel/db/models/ConsentLog";
 import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { NotificationModel } from "@hostel/db/models/Notification";
 import { QuestionCallClickModel } from "@hostel/db/models/QuestionCallClick";
 import { ResidentModel } from "@hostel/db/models/Resident";
@@ -16,6 +17,20 @@ import { UserModel } from "@hostel/db/models/User";
 
 /** One batch of due requests per run; the queue is tiny in practice. */
 const PURGE_BATCH_SIZE = 100;
+
+/**
+ * An abandoned presign is unrecoverable long before this — the upload URL dies
+ * after 10 minutes — but a day of slack costs nothing and keeps a slow client
+ * or a retried upload out of the sweep.
+ */
+const ABANDONED_UPLOAD_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * When upload verification shipped (plan item 0.3). Assets created before this
+ * have no `uploadCompletedAt` because the field did not exist, not because they
+ * were abandoned — the sweep must not touch them.
+ */
+const UPLOAD_VERIFICATION_EPOCH = new Date("2026-08-06T00:00:00.000Z");
 
 /**
  * The delete-vs-retain split from ARCHITECTURE.md §13.2 and PRIVACY_POLICY.md
@@ -127,5 +142,39 @@ export async function runAccountDeletionPurge(now = new Date()) {
     }
   }
 
-  return { due: due.length, failed, purged };
+  return {
+    abandonedUploads: await sweepAbandonedUploads(now),
+    due: due.length,
+    failed,
+    purged,
+  };
+}
+
+/**
+ * A presign that was never followed by a PUT leaves an `ACTIVE` `FileAsset` row
+ * pointing at bytes that do not exist (current §7.10). The presigned URL is dead
+ * after 10 minutes, so anything still uncompleted well past that will never
+ * complete. Marked DELETED rather than removed: the row is the only record that
+ * the upload was attempted.
+ *
+ * Folded into this daily job rather than given a cron entry of its own —
+ * one more scheduled endpoint is one more thing that can silently stop running.
+ */
+async function sweepAbandonedUploads(now: Date) {
+  const cutoff = new Date(now.getTime() - ABANDONED_UPLOAD_AGE_MS);
+
+  const result = await FileAssetModel.updateMany(
+    {
+      // Every asset predating the verification leg lacks `uploadCompletedAt`
+      // through no fault of its own. Without this floor the first run of this
+      // sweep would delete every file the product has ever stored.
+      createdAt: { $gt: UPLOAD_VERIFICATION_EPOCH, $lt: cutoff },
+      isDeleted: false,
+      status: "ACTIVE",
+      uploadCompletedAt: { $exists: false },
+    },
+    { $set: { deletedAt: now, isDeleted: true, status: "DELETED" } },
+  );
+
+  return result.modifiedCount ?? 0;
 }

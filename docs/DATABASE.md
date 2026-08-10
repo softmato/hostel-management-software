@@ -41,7 +41,7 @@ Not built, with the reason for each:
 - Money fields: **`Number`**, currency assumed NPR platform-wide (no
   multi-currency in v1). An early draft of this file said `Decimal128 (never
   Number)`, which contradicted RULES.md §6 and every shipped model
-  (`Payment.dueAmount`, `Payment.paidAmount`, `PaymentProof.amount`, …).
+  (`Invoice.totalAmount`, `PaymentEvent.amount`, `FeeSchedule.rates[].monthlyAmount`, …).
   Resolved 2026-08-02 in favour of `Number`: NPR amounts at hostel scale are
   whole rupees well inside IEEE-754 exact-integer range, and `Decimal128` would
   force `.toString()` conversions through every service and API response for no
@@ -809,126 +809,38 @@ export const QRActivationModel = model<IQRActivation>('QRActivation', QRActivati
 
 ## Payments
 
-### Payment
+Rebuilt in Block 2 of [FINANCE_IMPLEMENTATION_PLAN.md](FINANCE_IMPLEMENTATION_PLAN.md).
+`Payment` and `PaymentProof` **no longer exist** — they were deleted in item 2.8.
+The section below described a `Payment` shape (`periodMonth`, `amountDue`) that
+never matched the shipped code either; the models are now the authority and this
+is a map to them, not a second copy.
 
-```typescript
-interface IPayment {
-  _id: ObjectId;
-  residentId: ObjectId; // ref Resident
-  hostelId: ObjectId; // denormalized for fast hostel-scoped queries
-  periodMonth: Date; // first day of the billing month, e.g., 2026-08-01
-  amountDue: number; // NPR
-  amountPaid: number;
-  status: PaymentStatus;
-  dueDate: Date;
-  lateFee?: number;
-  notes?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+The old design made one document the invoice, the ledger *and* the balance, with
+a mutable `paidAmount` that nothing could verify. The new one separates them:
 
-const PaymentSchema = new Schema<IPayment>({
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  periodMonth: { type: Date, required: true },
-  amountDue: { type: Number, required: true },
-  amountPaid: { type: Number, default: 0 },
-  status: { 
-    type: String, 
-    enum: Object.values(PaymentStatus), 
-    default: PaymentStatus.UNPAID,
-    index: true,
-  },
-  dueDate: { type: Date, required: true, index: true },
-  lateFee: { type: Number },
-  notes: { type: String },
-}, { timestamps: true });
+| Model | File | What it is |
+|---|---|---|
+| `Invoice` | `packages/db/src/models/Invoice.ts` | What a resident owes for a period. **No `paidAmount`** — if you want one, you want `InvoiceBalance`. Unique on `(hostelId, residentId, period, kind)` over non-void statuses: the double-billing control |
+| `PaymentEvent` | `PaymentEvent.ts` | One attempt to pay, and the settlement record when it succeeds. **The only thing that writes money.** Unique `idempotencyKey` platform-wide; unique `(hostelId, provider, providerTxnId)` and `(hostelId, evidenceHash)` are the fraud controls |
+| `InvoiceBalance` | `InvoiceBalance.ts` | A cache of `sum(SETTLED CREDIT) − sum(SETTLED DEBIT)`. Treated as a cache: disagreement with the events is a `LEDGER_DRIFT` finding, never a silent overwrite |
+| `Receipt` | `Receipt.ts` | One per settled event, **immutable**. A wrong one is voided and reissued; both stay readable |
+| `ReceiptCounter` | `ReceiptCounter.ts` | Atomic `$inc` sequences per hostel, keyed `(hostelId, kind, period)`. `kind` is `RECEIPT` or `REFERENCE` |
+| `FeeSchedule` | `FeeSchedule.ts` | The rate card, by bed type. Never edited — a change opens a new schedule so historical invoices stay explainable |
+| `HostelPaymentProfile` | `HostelPaymentProfile.ts` | How residents pay this hostel: QR, wallet ids, bank account, and `cashApprovalThreshold` |
 
-// Unique constraint: one payment per resident per month
-PaymentSchema.index({ residentId: 1, periodMonth: 1 }, { unique: true });
-PaymentSchema.index({ hostelId: 1, status: 1 });
-PaymentSchema.index({ hostelId: 1, dueDate: 1 });
+Invariants enforced at the schema layer rather than by convention:
 
-export const PaymentModel = model<IPayment>('Payment', PaymentSchema);
-```
+- **Integrality** — every amount is whole NPR rupees (ADR-1), validated on the
+  field, so summing an event log is exact and drift can never be rounding noise.
+- **Immutability** — a settled `PaymentEvent`'s `amount`, `direction`,
+  `invoiceId` and `confirmation` cannot be rewritten, and neither can a
+  `Receipt`'s. Both guards live in `pre('save')` and the update hooks, because
+  service-layer enforcement is defeated by one forgotten `updateOne`.
+- **`Invoice.totalAmount` must equal the sum of its lines**, checked in
+  `pre('validate')` rather than trusted.
 
-### PaymentProof
-
-```typescript
-interface IPaymentProof {
-  _id: ObjectId;
-  paymentId: ObjectId; // ref Payment
-  residentId: ObjectId; // denormalized
-  hostelId: ObjectId; // denormalized
-  fileUrl: string; // R2 URL to screenshot/photo
-  method: PaymentMethod;
-  referenceNote?: string; // transaction ID, etc.
-  verificationStatus: ProofVerificationStatus;
-  verifiedBy?: ObjectId; // ref User (hostel admin/warden)
-  verifiedAt?: Date;
-  rejectionReason?: string;
-  uploadedAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const PaymentProofSchema = new Schema<IPaymentProof>({
-  paymentId: { type: Schema.Types.ObjectId, ref: 'Payment', required: true, index: true },
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  fileUrl: { type: String, required: true },
-  method: { 
-    type: String, 
-    enum: Object.values(PaymentMethod), 
-    required: true 
-  },
-  referenceNote: { type: String },
-  verificationStatus: { 
-    type: String, 
-    enum: Object.values(ProofVerificationStatus), 
-    default: ProofVerificationStatus.PENDING,
-    index: true,
-  },
-  verifiedBy: { type: Schema.Types.ObjectId, ref: 'User' },
-  verifiedAt: { type: Date },
-  rejectionReason: { type: String },
-  uploadedAt: { type: Date, default: Date.now },
-}, { timestamps: true });
-
-PaymentProofSchema.index({ hostelId: 1, verificationStatus: 1 });
-PaymentProofSchema.index({ paymentId: 1 });
-
-export const PaymentProofModel = model<IPaymentProof>('PaymentProof', PaymentProofSchema);
-```
-
-### Receipt
-
-```typescript
-interface IReceipt {
-  _id: ObjectId;
-  paymentId: ObjectId; // ref Payment, unique
-  residentId: ObjectId; // denormalized
-  hostelId: ObjectId; // denormalized
-  receiptNumber: string; // unique, auto-generated (e.g., "RCP-2026-08-00123")
-  pdfUrl?: string; // R2 URL to generated PDF receipt
-  issuedAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const ReceiptSchema = new Schema<IReceipt>({
-  paymentId: { type: Schema.Types.ObjectId, ref: 'Payment', required: true, unique: true, index: true },
-  residentId: { type: Schema.Types.ObjectId, ref: 'Resident', required: true, index: true },
-  hostelId: { type: Schema.Types.ObjectId, ref: 'Hostel', required: true, index: true },
-  receiptNumber: { type: String, required: true, unique: true, index: true },
-  pdfUrl: { type: String },
-  issuedAt: { type: Date, default: Date.now },
-}, { timestamps: true });
-
-ReceiptSchema.index({ hostelId: 1, issuedAt: -1 });
-
-export const ReceiptModel = model<IReceipt>('Receipt', ReceiptSchema);
-```
+`Invoice.legacyPaymentId` is migration bookkeeping — the `Payment` row an invoice
+was migrated from, unique so `migrate-finance-ledger.mjs` is safe to re-run.
 
 ---
 
@@ -1600,7 +1512,7 @@ Indexes: `{ hostelId, status, createdAt }`, `{ hostelId, phone }`,
 — the last one is the conversion lookup run on every verified payment.
 
 **Who sets `converted`.** Only `markReferralConverted`, called from
-`approvePaymentProof` after the money is credited. The update filter carries
+`approveClaim` (`modules/finance/review.service.ts`) after the money is credited. The update filter carries
 `converted: { $ne: true }`, so a second verified payment for the same resident
 matches nothing and the counter cannot drift. It swallows its own failures: the
 payment is already verified by then, and referral bookkeeping must not turn a

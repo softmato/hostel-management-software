@@ -6,7 +6,7 @@ import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { GuardianModel } from "@hostel/db/models/Guardian";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
-import { PaymentModel } from "@hostel/db/models/Payment";
+import { latestInvoicePerResident } from "@/modules/finance/ledger-read.service";
 import { QRActivationModel } from "@hostel/db/models/QRActivation";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
@@ -129,17 +129,9 @@ export async function listPlatformDirectory() {
             residentId: Types.ObjectId;
           }>
         >(),
-      PaymentModel.find({ residentId: { $in: residentIds } })
-        .sort({ dueDate: -1 })
-        .lean<
-          Array<{
-            dueAmount: number;
-            month: string;
-            paidAmount: number;
-            residentId: Types.ObjectId;
-            status: string;
-          }>
-        >(),
+      // Through the ledger facade (ADR-3): it already returns one row per
+      // resident, so the local firstPerResident pass is not needed here.
+      latestInvoicePerResident(residentIds),
       NightStatusModel.find({ residentId: { $in: residentIds } })
         .sort({ checkedAt: -1 })
         .lean<Array<{ residentId: Types.ObjectId; status: string; checkedAt?: Date }>>(),
@@ -162,7 +154,7 @@ export async function listPlatformDirectory() {
 
   const guardianByResident = firstPerResident(guardians);
   const emergencyByResident = firstPerResident(emergencyContacts);
-  const paymentByResident = firstPerResident(payments);
+  const paymentByResident = payments;
   const nightByResident = firstPerResident(nightStatuses);
   const activationByResident = firstPerResident(activations);
 
@@ -205,7 +197,7 @@ export async function listPlatformDirectory() {
             relation: emergency.relation,
           }
         : null,
-      feeMonth: payment?.month ?? "",
+      feeMonth: payment?.period ?? "",
       feeStatus: payment?.status ?? "",
       guardian: guardian
         ? {

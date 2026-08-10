@@ -6,7 +6,7 @@ import { connectToDatabase } from "@/lib/db";
 import { assertHostelAccess } from "@/lib/tenant";
 import { ComplaintModel } from "@hostel/db/models/Complaint";
 import { HostelModel } from "@hostel/db/models/Hostel";
-import { PaymentModel } from "@hostel/db/models/Payment";
+import { periodTotals } from "@/modules/finance/ledger-read.service";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import type {
   hostelAdminReportExportSchema,
@@ -47,7 +47,7 @@ function normalizeObjectId(value: string, label = "id") {
   return new Types.ObjectId(value);
 }
 
-async function hostelNamesByIdFor(ids: Types.ObjectId[]) {
+async function hostelNamesByIdFor(ids: Array<Types.ObjectId | string>) {
   const hostels = await HostelModel.find({ _id: { $in: ids } })
     .select("name")
     .lean<Array<{ _id: Types.ObjectId; name: string }>>();
@@ -101,24 +101,10 @@ async function residentsByStatus(): Promise<ReportExport> {
 
 /** Payment volume: what was billed vs what residents actually settled. */
 async function paymentVolume(): Promise<ReportExport> {
-  const rows = await PaymentModel.aggregate<{
-    _id: { hostelId: Types.ObjectId; month: string };
-    dueAmount: number;
-    paidAmount: number;
-    payments: number;
-  }>([
-    {
-      $group: {
-        _id: { hostelId: "$hostelId", month: "$month" },
-        dueAmount: { $sum: "$dueAmount" },
-        paidAmount: { $sum: "$paidAmount" },
-        payments: { $sum: 1 },
-      },
-    },
-    { $sort: { "_id.month": -1 } },
-    { $limit: EXPORT_ROW_CAP },
-  ]);
-  const names = await hostelNamesByIdFor(rows.map((row) => row._id.hostelId));
+  const rows = await periodTotals({}, { groupByHostel: true, limit: EXPORT_ROW_CAP });
+  const names = await hostelNamesByIdFor(
+    rows.map((row) => row.hostelId).filter((id): id is string => Boolean(id)),
+  );
 
   return {
     columns: [
@@ -134,10 +120,10 @@ async function paymentVolume(): Promise<ReportExport> {
       collectionRatePercent:
         row.dueAmount > 0 ? ((row.paidAmount / row.dueAmount) * 100).toFixed(1) : "0.0",
       dueAmount: row.dueAmount,
-      hostel: names.get(row._id.hostelId.toString()) ?? "Unknown hostel",
-      month: row._id.month,
+      hostel: names.get(row.hostelId ?? "") ?? "Unknown hostel",
+      month: row.period,
       paidAmount: row.paidAmount,
-      payments: row.payments,
+      payments: row.invoiceCount,
     })),
   };
 }
@@ -241,24 +227,7 @@ export async function buildHostelAdminReportExport(
   }
 
   if (input.report === "payments") {
-    const rows = await PaymentModel.aggregate<{
-      _id: string;
-      dueAmount: number;
-      paidAmount: number;
-      payments: number;
-    }>([
-      { $match: scope },
-      {
-        $group: {
-          _id: "$month",
-          dueAmount: { $sum: "$dueAmount" },
-          paidAmount: { $sum: "$paidAmount" },
-          payments: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: -1 } },
-      { $limit: EXPORT_ROW_CAP },
-    ]);
+    const rows = await periodTotals({ hostelIds }, { limit: EXPORT_ROW_CAP });
 
     return {
       columns: [
@@ -273,9 +242,9 @@ export async function buildHostelAdminReportExport(
         collectionRatePercent:
           row.dueAmount > 0 ? ((row.paidAmount / row.dueAmount) * 100).toFixed(1) : "0.0",
         dueAmount: row.dueAmount,
-        month: row._id,
+        month: row.period,
         paidAmount: row.paidAmount,
-        payments: row.payments,
+        payments: row.invoiceCount,
       })),
     };
   }

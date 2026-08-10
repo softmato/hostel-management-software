@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   hostelFindOne: vi.fn(),
   nightStatusFindOne: vi.fn(),
   noticeFind: vi.fn(),
-  paymentFind: vi.fn(),
+  invoiceAggregate: vi.fn(),
   receiptFind: vi.fn(),
   residentFindOne: vi.fn(),
 }));
@@ -40,8 +40,8 @@ vi.mock("@hostel/db/models/Hostel", () => ({
   HostelModel: { findOne: mocks.hostelFindOne },
 }));
 
-vi.mock("@hostel/db/models/Payment", () => ({
-  PaymentModel: { find: mocks.paymentFind },
+vi.mock("@hostel/db/models/Invoice", () => ({
+  InvoiceModel: { aggregate: mocks.invoiceAggregate },
 }));
 
 vi.mock("@hostel/db/models/Receipt", () => ({
@@ -153,18 +153,20 @@ describe("guardian dashboard privacy", () => {
     mocks.hostelFindOne.mockReturnValue(
       leanResult({ _id: new Types.ObjectId(hostelId), location: {}, name: "Sunrise" }),
     );
-    mocks.paymentFind.mockReturnValue(
-      queryResult([
-        {
-          _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0d6"),
-          dueAmount: 5000,
-          dueDate: new Date("2030-02-05T00:00:00.000Z"),
-          month: "2030-02",
-          paidAmount: 0,
-          status: "UNPAID",
-        },
-      ]),
-    );
+    // Since item 2.8 the guardian view reads through the ledger facade, so the
+    // fixture is a pipeline row rather than a `Payment` document.
+    mocks.invoiceAggregate.mockResolvedValue([
+      {
+        _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0d6"),
+        dueDate: new Date("2030-02-05T00:00:00.000Z"),
+        hostelId: new Types.ObjectId(hostelId),
+        paidAmount: 0,
+        period: "2030-02",
+        residentId,
+        status: "OPEN",
+        totalAmount: 5000,
+      },
+    ]);
     mocks.receiptFind.mockReturnValue(
       queryResult([
         {
@@ -228,7 +230,7 @@ describe("guardian dashboard privacy", () => {
 
     await getGuardianDashboard(guardianPrincipal);
 
-    expect(mocks.paymentFind).toHaveBeenCalled();
+    expect(mocks.invoiceAggregate).toHaveBeenCalled();
     expect(mocks.receiptFind).not.toHaveBeenCalled();
     expect(mocks.noticeFind).not.toHaveBeenCalled();
     expect(mocks.complaintFind).not.toHaveBeenCalled();

@@ -14,7 +14,10 @@ import { GuardianPermissionModel } from "@hostel/db/models/GuardianPermission";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { NoticeModel } from "@hostel/db/models/Notice";
-import { PaymentModel } from "@hostel/db/models/Payment";
+import {
+  listResidentInvoices,
+  type LedgerInvoice,
+} from "@/modules/finance/ledger-read.service";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
@@ -243,19 +246,12 @@ async function loadGuardianAccess(principal: ApiPrincipal) {
   };
 }
 
-function serializePayment(payment: {
-  _id: Types.ObjectId;
-  dueAmount: number;
-  dueDate: Date;
-  month: string;
-  paidAmount: number;
-  status: string;
-}) {
+function serializePayment(payment: LedgerInvoice) {
   return {
     dueAmount: payment.dueAmount,
-    dueDate: payment.dueDate.toISOString(),
-    id: payment._id.toString(),
-    month: payment.month,
+    dueDate: payment.dueDate?.toISOString(),
+    id: payment.id,
+    month: payment.period,
     paidAmount: payment.paidAmount,
     status: payment.status,
   };
@@ -411,23 +407,11 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
         location?: Record<string, unknown>;
       } | null>(),
       permission.canViewPayments
-        ? PaymentModel.find({
-            hostelId: access.hostelId,
-            residentId: access.residentId,
-          })
-            .sort({ dueDate: -1 })
-            .limit(6)
-            .lean<
-              Array<{
-                _id: Types.ObjectId;
-                dueAmount: number;
-                dueDate: Date;
-                month: string;
-                paidAmount: number;
-                status: string;
-              }>
-            >()
-        : Promise.resolve([]),
+        ? listResidentInvoices(
+            { hostelId: access.hostelId, residentId: access.residentId },
+            { limit: 6 },
+          )
+        : Promise.resolve<LedgerInvoice[]>([]),
       permission.canViewNotices
         ? NoticeModel.find({
             hostelId: access.hostelId,

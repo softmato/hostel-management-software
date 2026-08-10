@@ -40,22 +40,80 @@ over several runs. Idempotent.
 
 - Recommended schedule: hourly (e.g. `0 * * * *`).
 
+### Monthly billing cycle
+
+`POST /api/v1/cron/billing-cycle`
+
+Issues the month's `Invoice` rows for every hostel — the single billing path of
+FINANCE_IMPLEMENTATION_PLAN.md item 2.5 (target §6.1), replacing the three that
+disagreed with each other. Amounts come from the hostel's `FeeSchedule` and the
+per-resident override, prorated for mid-month move-ins **and move-outs**; nothing
+is guessed and nothing is billed as a silent zero.
+
+Idempotent: the double-billing index makes a second run a no-op, so a retried or
+double-scheduled invocation cannot bill anyone twice. Accepts `?period=YYYY-MM`
+to re-run a specific month; defaults to the current one in UTC.
+
+Returns `{ period, invoicesIssued, totalBilled, hostels, failedHostels }`. **Read
+`failedHostels`.** A hostel whose room types do not map to a bed type has no fee
+schedule and fails here by design (plan §7.3) — that is a data problem to fix in
+the fee editor, not a run to ignore, and one hostel's failure never stops the
+others.
+
+- Recommended schedule: monthly on the 1st, early morning (e.g. `0 1 1 * *`).
+
 ### Payment reminders and overdue chases
 
 `POST /api/v1/cron/payment-reminders`
 
 Walks open payments across every hostel (PHASES.md §3.1 "Payment System") and:
 
-- emails a reminder exactly `paymentReminderDaysBefore` days before the due date
-  (platform setting `operations`, default 3);
-- flips past-due payments to `OVERDUE` and chases them on day 1, day 3, then weekly, so a
-  forgotten record does not email a resident every morning;
-- writes an in-app `Notification` for each resident in both cases.
+- sends one reminder at or inside `paymentReminderDaysBefore` days before the due
+  date (platform setting `operations`, default 3);
+- flips past-due invoices to `OVERDUE` and climbs a **terminating** ladder:
+  first overdue notice → second at day 3 → up to four weekly chases → escalation
+  to the hostel's admins → stop. After the stop the software never contacts the
+  resident about that invoice again;
+- writes an in-app `Notification` in every case, whether or not payment email is
+  switched on.
 
-Returns `{ scanned, reminded, overdueNotified, markedOverdue }`. Safe to run more than once a day —
-the day-offset rules mean a second run repeats at most the same day's batch.
+**The stage is recorded per invoice, not computed from today's date**
+(FINANCE_IMPLEMENTATION_PLAN.md item 5.2, target §10.3). The job this replaced
+compared the day offset to an exact number, so one missed run skipped that
+resident permanently and silently. A late run now still climbs the rung it
+missed, and a second run the same day does nothing. A failed send does not
+advance the stage, so it is retried rather than skipped.
+
+Returns `{ scanned, reminded, overdueNotified, markedOverdue, escalated, stopped }`
+and writes a `ReconciliationRun` of kind `DUNNING` — the old version returned
+statistics to nobody, which is why a job that had stopped working looked exactly
+like a month when everyone paid on time.
 
 - Recommended schedule: daily, early morning local time (e.g. `0 2 * * *`).
+
+### Ledger drift check
+
+`POST /api/v1/cron/ledger-drift`
+
+Verifies that the finance ledger still agrees with itself, per hostel
+(FINANCE_IMPLEMENTATION_PLAN.md item 5.1, target §10.1). Six checks: a stored
+`InvoiceBalance` that disagrees with the sum of its settled events, an invoice
+status that disagrees with its balance, an invoice marked `PAID` whose events sum
+short, a settled credit with no live receipt, a live receipt with no settled
+event, a `PENDING` event past its expiry that was never swept — plus a
+verification of the finance audit hash chain.
+
+**It reports and never corrects, and that is deliberate.** A drift means
+something wrote where it should not have; recomputing the projection would erase
+the only evidence that path exists. Every finding is a row on a
+`ReconciliationRun`, one run per hostel, so a job that has been throwing for a
+fortnight is visible rather than silent. `WARN` means it found something,
+`FAIL` means the job itself broke — one hostel's failure never stops the others.
+
+Read-only, therefore safe to run at any time and as often as you like. Returns
+`{ scanned, findings, hostels }`.
+
+- Recommended schedule: nightly (e.g. `0 3 * * *`).
 
 ### Complaint SLA breach check
 

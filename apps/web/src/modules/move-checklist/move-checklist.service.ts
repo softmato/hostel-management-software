@@ -8,8 +8,8 @@ import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { DepositRefundModel } from "@hostel/db/models/DepositRefund";
 import { MoveInChecklistModel } from "@hostel/db/models/MoveInChecklist";
 import { MoveOutChecklistModel } from "@hostel/db/models/MoveOutChecklist";
-import { PaymentModel } from "@hostel/db/models/Payment";
 import { ProvidedItemModel } from "@hostel/db/models/ProvidedItem";
+import { outstandingForResident } from "@/modules/finance/ledger-read.service";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { releaseBedForRoomType } from "@/modules/hostels/hostel-capacity.service";
 import {
@@ -185,16 +185,12 @@ async function auditMoveAction(
 }
 
 async function pendingFeeAmount(resident: ResidentRecord) {
-  const payments = await PaymentModel.find({
+  // Through the ledger facade (ADR-3) so the move-out snapshot keeps working
+  // unchanged when the source flips from Payment to Invoice + PaymentEvent.
+  return outstandingForResident({
     hostelId: resident.hostelId,
     residentId: resident._id,
-    status: { $in: ["UNPAID", "PARTIAL", "OVERDUE", "PENDING_PROOF"] },
-  }).lean<Array<{ dueAmount: number; paidAmount: number }>>();
-
-  return payments.reduce(
-    (sum, payment) => sum + Math.max(payment.dueAmount - payment.paidAmount, 0),
-    0,
-  );
+  });
 }
 
 /**

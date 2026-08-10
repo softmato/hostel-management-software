@@ -89,7 +89,7 @@ descriptive key and carries a sibling `pagination` block:
 An earlier draft of this section specified a generic `items` key. The shipped
 API names its collections (`residents`, `payments`, `complaints`, …) — which is
 better anyway, because a response can carry more than one collection.
-`GET /api/v1/hostel-admin/payments` returns `payments` **and** `proofs`;
+`GET /api/v1/resident/finance/invoices` returns `invoices` **and** `claims`;
 `GET /api/v1/hostel-admin/complaints` returns `complaints` **and** a `summary`.
 A single `items` key cannot express that.
 
@@ -268,10 +268,19 @@ All routes require `role IN (HOSTEL_ADMIN, WARDEN)` **and** the resolved `hostel
 | POST | `/api/v1/hostel-admin/residents` | `{ email, fullName, phone, guardianContact?, educationInfo?, residentType: STUDENT|WORKING_PROFESSIONAL|OTHER, roomId?, bedId?, depositAmount? }` | `registerResidents` | Register resident, triggers account creation/upgrade, sends QR activation email |
 | PATCH | `/api/v1/hostel-admin/residents/[id]` | `{ ...updates }` | `registerResidents` | Update resident info |
 | POST | `/api/v1/hostel-admin/residents/[id]/activation-code` | — | — | (Re)generate QR activation code |
-| GET | `/api/v1/hostel-admin/payments` | `?status=, month=, residentId=, page=` | — | List payments |
-| POST | `/api/v1/hostel-admin/payments` | `{ residentId?, month, amountDue, dueDate }` or bulk: `{ month, amountDue, dueDate }` | — | Create payment(s). If no residentId, creates for all active residents |
-| GET | `/api/hostel-admin/payments/:id/proofs` | — | — | ↔ **Superseded.** `GET /api/v1/hostel-admin/payments` returns `{ payments, proofs }` together, so the queue needs one request rather than one per payment. |
-| PATCH | `/api/v1/hostel-admin/payment-proofs/[id]/approve` | `{ status: VERIFIED|REJECTED, rejectionReason? }` | `verifyPayments` | Verify/reject proof, generates Receipt on verify, sends email |
+| POST | `/api/v1/hostel-admin/finance/billing-runs` | `{ period: "YYYY-MM", hostelId?, dueDate?, residentIds? }` | `manageFeeSchedule` | The billing run (plan 2.5). Amounts come from the `FeeSchedule` and per-resident overrides — **there is no `defaultAmount`**. Returns `{ billed, skipped, failures, totalBilled }`; residents that could not be priced are in `failures` with an error code, never billed zero. Re-running is a no-op |
+| GET | `/api/v1/hostel-admin/finance/billing-runs` | `?period=YYYY-MM, hostelId=` | `viewPayments` | What the period looks like now, including `notBilledResidentIds`. Reads never bill — the payments matrix used to create invoices on `GET`, and no longer does |
+| POST | `/api/v1/hostel-admin/finance/invoices/[id]/cash` | `{ amount, cashReceiptNumber, collectedBy, note?, receivedAt? }` | `recordCash` | Record cash. `201` settled; `200` with `pendingApproval` when above the hostel's `cashApprovalThreshold` (default NPR 20,000) and a **different** person must confirm. Keyed on the paper slip, so re-entering it is a no-op |
+| POST | `/api/v1/hostel-admin/finance/events/[id]/reverse` | `{ reason }` | `reversePayments` | Reverse a settled payment. Writes a mirroring DEBIT (never amends), voids the receipt, and notifies the resident. `reason` is required and is shown to them verbatim |
+| POST | `/api/v1/hostel-admin/finance/invoices/[id]/void` | `{ reason }` | `reversePayments` | Cancel an invoice that should not have been issued. Refuses with `INVOICE_HAS_SETTLED_PAYMENTS` when money has settled against it — reverse first, or voiding orphans money really held by the hostel. A voided period can be re-billed |
+| GET | `/api/v1/hostel-admin/finance/receipts/[id]/pdf` | — | `viewPayments` | Receipt PDF, scoped to the principal's hostels |
+| GET | `/api/v1/resident/finance/receipts/[id]/pdf` | — | — | The resident's own receipt as a PDF |
+| GET | `/api/v1/resident/finance/statement/pdf` | — | — | The resident's payment statement as a PDF. Backs the "Download Statement" button, which had no handler until item 2.6 |
+| GET | `/api/v1/hostel-admin/finance/events` | `?status=PENDING, hostelId=` | `viewPayments` | The review queue: resident claims awaiting a decision |
+| POST | `/api/v1/hostel-admin/finance/events/[id]/approve` | — | `approvePayments` | Verify a claim. Settling is pinned to it still being PENDING, so a double-click loses the race rather than crediting twice |
+| POST | `/api/v1/hostel-admin/finance/events/[id]/reject` | `{ rejectionReason }` | `approvePayments` | Reject a claim. The reason is required and shown to the resident |
+| POST | `/api/v1/resident/finance/invoices/[id]/claims` | `{ amount, paymentMethod, proofImageAssetId, referenceNote?, transactionCode? }` | — | Submit proof of payment. `201` created, `200` when the idempotency key collapsed a replay |
+| GET | `/api/v1/resident/finance/invoices` | — | — | The resident's invoices and their own claims |
 | GET | `/api/v1/hostel-admin/food/routine` | `?hostelId=` | `manageFood` | The hostel's weekly routine (meals keyed by day of week, shared timings, month end special) |
 | PUT | `/api/v1/hostel-admin/food/routine` | `{ hostelId?, timings, meals: [{ dayOfWeek, mealType, items, note? }], monthEndSpecial?: { items, note? } }` | `manageFood` | Replaces the routine in one upsert. A cleared cell is absent from `meals`; empty `monthEndSpecial.items` clears the treat |
 | POST | `/api/v1/hostel-admin/food/photos` | `{ date, mealType, photoUrl }` | `manageFood` | Upload food photo |
@@ -301,8 +310,10 @@ All routes require `role = RESIDENT`; every query is scoped to `resident.id` der
 |---|---|---|---|
 | GET | `/api/v1/resident/dashboard` | — | Summary: fee status, latest notices, food today, night status |
 | GET | `/api/v1/resident/profile` | — | Own resident profile |
-| GET | `/api/v1/resident/payments` | `?page=` | Own payment history |
-| POST | `/api/v1/resident/payments/[paymentId]/proof` | `{ fileUrl, method, referenceNote? }` | Upload PaymentProof, sends email to admin (EMAIL_SYSTEM.md §3.3) |
+| GET | `/api/v1/resident/finance/invoices` | — | Own invoices and claims. Replaced `/resident/payments` in plan item 2.8 |
+| POST | `/api/v1/resident/finance/invoices/[id]/claims` | `{ amount, paymentMethod, proofImageAssetId, referenceNote?, transactionCode? }` | Submit proof of payment, notifies the hostel's admins (EMAIL_SYSTEM.md §3.3) |
+| GET | `/api/v1/resident/finance/statement/pdf` | — | Payment statement as a PDF |
+| GET | `/api/v1/resident/finance/receipts/[id]/pdf` | — | Own receipt as a PDF |
 | GET | `/api/v1/resident/notices` | `?page=` | Notices for own hostel |
 | GET | `/api/v1/resident/complaints` | `?page=` | Own complaints |
 | POST | `/api/v1/resident/complaints` | `{ category, title, description, photoUrl?, isAnonymous }` | Create complaint |
@@ -649,7 +660,7 @@ All uploads (hostel photos, food photos, payment proofs, hostel documents, servi
 1. Client calls `/api/uploads/sign` with file metadata
 2. Server validates, generates R2 pre-signed URL, returns to client
 3. Client uploads directly to R2 using the signed URL
-4. Client calls relevant endpoint (e.g., `POST /api/resident/payments/:id/proof`) with the resulting R2 object URL
+4. Client calls the relevant endpoint (e.g. `POST /api/v1/resident/finance/invoices/:id/claims`) with the resulting asset id
 
 ---
 

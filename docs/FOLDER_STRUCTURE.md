@@ -288,9 +288,13 @@ multi-hostel-platform/
 │   │   │   │   ├── Resident.ts
 │   │   │   │   ├── Guardian.ts
 │   │   │   │   ├── QRActivation.ts
-│   │   │   │   ├── Payment.ts
-│   │   │   │   ├── PaymentProof.ts
+│   │   │   │   ├── Invoice.ts
+│   │   │   │   ├── PaymentEvent.ts
+│   │   │   │   ├── InvoiceBalance.ts
+│   │   │   │   ├── FeeSchedule.ts
+│   │   │   │   ├── HostelPaymentProfile.ts
 │   │   │   │   ├── Receipt.ts
+│   │   │   │   ├── ReceiptCounter.ts
 │   │   │   │   ├── NightStatusLog.ts
 │   │   │   │   ├── FoodMenu.ts
 │   │   │   │   ├── FoodPhoto.ts

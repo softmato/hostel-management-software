@@ -40,9 +40,7 @@ const mocks = vi.hoisted(() => ({
   maintenanceFind: vi.fn(),
   noticeCountDocuments: vi.fn(),
   noticeFind: vi.fn(),
-  paymentCountDocuments: vi.fn(),
-  paymentFind: vi.fn(),
-  paymentProofFind: vi.fn(),
+  eventFindOne: vi.fn(),
   residentCountDocuments: vi.fn(),
   residentFind: vi.fn(),
   residentFindOne: vi.fn(),
@@ -60,17 +58,16 @@ vi.mock("@hostel/db/models/Resident", () => ({
   },
 }));
 
-vi.mock("@hostel/db/models/Payment", () => ({
-  PaymentModel: {
-    aggregate: vi.fn().mockResolvedValue([]),
-    countDocuments: mocks.paymentCountDocuments,
-    find: mocks.paymentFind,
-    findOne: vi.fn(),
+vi.mock("@hostel/db/models/PaymentEvent", () => ({
+  PaymentEventModel: {
+    find: vi.fn(),
+    findOne: mocks.eventFindOne,
+    findOneAndUpdate: vi.fn(),
   },
 }));
 
-vi.mock("@hostel/db/models/PaymentProof", () => ({
-  PaymentProofModel: { find: mocks.paymentProofFind, findOne: vi.fn() },
+vi.mock("@hostel/db/models/Invoice", () => ({
+  InvoiceModel: { aggregate: vi.fn().mockResolvedValue([]), findOne: vi.fn() },
 }));
 
 vi.mock("@hostel/db/models/Notice", () => ({
@@ -111,13 +108,15 @@ vi.mock("@hostel/db/models/AuditLog", () => ({ AuditLogModel: { create: vi.fn() 
 import { listAdminComplaints } from "@/modules/complaints/complaint.service";
 import { listMaintenanceRequests } from "@/modules/maintenance/maintenance.service";
 import { listNotices } from "@/modules/notices/notice.service";
-import { listPayments } from "@/modules/payments/payment.service";
+import { approveClaim, rejectClaim } from "@/modules/finance/review.service";
 import { getResidentById, listResidents } from "@/modules/residents/resident.service";
 
 /** Hostel A is the caller's. Hostel B is the one that must stay invisible. */
 const hostelA = "64f0f0f0f0f0f0f0f0f0aa01";
 const hostelB = "64f0f0f0f0f0f0f0f0f0bb01";
 const residentInB = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0bb02");
+/** A claim belonging to hostel B, which hostel A's admin must not reach. */
+const foreignEventId = "64f0f0f0f0f0f0f0f0f0bb03";
 
 const adminOfA = {
   hostelIds: [hostelA],
@@ -171,9 +170,7 @@ beforeEach(() => {
   mocks.residentFind.mockReturnValue(queryResult([]));
   mocks.residentCountDocuments.mockResolvedValue(0);
   mocks.residentFindOne.mockReturnValue(leanResult(null));
-  mocks.paymentFind.mockReturnValue(queryResult([]));
-  mocks.paymentCountDocuments.mockResolvedValue(0);
-  mocks.paymentProofFind.mockReturnValue(queryResult([]));
+  mocks.eventFindOne.mockReturnValue(leanResult(null));
   mocks.noticeFind.mockReturnValue(queryResult([]));
   mocks.noticeCountDocuments.mockResolvedValue(0);
   mocks.complaintFind.mockReturnValue(queryResult([]));
@@ -212,7 +209,6 @@ describe("tenant isolation — an explicitly requested foreign hostelId", () => 
   // 404 and not 403: a 403 tells the caller hostel B exists (RULES.md §3).
   const cases: [string, () => Promise<unknown>][] = [
     ["residents", () => listResidents({ hostelId: hostelB }, adminOfA)],
-    ["payments", () => listPayments({ hostelId: hostelB }, adminOfA)],
     ["notices", () => listNotices({ hostelId: hostelB }, adminOfA)],
     ["complaints", () => listAdminComplaints({ hostelId: hostelB }, adminOfA)],
     ["maintenance", () => listMaintenanceRequests({ hostelId: hostelB }, adminOfA)],
@@ -262,11 +258,19 @@ describe("tenant isolation — list endpoints under every filter combination", (
     expectScopedToHostelA(filter);
   });
 
-  it("scopes payments, list and count alike", async () => {
-    await listPayments({ month: "2030-01", status: "UNPAID" }, adminOfA);
+  // Payment claims replaced `Payment` rows in item 2.8. The boundary moved with
+  // them: a claim is reachable only through `hostelId: { $in: <the caller's> }`,
+  // so a foreign event id reads as missing rather than forbidden.
+  it.each([
+    ["approve", () => approveClaim(foreignEventId, adminOfA)],
+    ["reject", () => rejectClaim(foreignEventId, "not mine", adminOfA)],
+  ])("scopes a claim %s to the caller's hostels", async (_name, call) => {
+    await expect(call()).rejects.toMatchObject({
+      errorCode: "CLAIM_NOT_FOUND",
+      status: 404,
+    });
 
-    expectScopedToHostelA(mocks.paymentFind.mock.calls[0][0]);
-    expectScopedToHostelA(mocks.paymentCountDocuments.mock.calls[0][0]);
+    expect(mocks.eventFindOne.mock.calls[0][0].hostelId).toEqual({ $in: [hostelA] });
   });
 
   it("scopes notices, list and count alike", async () => {

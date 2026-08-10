@@ -6,7 +6,10 @@ import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { GuardianModel } from "@hostel/db/models/Guardian";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NoticeModel } from "@hostel/db/models/Notice";
-import { PaymentModel } from "@hostel/db/models/Payment";
+import {
+  listResidentInvoices,
+  type LedgerInvoice,
+} from "@/modules/finance/ledger-read.service";
 import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
 import {
   findCurrentResident,
@@ -33,14 +36,8 @@ type HostelRecord = {
   slug: string;
 };
 
-type PaymentRecord = {
-  _id: Types.ObjectId;
-  dueAmount: number;
-  dueDate: Date;
-  month: string;
-  paidAmount: number;
-  status: string;
-};
+/** Read through the ledger facade (ADR-3), so the shape is the facade's. */
+type PaymentRecord = LedgerInvoice;
 
 type NoticeRecord = {
   _id: Types.ObjectId;
@@ -77,7 +74,8 @@ function serializeHostel(hostel: HostelRecord | null) {
   // The building, not a bedroom: EXTERIOR leads the public listing for the same
   // reason it should lead the resident's dashboard. Any photo beats none.
   const photos = hostel.photos ?? [];
-  const cover = photos.find((photo) => photo.kind === "EXTERIOR" && photo.url) ?? photos[0];
+  const cover =
+    photos.find((photo) => photo.kind === "EXTERIOR" && photo.url) ?? photos[0];
 
   return {
     contact: hostel.contact ?? {},
@@ -100,9 +98,9 @@ function serializeAccommodation(roomType: string) {
 function serializePayment(payment: PaymentRecord) {
   return {
     dueAmount: payment.dueAmount,
-    dueDate: payment.dueDate.toISOString(),
-    id: payment._id.toString(),
-    month: payment.month,
+    dueDate: payment.dueDate?.toISOString(),
+    id: payment.id,
+    month: payment.period,
     paidAmount: payment.paidAmount,
     status: payment.status,
   };
@@ -147,10 +145,10 @@ async function loadResidentBase(resident: ResidentRecord) {
       _id: resident.hostelId,
       isDeleted: false,
     }).lean<HostelRecord | null>(),
-    PaymentModel.find({ residentId: resident._id, hostelId: resident.hostelId })
-      .sort({ dueDate: -1 })
-      .limit(6)
-      .lean<PaymentRecord[]>(),
+    listResidentInvoices(
+      { hostelId: resident.hostelId, residentId: resident._id },
+      { limit: 6 },
+    ),
     NoticeModel.find({
       hostelId: resident.hostelId,
       $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],

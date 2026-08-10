@@ -29,18 +29,11 @@ const serviceMocks = vi.hoisted(() => ({
   noticeFindOneAndUpdate: vi.fn(),
   noticeReadFind: vi.fn(),
   noticeReadFindOneAndUpdate: vi.fn(),
-  paymentCreate: vi.fn(),
-  paymentFind: vi.fn(),
-  paymentFindOne: vi.fn(),
-  paymentFindOneAndUpdate: vi.fn(),
-  paymentProofCreate: vi.fn(),
-  paymentProofFind: vi.fn(),
-  paymentProofFindOne: vi.fn(),
-  paymentProofFindOneAndUpdate: vi.fn(),
   qrActivationCreate: vi.fn(),
   qrActivationFindOne: vi.fn(),
   qrActivationUpdateMany: vi.fn(),
   qrActivationUpdateOne: vi.fn(),
+  invoiceAggregate: vi.fn(),
   receiptCreate: vi.fn(),
   receiptFindOne: vi.fn(),
   receiptFindOneAndUpdate: vi.fn(),
@@ -57,6 +50,16 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@hostel/db/models/AuditLog", () => ({
   AuditLogModel: {
     create: serviceMocks.auditCreate,
+    // The finance audit envelope reads the hostel's chain head before writing.
+    findOne: () => ({
+      lean: async () => null,
+      select: function select() {
+        return this;
+      },
+      sort: function sort() {
+        return this;
+      },
+    }),
   },
 }));
 
@@ -88,22 +91,8 @@ vi.mock("@hostel/db/models/User", () => ({
   },
 }));
 
-vi.mock("@hostel/db/models/Payment", () => ({
-  PaymentModel: {
-    create: serviceMocks.paymentCreate,
-    find: serviceMocks.paymentFind,
-    findOne: serviceMocks.paymentFindOne,
-    findOneAndUpdate: serviceMocks.paymentFindOneAndUpdate,
-  },
-}));
-
-vi.mock("@hostel/db/models/PaymentProof", () => ({
-  PaymentProofModel: {
-    create: serviceMocks.paymentProofCreate,
-    find: serviceMocks.paymentProofFind,
-    findOne: serviceMocks.paymentProofFindOne,
-    findOneAndUpdate: serviceMocks.paymentProofFindOneAndUpdate,
-  },
+vi.mock("@hostel/db/models/Invoice", () => ({
+  InvoiceModel: { aggregate: serviceMocks.invoiceAggregate },
 }));
 
 vi.mock("@hostel/db/models/Receipt", () => ({
@@ -217,10 +206,6 @@ import {
   generateActivationCode,
 } from "@/modules/residents/activation.service";
 import { getResidentDashboard } from "@/modules/residents/resident-dashboard.service";
-import {
-  approvePaymentProof,
-  createPaymentRecord,
-} from "@/modules/payments/payment.service";
 import { submitFoodFeedback } from "@/modules/food/food.service";
 import { listNotices, markNoticeAsRead } from "@/modules/notices/notice.service";
 
@@ -230,8 +215,22 @@ const residentId = "64f0f0f0f0f0f0f0f0f0f0a3";
 const userId = "64f0f0f0f0f0f0f0f0f0f0a4";
 const roomId = "64f0f0f0f0f0f0f0f0f0f0a5";
 const bedId = "64f0f0f0f0f0f0f0f0f0f0a6";
-const paymentId = "64f0f0f0f0f0f0f0f0f0f0a7";
-const proofId = "64f0f0f0f0f0f0f0f0f0f0a8";
+const invoiceId = "64f0f0f0f0f0f0f0f0f0f0a7";
+
+/** A row as the ledger pipeline emits it — the shape the facade maps from. */
+function invoiceRow(overrides: Record<string, unknown> = {}) {
+  return {
+    _id: objectId(invoiceId),
+    dueDate: new Date("2030-01-10T00:00:00.000Z"),
+    hostelId: objectId(hostelId),
+    paidAmount: 0,
+    period: "2030-01",
+    residentId: objectId(residentId),
+    status: "OPEN",
+    totalAmount: 8500,
+    ...overrides,
+  };
+}
 const noticeId = "64f0f0f0f0f0f0f0f0f0f0a9";
 
 const staffPrincipal = {
@@ -280,48 +279,6 @@ function residentRecord(overrides: Record<string, unknown> = {}) {
     roomId: objectId(roomId),
     status: "ACTIVE",
     ...overrides,
-  };
-}
-
-function paymentRecord(overrides: Record<string, unknown> = {}) {
-  return {
-    _id: objectId(paymentId),
-    dueAmount: 8500,
-    dueDate: new Date("2030-01-10T00:00:00.000Z"),
-    hostelId: objectId(hostelId),
-    month: "2030-01",
-    paidAmount: 0,
-    residentId: objectId(residentId),
-    status: "PENDING_PROOF",
-    ...overrides,
-  };
-}
-
-function paymentProofRecord(overrides: Record<string, unknown> = {}) {
-  return {
-    _id: objectId(proofId),
-    hostelId: objectId(hostelId),
-    paymentId: objectId(paymentId),
-    proofImageAssetId: "asset-1",
-    residentId: objectId(residentId),
-    status: "PENDING",
-    submittedAt: new Date("2030-01-02T00:00:00.000Z"),
-    submittedBy: objectId(userId),
-    ...overrides,
-  };
-}
-
-function receiptRecord() {
-  return {
-    _id: objectId("64f0f0f0f0f0f0f0f0f0f0ab"),
-    amount: 8500,
-    hostelId: objectId(hostelId),
-    issuedAt: new Date("2030-01-03T00:00:00.000Z"),
-    issuedBy: objectId(userId),
-    month: "2030-01",
-    paymentId: objectId(paymentId),
-    receiptNumber: "RCP-2030-01-00001",
-    residentId: objectId(residentId),
   };
 }
 
@@ -430,9 +387,7 @@ describe("resident daily-use services", () => {
     serviceMocks.bedFindOne.mockReturnValueOnce(
       leanResult({ _id: objectId(bedId), bedNumber: "B", status: "OCCUPIED" }),
     );
-    serviceMocks.paymentFind.mockReturnValueOnce(
-      queryResult([paymentRecord({ status: "UNPAID" })]),
-    );
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([invoiceRow()]);
     serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
     serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
 
@@ -442,52 +397,14 @@ describe("resident daily-use services", () => {
     expect(serviceMocks.residentFindOne).toHaveBeenCalledWith(
       expect.objectContaining({ userId: objectId(userId) }),
     );
-    expect(serviceMocks.paymentFind).toHaveBeenCalledWith({
+    // The dashboard reads through the ledger facade since item 2.8, so the
+    // tenant boundary now lives in the pipeline's opening $match.
+    const [stages] = serviceMocks.invoiceAggregate.mock.calls[0];
+
+    expect(stages[0].$match).toMatchObject({
       hostelId: objectId(hostelId),
       residentId: objectId(residentId),
     });
-  });
-
-  it("rejects payment creation outside the admin tenant and approves own-hostel proofs", async () => {
-    await expect(
-      createPaymentRecord(
-        {
-          dueAmount: 8500,
-          dueDate: new Date("2030-01-10T00:00:00.000Z"),
-          hostelId: otherHostelId,
-          month: "2030-01",
-          paidAmount: 0,
-          residentId,
-          status: "UNPAID",
-        },
-        staffPrincipal,
-      ),
-    ).rejects.toMatchObject({ errorCode: "NOT_FOUND", status: 404 });
-
-    serviceMocks.paymentProofFindOne.mockReturnValueOnce(
-      leanResult(paymentProofRecord()),
-    );
-    serviceMocks.paymentFindOne.mockReturnValueOnce(leanResult(paymentRecord()));
-    serviceMocks.paymentFindOneAndUpdate.mockReturnValueOnce(
-      leanResult(paymentRecord({ paidAmount: 8500, status: "PAID" })),
-    );
-    serviceMocks.paymentProofFindOneAndUpdate.mockReturnValueOnce(
-      leanResult(paymentProofRecord({ status: "APPROVED" })),
-    );
-    serviceMocks.receiptFindOneAndUpdate.mockReturnValueOnce(leanResult(null));
-    serviceMocks.receiptFindOne.mockReturnValueOnce(queryResult(null));
-    serviceMocks.receiptCreate.mockResolvedValueOnce(receiptRecord());
-
-    const result = await approvePaymentProof(proofId, {}, staffPrincipal);
-
-    expect(result.payment.status).toBe("PAID");
-    expect(result.receipt.receiptNumber).toBe("RCP-2030-01-00001");
-    expect(serviceMocks.receiptCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ receiptNumber: "RCP-2030-01-00001" }),
-    );
-    expect(serviceMocks.paymentProofFindOne).toHaveBeenCalledWith(
-      expect.objectContaining({ hostelId: { $in: [objectId(hostelId)] } }),
-    );
   });
 
   it("enforces food tenant isolation and accepts feedback for the current hostel", async () => {

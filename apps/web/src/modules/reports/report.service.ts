@@ -11,14 +11,22 @@ import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { ListingFlagModel } from "@hostel/db/models/ListingFlag";
 import { MaintenanceRequestModel } from "@hostel/db/models/MaintenanceRequest";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
-import { PaymentModel } from "@hostel/db/models/Payment";
-import { PaymentProofModel } from "@hostel/db/models/PaymentProof";
+import {
+  collectionTotals,
+  countInvoicesByField,
+  invoicesByIds,
+  listRecentInvoices,
+  monthlySeries,
+  type LedgerScope,
+} from "@/modules/finance/ledger-read.service";
+import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
 import { ReferralModel } from "@hostel/db/models/Referral";
 import { ReferralRewardModel } from "@hostel/db/models/ReferralReward";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import { getHostelViewStats } from "@/modules/hostels/hostel-view.service";
+import { getStatementNudge } from "@/modules/finance/statements/statement-nudge";
 import type { reportQuerySchema } from "@/modules/reports/report.validation";
 
 type ReportQuery = z.infer<typeof reportQuerySchema>;
@@ -105,25 +113,24 @@ async function countVacantBeds(hostelIds: Types.ObjectId[]) {
   );
 }
 
-async function sumPayments(filter: Record<string, unknown>) {
-  const [result] = await PaymentModel.aggregate<{
-    dueAmount: number;
-    paidAmount: number;
-  }>([
-    { $match: filter },
-    {
-      $group: {
-        _id: null,
-        dueAmount: { $sum: "$dueAmount" },
-        paidAmount: { $sum: "$paidAmount" },
-      },
-    },
-  ]);
+/**
+ * Turns this file's `{ hostelId }` / `{ hostelId: { $in } }` scoping into a
+ * {@link LedgerScope}.
+ *
+ * Every payment read in this service goes through the ledger facade (ADR-3),
+ * which takes a scope rather than a Mongo filter — so `Payment`'s field names
+ * (`month`, `dueAmount`, `paidAmount`) stay behind the facade instead of being
+ * hard-coded here, where the cutover would have to unpick them.
+ */
+function ledgerScopeFrom(
+  scoped: { hostelId: Types.ObjectId | { $in: Types.ObjectId[] } },
+  extra: Omit<LedgerScope, "hostelId" | "hostelIds"> = {},
+): LedgerScope {
+  if (scoped.hostelId instanceof Types.ObjectId) {
+    return { hostelId: scoped.hostelId, ...extra };
+  }
 
-  return {
-    dueAmount: result?.dueAmount ?? 0,
-    paidAmount: result?.paidAmount ?? 0,
-  };
+  return { hostelIds: scoped.hostelId.$in, ...extra };
 }
 
 async function countByField(
@@ -226,8 +233,9 @@ async function weeklyPaidAmounts(now: Date) {
 
   return Promise.all(
     buckets.map(async (bucket) => {
-      const totals = await sumPayments({
-        paidDate: { $gte: bucket.start, $lt: bucket.end },
+      const totals = await collectionTotals({
+        settledFrom: bucket.start,
+        settledTo: bucket.end,
       });
 
       return totals.paidAmount;
@@ -259,7 +267,7 @@ export async function getPlatformDashboardReport() {
     ComplaintModel.countDocuments({}),
     RatingReviewModel.countDocuments({}),
     ListingFlagModel.countDocuments({ isDeleted: false, status: "OPEN" }),
-    sumPayments({}),
+    collectionTotals({}),
   ]);
 
   const [
@@ -281,14 +289,12 @@ export async function getPlatformDashboardReport() {
     windowTrend(InquiryModel, { isDeleted: false }, now),
     windowTrend(ServiceProviderModel, { isDeleted: false }, now),
     windowTrend(ComplaintModel, {}, now),
-    sumPayments({
-      paidDate: { $gte: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS) },
+    collectionTotals({
+      settledFrom: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS),
     }),
-    sumPayments({
-      paidDate: {
-        $gte: new Date(now.getTime() - 2 * TREND_WINDOW_DAYS * DAY_MS),
-        $lt: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS),
-      },
+    collectionTotals({
+      settledFrom: new Date(now.getTime() - 2 * TREND_WINDOW_DAYS * DAY_MS),
+      settledTo: new Date(now.getTime() - TREND_WINDOW_DAYS * DAY_MS),
     }),
     weeklyCounts(HostelModel, { isDeleted: false }, now),
     weeklyCounts(InquiryModel, { isDeleted: false }, now),
@@ -348,26 +354,28 @@ export async function getPlatformDashboardReport() {
   };
 }
 
-type PlatformPaymentRecord = {
+/**
+ * A resident claim awaiting review.
+ *
+ * Was a `PaymentProof` row; since item 2.8 it is a `PENDING` `PaymentEvent` with
+ * `source: "RESIDENT_CLAIM"`. The shape below is what the platform screen reads,
+ * mapped from the event's own fields — `occurredAt` for `submittedAt`, the
+ * resident-typed code out of `rawPayload` where it stays unindexed.
+ */
+type PlatformPaymentProofRecord = {
   _id: Types.ObjectId;
-  dueAmount: number;
-  dueDate?: Date;
+  amount: number;
+  evidenceAssetId?: Types.ObjectId;
   hostelId: Types.ObjectId;
-  month: string;
-  paidAmount: number;
+  invoiceId?: Types.ObjectId;
+  occurredAt?: Date;
+  rawPayload?: { transactionCode?: string };
+  residentId: Types.ObjectId;
   status: string;
 };
 
-type PlatformPaymentProofRecord = {
-  _id: Types.ObjectId;
-  hostelId: Types.ObjectId;
-  paymentId: Types.ObjectId;
-  proofImageAssetId: string;
-  residentId: Types.ObjectId;
-  status: string;
-  submittedAt?: Date;
-  transactionCode?: string;
-};
+/** Claims waiting on a human, in whatever scope the caller is reporting on. */
+const PENDING_CLAIM_FILTER = { source: "RESIDENT_CLAIM", status: "PENDING" };
 
 // Read-only, platform-wide roll-up of resident payment records (no hostel
 // scoping) for the Platform Owner "Payments" tab. Manual/gateway billing stays
@@ -376,15 +384,12 @@ export async function getPlatformPaymentsOverview() {
   await connectToDatabase();
 
   const [totals, statusCounts, pendingProofs, recent, proofs] = await Promise.all([
-    sumPayments({}),
-    countByField(PaymentModel, {}, "status"),
-    PaymentProofModel.countDocuments({ status: "PENDING" }),
-    PaymentModel.find({})
-      .sort({ createdAt: -1 })
-      .limit(25)
-      .lean<PlatformPaymentRecord[]>(),
-    PaymentProofModel.find({ status: "PENDING" })
-      .sort({ submittedAt: -1 })
+    collectionTotals({}),
+    countInvoicesByField({}, "status"),
+    PaymentEventModel.countDocuments(PENDING_CLAIM_FILTER),
+    listRecentInvoices({}, 25),
+    PaymentEventModel.find(PENDING_CLAIM_FILTER)
+      .sort({ occurredAt: -1 })
       .limit(10)
       .lean<PlatformPaymentProofRecord[]>(),
   ]);
@@ -404,11 +409,8 @@ export async function getPlatformPaymentsOverview() {
     hostels.map((hostel) => [hostel._id.toString(), hostel.name ?? "—"]),
   );
 
-  const proofPayments = await PaymentModel.find({
-    _id: { $in: proofs.map((proof) => proof.paymentId) },
-  }).lean<PlatformPaymentRecord[]>();
-  const paymentById = new Map(
-    proofPayments.map((payment) => [payment._id.toString(), payment]),
+  const paymentById = await invoicesByIds(
+    proofs.map((proof) => proof.invoiceId).filter(Boolean) as Types.ObjectId[],
   );
 
   return {
@@ -420,27 +422,31 @@ export async function getPlatformPaymentsOverview() {
       totalPaid: totals.paidAmount,
     },
     proofs: proofs.map((proof) => {
-      const payment = paymentById.get(proof.paymentId.toString());
+      const payment = proof.invoiceId
+        ? paymentById.get(proof.invoiceId.toString())
+        : undefined;
 
       return {
-        amount: payment?.dueAmount ?? 0,
+        // The claimed amount, not the invoice total: a part payment claims part
+        // of the month, and showing the total overstates what is being reviewed.
+        amount: proof.amount,
         hostelName: nameById.get(proof.hostelId.toString()) ?? "—",
         id: proof._id.toString(),
-        month: payment?.month ?? "—",
-        paymentId: proof.paymentId.toString(),
-        proofImageAssetId: proof.proofImageAssetId,
+        month: payment?.period ?? "—",
+        paymentId: proof.invoiceId?.toString() ?? "",
+        proofImageAssetId: proof.evidenceAssetId?.toString() ?? "",
         residentId: proof.residentId.toString(),
         status: proof.status,
-        submittedAt: proof.submittedAt?.toISOString() ?? null,
-        transactionCode: proof.transactionCode ?? "",
+        submittedAt: proof.occurredAt?.toISOString() ?? null,
+        transactionCode: proof.rawPayload?.transactionCode ?? "",
       };
     }),
     recent: recent.map((payment) => ({
       dueAmount: payment.dueAmount,
       dueDate: payment.dueDate?.toISOString() ?? null,
-      hostelName: nameById.get(payment.hostelId.toString()) ?? "—",
-      id: payment._id.toString(),
-      month: payment.month,
+      hostelName: nameById.get(payment.hostelId) ?? "—",
+      id: payment.id,
+      month: payment.period,
       paidAmount: payment.paidAmount,
       status: payment.status,
     })),
@@ -454,7 +460,7 @@ export async function getHostelAdminDashboardReport(
   await connectToDatabase();
 
   const scoped = hostelFilter(principal, query.hostelId);
-  const paymentFilter = { ...scoped };
+  const paymentFilter = ledgerScopeFrom(scoped);
   // hostelFilter yields either `{ hostelId: ObjectId }` or `{ hostelId: { $in } }`;
   // the view stats query needs the plain list either way.
   const scopedHostelIds =
@@ -472,8 +478,8 @@ export async function getHostelAdminDashboardReport(
   ] = await Promise.all([
     ResidentModel.countDocuments({ ...scoped, isDeleted: false }),
     countVacantBeds(scopedHostelIds),
-    sumPayments(paymentFilter),
-    PaymentProofModel.countDocuments({ ...scoped, status: "PENDING" }),
+    collectionTotals(paymentFilter),
+    PaymentEventModel.countDocuments({ ...scoped, ...PENDING_CLAIM_FILTER }),
     ComplaintModel.countDocuments(scoped),
     MaintenanceRequestModel.countDocuments({ ...scoped, isDeleted: false }),
     FoodFeedbackModel.countDocuments(scoped),
@@ -481,7 +487,16 @@ export async function getHostelAdminDashboardReport(
     getHostelViewStats(scopedHostelIds),
   ]);
 
+  // Only meaningful for a single hostel: a multi-hostel admin's dashboard would
+  // otherwise nudge about whichever one happens to sort first, which is worse
+  // than not nudging at all.
+  const statementNudge =
+    scopedHostelIds.length === 1
+      ? await getStatementNudge(scopedHostelIds[0]!)
+      : null;
+
   return {
+    statementNudge,
     report: {
       complaints,
       foodFeedback,
@@ -506,13 +521,9 @@ export async function getHostelAdminPaymentsReport(
   await connectToDatabase();
 
   const scoped = hostelFilter(principal, query.hostelId);
-  const filter: Record<string, unknown> = { ...scoped };
+  const filter = ledgerScopeFrom(scoped, query.month ? { period: query.month } : {});
   const monthStart = startOfMonth(query.month);
   const monthEnd = endOfMonth(query.month);
-
-  if (query.month) {
-    filter.month = query.month;
-  }
 
   const proofFilter: Record<string, unknown> = { ...scoped };
 
@@ -521,9 +532,9 @@ export async function getHostelAdminPaymentsReport(
   }
 
   const [totals, byStatus, pendingProofs] = await Promise.all([
-    sumPayments(filter),
-    countByField(PaymentModel, filter, "status"),
-    PaymentProofModel.countDocuments({ ...proofFilter, status: "PENDING" }),
+    collectionTotals(filter),
+    countInvoicesByField(filter, "status"),
+    PaymentEventModel.countDocuments({ ...proofFilter, ...PENDING_CLAIM_FILTER }),
   ]);
 
   return {
@@ -562,25 +573,6 @@ export async function getHostelAdminComplaintsReport(
 const OVERVIEW_MONTHS = 6;
 const RECENT_PAYMENT_ROWS = 12;
 
-type MonthlyPaymentRow = {
-  _id: string;
-  due: number;
-  paid: number;
-  residents: number;
-};
-
-type RecentPaymentRecord = {
-  _id: Types.ObjectId;
-  dueAmount: number;
-  dueDate?: Date;
-  month: string;
-  paidAmount: number;
-  paidDate?: Date;
-  paymentMethod?: string;
-  residentId: Types.ObjectId;
-  status: string;
-};
-
 type ResidentNameRecord = {
   _id: Types.ObjectId;
   firstName?: string;
@@ -609,35 +601,17 @@ function recentMonthKeys(month?: string) {
  * Month-by-month roll-up straight off the Payment ledger — the same records the
  * Payments screen writes, so the report never drifts from what admins recorded.
  */
-async function monthlyPaymentSeries(scoped: Record<string, unknown>, months: string[]) {
-  const rows = await PaymentModel.aggregate<MonthlyPaymentRow>([
-    { $match: { ...scoped, month: { $in: months } } },
-    {
-      $group: {
-        _id: "$month",
-        due: { $sum: "$dueAmount" },
-        paid: { $sum: "$paidAmount" },
-        residents: { $addToSet: "$residentId" },
-      },
-    },
-    { $project: { due: 1, paid: 1, residents: { $size: "$residents" } } },
-  ]);
-  const byMonth = new Map(rows.map((row) => [row._id, row]));
+async function monthlyPaymentSeries(scope: LedgerScope, months: string[]) {
+  const points = await monthlySeries(scope, months);
 
-  return months.map((month) => {
-    const row = byMonth.get(month);
-    const due = row?.due ?? 0;
-    const paid = row?.paid ?? 0;
-
-    return {
-      collectionRate: collectionRate(due, paid),
-      due,
-      month,
-      outstanding: Math.max(due - paid, 0),
-      paid,
-      residents: row?.residents ?? 0,
-    };
-  });
+  return points.map((point) => ({
+    collectionRate: collectionRate(point.dueAmount, point.paidAmount),
+    due: point.dueAmount,
+    month: point.period,
+    outstanding: Math.max(point.dueAmount - point.paidAmount, 0),
+    paid: point.paidAmount,
+    residents: point.residentCount,
+  }));
 }
 
 async function averageResolutionDays(scoped: Record<string, unknown>) {
@@ -713,7 +687,7 @@ export async function getHostelAdminReportsOverview(
     scoped.hostelId instanceof Types.ObjectId ? [scoped.hostelId] : scoped.hostelId.$in;
   const months = recentMonthKeys(query.month);
   const selectedMonth = query.month ?? months[months.length - 1];
-  const monthPaymentFilter = { ...scoped, month: selectedMonth };
+  const monthPaymentFilter = ledgerScopeFrom(scoped, { period: selectedMonth });
 
   const [
     hostels,
@@ -753,16 +727,13 @@ export async function getHostelAdminReportsOverview(
     countByField(ResidentModel, notDeleted, "status"),
     ResidentModel.countDocuments(notDeleted),
     countVacantBeds(scopedHostelIds),
-    sumPayments(scoped),
-    sumPayments(monthPaymentFilter),
-    countByField(PaymentModel, scoped, "status"),
-    countByField(PaymentModel, scoped, "paymentMethod"),
-    PaymentProofModel.countDocuments({ ...scoped, status: "PENDING" }),
-    monthlyPaymentSeries(scoped, months),
-    PaymentModel.find(scoped)
-      .sort({ createdAt: -1 })
-      .limit(RECENT_PAYMENT_ROWS)
-      .lean<RecentPaymentRecord[]>(),
+    collectionTotals(ledgerScopeFrom(scoped)),
+    collectionTotals(monthPaymentFilter),
+    countInvoicesByField(ledgerScopeFrom(scoped), "status"),
+    countInvoicesByField(ledgerScopeFrom(scoped), "method"),
+    PaymentEventModel.countDocuments({ ...scoped, ...PENDING_CLAIM_FILTER }),
+    monthlyPaymentSeries(ledgerScopeFrom(scoped), months),
+    listRecentInvoices(ledgerScopeFrom(scoped), RECENT_PAYMENT_ROWS),
     countByField(ComplaintModel, scoped, "status"),
     countByField(ComplaintModel, scoped, "category"),
     ComplaintModel.countDocuments(scoped),
@@ -865,13 +836,13 @@ export async function getHostelAdminReportsOverview(
         recent: recentPayments.map((payment) => ({
           dueAmount: payment.dueAmount,
           dueDate: payment.dueDate?.toISOString() ?? null,
-          id: payment._id.toString(),
-          method: payment.paymentMethod ?? "",
-          month: payment.month,
+          id: payment.id,
+          method: payment.method ?? "",
+          month: payment.period,
           paidAmount: payment.paidAmount,
           paidDate: payment.paidDate?.toISOString() ?? null,
-          residentName: residentById.get(payment.residentId.toString())?.name ?? "—",
-          roomType: residentById.get(payment.residentId.toString())?.roomType ?? "—",
+          residentName: residentById.get(payment.residentId)?.name ?? "—",
+          roomType: residentById.get(payment.residentId)?.roomType ?? "—",
           status: payment.status,
         })),
         selectedMonth: {

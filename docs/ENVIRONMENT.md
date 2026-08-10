@@ -128,6 +128,33 @@ and by an existing superadmin in the portal; never by a public endpoint.
 unreadable.** The resident-profile endpoints fail with a clear message when it
 is absent, so the rest of the app still boots.
 
+### Finance gateway secrets (Tier 1)
+
+| Variable | Required | Notes |
+|---|---|---|
+| `FINANCE_MASTER_KEY` | **yes once any hostel enables a gateway** | 32 bytes, base64 or hex. `openssl rand -base64 32`. Wraps the per-secret data keys in `EncryptedSecret` (ADR-6). |
+| `FINANCE_MASTER_KEY_PREVIOUS` | during rotation only | The outgoing key. Both are accepted while `npm run web:rotate:finance-key` rewraps. |
+| `FONEPAY_SANDBOX_MERCHANT_CODE` | in non-production | Sandbox merchant, used for **every** hostel outside production. |
+| `FONEPAY_SANDBOX_SECRET` | in non-production | Sandbox signing secret. |
+| `FONEPAY_SANDBOX_WEBHOOK_SECRET` | optional | Falls back to `FONEPAY_SANDBOX_SECRET` where the provider signs with one key. |
+
+**Unlike `PERSONAL_DATA_ENCRYPTION_KEY`, a short passphrase is rejected rather
+than stretched.** That trade is defensible for a feature that merely degrades
+without its key; it is not defensible for the key protecting every hostel's
+payment signing secret, so an under-length value is a startup error somebody has
+to fix.
+
+**Rotation does not re-encrypt anything.** Move the current value to
+`FINANCE_MASTER_KEY_PREVIOUS`, put the new one in `FINANCE_MASTER_KEY`, deploy,
+run the rewrap, then drop the previous value. Ciphertexts are untouched — only
+the wrapped data keys move.
+
+**Outside production these are all that is consulted**: `getGatewayCredentials`
+returns the sandbox merchant for every hostel and flags the result `sandbox:
+true`, so no screen can present a test merchant as a live one. In production it
+returns the hostel's own decrypted secret and **never falls back** — a live QR
+signed with a test key would send a resident's money to the wrong merchant.
+
 ### Public hero search (optional)
 
 `GEMINI_API_KEYS`, `GROQ_API_KEYS`, `OPENROUTER_API_KEYS`, `MISTRAL_API_KEYS`,
@@ -173,7 +200,9 @@ anything holding a real key.
 **Server-only** (never exposed to a client bundle): `MONGODB_URI`,
 `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `OTP_HASH_SECRET`,
 `R2_SECRET_ACCESS_KEY`, `R2_ACCESS_KEY_ID`, `RESEND_API_KEY`, `CRON_SECRET`,
-`PERSONAL_DATA_ENCRYPTION_KEY`, `GOOGLE_MAPS_API_KEY`, every `*_API_KEYS` list,
+`PERSONAL_DATA_ENCRYPTION_KEY`, `FINANCE_MASTER_KEY`,
+`FINANCE_MASTER_KEY_PREVIOUS`, `FONEPAY_SANDBOX_SECRET`,
+`FONEPAY_SANDBOX_WEBHOOK_SECRET`, `GOOGLE_MAPS_API_KEY`, every `*_API_KEYS` list,
 `QUESTIONCALL_*_SECRET`, `FIREBASE_PRIVATE_KEY`.
 
 **Client-accessible** (must carry the `NEXT_PUBLIC_` prefix):

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   deletionFind: vi.fn(),
   deletionUpdateOne: vi.fn(),
   deviceTokenDeleteMany: vi.fn(),
+  fileAssetUpdateMany: vi.fn(),
   notificationDeleteMany: vi.fn(),
   postUpdateMany: vi.fn(),
   questionCallDeleteMany: vi.fn(),
@@ -46,6 +47,9 @@ vi.mock("@hostel/db/models/ConsentLog", () => ({
 vi.mock("@hostel/db/models/DeviceToken", () => ({
   DeviceTokenModel: { deleteMany: mocks.deviceTokenDeleteMany },
 }));
+vi.mock("@hostel/db/models/FileAsset", () => ({
+  FileAssetModel: { updateMany: mocks.fileAssetUpdateMany },
+}));
 vi.mock("@hostel/db/models/Notification", () => ({
   NotificationModel: { deleteMany: mocks.notificationDeleteMany },
 }));
@@ -62,7 +66,10 @@ vi.mock("@hostel/db/models/User", () => ({
   UserModel: { deleteOne: mocks.userDeleteOne },
 }));
 
-import { purgeAccount, runAccountDeletionPurge } from "@/modules/users/account-purge.service";
+import {
+  purgeAccount,
+  runAccountDeletionPurge,
+} from "@/modules/users/account-purge.service";
 
 const userId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0ee01");
 const residentId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0ee02");
@@ -83,6 +90,48 @@ beforeEach(() => {
   mocks.userDeleteOne.mockResolvedValue({});
   mocks.residentFind.mockReturnValue(selectResult([{ _id: residentId }]));
   mocks.deletionFind.mockReturnValue(queryResult([]));
+  mocks.fileAssetUpdateMany.mockResolvedValue({ modifiedCount: 0 });
+});
+
+/**
+ * Plan item 0.3: a presign never followed by a PUT leaves an ACTIVE FileAsset
+ * row pointing at bytes that do not exist (current §7.10). The sweep rides
+ * along with this daily job rather than taking a cron slot of its own.
+ */
+describe("runAccountDeletionPurge — abandoned uploads", () => {
+  const now = new Date("2026-09-01T00:00:00.000Z");
+
+  it("marks day-old uncompleted uploads deleted", async () => {
+    mocks.fileAssetUpdateMany.mockResolvedValue({ modifiedCount: 3 });
+
+    const result = await runAccountDeletionPurge(now);
+
+    expect(result.abandonedUploads).toBe(3);
+
+    const [filter, update] = mocks.fileAssetUpdateMany.mock.calls[0];
+    expect(filter.uploadCompletedAt).toEqual({ $exists: false });
+    expect(filter.status).toBe("ACTIVE");
+    expect(filter.createdAt.$lt).toEqual(new Date("2026-08-31T00:00:00.000Z"));
+    expect(update).toEqual({
+      $set: { deletedAt: now, isDeleted: true, status: "DELETED" },
+    });
+  });
+
+  // Without the epoch floor the first run would delete every file the product
+  // has ever stored, since none of them carry the new field.
+  it("never touches assets created before upload verification shipped", async () => {
+    await runAccountDeletionPurge(now);
+
+    const [filter] = mocks.fileAssetUpdateMany.mock.calls[0];
+    expect(filter.createdAt.$gt).toEqual(new Date("2026-08-06T00:00:00.000Z"));
+  });
+
+  it("leaves a completed upload alone however old it is", async () => {
+    await runAccountDeletionPurge(now);
+
+    const [filter] = mocks.fileAssetUpdateMany.mock.calls[0];
+    expect(filter.uploadCompletedAt).toEqual({ $exists: false });
+  });
 });
 
 describe("purgeAccount — what is erased", () => {
