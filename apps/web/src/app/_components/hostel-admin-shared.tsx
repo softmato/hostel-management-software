@@ -40,18 +40,39 @@ export type Payment = {
   status: "UNPAID" | "PAID" | "PARTIAL" | "OVERDUE" | "PENDING_PROOF";
 };
 
+/**
+ * A payment claim in the review queue.
+ *
+ * A `PENDING` `PaymentEvent` since item 2.8 — hence `eventId`, `invoiceId` and
+ * `evidenceAssetId` in place of the old proof's fields, and `SETTLED` where the
+ * screen says "approved". `residentName` comes down with the row so the queue
+ * does not need a second request per claim.
+ */
+/** One server-computed check on a claim (item 3.5). Amber never blocks a review. */
+export type ClaimCheck = {
+  detail: string;
+  key: string;
+  ok: boolean;
+};
+
 export type PaymentProof = {
+  /** True when every check passed — the only rows `Approve all` may touch. */
+  allGreen?: boolean;
   amount: number;
-  id: string;
-  paymentId: string;
-  paymentMethod?: string;
-  proofImageAssetId: string;
-  referenceNote?: string;
+  checks?: ClaimCheck[];
+  eventId: string;
+  evidenceAssetId: string | null;
+  invoiceId: string | null;
+  method?: string;
+  occurredAt?: string;
+  period?: string | null;
+  referenceNote?: string | null;
   rejectionReason?: string;
   residentId: string;
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  submittedAt: string;
-  transactionCode?: string;
+  residentName?: string;
+  reviewFlags?: string[];
+  status: "PENDING" | "SETTLED" | "REJECTED";
+  transactionCode?: string | null;
 };
 
 export type Notice = {

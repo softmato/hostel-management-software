@@ -32,6 +32,14 @@ function num(value: unknown) {
   return typeof value === "number" ? value : 0;
 }
 
+/** Mirrors `StatementNudge` in `finance/statements/statement-nudge.ts`. */
+type StatementNudge = {
+  cadenceDays: number;
+  daysSinceUpload: number | null;
+  due: boolean;
+  message: string;
+};
+
 /** Mirrors the metric grid + snapshot/quick-actions layout below so the page
  * doesn't jump around once the real numbers arrive. */
 function HostelAdminDashboardSkeleton() {
@@ -90,7 +98,10 @@ function HostelAdminDashboardSkeleton() {
 export const HostelAdminDashboardPageContent = memo(
   function HostelAdminDashboardPageContent() {
     const workspaceHref = useWorkspaceHref();
-    const reportResource = usePortalResource<{ report: ReportRecord }>(
+    const reportResource = usePortalResource<{
+      report: ReportRecord;
+      statementNudge: StatementNudge | null;
+    }>(
       hostelAdminEndpoints.dashboardReport,
       { errorMessage: "Could not load dashboard." },
     );
@@ -103,6 +114,7 @@ export const HostelAdminDashboardPageContent = memo(
     );
 
     const report = reportResource.data?.report ?? null;
+    const statementNudge = reportResource.data?.statementNudge ?? null;
     const message = reportResource.message;
     const loading = reportResource.state === "loading";
 
@@ -211,6 +223,22 @@ export const HostelAdminDashboardPageContent = memo(
         />
         <Message value={message} />
         {loading ? <HostelAdminDashboardSkeleton /> : null}
+
+        {/* Persistent by design (target §6.4): Tier 0.5 only catches a
+            fabricated transaction id if somebody actually uploads the file, and
+            nothing else in the product asks them to. */}
+        {statementNudge?.due ? (
+          <Link
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm transition hover:border-amber-500/60"
+            href={workspaceHref("/hostel-admin/reconcile")}
+          >
+            <span className="flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-300">
+              <AlertTriangle aria-hidden="true" className="size-4" />
+              {statementNudge.message}
+            </span>
+            <span className="font-semibold underline">Reconcile now</span>
+          </Link>
+        ) : null}
 
         {!loading ? (
           <>

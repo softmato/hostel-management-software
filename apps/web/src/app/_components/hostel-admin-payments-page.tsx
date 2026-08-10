@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { browserApi } from "@/lib/browser-api";
+import { CLAIM_REJECTION_REASONS } from "@/modules/finance/claim.validation";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import {
   combineResources,
@@ -89,6 +90,9 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
   const [search, setSearch] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  /** Which claim's rejection-reason picker is open. "" means none (item 3.5). */
+  const [rejectingId, setRejectingId] = useState("");
+  const [approvingAll, setApprovingAll] = useState(false);
   const invalidate = useInvalidateResources();
 
   const errorMessage = "Could not load payments.";
@@ -103,10 +107,13 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
     rows: MatrixRow[];
     totals: MatrixTotals;
   }>(hostelAdminEndpoints.paymentsMatrix(month), { errorMessage });
-  const paymentsResource = usePortalResource<{
-    payments: Payment[];
-    proofs: PaymentProof[];
-  }>(hostelAdminEndpoints.transactions, { errorMessage });
+  // Claims awaiting a decision. Since item 2.8 a "proof" is a PENDING
+  // `PaymentEvent`, so the queue is the events endpoint rather than a second
+  // list hanging off the payments response.
+  const paymentsResource = usePortalResource<{ events: PaymentProof[] }>(
+    hostelAdminEndpoints.paymentClaims,
+    { errorMessage },
+  );
 
   const residents = useMemo(
     () => residentsResource.data?.residents ?? [],
@@ -115,8 +122,15 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
   const rows = useMemo(() => matrixResource.data?.rows ?? [], [matrixResource.data]);
   const totals = matrixResource.data?.totals ?? null;
   const proofs = useMemo(
-    () => paymentsResource.data?.proofs ?? [],
+    () => paymentsResource.data?.events ?? [],
     [paymentsResource.data],
+  );
+  // Not sliced: `Approve all` must sweep exactly what the owner was shown, and
+  // a hidden seventh row is the difference between a count they confirmed and
+  // one they did not.
+  const pendingProofs = useMemo(
+    () => proofs.filter((proof) => proof.status === "PENDING"),
+    [proofs],
   );
   const combined = combineResources(residentsResource, matrixResource, paymentsResource);
   const state = combined.state;
@@ -182,20 +196,24 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
         }
 
         const result = await browserApi<{
-          createdCount: number;
-          skippedExistingCount: number;
-          skippedNoFeeCount: number;
-        }>(`${hostelAdminEndpoints.transactions}/generate`, {
+          billed: { residentId: string }[];
+          failures: { errorCode: string; residentId: string }[];
+          skipped: { reason: string; residentId: string }[];
+        }>(hostelAdminEndpoints.billingRuns, {
           body: JSON.stringify({
-            defaultAmount: monthlyFee ? Number(monthlyFee) : undefined,
-            dueDate: field(form, "dueDate"),
-            month: field(form, "month"),
+            dueDate: field(form, "dueDate") || undefined,
+            period: field(form, "month"),
           }),
           method: "POST",
         });
 
+        // Failures are surfaced, never swallowed: a resident who cannot be
+        // priced is reported rather than billed zero (P8).
         setActionMessage(
-          `${result.createdCount} payment record(s) created. ${result.skippedExistingCount} already existed, ${result.skippedNoFeeCount} skipped with no fee set.`,
+          `${result.billed.length} invoice(s) issued, ${result.skipped.length} skipped` +
+            (result.failures.length > 0
+              ? `, ${result.failures.length} could not be priced — check their room type and the fee schedule.`
+              : "."),
         );
         refreshPayments();
       } catch (error) {
@@ -208,20 +226,24 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
   );
 
   const reviewProof = useCallback(
-    async (proofId: string, action: "approve" | "reject") => {
-      const rejectionReason =
-        action === "reject" ? window.prompt("Rejection reason")?.trim() : undefined;
-
+    async (proofId: string, action: "approve" | "reject", rejectionReason?: string) => {
+      // A fixed reason list, not `window.prompt` (current §5.2): the resident
+      // gets a sentence they can act on, the reasons become countable, and
+      // nobody types an accusation into a permanent record.
       if (action === "reject" && !rejectionReason) {
         return;
       }
 
       try {
-        await browserApi(`/api/v1/hostel-admin/payment-proofs/${proofId}/${action}`, {
-          body: JSON.stringify(action === "reject" ? { rejectionReason } : {}),
-          method: "PATCH",
-        });
+        await browserApi(
+          `${hostelAdminEndpoints.paymentClaims}/${proofId}/${action}`,
+          {
+            body: JSON.stringify(action === "reject" ? { rejectionReason } : {}),
+            method: "POST",
+          },
+        );
         setActionMessage(action === "approve" ? "Proof approved." : "Proof rejected.");
+        setRejectingId("");
         refreshPayments();
       } catch (error) {
         setActionMessage(
@@ -231,6 +253,59 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
     },
     [refreshPayments],
   );
+
+  /**
+   * `Approve all` (target §11.4, item 3.5).
+   *
+   * Sweeps only all-green rows and confirms with the count and the total first —
+   * an owner about to settle eleven payments at once should be told how much
+   * money that is before, not after. The server re-derives which rows are green,
+   * so a row that went amber since the render is skipped and reported.
+   */
+  const approveAll = useCallback(async () => {
+    const green = pendingProofs.filter((proof) => proof.allGreen);
+
+    if (green.length === 0) {
+      setActionMessage("No claims have passed every check.");
+      return;
+    }
+
+    const total = green.reduce((sum, proof) => sum + proof.amount, 0);
+
+    if (
+      !window.confirm(
+        `Approve ${green.length} payment(s) totalling ${currency(total)}? Each resident gets a receipt.`,
+      )
+    ) {
+      return;
+    }
+
+    setApprovingAll(true);
+
+    try {
+      const result = await browserApi<{
+        data: { approved: string[]; skipped: { reason: string }[] };
+      }>(`${hostelAdminEndpoints.paymentClaims}/bulk-approve`, {
+        body: JSON.stringify({ eventIds: green.map((proof) => proof.eventId) }),
+        method: "POST",
+      });
+
+      const approved = result?.data?.approved?.length ?? 0;
+      const skipped = result?.data?.skipped?.length ?? 0;
+
+      setActionMessage(
+        `${approved} payment(s) approved` +
+          (skipped > 0 ? `, ${skipped} left for review.` : "."),
+      );
+      refreshPayments();
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error ? error.message : "Could not approve the claims.",
+      );
+    } finally {
+      setApprovingAll(false);
+    }
+  }, [pendingProofs, refreshPayments]);
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -264,8 +339,6 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
     }),
     [proofs, totals],
   );
-
-  const pendingProofs = proofs.filter((p) => p.status === "PENDING").slice(0, 6);
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
@@ -519,9 +592,22 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
         <div className="space-y-5">
           <SectionCard
             actions={
-              <span className="text-xs font-semibold text-muted-foreground">
-                {pendingProofs.length} pending
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {pendingProofs.length} pending
+                </span>
+                {pendingProofs.some((proof) => proof.allGreen) ? (
+                  <Button
+                    className="h-8 rounded-lg bg-emerald-600 text-white hover:bg-emerald-600/90"
+                    disabled={approvingAll}
+                    onClick={() => void approveAll()}
+                    size="sm"
+                    type="button"
+                  >
+                    {approvingAll ? "Approving…" : "Approve all"}
+                  </Button>
+                ) : null}
+              </div>
             }
             title={`Payment Proofs (${stats.pendingProofs})`}
           >
@@ -538,15 +624,15 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                   return (
                     <div
                       className="rounded-xl border border-border/70 bg-muted/10 p-3"
-                      key={proof.id}
+                      key={proof.eventId}
                     >
                       <div className="flex items-start gap-3">
-                        {proof.proofImageAssetId ? (
+                        {proof.evidenceAssetId ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             alt="Payment proof"
                             className="size-12 rounded-lg object-cover"
-                            src={`/api/v1/files/${proof.proofImageAssetId}/url?variant=THUMBNAIL`}
+                            src={`/api/v1/files/${proof.evidenceAssetId}/url?variant=THUMBNAIL`}
                           />
                         ) : (
                           <InitialsAvatar name={name} size="sm" tone="admin" />
@@ -555,17 +641,83 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                           <p className="text-sm font-semibold text-foreground">{name}</p>
                           <p className="text-xs font-semibold text-foreground">
                             {currency(proof.amount)}
-                            {proof.paymentMethod ? ` · ${proof.paymentMethod}` : ""}
+                            {proof.method ? ` · ${proof.method}` : ""}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {proof.transactionCode ||
                               proof.referenceNote ||
                               "No txn code"}
                           </p>
+
+                          {/* The checks a careful owner would run by eye. An
+                              amber one never blocks this button — they can see
+                              the screenshot and we cannot — it only keeps the
+                              row out of `Approve all`. */}
+                          {proof.checks?.length ? (
+                            <ul className="mt-2 space-y-0.5">
+                              {proof.checks.map((check) => (
+                                <li
+                                  className={`flex items-start gap-1.5 text-[11px] leading-4 ${
+                                    check.ok
+                                      ? "text-muted-foreground"
+                                      : "font-semibold text-amber-700 dark:text-amber-400"
+                                  }`}
+                                  key={check.key}
+                                >
+                                  {check.ok ? (
+                                    <Check className="mt-0.5 size-3 shrink-0" />
+                                  ) : (
+                                    <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                                  )}
+                                  {check.detail}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+
+                          {rejectingId === proof.eventId ? (
+                            <div className="mt-2 space-y-2">
+                              <FormSelect
+                                label="Reason"
+                                name={`reason-${proof.eventId}`}
+                                onChange={(event) => {
+                                  const code = event.target
+                                    .value as keyof typeof CLAIM_REJECTION_REASONS;
+
+                                  if (code) {
+                                    void reviewProof(
+                                      proof.eventId,
+                                      "reject",
+                                      CLAIM_REJECTION_REASONS[code],
+                                    );
+                                  }
+                                }}
+                              >
+                                <option value="">Choose a reason…</option>
+                                {Object.entries(CLAIM_REJECTION_REASONS).map(
+                                  ([code, label]) => (
+                                    <option key={code} value={code}>
+                                      {label}
+                                    </option>
+                                  ),
+                                )}
+                              </FormSelect>
+                              <Button
+                                className="h-7 w-full rounded-lg"
+                                onClick={() => setRejectingId("")}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : null}
+
                           <div className="mt-2 flex gap-2">
                             <Button
                               className="h-8 flex-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-600/90"
-                              onClick={() => void reviewProof(proof.id, "approve")}
+                              onClick={() => void reviewProof(proof.eventId, "approve")}
                               size="sm"
                               type="button"
                             >
@@ -574,7 +726,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                             </Button>
                             <Button
                               className="h-8 flex-1 rounded-lg"
-                              onClick={() => void reviewProof(proof.id, "reject")}
+                              onClick={() => setRejectingId(proof.eventId)}
                               size="sm"
                               type="button"
                               variant="destructive"

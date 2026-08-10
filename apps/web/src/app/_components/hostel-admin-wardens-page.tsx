@@ -41,16 +41,21 @@ type CreateWardenResult = {
 };
 
 const PERMISSION_LABELS: Record<WardenPermissionKey, string> = {
+  approvePayments: "Approve payment claims",
   editHostelProfile: "Edit hostel profile",
+  manageFeeSchedule: "Set fees & bill residents",
   manageFood: "Manage food",
   manageMaintenance: "Manage maintenance",
   manageNotices: "Manage notices",
+  managePaymentProfile: "Edit payment details",
   manageRooms: "Manage rooms & beds",
+  recordCash: "Record cash payments",
   registerResidents: "Register residents",
+  reversePayments: "Reverse & void payments",
   updateComplaints: "Update complaints",
   updateNightStatus: "Update night status",
-  verifyPayments: "Verify payments",
   viewComplaints: "View complaints",
+  viewPayments: "View payments",
   viewNightStatus: "View night status",
 };
 

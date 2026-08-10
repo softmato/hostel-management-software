@@ -4,7 +4,7 @@ import { HostelAdminAttendancePageContent } from "@/app/_components/hostel-admin
 import { HostelAdminCommunityPageContent } from "@/app/_components/hostel-admin-community-page";
 import { HostelAdminComplaintsPage } from "@/app/_components/hostel-admin-complaints-page";
 import { HostelAdminDashboardPageContent } from "@/app/_components/hostel-admin-dashboard-page";
-import { HostelAdminFeePlansPageContent } from "@/app/_components/hostel-admin-fee-plans-page";
+import { HostelAdminFeeSchedulePageContent } from "@/app/_components/hostel-admin-fee-schedule-page";
 import { HostelAdminFoodPage } from "@/app/_components/hostel-admin-food-page";
 import { HostelAdminInquiriesPageContent } from "@/app/_components/hostel-admin-inquiries-page";
 import { HostelAdminMaintenancePageContent } from "@/app/_components/hostel-admin-maintenance-page";
@@ -12,8 +12,10 @@ import { HostelAdminMoveChecklistPage } from "@/app/_components/hostel-admin-mov
 import { HostelAdminNightStatusPage } from "@/app/_components/hostel-admin-night-status-page";
 import { HostelAdminNoticesPage } from "@/app/_components/hostel-admin-notices-page";
 import { HostelAdminNotificationsPageContent } from "@/app/_components/hostel-admin-notifications-page";
+import { HostelAdminPaymentProfilePageContent } from "@/app/_components/hostel-admin-payment-profile-page";
 import { HostelAdminPaymentsPage } from "@/app/_components/hostel-admin-payments-page";
 import { HostelAdminProfilePageContent } from "@/app/_components/hostel-admin-profile-page";
+import { HostelAdminReconcilePageContent } from "@/app/_components/hostel-admin-reconcile-page";
 import { HostelAdminReferralsPageContent } from "@/app/_components/hostel-admin-referrals-page";
 import { HostelAdminReportsPageContent } from "@/app/_components/hostel-admin-reports-page";
 import { HostelAdminResidentsPage } from "@/app/_components/hostel-admin-residents-page";
@@ -34,7 +36,10 @@ export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> =
   community: () => <HostelAdminCommunityPageContent />,
   complaints: () => <HostelAdminComplaintsPage />,
   dashboard: () => <HostelAdminDashboardPageContent />,
-  "fee-plans": () => <HostelAdminFeePlansPageContent />,
+  // Deviation §3.4: the fee-schedule editor **replaces** the old Fee Plans page.
+  // The key stays so bookmarked links still resolve.
+  "fee-plans": () => <HostelAdminFeeSchedulePageContent />,
+  "fee-schedule": () => <HostelAdminFeeSchedulePageContent />,
   food: () => <HostelAdminFoodPage />,
   // The admin's *personal* notification feed. `notifications` below is the
   // outbound campaign composer — a different thing that happens to share a
@@ -46,8 +51,10 @@ export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> =
   "night-status": () => <HostelAdminNightStatusPage />,
   notices: () => <HostelAdminNoticesPage />,
   notifications: () => <HostelAdminNotificationsPageContent />,
+  "payment-setup": () => <HostelAdminPaymentProfilePageContent />,
   payments: () => <HostelAdminPaymentsPage />,
   profile: () => <HostelAdminProfilePageContent />,
+  reconcile: () => <HostelAdminReconcilePageContent />,
   referrals: () => <HostelAdminReferralsPageContent />,
   reports: () => <HostelAdminReportsPageContent />,
   residents: () => <HostelAdminResidentsPage />,

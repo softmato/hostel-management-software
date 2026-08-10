@@ -21,6 +21,7 @@ import { FileUploaderView, useUploader } from "@/components/uploads";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { ResidentPayInvoicePanel } from "@/app/_components/resident-pay-invoice-panel";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
@@ -50,12 +51,17 @@ import {
 export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageContent() {
   const [actionMessage, setActionMessage] = useState("");
   const [statusTab, setStatusTab] = useState("ALL");
+  // Which invoice the resident is being told how to pay (item 3.3). Null closes
+  // the panel; the id is also what the claim form below binds itself to, so the
+  // two halves of "pay this month" cannot drift onto different invoices.
+  const [payingInvoiceId, setPayingInvoiceId] = useState("");
   const invalidate = useInvalidateResources();
   // Progress and upload errors surface in the global toaster; this only holds
   // the resulting asset id for the form submit.
   const proofUpload = useUploader({
     accept: "image/jpeg,image/png,image/webp,application/pdf",
     accessLevel: "PRIVATE",
+    assetKind: "PAYMENT_PROOF",
     kind: "document",
     label: "Payment proof",
     optimizeImage: true,
@@ -63,24 +69,29 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
   const proofAssetId = proofUpload.files[0]?.assetId ?? "";
   const { clear: clearProof } = proofUpload;
 
+  // Since item 2.8 the resident reads invoices and their own claims. `claims`
+  // are `PaymentEvent` rows, which is why a claim knows its `invoiceId` rather
+  // than a `paymentId`.
   const paymentsResource = usePortalResource<{
-    payments: Payment[];
-    proofs: PaymentProof[];
+    claims: PaymentProof[];
+    credit: number;
+    invoices: Payment[];
   }>(residentEndpoints.payments, { errorMessage: "Could not load payments." });
 
   const payments = useMemo(
-    () => paymentsResource.data?.payments ?? [],
+    () => paymentsResource.data?.invoices ?? [],
     [paymentsResource.data],
   );
   const proofs = useMemo(
-    () => paymentsResource.data?.proofs ?? [],
+    () => paymentsResource.data?.claims ?? [],
     [paymentsResource.data],
   );
+  const credit = paymentsResource.data?.credit ?? 0;
   const state = paymentsResource.state;
   const message = actionMessage || paymentsResource.message;
 
   const proofByPaymentId = useMemo(
-    () => new Map(proofs.map((proof) => [proof.paymentId, proof])),
+    () => new Map(proofs.map((proof) => [proof.invoiceId, proof])),
     [proofs],
   );
 
@@ -97,7 +108,7 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
       }
 
       try {
-        await browserApi(`${residentEndpoints.payments}/${paymentId}/proof`, {
+        await browserApi(`${residentEndpoints.payments}/${paymentId}/claims`, {
           body: JSON.stringify({
             amount: Number(field(form, "amount")),
             paymentMethod: field(form, "paymentMethod"),
@@ -119,6 +130,44 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
     },
     [clearProof, invalidate, proofAssetId],
   );
+
+  /**
+   * The button has existed since this page was built and has never done
+   * anything (current §7.12). Fetched rather than linked so a failure shows in
+   * the page's own message line instead of navigating the resident to a JSON
+   * error body.
+   */
+  const [downloading, setDownloading] = useState(false);
+
+  const handleStatement = useCallback(async () => {
+    setDownloading(true);
+
+    try {
+      const response = await fetch(residentEndpoints.statementPdf);
+
+      if (!response.ok) {
+        throw new Error("Statement could not be generated.");
+      }
+
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+
+      link.download = "statement.pdf";
+      link.href = url;
+      link.click();
+      // Revoked immediately: the click has already handed the blob to the
+      // browser's download manager, and holding the object URL leaks it for the
+      // lifetime of the document.
+      URL.revokeObjectURL(url);
+      setActionMessage("");
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error ? error.message : "Statement could not be generated.",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }, []);
 
   const stats = useMemo(() => {
     const paid = payments.filter((p) => p.status === "PAID").length;
@@ -149,6 +198,18 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
         title="My Payments"
       />
       <Message value={message} />
+
+      {/* Target §9.4. Shown only when there is credit — but when there is, the
+          resident has to be told, or next month's invoice arrives mysteriously
+          smaller and the support question is unanswerable. */}
+      {credit > 0 ? (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-900 dark:text-emerald-300">
+          <p className="font-semibold">
+            You have NPR {credit.toLocaleString("en-IN")} in credit.
+          </p>
+          <p className="mt-1">It will be applied to your next invoice.</p>
+        </div>
+      ) : null}
 
       <Tabs onValueChange={setStatusTab} value={statusTab}>
         <TabsList className="h-auto flex-wrap rounded-xl bg-muted/50 p-1">
@@ -206,12 +267,25 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
         />
       </div>
 
+      {payingInvoiceId ? (
+        <ResidentPayInvoicePanel
+          invoiceId={payingInvoiceId}
+          onClose={() => setPayingInvoiceId("")}
+        />
+      ) : null}
+
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <SectionCard
           actions={
-            <Button className="h-9 gap-2 rounded-xl" type="button" variant="outline">
+            <Button
+              className="h-9 gap-2 rounded-xl"
+              disabled={downloading}
+              onClick={handleStatement}
+              type="button"
+              variant="outline"
+            >
               <Download className="size-4" />
-              Download Statement
+              {downloading ? "Preparing…" : "Download Statement"}
             </Button>
           }
           title="Payment History"
@@ -274,7 +348,13 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
                       </TableCell>
                       <TableCell>
                         {isOpen ? (
-                          <SoftBadge tone="amber">Pay Now</SoftBadge>
+                          <button
+                            className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[10.5px] font-semibold text-amber-700 transition hover:bg-amber-500/20 dark:text-amber-300"
+                            onClick={() => setPayingInvoiceId(payment.id)}
+                            type="button"
+                          >
+                            Pay Now
+                          </button>
                         ) : proof ? (
                           <SoftBadge tone="green">View</SoftBadge>
                         ) : (
@@ -295,7 +375,13 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
             title="Upload Payment Proof"
           >
             <form className="grid gap-3" onSubmit={handleProof}>
-              <FormSelect label="Payment" name="paymentId" required>
+              <FormSelect
+                key={payingInvoiceId}
+                defaultValue={payingInvoiceId}
+                label="Payment"
+                name="paymentId"
+                required
+              >
                 <option value="">Select payment</option>
                 {payments
                   .filter((payment) => payment.status !== "PAID")

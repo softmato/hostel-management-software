@@ -57,6 +57,14 @@ export type ResidentDashboard = {
   resident: ResidentSummary;
 };
 
+/**
+ * An invoice, as the portal reads it.
+ *
+ * Still called `Payment` and still speaking `UNPAID`: the ledger facade
+ * translates on the way out so the screens could keep working while the models
+ * changed underneath them (item 2.8). Block 3 renames both together, per screen.
+ * `month` is the invoice's `period`.
+ */
 export type Payment = {
   dueAmount: number;
   dueDate: string;
@@ -66,16 +74,22 @@ export type Payment = {
   status: "UNPAID" | "PAID" | "PARTIAL" | "OVERDUE" | "PENDING_PROOF";
 };
 
+/**
+ * A payment claim awaiting review — a `PENDING` `PaymentEvent` since item 2.8,
+ * which is why it carries `eventId` and `invoiceId` rather than a `paymentId`.
+ * `SETTLED` is the ledger's word for what the screens label "approved".
+ */
 export type PaymentProof = {
   amount: number;
-  id: string;
-  paymentId: string;
-  paymentMethod?: string;
-  proofImageAssetId: string;
-  referenceNote?: string;
+  eventId: string;
+  evidenceAssetId: string | null;
+  id?: string;
+  invoiceId: string | null;
+  method?: string;
+  referenceNote?: string | null;
   rejectionReason?: string;
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  transactionCode?: string;
+  status: "PENDING" | "SETTLED" | "REJECTED";
+  transactionCode?: string | null;
 };
 
 export type FoodMenu = {
