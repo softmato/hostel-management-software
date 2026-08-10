@@ -21,11 +21,16 @@
  *    Giving it no seam here means no provider can grow one.
  */
 
-export type GatewayProviderName = "ESEWA" | "FONEPAY" | "KHALTI";
+export type { GatewayProviderName } from "@hostel/db/models/HostelPaymentProfile";
 
-/** Resolved per hostel by `secret-store.ts`. Never logged, never serialised. */
+import type { GatewayProviderName } from "@hostel/db/models/HostelPaymentProfile";
+
+/** Resolved per hostel and provider by `secret-store.ts`. Never logged, never serialised. */
 export type GatewayCredentials = {
+  /** eSewa's product code, Fonepay's merchant code. Empty for Khalti. */
   merchantCode: string;
+  /** Carried so an adapter cannot be handed another provider's credentials. */
+  provider: GatewayProviderName;
   /** Signs our requests and verifies their callbacks. */
   secret: string;
   /**
@@ -43,22 +48,54 @@ export type PaymentIntentRequest = {
   credentials: GatewayCredentials;
   /** Where the provider should POST its callback. Ours, registered with them. */
   callbackUrl: string;
+  /** Where the resident lands when they abandon or the payment fails. */
+  failureUrl: string;
   invoiceId: string;
-  /** Our reference code (target §5) — the merchant transaction reference. */
+  /**
+   * Our per-attempt merchant reference — `{referenceCode}-{attempt}`.
+   *
+   * Not the bare reference code: a provider rejects a repeated merchant
+   * reference, so a resident who abandons a payment and tries again would be
+   * unable to pay at all. The attempt suffix is what makes a retry a new
+   * transaction to them while staying traceable to one invoice for us.
+   */
+  reference: string;
+  /** Our reference code (target §5), for display on the provider's own screen. */
   referenceCode: string;
+  /** Where the resident's browser lands afterwards. Settles nothing. */
+  returnUrl: string;
   /** Distinguishes retries of the same invoice; part of the idempotency key. */
   attempt: number;
 };
+
+/**
+ * How the resident's browser is handed to the provider.
+ *
+ * Three shapes because the providers genuinely differ, and flattening them into
+ * one would mean every adapter filling fields that mean nothing to it:
+ *
+ * - `REDIRECT` — we have a URL to send the browser to. Khalti returns one.
+ * - `FORM_POST` — the provider takes a signed HTML form POST, not a GET with
+ *   query parameters. eSewa's v2 checkout works this way, and the signature
+ *   covers only some of the fields, in a declared order, so the fields must
+ *   survive to the browser exactly as the adapter emitted them.
+ * - `QR` — a payload we render as a QR code for the resident to scan. Fonepay's
+ *   dynamic QR, once credentials exist.
+ */
+export type IntentHandoff =
+  | { kind: "REDIRECT"; url: string }
+  | { kind: "FORM_POST"; url: string; fields: Record<string, string> }
+  | { kind: "QR"; payload: string };
 
 export type PaymentIntent = {
   /** When this intent stops being payable. Drives the countdown and the sweep. */
   expiresAt: Date;
   /** Deep links into wallet apps, where the provider offers them. */
   deeplinks?: { label: string; url: string }[];
+  /** What the resident's screen does with this intent. */
+  handoff: IntentHandoff;
   /** The provider's own transaction id for this attempt, if issued up front. */
   providerRef: string | null;
-  /** QR payload to render. A string we encode ourselves — never a remote image. */
-  qrPayload: string;
 };
 
 /**
@@ -113,10 +150,21 @@ export type GatewayProvider = {
    * Called even when the webhook signature verified, because a valid signature
    * proves the message came from the provider — not that the payment succeeded,
    * nor that the amount in the body is the amount that moved.
+   *
+   * Takes the whole attempt rather than an id, because the providers key their
+   * status lookups differently: Khalti by its own `pidx`, eSewa by *our*
+   * reference plus the amount, which it treats as part of the query rather than
+   * something to be told back to us.
    */
   verify(
-    providerTxnId: string,
-    referenceCode: string,
+    attempt: {
+      /** What we asked for. eSewa requires it in the status query itself. */
+      amount: number;
+      /** The provider's id, once one exists. Null before their first response. */
+      providerTxnId: string | null;
+      /** Our per-attempt merchant reference — `{referenceCode}-{attempt}`. */
+      reference: string;
+    },
     credentials: GatewayCredentials,
   ): Promise<VerificationResult>;
 

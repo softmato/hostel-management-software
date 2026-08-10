@@ -29,6 +29,19 @@ const encryptedSecretSchema = new Schema(
   {
     hostelId: { ref: "Hostel", required: true, type: Schema.Types.ObjectId },
     /**
+     * Which provider's key this is (item 6.1).
+     *
+     * A hostel holds one signing key per provider, so this is part of the row's
+     * identity — and part of the encryption's associated data, so a Khalti
+     * ciphertext written into the eSewa row fails to authenticate instead of
+     * being handed to the eSewa adapter as its signing key.
+     */
+    provider: {
+      type: String,
+      enum: ["ESEWA", "FONEPAY", "KHALTI"],
+      required: true,
+    },
+    /**
      * What this secret is for. Part of the encryption's associated data, so a
      * ciphertext cannot be moved between purposes any more than between hostels.
      */
@@ -78,13 +91,16 @@ const encryptedSecretSchema = new Schema(
 );
 
 /**
- * One live secret per hostel per purpose.
+ * One live secret per hostel per provider per purpose.
  *
  * Replacing a merchant's signing key overwrites this row rather than adding a
  * second one: two live signing secrets for one merchant means a signature that
  * verifies under a key nobody meant to still be accepting.
  */
-encryptedSecretSchema.index({ hostelId: 1, purpose: 1 }, { unique: true });
+encryptedSecretSchema.index(
+  { hostelId: 1, provider: 1, purpose: 1 },
+  { unique: true },
+);
 /** Finds every row still wrapped by an outgoing master key, for rotation. */
 encryptedSecretSchema.index({ keyId: 1 });
 

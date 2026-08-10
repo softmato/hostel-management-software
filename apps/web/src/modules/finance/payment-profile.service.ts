@@ -6,6 +6,8 @@ import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import {
+  enabledGateways,
+  type GatewayConfig,
   HostelPaymentProfileModel,
   isPaymentProfileUsable,
   resolvePaymentTier,
@@ -32,8 +34,13 @@ export type PaymentProfileView = {
   cashApprovalThreshold: number;
   displayName: string | null;
   esewaId: string | null;
-  /** Whether Fonepay/eSewa/Khalti checkout is live. Derived, never stored. */
-  gatewayProvider: string | null;
+  /**
+   * Which providers currently take online payments for this hostel. Derived
+   * from the gateway entries, never stored — see `resolvePaymentTier`. The
+   * setup screen reads the full entries through `gateway-config.service.ts`;
+   * this is the summary every other caller needs.
+   */
+  enabledProviders: string[];
   khaltiId: string | null;
   lastStatementUploadAt: string | null;
   paymentInstructions: string | null;
@@ -51,8 +58,7 @@ type ProfileDocument = {
   cashApprovalThreshold?: number;
   displayName?: string | null;
   esewaId?: string | null;
-  gatewayEnabledAt?: Date | null;
-  gatewayProvider?: string | null;
+  gateways?: GatewayConfig[] | null;
   khaltiId?: string | null;
   lastStatementUploadAt?: Date | null;
   paymentInstructions?: string | null;
@@ -72,8 +78,8 @@ function toView(profile: ProfileDocument | null): PaymentProfileView {
     bankName: source.bankName ?? null,
     cashApprovalThreshold: source.cashApprovalThreshold ?? 20000,
     displayName: source.displayName ?? null,
+    enabledProviders: enabledGateways(source).map((entry) => entry.provider),
     esewaId: source.esewaId ?? null,
-    gatewayProvider: source.gatewayProvider ?? null,
     khaltiId: source.khaltiId ?? null,
     lastStatementUploadAt: source.lastStatementUploadAt
       ? new Date(source.lastStatementUploadAt).toISOString()

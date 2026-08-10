@@ -184,3 +184,137 @@ describe("getPayInstructions", () => {
     ).toBeNull();
   });
 });
+
+/**
+ * Item 6.1: a hostel can run several checkouts at once, and the manual methods
+ * stay on the screen underneath them.
+ */
+describe("live gateways on the pay screen", () => {
+  const enabled = (provider: "ESEWA" | "FONEPAY" | "KHALTI", extra = {}) => ({
+    accountKind: "MERCHANT",
+    enabledAt: new Date("2026-08-01T00:00:00.000Z"),
+    merchantCode: "RUPA001",
+    mode: "SANDBOX",
+    provider,
+    ...extra,
+  });
+
+  it("leads with the checkouts and keeps the manual methods below", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({
+        bankAccountNumber: "01234567890",
+        gateways: [enabled("KHALTI"), enabled("ESEWA")],
+        staticQrAssetId: qrAssetId,
+      }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+
+    // eSewa before Khalti regardless of stored order — it is the wider-held
+    // wallet, and the order is ours to choose, not the array's.
+    expect(result.methods.map((method) => method.kind)).toEqual([
+      "GATEWAY",
+      "GATEWAY",
+      "QR",
+      "BANK",
+    ]);
+    expect(result.methods.slice(0, 2)).toMatchObject([
+      { provider: "ESEWA" },
+      { provider: "KHALTI" },
+    ]);
+    expect(result.tier).toBe("TIER_1");
+  });
+
+  /**
+   * Offering "pay with eSewa" and "transfer to this eSewa id yourself" side by
+   * side asks the resident to choose between two things they cannot tell apart,
+   * and the manual one costs somebody a screenshot review.
+   */
+  it("suppresses the manual wallet id of a provider whose checkout is live", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({
+        esewaId: "9800000000",
+        gateways: [enabled("ESEWA")],
+        khaltiId: "9811111111",
+      }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+
+    expect(result.methods.map((method) => method.kind)).toEqual([
+      "GATEWAY",
+      "KHALTI",
+    ]);
+  });
+
+  it("does not offer a gateway that was configured but never enabled", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({ esewaId: "9800000000", gateways: [enabled("ESEWA", { enabledAt: null })] }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+
+    expect(result.methods.map((method) => method.kind)).toEqual(["ESEWA"]);
+    expect(result.tier).toBe("TIER_0");
+  });
+
+  it("does not offer a personal wallet as a checkout", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({ gateways: [enabled("FONEPAY", { accountKind: "PERSONAL" })] }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+
+    expect(result.methods).toEqual([]);
+    expect(result.usable).toBe(false);
+  });
+
+  /**
+   * A personal Fonepay QR caps at NPR 5,000 credited per day. Scanning it for a
+   * 10,000 invoice fails at the network with no explanation we control, so the
+   * resident is told before they try.
+   */
+  it("warns on a static QR backed by a personal account that cannot take the amount", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({
+        bankAccountNumber: "01234567890",
+        gateways: [enabled("FONEPAY", { accountKind: "PERSONAL", enabledAt: null })],
+        staticQrAssetId: qrAssetId,
+      }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+    const qr = result.methods.find((method) => method.kind === "QR");
+
+    expect(qr).toMatchObject({ notice: expect.stringContaining("5,000") });
+  });
+
+  it("does not warn when the amount is within the daily cap", async () => {
+    mocks.balanceFindOne.mockReturnValue(lean({ settledAmount: 6000 }));
+    mocks.profileFindOne.mockReturnValue(
+      lean({
+        gateways: [enabled("FONEPAY", { accountKind: "PERSONAL", enabledAt: null })],
+        staticQrAssetId: qrAssetId,
+      }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+
+    // 10,000 total less 6,000 settled leaves 4,000, which fits under the cap.
+    expect(result.methods.find((method) => method.kind === "QR")).toMatchObject({
+      notice: null,
+    });
+  });
+
+  it("does not warn on a merchant account's QR", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({ gateways: [enabled("FONEPAY")], staticQrAssetId: qrAssetId }),
+    );
+
+    const result = await getPayInstructions(invoiceId.toString(), principal);
+
+    expect(result.methods.find((method) => method.kind === "QR")).toMatchObject({
+      notice: null,
+    });
+  });
+});

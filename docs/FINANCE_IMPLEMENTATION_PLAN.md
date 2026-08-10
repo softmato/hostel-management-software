@@ -596,11 +596,11 @@ that the item's acceptance statement was **observed** to be true.
 | 3 — Tier 0 screens | 3.1–3.5 | **5 / 5** | ☑ Complete — §5.7 vocabulary outstanding |
 | 4 — Tier 0.5 reconciliation | 4.1–4.5 | **5 / 5** | ☑ Complete — PDF parsing deferred to 4b |
 | 5 — Reliability | 5.1–5.3 | **3 / 3** | ☑ Complete |
-| 6 — Tier 1 gateway | 6.0–6.6 | **1 / 7** | ☐ 6.0 done; 6.1–6.6 blocked on Fonepay merchant credentials |
+| 6 — Tier 1 gateway | 6.0–6.8 | **2 / 9** | ☐ 6.0, 6.1 done; reordered so eSewa and Khalti ship first — only 6.8 (Fonepay) waits on merchant credentials |
 | 7 — Deferred | — | — | Not scheduled |
-| **Total** | | **33 / 39** | |
+| **Total** | | **34 / 41** | |
 
-**Where the codebase stands.** 1113 tests (from 440 at the start of Block 0);
+**Where the codebase stands.** 1166 tests (from 440 at the start of Block 0);
 typecheck and lint clean across `apps/web`, `packages/db` and `packages/shared`;
 `next build` passes. `Payment`, `PaymentProof`, `payment.service.ts`,
 `payment.validation.ts` and `payment-reminders.service.ts` no longer exist —
@@ -2085,29 +2085,40 @@ as Blocks 3 and 4.
 
 ### Block 6 — Tier 1 · ~8–10 days
 
-**Build against the provider sandbox first.** One set of sandbox credentials in env
-(`FONEPAY_SANDBOX_*`), and `secret-store.ts` returns those for every hostel while
-`NODE_ENV !== "production"`. The per-hostel credential flow (6.0, 6.6) is built to
-the same interface, so switching from "one sandbox merchant" to "each hostel's own
-merchant" is a change of *where the secret comes from*, not of any calling code.
-This is why 6.0 exists before 6.1 even though nothing needs real secrets yet.
+**Reordered 2026-08-10, and the reason is the only one that matters here: eSewa
+and Khalti have working sandboxes and Fonepay does not.** The original order put
+Fonepay first, which meant the whole block waited on a merchant code an acquiring
+bank issues by hand. eSewa publishes its test merchant outright and Khalti's is
+self-service, so both can be built, tested and shipped now. Fonepay keeps its
+place in the interface and its manual paths, and its adapter lands when the
+credentials do.
 
-**☑ 6.0** `EncryptedSecret` + `secret-store.ts` (ADR-6, D5). Interface:
-`getGatewayCredentials(hostelId)` → sandbox values in dev, decrypted per-hostel
-values in production.
-**☐ 6.1** Fonepay dynamic QR: intent creation, webhook receiver, signature
-verification, **independent re-verify against the provider's API** before settling
-(target §6.5 step 7c — never trust the webhook body alone).
-**☐ 6.2** Expiry sweep every 5 min that re-queries the provider before expiring, so a
-payment that succeeded while the webhook was down is not expired away.
-**☐ 6.3** Gateway health monitoring — a silently broken webhook must not be
-indistinguishable from "nobody paid this month".
-**☐ 6.4** Resident live QR screen (target §11.6) and owner live feed (§11.7), over the
-existing Pusher channel (D8) with a poll fallback.
-**☐ 6.5** Weekly settlement-report reconciliation (target §10.2).
-**☐ 6.6** Per-hostel credential onboarding UI (§6.7 below) — the "I have merchant
-details" path of target §11.8. Last, because it is unusable until a real hostel has
-real credentials.
+**Build against the provider sandbox first.** Sandbox credentials live in env per
+provider, and a hostel's gateway entry chooses `mode: LIVE | SANDBOX` for itself.
+The per-hostel credential flow is built to the same interface, so switching from
+"one sandbox merchant" to "each hostel's own merchant" is a change of *where the
+secret comes from*, not of any calling code. This is why 6.0 exists before any
+adapter even though nothing needed real secrets yet.
+
+**☑ 6.0** `EncryptedSecret` + `secret-store.ts` (ADR-6, D5).
+**☑ 6.1** Per-provider configuration: `gateways[]` on the payment profile, the
+secret store keyed by provider, eligibility rules, and the resident pay screen
+offering live checkouts above the manual methods.
+**☐ 6.2** `PaymentIntent` + the settlement path every adapter shares: intent
+creation, callback receiver, **independent re-verify against the provider's API**
+before settling (target §6.5 step 7c — never trust the callback body alone).
+**☐ 6.3** eSewa adapter (form POST v2, HMAC-SHA256, status API).
+**☐ 6.4** Resident checkout screens — one dedicated flow per provider, plus the
+owner's live feed (§11.7) over the existing Pusher channel (D8) with a poll
+fallback.
+**☐ 6.5** Khalti adapter (initiate → `payment_url` → lookup by `pidx`).
+**☐ 6.6** Owner setup UI for §6.7 — the "I have merchant details" path of target
+§11.8, plus the Fonepay merchant-vs-personal choice.
+**☐ 6.7** Expiry sweep that re-queries the provider before expiring (so a payment
+that succeeded while the callback was down is not expired away), gateway health
+monitoring, and weekly settlement-report reconciliation (target §10.2).
+**☐ 6.8** Fonepay dynamic QR adapter. **Blocked on merchant credentials** — see
+below. Everything else ships without it.
 
 **Critical:** the resident return/success URL settles nothing. It is guessable and
 carries no authority; its only job is a "checking…" state.
@@ -2121,7 +2132,55 @@ amount does **not** settle; return-URL hit settles nothing.
 `scripts/rotate-finance-master-key.mjs` (`web:rotate:finance-key`). Env vars are
 documented in `docs/ENVIRONMENT.md`.
 
-**6.1–6.6 remain blocked on credentials, and no amount of searching changes
+**6.1 landed 2026-08-10.** `gateways[]` on `HostelPaymentProfile` replaced the
+single `gatewayProvider` column; `EncryptedSecret` gained a `provider` and its
+unique index became `{hostelId, provider, purpose}`; `secret-store.ts` resolves
+credentials per provider; `gateway-config.service.ts` is the owner-facing surface.
+
+**One column became an array because a hostel takes eSewa *and* Khalti.** The
+single `gatewayProvider` would have made the second provider a data migration.
+Nothing had ever written it — no validation accepted it and no service set it —
+so it was removed outright rather than carried as dead compatibility.
+
+**No `gatewaySecretRef`, deviating from §6.7's table.** With N providers per
+hostel a ref field becomes an array of refs that must stay in step with the array
+of entries, and the day they disagree is the day a hostel signs with another
+provider's key. The secret is found by `{hostelId, provider, purpose}` instead:
+one source of truth, and nothing secret-shaped is reachable from a document the
+resident pay screen reads on every request.
+
+**The provider is folded into the encryption's associated data.** `scopeOf`
+composes `{provider}:{purpose}`, so a Khalti ciphertext written into the eSewa row
+fails to authenticate rather than being handed to the eSewa adapter as its signing
+key — the same protection that already stopped a ciphertext moving between
+hostels, extended to the axis that 6.1 introduced. `envelope-crypto.ts` needed no
+change, so its 28 tests keep their meaning. **Any secret stored under 6.0 must be
+re-entered**, since its AAD lacks the provider; only dev holds any.
+
+**A personal wallet can never be a gateway.** Fonepay personal accounts credit at
+most NPR 5,000 per day, so a hostel collecting 12,000 rents through one has
+payments start failing partway through the month, with the resident seeing the
+network's rejection rather than anything we could explain. `isGatewayEligible`
+refuses it, `assertEnablable` explains why in words the owner can act on, and the
+resident's pay screen carries the cap on any static QR backed by one. Enforced in
+the model rather than the form, because the form is one caller and this is the
+invariant.
+
+**Eligibility is inside `enabledGateways`, not beside it.** A test caught the
+alternative: an entry marked enabled but ineligible made `isPaymentProfileUsable`
+return true while `methods` came back empty — a blank pay card, which is the exact
+failure that function exists to prevent.
+
+**Sandbox entries are hidden in production, not badged.** A warning relies on the
+resident reading it before they pay, and money sent to a test merchant is not
+recoverable by explaining it afterwards. Owners acceptance-test on staging.
+
+*Verified:* 1166 tests pass (was 1113) — 23 new in `gateway-config.test.ts`, 20
+rewritten in `secret-store.test.ts` including cross-provider ciphertext rejection
+and the production sandbox rule, plus the array cases in `payment-profile.test.ts`
+and the checkout ordering in `pay-instructions.test.ts`. Typecheck and lint clean.
+
+**6.8 remains blocked on credentials, and no amount of searching changes
 that.** Fonepay publishes no universal sandbox merchant: the merchant code and
 signing secret are issued per merchant by the *acquiring bank*, not self-service
 from Fonepay. Every public SDK and integration guide uses placeholders and says

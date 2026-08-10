@@ -19,7 +19,13 @@ import {
 } from "@/modules/finance/gateway/envelope-crypto";
 import type { GatewayCredentials } from "@/modules/finance/gateway/provider.types";
 import { EncryptedSecretModel } from "@hostel/db/models/EncryptedSecret";
-import { HostelPaymentProfileModel } from "@hostel/db/models/HostelPaymentProfile";
+import {
+  findGateway,
+  isGatewayEligible,
+  type GatewayConfig,
+  type GatewayProviderName,
+  HostelPaymentProfileModel,
+} from "@hostel/db/models/HostelPaymentProfile";
 
 /**
  * Where gateway credentials come from (ADR-6, plan item 6.0).
@@ -41,11 +47,30 @@ import { HostelPaymentProfileModel } from "@hostel/db/models/HostelPaymentProfil
  * that has been written can only be replaced, never displayed.
  */
 
-const SANDBOX_ENV = {
-  merchantCode: "FONEPAY_SANDBOX_MERCHANT_CODE",
-  secret: "FONEPAY_SANDBOX_SECRET",
-  webhookSecret: "FONEPAY_SANDBOX_WEBHOOK_SECRET",
-} as const;
+/**
+ * Sandbox credentials, per provider, from the environment.
+ *
+ * eSewa carries defaults because its test merchant is *published* — `EPAYTEST`
+ * and its key appear in eSewa's own developer documentation, are shared by every
+ * integrator in the country, and protect nothing. Defaulting them is what makes
+ * `npm run dev` work without a setup step; an env var still overrides. Khalti
+ * and Fonepay have no such published merchant — each developer registers their
+ * own — so they have no default and fail loudly when unset.
+ *
+ * None of these is reachable outside `mode: "SANDBOX"`, and every credential
+ * resolved from here carries `sandbox: true` to the screen that renders it.
+ */
+const SANDBOX_CONFIG: Record<
+  GatewayProviderName,
+  { defaults?: { merchantCode: string; secret: string }; env: string }
+> = {
+  ESEWA: {
+    defaults: { merchantCode: "EPAYTEST", secret: "8gBm/:&EnhH.1/q" },
+    env: "ESEWA_SANDBOX",
+  },
+  FONEPAY: { env: "FONEPAY_SANDBOX" },
+  KHALTI: { env: "KHALTI_SANDBOX" },
+};
 
 export type SecretPurpose = "GATEWAY_SECRET" | "GATEWAY_WEBHOOK_SECRET";
 
@@ -103,67 +128,120 @@ function keyIdFor(raw: string): string {
   return createHash("sha256").update(raw.trim()).digest("hex").slice(0, 12);
 }
 
-export function isSandboxMode(): boolean {
-  return process.env.NODE_ENV !== "production";
+export function isProduction(): boolean {
+  return process.env.NODE_ENV === "production";
 }
 
 /**
- * The credentials for one hostel.
+ * Whether a configured entry may be offered to residents right now.
  *
- * In sandbox mode every hostel resolves to the same env-configured merchant, and
- * the returned `sandbox: true` is carried through to the UI — a resident must
- * never be shown a live-looking payment screen that is wired to a test merchant.
+ * A sandbox entry is hidden in production rather than shown with a warning. The
+ * warning is the weaker control: it relies on a resident reading it before they
+ * pay, and the failure it guards against is money sent to a test merchant, which
+ * is not recoverable by explaining it afterwards. Owners acceptance-test against
+ * staging, where this returns true.
+ */
+export function isGatewayPayable(entry: GatewayConfig | null): boolean {
+  if (!entry?.enabledAt || !isGatewayEligible(entry)) {
+    return false;
+  }
+
+  return entry.mode === "LIVE" || !isProduction();
+}
+
+/** Sandbox credentials for one provider, or null when none are configured. */
+function sandboxCredentials(
+  provider: GatewayProviderName,
+): GatewayCredentials | null {
+  const config = SANDBOX_CONFIG[provider];
+  const merchantCode =
+    process.env[`${config.env}_MERCHANT_CODE`] ?? config.defaults?.merchantCode;
+  const secret = process.env[`${config.env}_SECRET`] ?? config.defaults?.secret;
+
+  if (!merchantCode || !secret) {
+    return null;
+  }
+
+  return {
+    merchantCode,
+    provider,
+    sandbox: true,
+    secret,
+    // Providers that sign callbacks with the same shared key need no second
+    // value; the fallback keeps their configuration to two variables.
+    webhookSecret: process.env[`${config.env}_WEBHOOK_SECRET`] ?? secret,
+  };
+}
+
+/**
+ * The credentials for one hostel and one provider.
+ *
+ * The signature is what makes every call site correct for real per-hostel
+ * credentials: which environment answers is decided by the hostel's own
+ * `mode`, not by the caller, and `sandbox` is carried through to the screen
+ * that renders it. A resident must never be shown a live-looking payment screen
+ * wired to a test merchant.
+ *
+ * **Production never falls back to sandbox.** A hostel whose entry says LIVE and
+ * whose signing key is missing raises `GATEWAY_NOT_CONFIGURED`. Quietly using
+ * the test merchant instead would send a resident's money to an account nobody
+ * involved controls, which is the worst outcome available in this module.
  */
 export async function getGatewayCredentials(
   hostelId: Types.ObjectId | string,
+  provider: GatewayProviderName,
 ): Promise<GatewayCredentials> {
-  if (isSandboxMode()) {
-    const merchantCode = process.env[SANDBOX_ENV.merchantCode];
-    const secret = process.env[SANDBOX_ENV.secret];
-
-    if (!merchantCode || !secret) {
-      throw new FinanceServiceError(
-        `Sandbox gateway credentials are not configured. Set ${SANDBOX_ENV.merchantCode} and ${SANDBOX_ENV.secret}.`,
-        "GATEWAY_NOT_CONFIGURED",
-      );
-    }
-
-    return {
-      merchantCode,
-      sandbox: true,
-      secret,
-      // Providers that sign callbacks with the same shared key need no second
-      // value; the fallback keeps their configuration to two variables.
-      webhookSecret: process.env[SANDBOX_ENV.webhookSecret] ?? secret,
-    };
-  }
-
   await connectToDatabase();
 
   const profile = await HostelPaymentProfileModel.findOne({ hostelId })
-    .select("gatewayEnabledAt gatewayMerchantCode gatewayProvider")
-    .lean<{
-      gatewayEnabledAt?: Date;
-      gatewayMerchantCode?: string;
-      gatewayProvider?: string;
-    } | null>();
+    .select("gateways")
+    .lean<{ gateways?: GatewayConfig[] } | null>();
 
-  if (!profile?.gatewayMerchantCode || !profile.gatewayEnabledAt) {
+  const entry = findGateway(profile, provider);
+
+  if (!entry?.enabledAt) {
     throw new FinanceServiceError(
       "This hostel has not completed its payment gateway setup.",
       "GATEWAY_NOT_CONFIGURED",
     );
   }
 
+  if (!isGatewayEligible(entry)) {
+    // A personal wallet, or a merchant entry with no merchant code. Enabling
+    // either is refused at the setup screen; reaching here means it was written
+    // some other way, and the resident must still not be sent to it.
+    throw new FinanceServiceError(
+      "This payment method is not available for online payment.",
+      "GATEWAY_NOT_ELIGIBLE",
+    );
+  }
+
+  if (entry.mode !== "LIVE") {
+    if (isProduction()) {
+      throw new FinanceServiceError(
+        "This payment method is still in test mode and cannot take real payments.",
+        "GATEWAY_SANDBOX_IN_PRODUCTION",
+      );
+    }
+
+    const sandbox = sandboxCredentials(provider);
+
+    if (!sandbox) {
+      throw new FinanceServiceError(
+        `Sandbox credentials for ${provider} are not configured. Set ${SANDBOX_CONFIG[provider].env}_MERCHANT_CODE and ${SANDBOX_CONFIG[provider].env}_SECRET.`,
+        "GATEWAY_NOT_CONFIGURED",
+      );
+    }
+
+    return sandbox;
+  }
+
   const [secret, webhookSecret] = await Promise.all([
-    readSecret(hostelId, "GATEWAY_SECRET"),
-    readSecret(hostelId, "GATEWAY_WEBHOOK_SECRET").catch(() => null),
+    readSecret(hostelId, provider, "GATEWAY_SECRET"),
+    readSecret(hostelId, provider, "GATEWAY_WEBHOOK_SECRET").catch(() => null),
   ]);
 
   if (!secret) {
-    // The profile says the gateway is on and the signing key is missing. Failing
-    // loudly beats falling back to sandbox: a live QR signed with a test key
-    // sends a resident's money to the wrong merchant.
     throw new FinanceServiceError(
       "This hostel's gateway signing key is missing. Re-enter it in payment setup.",
       "GATEWAY_NOT_CONFIGURED",
@@ -171,7 +249,9 @@ export async function getGatewayCredentials(
   }
 
   return {
-    merchantCode: profile.gatewayMerchantCode,
+    // Khalti identifies its merchant by key alone and stores no code.
+    merchantCode: entry.merchantCode ?? "",
+    provider,
     sandbox: false,
     secret,
     webhookSecret: webhookSecret ?? secret,
@@ -190,6 +270,7 @@ export async function putSecret(input: {
   hostelId: Types.ObjectId | string;
   plaintext: string;
   principal: ApiPrincipal;
+  provider: GatewayProviderName;
   purpose: SecretPurpose;
 }): Promise<{ fingerprint: string }> {
   await connectToDatabase();
@@ -203,25 +284,23 @@ export async function putSecret(input: {
     );
   }
 
-  const scope = scopeOf(input.hostelId, input.purpose);
-  const existing = await EncryptedSecretModel.findOne({
+  const scope = scopeOf(input.hostelId, input.provider, input.purpose);
+  const key = {
     hostelId: input.hostelId,
+    provider: input.provider,
     purpose: input.purpose,
-  })
+  };
+  const existing = await EncryptedSecretModel.findOne(key)
     .select("fingerprint")
     .lean<{ fingerprint?: string } | null>();
 
   const envelope = encryptSecret(trimmed, scope, masterKeys()[0]!);
 
   await EncryptedSecretModel.updateOne(
-    { hostelId: input.hostelId, purpose: input.purpose },
+    key,
     {
       $set: { ...envelope, rotatedAt: existing ? new Date() : undefined },
-      $setOnInsert: {
-        createdBy: input.principal.userId,
-        hostelId: input.hostelId,
-        purpose: input.purpose,
-      },
+      $setOnInsert: { ...key, createdBy: input.principal.userId },
     },
     { upsert: true },
   );
@@ -234,29 +313,36 @@ export async function putSecret(input: {
     entityId: new Types.ObjectId(String(input.hostelId)),
     entityType: "EncryptedSecret",
     hostelId: input.hostelId,
-    reason: `${input.purpose} fingerprint ${envelope.fingerprint}`,
+    reason: `${input.provider} ${input.purpose} fingerprint ${envelope.fingerprint}`,
     source: "SECRET_STORE",
   });
 
   return { fingerprint: envelope.fingerprint };
 }
 
-/** Decrypts one secret, or null when the hostel has none of that purpose. */
+/** Decrypts one secret, or null when the hostel has none of that kind. */
 export async function readSecret(
   hostelId: Types.ObjectId | string,
+  provider: GatewayProviderName,
   purpose: SecretPurpose,
 ): Promise<string | null> {
   await connectToDatabase();
 
-  const row = await EncryptedSecretModel.findOne({ hostelId, purpose }).lean<
-    (SecretEnvelope & { _id: Types.ObjectId }) | null
-  >();
+  const row = await EncryptedSecretModel.findOne({
+    hostelId,
+    provider,
+    purpose,
+  }).lean<(SecretEnvelope & { _id: Types.ObjectId }) | null>();
 
   if (!row) {
     return null;
   }
 
-  const plaintext = decryptSecret(row, scopeOf(hostelId, purpose), masterKeys());
+  const plaintext = decryptSecret(
+    row,
+    scopeOf(hostelId, provider, purpose),
+    masterKeys(),
+  );
 
   // Best effort, and never awaited into the caller's critical path: a usage
   // timestamp that fails to write must not stop a payment from being verified.
@@ -277,6 +363,7 @@ export async function readSecret(
  */
 export async function describeSecret(
   hostelId: Types.ObjectId | string,
+  provider: GatewayProviderName,
   purpose: SecretPurpose,
 ): Promise<{
   configured: boolean;
@@ -286,7 +373,7 @@ export async function describeSecret(
 }> {
   await connectToDatabase();
 
-  const row = await EncryptedSecretModel.findOne({ hostelId, purpose })
+  const row = await EncryptedSecretModel.findOne({ hostelId, provider, purpose })
     .select("fingerprint rotatedAt updatedAt")
     .lean<{ fingerprint?: string; rotatedAt?: Date; updatedAt?: Date } | null>();
 
@@ -303,10 +390,11 @@ export function matchesFingerprint(
   candidate: string,
   storedFingerprint: string,
   hostelId: Types.ObjectId | string,
+  provider: GatewayProviderName,
   purpose: SecretPurpose,
 ): boolean {
   return (
-    fingerprintSecret(candidate.trim(), scopeOf(hostelId, purpose)) ===
+    fingerprintSecret(candidate.trim(), scopeOf(hostelId, provider, purpose)) ===
     storedFingerprint
   );
 }
@@ -333,6 +421,7 @@ export async function rotateMasterKey(): Promise<{
     (SecretEnvelope & {
       _id: Types.ObjectId;
       hostelId: Types.ObjectId;
+      provider: GatewayProviderName;
       purpose: SecretPurpose;
     })[]
   >();
@@ -344,7 +433,7 @@ export async function rotateMasterKey(): Promise<{
     try {
       const next = rewrapSecret(
         row,
-        scopeOf(row.hostelId, row.purpose),
+        scopeOf(row.hostelId, row.provider, row.purpose),
         keys,
         target,
       );
@@ -373,9 +462,20 @@ export async function rotateMasterKey(): Promise<{
   return { failed, rewrapped, skipped: 0 };
 }
 
+/**
+ * What a ciphertext is bound to.
+ *
+ * The provider is folded into `purpose` rather than added as a third field, so
+ * `envelope-crypto.ts` needs no change and its 28 tests keep their meaning. The
+ * effect is the one that matters: a Khalti ciphertext written into the eSewa row
+ * fails to authenticate rather than being handed to the eSewa adapter as its
+ * signing key — the same protection that already stops a ciphertext moving
+ * between hostels.
+ */
 function scopeOf(
   hostelId: Types.ObjectId | string,
+  provider: GatewayProviderName,
   purpose: SecretPurpose,
 ): SecretScope {
-  return { hostelId: hostelId.toString(), purpose };
+  return { hostelId: hostelId.toString(), purpose: `${provider}:${purpose}` };
 }

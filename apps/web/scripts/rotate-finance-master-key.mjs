@@ -106,8 +106,11 @@ let rewrapped = 0;
 let failed = 0;
 
 for (const row of stale) {
+  // Mirrors `scopeOf` in secret-store.ts, where the provider is folded into the
+  // purpose. If that composition changes, this line changes with it — a script
+  // cannot import the TypeScript module, so both sides carry this note.
   const aad = Buffer.from(
-    `${ENVELOPE_FORMAT}:${row.hostelId.toString()}:${row.purpose}`,
+    `${ENVELOPE_FORMAT}:${row.hostelId.toString()}:${row.provider}:${row.purpose}`,
     "utf8",
   );
 
@@ -144,7 +147,7 @@ for (const row of stale) {
   if (!dataKey) {
     failed += 1;
     log(
-      `  ! ${row.purpose} for hostel ${row.hostelId} is wrapped by ${row.keyId}, which is not configured. Left untouched.`,
+      `  ! ${row.provider} ${row.purpose} for hostel ${row.hostelId} is wrapped by ${row.keyId}, which is not configured. Left untouched.`,
     );
     continue;
   }
@@ -173,7 +176,7 @@ for (const row of stale) {
   }
 
   rewrapped += 1;
-  log(`  ✓ ${row.purpose} for hostel ${row.hostelId}`);
+  log(`  ✓ ${row.provider} ${row.purpose} for hostel ${row.hostelId}`);
 }
 
 const remaining = dryRun

@@ -134,9 +134,19 @@ is absent, so the rest of the app still boots.
 |---|---|---|
 | `FINANCE_MASTER_KEY` | **yes once any hostel enables a gateway** | 32 bytes, base64 or hex. `openssl rand -base64 32`. Wraps the per-secret data keys in `EncryptedSecret` (ADR-6). |
 | `FINANCE_MASTER_KEY_PREVIOUS` | during rotation only | The outgoing key. Both are accepted while `npm run web:rotate:finance-key` rewraps. |
-| `FONEPAY_SANDBOX_MERCHANT_CODE` | in non-production | Sandbox merchant, used for **every** hostel outside production. |
-| `FONEPAY_SANDBOX_SECRET` | in non-production | Sandbox signing secret. |
-| `FONEPAY_SANDBOX_WEBHOOK_SECRET` | optional | Falls back to `FONEPAY_SANDBOX_SECRET` where the provider signs with one key. |
+| `ESEWA_SANDBOX_MERCHANT_CODE` | no | Overrides eSewa's published test merchant, `EPAYTEST`, which is the built-in default. |
+| `ESEWA_SANDBOX_SECRET` | no | Overrides the published test key that goes with it. |
+| `KHALTI_SANDBOX_MERCHANT_CODE` | for Khalti sandbox | A placeholder; Khalti identifies the merchant by key alone. |
+| `KHALTI_SANDBOX_SECRET` | for Khalti sandbox | The secret key from your own sandbox merchant at `dev.khalti.com` — there is no shared one. |
+| `FONEPAY_SANDBOX_MERCHANT_CODE` | for Fonepay sandbox | Issued by the acquiring bank. Fonepay publishes no universal sandbox merchant. |
+| `FONEPAY_SANDBOX_SECRET` | for Fonepay sandbox | Likewise issued by the bank. |
+| `<PROVIDER>_SANDBOX_WEBHOOK_SECRET` | optional | Falls back to that provider's `_SECRET` where one key signs both ways. |
+
+**A gateway entry chooses its own environment.** Each hostel's entry carries
+`mode: LIVE | SANDBOX`; a sandbox entry resolves to the variables above, and a
+live one to that hostel's own key from `EncryptedSecret`. Sandbox entries are
+**hidden from residents in production** rather than shown with a warning — money
+sent to a test merchant is not recoverable by explaining it afterwards.
 
 **Unlike `PERSONAL_DATA_ENCRYPTION_KEY`, a short passphrase is rejected rather
 than stretched.** That trade is defensible for a feature that merely degrades
@@ -201,8 +211,8 @@ anything holding a real key.
 `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `OTP_HASH_SECRET`,
 `R2_SECRET_ACCESS_KEY`, `R2_ACCESS_KEY_ID`, `RESEND_API_KEY`, `CRON_SECRET`,
 `PERSONAL_DATA_ENCRYPTION_KEY`, `FINANCE_MASTER_KEY`,
-`FINANCE_MASTER_KEY_PREVIOUS`, `FONEPAY_SANDBOX_SECRET`,
-`FONEPAY_SANDBOX_WEBHOOK_SECRET`, `GOOGLE_MAPS_API_KEY`, every `*_API_KEYS` list,
+`FINANCE_MASTER_KEY_PREVIOUS`, every `*_SANDBOX_SECRET` and
+`*_SANDBOX_WEBHOOK_SECRET`, `GOOGLE_MAPS_API_KEY`, every `*_API_KEYS` list,
 `QUESTIONCALL_*_SECRET`, `FIREBASE_PRIVATE_KEY`.
 
 **Client-accessible** (must carry the `NEXT_PUBLIC_` prefix):

@@ -32,8 +32,8 @@ type PaymentProfile = {
   bankName: string | null;
   cashApprovalThreshold: number;
   displayName: string | null;
+  enabledProviders: string[];
   esewaId: string | null;
-  gatewayProvider: string | null;
   khaltiId: string | null;
   paymentInstructions: string | null;
   staticQrAssetId: string | null;
@@ -180,9 +180,9 @@ export const HostelAdminPaymentProfilePageContent = memo(
               </p>
               <p className="mt-1 leading-5">
                 {profile.usable
-                  ? `Payments are collected manually — you confirm each one from the review queue. ${
-                      profile.tier === "TIER_1"
-                        ? "Online checkout is also enabled."
+                  ? `Payments below are collected manually — you confirm each one from the review queue. ${
+                      profile.enabledProviders.length > 0
+                        ? `Online checkout is live for ${profile.enabledProviders.join(", ").toLowerCase()}, and settles without your review.`
                         : ""
                     }`
                   : "Add a payment QR, an eSewa or Khalti number, or a bank account below. Until then their pay screen says your hostel has not set this up."}

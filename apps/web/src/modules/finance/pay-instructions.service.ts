@@ -6,7 +6,12 @@ import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { findCurrentResident } from "@/modules/residents/resident-access";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
+import { isGatewayPayable } from "@/modules/finance/gateway/secret-store";
 import {
+  findGateway,
+  FONEPAY_PERSONAL_DAILY_LIMIT,
+  type GatewayConfig,
+  type GatewayProviderName,
   HostelPaymentProfileModel,
   isPaymentProfileUsable,
   resolvePaymentTier,
@@ -29,10 +34,17 @@ import {
  */
 
 export type PayMethod =
-  | { kind: "BANK"; accountName: string | null; accountNumber: string; bankName: string | null }
+  /** A live checkout. Tapping it creates an intent and hands off to the provider. */
+  | { kind: "GATEWAY"; provider: GatewayProviderName; sandbox: boolean }
+  | {
+      kind: "BANK";
+      accountName: string | null;
+      accountNumber: string;
+      bankName: string | null;
+    }
   | { kind: "ESEWA"; id: string }
   | { kind: "KHALTI"; id: string }
-  | { kind: "QR"; assetId: string };
+  | { kind: "QR"; assetId: string; notice: string | null };
 
 export type PayInstructions = {
   /** What is still owed. Never the invoice total once part of it is settled. */
@@ -62,30 +74,72 @@ type InvoiceRecord = {
   totalAmount: number;
 };
 
+/** The order gateways are offered in. eSewa first: it is the widest-held wallet. */
+const GATEWAY_ORDER: GatewayProviderName[] = ["ESEWA", "KHALTI", "FONEPAY"];
+
 /**
  * The methods, in the order a resident should see them.
  *
- * QR first because scanning is the shortest path and the one least likely to be
- * mistyped; bank last because it is the slowest and the one where the reference
- * code matters most. A method with no value is not rendered as an empty row —
- * it is simply not a way this hostel can be paid.
+ * **Live checkouts first, manual below.** A gateway settles itself and needs no
+ * screenshot, no review queue entry and no statement match, so it is the path
+ * worth leading with. The manual methods stay on the screen underneath rather
+ * than being replaced by it — a provider outage otherwise means nobody can pay
+ * that month, and a resident without the wallet app never could.
+ *
+ * Within the manual block: QR first, because scanning is the shortest path and
+ * the one least likely to be mistyped; bank last, because it is the slowest and
+ * the one where the reference code matters most. A method with no value is not
+ * rendered as an empty row — it is simply not a way this hostel can be paid.
  */
-function methodsFrom(profile: {
-  bankAccountName?: string | null;
-  bankAccountNumber?: string | null;
-  bankName?: string | null;
-  esewaId?: string | null;
-  khaltiId?: string | null;
-  staticQrAssetId?: Types.ObjectId | null;
-}): PayMethod[] {
+function methodsFrom(
+  profile: {
+    bankAccountName?: string | null;
+    bankAccountNumber?: string | null;
+    bankName?: string | null;
+    esewaId?: string | null;
+    gateways?: GatewayConfig[] | null;
+    khaltiId?: string | null;
+    staticQrAssetId?: Types.ObjectId | null;
+  },
+  amountDue: number,
+): PayMethod[] {
   const methods: PayMethod[] = [];
+  const live = new Set<GatewayProviderName>();
 
-  if (profile.staticQrAssetId) {
-    methods.push({ kind: "QR", assetId: profile.staticQrAssetId.toString() });
+  for (const provider of GATEWAY_ORDER) {
+    const entry = findGateway(profile, provider);
+
+    if (!isGatewayPayable(entry)) {
+      continue;
+    }
+
+    live.add(provider);
+    methods.push({
+      kind: "GATEWAY",
+      provider,
+      sandbox: entry?.mode !== "LIVE",
+    });
   }
 
-  if (profile.esewaId) methods.push({ kind: "ESEWA", id: profile.esewaId });
-  if (profile.khaltiId) methods.push({ kind: "KHALTI", id: profile.khaltiId });
+  if (profile.staticQrAssetId) {
+    methods.push({
+      kind: "QR",
+      assetId: profile.staticQrAssetId.toString(),
+      notice: qrNotice(profile, amountDue),
+    });
+  }
+
+  // A wallet id is suppressed once that wallet's checkout is live: offering
+  // "pay with eSewa" and "transfer to this eSewa id yourself" side by side asks
+  // the resident to choose between two things they cannot tell apart, and the
+  // manual one costs somebody a screenshot review.
+  if (profile.esewaId && !live.has("ESEWA")) {
+    methods.push({ kind: "ESEWA", id: profile.esewaId });
+  }
+
+  if (profile.khaltiId && !live.has("KHALTI")) {
+    methods.push({ kind: "KHALTI", id: profile.khaltiId });
+  }
 
   if (profile.bankAccountNumber) {
     methods.push({
@@ -97,6 +151,32 @@ function methodsFrom(profile: {
   }
 
   return methods;
+}
+
+/**
+ * The warning on a static QR that cannot accept this month's rent.
+ *
+ * A personal Fonepay wallet caps at NPR 5,000 credited per day, so a resident
+ * scanning one for a 12,000 invoice has their payment rejected by the network
+ * with no explanation we control. Saying so on our screen is the difference
+ * between a resident splitting the payment and a resident assuming the hostel's
+ * QR is broken.
+ */
+function qrNotice(
+  profile: { gateways?: GatewayConfig[] | null },
+  amountDue: number,
+): string | null {
+  const fonepay = findGateway(profile, "FONEPAY");
+
+  if (fonepay?.accountKind !== "PERSONAL" || amountDue <= FONEPAY_PERSONAL_DAILY_LIMIT) {
+    return null;
+  }
+
+  return (
+    `This QR is a personal Fonepay account, which can receive at most ` +
+    `NPR ${FONEPAY_PERSONAL_DAILY_LIMIT.toLocaleString("en-IN")} per day. ` +
+    `Pay in parts across days, or use the bank transfer below.`
+  );
 }
 
 export async function getPayInstructions(
@@ -129,8 +209,7 @@ export async function getPayInstructions(
       bankName?: string | null;
       displayName?: string | null;
       esewaId?: string | null;
-      gatewayEnabledAt?: Date | null;
-      gatewayProvider?: string | null;
+      gateways?: GatewayConfig[] | null;
       khaltiId?: string | null;
       paymentInstructions?: string | null;
       staticQrAssetId?: Types.ObjectId | null;
@@ -147,7 +226,7 @@ export async function getPayInstructions(
     dueDate: invoice.dueDate ? new Date(invoice.dueDate).toISOString() : null,
     instructions: profile?.paymentInstructions ?? null,
     invoiceId: invoice._id.toString(),
-    methods: profile ? methodsFrom(profile) : [],
+    methods: profile ? methodsFrom(profile, amountDue) : [],
     period: invoice.period ?? null,
     referenceCode: invoice.referenceCode ?? null,
     status: invoice.status,

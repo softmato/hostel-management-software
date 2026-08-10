@@ -89,6 +89,29 @@ export const FINANCE_ERROR_STATUS = {
    * a test key sends a resident's money to the wrong merchant.
    */
   GATEWAY_NOT_CONFIGURED: 422,
+  /**
+   * The entry exists but may not take online payments — a personal wallet, or a
+   * merchant entry with no merchant code. Distinct from `NOT_CONFIGURED` because
+   * the fix is different: this one cannot be fixed by finishing the form.
+   */
+  GATEWAY_NOT_ELIGIBLE: 422,
+  /**
+   * A sandbox-mode entry was reached in production. Sandbox entries are hidden
+   * from residents there, so this is a direct hit on the intent route rather
+   * than something a resident can walk into.
+   */
+  GATEWAY_SANDBOX_IN_PRODUCTION: 409,
+  /**
+   * The provider was asked and did not agree — a verification that came back
+   * `FAILED`, or one whose amount disagrees with the invoice. Never settles.
+   */
+  GATEWAY_VERIFICATION_FAILED: 422,
+  /** The provider could not be reached, or answered in a shape we cannot read. */
+  GATEWAY_UNREACHABLE: 502,
+  /** No such payment attempt, or not one this principal may see. */
+  INTENT_NOT_FOUND: 404,
+  /** The attempt has expired, been paid, or otherwise left the payable state. */
+  INTENT_NOT_PAYABLE: 409,
 } as const;
 
 export type FinanceErrorCode = keyof typeof FINANCE_ERROR_STATUS;

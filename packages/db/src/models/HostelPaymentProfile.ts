@@ -12,6 +12,71 @@ import { Schema, model, models } from "mongoose";
  * three hostels has three profiles.
  */
 
+/**
+ * One provider's configuration, on the hostel that owns it (plan item 6.1).
+ *
+ * An array rather than the single `gatewayProvider` column this replaced,
+ * because a hostel takes eSewa *and* Khalti, not one of them. The single column
+ * would have made the second provider a migration; nothing had ever written it,
+ * so it was removed outright rather than carried as dead compatibility.
+ *
+ * **No secret and no secret reference live here.** The signing key is found by
+ * `{hostelId, provider, purpose}` in `EncryptedSecret`. A `secretRef` per entry
+ * would be a second source of truth for the same relationship, and the two would
+ * eventually disagree — at which point a hostel signs with another provider's
+ * key. This document is also read on every resident pay screen, so a secret
+ * reachable from it is a secret pulled into every one of those requests.
+ */
+const gatewayConfigSchema = new Schema(
+  {
+    provider: {
+      type: String,
+      enum: ["ESEWA", "FONEPAY", "KHALTI"],
+      required: true,
+    },
+    /**
+     * Whether this is a registered merchant account or somebody's personal
+     * wallet.
+     *
+     * Load-bearing for Fonepay: a personal Fonepay QR caps at NPR 5,000 credited
+     * per day, so a hostel collecting 12,000 rents through one has residents'
+     * payments silently rejected mid-month. `PERSONAL` can therefore never be
+     * enabled as a gateway — it is shown as a manual method with the cap stated,
+     * and the owner is pointed at their bank account instead.
+     */
+    accountKind: {
+      type: String,
+      enum: ["MERCHANT", "PERSONAL"],
+      default: "MERCHANT",
+    },
+    /**
+     * The provider's public identifier for this merchant — eSewa's product code,
+     * Fonepay's merchant code. Not a secret: it names whose account is credited
+     * and is echoed back in every callback. Khalti identifies the merchant by its
+     * key alone and leaves this empty.
+     */
+    merchantCode: { type: String, trim: true },
+    /**
+     * Which of the provider's environments this entry talks to.
+     *
+     * Stored per entry rather than inferred from `NODE_ENV` so a production
+     * deployment can run one hostel against sandbox for a live acceptance test
+     * without every other hostel following it there.
+     */
+    mode: { type: String, enum: ["LIVE", "SANDBOX"], default: "SANDBOX" },
+    /** Null until the owner finishes setup. Clearing it is the rollback. */
+    enabledAt: Date,
+    /** Last callback or verification we saw. Silence here drives health (6.8). */
+    lastEventAt: Date,
+    /** Last time we successfully reached the provider's API with these details. */
+    lastVerifiedAt: Date,
+    /** Why we turned it off, when we did it rather than the owner. */
+    disabledReason: { type: String, trim: true },
+    updatedBy: { ref: "User", type: Schema.Types.ObjectId },
+  },
+  { timestamps: true },
+);
+
 const hostelPaymentProfileSchema = new Schema(
   {
     hostelId: {
@@ -33,23 +98,8 @@ const hostelPaymentProfileSchema = new Schema(
     /** Free text shown under the QR, e.g. "please add your room number". */
     paymentInstructions: { type: String, trim: true },
 
-    // ---- Tier 1. Declared now, unused until Block 6. ----
-    gatewayProvider: {
-      type: String,
-      enum: ["FONEPAY", "ESEWA", "KHALTI", null],
-      default: null,
-    },
-    gatewayMerchantCode: { type: String, trim: true },
-    /**
-     * Reference into `EncryptedSecret` (ADR-6) — **never the secret itself.**
-     * A profile is read on every resident pay screen; a secret stored here would
-     * be pulled into every one of those requests.
-     */
-    gatewaySecretRef: { type: String, trim: true },
-    gatewayWebhookSecretRef: { type: String, trim: true },
-    gatewayEnabledAt: Date,
-    /** Drives gateway health: silence here plus open invoices is a warning. */
-    gatewayLastEventAt: Date,
+    // ---- Tier 1. One entry per provider the hostel accepts (item 6.1). ----
+    gateways: { type: [gatewayConfigSchema], default: [] },
 
     /**
      * Cash above this needs a second approver (target §9.1). Per hostel because
@@ -71,6 +121,71 @@ const hostelPaymentProfileSchema = new Schema(
 );
 
 export type PaymentTier = "TIER_0" | "TIER_1";
+export type GatewayProviderName = "ESEWA" | "FONEPAY" | "KHALTI";
+export type GatewayAccountKind = "MERCHANT" | "PERSONAL";
+export type GatewayMode = "LIVE" | "SANDBOX";
+
+export type GatewayConfig = {
+  accountKind?: GatewayAccountKind;
+  disabledReason?: string | null;
+  enabledAt?: Date | null;
+  lastEventAt?: Date | null;
+  lastVerifiedAt?: Date | null;
+  merchantCode?: string | null;
+  mode?: GatewayMode;
+  provider: GatewayProviderName;
+};
+
+type ProfileWithGateways = { gateways?: GatewayConfig[] | null } | null;
+
+/**
+ * What a personal Fonepay wallet can receive in a day, in rupees.
+ *
+ * Stated in one place because it is the reason personal accounts are refused as
+ * a gateway. A hostel collecting 12,000 rents into one has payments start
+ * failing partway through the month, and the resident sees the provider's
+ * rejection rather than anything we could explain.
+ */
+export const FONEPAY_PERSONAL_DAILY_LIMIT = 5000;
+
+/**
+ * The entries a resident may actually be sent to.
+ *
+ * Eligibility is part of the filter, not a separate check callers remember to
+ * make. An entry can be marked enabled and still be unusable — a personal wallet
+ * is the case this exists for — and counting one of those as a live gateway
+ * makes the pay screen claim the hostel can be paid while rendering nothing.
+ *
+ * The environment rule lives in `isGatewayPayable` rather than here, because
+ * this module has no business reading `NODE_ENV`.
+ */
+export function enabledGateways(profile: ProfileWithGateways): GatewayConfig[] {
+  return (profile?.gateways ?? []).filter(
+    (entry) => Boolean(entry?.enabledAt) && isGatewayEligible(entry),
+  );
+}
+
+export function findGateway(
+  profile: ProfileWithGateways,
+  provider: GatewayProviderName,
+): GatewayConfig | null {
+  return (profile?.gateways ?? []).find((entry) => entry?.provider === provider) ?? null;
+}
+
+/**
+ * Whether this entry may be switched on at all.
+ *
+ * A personal wallet never may — see {@link FONEPAY_PERSONAL_DAILY_LIMIT}. Khalti
+ * identifies its merchant by key alone, so it is the one provider that needs no
+ * merchant code; the others cannot sign a request without one.
+ */
+export function isGatewayEligible(entry: GatewayConfig | null): boolean {
+  if (!entry || entry.accountKind === "PERSONAL") {
+    return false;
+  }
+
+  return entry.provider === "KHALTI" ? true : Boolean(entry.merchantCode);
+}
 
 /**
  * Tier is **derived, never stored** (target §4.1).
@@ -78,49 +193,44 @@ export type PaymentTier = "TIER_0" | "TIER_1";
  * A stored column can disagree with reality — a hostel whose gateway was
  * disabled but whose `tier` column still said TIER_1 would send residents to a
  * dead payment screen. Deriving it means the two cannot drift apart. Rollback
- * for Block 6 is exactly this: clear `gatewayEnabledAt` and the hostel falls
- * back to Tier 0, which stays fully functional.
+ * for Block 6 is exactly this: clear every `enabledAt` and the hostel falls back
+ * to Tier 0, which stays fully functional.
  *
  * Exported as a plain function because virtuals do not survive `.lean()`, and
  * every read path in this codebase is lean. One definition, both call styles.
  */
-export function resolvePaymentTier(
-  profile: {
-    gatewayEnabledAt?: Date | null;
-    gatewayProvider?: string | null;
-  } | null,
-): PaymentTier {
-  return profile?.gatewayProvider && profile.gatewayEnabledAt
-    ? "TIER_1"
-    : "TIER_0";
+export function resolvePaymentTier(profile: ProfileWithGateways): PaymentTier {
+  return enabledGateways(profile).length > 0 ? "TIER_1" : "TIER_0";
 }
 
 /**
  * Whether residents can actually be told how to pay. A profile with no QR, no
- * wallet id and no bank account is an empty form, not a payment method — the
- * resident pay screen must say "your hostel has not set this up yet" rather than
- * render a blank card.
+ * wallet id, no bank account and no live gateway is an empty form, not a payment
+ * method — the resident pay screen must say "your hostel has not set this up
+ * yet" rather than render a blank card.
  */
 export function isPaymentProfileUsable(
-  profile: {
-    bankAccountNumber?: string | null;
-    esewaId?: string | null;
-    khaltiId?: string | null;
-    staticQrAssetId?: unknown;
-  } | null,
+  profile:
+    | ({
+        bankAccountNumber?: string | null;
+        esewaId?: string | null;
+        khaltiId?: string | null;
+        staticQrAssetId?: unknown;
+      } & { gateways?: GatewayConfig[] | null })
+    | null,
 ): boolean {
   return Boolean(
     profile &&
-    (profile.staticQrAssetId ||
-      profile.esewaId ||
-      profile.khaltiId ||
-      profile.bankAccountNumber),
+      (profile.staticQrAssetId ||
+        profile.esewaId ||
+        profile.khaltiId ||
+        profile.bankAccountNumber ||
+        enabledGateways(profile).length > 0),
   );
 }
 
 hostelPaymentProfileSchema.virtual("tier").get(function tierVirtual(this: {
-  gatewayEnabledAt?: Date | null;
-  gatewayProvider?: string | null;
+  gateways?: GatewayConfig[] | null;
 }) {
   return resolvePaymentTier(this);
 });
