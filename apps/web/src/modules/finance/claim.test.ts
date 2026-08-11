@@ -24,7 +24,9 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   balanceFindOne: vi.fn(),
   eventExists: vi.fn(),
+  eventFindOne: vi.fn(),
   findCurrentResident: vi.fn(),
+  invoiceFindById: vi.fn(),
   invoiceFindOne: vi.fn(),
   notifyAdmins: vi.fn(),
   publish: vi.fn(),
@@ -51,7 +53,7 @@ vi.mock("@hostel/db/models/FileAsset", () => ({
 }));
 
 vi.mock("@hostel/db/models/Invoice", () => ({
-  InvoiceModel: { findOne: mocks.invoiceFindOne },
+  InvoiceModel: { findById: mocks.invoiceFindById, findOne: mocks.invoiceFindOne },
 }));
 
 vi.mock("@hostel/db/models/InvoiceBalance", () => ({
@@ -59,7 +61,7 @@ vi.mock("@hostel/db/models/InvoiceBalance", () => ({
 }));
 
 vi.mock("@hostel/db/models/PaymentEvent", () => ({
-  PaymentEventModel: { exists: mocks.eventExists },
+  PaymentEventModel: { exists: mocks.eventExists, findOne: mocks.eventFindOne },
 }));
 
 const { submitClaim } = await import("./claim.service");
@@ -135,6 +137,8 @@ beforeEach(() => {
   mocks.assetFind.mockReturnValue(assetQuery([]));
   mocks.balanceFindOne.mockReturnValue(lean(null));
   mocks.eventExists.mockResolvedValue(null);
+  mocks.eventFindOne.mockReturnValue(lean(null));
+  mocks.invoiceFindById.mockReturnValue(lean({ period: "2026-07" }));
   mocks.appendEvent.mockResolvedValue({
     created: true,
     event: { _id: new Types.ObjectId(), status: "PENDING" },
@@ -174,8 +178,8 @@ describe("submitClaim — duplicate screenshot", () => {
   it("rejects the same bytes re-uploaded as a new asset", async () => {
     // The asset id is fresh, so the one-asset-one-claim check passes; what
     // catches this is the hostel-scoped content hash.
-    mocks.eventExists.mockImplementation(async (filter: Record<string, unknown>) =>
-      "evidenceHash" in filter ? { _id: new Types.ObjectId() } : null,
+    mocks.eventFindOne.mockImplementation((filter: Record<string, unknown>) =>
+      lean("evidenceHash" in filter ? { _id: new Types.ObjectId() } : null),
     );
 
     await expect(
@@ -185,12 +189,32 @@ describe("submitClaim — duplicate screenshot", () => {
     expectNothingQueued();
   });
 
+  /**
+   * Without this the rejection card (§11.3) is a dead end — the resident is told
+   * the screenshot is used and given nothing to go and find.
+   */
+  it("says which month the screenshot was already used for", async () => {
+    mocks.eventFindOne.mockImplementation((filter: Record<string, unknown>) =>
+      lean(
+        "evidenceHash" in filter
+          ? { invoiceId: new Types.ObjectId(), occurredAt: new Date("2026-07-02") }
+          : null,
+      ),
+    );
+
+    await expect(
+      submitClaim(invoiceId.toString(), input, principal),
+    ).rejects.toMatchObject({
+      details: { priorPeriod: "2026-07", priorSubmittedAt: expect.any(String) },
+    });
+  });
+
   it("scopes the hash comparison to the hostel", async () => {
     await submitClaim(invoiceId.toString(), input, principal);
 
     // Comparing across hostels would reveal that another hostel holds the same
     // image — a privacy leak dressed as a fraud control.
-    const hashCall = mocks.eventExists.mock.calls.find(
+    const hashCall = mocks.eventFindOne.mock.calls.find(
       ([filter]) => "evidenceHash" in filter,
     );
 
@@ -207,6 +231,65 @@ describe("submitClaim — duplicate screenshot", () => {
     ).rejects.toMatchObject({ errorCode: "EVIDENCE_ALREADY_USED" });
 
     expectNothingQueued();
+  });
+});
+
+/**
+ * Target §11.3. One transfer has one id, so a second claim carrying it is last
+ * month's payment resubmitted or a typo — and neither should reach the owner.
+ */
+describe("submitClaim — duplicate transaction id", () => {
+  const withCode = { ...input, transactionCode: "8823119471" };
+
+  it("rejects a transaction id another claim already carries", async () => {
+    mocks.eventFindOne.mockImplementation((filter: Record<string, unknown>) =>
+      lean(
+        "rawPayload.transactionCode" in filter
+          ? { invoiceId: new Types.ObjectId(), occurredAt: new Date("2026-07-02") }
+          : null,
+      ),
+    );
+
+    await expect(
+      submitClaim(invoiceId.toString(), withCode, principal),
+    ).rejects.toMatchObject({
+      details: { priorPeriod: "2026-07", transactionCode: "8823119471" },
+      errorCode: "TXN_ID_ALREADY_CLAIMED",
+    });
+
+    expectNothingQueued();
+  });
+
+  it("scopes the lookup to this hostel and provider, and ignores rejected claims", async () => {
+    await submitClaim(invoiceId.toString(), withCode, principal);
+
+    const call = mocks.eventFindOne.mock.calls.find(
+      ([filter]) => "rawPayload.transactionCode" in filter,
+    );
+
+    // Across providers an eight-digit id genuinely repeats, and a rejected
+    // claim must not lock the resident out of resubmitting the real one.
+    expect(call?.[0]).toMatchObject({
+      hostelId,
+      provider: "ESEWA",
+      status: { $ne: "REJECTED" },
+    });
+  });
+
+  it("does not run the check for a cash claim with no id", async () => {
+    await submitClaim(
+      invoiceId.toString(),
+      { ...input, paymentMethod: "CASH" as const },
+      principal,
+    );
+
+    // Cash has no transaction id (§11.2), so an empty code must not collide
+    // with every other cash claim in the hostel.
+    expect(
+      mocks.eventFindOne.mock.calls.some(
+        ([filter]) => "rawPayload.transactionCode" in filter,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -265,6 +348,52 @@ describe("submitClaim — a foreign asset", () => {
     await expect(
       submitClaim(invoiceId.toString(), input, principal),
     ).rejects.toMatchObject({ errorCode: "ASSET_NOT_OWNED" });
+
+    expectNothingQueued();
+  });
+
+  it("rejects our own receipt submitted as proof of payment", async () => {
+    // The circular case: a receipt is our record that the hostel *was* paid, so
+    // it cannot also be the resident's evidence that they sent the money. Before
+    // this check it was accepted and every claim check went green.
+    mocks.assetFindOne.mockReturnValue(
+      lean({
+        _id: assetId,
+        contentHash: "a".repeat(64),
+        hostelId,
+        ownerId: new Types.ObjectId(userId),
+        systemDocumentKind: "RECEIPT",
+        uploadCompletedAt: new Date(),
+      }),
+    );
+
+    await expect(
+      submitClaim(invoiceId.toString(), input, principal),
+    ).rejects.toMatchObject({ errorCode: "EVIDENCE_IS_SYSTEM_DOCUMENT" });
+
+    // Never reaches the owner's queue (target P7): rejecting at submission is
+    // the point, and the resident is told what to upload instead.
+    expectNothingQueued();
+  });
+
+  it("rejects our own statement too, with copy that names it", async () => {
+    mocks.assetFindOne.mockReturnValue(
+      lean({
+        _id: assetId,
+        contentHash: "a".repeat(64),
+        hostelId,
+        ownerId: new Types.ObjectId(userId),
+        systemDocumentKind: "STATEMENT",
+        uploadCompletedAt: new Date(),
+      }),
+    );
+
+    await expect(
+      submitClaim(invoiceId.toString(), input, principal),
+    ).rejects.toMatchObject({
+      errorCode: "EVIDENCE_IS_SYSTEM_DOCUMENT",
+      message: expect.stringContaining("statement"),
+    });
 
     expectNothingQueued();
   });

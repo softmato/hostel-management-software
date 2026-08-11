@@ -7,6 +7,7 @@ import { HostelModel } from "@hostel/db/models/Hostel";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { sendEmail } from "@hostel/shared/email/sender";
+import type { EmailAttachment } from "@hostel/shared/email/sender";
 
 export type Contact = {
   email: string;
@@ -151,12 +152,19 @@ export async function resolveActiveResidentRecipients(
  */
 export async function sendNotificationEmail(input: {
   action: string;
+  /**
+   * Files to send with the mail — a payment receipt, today. Optional and
+   * omitted entirely when empty, so the vast majority of notifications keep
+   * exactly the payload they had.
+   */
+  attachments?: EmailAttachment[];
   html: string;
   subject: string;
   to: string;
 }) {
   try {
     const delivery = await sendEmail({
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       html: input.html,
       subject: input.subject,
       to: input.to,

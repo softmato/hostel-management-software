@@ -8,6 +8,8 @@
  * If a mistyped code validated, the matching ladder would auto-settle one
  * resident's payment against another resident's invoice.
  */
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -278,5 +280,54 @@ describe("deriveHostelPrefix", () => {
     const prefix = deriveHostelPrefix("Question Call Hostel");
 
     expect(isValidReferenceCode(generateReferenceCode(prefix, 1))).toBe(true);
+  });
+});
+
+describe("the backfill script's mirror of this module", () => {
+  /**
+   * `scripts/backfill-invoice-reference-code.mjs` cannot import this TypeScript
+   * module, so it hand-copies the generator — the same compromise
+   * `backfill-hostel-reference-prefix.mjs` makes for `deriveHostelPrefix`.
+   *
+   * A drift between the two is invisible at the point it happens and only shows
+   * up much later, as statement rows that will not match an invoice whose code
+   * looks perfectly well-formed. So the copy is executed here against the real
+   * validator rather than trusted.
+   */
+  const scriptPath = new URL(
+    "../../../scripts/backfill-invoice-reference-code.mjs",
+    import.meta.url,
+  );
+
+  it("produces codes this module considers valid", async () => {
+    const source = await readFile(scriptPath, "utf8");
+
+    // The script connects to MongoDB at import time, so the two pure functions
+    // are lifted out and evaluated on their own.
+    const symbols = /const SYMBOLS = "([^"]+)";/.exec(source)![1];
+    const encode = /function encodeSequence\(sequence\) \{[\s\S]*?\n\}/.exec(source)![0];
+    const check = /function checkCharacter\(prefix, encoded\) \{[\s\S]*?\n\}/.exec(source)![0];
+
+    const mirror = new Function(`
+      const SYMBOLS = ${JSON.stringify(symbols)};
+      const MODULUS = SYMBOLS.length;
+      const SEQ_LENGTH = 4;
+      ${encode}
+      ${check}
+      return (prefix, sequence) => {
+        const encoded = encodeSequence(sequence);
+        const c = checkCharacter(prefix, encoded);
+        return c ? prefix + "-" + encoded + "-" + c : null;
+      };
+    `)() as (prefix: string, sequence: number) => string | null;
+
+    for (const prefix of ["EDU", "RUP", "AAA", "ZZZ", "LIO"]) {
+      for (const sequence of [0, 1, 2, 30, 31, 1000, 4821, 923_520]) {
+        const mirrored = mirror(prefix, sequence);
+
+        expect(mirrored).toBe(generateReferenceCode(prefix, sequence));
+        expect(isValidReferenceCode(mirrored!)).toBe(true);
+      }
+    }
   });
 });

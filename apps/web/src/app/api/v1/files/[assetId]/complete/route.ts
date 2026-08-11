@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
 import { UploadVerificationError, verifyUploadedObject } from "@/lib/uploads/verify";
-import { computePerceptualHash } from "@/modules/finance/evidence";
+import { computePerceptualHash, systemDocumentKind } from "@/modules/finance/evidence";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
 export const runtime = "nodejs";
@@ -89,6 +89,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // similarity check. The content hash is the one that has to be there.
     fileAsset.perceptualHash =
       (await computePerceptualHash(verified.bytes)) ?? undefined;
+    // Recorded, not rejected: storing our own receipt is fine, submitting it as
+    // proof of payment is not, and that is the finance module's call.
+    fileAsset.systemDocumentKind =
+      (await systemDocumentKind(verified.bytes)) ?? undefined;
     fileAsset.mimeType = verified.mimeType;
     fileAsset.sizeBytes = verified.sizeBytes;
     fileAsset.uploadCompletedAt = new Date();

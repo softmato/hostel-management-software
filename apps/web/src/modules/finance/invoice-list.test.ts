@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   listRecentInvoices: vi.fn(),
   listResidentInvoices: vi.fn(),
   listReviewQueue: vi.fn(),
+  receiptFind: vi.fn(),
   residentFind: vi.fn(),
 }));
 
@@ -44,6 +45,10 @@ vi.mock("@/modules/residents/resident-access", () => ({
 
 vi.mock("@hostel/db/models/Invoice", () => ({
   InvoiceModel: { find: mocks.invoiceFind },
+}));
+
+vi.mock("@hostel/db/models/Receipt", () => ({
+  ReceiptModel: { find: mocks.receiptFind },
 }));
 
 vi.mock("@hostel/db/models/Resident", () => ({
@@ -75,7 +80,11 @@ const ledgerInvoice = {
 };
 
 function lean<T>(rows: T) {
-  return { lean: vi.fn().mockResolvedValue(rows), select: vi.fn().mockReturnThis() };
+  return {
+    lean: vi.fn().mockResolvedValue(rows),
+    select: vi.fn().mockReturnThis(),
+    sort: vi.fn().mockReturnThis(),
+  };
 }
 
 beforeEach(() => {
@@ -85,6 +94,7 @@ beforeEach(() => {
   mocks.listRecentInvoices.mockResolvedValue([ledgerInvoice]);
   mocks.listReviewQueue.mockResolvedValue([]);
   mocks.invoiceFind.mockReturnValue(lean([]));
+  mocks.receiptFind.mockReturnValue(lean([]));
   mocks.residentFind.mockReturnValue(lean([]));
 });
 
@@ -117,6 +127,39 @@ describe("the resident's view", () => {
 
     expect(view.invoices[0]!.month).toBe("2026-08");
     expect(Array.isArray(view.claims)).toBe(true);
+  });
+
+  it("hands the screen the receipt for a settled month", async () => {
+    // The download link is the whole point of surfacing this: a resident who
+    // needs proof of rent should not have to email the hostel for it.
+    const receiptId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e1");
+
+    mocks.receiptFind.mockReturnValue(
+      lean([
+        {
+          _id: receiptId,
+          invoiceId,
+          receiptNumber: "RCP-EDU-2026-08-00001",
+        },
+      ]),
+    );
+
+    const view = await getResidentFinanceView({} as never);
+
+    expect(view.invoices[0]).toMatchObject({
+      receiptId: receiptId.toString(),
+      receiptNumber: "RCP-EDU-2026-08-00001",
+    });
+  });
+
+  it("never offers a voided receipt", async () => {
+    // A receipt voided with its reversed payment must stop being downloadable,
+    // or the resident keeps a document asserting money the ledger dropped.
+    await getResidentFinanceView({} as never);
+
+    expect(mocks.receiptFind).toHaveBeenCalledWith(
+      expect.objectContaining({ residentId, voidedAt: null }),
+    );
   });
 
   it("scopes the read to the caller's own resident record", async () => {
@@ -181,5 +224,39 @@ describe("the admin matrix", () => {
     const matrix = await getInvoiceMatrix(hostelId, "2026-08");
 
     expect(matrix.totals).toMatchObject({ collected: 5000, due: 12000 });
+  });
+});
+
+describe("the matrix and soft-deleted residents", () => {
+  /**
+   * The matrix deliberately keeps a resident who left mid-period: they were
+   * billed, and dropping the row would hide money still owed. That lookup had
+   * no `isDeleted` guard, so it also resurrected residents who had been
+   * *deleted* — the payments screen listed two people while the dashboard,
+   * which filters properly, counted one. Deletion means gone from the product,
+   * not gone unless they happen to owe something.
+   */
+  it("never pulls a deleted resident back in through their open invoice", async () => {
+    const goneId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0f1");
+
+    mocks.residentFind.mockReturnValue(lean([]));
+    mocks.invoiceFind.mockReturnValue(
+      lean([
+        {
+          _id: invoiceId,
+          period: "2026-08",
+          residentId: goneId,
+          status: "OPEN",
+          totalAmount: 16839,
+        },
+      ]),
+    );
+    mocks.listRecentInvoices.mockResolvedValue([]);
+
+    await getInvoiceMatrix(hostelId, "2026-08");
+
+    expect(mocks.residentFind).toHaveBeenLastCalledWith(
+      expect.objectContaining({ isDeleted: { $ne: true } }),
+    );
   });
 });

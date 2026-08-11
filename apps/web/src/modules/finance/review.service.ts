@@ -6,9 +6,11 @@ import { REALTIME_TOPIC } from "@/lib/realtime/channels";
 import { publishResourceChange } from "@/lib/realtime/server";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import { extractReferenceCodes } from "@/modules/finance/reference-code";
 import { notifyClaimReviewed } from "@/modules/finance/finance-notify";
 import { settleEvent } from "@/modules/finance/payment-event.service";
 import { markReferralConverted } from "@/modules/referrals/referral.service";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
@@ -36,6 +38,13 @@ export type ReviewQueueRow = {
   confirmation: string;
   eventId: string;
   evidenceAssetId: string | null;
+  /**
+   * The evidence's MIME type, so the reviewer renders it with something that can
+   * actually display it. A bank's PDF receipt in an `<img>` is a broken-image
+   * icon, and a reviewer looking at one has no evidence at all — but the claim
+   * still shows "Screenshot attached" in green.
+   */
+  evidenceMimeType: string | null;
   invoiceId: string | null;
   method: string;
   occurredAt: Date;
@@ -121,9 +130,15 @@ export async function listReviewQueue(
     return [];
   }
 
-  const [residents, invoices] = await Promise.all([
+  const [residents, invoices, assets] = await Promise.all([
+    // Soft-deleted residents are excluded here, and their claims are dropped
+    // below. Costs no extra query — this lookup already existed for the names —
+    // and keeps the queue agreeing with the count above it: the card counted
+    // countable residents while the list showed everyone, so a deleted
+    // resident's pending claim made the two disagree on the same screen.
     ResidentModel.find({
       _id: { $in: events.map((event) => event.residentId).filter(Boolean) },
+      isDeleted: { $ne: true },
     })
       .select("firstName lastName")
       .lean<{ _id: Types.ObjectId; firstName?: string; lastName?: string }[]>(),
@@ -132,7 +147,16 @@ export async function listReviewQueue(
     })
       .select("period referenceCode status totalAmount")
       .lean<InvoiceForCheck[]>(),
+    FileAssetModel.find({
+      _id: { $in: events.map((event) => event.evidenceAssetId).filter(Boolean) },
+    })
+      .select("mimeType")
+      .lean<{ _id: Types.ObjectId; mimeType?: string }[]>(),
   ]);
+
+  const mimeByAsset = new Map(
+    assets.map((asset) => [asset._id.toString(), asset.mimeType ?? null]),
+  );
 
   const balances = await InvoiceBalanceModel.find({
     invoiceId: { $in: invoices.map((invoice) => invoice._id) },
@@ -160,7 +184,12 @@ export async function listReviewQueue(
     invoices.map((invoice) => [invoice._id.toString(), invoice.period ?? null]),
   );
 
-  return events.map((event) => {
+  return events
+    // A claim from a resident who no longer exists is not a decision anyone
+    // should be offered: approving it would move money for somebody removed
+    // from the product.
+    .filter((event) => !event.residentId || nameById.has(event.residentId.toString()))
+    .map((event) => {
     const invoice = event.invoiceId
       ? (invoiceById.get(event.invoiceId.toString()) ?? null)
       : null;
@@ -177,6 +206,9 @@ export async function listReviewQueue(
     confirmation: event.confirmation,
     eventId: event._id.toString(),
     evidenceAssetId: event.evidenceAssetId?.toString() ?? null,
+    evidenceMimeType: event.evidenceAssetId
+      ? (mimeByAsset.get(event.evidenceAssetId.toString()) ?? null)
+      : null,
     invoiceId: event.invoiceId?.toString() ?? null,
     method: METHOD_BY_PROVIDER[event.provider ?? "NONE"] ?? "OTHER",
     occurredAt: event.occurredAt,
@@ -202,6 +234,65 @@ type InvoiceForCheck = {
 };
 
 /**
+ * Did the resident actually quote this invoice's reference code?
+ *
+ * **This check used to answer a different question than it appeared to.** It was
+ * `ok: Boolean(invoice.referenceCode)` — whether the *invoice* carries a code,
+ * which the billing run guarantees for every invoice it issues. So it was green
+ * on essentially every row, and its label, `Reference EDU-0002-P`, read to an
+ * owner as "the resident supplied EDU-0002-P" when nothing the resident typed
+ * had been looked at. A check that is always green is not a check; it is
+ * decoration that makes `Approve all` sweep rows nobody verified.
+ *
+ * It now reads what the resident actually submitted — the transaction id field
+ * and the free-text note — through the same `extractReferenceCodes` the
+ * statement matcher uses, so a code only counts if its check character verifies.
+ *
+ * The distinct amber for *a different invoice's code* is the valuable one: it is
+ * a resident paying August's rent while quoting July's reference, which is the
+ * single most common way money lands against the wrong month.
+ */
+function referenceCheck(
+  event: {
+    rawPayload?: { referenceNote?: string | null; transactionCode?: string | null };
+  },
+  invoice: InvoiceForCheck | null,
+): ClaimCheck {
+  const expected = invoice?.referenceCode;
+
+  if (!expected) {
+    return {
+      detail: "Invoice has no reference code to quote",
+      key: "REFERENCE",
+      ok: false,
+    };
+  }
+
+  const quoted = [
+    ...extractReferenceCodes(event.rawPayload?.transactionCode),
+    ...extractReferenceCodes(event.rawPayload?.referenceNote),
+  ];
+
+  if (quoted.includes(expected)) {
+    return { detail: `Resident quoted ${expected}`, key: "REFERENCE", ok: true };
+  }
+
+  if (quoted.length > 0) {
+    return {
+      detail: `Quoted ${quoted[0]}, but this invoice is ${expected}`,
+      key: "REFERENCE",
+      ok: false,
+    };
+  }
+
+  return {
+    detail: `Did not quote ${expected}`,
+    key: "REFERENCE",
+    ok: false,
+  };
+}
+
+/**
  * The checks, in the order a reviewer reads them (target §11.4).
  *
  * All five are things a careful owner does by eye today: is there a screenshot,
@@ -211,13 +302,19 @@ type InvoiceForCheck = {
  * "the rows that were green".
  */
 export function claimChecks(
-  event: { amount: number; evidenceAssetId?: Types.ObjectId | null; reviewFlags?: string[] },
+  event: {
+    amount: number;
+    evidenceAssetId?: Types.ObjectId | null;
+    rawPayload?: { referenceNote?: string | null; transactionCode?: string | null };
+    reviewFlags?: string[];
+  },
   invoice: InvoiceForCheck | null,
   balance: { settled: number },
 ): ClaimCheck[] {
   const outstanding = invoice
     ? Math.max(0, invoice.totalAmount - balance.settled)
     : 0;
+  const reference = referenceCheck(event, invoice);
 
   return [
     {
@@ -241,13 +338,7 @@ export function claimChecks(
       key: "INVOICE_OPEN",
       ok: invoice !== null && ["OPEN", "PARTIAL", "OVERDUE"].includes(invoice.status),
     },
-    {
-      detail: invoice?.referenceCode
-        ? `Reference ${invoice.referenceCode}`
-        : "Invoice has no reference code",
-      key: "REFERENCE",
-      ok: Boolean(invoice?.referenceCode),
-    },
+    reference,
     {
       detail: event.reviewFlags?.includes("SIMILAR_EVIDENCE")
         ? "Looks like an earlier screenshot — compare them"
@@ -320,6 +411,8 @@ export async function approveClaim(
       invoiceId: claim.invoiceId?.toString() ?? null,
       outcome: {
         kind: "verified",
+        method: METHOD_BY_PROVIDER[claim.provider ?? "NONE"] ?? "OTHER",
+        receiptId: receipt?._id ?? null,
         receiptNumber: receipt?.receiptNumber ?? null,
         remainingAmount: Math.max(
           (invoice?.totalAmount ?? 0) - (balance?.settledAmount ?? 0),

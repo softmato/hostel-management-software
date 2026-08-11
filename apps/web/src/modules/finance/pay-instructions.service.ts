@@ -2,7 +2,9 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { getCreditAmount } from "@/modules/finance/credit-balance.service";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import { bedTypeLabel, isBedType, type BedType } from "@hostel/shared/types/bed-type";
 import { findCurrentResident } from "@/modules/residents/resident-access";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
@@ -50,6 +52,22 @@ export type PayMethod =
 export type PayInstructions = {
   /** What is still owed. Never the invoice total once part of it is settled. */
   amountDue: number;
+  /**
+   * What they are renting, spelled out — "Triple sharing" (target §11.1).
+   *
+   * On the screen next to the amount so the resident can sanity-check their own
+   * bill before paying it. A resident who moved from a four-sharing to a double
+   * has no other way to tell whether the number in front of them is the new rent
+   * or the old one, and "is this amount right" is the question that stops a
+   * payment.
+   */
+  bedLabel: string | null;
+  /**
+   * Credit carried from an earlier overpayment (target §9.4), shown above the
+   * amount. Zero for almost everyone; when it is not, saying nothing means the
+   * resident pays the full amount and overpays again.
+   */
+  credit: number;
   displayName: string | null;
   dueDate: string | null;
   instructions: string | null;
@@ -67,6 +85,7 @@ export type PayInstructions = {
 
 type InvoiceRecord = {
   _id: Types.ObjectId;
+  bedType?: BedType | null;
   dueDate?: Date;
   hostelId: Types.ObjectId;
   period?: string;
@@ -203,7 +222,7 @@ export async function getPayInstructions(
     throw new FinanceServiceError("Invoice was not found.", "INVOICE_NOT_FOUND");
   }
 
-  const [balance, profile] = await Promise.all([
+  const [balance, profile, credit] = await Promise.all([
     InvoiceBalanceModel.findOne({ invoiceId: invoice._id }).lean<{
       settledAmount?: number;
     } | null>(),
@@ -218,6 +237,7 @@ export async function getPayInstructions(
       paymentInstructions?: string | null;
       staticQrAssetId?: Types.ObjectId | null;
     } | null>(),
+    getCreditAmount(resident.hostelId, resident._id),
   ]);
 
   // Outstanding, not the invoice total: a resident paying the second half of a
@@ -226,6 +246,11 @@ export async function getPayInstructions(
 
   return {
     amountDue,
+    // Read off the invoice, not the resident: the invoice records what they were
+    // billed for, and a resident who has since moved rooms must still see the
+    // bed type this particular month was priced at.
+    bedLabel: isBedType(invoice.bedType) ? bedTypeLabel(invoice.bedType) : null,
+    credit,
     displayName: profile?.displayName ?? null,
     dueDate: invoice.dueDate ? new Date(invoice.dueDate).toISOString() : null,
     instructions: profile?.paymentInstructions ?? null,

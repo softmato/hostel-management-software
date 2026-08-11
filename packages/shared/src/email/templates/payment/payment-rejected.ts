@@ -1,4 +1,4 @@
-import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { ctaButton, emailLayout, escapeHtml, monthName, paragraph, type EmailContent } from "../layout";
 
 export function paymentRejectedEmail(input: {
   hostelName: string;
@@ -8,12 +8,12 @@ export function paymentRejectedEmail(input: {
   residentName: string;
 }): EmailContent {
   return {
-    subject: `Payment proof needs attention — ${input.month} · ${input.hostelName}`,
+    subject: `Payment proof needs attention — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
       heading: "Payment proof was not accepted",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} could not verify the payment proof you uploaded for <strong>${escapeHtml(input.month)}</strong>.`,
+          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} could not verify the payment proof you uploaded for <strong>${escapeHtml(monthName(input.month))}</strong>.`,
         ),
         paragraph(`Reason: <strong>${escapeHtml(input.rejectionReason)}</strong>`),
         paragraph(

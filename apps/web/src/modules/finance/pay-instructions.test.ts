@@ -17,8 +17,13 @@ import { Role } from "@/lib/roles";
 const mocks = vi.hoisted(() => ({
   balanceFindOne: vi.fn(),
   findCurrentResident: vi.fn(),
+  getCreditAmount: vi.fn(),
   invoiceFindOne: vi.fn(),
   profileFindOne: vi.fn(),
+}));
+
+vi.mock("@/modules/finance/credit-balance.service", () => ({
+  getCreditAmount: mocks.getCreditAmount,
 }));
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: vi.fn() }));
@@ -86,6 +91,7 @@ beforeEach(() => {
   mocks.findCurrentResident.mockResolvedValue({ _id: residentId, hostelId });
   mocks.invoiceFindOne.mockReturnValue(lean(invoice));
   mocks.balanceFindOne.mockReturnValue(lean(null));
+  mocks.getCreditAmount.mockResolvedValue(0);
   mocks.profileFindOne.mockReturnValue(
     lean({ displayName: "Green View Hostel", esewaId: "9800000000" }),
   );
@@ -99,6 +105,32 @@ describe("getPayInstructions", () => {
     expect(result.amountDue).toBe(10000);
     expect(result.period).toBe("2026-09");
     expect(result.tier).toBe("TIER_0");
+  });
+
+  /**
+   * Both of these are on the screen so the resident can check the number before
+   * they send money (target §11.1). The bed type answers "is this the right
+   * rent"; the credit answers "why is this less than last month". A silent null
+   * on either is a support call.
+   */
+  it("spells out the bed type the invoice was priced at", async () => {
+    mocks.invoiceFindOne.mockReturnValue(lean({ ...invoice, bedType: "TRIPLE_SHARING" }));
+
+    expect((await getPayInstructions(invoiceId.toString(), principal)).bedLabel).toBe(
+      "Triple sharing",
+    );
+  });
+
+  it("leaves the bed label null rather than guessing at an unpriced invoice", async () => {
+    // Migrated invoices (item 2.4) carry no bed type. Inventing one here would
+    // show a resident a room they are not renting.
+    expect((await getPayInstructions(invoiceId.toString(), principal)).bedLabel).toBeNull();
+  });
+
+  it("reports the resident's credit balance", async () => {
+    mocks.getCreditAmount.mockResolvedValue(3000);
+
+    expect((await getPayInstructions(invoiceId.toString(), principal)).credit).toBe(3000);
   });
 
   it("shows the outstanding half of a part-paid invoice, not the total", async () => {

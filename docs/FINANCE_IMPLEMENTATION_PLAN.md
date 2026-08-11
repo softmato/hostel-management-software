@@ -1734,6 +1734,48 @@ out of bounds, and the happy path each produce exactly the right error code and
 
 ---
 
+### §11 mockup alignment pass — 2026-08-10
+
+The Block 3 and 4 screens were re-read against the §11.1–§11.5 mockups. Items
+3.3–3.5 and 4.3 stay `☑`; what follows is what the screens were missing, and is
+now built.
+
+| Target | Was | Now |
+|---|---|---|
+| §11.1 | No bed type, no credit, all methods weighted equally | `bedLabel` + `credit` on the pay-instructions payload; bed type beside the amount, credit above it, days-left under the due date, and one primary method with the rest folded into **Other ways to pay** |
+| §11.2 | Amount pre-filled; nothing else | Reference code echoed on the form with the "I entered X in the remarks" check, and a per-method **Show me where to find this** for the transaction ID |
+| §11.3 | Both duplicates landed in a grey message line | A rejection card naming what collided and when, with **Try again** |
+| §11.4 | Queue in a 340px rail, 56px thumbnails, no inline reject | Full-width queue above the matrix, 96×128 thumbnails, bed type on the row, wait time, and an inline reason picker for reject |
+| §11.5 | Legacy `Panel`/`PageHeader`; matched bucket silently cut at 8 | On `PortalPageHeader`/`SectionCard`; matched bucket expands to all rows; orphans get **Assign to — search residents** alongside the suggestions |
+
+**The primary method is whatever the server ranked first, not a hard-coded QR.**
+The mockup is a Tier 0 screen and leads with the QR; `methodsFrom` already orders
+live checkouts above it, so at Tier 0 the fold lands exactly where the mockup put
+it and at Tier 1 it leads with the gateway. Hard-coding the QR would have buried
+the only path that settles itself.
+
+**§11.3's second rejection did not exist.** The duplicate *screenshot* check
+shipped in 3.4; the duplicate *transaction ID* did not — a resident could submit
+one payment's ID against two months and both reached the queue. Added as
+`TXN_ID_ALREADY_CLAIMED`, scoped to `{hostelId, provider}` and ignoring rejected
+claims, with an explicit lookup rather than a unique index so the card can say
+which month the ID already belongs to. `FinanceServiceError` grew an optional
+`details`, forwarded by `handleRouteError`, to carry that.
+
+**`show me where` ships as written steps, not the annotated screenshots.** The
+mockup calls for a marked-up capture of each provider's history with the ID
+circled and notes it would cut support load more than anything else on the
+screen. Those images do not exist; the navigation written out is the part that
+goes stale slowest and it can ship today. The images belong above the steps in
+`WHERE_TO_LOOK` when someone makes them.
+
+*Verified:* typecheck, lint and `next build` clean; 1382 tests pass (was 1371 —
+`pay-instructions.test.ts` covers the bed label and credit, `claim.test.ts`
+covers the duplicate transaction ID and the prior-claim details). **No screen was
+opened in a browser** — same limit as 3.1, which needs a password login.
+
+---
+
 ### Block 4 — Tier 0.5 · ~6–7 days · best value per unit of effort
 
 > **Complete, 2026-08-09.** All five items landed. PDF statement parsing stays

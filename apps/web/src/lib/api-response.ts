@@ -73,7 +73,15 @@ export function handleRouteError(error: unknown) {
     "errorCode" in error &&
     typeof error.errorCode === "string"
   ) {
-    return errorResponse(error.message, error.errorCode, error.status);
+    // `details` when the thrower attached any. An instant rejection is only
+    // actionable if it says *which* earlier payment it collided with (target
+    // §11.3), and that fact is known here and nowhere else.
+    return errorResponse(
+      error.message,
+      error.errorCode,
+      error.status,
+      "details" in error ? error.details : undefined,
+    );
   }
 
   logger.error("Unhandled API route error", { error });

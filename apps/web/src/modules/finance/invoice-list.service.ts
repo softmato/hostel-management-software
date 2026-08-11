@@ -11,6 +11,7 @@ import type { LedgerInvoice } from "@/modules/finance/ledger-read.service";
 import { listReviewQueue } from "@/modules/finance/review.service";
 import { findCurrentResident } from "@/modules/residents/resident-access";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
+import { ReceiptModel } from "@hostel/db/models/Receipt";
 import { ResidentModel } from "@hostel/db/models/Resident";
 
 /**
@@ -63,6 +64,19 @@ export function toPortalInvoice(invoice: LedgerInvoice): PortalInvoice {
   };
 }
 
+/**
+ * An invoice as the resident's own screen needs it.
+ *
+ * `receiptId` is the one addition: a settled month has a receipt, and a resident
+ * who needs proof of rent for a visa or a landlord should be one tap from the
+ * PDF rather than emailing the hostel for it. The admin matrix has no use for
+ * it, so it lives on this shape instead of `PortalInvoice`.
+ */
+export type ResidentPortalInvoice = PortalInvoice & {
+  receiptId: string | null;
+  receiptNumber: string | null;
+};
+
 export type ResidentFinanceView = {
   claims: Awaited<ReturnType<typeof listReviewQueue>>;
   /**
@@ -71,7 +85,7 @@ export type ResidentFinanceView = {
    * resident has to be told, or the next invoice arrives mysteriously smaller.
    */
   credit: number;
-  invoices: PortalInvoice[];
+  invoices: ResidentPortalInvoice[];
 };
 
 export async function getResidentFinanceView(
@@ -87,7 +101,55 @@ export async function getResidentFinanceView(
     getCreditAmount(resident.hostelId, resident._id),
   ]);
 
-  return { claims, credit, invoices: invoices.map(toPortalInvoice) };
+  // Voided receipts are excluded: a receipt that was voided when its payment was
+  // reversed must not stay downloadable, or the resident keeps a document
+  // asserting a payment the ledger no longer counts.
+  const receipts = invoices.length
+    ? await ReceiptModel.find({
+        invoiceId: { $in: invoices.map((invoice) => invoice.id) },
+        residentId: resident._id,
+        voidedAt: null,
+      })
+        .select("invoiceId issuedAt receiptNumber")
+        .sort({ issuedAt: -1 })
+        .lean<
+          {
+            _id: Types.ObjectId;
+            invoiceId?: Types.ObjectId | null;
+            receiptNumber: string;
+          }[]
+        >()
+    : [];
+
+  // Sorted newest first above, so the first receipt seen for an invoice — the
+  // most recent — is the one kept for a month settled in more than one payment.
+  const receiptByInvoice = new Map<string, { id: string; number: string }>();
+
+  for (const receipt of receipts) {
+    const key = receipt.invoiceId?.toString();
+
+    if (key && !receiptByInvoice.has(key)) {
+      receiptByInvoice.set(key, {
+        id: receipt._id.toString(),
+        number: receipt.receiptNumber,
+      });
+    }
+  }
+
+  return {
+    claims,
+    credit,
+    invoices: invoices.map((invoice) => {
+      const portal = toPortalInvoice(invoice);
+      const receipt = receiptByInvoice.get(portal.id) ?? null;
+
+      return {
+        ...portal,
+        receiptId: receipt?.id ?? null,
+        receiptNumber: receipt?.number ?? null,
+      };
+    }),
+  };
 }
 
 /**
@@ -122,11 +184,13 @@ async function listResidentClaims(
  */
 type ResidentRow = {
   _id: Types.ObjectId;
+  bedType?: string;
   firstName?: string;
   lastName?: string;
   moveInDate?: Date;
   phone?: string;
   roomNumber?: string;
+  roomType?: string;
 };
 
 export type InvoiceMatrixRow = {
@@ -138,6 +202,14 @@ export type InvoiceMatrixRow = {
     moveInDate: string;
     phone?: string;
     roomNumber?: string | null;
+    /**
+     * The identifying attribute the hostel actually thinks in (target §11.4:
+     * "bed type replaces room number throughout"). `bedType` is the canonical
+     * pricing vocabulary and `roomType` is what the resident was registered
+     * with, so we prefer the former and fall back to the latter for residents
+     * registered before the derivation existed.
+     */
+    roomType?: string | null;
   };
 };
 
@@ -174,7 +246,7 @@ export async function getInvoiceMatrix(
       isDeleted: { $ne: true },
       status: { $in: ["ACTIVE", "PENDING"] },
     })
-      .select("firstName lastName moveInDate phone roomNumber")
+      .select("bedType firstName lastName moveInDate phone roomNumber roomType")
       .lean<ResidentRow[]>(),
     InvoiceModel.find({ hostelId, period, status: { $ne: "VOID" } }).lean<
       {
@@ -200,13 +272,19 @@ export async function getInvoiceMatrix(
 
   // Residents who left mid-period keep their row: they were billed, and hiding
   // the invoice would hide money that is still owed.
+  //
+  // **A soft-deleted resident is not one of them.** This lookup used to have no
+  // `isDeleted` guard, so a deleted resident with an open invoice was pulled
+  // back onto the screen — the matrix listed two people while every other
+  // surface, which filters properly, counted one. Deletion means gone from the
+  // product, not gone unless they happen to owe money.
   const extraIds = invoices
     .map((invoice) => invoice.residentId.toString())
     .filter((id) => !residents.some((resident) => resident._id.toString() === id));
 
   const extras = extraIds.length
-    ? await ResidentModel.find({ _id: { $in: extraIds } })
-        .select("firstName lastName moveInDate phone roomNumber")
+    ? await ResidentModel.find({ _id: { $in: extraIds }, isDeleted: { $ne: true } })
+        .select("bedType firstName lastName moveInDate phone roomNumber roomType")
         .lean<ResidentRow[]>()
     : [];
 
@@ -224,6 +302,7 @@ export async function getInvoiceMatrix(
         moveInDate: resident.moveInDate?.toISOString() ?? "",
         phone: resident.phone,
         roomNumber: resident.roomNumber ?? null,
+        roomType: resident.bedType ?? resident.roomType ?? null,
       },
     };
   });

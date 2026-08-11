@@ -70,3 +70,43 @@ export function ctaButton(url: string, label: string) {
 export function paragraph(text: string) {
   return `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">${text}</p>`;
 }
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/**
+ * `"2026-07"` → `"July 2026"`, for anything a person reads.
+ *
+ * The ledger's period key is `YYYY-MM` because it sorts as a string, and every
+ * payment email printed it raw: "Payment verified — 2026-07" is a subject line
+ * that reads like a machine talking to itself. Anything that is not a period
+ * key passes through untouched, so a caller already holding a formatted string
+ * cannot be made worse by routing it through here.
+ */
+export function monthName(period: string | null | undefined): string {
+  if (!period) {
+    return "";
+  }
+
+  const match = /^(\d{4})-(\d{2})$/.exec(period);
+
+  if (!match) {
+    return period;
+  }
+
+  const name = MONTH_NAMES[Number(match[2]) - 1];
+
+  return name ? `${name} ${match[1]}` : period;
+}

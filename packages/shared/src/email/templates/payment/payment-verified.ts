@@ -1,4 +1,4 @@
-import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { ctaButton, emailLayout, escapeHtml, monthName, paragraph, type EmailContent } from "../layout";
 
 export function paymentVerifiedEmail(input: {
   amount: number;
@@ -19,12 +19,12 @@ export function paymentVerifiedEmail(input: {
       : paragraph("This month's fee is now fully settled. Thank you!");
 
   return {
-    subject: `Payment verified — ${input.month} · ${input.hostelName}`,
+    subject: `Payment verified — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
       heading: "Payment verified ✅",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} has verified your payment of <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong> for <strong>${escapeHtml(input.month)}</strong>.`,
+          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} has verified your payment of <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong> for <strong>${escapeHtml(monthName(input.month))}</strong>.`,
         ),
         paragraph(
           `Receipt number: <strong>${escapeHtml(input.receiptNumber)}</strong>`,

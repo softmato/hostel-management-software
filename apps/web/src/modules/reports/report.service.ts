@@ -26,6 +26,8 @@ import { ReferralRewardModel } from "@hostel/db/models/ReferralReward";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import { getHostelViewStats } from "@/modules/hostels/hostel-view.service";
+import { periodOf } from "@/modules/finance/billing.service";
+import { countableResidentIds } from "@/modules/finance/resident-scope";
 import { getStatementNudge } from "@/modules/finance/statements/statement-nudge";
 import type { reportQuerySchema } from "@/modules/reports/report.validation";
 
@@ -460,11 +462,32 @@ export async function getHostelAdminDashboardReport(
   await connectToDatabase();
 
   const scoped = hostelFilter(principal, query.hostelId);
-  const paymentFilter = ledgerScopeFrom(scoped);
   // hostelFilter yields either `{ hostelId: ObjectId }` or `{ hostelId: { $in } }`;
   // the view stats query needs the plain list either way.
   const scopedHostelIds =
     scoped.hostelId instanceof Types.ObjectId ? [scoped.hostelId] : scoped.hostelId.$in;
+
+  /**
+   * Two corrections to what `monthlyDues` and `paidAmount` used to mean.
+   *
+   * **It was not monthly.** The scope carried a hostel and nothing else, so a
+   * card labelled "Monthly Dues" summed every invoice the hostel had ever
+   * issued — including months already settled. It grew forever and matched no
+   * figure on the payments screen.
+   *
+   * **It counted deleted residents.** Same defect as the matrix and the month
+   * picker: soft-deleted residents keep their invoices in the ledger, and each
+   * reader was deciding separately whether those count. `countableResidentIds`
+   * is now the single answer.
+   */
+  const residentIds = (
+    await Promise.all(scopedHostelIds.map((id) => countableResidentIds(id)))
+  ).flat();
+  const paymentFilter = ledgerScopeFrom(scoped, {
+    period: periodOf(new Date()),
+    residentIds,
+  });
+
   const [
     residents,
     vacantBeds,
@@ -476,10 +499,17 @@ export async function getHostelAdminDashboardReport(
     nightStatusSummary,
     viewStats,
   ] = await Promise.all([
-    ResidentModel.countDocuments({ ...scoped, isDeleted: false }),
+    // `$ne: true`, not `=== false`, matching every other resident read: a row
+    // written without the field would otherwise be counted by one and not the
+    // other.
+    ResidentModel.countDocuments({ ...scoped, isDeleted: { $ne: true } }),
     countVacantBeds(scopedHostelIds),
     collectionTotals(paymentFilter),
-    PaymentEventModel.countDocuments({ ...scoped, ...PENDING_CLAIM_FILTER }),
+    PaymentEventModel.countDocuments({
+      ...scoped,
+      ...PENDING_CLAIM_FILTER,
+      residentId: { $in: residentIds },
+    }),
     ComplaintModel.countDocuments(scoped),
     MaintenanceRequestModel.countDocuments({ ...scoped, isDeleted: false }),
     FoodFeedbackModel.countDocuments(scoped),

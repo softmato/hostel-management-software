@@ -3,18 +3,36 @@
 import { AlertTriangle, CheckCircle2, Coins, Upload } from "lucide-react";
 import { memo, useCallback, useRef, useState } from "react";
 
-import {
-  currency,
-  EmptyState,
-  LoadingRows,
-  Panel,
-  Select,
-} from "@/app/_components/shared-ui";
+import { currency, EmptyState, LoadingRows, Select } from "@/app/_components/shared-ui";
+import { Button } from "@/components/ui/button";
 import { browserApi } from "@/lib/browser-api";
+import { monthLabel } from "@/lib/format-month";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 import { uploadFile } from "@/lib/uploads/uploader";
-import { Message, PageHeader } from "./portal-shared";
+import { cn } from "@/lib/utils";
+import { mimeTypeForStatement } from "@hostel/shared/utils/file-assets";
+import { OrphanAssignPicker } from "./hostel-admin-orphan-assign";
+import { PortalPageHeader, SectionCard } from "./portal-dashboard-ui";
+
+/**
+ * Re-labels a picked file with the MIME type its extension implies.
+ *
+ * A `.xls` chosen on a machine without Excel arrives from the browser as
+ * `application/octet-stream` or with no type at all, and would be refused at the
+ * door by an allowlist that is narrow on purpose. The bytes are untouched; only
+ * the label changes, and nothing downstream trusts the label anyway — the parser
+ * reads the real format from the file's magic bytes.
+ */
+function labelled(file: File): File {
+  const mimeType = mimeTypeForStatement(file.name, file.type);
+
+  if (!mimeType || mimeType === file.type) {
+    return file;
+  }
+
+  return new File([file], file.name, { lastModified: file.lastModified, type: mimeType });
+}
 
 /**
  * Tier 0.5 reconciliation (target §11.5, plan item 4.3).
@@ -115,6 +133,7 @@ export const HostelAdminReconcilePageContent = memo(
     const [busy, setBusy] = useState(false);
     const [provider, setProvider] = useState("ESEWA");
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [showAllMatched, setShowAllMatched] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const imports = usePortalResource<{ imports: StatementImportRow[] }>(
@@ -145,7 +164,7 @@ export const HostelAdminReconcilePageContent = memo(
           // `STATEMENT` is a financial kind, so presign scopes the asset to this
           // hostel (item 0.1) — the same check that stops an owner reconciling
           // against somebody else's file.
-          const uploaded = await uploadFile(file, {
+          const uploaded = await uploadFile(labelled(file), {
             assetKind: "STATEMENT",
             kind: "document",
             label: "Statement",
@@ -209,14 +228,19 @@ export const HostelAdminReconcilePageContent = memo(
 
     return (
       <div className="mx-auto max-w-[1100px] space-y-6">
-        <PageHeader
+        <PortalPageHeader
+          breadcrumb={["Payments", "Reconcile"]}
           description="Upload your eSewa, Khalti or bank statement and settle the month against what actually arrived."
-          icon={Coins}
           title="Reconcile"
         />
-        <Message value={message} />
 
-        <Panel title="Upload a statement">
+        {message ? (
+          <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm">
+            {message}
+          </div>
+        ) : null}
+
+        <SectionCard title="Upload a statement">
           <div className="flex flex-wrap items-end gap-3">
             <Select
               label="Provider"
@@ -232,9 +256,9 @@ export const HostelAdminReconcilePageContent = memo(
             </Select>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold">
               <Upload aria-hidden="true" className="size-4" />
-              {busy ? "Working…" : "Choose CSV"}
+              {busy ? "Working…" : "Choose file"}
               <input
-                accept=".csv,text/csv,text/plain"
+                accept=".csv,.xls,.xlsx,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 className="sr-only"
                 disabled={busy}
                 onChange={(event) => void upload(event.target.files?.[0])}
@@ -244,13 +268,14 @@ export const HostelAdminReconcilePageContent = memo(
             </label>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Export the statement from your own wallet or bank. Overlapping date ranges are
-            fine — a transaction already read is never counted twice.
+            Export the statement from your own wallet or bank and upload it as it came —
+            CSV, XLS or XLSX all work, no converting. Overlapping date ranges are fine: a
+            transaction already read is never counted twice.
           </p>
-        </Panel>
+        </SectionCard>
 
         {rows.length > 0 ? (
-          <Panel title="Past uploads">
+          <SectionCard title="Past uploads">
             <ul className="grid gap-2">
               {rows.map((row) => (
                 <li key={row.statementImportId}>
@@ -279,7 +304,7 @@ export const HostelAdminReconcilePageContent = memo(
                 </li>
               ))}
             </ul>
-          </Panel>
+          </SectionCard>
         ) : null}
 
         {reconciliation.state === "loading" ? <LoadingRows /> : null}
@@ -323,12 +348,25 @@ export const HostelAdminReconcilePageContent = memo(
               <p className="mt-1 text-sm text-emerald-900/80 dark:text-emerald-200/80">
                 Real transaction found. Amount and reference agree.
               </p>
-              <ul className="mt-3 grid gap-1 text-sm">
-                {view.buckets.matched.slice(0, 8).map((row) => (
+              {/* **Read, not worked** — but readable in full. It used to stop at
+                  eight rows with nothing saying so, which turns the one bucket
+                  the owner is meant to believe into one they cannot check: the
+                  header says 38 matched and the list shows 8. Collapsed behind a
+                  count instead, so the default is still a glance. */}
+              <ul
+                className={cn(
+                  "mt-3 grid gap-1 text-sm",
+                  showAllMatched ? "max-h-80 overflow-y-auto pr-1" : "",
+                )}
+              >
+                {(showAllMatched
+                  ? view.buckets.matched
+                  : view.buckets.matched.slice(0, 8)
+                ).map((row) => (
                   <li className="flex flex-wrap justify-between gap-2" key={row.eventId}>
                     <span>
                       {row.residentName || "Unknown"}
-                      {row.period ? ` · ${row.period}` : ""}
+                      {row.period ? ` · ${monthLabel(row.period)}` : ""}
                     </span>
                     <span className="text-muted-foreground">
                       {currency(row.amount)} · {row.referenceCode ?? row.why}
@@ -336,6 +374,17 @@ export const HostelAdminReconcilePageContent = memo(
                   </li>
                 ))}
               </ul>
+              {view.buckets.matched.length > 8 ? (
+                <button
+                  className="mt-2 text-sm font-semibold text-emerald-800 underline-offset-2 hover:underline dark:text-emerald-300"
+                  onClick={() => setShowAllMatched((value) => !value)}
+                  type="button"
+                >
+                  {showAllMatched
+                    ? "Show fewer"
+                    : `Show all ${view.buckets.matched.length}`}
+                </button>
+              ) : null}
             </div>
 
             {/* Bucket 2 — a resident says they paid, the statement disagrees. */}
@@ -360,8 +409,8 @@ export const HostelAdminReconcilePageContent = memo(
                       </p>
                       <p className="mt-0.5 text-sm text-muted-foreground">{row.why}</p>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                          className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-60"
+                        <Button
+                          className="h-9 rounded-lg"
                           disabled={busy}
                           onClick={() =>
                             void act(
@@ -374,11 +423,16 @@ export const HostelAdminReconcilePageContent = memo(
                             )
                           }
                           type="button"
+                          variant="outline"
                         >
                           Reject
-                        </button>
-                        <button
-                          className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-60"
+                        </Button>
+                        {/* **This must exist.** Statements lag by days, so an
+                            owner trapped behind data that cannot resolve the
+                            question abandons the feature. The server records who
+                            pressed it. */}
+                        <Button
+                          className="h-9 rounded-lg"
                           disabled={busy}
                           onClick={() =>
                             void act(
@@ -388,11 +442,12 @@ export const HostelAdminReconcilePageContent = memo(
                             )
                           }
                           type="button"
+                          variant="outline"
                         >
                           Approve anyway
-                        </button>
-                        <button
-                          className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-60"
+                        </Button>
+                        <Button
+                          className="h-9 rounded-lg"
                           disabled={busy}
                           onClick={() =>
                             void act(
@@ -402,9 +457,10 @@ export const HostelAdminReconcilePageContent = memo(
                             )
                           }
                           type="button"
+                          variant="outline"
                         >
                           Ask resident
-                        </button>
+                        </Button>
                       </div>
                     </li>
                   ))}
@@ -467,12 +523,23 @@ export const HostelAdminReconcilePageContent = memo(
                             </li>
                           ))}
                         </ul>
-                      ) : (
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          No resident matches this closely enough to suggest. Assign it
-                          from the Payments screen once you know whose it is.
-                        </p>
-                      )}
+                      ) : null}
+
+                      {/* Always available, not only when the ladder scored
+                          nothing (§11.5). A suggestion is a suggestion, and the
+                          owner who knows the transfer came from a resident's
+                          parent needs a way to say so that does not depend on us
+                          having guessed. */}
+                      <OrphanAssignPicker
+                        busy={busy}
+                        onAssign={(invoiceId, residentName) =>
+                          void act(
+                            hostelAdminEndpoints.paymentEventAssign(row.eventId),
+                            { invoiceId },
+                            `Assigned to ${residentName}.`,
+                          )
+                        }
+                      />
                     </li>
                   ))}
                 </ul>

@@ -62,6 +62,8 @@ export type PaymentProof = {
   checks?: ClaimCheck[];
   eventId: string;
   evidenceAssetId: string | null;
+  /** MIME type of the evidence, so the viewer can render a PDF as a PDF. */
+  evidenceMimeType?: string | null;
   invoiceId: string | null;
   method?: string;
   occurredAt?: string;

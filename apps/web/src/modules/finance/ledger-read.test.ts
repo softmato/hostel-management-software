@@ -222,3 +222,48 @@ describe("reading the ledger", () => {
   });
 });
 
+
+describe("ledgerFilterFor casts ids for the aggregation pipeline", () => {
+  /**
+   * Mongoose casts `find()` filters against the schema. It does **not** cast an
+   * aggregation `$match`, and this filter is only ever spent inside one. A
+   * caller holding an id as a string — anything out of a URL segment, a JSON
+   * body or a `toString()` — therefore matched nothing at all, with no error:
+   * the owner's per-resident history rendered "NOT BILLED" for every month of a
+   * resident who had three invoices.
+   */
+  it("turns a string residentId into an ObjectId", () => {
+    const filter = ledgerFilterFor({ residentId: residentId.toString() });
+
+    expect(filter.residentId).toBeInstanceOf(Types.ObjectId);
+    expect(String(filter.residentId)).toBe(residentId.toString());
+  });
+
+  it("turns a string hostelId into an ObjectId", () => {
+    const filter = ledgerFilterFor({ hostelId: hostelId.toString() });
+
+    expect(filter.hostelId).toBeInstanceOf(Types.ObjectId);
+  });
+
+  it("casts every id in the plural forms too", () => {
+    const filter = ledgerFilterFor({
+      hostelIds: [hostelId.toString()],
+      invoiceIds: [invoiceId.toString()],
+      residentIds: [residentId.toString()],
+    }) as Record<string, { $in: unknown[] }>;
+
+    expect(filter.hostelId!.$in[0]).toBeInstanceOf(Types.ObjectId);
+    expect(filter.residentId!.$in[0]).toBeInstanceOf(Types.ObjectId);
+    expect(filter._id!.$in[0]).toBeInstanceOf(Types.ObjectId);
+  });
+
+  it("leaves an ObjectId it was already given alone", () => {
+    expect(ledgerFilterFor({ residentId }).residentId).toBe(residentId);
+  });
+
+  it("passes a malformed id through rather than throwing", () => {
+    // It matches nothing, which is the same answer a bad id deserves — but a
+    // read must not turn one into a 500.
+    expect(ledgerFilterFor({ residentId: "not-an-id" }).residentId).toBe("not-an-id");
+  });
+});

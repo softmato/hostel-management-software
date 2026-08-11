@@ -8,7 +8,7 @@ import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
 import { generateFileKey, getR2Client } from "@/lib/r2";
 import { hashBytes } from "@/lib/uploads/verify";
-import { computePerceptualHash } from "@/modules/finance/evidence";
+import { computePerceptualHash, systemDocumentKind } from "@/modules/finance/evidence";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
 export const runtime = "nodejs";
@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
         // measured rather than declared — no separate verification leg needed.
         contentHash: hashBytes(buffer),
         perceptualHash: (await computePerceptualHash(buffer)) ?? undefined,
+        systemDocumentKind: (await systemDocumentKind(buffer)) ?? undefined,
         uploadCompletedAt: new Date(),
       });
     } else {

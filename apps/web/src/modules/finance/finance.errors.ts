@@ -35,10 +35,24 @@ export const FINANCE_ERROR_STATUS = {
    * issuing invoices that can never be matched to a payment.
    */
   REFERENCE_PREFIX_MISSING: 422,
+  /**
+   * The evidence is a document this system issued — a receipt or a statement.
+   * Circular as proof: our record that money arrived cannot also be the
+   * resident's evidence that they sent it.
+   */
+  EVIDENCE_IS_SYSTEM_DOCUMENT: 422,
   /** The same evidence hash was already used in this hostel (target §8.1). */
   EVIDENCE_ALREADY_USED: 409,
   /** `{hostelId, provider, providerTxnId}` collides. */
   TXN_ID_ALREADY_USED: 409,
+  /**
+   * The resident typed a transaction id another claim in this hostel already
+   * carries (target §11.3). Distinct from `TXN_ID_ALREADY_USED`, which is the
+   * indexed provider-side collision: this one is about *typed* text, so it is
+   * rejected by an explicit lookup that can say which payment it collided with
+   * rather than by a unique index that can only say "no".
+   */
+  TXN_ID_ALREADY_CLAIMED: 409,
   /** The asset does not belong to the submitting resident (target §13.2). */
   ASSET_NOT_OWNED: 403,
   /** The asset's upload was never verified (target §13.3). */
@@ -110,6 +124,11 @@ export const FINANCE_ERROR_STATUS = {
   GATEWAY_UNREACHABLE: 502,
   /** No such payment attempt, or not one this principal may see. */
   INTENT_NOT_FOUND: 404,
+  /**
+   * No such resident **in this hostel**. Out-of-tenant and non-existent answer
+   * identically, same as `RECEIPT_NOT_FOUND` (RULES.md §3).
+   */
+  RESIDENT_NOT_FOUND: 404,
   /** The attempt has expired, been paid, or otherwise left the payable state. */
   INTENT_NOT_PAYABLE: 409,
 } as const;
@@ -117,12 +136,27 @@ export const FINANCE_ERROR_STATUS = {
 export type FinanceErrorCode = keyof typeof FINANCE_ERROR_STATUS;
 
 export class FinanceServiceError extends Error {
+  /**
+   * Structured facts the screen needs to write a useful sentence — the period
+   * and date of the claim a duplicate collided with (target §11.3). Optional
+   * and additive: `handleRouteError` forwards it when present, so no existing
+   * thrower changes.
+   *
+   * **Nothing here may be private to another resident.** Every current use is
+   * scoped to the caller's own earlier claims.
+   */
+  details?: Record<string, unknown>;
   errorCode: string;
   status: number;
 
-  constructor(message: string, errorCode: FinanceErrorCode) {
+  constructor(
+    message: string,
+    errorCode: FinanceErrorCode,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "FinanceServiceError";
+    this.details = details;
     this.errorCode = errorCode;
     this.status = FINANCE_ERROR_STATUS[errorCode];
   }

@@ -9,6 +9,9 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { PDFDocument } from "pdf-lib";
+
+import { systemDocumentKind } from "@/modules/finance/evidence";
 import { renderReceiptPdf, renderStatementPdf } from "@/modules/finance/receipt-pdf";
 
 const header = (bytes: Uint8Array) =>
@@ -87,5 +90,79 @@ describe("renderStatementPdf", () => {
     });
 
     expect(header(bytes)).toBe("%PDF-");
+  });
+});
+
+describe("the system-document stamp", () => {
+  /**
+   * The whole detection scheme rests on one assumption: that pdf-lib writes the
+   * metadata we set as a *literal* string in the trailer rather than inside a
+   * compressed object stream. If that ever stops being true the marker silently
+   * disappears from the bytes, the scan finds nothing, and a resident can submit
+   * our own receipt as proof again — with no test failing anywhere else.
+   */
+  it("survives into the saved bytes of a receipt", async () => {
+    const bytes = await renderReceiptPdf({
+      amount: 12000,
+      hostelName: "Education Light Hostel",
+      issuedAt: new Date("2026-08-10T00:00:00.000Z"),
+      receiptNumber: "RCP-EDU-2026-08-00001",
+      residentName: "Aadarsh Yadav",
+    });
+
+    await expect(systemDocumentKind(bytes)).resolves.toBe("RECEIPT");
+  });
+
+  it("survives into the saved bytes of a statement, and is told apart", async () => {
+    const bytes = await renderStatementPdf({
+      generatedAt: new Date("2026-08-10T00:00:00.000Z"),
+      hostelName: "Education Light Hostel",
+      residentName: "Aadarsh Yadav",
+      rows: [
+        {
+          dueAmount: 12000,
+          paidAmount: 12000,
+          period: "2026-08",
+          status: "PAID",
+        },
+      ],
+    });
+
+    await expect(systemDocumentKind(bytes)).resolves.toBe("STATEMENT");
+  });
+
+  it("does not match a PDF we did not produce", async () => {
+    const foreign = await PDFDocument.create();
+
+    foreign.addPage([595, 842]);
+    foreign.setSubject("Everest Bank payment receipt");
+
+    await expect(systemDocumentKind(await foreign.save())).resolves.toBeNull();
+  });
+
+  it("returns null for anything that is not a readable PDF", async () => {
+    // A corrupt or non-PDF upload is `verifyUploadedObject`'s problem. This must
+    // answer "not ours" rather than throw inside the claim path.
+    await expect(systemDocumentKind(Buffer.from("not a pdf at all"))).resolves.toBeNull();
+    await expect(
+      systemDocumentKind(Buffer.from("%PDF-1.7 truncated garbage")),
+    ).resolves.toBeNull();
+    await expect(systemDocumentKind(new Uint8Array())).resolves.toBeNull();
+    await expect(systemDocumentKind(null)).resolves.toBeNull();
+  });
+
+  it("still detects a receipt the resident re-exported through another tool", async () => {
+    // Re-saving is the obvious way to try to launder the marker off. Metadata
+    // survives a round trip, which is why three fields carry it.
+    const original = await renderReceiptPdf({
+      amount: 12000,
+      hostelName: "Education Light Hostel",
+      issuedAt: new Date("2026-08-10T00:00:00.000Z"),
+      receiptNumber: "RCP-EDU-2026-08-00001",
+      residentName: "Aadarsh Yadav",
+    });
+    const resaved = await (await PDFDocument.load(original)).save();
+
+    await expect(systemDocumentKind(resaved)).resolves.toBe("RECEIPT");
   });
 });

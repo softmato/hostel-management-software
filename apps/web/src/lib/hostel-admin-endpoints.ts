@@ -59,6 +59,8 @@ export const hostelAdminEndpoints = {
     `/api/v1/hostel-admin/finance/invoices?period=${month}`,
   /** Prefix form for `useInvalidateResources` — drops every month. */
   paymentsMatrixAll: "/api/v1/hostel-admin/finance/invoices*",
+  /** Lifetime totals, per-month counts, and the earliest month to offer. */
+  paymentPeriods: "/api/v1/hostel-admin/finance/invoices/periods",
   /** The review queue: resident claims awaiting a decision. */
   paymentClaims: "/api/v1/hostel-admin/finance/events",
   paymentClaimApprove: (eventId: string) =>
@@ -71,6 +73,9 @@ export const hostelAdminEndpoints = {
   /** Points orphan money at an invoice the owner picked (target §7 Tier D). */
   paymentEventAssign: (eventId: string) =>
     `/api/v1/hostel-admin/finance/events/${eventId}/assign`,
+  /** One resident's month-by-month history, from move-in to now. */
+  residentLedger: (residentId: string) =>
+    `/api/v1/hostel-admin/finance/residents/${residentId}/ledger`,
   /** Statement uploads, newest first; POST reads one (target §6.4). */
   statements: "/api/v1/hostel-admin/finance/statements",
   /** The three buckets of one import. */

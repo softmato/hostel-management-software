@@ -1,4 +1,4 @@
-import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { ctaButton, emailLayout, escapeHtml, monthName, paragraph, type EmailContent } from "../layout";
 
 export function paymentOverdueEmail(input: {
   amount: number;
@@ -14,13 +14,13 @@ export function paymentOverdueEmail(input: {
   const dayLabel = input.daysOverdue === 1 ? "day" : "days";
 
   return {
-    subject: `Payment overdue — ${input.month} · ${input.hostelName}`,
+    subject: `Payment overdue — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
       heading: "Your hostel fee is overdue",
       urgent: true,
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, your <strong>${escapeHtml(input.month)}</strong> fee at ${escapeHtml(input.hostelName)} is <strong>${input.daysOverdue} ${dayLabel}</strong> past its due date.`,
+          `Hi ${escapeHtml(input.residentName)}, your <strong>${escapeHtml(monthName(input.month))}</strong> fee at ${escapeHtml(input.hostelName)} is <strong>${input.daysOverdue} ${dayLabel}</strong> past its due date.`,
         ),
         paragraph(
           `Amount due: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong><br/>Due date was: <strong>${escapeHtml(input.dueDate.toDateString())}</strong>`,

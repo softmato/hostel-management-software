@@ -1,4 +1,9 @@
+import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
+import {
+  SYSTEM_DOCUMENT_MARKER,
+  type SystemDocumentKind,
+} from "@/modules/finance/receipt-pdf";
 
 /**
  * Evidence fingerprinting (target §8, plan item 3.4).
@@ -110,4 +115,56 @@ export function isPerceptualNearDuplicate(a: string, b: string): boolean {
   const distance = hammingDistance(a, b);
 
   return distance !== null && distance <= PERCEPTUAL_MATCH_THRESHOLD;
+}
+
+/**
+ * Is this file one our own system produced?
+ *
+ * A receipt is our statement that the hostel received money. A resident
+ * submitting it back as *their* evidence that they paid is circular — and it
+ * used to work: every check went green, because nothing distinguished our own
+ * template from a bank's. A content hash cannot catch it either, since each
+ * render is a fresh document for a different month.
+ *
+ * **Parsed, not scanned.** The obvious implementation — search the bytes for the
+ * marker — silently never matches: pdf-lib packs the Info dictionary into a
+ * Flate-compressed object stream and hex-encodes metadata as UTF-16BE, so the
+ * token is not present as readable text anywhere in the file. The marker is read
+ * back the same way it was written, through the PDF's metadata.
+ *
+ * Returns null for anything that is not a PDF we stamped, including files that
+ * cannot be parsed at all: a deliberately corrupt upload is somebody else's
+ * problem (`verifyUploadedObject` already rejects it) and must not throw here.
+ */
+export async function systemDocumentKind(
+  bytes: Uint8Array | null | undefined,
+): Promise<SystemDocumentKind | null> {
+  // Cheap gate, so arbitrary uploaded bytes are never handed to a parser.
+  if (!bytes || bytes.length < 5) {
+    return null;
+  }
+
+  if (Buffer.from(bytes.slice(0, 5)).toString("latin1") !== "%PDF-") {
+    return null;
+  }
+
+  try {
+    // `updateMetadata: false` keeps the load read-only; without it pdf-lib
+    // rewrites ModDate on the in-memory document.
+    const pdf = await PDFDocument.load(bytes, { updateMetadata: false });
+    const stamped = [pdf.getSubject(), pdf.getCreator(), pdf.getKeywords()]
+      .filter((value): value is string => typeof value === "string")
+      .find((value) => value.includes(SYSTEM_DOCUMENT_MARKER));
+
+    if (!stamped) {
+      return null;
+    }
+
+    return stamped.includes(`${SYSTEM_DOCUMENT_MARKER}-STATEMENT`)
+      ? "STATEMENT"
+      : "RECEIPT";
+  } catch {
+    // Not a PDF we can read. Not ours, as far as anyone can tell.
+    return null;
+  }
 }

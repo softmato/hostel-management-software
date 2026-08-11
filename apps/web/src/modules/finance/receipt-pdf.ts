@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import type { PDFDocument as PDFDocumentType } from "pdf-lib";
 
 import { formatNPR } from "@/modules/finance/money";
 
@@ -17,6 +18,51 @@ import { formatNPR } from "@/modules/finance/money";
  * cannot encode Devanagari, and an unencodable character throws mid-render
  * rather than dropping a glyph.
  */
+
+/**
+ * The token stamped into every PDF this module produces (plan item 3.4 follow-on).
+ *
+ * A receipt is a document *we* issue saying the hostel received money. It is not
+ * a resident's evidence that they paid — and yet it looks exactly like the sort
+ * of file a payment proof is, so it was accepted as one: a resident could
+ * download September's receipt and submit it as proof for August, and every
+ * check went green.
+ *
+ * Stamping the file is what makes that detectable at all. A content hash cannot
+ * do it — each render is a fresh document for a different month — and asking a
+ * reviewer to notice is asking them to recognise their own template in a
+ * thumbnail.
+ *
+ * Written into the PDF's **metadata**, and read back by parsing rather than by
+ * scanning the raw bytes. Scanning does not work and it is worth recording why,
+ * because the byte-scan version looks obviously correct: pdf-lib packs the Info
+ * dictionary into a Flate-compressed object stream, and encodes metadata strings
+ * as hex-wrapped UTF-16BE even with `useObjectStreams: false`. The marker is
+ * never present as readable ASCII in the file.
+ *
+ * The token is deliberately distinctive enough that it cannot appear in a bank's
+ * own receipt by accident.
+ */
+export const SYSTEM_DOCUMENT_MARKER = "HOSTELDAYS-SYSTEM-DOCUMENT";
+
+/** What kind of document the marker was found in. */
+export type SystemDocumentKind = "RECEIPT" | "STATEMENT";
+
+/** The metadata fields the marker is written to, and read back from. */
+export const SYSTEM_DOCUMENT_FIELDS = ["Subject", "Creator", "Keywords"] as const;
+
+function stampSystemDocument(pdf: PDFDocumentType, kind: SystemDocumentKind) {
+  const stamp = `${SYSTEM_DOCUMENT_MARKER}-${kind}`;
+
+  // Three fields rather than one: any single survivor is enough, and a resident
+  // re-exporting the file through another PDF tool may drop some of them.
+  //
+  // **Not `Producer`** — pdf-lib overwrites that with its own name on every
+  // save, so a marker written there is gone by the time the file exists.
+  pdf.setSubject(stamp);
+  pdf.setCreator(stamp);
+  pdf.setKeywords([stamp]);
+}
 
 export type ReceiptPdfInput = {
   amount: number;
@@ -126,11 +172,12 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
     );
   }
 
-  write("Computer-generated receipt. No signature required.", {
-    color: muted,
-    size: 9,
-    y: 56,
-  });
+  write(
+    "Computer-generated receipt issued by the hostel. Not a proof-of-payment upload.",
+    { color: muted, size: 9, y: 56 },
+  );
+
+  stampSystemDocument(pdf, "RECEIPT");
 
   return pdf.save();
 }
@@ -264,13 +311,12 @@ export async function renderStatementPdf(
   // number the statement is usually produced to answer.
   row([`Outstanding: ${formatNPR(Math.max(billed - paid, 0))}`], { bold: true });
 
-  page.drawText("Computer-generated statement. No signature required.", {
-    color: muted,
-    font: regular,
-    size: 9,
-    x: margin,
-    y: 56,
-  });
+  page.drawText(
+    "Computer-generated statement issued by the hostel. Not a proof-of-payment upload.",
+    { color: muted, font: regular, size: 9, x: margin, y: 56 },
+  );
+
+  stampSystemDocument(pdf, "STATEMENT");
 
   return pdf.save();
 }

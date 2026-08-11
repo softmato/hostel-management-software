@@ -1,4 +1,4 @@
-import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { ctaButton, emailLayout, escapeHtml, monthName, paragraph, type EmailContent } from "../layout";
 
 /**
  * A settled payment was reversed (target §9.3).
@@ -20,7 +20,7 @@ export function paymentReversedEmail(input: {
   residentName: string;
 }): EmailContent {
   const currency = input.currency ?? "NPR";
-  const forPeriod = input.period ? ` for <strong>${escapeHtml(input.period)}</strong>` : "";
+  const forPeriod = input.period ? ` for <strong>${escapeHtml(monthName(input.period))}</strong>` : "";
 
   return {
     subject: `Payment reversed${input.period ? ` — ${input.period}` : ""} · ${input.hostelName}`,

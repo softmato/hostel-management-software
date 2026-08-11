@@ -37,6 +37,8 @@ type UsableAsset = {
   mimeType?: string;
   perceptualHash?: string;
   sizeBytes?: number;
+  /** Set when the file is one this system generated — a receipt or statement. */
+  systemDocumentKind?: "RECEIPT" | "STATEMENT";
 };
 
 /**
@@ -96,6 +98,23 @@ export async function assertClaimAssetUsable(
     throw new FinanceServiceError(
       "This file did not finish uploading. Please upload the screenshot again.",
       "ASSET_UPLOAD_INCOMPLETE",
+    );
+  }
+
+  // Our own receipt is not evidence that the resident paid — it is our record
+  // that the hostel was paid, which is the opposite direction. It was accepted
+  // before this check, and every claim check went green: a resident could
+  // download September's receipt and submit it as proof for August.
+  //
+  // Non-accusatory, like the duplicate-evidence copy (target §8.2). Downloading
+  // the wrong file is the overwhelmingly likely explanation — the receipt is the
+  // most recent payment document most residents have.
+  if (asset.systemDocumentKind) {
+    throw new FinanceServiceError(
+      asset.systemDocumentKind === "STATEMENT"
+        ? "That is your hostel statement, which we generated. Please upload the screenshot or receipt from the app you paid with."
+        : "That is a receipt your hostel issued, not a record of your payment. Please upload the screenshot or receipt from the app you paid with.",
+      "EVIDENCE_IS_SYSTEM_DOCUMENT",
     );
   }
 
@@ -169,17 +188,86 @@ async function assertEvidenceNotAlreadyClaimed(
 ) {
   if (!asset.contentHash) return;
 
-  const duplicate = await PaymentEventModel.exists({
+  const duplicate = await PaymentEventModel.findOne({
     evidenceHash: asset.contentHash,
     hostelId,
-  });
+  }).lean<PriorClaim | null>();
 
   if (duplicate) {
     throw new FinanceServiceError(
       "This screenshot has already been submitted for a payment. If this is a different payment, upload the screenshot for that one.",
       "EVIDENCE_ALREADY_USED",
+      await describePriorClaim(duplicate),
     );
   }
+}
+
+type PriorClaim = {
+  invoiceId?: Types.ObjectId | null;
+  occurredAt?: Date;
+};
+
+/**
+ * When and what the duplicate collided with, for the rejection card (§11.3).
+ *
+ * "This screenshot was already used" leaves the resident with nowhere to go.
+ * "It was submitted on 2 Jul 2026 for July rent" tells them it was last month's,
+ * which is the whole difference between a dead end and a resident who goes and
+ * finds the right screenshot.
+ *
+ * Both fields are the caller's own earlier claim, so nothing here crosses a
+ * resident boundary. Best-effort on purpose — a missing period must degrade the
+ * sentence, never turn a clear rejection into a 500.
+ */
+async function describePriorClaim(prior: PriorClaim) {
+  const invoice = prior.invoiceId
+    ? await InvoiceModel.findById(prior.invoiceId).lean<{ period?: string } | null>()
+    : null;
+
+  return {
+    priorPeriod: invoice?.period ?? null,
+    priorSubmittedAt: prior.occurredAt ? new Date(prior.occurredAt).toISOString() : null,
+  };
+}
+
+/**
+ * The same transaction id, typed onto a second claim (target §11.3).
+ *
+ * One transfer has one id, so a second claim carrying it is either a resident
+ * submitting last month's payment again or a typo — and both belong here, not in
+ * the owner's queue. The lookup is explicit rather than a unique index because
+ * the index can only refuse: it cannot say *which* payment the id already
+ * belongs to, and without that the resident has nothing to act on.
+ *
+ * Scoped to the hostel and the provider. Across providers an eight-digit id
+ * genuinely can repeat, and refusing a real bank transfer because a wallet
+ * receipt happened to share its number is a worse failure than letting a human
+ * see both. `rawPayload.transactionCode` is unindexed, so the `hostelId`
+ * equality carries the query — one hostel's event history, not the platform's.
+ */
+async function assertTransactionCodeNotReused(
+  transactionCode: string | null | undefined,
+  hostelId: Types.ObjectId,
+  provider: string,
+) {
+  const code = transactionCode?.trim();
+
+  if (!code) return;
+
+  const duplicate = await PaymentEventModel.findOne({
+    hostelId,
+    provider,
+    "rawPayload.transactionCode": code,
+    status: { $ne: "REJECTED" },
+  }).lean<PriorClaim | null>();
+
+  if (!duplicate) return;
+
+  throw new FinanceServiceError(
+    `Transaction ID ${code} has already been recorded for a payment. Each payment has its own ID — check the ID on this transfer.`,
+    "TXN_ID_ALREADY_CLAIMED",
+    { ...(await describePriorClaim(duplicate)), transactionCode: code },
+  );
 }
 
 /**
@@ -264,9 +352,16 @@ export async function submitClaim(
   }
 
   const asset = await assertClaimAssetUsable(input.proofImageAssetId, resident, principal);
+  const provider =
+    input.paymentMethod === "BANK_TRANSFER" ? "BANK" : input.paymentMethod;
 
   await assertAmountWithinBounds(input.amount, invoice);
   await assertEvidenceNotAlreadyClaimed(asset, invoice.hostelId);
+  await assertTransactionCodeNotReused(
+    input.transactionCode,
+    invoice.hostelId,
+    provider,
+  );
 
   const reviewFlags = await similarEvidenceFlags(asset, invoice.hostelId);
 
@@ -284,7 +379,7 @@ export async function submitClaim(
     }`,
     invoiceId: invoice._id,
     occurredAt: input.paidAt ?? new Date(),
-    provider: input.paymentMethod === "BANK_TRANSFER" ? "BANK" : input.paymentMethod,
+    provider,
     rawPayload: {
       referenceNote: input.referenceNote ?? null,
       submittedBy: principal.userId,
@@ -320,8 +415,10 @@ export async function submitClaim(
       eventId: event._id.toString(),
       method: input.paymentMethod,
       period: invoice.period ?? null,
-      referenceNote: input.referenceNote ?? input.transactionCode ?? null,
+      invoiceReference: invoice.referenceCode ?? null,
+      referenceNote: input.referenceNote ?? null,
       resident: resident as ResidentRecord,
+      transactionCode: input.transactionCode ?? null,
     });
 
     // Live-refresh every payments panel in this hostel plus the resident's own

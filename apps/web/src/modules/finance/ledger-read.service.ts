@@ -1,4 +1,5 @@
-import type { PipelineStage, Types } from "mongoose";
+import { Types } from "mongoose";
+import type { PipelineStage } from "mongoose";
 
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 
@@ -109,23 +110,43 @@ const LEGACY_METHOD_BY_PROVIDER: Record<string, string> = {
  * Exported for its tests: a wrong translation is the only way this facade can
  * silently answer the wrong question.
  */
+/**
+ * Every id in this filter has to be a real `ObjectId`, never the string form.
+ *
+ * This filter is spent inside an **aggregation** `$match`, and Mongoose does not
+ * cast aggregation pipelines the way it casts `find()`. A caller holding an id
+ * as a string — anything that came out of a URL segment, a JSON body or a
+ * `toString()` — therefore matched *nothing*, silently and with no error: the
+ * screen rendered "no invoices" for a resident who has three. Casting here
+ * rather than at each call site is deliberate; the trap is invisible at the call
+ * site, so the boundary that knows about it should be the one that closes it.
+ */
+function oid(value: Types.ObjectId | string): Types.ObjectId | string {
+  // A malformed id is left alone rather than thrown on: it matches nothing,
+  // which is the same answer the caller would get anyway, and a read must not
+  // turn a bad id into a 500.
+  return typeof value === "string" && Types.ObjectId.isValid(value)
+    ? new Types.ObjectId(value)
+    : value;
+}
+
 export function ledgerFilterFor(scope: LedgerScope): Record<string, unknown> {
   const filter: Record<string, unknown> = {};
 
   if (scope.hostelId) {
-    filter.hostelId = scope.hostelId;
+    filter.hostelId = oid(scope.hostelId);
   }
 
   if (scope.hostelIds) {
-    filter.hostelId = { $in: scope.hostelIds };
+    filter.hostelId = { $in: scope.hostelIds.map(oid) };
   }
 
   if (scope.residentId) {
-    filter.residentId = scope.residentId;
+    filter.residentId = oid(scope.residentId);
   }
 
   if (scope.residentIds) {
-    filter.residentId = { $in: scope.residentIds };
+    filter.residentId = { $in: scope.residentIds.map(oid) };
   }
 
   if (scope.period) {
@@ -137,7 +158,7 @@ export function ledgerFilterFor(scope: LedgerScope): Record<string, unknown> {
   }
 
   if (scope.invoiceIds) {
-    filter._id = { $in: scope.invoiceIds };
+    filter._id = { $in: scope.invoiceIds.map(oid) };
   }
 
   // A voided invoice is a decision to un-bill, not a balance of zero, and it

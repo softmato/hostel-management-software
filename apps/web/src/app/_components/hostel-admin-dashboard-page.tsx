@@ -152,14 +152,14 @@ export const HostelAdminDashboardPageContent = memo(
       {
         href: "/hostel-admin/payments",
         icon: WalletCards,
-        label: "Monthly Dues",
+        label: "Dues This Month",
         tone: "amber" as const,
         value: currency(num(report?.monthlyDues)),
       },
       {
         href: "/hostel-admin/payments",
         icon: WalletCards,
-        label: "Collected",
+        label: "Collected This Month",
         tone: "green" as const,
         value: currency(num(report?.paidAmount)),
       },

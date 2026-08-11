@@ -159,10 +159,17 @@ export function TextArea({
   defaultValue,
   label,
   name,
+  onChange,
+  placeholder,
+  value,
 }: {
   defaultValue?: string;
-  label: string;
+  label: ReactNode;
   name: string;
+  /** Pass with `value` to drive the field from state — a live preview needs both. */
+  onChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  value?: string;
 }) {
   return (
     <label className="grid gap-2 text-sm font-semibold text-foreground">
@@ -171,6 +178,9 @@ export function TextArea({
         className="min-h-24 rounded-md border border-border bg-background px-3 py-2 text-sm font-normal outline-none focus:border-role-admin"
         defaultValue={defaultValue}
         name={name}
+        onChange={onChange}
+        placeholder={placeholder}
+        value={value}
       />
     </label>
   );

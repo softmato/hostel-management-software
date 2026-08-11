@@ -9,8 +9,11 @@ import {
 } from "@/modules/residents/resident-notify";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import { renderReceiptById } from "@/modules/finance/receipt.service";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import type { EmailAttachment } from "@hostel/shared/email/sender";
 import { gatewayUnhealthyEmail } from "@hostel/shared/email/templates/payment/gateway-unhealthy";
+import { paymentClearedEmail } from "@hostel/shared/email/templates/payment/payment-cleared";
 import { paymentProofUploadedEmail } from "@hostel/shared/email/templates/payment/proof-uploaded";
 import { paymentRejectedEmail } from "@hostel/shared/email/templates/payment/payment-rejected";
 import { paymentReversedEmail } from "@hostel/shared/email/templates/payment/payment-reversed";
@@ -26,10 +29,14 @@ import { paymentVerifiedEmail } from "@hostel/shared/email/templates/payment/pay
 export async function notifyAdminsOfClaim(input: {
   amount: number;
   eventId: string;
+  /** The invoice's own matching code — not anything the resident typed. */
+  invoiceReference?: string | null;
   method: string;
   period: string | null;
   referenceNote: string | null;
   resident: { firstName?: string; hostelId: Types.ObjectId; lastName?: string };
+  /** What the resident typed into the transaction-id field. Unverified. */
+  transactionCode?: string | null;
 }): Promise<void> {
   try {
     // `sendPaymentEmails` is an *email* switch (item 0.6). Gating the whole
@@ -46,11 +53,13 @@ export async function notifyAdminsOfClaim(input: {
     const email = paymentProofUploadedEmail({
       amount: input.amount,
       hostelName,
+      invoiceReference: input.invoiceReference ?? undefined,
       method: input.method,
       month: input.period ?? "",
       referenceNote: input.referenceNote ?? undefined,
       residentName,
       reviewUrl: appUrl("/hostel-admin/payments"),
+      transactionCode: input.transactionCode ?? undefined,
     });
 
     await Promise.all(
@@ -188,6 +197,15 @@ export async function notifyClaimReviewed(input: {
   outcome:
     | {
         kind: "verified";
+        /** How the money arrived, for the owner's confirmation. */
+        method?: string;
+        /**
+         * The receipt document, so it can be rendered and attached. Separate
+         * from `receiptNumber` because the number is what both emails *say* and
+         * the id is what the PDF is built from — a receipt can exist with one
+         * and not usefully with the other.
+         */
+        receiptId?: Types.ObjectId | string | null;
         receiptNumber: string | null;
         remainingAmount: number;
         verifiedAmount: number;
@@ -236,6 +254,23 @@ export async function notifyClaimReviewed(input: {
     });
   }
 
+  // The owner's confirmation is sent even when the resident has no contact
+  // email on file — the two are separate recipients answering separate
+  // questions, and a resident without an address is not a reason to leave the
+  // hostel wondering whether the money landed.
+  if (input.outcome.kind === "verified" && config.sendPaymentEmails) {
+    await notifyAdminsOfClearedPayment({
+      amount: input.outcome.verifiedAmount,
+      hostelId: input.hostelId,
+      hostelName,
+      method: input.outcome.method ?? "OTHER",
+      period: input.period,
+      receiptNumber: input.outcome.receiptNumber,
+      remainingAmount: input.outcome.remainingAmount,
+      residentName: `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim(),
+    });
+  }
+
   if (!contact || !config.sendPaymentEmails) {
     return;
   }
@@ -259,12 +294,96 @@ export async function notifyClaimReviewed(input: {
           residentName: contact.name ?? resident.firstName,
         });
 
+  // The receipt travels with the mail (target §4.4). A resident who needs proof
+  // of rent for a visa, a loan or a landlord otherwise has to log in, find the
+  // row and download it — and the one moment they are certainly reading is this
+  // email. A render that fails costs the attachment, never the notification.
+  const attachments =
+    input.outcome.kind === "verified" && input.outcome.receiptId
+      ? await receiptAttachment(input.outcome.receiptId)
+      : [];
+
   await sendNotificationEmail({
     action: `payment_${input.outcome.kind}`,
+    attachments,
     html: email.html,
     subject: email.subject,
     to: contact.email,
   });
+}
+
+/** The receipt PDF, or nothing at all if it cannot be rendered. */
+async function receiptAttachment(
+  receiptId: Types.ObjectId | string,
+): Promise<EmailAttachment[]> {
+  try {
+    const { bytes, receiptNumber } = await renderReceiptById(receiptId, {});
+
+    return [{ content: bytes, filename: `${receiptNumber}.pdf` }];
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "payment_receipt_attachment_failed",
+        level: "warn",
+        message: error instanceof Error ? error.message : "Unknown receipt error",
+        receiptId: receiptId.toString(),
+      }),
+    );
+
+    return [];
+  }
+}
+
+/**
+ * Tell the hostel's admins a payment cleared.
+ *
+ * **Never throws**, for the same reason as {@link notifyAdminsOfClaim}: the
+ * money has already settled and the receipt is already issued by the time this
+ * runs. A mail server having a bad day must not turn a completed approval into
+ * an error the owner sees.
+ */
+async function notifyAdminsOfClearedPayment(input: {
+  amount: number;
+  hostelId: Types.ObjectId | string;
+  hostelName: string;
+  method: string;
+  period: string | null;
+  receiptNumber: string | null;
+  remainingAmount: number;
+  residentName: string;
+}): Promise<void> {
+  try {
+    const admins = await resolveHostelAdminContacts(input.hostelId);
+    const email = paymentClearedEmail({
+      amount: input.amount,
+      hostelName: input.hostelName,
+      method: input.method,
+      month: input.period ?? "",
+      paymentsUrl: appUrl("/hostel-admin/payments"),
+      receiptNumber: input.receiptNumber ?? "",
+      remainingAmount: input.remainingAmount,
+      residentName: input.residentName,
+    });
+
+    await Promise.all(
+      admins.map((admin) =>
+        sendNotificationEmail({
+          action: "payment_cleared",
+          html: email.html,
+          subject: email.subject,
+          to: admin.email,
+        }),
+      ),
+    );
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "payment_cleared_notification_failed",
+        level: "warn",
+        message: error instanceof Error ? error.message : "Unknown notification error",
+      }),
+    );
+  }
 }
 
 /**

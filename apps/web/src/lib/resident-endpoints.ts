@@ -26,6 +26,8 @@ export const residentEndpoints = {
   profile: "/api/v1/resident/profile",
   referral: "/api/v1/resident/referral",
   /** A PDF download, not a query — never passed to `usePortalResource`. */
+  receiptPdf: (receiptId: string) =>
+    `/api/v1/resident/finance/receipts/${receiptId}/pdf`,
   statementPdf: "/api/v1/resident/finance/statement/pdf",
   reviews: "/api/v1/resident/reviews",
 } as const;

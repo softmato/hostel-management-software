@@ -1,5 +1,6 @@
 "use client";
 
+import type { KeyboardEvent } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronDown, Star, TrendingDown, TrendingUp, X } from "lucide-react";
 import Link from "next/link";
@@ -171,27 +172,60 @@ const iconToneClasses: Record<SoftTone, string> = {
   teal: "bg-role-platform-soft text-role-platform",
 };
 
+/**
+ * `onClick` turns the card into a filter for whatever it counts.
+ *
+ * Optional, because most metric cards are readouts and nothing more — a card
+ * that looks pressable but is not is worse than a plain one. When it is given,
+ * the card becomes a real button: focusable, keyboard-operable, and visibly
+ * interactive on hover.
+ */
 export function MetricCard({
+  active = false,
   icon: Icon,
   label,
   note,
   noteTone = "slate",
+  onClick,
   tone = "teal",
   trend,
   trendDown = false,
   value,
 }: {
+  active?: boolean;
   icon: LucideIcon;
   label: string;
   note?: string;
   noteTone?: SoftTone;
+  onClick?: () => void;
   tone?: SoftTone;
   trend?: string;
   trendDown?: boolean;
   value: ReactNode;
 }) {
   return (
-    <Card className="shadow-sm ring-border/60" size="sm">
+    <Card
+      className={cn(
+        "shadow-sm ring-border/60",
+        onClick && "cursor-pointer transition hover:ring-2 hover:ring-role-admin/40",
+        active && "ring-2 ring-role-admin",
+      )}
+      {...(onClick
+        ? {
+            "aria-pressed": active,
+            onClick,
+            onKeyDown: (event: KeyboardEvent) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onClick();
+              }
+            },
+            role: "button",
+            tabIndex: 0,
+          }
+        : {})}
+      size="sm"
+    >
       <CardContent>
         <div className="flex items-start gap-2.5">
           <span
@@ -541,27 +575,38 @@ export function FilterBar({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * `size="lg"` is for a search that is the primary control on its section rather
+ * than one filter among several in a `FilterBar`. The default 36px row reads as
+ * a chip next to a full-width table and was hard to hit on touch; `lg` matches
+ * the 44px of the buttons beside it.
+ */
 export function SearchField({
   className,
   onChange,
   placeholder,
+  size = "sm",
   value,
 }: {
   className?: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  size?: "lg" | "sm";
   value: string;
 }) {
+  const large = size === "lg";
+
   return (
     <div
       className={cn(
-        "flex h-9 max-w-md flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 shadow-sm",
+        "flex max-w-md flex-1 items-center gap-2 rounded-lg border border-border bg-card shadow-sm",
+        large ? "h-12 gap-3 rounded-xl px-4" : "h-9 px-2.5",
         className,
       )}
     >
       <svg
         aria-hidden
-        className="size-3.5 shrink-0 text-muted-foreground"
+        className={cn("shrink-0 text-muted-foreground", large ? "size-4" : "size-3.5")}
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
@@ -572,7 +617,10 @@ export function SearchField({
       </svg>
       <input
         aria-label={placeholder ?? "Search"}
-        className="w-full bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground"
+        className={cn(
+          "w-full bg-transparent outline-none placeholder:text-muted-foreground",
+          large ? "text-sm" : "text-[12.5px]",
+        )}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder ?? "Search..."}
         value={value}

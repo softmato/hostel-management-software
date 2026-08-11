@@ -2,7 +2,7 @@
 
 import {
   AlertTriangle,
-  Check,
+  CalendarPlus,
   Clock3,
   CreditCard,
   Download,
@@ -22,9 +22,17 @@ import {
   TextArea,
 } from "@/app/_components/shared-ui";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { browserApi } from "@/lib/browser-api";
-import { CLAIM_REJECTION_REASONS } from "@/modules/finance/claim.validation";
+import { dayMonthYear, monthLabel } from "@/lib/format-month";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import {
   combineResources,
@@ -39,6 +47,10 @@ import {
   type PaymentProof,
   type Resident,
 } from "./hostel-admin-shared";
+import { MonthPicker, type PeriodRow } from "./hostel-admin-month-picker";
+import { ProofReviewModal } from "./hostel-admin-proof-review-modal";
+import { HostelAdminReviewQueue } from "./hostel-admin-review-queue";
+import { ResidentPaymentTrackSheet } from "./hostel-admin-resident-payment-track";
 import {
   DataTable,
   EmptyInline,
@@ -66,7 +78,27 @@ type MatrixRow = {
     | "PENDING_PROOF"
     | "NOT_BILLED";
   payment: Payment | null;
-  resident: Resident & { fullName: string; moveInDate: string };
+  resident: Resident & {
+    fullName: string;
+    moveInDate: string;
+    /** Bed type — the attribute the hostel identifies a resident by (§11.4). */
+    roomType?: string | null;
+  };
+};
+
+type PeriodSummary = {
+  earliestPeriod: string;
+  months: PeriodRow[];
+  overall: {
+    collected: number;
+    due: number;
+    outstanding: number;
+    overdueResidents: number;
+    paid: number;
+    partial: number;
+    pendingProofs: number;
+    unpaid: number;
+  };
 };
 
 type MatrixTotals = {
@@ -79,6 +111,24 @@ type MatrixTotals = {
   unpaid: number;
 };
 
+/**
+ * Rent for a month falls due at the start of the next one, which is the
+ * convention every hostel in this product already follows. Pre-filled rather
+ * than left blank: an empty required date field is the reason this form was
+ * abandoned half-completed.
+ */
+function defaultDueDate(period: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(period);
+
+  if (!match) {
+    return "";
+  }
+
+  const due = new Date(Date.UTC(Number(match[1]), Number(match[2]), 1));
+
+  return due.toISOString().slice(0, 10);
+}
+
 function defaultMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -90,9 +140,12 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
   const [search, setSearch] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  /** Which claim's rejection-reason picker is open. "" means none (item 3.5). */
-  const [rejectingId, setRejectingId] = useState("");
+  const [showFeeRun, setShowFeeRun] = useState(false);
   const [approvingAll, setApprovingAll] = useState(false);
+  /** Whose month-by-month history is open in the side sheet. "" means none. */
+  const [trackResidentId, setTrackResidentId] = useState("");
+  /** Which claim is open in the full review modal (item 3, target §11.4). */
+  const [reviewingId, setReviewingId] = useState("");
   const invalidate = useInvalidateResources();
 
   const errorMessage = "Could not load payments.";
@@ -114,6 +167,13 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
     hostelAdminEndpoints.paymentClaims,
     { errorMessage },
   );
+  // Lifetime figures and the per-month roll-up. Deliberately *not* keyed by
+  // month: the cards answer "how is this hostel doing", which does not change
+  // when the table's month does.
+  const periodsResource = usePortalResource<PeriodSummary>(
+    hostelAdminEndpoints.paymentPeriods,
+    { errorMessage },
+  );
 
   const residents = useMemo(
     () => residentsResource.data?.residents ?? [],
@@ -132,6 +192,17 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
     () => proofs.filter((proof) => proof.status === "PENDING"),
     [proofs],
   );
+  // Read from the live list, not captured at click time: a claim someone else
+  // approved while this modal was open must stop offering an Approve button.
+  const reviewingProof = useMemo(
+    () => proofs.find((proof) => proof.eventId === reviewingId) ?? null,
+    [proofs, reviewingId],
+  );
+  const periods = useMemo(
+    () => periodsResource.data?.months ?? [],
+    [periodsResource.data],
+  );
+  const overall = periodsResource.data?.overall ?? null;
   const combined = combineResources(residentsResource, matrixResource, paymentsResource);
   const state = combined.state;
   const message = actionMessage || combined.message;
@@ -139,6 +210,19 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
   const residentById = useMemo(
     () => new Map(residents.map((resident) => [resident.id, resident])),
     [residents],
+  );
+
+  /**
+   * Bed type per resident, for the review queue's rows (§11.4).
+   *
+   * Read off the matrix rather than fetched again: the matrix already resolves
+   * `bedType ?? roomType` per resident, and a second source for the same label
+   * is a second way for the queue and the table to disagree about what somebody
+   * is renting.
+   */
+  const bedLabelByResidentId = useMemo(
+    () => new Map(rows.map((row) => [row.resident.id, row.resident.roomType ?? null])),
+    [rows],
   );
 
   // Every mutation on this page moves both the matrix and the proof list.
@@ -215,6 +299,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
               ? `, ${result.failures.length} could not be priced — check their room type and the fee schedule.`
               : "."),
         );
+        setShowFeeRun(false);
         refreshPayments();
       } catch (error) {
         setActionMessage(
@@ -243,7 +328,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
           },
         );
         setActionMessage(action === "approve" ? "Proof approved." : "Proof rejected.");
-        setRejectingId("");
+        setReviewingId("");
         refreshPayments();
       } catch (error) {
         setActionMessage(
@@ -322,22 +407,45 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
       if (!query) {
         return true;
       }
-      return row.resident.fullName.toLowerCase().includes(query);
+      // Name *or* bed type: "double" is how an owner narrows to the residents
+      // they price the same way, and it is the only other identifying attribute
+      // on the row since room numbers left the model.
+      return (
+        row.resident.fullName.toLowerCase().includes(query) ||
+        (row.resident.roomType ?? "").toLowerCase().includes(query)
+      );
     });
   }, [filter, rows, search]);
 
   const stats = useMemo(
     () => ({
-      dueAmount: totals ? Math.max(totals.due - totals.collected, 0) : 0,
-      monthlyCollection: totals?.collected ?? 0,
+      // The month's own numbers still drive the tab counts, because the tabs
+      // filter the month's table.
       notBilled: totals?.notBilled ?? 0,
       overdue: totals?.overdue ?? 0,
+      // Counted from the rows: `totals.unpaid` folds these in, and the tab
+      // needs them on their own.
+      toReview: rows.filter((row) => row.displayStatus === "PENDING_PROOF").length,
       paid: totals?.paid ?? 0,
       partial: totals?.partial ?? 0,
       pendingProofs: proofs.filter((p) => p.status === "PENDING").length,
       unpaid: totals?.unpaid ?? 0,
     }),
-    [proofs, totals],
+    [proofs, rows, totals],
+  );
+
+  /**
+   * Clicking a card filters the table to what the card counts.
+   *
+   * The cards are lifetime figures and the table is one month, so a click can
+   * only ever narrow the *status*, never the period — pretending otherwise
+   * would show "3 overdue" and then a table of one. Toggling off returns to
+   * `ALL`, so a second click undoes the first, which is what a pressed-looking
+   * card should do.
+   */
+  const filterBy = useCallback(
+    (next: string) => setFilter((current) => (current === next ? "ALL" : next)),
+    [],
   );
 
   return (
@@ -348,6 +456,15 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
             <Button className="h-10 gap-2 rounded-xl" type="button" variant="outline">
               <Download className="size-4" />
               Export
+            </Button>
+            <Button
+              className="h-10 gap-2 rounded-xl"
+              onClick={() => setShowFeeRun(true)}
+              type="button"
+              variant="outline"
+            >
+              <CalendarPlus className="size-4" />
+              Generate Invoices
             </Button>
             <RoleButton
               onClick={() => setShowCreate((value) => !value)}
@@ -369,35 +486,46 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
         </div>
       ) : null}
 
+      {/* Lifetime figures for the hostel, not for the month in the table —
+          "how are we doing" is not a question about August. Each card filters
+          the table below to the rows it counts. */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
+          active={filter === "PAID"}
           icon={WalletCards}
-          label="Monthly Collection"
+          label="Collected (all time)"
+          onClick={() => filterBy("PAID")}
           tone="blue"
-          trend="Paid amount this filter"
-          value={currency(stats.monthlyCollection)}
+          trend={`${overall?.paid ?? 0} month(s) settled`}
+          value={currency(overall?.collected ?? 0)}
         />
         <MetricCard
+          active={filter === "UNPAID"}
           icon={ReceiptText}
-          label="Due Amount"
+          label="Outstanding (all time)"
+          onClick={() => filterBy("UNPAID")}
           tone="cyan"
-          trend={`${stats.unpaid + stats.overdue + stats.partial} open records`}
-          value={currency(stats.dueAmount)}
+          trend={`${(overall?.unpaid ?? 0) + (overall?.partial ?? 0)} open records`}
+          value={currency(overall?.outstanding ?? 0)}
         />
         <MetricCard
+          active={filter === "PENDING_PROOF"}
           icon={Clock3}
           label="Pending Proofs"
+          onClick={() => filterBy("PENDING_PROOF")}
           tone="amber"
           trend="Awaiting approval"
-          value={String(stats.pendingProofs)}
+          value={String(overall?.pendingProofs ?? stats.pendingProofs)}
         />
         <MetricCard
+          active={filter === "OVERDUE"}
           icon={AlertTriangle}
           label="Overdue Residents"
+          onClick={() => filterBy("OVERDUE")}
           tone="rose"
           trendDown
           trend="Needs follow-up"
-          value={String(stats.overdue)}
+          value={String(overall?.overdueResidents ?? 0)}
         />
       </div>
 
@@ -441,29 +569,98 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
         </SectionCard>
       ) : null}
 
-      <SectionCard
-        description="Creates this month's record for every active resident that does not have one yet. Residents keep their own monthly fee unless you set one here."
-        title="Monthly Fee Run"
-      >
-        <form className="grid gap-3 md:grid-cols-4" onSubmit={handleFeeRun}>
-          <FormInput label="Month" name="month" required type="month" />
-          <FormInput label="Due date" name="dueDate" required type="date" />
-          <FormInput
-            label="Set fee for all (optional)"
-            min="0"
-            name="monthlyFee"
-            type="number"
-          />
-          <div className="flex items-end">
-            <RoleButton className="w-full" tone="admin" type="submit">
-              <CreditCard className="size-4" />
-              Generate Records
-            </RoleButton>
-          </div>
-        </form>
-      </SectionCard>
+      {/* Billing is a monthly event, not a control panel: it was a permanent
+          card taking a third of the screen for a job done once a month, and it
+          was read as "some settings I do not understand" rather than "the button
+          that issues this month's rent". Behind a dialog, with the fields
+          pre-filled and the effect stated in a sentence. */}
+      <Dialog onOpenChange={setShowFeeRun} open={showFeeRun}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Generate monthly invoices</DialogTitle>
+            <DialogDescription>
+              Issues one rent invoice per active resident for the month you pick,
+              priced from your fee schedule and each resident&apos;s bed type.
+            </DialogDescription>
+          </DialogHeader>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+          <form className="grid gap-3" onSubmit={handleFeeRun}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormInput
+                defaultValue={month}
+                label="Month to bill"
+                name="month"
+                required
+                type="month"
+              />
+              <FormInput
+                defaultValue={defaultDueDate(month)}
+                label="Payment due by"
+                name="dueDate"
+                required
+                type="date"
+              />
+            </div>
+            <FormInput
+              label="Override everyone's fee (optional)"
+              min="0"
+              name="monthlyFee"
+              placeholder="Leave blank to use the fee schedule"
+              type="number"
+            />
+
+            <ul className="space-y-1.5 rounded-lg border border-border/70 bg-muted/20 p-3 text-[12px] text-muted-foreground">
+              <li>
+                <span className="font-semibold text-foreground">
+                  {stats.notBilled} resident(s)
+                </span>{" "}
+                have no invoice for {monthLabel(month)} yet — only they will be billed.
+              </li>
+              <li>Residents who already have one are skipped, so running it twice is safe.</li>
+              <li>
+                Anyone your fee schedule cannot price is reported instead of billed zero.
+              </li>
+            </ul>
+
+            <DialogFooter>
+              <Button
+                onClick={() => setShowFeeRun(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <RoleButton tone="admin" type="submit">
+                <CreditCard className="size-4" />
+                Generate invoices
+              </RoleButton>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* The queue comes before the matrix (§11.4). The matrix answers "who has
+          not paid", which is a question that keeps; the queue is money waiting on
+          a decision, and it is what the owner opened this screen for. */}
+      <HostelAdminReviewQueue
+        approvingAll={approvingAll}
+        bedLabelByResidentId={bedLabelByResidentId}
+        busy={approvingAll}
+        claims={pendingProofs}
+        nameFor={(proof) => {
+          const resident = residentById.get(proof.residentId);
+
+          return resident
+            ? `${resident.firstName} ${resident.lastName}`
+            : (proof.residentName ?? "Resident");
+        }}
+        onApprove={(eventId) => void reviewProof(eventId, "approve")}
+        onApproveAll={() => void approveAll()}
+        onOpen={setReviewingId}
+        onReject={(eventId, reason) => void reviewProof(eventId, "reject", reason)}
+      />
+
+      <div className="grid gap-5">
         <SectionCard>
           <Tabs onValueChange={setFilter} value={filter}>
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -486,22 +683,25 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                 <TabsTrigger className="rounded-none px-3 pb-2" value="OVERDUE">
                   Overdue ({stats.overdue})
                 </TabsTrigger>
+                {/* The bucket target §11.4 opens with. Reachable from the
+                    Pending Proofs card, so the filter it sets has a tab that
+                    can show as active. */}
+                <TabsTrigger className="rounded-none px-3 pb-2" value="PENDING_PROOF">
+                  To review ({stats.toReview})
+                </TabsTrigger>
               </TabsList>
-              <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                Month
-                <input
-                  className="h-9 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-role-admin"
-                  onChange={(event) => setMonth(event.target.value || defaultMonth())}
-                  type="month"
-                  value={month}
-                />
-              </label>
+              <MonthPicker
+                months={periods}
+                onChange={setMonth}
+                value={month}
+              />
             </div>
 
             <SearchField
               className="mb-4 max-w-none"
               onChange={setSearch}
-              placeholder="Search by resident name, room no..."
+              placeholder="Search by resident name or room type…"
+              size="lg"
               value={search}
             />
 
@@ -514,24 +714,28 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                 <EmptyInline label="No residents for this month." />
               ) : null}
               {state === "ready" && filteredRows.length > 0 ? (
-                <DataTable className="min-w-[700px]">
+                <DataTable className="min-w-[760px]">
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Resident
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Due (NPR)
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Paid
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Status
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Due Date
-                      </TableHead>
+                      {/* Month and due date are separate columns on purpose.
+                          Stacking them in one cell read as a riddle — August
+                          rent falls due on 1 September, and two dates in one box
+                          leaves the reader working out which is which. */}
+                      {[
+                        "Resident",
+                        "Month",
+                        "Due (NPR)",
+                        "Paid",
+                        "Status",
+                        "Pay By",
+                      ].map((heading) => (
+                        <TableHead
+                          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          key={heading}
+                        >
+                          {heading}
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -540,20 +744,38 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                       const movedInThisMonth = row.resident.moveInDate.startsWith(month);
 
                       return (
-                        <TableRow key={row.resident.id}>
+                        <TableRow
+                          className="cursor-pointer"
+                          key={row.resident.id}
+                          onClick={() => setTrackResidentId(row.resident.id)}
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setTrackResidentId(row.resident.id);
+                            }
+                          }}
+                          role="button"
+                        >
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <InitialsAvatar name={name} size="sm" tone="admin" />
                               <div>
                                 <p className="font-semibold text-foreground">{name}</p>
                                 <p className="text-xs text-muted-foreground">
+                                  {row.resident.roomType
+                                    ? `${row.resident.roomType} · `
+                                    : ""}
                                   {row.resident.phone}
                                   {movedInThisMonth
-                                    ? ` · moved in ${new Date(row.resident.moveInDate).toLocaleDateString()} (pro-rated)`
+                                    ? ` · moved in ${dayMonthYear(row.resident.moveInDate)} (pro-rated)`
                                     : ""}
                                 </p>
                               </div>
                             </div>
+                          </TableCell>
+                          <TableCell className="font-medium text-foreground">
+                            {row.payment ? monthLabel(row.payment.month) : monthLabel(month)}
                           </TableCell>
                           <TableCell className="font-medium">
                             {row.payment ? currency(row.payment.dueAmount) : "—"}
@@ -574,10 +796,11 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                                 : row.displayStatus.replaceAll("_", " ")}
                             </SoftBadge>
                           </TableCell>
+                          {/* "1 Sep 2026", never "9/1/2026" — which month that
+                              is depends on the reader's locale, and rent is not
+                              a thing to be ambiguous about. */}
                           <TableCell className="text-muted-foreground">
-                            {row.payment
-                              ? new Date(row.payment.dueDate).toLocaleDateString()
-                              : "—"}
+                            {row.payment ? dayMonthYear(row.payment.dueDate) : "—"}
                           </TableCell>
                         </TableRow>
                       );
@@ -588,163 +811,32 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
             </TabsContent>
           </Tabs>
         </SectionCard>
-
-        <div className="space-y-5">
-          <SectionCard
-            actions={
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  {pendingProofs.length} pending
-                </span>
-                {pendingProofs.some((proof) => proof.allGreen) ? (
-                  <Button
-                    className="h-8 rounded-lg bg-emerald-600 text-white hover:bg-emerald-600/90"
-                    disabled={approvingAll}
-                    onClick={() => void approveAll()}
-                    size="sm"
-                    type="button"
-                  >
-                    {approvingAll ? "Approving…" : "Approve all"}
-                  </Button>
-                ) : null}
-              </div>
-            }
-            title={`Payment Proofs (${stats.pendingProofs})`}
-          >
-            {pendingProofs.length === 0 ? (
-              <EmptyInline label="No proofs awaiting review." />
-            ) : (
-              <div className="space-y-3">
-                {pendingProofs.map((proof) => {
-                  const resident = residentById.get(proof.residentId);
-                  const name = resident
-                    ? `${resident.firstName} ${resident.lastName}`
-                    : "Resident";
-
-                  return (
-                    <div
-                      className="rounded-xl border border-border/70 bg-muted/10 p-3"
-                      key={proof.eventId}
-                    >
-                      <div className="flex items-start gap-3">
-                        {proof.evidenceAssetId ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            alt="Payment proof"
-                            className="size-12 rounded-lg object-cover"
-                            src={`/api/v1/files/${proof.evidenceAssetId}/url?variant=THUMBNAIL`}
-                          />
-                        ) : (
-                          <InitialsAvatar name={name} size="sm" tone="admin" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-foreground">{name}</p>
-                          <p className="text-xs font-semibold text-foreground">
-                            {currency(proof.amount)}
-                            {proof.method ? ` · ${proof.method}` : ""}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {proof.transactionCode ||
-                              proof.referenceNote ||
-                              "No txn code"}
-                          </p>
-
-                          {/* The checks a careful owner would run by eye. An
-                              amber one never blocks this button — they can see
-                              the screenshot and we cannot — it only keeps the
-                              row out of `Approve all`. */}
-                          {proof.checks?.length ? (
-                            <ul className="mt-2 space-y-0.5">
-                              {proof.checks.map((check) => (
-                                <li
-                                  className={`flex items-start gap-1.5 text-[11px] leading-4 ${
-                                    check.ok
-                                      ? "text-muted-foreground"
-                                      : "font-semibold text-amber-700 dark:text-amber-400"
-                                  }`}
-                                  key={check.key}
-                                >
-                                  {check.ok ? (
-                                    <Check className="mt-0.5 size-3 shrink-0" />
-                                  ) : (
-                                    <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                                  )}
-                                  {check.detail}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-
-                          {rejectingId === proof.eventId ? (
-                            <div className="mt-2 space-y-2">
-                              <FormSelect
-                                label="Reason"
-                                name={`reason-${proof.eventId}`}
-                                onChange={(event) => {
-                                  const code = event.target
-                                    .value as keyof typeof CLAIM_REJECTION_REASONS;
-
-                                  if (code) {
-                                    void reviewProof(
-                                      proof.eventId,
-                                      "reject",
-                                      CLAIM_REJECTION_REASONS[code],
-                                    );
-                                  }
-                                }}
-                              >
-                                <option value="">Choose a reason…</option>
-                                {Object.entries(CLAIM_REJECTION_REASONS).map(
-                                  ([code, label]) => (
-                                    <option key={code} value={code}>
-                                      {label}
-                                    </option>
-                                  ),
-                                )}
-                              </FormSelect>
-                              <Button
-                                className="h-7 w-full rounded-lg"
-                                onClick={() => setRejectingId("")}
-                                size="sm"
-                                type="button"
-                                variant="outline"
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          ) : null}
-
-                          <div className="mt-2 flex gap-2">
-                            <Button
-                              className="h-8 flex-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-600/90"
-                              onClick={() => void reviewProof(proof.eventId, "approve")}
-                              size="sm"
-                              type="button"
-                            >
-                              <Check className="size-3.5" />
-                              Approve
-                            </Button>
-                            <Button
-                              className="h-8 flex-1 rounded-lg"
-                              onClick={() => setRejectingId(proof.eventId)}
-                              size="sm"
-                              type="button"
-                              variant="destructive"
-                            >
-                              <X className="size-3.5" />
-                              Reject
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </SectionCard>
-        </div>
       </div>
+
+      {reviewingProof ? (
+        <ProofReviewModal
+          onApprove={() => void reviewProof(reviewingProof.eventId, "approve")}
+          onClose={() => setReviewingId("")}
+          onReject={(reason) =>
+            void reviewProof(reviewingProof.eventId, "reject", reason)
+          }
+          proof={reviewingProof}
+          residentName={
+            residentById.get(reviewingProof.residentId)
+              ? `${residentById.get(reviewingProof.residentId)!.firstName} ${
+                  residentById.get(reviewingProof.residentId)!.lastName
+                }`
+              : (reviewingProof.residentName ?? "Resident")
+          }
+        />
+      ) : null}
+
+      {trackResidentId ? (
+        <ResidentPaymentTrackSheet
+          onClose={() => setTrackResidentId("")}
+          residentId={trackResidentId}
+        />
+      ) : null}
     </div>
   );
 });

@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   eventFindOneAndUpdate: vi.fn(),
   findCurrentResident: vi.fn(),
   invoiceFind: vi.fn(),
+  invoiceFindById: vi.fn(),
   invoiceFindOne: vi.fn(),
   markReferralConverted: vi.fn(),
   notifyAdmins: vi.fn(),
@@ -75,7 +76,11 @@ vi.mock("@hostel/db/models/InvoiceBalance", () => ({
 }));
 
 vi.mock("@hostel/db/models/Invoice", () => ({
-  InvoiceModel: { find: mocks.invoiceFind, findOne: mocks.invoiceFindOne },
+  InvoiceModel: {
+    find: mocks.invoiceFind,
+    findById: mocks.invoiceFindById,
+    findOne: mocks.invoiceFindOne,
+  },
 }));
 
 vi.mock("@hostel/db/models/PaymentEvent", () => ({
@@ -151,17 +156,25 @@ beforeEach(() => {
     created: true,
     event: { _id: eventId, status: "PENDING" },
   });
-  mocks.eventFindOne.mockReturnValue(
-    chain({
-      _id: eventId,
-      amount: 5000,
-      confirmation: "UNCONFIRMED",
-      hostelId,
-      invoiceId,
-      occurredAt: new Date(),
-      residentId,
-      status: "PENDING",
-    }),
+  // Filter-aware: the review path looks a claim up by id, while the submit path
+  // uses the same method to ask whether this evidence or transaction id has been
+  // seen before (§11.3). A blanket claim would make every submission in this
+  // file read as a duplicate.
+  mocks.eventFindOne.mockImplementation((filter: Record<string, unknown>) =>
+    chain(
+      "evidenceHash" in filter || "rawPayload.transactionCode" in filter
+        ? null
+        : {
+            _id: eventId,
+            amount: 5000,
+            confirmation: "UNCONFIRMED",
+            hostelId,
+            invoiceId,
+            occurredAt: new Date(),
+            residentId,
+            status: "PENDING",
+          },
+    ),
   );
   mocks.settleEvent.mockResolvedValue({
     balance: { outstanding: 7000, settledAmount: 5000 },

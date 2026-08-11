@@ -52,6 +52,16 @@ const fileAssetSchema = new Schema(
      * Absent for anything that is not a decodable image.
      */
     perceptualHash: String,
+    /**
+     * Set when the uploaded bytes are a document *this system* generated — a
+     * receipt or a statement (plan item 3.4 follow-on).
+     *
+     * Recorded at upload rather than enforced there: the file itself is
+     * perfectly legitimate to store, and a resident may have good reason to
+     * upload their own receipt somewhere. What it may never be is *evidence of
+     * payment*, and that rule belongs to the finance module, which reads this.
+     */
+    systemDocumentKind: { type: String, enum: ["RECEIPT", "STATEMENT"] },
     variants: { type: [variantSchema], default: [] },
     status: { type: String, enum: ["ACTIVE", "DELETED"], default: "ACTIVE" },
     createdBy: { ref: "User", type: Schema.Types.ObjectId },

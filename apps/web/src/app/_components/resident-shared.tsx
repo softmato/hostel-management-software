@@ -71,6 +71,9 @@ export type Payment = {
   id: string;
   month: string;
   paidAmount: number;
+  /** The receipt for this month, when one exists and has not been voided. */
+  receiptId?: string | null;
+  receiptNumber?: string | null;
   status: "UNPAID" | "PAID" | "PARTIAL" | "OVERDUE" | "PENDING_PROOF";
 };
 

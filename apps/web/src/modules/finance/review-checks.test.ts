@@ -15,6 +15,7 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { Role } from "@/lib/roles";
 
 const mocks = vi.hoisted(() => ({
+  assetFind: vi.fn(),
   audit: vi.fn(),
   balanceFind: vi.fn(),
   eventFind: vi.fn(),
@@ -45,6 +46,10 @@ vi.mock("@/modules/finance/payment-event.service", () => ({
 
 vi.mock("@/modules/referrals/referral.service", () => ({
   markReferralConverted: mocks.markReferralConverted,
+}));
+
+vi.mock("@hostel/db/models/FileAsset", () => ({
+  FileAssetModel: { find: mocks.assetFind },
 }));
 
 vi.mock("@hostel/db/models/Invoice", () => ({
@@ -115,7 +120,9 @@ function greenEvent(overrides: Record<string, unknown> = {}) {
     invoiceId,
     occurredAt: new Date(),
     provider: "ESEWA",
-    rawPayload: {},
+    // Quoting the invoice's code is part of what "passes every check" means now
+    // that the REFERENCE check actually reads what the resident submitted.
+    rawPayload: { transactionCode: "EDU-0001-F" },
     residentId,
     reviewFlags: [],
     status: "PENDING",
@@ -125,6 +132,7 @@ function greenEvent(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.assetFind.mockReturnValue(chain([]));
   mocks.invoiceFind.mockReturnValue(chain([invoice]));
   mocks.balanceFind.mockReturnValue(chain([]));
   mocks.residentFind.mockReturnValue(
@@ -192,6 +200,70 @@ describe("claimChecks", () => {
     expect(checks.find((check) => check.key === "REFERENCE")?.ok).toBe(false);
   });
 
+  it("passes only when the resident quoted this invoice's code", () => {
+    const checks = claimChecks(greenEvent(), invoice, { settled: 0 });
+    const reference = checks.find((check) => check.key === "REFERENCE");
+
+    expect(reference?.ok).toBe(true);
+    expect(reference?.detail).toContain("EDU-0001-F");
+  });
+
+  it("reads the code out of the free-text note as well as the txn id", () => {
+    // Residents put it wherever there is a box. The statement matcher already
+    // scans free text for codes; the claim check now uses the same extractor.
+    const checks = claimChecks(
+      greenEvent({ rawPayload: { referenceNote: "paid rent, ref edu-0001-f" } }),
+      invoice,
+      { settled: 0 },
+    );
+
+    expect(checks.find((check) => check.key === "REFERENCE")?.ok).toBe(true);
+  });
+
+  it("flags a claim that quoted nothing", () => {
+    // The regression this whole check exists for: it used to be
+    // `Boolean(invoice.referenceCode)`, so this row was green and swept by
+    // `Approve all` without anybody having quoted anything.
+    const checks = claimChecks(
+      greenEvent({ rawPayload: {} }),
+      invoice,
+      { settled: 0 },
+    );
+    const reference = checks.find((check) => check.key === "REFERENCE");
+
+    expect(reference?.ok).toBe(false);
+    expect(reference?.detail).toContain("Did not quote");
+  });
+
+  it("flags a claim quoting another invoice's code", () => {
+    // The valuable amber: August's rent paid quoting July's reference is the
+    // commonest way money lands against the wrong month.
+    const checks = claimChecks(
+      greenEvent({ rawPayload: { transactionCode: "EDU-0002-P" } }),
+      invoice,
+      { settled: 0 },
+    );
+    const reference = checks.find((check) => check.key === "REFERENCE");
+
+    expect(reference?.ok).toBe(false);
+    expect(reference?.detail).toContain("EDU-0002-P");
+    expect(reference?.detail).toContain("EDU-0001-F");
+  });
+
+  it("ignores a mistyped code rather than accepting it", () => {
+    // Extraction verifies the check character, so a transposed code is not a
+    // code at all and must not read as "quoted the wrong invoice".
+    const checks = claimChecks(
+      greenEvent({ rawPayload: { transactionCode: "EDU-0001-Q" } }),
+      invoice,
+      { settled: 0 },
+    );
+
+    expect(checks.find((check) => check.key === "REFERENCE")?.detail).toContain(
+      "Did not quote",
+    );
+  });
+
   it("flags evidence that looks like an earlier screenshot", () => {
     const checks = claimChecks(
       greenEvent({ reviewFlags: ["SIMILAR_EVIDENCE"] }),
@@ -216,6 +288,18 @@ describe("claimChecks", () => {
 });
 
 describe("listReviewQueue", () => {
+  it("drops a claim whose resident has been deleted", async () => {
+    // Approving it would move money for somebody removed from the product, and
+    // it would make the queue disagree with the pending count above it.
+    mocks.eventFind.mockReturnValue(chain([greenEvent()]));
+    mocks.residentFind.mockReturnValue(chain([]));
+
+    await expect(listReviewQueue(hostelId)).resolves.toEqual([]);
+    expect(mocks.residentFind).toHaveBeenCalledWith(
+      expect.objectContaining({ isDeleted: { $ne: true } }),
+    );
+  });
+
   it("marks a clean row all-green", async () => {
     mocks.eventFind.mockReturnValue(chain([greenEvent()]));
 
