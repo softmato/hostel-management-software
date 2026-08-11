@@ -1,48 +1,34 @@
 import Papa from "papaparse";
 
+import { tableFromGrid } from "@/modules/finance/statements/parsers/grid";
 import {
+  type StatementTable,
   StatementParseError,
-  normalizeHeader,
 } from "@/modules/finance/statements/parsers/types";
 
 /**
  * CSV reading shared by every provider parser.
  *
- * Two things here are not incidental:
- *
- * **Preamble skipping.** Wallet and bank exports routinely open with title and
- * account-summary lines before the real header — eSewa's begins with the account
- * name and a date range. Papaparse given such a file takes the title row as the
- * header and returns a table of nonsense with no error at all, which is exactly
- * the silent-partial-read this module exists to prevent. So the header row is
- * located by looking for a column the parser says it needs, and everything above
- * it is dropped.
+ * The file is parsed **without** papaparse's header mode and handed to
+ * {@link tableFromGrid} as a plain grid. That indirection is what lets a CSV and
+ * an `.xls` of the same statement produce byte-identical rows: header location,
+ * preamble skipping and column alignment all happen in one place instead of
+ * once per format.
  *
  * **Errors are fatal.** Papaparse reports malformed rows and carries on. Here
  * any error, on any row, fails the whole file (target §6.4).
  */
 
-export type CsvTable = {
-  headers: string[];
-  rows: Record<string, string>[];
-};
-
 const MAX_PREAMBLE_LINES = 25;
 
-/**
- * Reads a CSV whose header row contains at least one of `requiredAliases`.
- *
- * `requiredAliases` is how the preamble is told apart from the header, so it
- * must name a column the provider always emits, not an optional one.
- */
-export function readCsv(text: string, requiredAliases: string[]): CsvTable {
-  const withoutBom = text.replace(/^﻿/, "");
-  const body = stripPreamble(withoutBom, requiredAliases);
+export function readCsv(text: string, headerAnchors: string[]): StatementTable {
+  return tableFromGrid(gridFromCsv(text), headerAnchors);
+}
 
-  const parsed = Papa.parse<Record<string, string>>(body, {
-    header: true,
-    skipEmptyLines: "greedy",
-    transformHeader: (header) => header.trim(),
+function gridFromCsv(text: string): string[][] {
+  const parsed = Papa.parse<string[]>(stripBom(text), {
+    header: false,
+    skipEmptyLines: false,
   });
 
   // Every error, including a field-count mismatch on a single row. Papaparse
@@ -58,57 +44,11 @@ export function readCsv(text: string, requiredAliases: string[]): CsvTable {
     );
   }
 
-  const headers = (parsed.meta.fields ?? []).filter((field) => field.trim() !== "");
-
-  if (headers.length === 0) {
-    throw new StatementParseError("This file has no column headers.");
-  }
-
-  const rows = parsed.data.filter((row) =>
-    Object.values(row).some((value) => (value ?? "").trim() !== ""),
-  );
-
-  if (rows.length === 0) {
-    throw new StatementParseError("This statement has no transaction rows.");
-  }
-
-  return { headers, rows };
+  return parsed.data.map((row) => (row ?? []).map((cell) => String(cell ?? "")));
 }
 
-/**
- * Drops title and summary lines above the header row.
- *
- * Bounded to the first {@link MAX_PREAMBLE_LINES} lines: past that, a file that
- * still has no recognisable header is not a statement with a long preamble, it
- * is the wrong file — and scanning a 10,000-row export for a header that is not
- * there would find a false one eventually.
- */
-function stripPreamble(text: string, requiredAliases: string[]): string {
-  const wanted = new Set(requiredAliases.map(normalizeHeader));
-  const lines = text.split(/\r?\n/);
-  const limit = Math.min(lines.length, MAX_PREAMBLE_LINES);
-
-  for (let index = 0; index < limit; index += 1) {
-    const line = lines[index]!;
-
-    if (line.trim() === "") {
-      continue;
-    }
-
-    // Parse the single line so quoted commas inside a header are handled the
-    // same way the real parse will handle them.
-    const cells = (Papa.parse<string[]>(line).data[0] ?? []).map((cell) =>
-      normalizeHeader(String(cell)),
-    );
-
-    if (cells.some((cell) => wanted.has(cell))) {
-      return lines.slice(index).join("\n");
-    }
-  }
-
-  throw new StatementParseError(
-    "No recognisable column header was found in this file. The statement format may have changed.",
-  );
+function stripBom(text: string): string {
+  return text.replace(/^﻿/, "");
 }
 
 /**
@@ -120,8 +60,7 @@ function stripPreamble(text: string, requiredAliases: string[]): string {
  * CSV-shaped complaint from here would bury that.
  */
 export function peekHeaders(text: string): string[] {
-  const withoutBom = text.replace(/^﻿/, "");
-  const lines = withoutBom.split(/\r?\n/).slice(0, MAX_PREAMBLE_LINES);
+  const lines = stripBom(text).split(/\r?\n/).slice(0, MAX_PREAMBLE_LINES);
   const headers: string[] = [];
 
   for (const line of lines) {

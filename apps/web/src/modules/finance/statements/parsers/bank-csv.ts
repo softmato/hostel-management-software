@@ -1,8 +1,8 @@
-import { readCsv } from "@/modules/finance/statements/parsers/csv";
 import {
   type StatementParser,
   type StatementRow,
   StatementParseError,
+  classifyRow,
   findColumn,
   hasAnyColumn,
   parseAmount,
@@ -93,19 +93,34 @@ export const BANK_CSV_PARSER: StatementParser = {
       hasAnyColumn(headers, BANK_MARKERS)
     );
   },
-  label: "bank statement (CSV)",
-  parse(text) {
-    const { rows } = readCsv(text, DATE_ALIASES);
+  headerAnchors: DATE_ALIASES,
+  label: "bank statement",
+  parseTable({ rows }) {
     const seen = new Map<string, number>();
+    const parsed: StatementRow[] = [];
 
-    return rows.map((row, index) => {
+    rows.forEach((row, index) => {
       const rowNumber = index + 1;
+
+      // Bank exports close with a totals line as reliably as the wallets do,
+      // and no transaction id means the date column is what tells them apart.
+      if (
+        classifyRow(row, { dateAliases: DATE_ALIASES, idAliases: [] }, rowNumber) ===
+        "FOOTER"
+      ) {
+        return;
+      }
+
       const occurredAt = parseStatementDate(
         requireColumn(row, DATE_ALIASES, rowNumber, "date"),
         rowNumber,
       );
-      const deposit = findColumn(row, DEPOSIT_ALIASES);
-      const withdrawal = findColumn(row, WITHDRAWAL_ALIASES);
+      // A zero in one side of a Deposit/Withdrawal pair means "not this side".
+      // Exports are split on whether they leave the unused column blank or
+      // write `0.00`, and reading the second kind literally makes every row
+      // look like it holds both.
+      const deposit = nonZero(findColumn(row, DEPOSIT_ALIASES));
+      const withdrawal = nonZero(findColumn(row, WITHDRAWAL_ALIASES));
 
       if (deposit && withdrawal) {
         throw new StatementParseError(
@@ -122,10 +137,10 @@ export const BANK_CSV_PARSER: StatementParser = {
       }
 
       const narration = findColumn(row, NARRATION_ALIASES);
-      const parsed = parseAmount(deposit ?? withdrawal!, rowNumber);
+      const money = parseAmount(deposit ?? withdrawal!, rowNumber);
 
-      return {
-        amount: parsed.amount,
+      parsed.push({
+        amount: money.amount,
         // A bank narration is the payer's name *and* their message run together;
         // the ladder searches both fields, so it goes in both rather than being
         // split on a guess about where one ends.
@@ -135,19 +150,34 @@ export const BANK_CSV_PARSER: StatementParser = {
         providerTxnId:
           findColumn(row, TXN_ID_ALIASES) ??
           deriveTxnId(
-            { amount: parsed.amount, narration, occurredAt },
+            { amount: money.amount, narration, occurredAt },
             findColumn(row, BALANCE_ALIASES),
             seen,
           ),
         raw: row,
         remarks: narration,
         rowNumber,
-      } satisfies StatementRow;
+      } satisfies StatementRow);
     });
+
+    if (parsed.length === 0) {
+      throw new StatementParseError("This statement has no transaction rows in it.");
+    }
+
+    return parsed;
   },
   provider: "BANK",
-  version: "bank-csv@1",
+  version: "bank@2",
 };
+
+/** `"0.00"`, `"0"` all mean the column is not the one in play. */
+function nonZero(value: string | null): string | null {
+  if (value === null) return null;
+
+  const numeric = Number(value.replace(/[,\s]/g, ""));
+
+  return Number.isFinite(numeric) && numeric === 0 ? null : value;
+}
 
 /**
  * A stable identifier for a bank row that carries no reference number.

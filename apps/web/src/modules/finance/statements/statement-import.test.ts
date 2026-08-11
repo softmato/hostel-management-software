@@ -196,7 +196,7 @@ describe("importing a statement", () => {
       provider: "ESEWA",
     });
 
-    expect(summary.parserVersion).toBe("esewa-csv@1");
+    expect(summary.parserVersion).toBe("esewa@2");
   });
 
   it("records the upload time, which is what the nudge banner reads", async () => {

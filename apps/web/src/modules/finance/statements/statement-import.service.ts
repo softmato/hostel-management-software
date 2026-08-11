@@ -18,6 +18,10 @@ import { appendEvent, settleEvent } from "@/modules/finance/payment-event.servic
 import { withRun } from "@/modules/finance/reconciliation/run-recorder";
 import { resolveParser } from "@/modules/finance/statements/parsers/registry";
 import {
+  type StatementBytes,
+  readStatementTable,
+} from "@/modules/finance/statements/parsers/source";
+import {
   type StatementProvider,
   type StatementRow,
   StatementParseError,
@@ -99,11 +103,11 @@ export async function importStatement(input: {
   let parserVersion: string;
 
   try {
-    const text = await readStatementText(asset);
-    const parser = resolveParser(input.provider, text);
+    const source = await readStatementBytes(asset);
+    const parser = resolveParser(input.provider, source);
 
     parserVersion = parser.version;
-    rows = parser.parse(text);
+    rows = parser.parseTable(readStatementTable(source, parser.headerAnchors));
   } catch (error) {
     const detail =
       error instanceof StatementParseError || error instanceof FinanceServiceError
@@ -419,7 +423,14 @@ async function loadStatementAsset(
   return asset;
 }
 
-async function readStatementText(asset: StatementAsset): Promise<string> {
+/**
+ * The stored object as raw bytes.
+ *
+ * Deliberately **not** decoded to text here: a `.xls` is a binary compound file
+ * and a `.xlsx` is a zip, so decoding before the format is known would corrupt
+ * both beyond recovery. The format is decided from magic bytes downstream.
+ */
+async function readStatementBytes(asset: StatementAsset): Promise<StatementBytes> {
   const object = await getR2Client().send(
     new GetObjectCommand({ Bucket: asset.bucket, Key: asset.key }),
   );
@@ -429,5 +440,5 @@ async function readStatementText(asset: StatementAsset): Promise<string> {
     throw new StatementParseError("The uploaded statement could not be read back.");
   }
 
-  return Buffer.from(bytes).toString("utf8");
+  return { bytes: Buffer.from(bytes), fileName: asset.fileName ?? null };
 }

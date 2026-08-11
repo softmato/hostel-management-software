@@ -21,7 +21,60 @@ export const DEFAULT_DOCUMENT_MIME_TYPES = [
    * and an owner should not have their monthly statement bounced over it.
    */
   "text/csv",
+  /**
+   * The formats the wallets actually hand out. eSewa's export is a legacy BIFF8
+   * `.xls` and Khalti's is an `.xlsx`, so a CSV-only allowlist meant every owner
+   * had to open the file and re-save it before they could reconcile — a step
+   * that in practice ends with the reconciling not happening.
+   *
+   * Only the two specific spreadsheet types. `application/octet-stream` is
+   * **deliberately not here**: a browser with no Excel installed reports that
+   * (or nothing at all) for a `.xls`, but adding it would let any binary
+   * whatsoever through every document upload on the platform — payment proofs
+   * and identity documents included — since the stored content type is still
+   * only the client's word. The gap is closed at the other end instead, by
+   * `mimeTypeForStatement` labelling the file from its extension before
+   * presign.
+   */
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
+
+/**
+ * The MIME type a statement upload should declare, given the file's name.
+ *
+ * Browsers are unreliable here in a way that matters: a `.xls` picked on a
+ * machine without Excel installed is reported as `application/octet-stream` or
+ * as the empty string, and a `.csv` is `text/csv` on some platforms and
+ * `text/plain` on others. Rejecting those would bounce a perfectly good
+ * statement, and widening the allowlist to `application/octet-stream` to
+ * accommodate them would open every document upload on the platform to
+ * arbitrary binaries.
+ *
+ * So the extension decides, and only for extensions the reconcile screen asks
+ * for. The label is still just a label — nothing downstream trusts it, because
+ * `statements/parsers/source.ts` reads the real format out of the file's magic
+ * bytes — but it keeps the door policy narrow and honest instead of open.
+ */
+export function mimeTypeForStatement(
+  fileName: string,
+  browserType?: string,
+): string | null {
+  const extension = fileName.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+
+  switch (extension) {
+    case "csv":
+      return "text/csv";
+    case "xls":
+      return "application/vnd.ms-excel";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    default:
+      // An extension this screen never asked for. Hand back whatever the
+      // browser said and let the normal allowlist refuse it.
+      return browserType?.trim() ? browserType : null;
+  }
+}
 
 /**
  * Every MIME type the platform accepts anywhere, deduped. This is the list the

@@ -41,21 +41,44 @@ export type StatementParseResult = {
   rows: StatementRow[];
 };
 
+/**
+ * A statement reduced to a header row and its data rows.
+ *
+ * **This is the seam that makes the file format irrelevant.** CSV, `.xls` and
+ * `.xlsx` all arrive here as the same table, so the row-mapping below — which is
+ * where every provider quirk and every safety check lives — is written once. The
+ * alternative, a parser per provider per format, is nine places for the same
+ * "cancelled transactions do not count" rule to drift apart in.
+ */
+export type StatementTable = {
+  headers: string[];
+  rows: Record<string, string>[];
+};
+
 export type StatementParser = {
   /**
    * Whether this parser recognises the file, judged from its header row alone.
    *
-   * Kept separate from `parse` so an unrecognised format fails with "no parser
-   * recognises this file" before any row is read, rather than as a confusing
-   * error about row 3.
+   * Kept separate from `parseTable` so an unrecognised format fails with "no
+   * parser recognises this file" before any row is read, rather than as a
+   * confusing error about row 3.
    */
   detect(headers: string[]): boolean;
+  /**
+   * Column spellings that mark the header row.
+   *
+   * Exports open with title and account-summary lines, so the header has to be
+   * *found* rather than assumed to be line one. These must name columns the
+   * provider always emits — an optional column here would match a summary line
+   * and take the preamble as the table.
+   */
+  headerAnchors: string[];
   /** Human name for the picker and for error messages. */
   label: string;
-  parse(text: string): StatementRow[];
+  parseTable(table: StatementTable): StatementRow[];
   provider: StatementProvider;
   /**
-   * `esewa-csv@1`. Stored on the import, so "which parser produced these rows?"
+   * `esewa@2`. Stored on the import, so "which parser produced these rows?"
    * is answerable after the code has moved on (target §6.4).
    */
   version: string;
@@ -75,9 +98,26 @@ export class StatementParseError extends FinanceServiceError {
   }
 }
 
-/** Header keys compared without case, spacing or punctuation. */
+/**
+ * Header keys compared without case, spacing or punctuation.
+ *
+ * **A standalone `+` or `-` survives as a word, and that is load-bearing.**
+ * Khalti's real export names its two money columns `Amount(-) Rs` and
+ * `Amount(+) Rs`; stripping all punctuation collapses both to `amountrs`, and
+ * since lookups go through a map keyed on the normalised name, the credit column
+ * would silently overwrite the debit one. Every outgoing payment would then read
+ * as money received.
+ *
+ * Only a *standalone* sign is kept — one with no letter or digit on either side,
+ * as in `(-)`. A hyphen joining two words (`Debit-Amount`) is still punctuation
+ * and is still stripped, so it goes on matching the alias `Debit Amount`.
+ */
 export function normalizeHeader(header: string): string {
-  return header.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return header
+    .toLowerCase()
+    .replace(/(?<![a-z0-9])\+(?![a-z0-9])/g, "plus")
+    .replace(/(?<![a-z0-9])-(?![a-z0-9])/g, "minus")
+    .replace(/[^a-z0-9]/g, "");
 }
 
 /**
@@ -129,6 +169,155 @@ export function hasAnyColumn(headers: string[], aliases: string[]): boolean {
   const normalized = new Set(headers.map(normalizeHeader));
 
   return aliases.some((alias) => normalized.has(normalizeHeader(alias)));
+}
+
+/**
+ * Statuses that mean the money actually moved.
+ *
+ * An allowlist, not a blocklist of the failures seen in one export. A status
+ * nobody has seen before must stop the import and get a human's attention —
+ * treating an unknown status as settled is how a new `REVERSED` quietly starts
+ * paying off invoices the day a provider introduces it.
+ *
+ * Shared rather than written per provider on purpose: "a cancelled transaction
+ * does not settle an invoice" is the single most consequential rule in this
+ * directory, and it must not be able to drift between eSewa and Khalti.
+ */
+const SETTLED_STATUSES = new Set([
+  "complete",
+  "completed",
+  "success",
+  "successful",
+]);
+
+/** Statuses that legitimately appear and are simply not money. */
+const UNSETTLED_STATUSES = new Set([
+  "cancel",
+  "canceled",
+  "cancelled",
+  "expired",
+  "fail",
+  "failed",
+  "initiated",
+  "pending",
+  "processing",
+  "refunded",
+  "reversed",
+  "timeout",
+]);
+
+/**
+ * Whether this row represents money that actually moved.
+ *
+ * An export with no status column at all is treated as settled — some older
+ * exports have none, and every row in those is a completed transaction.
+ */
+export function isSettledRow(
+  row: Record<string, string>,
+  statusAliases: string[],
+  rowNumber: number,
+): boolean {
+  const status = findColumn(row, statusAliases);
+
+  if (!status) {
+    return true;
+  }
+
+  const normalized = status.toLowerCase().replace(/[^a-z]/g, "");
+
+  if (SETTLED_STATUSES.has(normalized)) {
+    return true;
+  }
+
+  if (UNSETTLED_STATUSES.has(normalized)) {
+    return false;
+  }
+
+  throw new StatementParseError(
+    `Row ${rowNumber} has a status this parser does not recognise ("${status}"), so it cannot tell whether the money moved.`,
+    rowNumber,
+  );
+}
+
+/**
+ * Labels a provider puts in the first column of a footer block.
+ *
+ * eSewa's export closes with a `Total` row inside the table and then a
+ * status tally (`Total 6`, `Pending 0`, `Complete 6`, `canceled 0`, `Time out
+ * 0`). None of it is a transaction, and the `Total` row in particular carries
+ * real-looking amounts — reading it would invent a credit equal to the whole
+ * month's takings.
+ */
+const SUMMARY_LABELS = new Set([
+  "balance",
+  "canceled",
+  "cancelled",
+  "closingbalance",
+  "complete",
+  "completed",
+  "expired",
+  "failed",
+  "grandtotal",
+  "openingbalance",
+  "pending",
+  "subtotal",
+  "summary",
+  "timeout",
+  "total",
+]);
+
+/**
+ * How a row below the header should be treated.
+ *
+ * The three outcomes are deliberate and there is no fourth. A row is a
+ * transaction, or it is recognisably part of a footer, or **the file stops being
+ * read**. What must never happen is a row quietly dropped for looking odd: the
+ * dropped rows would be indistinguishable from residents who never paid, which
+ * is the failure this whole directory is built around (target §6.4).
+ *
+ * The distinction that carries the weight is between eSewa's totals row — blank
+ * reference, blank date, but amounts present — and a genuine transaction that
+ * lost its id. Both have money on them; only the second has a date. So a row
+ * with no identifier is footer *only* while it also has no date, and is an error
+ * otherwise.
+ */
+export function classifyRow(
+  row: Record<string, string>,
+  options: { dateAliases: string[]; idAliases: string[] },
+  rowNumber: number,
+): "DATA" | "FOOTER" {
+  const id = findColumn(row, options.idAliases);
+  const date = findColumn(row, options.dateAliases);
+  const firstValue = Object.values(row).find((value) => value.trim() !== "");
+
+  // Checked first, and that ordering is the whole trick. eSewa's tally block
+  // reads `Total | 6`, whose two cells land under the reference and date
+  // columns — so by every structural test it looks like a transaction, and only
+  // the label gives it away. A real transaction cannot collide with this: the
+  // first populated cell of one is its reference code, never the word "total".
+  if (firstValue !== undefined && SUMMARY_LABELS.has(normalizeHeader(firstValue))) {
+    return "FOOTER";
+  }
+
+  // Bank exports frequently carry no transaction id at all — the bank parser
+  // derives one — so for those the date alone decides. Passing no id aliases is
+  // how a parser declares that.
+  if (options.idAliases.length === 0) {
+    if (date) return "DATA";
+  } else if (id && date) {
+    return "DATA";
+  }
+
+  if (!id && !date) {
+    return "FOOTER";
+  }
+
+  throw new StatementParseError(
+    date
+      ? `Row ${rowNumber} has a date but no transaction id, so this file was not fully understood.`
+      : `Row ${rowNumber} has a transaction id but no readable date, so this file was not fully understood.`,
+    rowNumber,
+  );
 }
 
 /**

@@ -1,7 +1,10 @@
 import { BANK_CSV_PARSER } from "@/modules/finance/statements/parsers/bank-csv";
-import { peekHeaders } from "@/modules/finance/statements/parsers/csv";
-import { ESEWA_CSV_PARSER } from "@/modules/finance/statements/parsers/esewa-csv";
+import { ESEWA_PARSER } from "@/modules/finance/statements/parsers/esewa";
 import { KHALTI_CSV_PARSER } from "@/modules/finance/statements/parsers/khalti-csv";
+import {
+  type StatementBytes,
+  peekStatementHeaders,
+} from "@/modules/finance/statements/parsers/source";
 import {
   type StatementParser,
   type StatementProvider,
@@ -26,12 +29,22 @@ import {
 
 /** The parser each provider's new uploads go through. */
 export const CURRENT_PARSERS: StatementParser[] = [
-  ESEWA_CSV_PARSER,
+  ESEWA_PARSER,
   KHALTI_CSV_PARSER,
   BANK_CSV_PARSER,
 ];
 
-/** Every parser that has ever produced a stored import, current ones included. */
+/**
+ * Every parser that has ever produced a stored import, current ones included.
+ *
+ * **The `@1` generation is deliberately absent rather than retained.** It was
+ * written against assumed column shapes, and when the first real eSewa export
+ * arrived it could not read it — wrong id column, `0.0` in the unused Dr/Cr
+ * side, a totals row inside the table, and no notion of a cancelled
+ * transaction. A parser that never successfully read a provider's file cannot
+ * have produced a stored import, so there is nothing for it to keep re-readable
+ * and keeping it would only offer a broken parser to a future re-parse.
+ */
 const PARSER_VERSIONS: StatementParser[] = [...CURRENT_PARSERS];
 
 export function parserByVersion(version: string): StatementParser | null {
@@ -56,7 +69,7 @@ export function currentParserFor(
  */
 export function resolveParser(
   provider: StatementProvider,
-  text: string,
+  source: StatementBytes,
 ): StatementParser {
   const parser = currentParserFor(provider);
 
@@ -66,7 +79,7 @@ export function resolveParser(
     );
   }
 
-  const headers = peekHeaders(text);
+  const headers = peekStatementHeaders(source);
 
   if (!parser.detect(headers)) {
     const recognisedBy = CURRENT_PARSERS.filter(

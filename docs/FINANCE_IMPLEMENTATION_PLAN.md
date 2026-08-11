@@ -594,7 +594,7 @@ that the item's acceptance statement was **observed** to be true.
 | 1 — Foundations | 1.1–1.5 | **5 / 5** | ☑ Complete |
 | 2 — Ledger refactor | 2.1–2.8 | **8 / 8** | ☑ Complete, contract included |
 | 3 — Tier 0 screens | 3.1–3.5 | **5 / 5** | ☑ Complete — §5.7 vocabulary outstanding |
-| 4 — Tier 0.5 reconciliation | 4.1–4.5 | **5 / 5** | ☑ Complete — PDF parsing deferred to 4b |
+| 4 — Tier 0.5 reconciliation | 4.1–4.6 | **6 / 6** | ☑ Complete — XLS/XLSX in; PDF parsing deferred to 4b |
 | 5 — Reliability | 5.1–5.3 | **3 / 3** | ☑ Complete |
 | 6 — Tier 1 gateway | 6.0–6.8 | **8 / 9** | ☐ 6.0–6.7 done; eSewa and Khalti settle, monitor and reconcile. Only 6.8 (Fonepay) waits on merchant credentials |
 | 7 — Deferred | — | — | Not scheduled |
@@ -1748,6 +1748,71 @@ this amount".
 that sells the product: 41 residents, 3 decisions, ~90 seconds.
 **☑ 4.4** Khalti and bank CSV parsers. PDF parsing deferred (4b).
 **☑ 4.5** Upload nudge banner when `lastStatementUploadAt` exceeds `statementCadenceDays`.
+**☑ 4.6** XLS/XLSX statement upload, and the parser rewrite the first real export forced.
+
+**4.6 landed 2026-08-10, and it is the item that says the most about 4.1–4.4.**
+The first genuine eSewa export arrived as a legacy BIFF8 `.xls` — not a CSV, and
+not an HTML table wearing an `.xls` name. Khalti's is an `.xlsx`. Owners were
+being asked to open the file and re-save it before every reconciliation, which
+is the kind of step that ends with the reconciliation not happening.
+
+**The formats were the smaller half.** Run against the real file, the `@1`
+parsers could not read a single row, and each failure was a silent-wrong-answer
+risk rather than a crash:
+
+| Real export | `@1` assumption | What would have happened |
+|---|---|---|
+| id column is `Reference Code` | not in the alias list | file refused as unrecognised |
+| unused Dr/Cr side is `0.0`, not blank | blank | every row "has both a credit and a debit" |
+| a `Total` row sits **inside** the table | no such row | a fabricated credit the size of the period's takings |
+| a `Status` column, with `Pending`/`canceled`/`Time out` | no status concept | **a cancelled transaction settling a resident's invoice** |
+
+The fixtures the `@1` parsers passed against were invented from an assumed
+shape. That is the lesson worth carrying into 4b and Block 6: a golden-file test
+is only golden if the file came from the provider.
+
+*Shipped:* `parsers/grid.ts` (one header-location and preamble-skip path for
+every format), `parsers/workbook.ts` (SheetJS, `.xls` + `.xlsx`),
+`parsers/source.ts` (format chosen by **magic bytes**, never the filename or the
+client's MIME type), `classifyRow` in `types.ts` (the totals-row guard), and
+`parsers/esewa.ts` at `esewa@2`. Khalti and bank move to `@2` for the contract
+change and both gain the same zero-column and footer handling.
+
+`StatementParser.parse(text)` became `parseTable(table)`. That seam is the point:
+CSV, `.xls` and `.xlsx` produce byte-identical rows because they share one
+row-mapping path, instead of nine places for "cancelled does not count" to drift.
+
+**The `@1` generation was removed, not retained.** The re-parse guarantee exists
+so a stored import stays readable; a parser that never successfully read a real
+export cannot have produced one.
+
+**eSewa wallet statements structurally cannot carry a reference code** — the
+export has no remarks field at all, only a `Description` reading "Fund
+Transferred by Suman Tamang". Tier A of the ladder is therefore unavailable for
+this provider and the payer's name is lifted from the description so matching
+can reach Tier C. The reconcile screen should not imply otherwise.
+
+*Verified:* 16 tests in `esewa.test.ts` against an anonymised copy of the real
+export in all three formats, nine of them asserting a refusal; the real
+unmodified `.xls` was also parsed end to end (6 transactions, correct
+directions, Kathmandu wall clock). Full suite 1,308 passing, typecheck and lint
+clean.
+
+**Dependency:** `xlsx@0.20.3` from `cdn.sheetjs.com`, not npm. The registry copy
+is stuck at 0.18.5 with two unpatched advisories (prototype pollution
+CVE-2023-30533, ReDoS CVE-2024-22363); SheetJS ships fixes only from their own
+CDN. The URL is pinned in `apps/web/package.json` and the resolved tarball hash
+is in the lockfile, so an install cannot silently drift — but a build host that
+cannot reach that CDN will fail to install, and the fix then is to vendor the
+tarball into the repo rather than to fall back to 0.18.5.
+
+`application/octet-stream` was **deliberately kept out** of the document MIME
+allowlist. A `.xls` picked on a machine without Excel reports as octet-stream or
+as nothing, but allowing it would open every document upload on the platform —
+payment proofs and identity documents included — to arbitrary binaries, since
+the stored content type is still only the client's word. The reconcile screen
+relabels the file from its extension before presign instead
+(`mimeTypeForStatement`).
 
 Parser rules, non-negotiable: fail loudly on an unrecognised format rather than
 partially parsing. A statement that reads 60 of 84 rows and says nothing is worse
