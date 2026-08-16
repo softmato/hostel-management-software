@@ -17,6 +17,7 @@ export function idCardIssuedEmail(input: {
   const card = `${input.cardLabel} ID card`;
 
   return {
+    category: "info",
     subject: `Your ${input.siteName} ${card}`,
     html: emailLayout({
       heading: `Your ${card}`,

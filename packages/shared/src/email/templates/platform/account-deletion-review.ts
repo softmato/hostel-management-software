@@ -24,6 +24,7 @@ export function accountDeletionReviewEmail(input: {
     : escapeHtml(input.requesterEmail);
 
   return {
+    category: "alert",
     subject: `Account deletion request from ${input.requesterName ?? input.requesterEmail}`,
     html: emailLayout({
       heading: "Account deletion request needs review",

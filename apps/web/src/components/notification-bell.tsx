@@ -2,13 +2,13 @@
 
 import { Bell, CheckCheck, ChevronRight, Loader2, Zap } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useRealtime } from "@/components/realtime-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   TONE_CHIP,
@@ -58,7 +58,12 @@ function ActionButtons({
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-9">
+    // The row itself navigates now, so the buttons must swallow their clicks —
+    // deciding inline should never also open the page behind the decision.
+    <div
+      className="mt-2 flex flex-wrap items-center gap-1.5 pl-9"
+      onClick={(event) => event.stopPropagation()}
+    >
       {notification.actions.map((action) => (
         <Button
           className="h-7 px-2.5 text-[11px] font-semibold"
@@ -118,9 +123,10 @@ function NotificationRow({
 }) {
   const display = notificationDisplay(notification.category);
   const Icon = display.icon;
-  // A row with buttons must not navigate when its body is clicked — the whole
-  // point of the inline action is deciding without leaving the page.
-  const navigable = !notification.needsAction && Boolean(notification.actionUrl);
+  // Every row with a destination opens it, including the ones carrying inline
+  // actions — those buttons stop their own clicks, so the body stays a link to
+  // the page where the request can be seen in full.
+  const navigable = Boolean(notification.actionUrl);
 
   const body = (
     <>
@@ -216,6 +222,7 @@ export function NotificationBell({ href }: { href: string }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [busy, setBusy] = useState<string | null>(null);
+  const router = useRouter();
   const { clearLive, connected, liveNotifications } = useRealtime();
   const {
     actionCount,
@@ -262,6 +269,10 @@ export function NotificationBell({ href }: { href: string }) {
     }
 
     setOpen(false);
+
+    if (notification.actionUrl) {
+      router.push(notification.actionUrl);
+    }
   }
 
   return (
@@ -290,8 +301,11 @@ export function NotificationBell({ href }: { href: string }) {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-[22rem] p-0 sm:w-96">
-        <div className="flex items-center justify-between gap-2 px-3 pt-3">
+      <PopoverContent
+        align="end"
+        className="flex max-h-[min(32rem,var(--radix-popover-content-available-height))] w-[min(22rem,calc(100vw-1.5rem))] flex-col overflow-hidden p-0 sm:w-96"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-3">
           <div className="flex items-center gap-1.5">
             <p className="text-sm font-semibold text-foreground">Notifications</p>
             {connected ? (
@@ -318,7 +332,7 @@ export function NotificationBell({ href }: { href: string }) {
           ) : null}
         </div>
 
-        <div className="px-3 pt-2">
+        <div className="shrink-0 px-3 pt-2">
           <Tabs
             onValueChange={(value) => setFilter(value as NotificationFilter)}
             value={filter}
@@ -343,7 +357,10 @@ export function NotificationBell({ href }: { href: string }) {
           </Tabs>
         </div>
 
-        <ScrollArea className="mt-1 max-h-[22rem] px-1.5 py-1">
+        {/* A plain scroller, not ScrollArea: its viewport is height:100% of a
+            max-height parent, which resolves to auto — the list grew past the
+            popover instead of scrolling inside it. */}
+        <div className="mt-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 py-1">
           {notifications.length === 0 ? (
             <p className="px-2 py-8 text-center text-sm text-muted-foreground">
               {state === "loading"
@@ -368,9 +385,9 @@ export function NotificationBell({ href }: { href: string }) {
               ))}
             </div>
           )}
-        </ScrollArea>
+        </div>
 
-        <div className="border-t border-border p-1.5">
+        <div className="shrink-0 border-t border-border p-1.5">
           <Button asChild className="w-full text-[13px] font-semibold" size="sm" variant="ghost">
             <Link href={href} onClick={() => setOpen(false)}>
               View all notifications

@@ -18,6 +18,7 @@ import {
   publishResourceChange,
 } from "@/lib/realtime/server";
 import { normalizeObjectId } from "@/modules/residents/resident-access";
+import { dispatchPush } from "@/modules/notifications/push.service";
 import type { deviceTokenSaveSchema } from "@/modules/notifications/notification.validation";
 
 type DeviceTokenSaveInput = z.infer<typeof deviceTokenSaveSchema>;
@@ -113,17 +114,38 @@ function asRecord(document: unknown): NotificationRecord {
 }
 
 /**
- * Push a freshly written row to the recipient's socket, and refresh the panels
- * its category implies.
+ * Fan one freshly written row out to every live surface: the recipient's
+ * socket (open tab or foregrounded app), the panels its category implies, and
+ * their phones.
+ *
+ * This is the *only* place delivery happens, which is what keeps the three
+ * channels from drifting — a caller writes a notification and all three follow.
+ * Adding a push at each call site instead would guarantee that some of them
+ * eventually forgot.
  *
  * Wholly best-effort: the notification is already committed by the time this
- * runs, so nothing in here — a serialisation problem, an unreachable Pusher —
- * is allowed to propagate. The worst case is that the recipient sees the row on
- * their next poll instead of instantly.
+ * runs, so nothing in here — a serialisation problem, an unreachable Pusher,
+ * a dead Expo endpoint — is allowed to propagate. The worst case is that the
+ * recipient sees the row on their next poll instead of instantly.
  */
 async function publishNewNotification(userId: string, document: unknown, category: string) {
+  const record = asRecord(document);
+
+  // Not awaited: an Expo round trip can take seconds, and a user is waiting on
+  // the request that created this notification.
+  dispatchPush([userId], {
+    actionUrl: record.actionUrl,
+    body: record.body,
+    category,
+    data: record.data,
+    hostelId: record.hostelId?.toString(),
+    notificationId: record._id?.toString(),
+    priority: record.priority,
+    title: record.title,
+  });
+
   try {
-    await publishNotification(userId, serializeNotification(asRecord(document)));
+    await publishNotification(userId, serializeNotification(record));
 
     const topics = topicsForCategory(category);
 

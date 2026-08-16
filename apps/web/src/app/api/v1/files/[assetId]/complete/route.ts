@@ -2,6 +2,10 @@ import type { NextRequest } from "next/server";
 
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
+import {
+  inspectImage,
+  isInspectableImage,
+} from "@/lib/uploads/image-integrity";
 import { UploadVerificationError, verifyUploadedObject } from "@/lib/uploads/verify";
 import { computePerceptualHash, systemDocumentKind } from "@/modules/finance/evidence";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
@@ -82,6 +86,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
 
       throw error;
+    }
+
+    // An image that cannot be decoded is not an image, and storing one produces
+    // an asset every later screen renders as a broken-image icon — including the
+    // claim-review modal, where the reviewer saw "Screenshot attached" in green
+    // and no visible evidence at all. Rejected here, while the resident is still
+    // on the screen and can pick another file.
+    if (isInspectableImage(verified.mimeType)) {
+      const insight = await inspectImage(verified.bytes);
+
+      if (!insight) {
+        fileAsset.isDeleted = true;
+        fileAsset.status = "DELETED";
+        fileAsset.deletedAt = new Date();
+        await fileAsset.save();
+
+        return errorResponse(
+          "This image could not be opened — it may be damaged or incomplete. Please upload it again.",
+          "UPLOAD_IMAGE_UNDECODABLE",
+          422,
+        );
+      }
+
+      // Measured, not enforced: a blank image is a legal upload and an
+      // unusable payment proof, so the finance module decides.
+      fileAsset.imageInsight = insight;
     }
 
     fileAsset.contentHash = verified.contentHash;

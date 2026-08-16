@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth-cookies";
+import { isAuthBypassEnabled } from "@/lib/auth-bypass";
 import { verifyAccessToken } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import { HostelModel } from "@hostel/db/models/Hostel";
@@ -11,12 +12,7 @@ type WorkspaceHostel = {
   slug: string;
 };
 
-function isAuthBypassed() {
-  return (
-    process.env.NODE_ENV === "development" ||
-    process.env.NEXT_PUBLIC_UI_PREVIEW === "true"
-  );
-}
+const isAuthBypassed = isAuthBypassEnabled;
 
 /** Dev-only stand-in for "the hostels this session belongs to". */
 async function previewHostels(): Promise<WorkspaceHostel[]> {

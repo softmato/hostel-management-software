@@ -51,6 +51,7 @@ export function hostelApprovedEmail(input: {
     : [];
 
   return {
+    category: "info",
     subject: `Your hostel is approved — ${input.hostelName}`,
     html: emailLayout({
       heading: "Hostel approved 🎉",

@@ -11,6 +11,7 @@ export function serviceProviderApprovedEmail(input: {
   const siteName = escapeHtml(input.siteName);
 
   return {
+    category: "info",
     subject: `Your ${siteName} service provider listing is approved`,
     html: emailLayout({
       heading: "You are listed",

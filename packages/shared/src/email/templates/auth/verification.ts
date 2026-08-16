@@ -5,6 +5,7 @@ export function verificationEmail(input: {
   expiresInHours: number;
 }): EmailContent {
   return {
+    category: "security",
     subject: "Verify your email address",
     html: emailLayout({
       heading: "Verify your email",

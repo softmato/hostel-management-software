@@ -17,6 +17,46 @@ export const identitySchema = z.object({
   tagline: trimmed.max(160).default(""),
 });
 
+/**
+ * Who transactional email comes from (docs/EMAIL_SYSTEM.md §0).
+ *
+ * Every field is optional-with-a-blank-default on purpose: a blank falls back
+ * to something sensible rather than sending mail from an empty address.
+ * `senderName` falls back to the site name, `replyTo` to the support email,
+ * and each mailbox to its shipped local-part. So the platform owner can leave
+ * the whole section alone and still get correct, branded mail.
+ *
+ * `domain` is the one field with teeth. It must be a domain verified in Resend;
+ * anything else is not a cosmetic mistake, it is every email bouncing. It is
+ * editable here because a platform owner who moves off the shared Softmato
+ * domain has nowhere else to say so, but the UI labels the risk.
+ */
+const mailbox = trimmed
+  .max(40)
+  .regex(
+    /^$|^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i,
+    "Use the part before the @ only — letters, digits, dot, dash, underscore.",
+  )
+  .default("");
+
+export const emailSchema = z.object({
+  alertMailbox: mailbox,
+  billingMailbox: mailbox,
+  domain: trimmed
+    .max(120)
+    .regex(
+      /^$|^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i,
+      "Enter a bare domain such as softmato.com — no @, protocol, or path.",
+    )
+    .default(""),
+  infoMailbox: mailbox,
+  noreplyMailbox: mailbox,
+  replyTo: trimmed.email().or(z.literal("")).default(""),
+  securityMailbox: mailbox,
+  senderName: trimmed.max(60).default(""),
+  supportMailbox: mailbox,
+});
+
 export const heroSchema = z.object({
   headline: trimmed.min(1).max(120),
   primaryCtaHref: trimmed.max(200).default("/hostels"),
@@ -123,6 +163,7 @@ export const featuresSchema = z.object({
 
 export const siteConfigSectionSchemas = {
   announcement: announcementSchema,
+  email: emailSchema,
   facilities: facilitiesSchema,
   features: featuresSchema,
   hero: heroSchema,

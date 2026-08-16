@@ -2,6 +2,7 @@ import { jwtVerify } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth-cookies";
+import { isAuthBypassEnabled } from "@/lib/auth-bypass";
 import { landingPathForRole, protectedRouteRuleForPath } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
 
@@ -57,11 +58,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url, { status: 308 });
   }
 
-  /* 2. Skip auth in development / UI-preview mode */
-  if (
-    process.env.NODE_ENV === "development" ||
-    process.env.NEXT_PUBLIC_UI_PREVIEW === "true"
-  ) {
+  /* 2. Skip auth in development / UI-preview mode (never in production) */
+  if (isAuthBypassEnabled()) {
     return NextResponse.next();
   }
 

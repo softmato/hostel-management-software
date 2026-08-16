@@ -32,12 +32,14 @@ const mocks = vi.hoisted(() => ({
   eventFindOne: vi.fn(),
   eventFindOneAndUpdate: vi.fn(),
   findCurrentResident: vi.fn(),
+  hostelFindById: vi.fn(),
   invoiceFind: vi.fn(),
   invoiceFindById: vi.fn(),
   invoiceFindOne: vi.fn(),
   markReferralConverted: vi.fn(),
   notifyAdmins: vi.fn(),
   notifyReviewed: vi.fn(),
+  profileFindOne: vi.fn(),
   publish: vi.fn(),
   residentFind: vi.fn(),
   settleEvent: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock("@/modules/finance/audit-finance", () => ({ auditFinanceAction: mocks.au
 vi.mock("@/modules/finance/finance-notify", () => ({
   notifyAdminsOfClaim: mocks.notifyAdmins,
   notifyClaimReviewed: mocks.notifyReviewed,
+  notifyResidentOfClaim: vi.fn(),
 }));
 
 vi.mock("@/modules/finance/payment-event.service", () => ({
@@ -73,6 +76,15 @@ vi.mock("@hostel/db/models/FileAsset", () => ({
 // is now read on the submit path.
 vi.mock("@hostel/db/models/InvoiceBalance", () => ({
   InvoiceBalanceModel: { findOne: mocks.balanceFindOne },
+}));
+
+/** Read by the claim path's payee check — see `evidence-payee.ts`. */
+vi.mock("@hostel/db/models/HostelPaymentProfile", () => ({
+  HostelPaymentProfileModel: { findOne: mocks.profileFindOne },
+}));
+
+vi.mock("@hostel/db/models/Hostel", () => ({
+  HostelModel: { findById: mocks.hostelFindById },
 }));
 
 vi.mock("@hostel/db/models/Invoice", () => ({
@@ -125,10 +137,17 @@ const claimInput = {
   amount: 5000,
   paymentMethod: "ESEWA" as const,
   proofImageAssetId: assetId.toString(),
+  // Required for a wallet claim since gap fix 3: a claim with no reference can
+  // never be reconciled against the provider's own statement.
+  transactionCode: "8823119471",
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.profileFindOne.mockReturnValue(
+    chain({ displayName: "Sunrise Boys Hostel", esewaId: "9801234507" }),
+  );
+  mocks.hostelFindById.mockReturnValue(chain({ name: "Sunrise Boys Hostel" }));
   mocks.findCurrentResident.mockResolvedValue({ _id: residentId, hostelId });
   mocks.invoiceFindOne.mockReturnValue(
     chain({
@@ -150,6 +169,9 @@ beforeEach(() => {
     }),
   );
   mocks.assetFind.mockReturnValue(chain([]));
+  // The similarity pool and item E.8's rejected-id count both come through
+  // `find`; neither has anything to say in this file's fixtures.
+  mocks.eventFind.mockReturnValue(chain([]));
   mocks.balanceFindOne.mockReturnValue(chain(null));
   mocks.eventExists.mockResolvedValue(null);
   mocks.appendEvent.mockResolvedValue({
@@ -162,7 +184,11 @@ beforeEach(() => {
   // file read as a duplicate.
   mocks.eventFindOne.mockImplementation((filter: Record<string, unknown>) =>
     chain(
-      "evidenceHash" in filter || "rawPayload.transactionCode" in filter
+      // The third filter shape is the double-credit guard: "has a statement row
+      // already settled this claim's money?". Nothing has, in the default fixture.
+      "evidenceHash" in filter ||
+        "rawPayload.transactionCode" in filter ||
+        "rawPayload.claimEventId" in filter
         ? null
         : {
             _id: eventId,
@@ -229,14 +255,16 @@ describe("submitting a claim", () => {
     // block another resident's claim on a uniqueness collision.
     await submitClaim(
       invoiceId.toString(),
-      { ...claimInput, transactionCode: "TXN-1" },
+      { ...claimInput, transactionCode: "TXN-8823119" },
       principal,
     );
 
     const appended = mocks.appendEvent.mock.calls[0]![0];
 
     expect(appended.providerTxnId).toBeUndefined();
-    expect(appended.rawPayload.transactionCode).toBe("TXN-1");
+    // Stored exactly as typed, hyphen and all — canonicalisation is for
+    // comparing, never for rewriting what the resident said.
+    expect(appended.rawPayload.transactionCode).toBe("TXN-8823119");
   });
 
   it("refuses evidence owned by somebody else", async () => {
@@ -308,6 +336,68 @@ describe("submitting a claim", () => {
     expect(mocks.invoiceFindOne.mock.calls[0]![0]).toMatchObject({
       hostelId,
       residentId,
+    });
+  });
+});
+
+/**
+ * One transfer, two screens, one credit.
+ *
+ * The reconcile screen settles the statement row; this queue settles the claim.
+ * They are the same money whenever a claim named that transaction, and nothing
+ * connected the two actions — so a hostel that used both features credited one
+ * month's rent twice, against one invoice, with every row on screen looking
+ * correct.
+ */
+describe("a claim the statement import already credited", () => {
+  beforeEach(() => {
+    mocks.eventFindOne.mockImplementation((filter: Record<string, unknown>) =>
+      chain(
+        "rawPayload.claimEventId" in filter
+          ? { _id: new Types.ObjectId() }
+          : "evidenceHash" in filter || "rawPayload.transactionCode" in filter
+            ? null
+            : {
+                _id: eventId,
+                amount: 5000,
+                confirmation: "UNCONFIRMED",
+                hostelId,
+                invoiceId,
+                occurredAt: new Date(),
+                residentId,
+                status: "PENDING",
+              },
+      ),
+    );
+  });
+
+  it("refuses to settle it a second time", async () => {
+    await expect(approveClaim(eventId.toString(), principal)).rejects.toMatchObject({
+      errorCode: "CLAIM_ALREADY_REVIEWED",
+    });
+
+    expect(mocks.settleEvent).not.toHaveBeenCalled();
+  });
+
+  // The owner pressed approve on money that really did arrive, so the sentence
+  // says where it was recorded rather than implying the claim was wrong.
+  it("says the money is credited, not that the claim was bad", async () => {
+    await expect(approveClaim(eventId.toString(), principal)).rejects.toThrow(
+      /already recorded from your account statement/i,
+    );
+  });
+
+  it("looks for the link on the statement event, scoped to the hostel", async () => {
+    await approveClaim(eventId.toString(), principal).catch(() => {});
+
+    const call = mocks.eventFindOne.mock.calls.find(
+      ([filter]) => "rawPayload.claimEventId" in filter,
+    );
+
+    expect(call?.[0]).toMatchObject({
+      hostelId,
+      source: "STATEMENT_IMPORT",
+      status: "SETTLED",
     });
   });
 });

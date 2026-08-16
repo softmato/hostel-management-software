@@ -15,6 +15,7 @@ export function hostelDocumentsRequestedEmail(input: {
     .join("\n");
 
   return {
+    category: "info",
     subject: `Action needed on your hostel registration — ${input.hostelName}`,
     html: emailLayout({
       heading: "We need a few more documents",

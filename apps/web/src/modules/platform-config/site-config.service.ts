@@ -130,8 +130,13 @@ export async function updateSiteConfigSection(
 }
 
 /**
- * Public projection — drops nothing today, but keeps a single choke point for
- * anything that should stay owner-only if the config grows.
+ * Public projection — the choke point for anything that should stay owner-only.
+ *
+ * `email` is deliberately absent. It is the only section that is deployment
+ * plumbing rather than website content: the sending domain and the per-category
+ * mailboxes have no business being served to every visitor of the marketing
+ * site, and nothing public renders them. Server code that needs it reads it
+ * through `loadEmailIdentity()` instead.
  */
 export async function getPublicSiteConfig() {
   const config = await getSiteConfig();

@@ -6,6 +6,7 @@ export function serviceProviderRegistrationReceivedEmail(input: {
   fullName: string;
 }): EmailContent {
   return {
+    category: "info",
     subject: "We received your service provider registration",
     html: emailLayout({
       heading: "Registration received",

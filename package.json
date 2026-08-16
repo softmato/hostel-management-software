@@ -37,7 +37,11 @@
     "mobile:build:test": "npm --prefix apps/mobile run build:test",
     "web:seed:community": "npm --prefix apps/web run seed:community",
     "web:seed:community:clean": "npm --prefix apps/web run seed:community:clean",
-    "web:rotate:finance-key": "npm --prefix apps/web run rotate:finance-key"
+    "web:rotate:finance-key": "npm --prefix apps/web run rotate:finance-key",
+    "mobile:test": "npm --prefix apps/mobile run test",
+    "mobile:lint": "npm --prefix apps/mobile run lint",
+    "mobile:build:preview": "npm --prefix apps/mobile run build:preview",
+    "web:send:test-emails": "npm --prefix apps/web run send:test-emails --"
   },
   "devDependencies": {
     "turbo": "^2.5.0"

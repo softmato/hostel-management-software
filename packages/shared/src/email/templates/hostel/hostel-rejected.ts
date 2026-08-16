@@ -5,6 +5,7 @@ export function hostelRejectedEmail(input: {
   reason: string;
 }): EmailContent {
   return {
+    category: "info",
     subject: `Update on your hostel registration — ${input.hostelName}`,
     html: emailLayout({
       heading: "Registration not approved",

@@ -8,6 +8,7 @@ import { listResidentInvoices } from "@/modules/finance/ledger-read.service";
 import { renderReceiptPdf, renderStatementPdf } from "@/modules/finance/receipt-pdf";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
+import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { ReceiptCounterModel } from "@hostel/db/models/ReceiptCounter";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
@@ -71,6 +72,42 @@ export async function nextReceiptNumber(
 /** "YYYY-MM" from a date, in UTC, so a receipt's period does not depend on where it was issued. */
 export function periodOfDate(date: Date): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * The dates a monthly invoice's period covers — first day to last day, UTC.
+ *
+ * Derived rather than stored because `Invoice` holds `period` and nothing else:
+ * there is no `periodStart`/`periodEnd` on the model, and adding a pair of
+ * denormalised dates that must agree with the string forever is a worse trade
+ * than computing them where they are printed. Day 0 of the following month is the
+ * last day of this one, which is also how February and leap years come out right
+ * without a table.
+ *
+ * Returns null for anything that is not a `YYYY-MM` month. A one-off invoice — an
+ * admission fee, a deposit — covers no span, and a receipt for one is honest by
+ * omitting the line rather than by inventing a month it did not buy.
+ */
+export function periodCoverage(
+  period: string | null | undefined,
+): { from: Date; to: Date } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(period ?? "");
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+
+  if (month < 1 || month > 12) {
+    return null;
+  }
+
+  return {
+    from: new Date(Date.UTC(year, month - 1, 1)),
+    to: new Date(Date.UTC(year, month, 0)),
+  };
 }
 
 export type IssueReceiptInput = {
@@ -185,7 +222,7 @@ export async function renderReceiptById(
     throw new FinanceServiceError("Receipt was not found.", "RECEIPT_NOT_FOUND");
   }
 
-  const [hostel, resident, invoice] = await Promise.all([
+  const [hostel, resident, invoice, event] = await Promise.all([
     HostelModel.findOne({ _id: receipt.hostelId })
       .select("name")
       .lean<{ name?: string } | null>(),
@@ -197,13 +234,32 @@ export async function renderReceiptById(
           .select("period referenceCode")
           .lean<{ period?: string; referenceCode?: string } | null>()
       : null,
+    // Read at render time rather than snapshotted onto the receipt (item E.7).
+    // The confirmation level changes *after* the document is minted — that is the
+    // entire point of provisional credit — and a copy on the receipt would still
+    // be hedging weeks after the statement confirmed the money.
+    receipt.eventId
+      ? PaymentEventModel.findOne({ _id: receipt.eventId })
+          .select("confirmation")
+          .lean<{ confirmation?: string } | null>()
+      : null,
   ]);
+
+  const coverage = periodCoverage(invoice?.period);
 
   const bytes = await renderReceiptPdf({
     amount: receipt.amount,
+    coversFrom: coverage?.from ?? null,
+    coversTo: coverage?.to ?? null,
     hostelName: hostel?.name ?? "Hostel",
     invoicePeriod: invoice?.period ?? null,
     issuedAt: receipt.issuedAt,
+    // Only `MANUAL_REVIEW` hedges. A statement match and a gateway verification
+    // are both independent of the payer; an `UNCONFIRMED` event has no business
+    // holding a receipt at all, and a receipt with no event behind it predates
+    // the ledger — neither is a case for putting a warning on a resident's
+    // document about a distinction the product did not make when it was issued.
+    provisional: event?.confirmation === "MANUAL_REVIEW",
     receiptNumber: receipt.receiptNumber,
     referenceCode: invoice?.referenceCode ?? null,
     residentName:

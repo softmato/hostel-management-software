@@ -71,9 +71,20 @@ export type Payment = {
   id: string;
   month: string;
   paidAmount: number;
-  /** The receipt for this month, when one exists and has not been voided. */
-  receiptId?: string | null;
-  receiptNumber?: string | null;
+  /**
+   * Every receipt for this month that has not been voided, newest first.
+   *
+   * A list rather than one: there is a receipt per settled payment, so a month
+   * paid in instalments has several and the resident needs all of them.
+   */
+  receipts?: {
+    amount: number;
+    id: string;
+    issuedAt: string | null;
+    number: string;
+  }[];
+  /** This month's reference code — what the Resident Offer Program runs on. */
+  referenceCode?: string | null;
   status: "UNPAID" | "PAID" | "PARTIAL" | "OVERDUE" | "PENDING_PROOF";
 };
 
@@ -90,7 +101,7 @@ export type PaymentProof = {
   invoiceId: string | null;
   method?: string;
   referenceNote?: string | null;
-  rejectionReason?: string;
+  rejectionReason?: string | null;
   status: "PENDING" | "SETTLED" | "REJECTED";
   transactionCode?: string | null;
 };

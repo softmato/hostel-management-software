@@ -62,6 +62,24 @@ const fileAssetSchema = new Schema(
      * payment*, and that rule belongs to the finance module, which reads this.
      */
     systemDocumentKind: { type: String, enum: ["RECEIPT", "STATEMENT"] },
+    /**
+     * What the decoded image measures (gap fixes 2 and 3). Images only.
+     *
+     * Derived from the bytes at completion, because reading the object back a
+     * second time when a claim is submitted would double the storage round-trips
+     * on the one path a resident is actually waiting on.
+     *
+     * `nearBlank` is the load-bearing field, and it is *recorded* here rather
+     * than enforced: a 4×4 white PNG is a perfectly legal image and a
+     * meaningless proof of payment, so the rule belongs to the finance module —
+     * same division as `systemDocumentKind` above.
+     */
+    imageInsight: {
+      contrast: Number,
+      height: Number,
+      nearBlank: Boolean,
+      width: Number,
+    },
     variants: { type: [variantSchema], default: [] },
     status: { type: String, enum: ["ACTIVE", "DELETED"], default: "ACTIVE" },
     createdBy: { ref: "User", type: Schema.Types.ObjectId },

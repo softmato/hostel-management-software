@@ -6,7 +6,7 @@ import { isFinancialAssetKind } from "@/lib/file-asset-kinds";
 import { validateFileAssetMetadata } from "@/lib/file-assets";
 import { Role } from "@/lib/roles";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
-import { getPresignedUploadUrl, generateFileKey } from "@/lib/r2";
+import { bucketForAccessLevel, getPresignedUploadUrl, generateFileKey } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -88,7 +88,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bucket = process.env.R2_BUCKET_NAME ?? "hostelhub-uploads";
+    // The bucket follows the access level, not the caller: a PRIVATE asset must
+    // land somewhere with no public base URL. The previous form read one env var
+    // with a hardcoded `?? "hostelhub-uploads"` fallback, which on a
+    // misconfigured deployment presigned an upload to a bucket that did not
+    // exist and failed at the PUT rather than here.
+    const resolvedAccessLevel = accessLevel ?? "PRIVATE";
+    const bucket = bucketForAccessLevel(resolvedAccessLevel);
     const key = generateFileKey("uploads", fileName);
     const fileAsset = await FileAssetModel.create({
       storageProvider: "CLOUDFLARE_R2",
@@ -98,13 +104,13 @@ export async function POST(request: NextRequest) {
       hostelId: hostelId ?? undefined,
       mimeType,
       sizeBytes,
-      accessLevel: accessLevel ?? "PRIVATE",
+      accessLevel: resolvedAccessLevel,
       status: "ACTIVE",
       createdBy: principal.userId,
       ownerId: principal.userId,
     });
 
-    const presignedUrl = await getPresignedUploadUrl(key, mimeType, sizeBytes);
+    const presignedUrl = await getPresignedUploadUrl(bucket, key, mimeType, sizeBytes);
 
     return successResponse(
       {

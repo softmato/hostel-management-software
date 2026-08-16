@@ -11,6 +11,7 @@ export function cookPortalEnabledEmail(input: {
   loginUrl: string;
 }): EmailContent {
   return {
+    category: "security",
     subject: `Cook portal access — ${input.hostelName}`,
     html: emailLayout({
       heading: "Cook portal is ready",

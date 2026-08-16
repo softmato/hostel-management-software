@@ -58,6 +58,11 @@ Rotating either secret invalidates every live session.
 `OTP_RATE_LIMIT_MAX`, `OTP_HASH_SECRET`. All optional — sane defaults ship in
 code. `OTP_HASH_SECRET` falls back to `JWT_ACCESS_SECRET` when unset.
 
+**OTP delivery is email-only.** There is no SMS sender: no Twilio dependency, no
+code path that sends one, and the `SMS_OTP_PROVIDER` / `EMAIL_OTP_PROVIDER` /
+`TWILIO_*` variables that once appeared here have been removed because nothing
+read them. Phone signup is handled by the mobile app.
+
 ### Google sign-in
 
 | Variable | Required | Notes |
@@ -86,13 +91,36 @@ is the default and costs nothing.
 | Variable | Required | Notes |
 |---|---|---|
 | `R2_ENDPOINT` | **yes in production** | `https://<account-id>.r2.cloudflarestorage.com`. Note: the endpoint URL, not a bare `R2_ACCOUNT_ID`. |
-| `R2_ACCESS_KEY_ID` | **yes in production** | |
+| `R2_ACCESS_KEY_ID` | **yes in production** | Scope the token to these two buckets only, Object Read & Write. Not account-wide. |
 | `R2_SECRET_ACCESS_KEY` | **yes in production** | |
-| `R2_BUCKET_NAME` | **yes in production** | |
-| `R2_PUBLIC_URL` | **yes in production** | Public base URL for public assets (hostel photos, activation QR images). |
+| `R2_BUCKET_PUBLIC` | **yes in production** | Public access **enabled**. Hostel gallery photos, registration documents, activation QR images. |
+| `R2_BUCKET_PRIVATE` | **yes in production** | Public access **disabled** — no r2.dev URL, no custom domain. Payment proofs, identity documents, statements. |
+| `R2_KEY_PREFIX` | no | Folder this project owns inside buckets shared with other projects, e.g. `hostelproject`. Blank writes keys at the bucket root. |
+| `R2_PUBLIC_URL` | **yes in production** | Public base URL of `R2_BUCKET_PUBLIC` **and nothing else**. |
 
-All five must be set together — `lib/public-upload.ts` treats R2 as configured
-only when endpoint, key, bucket **and** public URL are all present. Without
+**Why two buckets, and why the private one must stay private.** A presigned URL
+carries the object key in its path. If private objects lived in a bucket with
+public access enabled — which the public bucket needs, to serve gallery photos —
+then anyone who was ever shown a signed link to a payment proof could strip the
+`X-Amz-*` query string and re-fetch the same key unsigned, permanently. The
+15-minute TTL would be decorative. Splitting the buckets removes the unsigned
+form of the request entirely, which is why `R2_BUCKET_PRIVATE` having no public
+base URL is a hard requirement rather than a preference.
+
+`accessLevel` decides placement: `PUBLIC` goes to the public bucket, `PRIVATE`
+and `PROTECTED` both go to the private one. `PROTECTED` means "authenticated and
+authorised", not "world-readable", and that check lives in the read route — a
+bucket with a public URL would make it bypassable.
+
+Each `fileAssets` row records the bucket it was written to, so reads resolve
+per-asset rather than from the environment and rows written before the split
+keep working. To move an existing deployment onto the pair, see
+`apps/web/scripts/migrate-r2-buckets.mjs` (`npm --prefix apps/web run
+migrate:r2-buckets -- --dry-run` first).
+
+The endpoint, key, secret and both bucket names must be set together —
+`lib/public-upload.ts` treats R2 as configured only when endpoint, key, the
+public bucket **and** public URL are all present. Without
 them it writes to `apps/web/public/uploads/` on local disk, which is fine for
 development and **will not work on Vercel** (read-only filesystem). Uploads
 degrade to `null` rather than throwing, so the QR email simply arrives without
@@ -103,8 +131,24 @@ an image. Provision R2 before production.
 | Variable | Required | Notes |
 |---|---|---|
 | `RESEND_API_KEY` | **yes in production** | Without it `sendEmail()` logs and no-ops instead of throwing. |
-| `EMAIL_FROM` | one of these | Full `Name <address>` header. Wins if set. |
-| `RESEND_FROM_NAME` + `RESEND_FROM_EMAIL` | one of these | Combined into `Name <address>` when `EMAIL_FROM` is absent. |
+| `EMAIL_DOMAIN` | recommended | The verified sending domain, e.g. `softmato.com`. Defaults to `softmato.com`. Must be verified **in Resend** — an unverified domain does not degrade, every email bounces. |
+| `EMAIL_REPLY_TO` | no | Overrides the reply address configured in the admin UI. |
+
+`EMAIL_FROM`, `RESEND_FROM_NAME` and `RESEND_FROM_EMAIL` are **gone**. They
+pinned every message in the product to one sender address, and the name half of
+them could contradict the site name the platform owner had configured — so the
+one thing a user sees on every email was the one thing they could not change.
+
+Everything about the sender except the domain now lives in the database, under
+**Website Config → Site Content → Email Sending**: display name, reply-to, and
+the local-part used for each category of message. The domain stays here because
+it is not a branding choice — it has to match what Resend verified for this
+deployment, and a settings form is where that gets mistyped.
+
+Mail goes out from a different mailbox depending on what it is — `info@`,
+`alert@`, `billing@`, `security@`, `support@`, `noreply@`. See
+[EMAIL_SYSTEM.md §0](EMAIL_SYSTEM.md) for the routing and for which of those
+also need an inbound forwarding alias.
 
 ### Seed / bootstrap
 
@@ -116,7 +160,8 @@ and by an existing superadmin in the portal; never by a public endpoint.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `CRON_SECRET` | **yes in production** | Protects all seven `/api/v1/cron/*` endpoints. A missing value makes them answer `500 CRON_NOT_CONFIGURED` — they never fall open. |
+| `CRON_SECRET` | **yes in production** | Protects all twelve `/api/v1/cron/*` endpoints. A missing value makes them answer `500 CRON_NOT_CONFIGURED` — they never fall open. |
+| `ACTIVATION_CODE_SECRET` | no | Signs resident QR activation codes. Falls back to `CRON_SECRET`, so set it separately if you ever intend to rotate the cron secret — otherwise that rotation invalidates every unredeemed activation code. |
 
 ### Resident identity encryption
 
@@ -185,116 +230,22 @@ than trusting an unauthenticated caller.
 
 ### Cookies, limits, logging
 
-`COOKIE_DOMAIN`, `COOKIE_SECURE`, `LOG_LEVEL`, `PUBLIC_FORM_RATE_LIMIT_MAX`
-(default 10), `PUBLIC_FORM_RATE_LIMIT_WINDOW_SECONDS` (default 60),
-`UPLOAD_MAX_IMAGE_BYTES` (default 5 MB), `UPLOAD_MAX_DOCUMENT_BYTES`
-(default 10 MB), `ALLOWED_IMAGE_MIME_TYPES`, `ALLOWED_DOCUMENT_MIME_TYPES`.
+`LOG_LEVEL`, `PUBLIC_FORM_RATE_LIMIT_MAX` (default 10),
+`PUBLIC_FORM_RATE_LIMIT_WINDOW_SECONDS` (default 60), `UPLOAD_MAX_IMAGE_BYTES`,
+`UPLOAD_MAX_DOCUMENT_BYTES`, `UPLOAD_MAX_VIDEO_BYTES`, `ALLOWED_IMAGE_MIME_TYPES`,
+`ALLOWED_DOCUMENT_MIME_TYPES`, `ALLOWED_VIDEO_MIME_TYPES`. Upload defaults live in
+`packages/shared/src/utils/file-assets.ts`; setting one **replaces** the default
+rather than extending it, so a partial MIME list narrows what may be uploaded.
 
-Session cookies set `secure` from `NODE_ENV === "production"` directly, so
-`COOKIE_SECURE` does not need to be set in production.
+There is no `COOKIE_DOMAIN` or `COOKIE_SECURE`. Both were listed here and read by
+nothing. Session cookies are host-only and set `secure` from
+`NODE_ENV === "production"` directly, which needs no configuration.
 
-### Firebase (Phase 6 only)
+### Push notifications (Phase 6)
 
-`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` — leave
-blank until mobile push is built. See the note in §9.
+No Firebase variables. Push goes through the Expo push service, which accepts
+both Expo and raw FCM tokens, so no `FIREBASE_*` credential is read anywhere.
 
----
-
-## 3. Secrets Handling
-
-**Never commit:** `.env`, `google-services.json` / `GoogleService-Info.plist`,
-anything holding a real key.
-
-**Always commit:** `.env.example`.
-
-**Server-only** (never exposed to a client bundle): `MONGODB_URI`,
-`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `OTP_HASH_SECRET`,
-`R2_SECRET_ACCESS_KEY`, `R2_ACCESS_KEY_ID`, `RESEND_API_KEY`, `CRON_SECRET`,
-`PERSONAL_DATA_ENCRYPTION_KEY`, `FINANCE_MASTER_KEY`,
-`FINANCE_MASTER_KEY_PREVIOUS`, every `*_SANDBOX_SECRET` and
-`*_SANDBOX_WEBHOOK_SECRET`, `GOOGLE_MAPS_API_KEY`, every `*_API_KEYS` list,
-`QUESTIONCALL_*_SECRET`, `FIREBASE_PRIVATE_KEY`.
-
-**Client-accessible** (must carry the `NEXT_PUBLIC_` prefix):
-`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`,
-`NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`.
-
-Only `NEXT_PUBLIC_*` variables may reach the browser. `next.config.ts` also
-explicitly re-exports `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_ID`
-through its `env` block — the latter is a public client ID, not a secret.
-
----
-
-## 4. Local Setup
-
-```bash
-# 1. Clone and install (npm workspaces — one install covers every workspace)
-git clone <repo-url>
-cd hostel-management-software
-npm install
-
-# 2. Environment
-cp .env.example .env
-# Fill in at minimum: MONGODB_URI, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET,
-# APP_URL, NEXT_PUBLIC_APP_URL, SEED_SUPERADMIN_EMAIL, SEED_SUPERADMIN_PASSWORD
-
-# 3. Seed the initial SUPERADMIN account
-npm run db:seed
-
-# 4. Run the web app
-npm run web:dev            # http://localhost:3000
-```
-
-MongoDB: create the Atlas cluster (or run locally), whitelist your IP, put the
-connection string in `MONGODB_URI`.
-
-R2: create the bucket, generate API tokens, set the five `R2_*` vars, configure
-CORS for your domain in the Cloudflare dashboard.
-
-Resend: sign up, set `RESEND_API_KEY`, and verify your sending domain before
-production.
-
-Google sign-in: create an OAuth 2.0 **Web application** client ID and put the
-same value in `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_ID`. Add your
-origin to *Authorized JavaScript origins*. There is no redirect URI to register
-and no client secret to store.
-
----
-
-## 5. Commands
-
-Run from the repo root.
-
-| Command | Purpose |
-|---|---|
-| `npm run web:dev` | Next dev server |
-| `npm run web:build` | Production build |
-| `npm run web:test` | Vitest suite |
-| `npm run web:lint` | ESLint |
-| `npm run web:format` | Prettier write |
-| `npm --prefix apps/web run typecheck` | `tsc --noEmit` |
-| `npm run db:seed` | Create/refresh the SUPERADMIN account |
-| `npm run web:seed:demo` | Seed demo hostel data |
-| `npm run web:recover:admin` | Recover a locked-out admin account |
-| `npm run web:deploy:check` | Production build as a pre-deploy gate |
-| `npm run dev` / `build` / `lint` / `test` / `typecheck` | Same across every workspace via Turborepo |
-| `npm run mobile:start` | Expo dev server (`apps/mobile`) |
-| `npm run mobile:typecheck` | Mobile `tsc --noEmit` |
-
-Maintenance scripts: `npm run web:check:private-documents`,
-`npm run web:backfill:resident-accounts`,
-`npm run web:repair:archived-residents`, and
-`npm --prefix apps/web run migrate:rooms-to-counts`.
-
-One-shot legacy role migration:
-
-```bash
-node --experimental-transform-types packages/db/src/migrate-roles.ts
-```
-
----
-
-## 6. Production Deployment (Vercel)
 
 ### Prerequisites
 - Vercel account
@@ -318,21 +269,36 @@ node --experimental-transform-types packages/db/src/migrate-roles.ts
    `APP_URL` and `NEXT_PUBLIC_APP_URL` must be the real domain — every email
    link is built from them.
 
+   > **Set them before the build, not just for the runtime.** `siteUrl()` falls
+   > back to `http://localhost:3000`, and `/privacy`, `/terms`, `/pricing`,
+   > `/about` and `/resident-offer-program` are prerendered at build time. A
+   > build that runs without `APP_URL` bakes `localhost` into those pages'
+   > canonical URLs, `robots.txt` and `sitemap.xml` — and because the pages
+   > render perfectly well, nothing fails; you find out from search results.
+   > Vercel exposes environment variables to the build, so this only bites when
+   > a variable is scoped to the wrong environment.
+
 4. **Schedule the cron jobs on [cron-job.org](https://cron-job.org).**
 
    > **This project does not use Vercel Cron and has no `vercel.json`.** An
    > earlier draft of this document told you to create one with four
    > `/api/cron/*` paths. Those paths do not exist. The real endpoints are the
-   > seven below, and `docs/CRON.md` is the authoritative reference for what each
-   > one does and why its schedule is what it is.
+   > twelve below, and `docs/CRON.md` is the authoritative reference for what
+   > each one does and why its schedule is what it is.
 
    Every job: method `POST`, no query parameters, and a header
    `x-cron-secret: <CRON_SECRET>` (cron-job.org → job → *Advanced* → *Headers*).
    A secret in a URL leaks into access logs, so the query-param form is not
    accepted.
 
+   **`billing-cycle` is the one that must not be skipped.** It is the single
+   path that issues each month's invoices — without it the finance module has
+   nothing to reconcile, chase or receipt, and the failure is silent: no error,
+   simply no invoice, first noticed when residents are not billed.
+
    | Endpoint | Suggested schedule |
    |---|---|
+   | `POST /api/v1/cron/billing-cycle` | monthly, 1st — `0 1 1 * *` |
    | `POST /api/v1/cron/purge-expired-otps` | daily — `0 3 * * *` |
    | `POST /api/v1/cron/payment-reminders` | daily — `0 2 * * *` |
    | `POST /api/v1/cron/complaint-sla` | daily — `0 4 * * *` |
@@ -340,6 +306,19 @@ node --experimental-transform-types packages/db/src/migrate-roles.ts
    | `POST /api/v1/cron/refresh-nearby-places` | hourly — `0 * * * *` |
    | `POST /api/v1/cron/notification-dispatch` | every 15 min — `*/15 * * * *` |
    | `POST /api/v1/cron/account-purge` | daily — `0 3 * * *` |
+   | `POST /api/v1/cron/ledger-drift` | nightly — `0 3 * * *` |
+   | `POST /api/v1/cron/gateway-expiry-sweep` | every 5 min — `*/5 * * * *` |
+   | `POST /api/v1/cron/gateway-health` | daily — `30 6 * * *` |
+   | `POST /api/v1/cron/gateway-settlement-recon` | weekly, Mon — `0 4 * * 1` |
+
+   The last four are only meaningful once a hostel has enabled an online
+   gateway or uploaded a statement, but schedule them now regardless — each is
+   a no-op until there is something to do, and a reconciliation job added after
+   the fact starts with a blind spot behind it.
+
+   `gateway-expiry-sweep` wants every 5 minutes; confirm your cron-job.org tier
+   allows that cadence. Every 15 minutes still works and only leaves stale
+   checkout attempts on a resident's screen longer.
 
 5. **Deploy.** Vercel builds on push to `main`; PRs get preview deployments.
 
@@ -351,7 +330,9 @@ node --experimental-transform-types packages/db/src/migrate-roles.ts
 - [ ] Hostel registration submits and appears in the approval queue
 - [ ] File uploads reach R2 (not the local-disk fallback)
 - [ ] Emails deliver — check the Resend dashboard
-- [ ] Each cron job returns 200 with the secret and 401 without it
+- [ ] Each cron job returns 200 with the secret and 401 without it — all twelve
+- [ ] `sitemap.xml` and `robots.txt` show the real domain, not `localhost`
+- [ ] A payment proof's URL, with its `X-Amz-*` query string removed, returns 404
 - [ ] MongoDB connection stable — check Atlas metrics
 
 ---
@@ -434,9 +415,13 @@ check the Resend dashboard. With no key configured `sendEmail()` logs and
 returns without throwing, so the feature that triggered it will look like it
 succeeded.
 
-**R2 uploads failing** — all five `R2_*` variables must be present or the code
-silently uses the local-disk fallback. Check CORS in Cloudflare and that the
-bucket name matches.
+**R2 uploads failing** — the endpoint, key, secret and **both** bucket names
+must be present or the code falls back to local disk, which does not survive a
+Vercel deploy. Check CORS in Cloudflare and that both bucket names match.
+
+**A private document opens without signing in** — `R2_PUBLIC_URL` is pointing at
+the private bucket, or the private bucket has public access enabled. Either
+re-creates the hole the split was built to close.
 
 **Cron returns `500 CRON_NOT_CONFIGURED`** — `CRON_SECRET` is not set in the
 deployed environment.

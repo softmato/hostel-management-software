@@ -24,7 +24,10 @@ const mocks = vi.hoisted(() => ({
   eventFind: vi.fn(),
   invoiceFind: vi.fn(),
   invoiceUpdateOne: vi.fn(),
+  profileFindOne: vi.fn(),
   receiptFind: vi.fn(),
+  residentFind: vi.fn(),
+  userFind: vi.fn(),
   runCreate: vi.fn(),
   runUpdateOne: vi.fn(),
 }));
@@ -42,6 +45,15 @@ vi.mock("@hostel/db/models/CreditBalance", async (importOriginal) => ({
 }));
 vi.mock("@hostel/db/models/Hostel", () => ({
   HostelModel: { find: vi.fn() },
+}));
+vi.mock("@hostel/db/models/HostelPaymentProfile", () => ({
+  HostelPaymentProfileModel: { findOne: mocks.profileFindOne },
+}));
+vi.mock("@hostel/db/models/Resident", () => ({
+  ResidentModel: { find: mocks.residentFind },
+}));
+vi.mock("@hostel/db/models/User", () => ({
+  UserModel: { find: mocks.userFind },
 }));
 vi.mock("@hostel/db/models/Invoice", () => ({
   InvoiceModel: { find: mocks.invoiceFind, updateOne: mocks.invoiceUpdateOne },
@@ -91,7 +103,11 @@ const db = {
   expiredEvents: [] as Record<string, unknown>[],
   invoices: [] as Record<string, unknown>[],
   receipts: [] as Record<string, unknown>[],
+  residents: [] as Record<string, unknown>[],
   settledEvents: [] as Record<string, unknown>[],
+  /** Approved claims no statement has confirmed — item E.6. */
+  unconfirmedClaims: [] as Record<string, unknown>[],
+  users: [] as Record<string, unknown>[],
 };
 
 /** One invoice, one settled credit of the full amount, and a live receipt. */
@@ -115,6 +131,9 @@ function healthy() {
   db.audit = [];
   db.credits = [];
   db.expiredEvents = [];
+  db.residents = [];
+  db.unconfirmedClaims = [];
+  db.users = [];
 }
 
 function wireModels() {
@@ -123,9 +142,17 @@ function wireModels() {
   mocks.receiptFind.mockImplementation(() => chain(db.receipts));
   mocks.auditFind.mockImplementation(() => chain(db.audit));
   mocks.creditFind.mockImplementation(() => chain(db.credits));
+  mocks.profileFindOne.mockImplementation(() => chain({ statementCadenceDays: 7 }));
+  mocks.residentFind.mockImplementation(() => chain(db.residents));
+  mocks.userFind.mockImplementation(() => chain(db.users));
   mocks.eventFind.mockImplementation((filter: Record<string, unknown>) => {
     if (filter.expiresAt) {
       return chain(db.expiredEvents);
+    }
+
+    // Item E.6: approved claims still waiting for a statement to carry them.
+    if (filter.confirmation === "MANUAL_REVIEW") {
+      return chain(db.unconfirmedClaims);
     }
 
     // The receipt check asks "which of these event ids are settled?".
@@ -274,6 +301,73 @@ describe("the six checks", () => {
 
     expect(recordedFindings().map((one) => one.code)).toContain(
       DRIFT_CODES.EXPIRY_UNSWEPT,
+    );
+  });
+});
+
+/**
+ * Item E.6 — the check that looks for a forged screenshot rather than a
+ * half-written document.
+ *
+ * The service does the date arithmetic, so these fix `now` and let the query
+ * filter be the assertion: the mock returns whatever it is asked for, and what
+ * is being verified is the *cutoff* the service asks with and the sentence it
+ * writes about what comes back.
+ */
+describe("approved claims no statement has confirmed", () => {
+  const claimId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c7");
+  const wardenId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c8");
+
+  function approvedClaim(settledAt: Date) {
+    db.unconfirmedClaims = [
+      { _id: claimId, amount: 8000, residentId, reviewedBy: wardenId, settledAt },
+    ];
+    db.residents = [{ _id: residentId, firstName: "Bishal", lastName: "Rai" }];
+    db.users = [{ _id: wardenId, name: "Warden Gurung" }];
+  }
+
+  it("names the resident, the amount and the warden who approved it", async () => {
+    approvedClaim(new Date(2026, 6, 20));
+
+    await runLedgerDriftForHostel(hostelId, { now: NOW });
+
+    const finding = recordedFindings().find(
+      (one) => one.code === DRIFT_CODES.CLAIM_UNCONFIRMED,
+    );
+
+    expect(finding).toBeDefined();
+    expect(finding?.detail).toContain("Bishal Rai");
+    expect(finding?.detail).toContain("8000");
+    expect(finding?.detail).toContain("Warden Gurung");
+  });
+
+  it("asks for settlements older than twice the hostel's statement cadence", async () => {
+    mocks.profileFindOne.mockImplementation(() =>
+      chain({ statementCadenceDays: 10 }),
+    );
+
+    await runLedgerDriftForHostel(hostelId, { now: NOW });
+
+    const filter = mocks.eventFind.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((one) => one.confirmation === "MANUAL_REVIEW");
+
+    // 20 days before `now`, not 10: one cadence is the shortest honest wait, so
+    // the grace period is two.
+    expect((filter?.settledAt as { $lt: Date }).$lt).toEqual(new Date(2026, 6, 31));
+    expect(filter?.reversedByEventId).toBeNull();
+  });
+
+  it("says nothing about a settlement inside the grace period", async () => {
+    approvedClaim(new Date(2026, 7, 18));
+    // The service filters by date in the query, so an in-window claim is one the
+    // database never returns.
+    db.unconfirmedClaims = [];
+
+    await runLedgerDriftForHostel(hostelId, { now: NOW });
+
+    expect(recordedFindings().map((one) => one.code)).not.toContain(
+      DRIFT_CODES.CLAIM_UNCONFIRMED,
     );
   });
 });

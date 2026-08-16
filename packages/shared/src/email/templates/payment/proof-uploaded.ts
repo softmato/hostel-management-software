@@ -37,6 +37,7 @@ export function paymentProofUploadedEmail(input: {
   ].filter((line): line is string => line !== null);
 
   return {
+    category: "billing",
     subject: `Payment proof to verify — ${input.residentName} · ${monthName(input.month)}`,
     html: emailLayout({
       heading: "New payment proof submitted",

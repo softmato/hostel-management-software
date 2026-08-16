@@ -23,6 +23,7 @@ export function paymentReversedEmail(input: {
   const forPeriod = input.period ? ` for <strong>${escapeHtml(monthName(input.period))}</strong>` : "";
 
   return {
+    category: "billing",
     subject: `Payment reversed${input.period ? ` — ${input.period}` : ""} · ${input.hostelName}`,
     html: emailLayout({
       heading: "A payment was reversed",

@@ -389,6 +389,8 @@ function normalizeUserId(value: string) {
 
 type PhotoAssetRecord = {
   _id: Types.ObjectId;
+  /** Which bucket the object is in — rows predate the public/private split. */
+  bucket: string;
   key: string;
   mimeType: string;
   ownerId?: Types.ObjectId | null;
@@ -446,7 +448,7 @@ export async function setResidentIdentityPhoto(userId: string, photoAssetId: str
     isDeleted: { $ne: true },
     status: "ACTIVE",
   })
-    .select("key mimeType ownerId")
+    .select("bucket key mimeType ownerId")
     .lean<PhotoAssetRecord | null>();
 
   if (!asset) {
@@ -562,7 +564,7 @@ export async function readResidentIdentityPhoto(userId: string) {
     isDeleted: { $ne: true },
     status: "ACTIVE",
   })
-    .select("key mimeType")
+    .select("bucket key mimeType")
     .lean<PhotoAssetRecord | null>();
 
   if (!asset) {
@@ -576,7 +578,9 @@ export async function readResidentIdentityPhoto(userId: string) {
   // Covers both "R2 is not configured" and "R2 is having a bad day": either way
   // the card falls back to initials rather than failing to render at all.
   try {
-    const response = await fetch(await getPresignedReadUrl(asset.key));
+    // The bucket comes off the asset, not the environment: rows written before
+    // the public/private split still name the bucket they were stored in.
+    const response = await fetch(await getPresignedReadUrl(asset.bucket, asset.key));
 
     if (!response.ok || !response.body) {
       throw new Error(`Storage answered ${response.status}`);

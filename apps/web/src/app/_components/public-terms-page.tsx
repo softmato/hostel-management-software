@@ -14,7 +14,7 @@ import {
   Mail,
 } from "lucide-react";
 
-const buildSections = (siteName: string) => [
+const buildSections = (siteName: string, supportEmail: string) => [
   {
     icon: FileText,
     title: "Acceptance of Terms",
@@ -96,7 +96,7 @@ const buildSections = (siteName: string) => [
     icon: Mail,
     title: "Contact & Support",
     content: [
-      "For questions about these terms, contact us at support@hostelhub.com.",
+      `For questions about these terms, contact us at ${supportEmail}.`,
       `Legal notices should be sent to: ${siteName} Legal, Kathmandu, Nepal.`,
       "Response times for legal inquiries are typically within 5–7 business days.",
       "For urgent platform issues, use the in-app support system for fastest resolution.",
@@ -105,9 +105,10 @@ const buildSections = (siteName: string) => [
 ];
 
 export function PublicTermsPage() {
-  const { legal } = useSiteConfig();
-  const siteName = useSiteConfig().identity.siteName;
-  const sections = buildSections(siteName);
+  const { identity, legal } = useSiteConfig();
+  const siteName = identity.siteName;
+  const supportEmail = identity.supportEmail;
+  const sections = buildSections(siteName, supportEmail);
   const customBody = legal.terms.body.trim();
 
   return (
@@ -176,14 +177,20 @@ export function PublicTermsPage() {
         <div className="mt-16 rounded-xl border border-border bg-muted/50 p-6 text-sm text-muted-foreground">
           <p className="font-semibold text-foreground">Have questions?</p>
           <p className="mt-1">
-            Reach out to our support team at{" "}
-            <a
-              className="text-primary hover:underline"
-              href="mailto:support@hostelhub.com"
-            >
-              support@hostelhub.com
-            </a>{" "}
-            or use the in-app support system.
+            {supportEmail ? (
+              <>
+                Reach out to our support team at{" "}
+                <a
+                  className="text-primary hover:underline"
+                  href={`mailto:${supportEmail}`}
+                >
+                  {supportEmail}
+                </a>{" "}
+                or use the in-app support system.
+              </>
+            ) : (
+              "Reach out through the in-app support system."
+            )}
           </p>
         </div>
       </div>

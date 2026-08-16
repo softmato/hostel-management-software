@@ -14,10 +14,13 @@ import {
   CreditBalanceModel,
 } from "@hostel/db/models/CreditBalance";
 import { HostelModel } from "@hostel/db/models/Hostel";
+import { HostelPaymentProfileModel } from "@hostel/db/models/HostelPaymentProfile";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
+import { ResidentModel } from "@hostel/db/models/Resident";
+import { UserModel } from "@hostel/db/models/User";
 
 /**
  * The nightly ledger drift job (target §10.1, plan item 5.1).
@@ -61,6 +64,17 @@ export const DRIFT_CODES = {
   CREDIT_DRIFT: "CREDIT_DRIFT",
   /** Credit consumed by an invoice that carries no matching credit line. */
   CREDIT_UNAPPLIED: "CREDIT_UNAPPLIED",
+  /**
+   * A claim a human approved that no statement has carried since (item E.6).
+   *
+   * The only check here that looks for *fraud* rather than for a half-completed
+   * write, and the last line of the claim pipeline: everything upstream reads a
+   * document the payer supplied, so a good enough forgery passes all of it. This
+   * asks the one question no screenshot can answer — did the money reach the
+   * hostel's account — and it can only be asked in arrears, which is why the
+   * finding names the resident, the amount and the warden who approved it.
+   */
+  CLAIM_UNCONFIRMED: "CLAIM_UNCONFIRMED",
 } as const;
 
 export type LedgerDriftSummary = {
@@ -84,6 +98,11 @@ const BATCH_SIZE = 200;
  */
 const AUDIT_CHAIN_WINDOW = 500;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Matches `payment-profile.service.ts`, for a hostel that never set one. */
+const DEFAULT_STATEMENT_CADENCE_DAYS = 7;
+
 export async function runLedgerDriftForHostel(
   hostelId: Types.ObjectId | string,
   options: { now?: Date; triggeredBy?: string } = {},
@@ -98,6 +117,7 @@ export async function runLedgerDriftForHostel(
       await checkReceipts(hostelId, recorder);
       await checkExpiredEvents(hostelId, recorder, options.now ?? new Date());
       await checkCreditBalances(hostelId, recorder);
+      await checkUnconfirmedClaims(hostelId, recorder, options.now ?? new Date());
       await checkAuditChain(hostelId, recorder);
 
       return { scanned };
@@ -475,6 +495,103 @@ async function checkCreditBalances(
   }
 
   recorder.count("creditBalancesChecked", balances.length);
+}
+
+/**
+ * Approved claims that no statement has ever confirmed (item E.6).
+ *
+ * **The grace period is the hostel's own statement cadence, doubled.** One
+ * cadence is the shortest honest wait — a claim approved the day after an upload
+ * has had no chance to appear in one — and doubling it means a hostel has had two
+ * separate opportunities to upload before anybody is named. Below that the
+ * finding fires on ordinary lag and gets ignored, which is the failure mode that
+ * matters most here: this is the only signal in the product that a screenshot was
+ * a forgery, and it is worth nothing if the owner has learned to scroll past it.
+ *
+ * Reported, never corrected — the money stays credited and the invoice stays
+ * paid. Reversing a resident's rent on the strength of a statement the owner may
+ * simply not have uploaded would be a far worse error than reporting one.
+ */
+async function checkUnconfirmedClaims(
+  hostelId: Types.ObjectId | string,
+  recorder: RunRecorder,
+  now: Date,
+): Promise<void> {
+  const profile = await HostelPaymentProfileModel.findOne({ hostelId })
+    .select("statementCadenceDays")
+    .lean<{ statementCadenceDays?: number } | null>();
+
+  const cadenceDays = profile?.statementCadenceDays ?? DEFAULT_STATEMENT_CADENCE_DAYS;
+  const cutoff = new Date(now.getTime() - 2 * cadenceDays * DAY_MS);
+
+  const stale = await PaymentEventModel.find({
+    hostelId,
+    confirmation: "MANUAL_REVIEW",
+    // A reversed claim is already resolved: somebody noticed and put the money
+    // back, and re-reporting it every night would keep an answered question open.
+    reversedByEventId: null,
+    settledAt: { $lt: cutoff },
+    source: "RESIDENT_CLAIM",
+    status: "SETTLED",
+  })
+    .sort({ settledAt: 1 })
+    .limit(200)
+    .select("amount residentId reviewedBy settledAt")
+    .lean<
+      {
+        _id: Types.ObjectId;
+        amount: number;
+        residentId?: Types.ObjectId | null;
+        reviewedBy?: Types.ObjectId | null;
+        settledAt?: Date;
+      }[]
+    >();
+
+  if (stale.length === 0) {
+    recorder.count("unconfirmedClaims", 0);
+    return;
+  }
+
+  const [residents, approvers] = await Promise.all([
+    ResidentModel.find({ _id: { $in: stale.map((event) => event.residentId) } })
+      .select("firstName lastName")
+      .lean<{ _id: Types.ObjectId; firstName?: string; lastName?: string }[]>(),
+    UserModel.find({ _id: { $in: stale.map((event) => event.reviewedBy) } })
+      .select("name")
+      .lean<{ _id: Types.ObjectId; name?: string }[]>(),
+  ]);
+
+  const residentName = new Map(
+    residents.map((resident) => [
+      resident._id.toString(),
+      [resident.firstName, resident.lastName].filter(Boolean).join(" ").trim(),
+    ]),
+  );
+  const approverName = new Map(
+    approvers.map((user) => [user._id.toString(), user.name ?? ""]),
+  );
+
+  for (const event of stale) {
+    const who = residentName.get(event.residentId?.toString() ?? "") || "a resident";
+    const by = approverName.get(event.reviewedBy?.toString() ?? "");
+
+    recorder.finding({
+      code: DRIFT_CODES.CLAIM_UNCONFIRMED,
+      detail: `${who} was credited ${event.amount} on ${
+        event.settledAt?.toISOString().slice(0, 10) ?? "an unknown date"
+      }${by ? ` by ${by}` : ""} — no statement credit has matched it in ${
+        2 * cadenceDays
+      } days`,
+      entityId: event._id,
+      entityType: "PaymentEvent",
+      // WARN, not ERROR. The overwhelmingly likely cause is an owner who has not
+      // uploaded a statement, and an ERROR that is usually the owner's own
+      // housekeeping devalues every other ERROR this job raises.
+      severity: "WARN",
+    });
+  }
+
+  recorder.count("unconfirmedClaims", stale.length);
 }
 
 /**

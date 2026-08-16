@@ -50,6 +50,15 @@ export type ReviewQueueRow = {
   occurredAt: Date;
   period: string | null;
   referenceNote: string | null;
+  /**
+   * Why a `REJECTED` claim was turned down. Null on every other status.
+   *
+   * The resident's own screen reads this queue row, and without the reason a
+   * rejection is invisible to them: their card kept saying "your hostel is
+   * checking it" forever, so the one person who has to act on the decision was
+   * the only one not told about it.
+   */
+  rejectionReason: string | null;
   residentId: string;
   residentName: string;
   /**
@@ -61,7 +70,12 @@ export type ReviewQueueRow = {
   checks: ClaimCheck[];
   /** True when every check passed. The only rows `Approve all` may touch. */
   allGreen: boolean;
-  /** Non-blocking notes, e.g. `SIMILAR_EVIDENCE` (item 3.4). Never a rejection. */
+  /**
+   * Notes computed at submission, e.g. `SIMILAR_EVIDENCE` (item 3.4) or
+   * `EVIDENCE_NOT_MACHINE_CHECKED` (gap fix 3). **Never a rejection** — a flag
+   * only ever moves a decision in front of a human, by turning a check amber and
+   * so keeping the row out of `Approve all`.
+   */
   reviewFlags: string[];
   status: string;
   transactionCode: string | null;
@@ -76,7 +90,7 @@ export type ReviewQueueRow = {
  */
 export type ClaimCheck = {
   detail: string;
-  key: "EVIDENCE" | "AMOUNT" | "INVOICE_OPEN" | "REFERENCE" | "SIMILARITY";
+  key: "EVIDENCE" | "AMOUNT" | "INVOICE_OPEN" | "PAYEE" | "REFERENCE" | "SIMILARITY";
   ok: boolean;
 };
 
@@ -89,6 +103,7 @@ type QueueEventRow = {
   occurredAt: Date;
   provider?: string;
   rawPayload?: { referenceNote?: string | null; transactionCode?: string | null };
+  rejectionReason?: string | null;
   residentId?: Types.ObjectId | null;
   reviewFlags?: string[];
   status: string;
@@ -214,6 +229,7 @@ export async function listReviewQueue(
     occurredAt: event.occurredAt,
     period: event.invoiceId ? (periodById.get(event.invoiceId.toString()) ?? null) : null,
     referenceNote: event.rawPayload?.referenceNote ?? null,
+    rejectionReason: event.rejectionReason ?? null,
     residentId: event.residentId?.toString() ?? "",
     residentName: event.residentId
       ? (nameById.get(event.residentId.toString()) ?? "")
@@ -293,6 +309,198 @@ function referenceCheck(
 }
 
 /**
+ * What the evidence itself says (gap fix 3).
+ *
+ * Reads the flags `evidence-ocr` left at submission rather than the image, so
+ * this stays synchronous and every row in the queue is judged by the same rule
+ * that `Approve all` applies.
+ *
+ * The green case is narrow on purpose: the amount *and* one of the two codes have
+ * to have been found on the image. Anything else — a miss, a photo with no text,
+ * a PDF, a recogniser that could not run — is amber, which costs a reviewer one
+ * click and saves the case this check exists for.
+ */
+function evidenceCheck(event: {
+  evidenceAssetId?: Types.ObjectId | null;
+  reviewFlags?: string[];
+}): ClaimCheck {
+  if (!event.evidenceAssetId) {
+    return { detail: "No screenshot attached", key: "EVIDENCE", ok: false };
+  }
+
+  const flags = event.reviewFlags ?? [];
+
+  // Asked before the numbers, because it is the more fundamental question. A
+  // receipt whose direction we could not read may be a record of the resident
+  // being *paid*, and on such a file the numbers agreeing means nothing at all —
+  // reporting "the amount and ID match this claim" in green would be true and
+  // deeply misleading.
+  if (
+    flags.includes("EVIDENCE_IS_STATEMENT") ||
+    flags.includes("EVIDENCE_DIRECTION_UNVERIFIED") ||
+    flags.includes("EVIDENCE_OUTCOME_PENDING")
+  ) {
+    return directionCheck(event);
+  }
+
+  if (flags.includes("EVIDENCE_TEXT_MATCHES_CLAIM")) {
+    return {
+      // The two are worth distinguishing. Since the claim form fills the amount
+      // and the id *from* the screenshot, the weaker line can mean only that the
+      // image agrees with itself — while this invoice's reference code comes from
+      // our own database, so finding it on the image is a fact no amount of
+      // copying off the receipt could produce.
+      detail: flags.includes("EVIDENCE_REFERENCE_ON_IMAGE")
+        ? "The screenshot carries this invoice's reference code and the amount"
+        : "The amount and ID on the screenshot match this claim",
+      key: "EVIDENCE",
+      ok: true,
+    };
+  }
+
+  if (flags.includes("EVIDENCE_NOT_A_PAYMENT_RECORD")) {
+    return {
+      // The resident was told this on the form and submitted anyway, which is
+      // their right — an unusual receipt scores no signals either. It is the
+      // reviewer's call now, and it is the first thing they should know.
+      detail: "This does not look like a payment receipt at all — open it",
+      key: "EVIDENCE",
+      ok: false,
+    };
+  }
+
+  if (flags.includes("EVIDENCE_NO_TEXT_FOUND")) {
+    return {
+      detail: "Nothing on this image matches the claim — open it",
+      key: "EVIDENCE",
+      ok: false,
+    };
+  }
+
+  const missing = [
+    flags.includes("EVIDENCE_AMOUNT_NOT_ON_IMAGE") ? "amount" : null,
+    flags.includes("EVIDENCE_ID_NOT_ON_IMAGE") ? "transaction ID" : null,
+  ].filter(Boolean);
+
+  if (missing.length > 0) {
+    return {
+      detail: `Could not find the ${missing.join(" or the ")} on the screenshot — open it`,
+      key: "EVIDENCE",
+      ok: false,
+    };
+  }
+
+  if (flags.includes("EVIDENCE_NOT_MACHINE_CHECKED")) {
+    return {
+      detail: "Attached, but nothing could read it — open it before approving",
+      key: "EVIDENCE",
+      ok: false,
+    };
+  }
+
+  // No evidence flags at all: OCR is switched off for this deployment, so the
+  // check falls back to what it can still assert — the file is a decoded,
+  // non-blank image, because a blank one never became a claim (gap fix 3).
+  return { detail: "Screenshot attached and readable", key: "EVIDENCE", ok: true };
+}
+
+/**
+ * Did the money reach an account this hostel actually collects in?
+ *
+ * **The only check here that a payer cannot satisfy by typing.** Every other one
+ * reads something the resident supplied: the amount they entered, the code they
+ * quoted, the ID they copied. All of those are satisfiable in full by a resident
+ * who sent the exact rent to a friend's wallet with the right code in the
+ * remarks — the payment is real, the receipt is real, and the hostel receives
+ * nothing. This reads the payee line and compares it against the accounts on the
+ * hostel's own payment profile.
+ *
+ * A receipt naming somebody else never reaches this queue; it is refused on the
+ * form. What arrives here is the gap between *verified as ours* and *could not
+ * tell* — an unlabelled receipt, an unconfigured profile, an image nothing could
+ * read — and only the first may be green.
+ */
+function payeeCheck(event: { reviewFlags?: string[] }): ClaimCheck {
+  const flags = event.reviewFlags ?? [];
+
+  // Reported even on a verified payee, because the two are independent facts: the
+  // money reached the right account *and* the receipt is from a different app
+  // than the resident said. Usually a mis-tap on a six-button row, occasionally
+  // the sign that this receipt belongs to a different payment altogether.
+  if (flags.includes("EVIDENCE_METHOD_MISMATCH")) {
+    return {
+      detail: flags.includes("EVIDENCE_PAYEE_VERIFIED")
+        ? "Right account, but the receipt is from a different app than the resident chose"
+        : "The receipt is from a different app than the resident chose — open it",
+      key: "PAYEE",
+      ok: false,
+    };
+  }
+
+  if (flags.includes("EVIDENCE_PAYEE_VERIFIED")) {
+    return {
+      detail: "Paid into an account registered to this hostel",
+      key: "PAYEE",
+      ok: true,
+    };
+  }
+
+  if (flags.includes("EVIDENCE_PAYEE_UNVERIFIED")) {
+    return {
+      detail: "Could not confirm the receiving account is yours — open it",
+      key: "PAYEE",
+      ok: false,
+    };
+  }
+
+  // No payee flag at all: OCR is off for this deployment, or the claim predates
+  // the check. Neither is a verification, and claiming one would make the badge
+  // say something nobody established.
+  return { detail: "Receiving account not checked — open it", key: "PAYEE", ok: false };
+}
+
+/**
+ * Which way the money moved, and whether it moved (the credit-receipt fix).
+ *
+ * A credit-side receipt — money arriving in the resident's own wallet — used to
+ * pass every check in this queue, and it passed them honestly: on such a receipt
+ * the amount is right, the transaction ID is right, and the vocabulary is a
+ * receipt's vocabulary. Nothing read the one word that distinguishes it.
+ *
+ * A confidently-read credit receipt is now refused on the form, so what reaches
+ * here is the file whose direction could not be read at all.
+ */
+function directionCheck(event: { reviewFlags?: string[] }): ClaimCheck {
+  const flags = event.reviewFlags ?? [];
+
+  // Said first, because it explains the others. A month of rows has no single
+  // direction, no single payee and no single amount, so every other amber on the
+  // row follows from this one — and the reviewer's action is different too: ask
+  // for the receipt rather than squint at the file.
+  if (flags.includes("EVIDENCE_IS_STATEMENT")) {
+    return {
+      detail: "This is a full statement, not a receipt for one payment — ask for the receipt",
+      key: "EVIDENCE",
+      ok: false,
+    };
+  }
+
+  if (flags.includes("EVIDENCE_OUTCOME_PENDING")) {
+    return {
+      detail: "The receipt says the transaction is still pending — wait for your statement",
+      key: "EVIDENCE",
+      ok: false,
+    };
+  }
+
+  return {
+    detail: "Could not tell whether this receipt shows money going out — open it",
+    key: "EVIDENCE",
+    ok: false,
+  };
+}
+
+/**
  * The checks, in the order a reviewer reads them (target §11.4).
  *
  * All five are things a careful owner does by eye today: is there a screenshot,
@@ -317,11 +525,22 @@ export function claimChecks(
   const reference = referenceCheck(event, invoice);
 
   return [
-    {
-      detail: event.evidenceAssetId ? "Screenshot attached" : "No screenshot attached",
-      key: "EVIDENCE",
-      ok: Boolean(event.evidenceAssetId),
-    },
+    // **"Attached" was never the question** (gap fix 3). This check asserted only
+    // that an asset id existed, so a claim whose evidence was a photograph of
+    // anything at all went green here — and with the other four green, `Approve
+    // all` settled it without a human ever opening the image.
+    //
+    // It now reports what the screenshot itself said: `evidence-ocr` reads the
+    // image at submission and looks for the claimed amount and the transaction id
+    // or reference code, leaving the flags this reads. Amber is never an
+    // accusation — OCR on a re-compressed phone screenshot misses sometimes — it
+    // is the row keeping itself out of a bulk sweep so that the decision happens
+    // in front of the image.
+    evidenceCheck(event),
+    // Second, and it is the one that carries the queue. Everything above and
+    // below it verifies the payer's own assertions; this verifies where the
+    // money landed, which is the only thing that makes a claim worth believing.
+    payeeCheck(event),
     {
       detail: invoice
         ? event.amount === outstanding
@@ -368,6 +587,48 @@ async function findClaim(
   return event;
 }
 
+/**
+ * The claim whose money the statement import already credited.
+ *
+ * **Two screens, one transfer, two credits.** A resident's claim and the
+ * statement row that names the same transaction are the same money, and the
+ * product has an action for each: the reconcile screen's `Approve matched` settles
+ * the statement row, and this queue's `Approve` settles the claim. Nothing
+ * connected them, so doing both — on different days, by different people, neither
+ * of whom is doing anything odd — credited one month's rent twice against one
+ * invoice, and both rows are real, so the reconcile screen shows the result as
+ * two correct entries.
+ *
+ * Re-derived at the moment of the write rather than kept as a flag on the claim,
+ * for the reason ADR-4 gives generally: a flag has to be maintained by whoever
+ * settles the other row, and the one code path that forgets is the one that
+ * double-credits. The link already exists in the statement event's own payload.
+ *
+ * Refusal, not silence. The owner pressed approve on money that *did* arrive, and
+ * the honest answer names where it was already recorded rather than pretending
+ * nothing happened.
+ */
+async function assertNotAlreadyRecordedFromStatement(claim: {
+  _id: Types.ObjectId;
+  hostelId: Types.ObjectId;
+}) {
+  const recorded = await PaymentEventModel.findOne({
+    hostelId: claim.hostelId,
+    "rawPayload.claimEventId": claim._id.toString(),
+    source: "STATEMENT_IMPORT",
+    status: "SETTLED",
+  })
+    .select("_id")
+    .lean<{ _id: Types.ObjectId } | null>();
+
+  if (recorded) {
+    throw new FinanceServiceError(
+      "This payment was already recorded from your account statement, so it is credited. Approving it again would count the same transfer twice.",
+      "CLAIM_ALREADY_REVIEWED",
+    );
+  }
+}
+
 export async function approveClaim(
   eventId: string,
   principal: ApiPrincipal,
@@ -382,6 +643,8 @@ export async function approveClaim(
       "CLAIM_ALREADY_REVIEWED",
     );
   }
+
+  await assertNotAlreadyRecordedFromStatement(claim);
 
   // `settleEvent` pins its filter to `status: "PENDING"`, so a double-click
   // loses the race there rather than crediting the invoice twice. It also

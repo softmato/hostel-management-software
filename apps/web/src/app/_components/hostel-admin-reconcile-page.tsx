@@ -77,6 +77,16 @@ type Suggestion = {
 
 type Reconciliation = {
   buckets: {
+    approvedNotInStatement: {
+      amount: number;
+      approvedAt: string | null;
+      approvedByName: string | null;
+      claimEventId: string;
+      period: string | null;
+      residentName: string;
+      transactionCode: string | null;
+      why: string;
+    }[];
     claimedNoTransaction: {
       amount: number;
       bedLabel: string | null;
@@ -89,6 +99,7 @@ type Reconciliation = {
     matched: {
       amount: number;
       claimEventId: string | null;
+      confirmsClaim: boolean;
       eventId: string;
       occurredAt: string;
       period: string | null;
@@ -224,7 +235,13 @@ export const HostelAdminReconcilePageContent = memo(
 
     const view = reconciliation.data ?? null;
     const pendingMatched =
-      view?.buckets.matched.filter((row) => row.status === "PENDING").length ?? 0;
+      // A confirming row is pending and always will be — it is evidence for a
+      // claim that already holds the money, never a second credit. Counting it
+      // here would put a number on the button that the sweep cannot work through,
+      // so "Approve all 4" would settle three and still say 4.
+      view?.buckets.matched.filter(
+        (row) => row.status === "PENDING" && !row.confirmsClaim,
+      ).length ?? 0;
 
     return (
       <div className="mx-auto max-w-[1100px] space-y-6">
@@ -370,6 +387,10 @@ export const HostelAdminReconcilePageContent = memo(
                     </span>
                     <span className="text-muted-foreground">
                       {currency(row.amount)} · {row.referenceCode ?? row.why}
+                      {/* Said plainly, because otherwise this row reads as one
+                          the sweep skipped. It is the good news: money a warden
+                          took on trust has turned up in the account. */}
+                      {row.confirmsClaim ? " · confirms an approved claim" : ""}
                     </span>
                   </li>
                 ))}
@@ -462,6 +483,49 @@ export const HostelAdminReconcilePageContent = memo(
                           Ask resident
                         </Button>
                       </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* Bucket 2b — approved on trust, and still not in the account.
+                Read-only on purpose (item E.6): the money is already credited
+                and the resident already told it landed, so there is no one-tap
+                correction here that would not be worse than the problem. What
+                the owner needs is the names, so they can go and ask. */}
+            {view.buckets.approvedNotInStatement.length > 0 ? (
+              <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-4">
+                <p className="flex items-center gap-2 font-semibold text-rose-900 dark:text-rose-300">
+                  <AlertTriangle aria-hidden="true" className="size-4" />
+                  {view.buckets.approvedNotInStatement.length} approved, never in a
+                  statement
+                  <span className="rounded bg-rose-500/20 px-2 py-0.5 text-xs uppercase">
+                    Check
+                  </span>
+                </p>
+                <p className="mt-1 text-sm text-rose-900/80 dark:text-rose-200/80">
+                  These were approved on the strength of a screenshot and the money
+                  has not appeared in this statement. Usually statement lag — but this
+                  is the list a forged receipt ends up on.
+                </p>
+                <ul className="mt-3 grid gap-3">
+                  {view.buckets.approvedNotInStatement.map((row) => (
+                    <li
+                      className="rounded-lg border border-border bg-background p-3"
+                      key={row.claimEventId}
+                    >
+                      <p className="text-sm font-medium">
+                        {row.residentName} · {currency(row.amount)}
+                        {row.period ? ` · ${row.period}` : ""}
+                      </p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">{row.why}</p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        Approved
+                        {row.approvedAt ? ` ${shortDate(row.approvedAt)}` : ""}
+                        {row.approvedByName ? ` by ${row.approvedByName}` : ""}
+                        {row.transactionCode ? ` · txn ${row.transactionCode}` : ""}
+                      </p>
                     </li>
                   ))}
                 </ul>

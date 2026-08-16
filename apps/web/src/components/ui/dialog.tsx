@@ -41,9 +41,27 @@ function DialogOverlay({
   );
 }
 
+/**
+ * Is this interaction happening inside the app-wide media viewer?
+ *
+ * The viewer portals to `document.body`, which puts it *outside* every dialog in
+ * the DOM even when it was opened from inside one. Radix judges "outside" by the
+ * tree, so clicking the viewer's own backdrop, its X, or its arrows reads to the
+ * dialog underneath as the user clicking away — and it closes.
+ *
+ * That is the bug behind "open the receipt from the payment modal, close the
+ * receipt, and the whole payment form is gone". The resident loses a filled-in
+ * form for looking at the file they just attached, which is the one thing that
+ * screen invites them to do.
+ */
+function isInsideMediaViewer(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-media-lightbox]") !== null;
+}
+
 function DialogContent({
   className,
   children,
+  onInteractOutside,
   showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
@@ -58,6 +76,18 @@ function DialogContent({
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,
         )}
+        onInteractOutside={(event) => {
+          // **Fixed here, not per dialog.** Any screen may open the viewer from
+          // inside a dialog, so a fix at the call site is one every future
+          // caller has to remember. The caller's own handler still runs for
+          // every other outside interaction.
+          if (isInsideMediaViewer(event.target)) {
+            event.preventDefault();
+            return;
+          }
+
+          onInteractOutside?.(event);
+        }}
         {...props}
       >
         {children}

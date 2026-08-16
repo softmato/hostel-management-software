@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   loadMatchContext: vi.fn(),
   residentFind: vi.fn(),
   settleEvent: vi.fn(),
+  userFind: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: vi.fn() }));
@@ -60,8 +61,12 @@ vi.mock("@hostel/db/models/Resident", () => ({
 vi.mock("@hostel/db/models/StatementImport", () => ({
   StatementImportModel: { findOne: mocks.importFindOne },
 }));
+vi.mock("@hostel/db/models/User", () => ({
+  UserModel: { find: mocks.userFind },
+}));
 
 import {
+  approveMatchedRows,
   assignOrphanCredit,
   getReconciliation,
 } from "@/modules/finance/statements/reconcile.service";
@@ -128,8 +133,12 @@ const claimConfirmed = {
   status: "PENDING",
 };
 
+/** Claims a warden has already approved, by the time the view is read. */
+let settledClaims: { _id: string }[] = [];
+
 beforeEach(() => {
   vi.clearAllMocks();
+  settledClaims = [];
 
   mocks.importFindOne.mockReturnValue(
     chain({
@@ -145,11 +154,21 @@ beforeEach(() => {
       uploadedAt: new Date(2026, 7, 15),
     }),
   );
-  mocks.eventFind.mockReturnValue(chain([settledTierB, claimConfirmed, orphanTierD]));
+  // Filter-aware: the view reads this import's events, and separately asks which
+  // of the linked claims a human has already settled. A blanket answer would make
+  // the second question return statement rows.
+  mocks.eventFind.mockImplementation((filter: Record<string, unknown>) =>
+    chain(
+      filter?.status === "SETTLED"
+        ? settledClaims
+        : [settledTierB, claimConfirmed, orphanTierD],
+    ),
+  );
   mocks.residentFind.mockReturnValue(
     chain([{ _id: residentId, firstName: "Bikash", lastName: "Thapa" }]),
   );
   mocks.invoiceFind.mockReturnValue(chain([{ _id: invoiceId, period: "2026-08" }]));
+  mocks.userFind.mockReturnValue(chain([]));
   mocks.loadMatchContext.mockResolvedValue({
     claims: [],
     claimsByTxnId: new Map(),
@@ -201,6 +220,8 @@ describe("bucketing", () => {
           period: "2026-08",
           residentId: "res-x",
           residentName: "Bishal Rai",
+          settled: false,
+          submittedAt: new Date(2026, 7, 3),
           transactionCode: "9910233",
         },
       ],
@@ -213,6 +234,39 @@ describe("bucketing", () => {
 
     expect(view.buckets.claimedNoTransaction).toHaveLength(1);
     expect(view.buckets.claimedNoTransaction[0]?.residentName).toBe("Bishal Rai");
+  });
+
+  /**
+   * Item E.6. An approved claim with no credit behind it is the bucket that
+   * catches a forged screenshot, and it is a different decision from an
+   * unapproved one — the hostel has already told this resident the money landed.
+   */
+  it("separates an approved claim with no credit from an undecided one", async () => {
+    mocks.loadMatchContext.mockResolvedValue({
+      claims: [
+        {
+          amount: 12000,
+          eventId: "evt-approved-claim",
+          invoiceId: null,
+          occurredAt: new Date(2026, 7, 3),
+          period: "2026-08",
+          residentId: "res-x",
+          residentName: "Bishal Rai",
+          settled: true,
+          submittedAt: new Date(2026, 7, 3),
+          transactionCode: "9910233",
+        },
+      ],
+      claimsByTxnId: new Map(),
+      invoicesByCode: new Map(),
+      openInvoices: [],
+    });
+
+    const view = await getReconciliation(importId.toString(), principal.hostelIds);
+
+    expect(view.buckets.claimedNoTransaction).toHaveLength(0);
+    expect(view.buckets.approvedNotInStatement).toHaveLength(1);
+    expect(view.buckets.approvedNotInStatement[0]?.residentName).toBe("Bishal Rai");
   });
 
   it("answers 404 for an import belonging to another hostel", async () => {
@@ -286,5 +340,45 @@ describe("assigning orphan money", () => {
       }),
     ).rejects.toMatchObject({ errorCode: "INVOICE_NOT_FOUND" });
     expect(mocks.settleEvent).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * One transfer, two screens, one credit.
+ *
+ * A resident's claim and the statement row naming the same transaction are the
+ * same money, and the product has an action for each — `Approve` in the review
+ * queue and `Approve matched` here. Nothing linked them, so doing both credited
+ * one month's rent twice against one invoice, on different days, by people
+ * neither of whom did anything odd. Both rows are real, so the result reads as
+ * two correct entries.
+ */
+describe("a claim that was approved after the statement was uploaded", () => {
+  beforeEach(() => {
+    settledClaims = [{ _id: "evt-claim" }];
+  });
+
+  it("shows the row as confirming rather than as one tap away", async () => {
+    const view = await getReconciliation(importId.toString(), principal.hostelIds);
+    const row = view.buckets.matched.find((one) => one.claimEventId === "evt-claim");
+
+    expect(row?.confirmsClaim).toBe(true);
+  });
+
+  it("does not settle it a second time in the sweep", async () => {
+    const result = await approveMatchedRows(importId.toString(), principal);
+
+    expect(mocks.settleEvent).not.toHaveBeenCalled();
+    expect(result.approved).toBe(0);
+  });
+
+  // The claim was rejected, not settled: the reviewer turned down the resident's
+  // *evidence*, and the transfer in the statement is still the credit.
+  it("still settles the row when the claim was rejected instead", async () => {
+    settledClaims = [];
+
+    const result = await approveMatchedRows(importId.toString(), principal);
+
+    expect(result.approved).toBe(1);
   });
 });

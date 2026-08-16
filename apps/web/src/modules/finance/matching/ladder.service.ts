@@ -51,6 +51,15 @@ export type LadderClaim = {
   period: string | null;
   residentId: string;
   residentName: string;
+  /**
+   * True when a human has already approved this claim and the money is counted
+   * (items E.5/E.6). Such a claim is still *unconfirmed* — no statement has
+   * carried it — which is why it stays in the matching universe, and why it
+   * belongs in a different bucket from one nobody has decided yet.
+   */
+  settled: boolean;
+  /** When the hostel learned of the claim, not when the resident says they paid. */
+  submittedAt: Date;
   /** Resident-typed and unverified — see `claim.service.ts`. */
   transactionCode: string | null;
 };
@@ -186,7 +195,14 @@ export function findOrphanClaims(
       }
 
       // Claimed after the statement was cut: not yet evidence of anything.
-      return !periodEnd || claim.occurredAt <= periodEnd;
+      //
+      // **Dated by when the claim arrived, not by when the resident says they
+      // paid** (item E.8). `occurredAt` is a form field: a claim dated next March
+      // sat permanently on the far side of every statement's `periodEnd` and was
+      // therefore invisible to this bucket forever — the one bucket whose whole
+      // job is to notice a claim with no money behind it. Submission time is ours
+      // and cannot be typed.
+      return !periodEnd || claim.submittedAt <= periodEnd;
     })
     .map((claim) => {
       const nearest = nearestByAmount(claim.amount, credits);
@@ -252,20 +268,39 @@ export async function loadMatchContext(
       }[]
     >();
 
+  /**
+   * **Approval is not the end of a claim** (item E.6).
+   *
+   * This loaded `status: "PENDING"` only, and that single word switched
+   * reconciliation off at the exact moment it became worth doing: a warden
+   * approves a claim, the event leaves the matching universe permanently, and the
+   * statement that would have proved the money never landed is never compared
+   * against it. Tier E could therefore only ever catch claims nobody had got
+   * round to yet — which is to say, not the ones a forger picks.
+   *
+   * A settlement stays in scope until a statement confirms it. `GATEWAY_VERIFIED`
+   * never enters: the provider's own API already confirmed that money, and asking
+   * a statement to re-prove it would fill the bucket with rows nobody can act on.
+   */
   const claimEvents = await PaymentEventModel.find({
     hostelId,
     source: "RESIDENT_CLAIM",
-    status: "PENDING",
+    $or: [
+      { status: "PENDING" },
+      { confirmation: "MANUAL_REVIEW", status: "SETTLED" },
+    ],
   })
-    .select("amount invoiceId occurredAt rawPayload residentId")
+    .select("amount confirmation createdAt invoiceId occurredAt rawPayload residentId status")
     .lean<
       {
         _id: Types.ObjectId;
         amount: number;
+        createdAt?: Date;
         invoiceId?: Types.ObjectId | null;
         occurredAt: Date;
         rawPayload?: { transactionCode?: string | null };
         residentId?: Types.ObjectId | null;
+        status: string;
       }[]
     >();
 
@@ -339,6 +374,11 @@ export async function loadMatchContext(
         ?.period ?? null,
     residentId: event.residentId?.toString() ?? "",
     residentName: nameById.get(event.residentId?.toString() ?? "") ?? "Unknown resident",
+    settled: event.status === "SETTLED",
+    // `occurredAt` is the resident's own assertion about when they paid and may
+    // sit in the future (item E.8); `createdAt` is when the claim reached us and
+    // is the only one of the two that can date a grace period honestly.
+    submittedAt: event.createdAt ?? event.occurredAt,
     transactionCode: event.rawPayload?.transactionCode ?? null,
   }));
 

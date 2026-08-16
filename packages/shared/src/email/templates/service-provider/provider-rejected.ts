@@ -6,6 +6,7 @@ export function serviceProviderRejectedEmail(input: {
   reason?: string;
 }): EmailContent {
   return {
+    category: "info",
     subject: "About your service provider registration",
     html: emailLayout({
       heading: "Registration not approved",

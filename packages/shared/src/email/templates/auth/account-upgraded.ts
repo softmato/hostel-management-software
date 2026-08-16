@@ -10,6 +10,7 @@ export function accountUpgradedEmail(input: {
     : "";
 
   return {
+    category: "security",
     subject: "Your HostelHub account has been upgraded",
     html: emailLayout({
       heading: "Account upgraded",

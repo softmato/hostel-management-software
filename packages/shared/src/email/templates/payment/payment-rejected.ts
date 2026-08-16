@@ -8,6 +8,7 @@ export function paymentRejectedEmail(input: {
   residentName: string;
 }): EmailContent {
   return {
+    category: "billing",
     subject: `Payment proof needs attention — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
       heading: "Payment proof was not accepted",

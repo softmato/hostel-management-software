@@ -27,6 +27,31 @@ import { InitialsAvatar, SoftBadge } from "./portal-dashboard-ui";
  * being checked against it, while the details column scrolls independently.
  */
 
+/**
+ * A flag in the reviewer's language rather than the ledger's.
+ *
+ * `EVIDENCE NOT MACHINE CHECKED` as a badge tells an owner that something is
+ * wrong with our software; what it actually means is that the file is one nothing
+ * could inspect, so the judgement is theirs. Unknown codes fall back to the
+ * de-underscored constant, so a flag added later still renders.
+ */
+const FLAG_LABELS: Record<string, string> = {
+  EVIDENCE_AMOUNT_NOT_ON_IMAGE: "Claimed amount not found on the screenshot",
+  EVIDENCE_ID_NOT_ON_IMAGE: "Transaction ID not found on the screenshot",
+  EVIDENCE_NOT_MACHINE_CHECKED: "Nothing could read this file — look at it yourself",
+  EVIDENCE_NOT_A_PAYMENT_RECORD: "Does not look like a payment receipt",
+  EVIDENCE_NO_TEXT_FOUND: "Nothing on this image matches the claim",
+  EVIDENCE_REFERENCE_ON_IMAGE: "This invoice's reference code is on the screenshot",
+  EVIDENCE_TEXT_MATCHES_CLAIM: "Screenshot matches the amount and ID",
+  SIMILAR_EVIDENCE: "Looks like an earlier screenshot",
+};
+
+/** Flags that are good news, so they must not be rendered as warnings. */
+const POSITIVE_FLAGS = new Set([
+  "EVIDENCE_REFERENCE_ON_IMAGE",
+  "EVIDENCE_TEXT_MATCHES_CLAIM",
+]);
+
 function ClaimFacts({ proof }: { proof: PaymentProof }) {
   return (
     <dl className="space-y-2">
@@ -226,8 +251,11 @@ export const ProofReviewModal = memo(function ProofReviewModal({
               {proof.reviewFlags?.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {proof.reviewFlags.map((flag) => (
-                    <SoftBadge key={flag} tone="amber">
-                      {flag.replaceAll("_", " ")}
+                    <SoftBadge
+                      key={flag}
+                      tone={POSITIVE_FLAGS.has(flag) ? "green" : "amber"}
+                    >
+                      {FLAG_LABELS[flag] ?? flag.replaceAll("_", " ")}
                     </SoftBadge>
                   ))}
                 </div>

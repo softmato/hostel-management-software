@@ -53,6 +53,7 @@ export type PaymentEventRecord = {
   _id: Types.ObjectId;
   amount: number;
   confirmation: EventConfirmation;
+  confirmedAt?: Date | null;
   direction: EventDirection;
   hostelId: Types.ObjectId;
   idempotencyKey: string;
@@ -294,6 +295,76 @@ export async function settleEvent(
   }
 
   return { balance, event, receipt };
+}
+
+/**
+ * A human's settlement, confirmed later by the hostel's own statement (item E.5).
+ *
+ * **This is provisional credit, and the sequencing is the whole point.** A warden
+ * approves a claim on the strength of a screenshot; the invoice reads paid and
+ * dunning stops that instant, because holding the resident hostage to statement
+ * lag would punish the honest majority for a control aimed at the rare forgery.
+ * What the approval does *not* do is end the matter — the settlement stays
+ * `MANUAL_REVIEW`, stays in the matching universe (item E.6), and is promoted
+ * here when a credit for it actually turns up. Nothing about the money changes:
+ * the same amount, the same invoice, the same receipt. Only how strongly it is
+ * believed, which is precisely what `confirmation` records.
+ *
+ * The filter pins `SETTLED` *and* `MANUAL_REVIEW`, which is what the model's
+ * immutability guard requires and also makes the call idempotent: a second
+ * statement carrying the same credit matches nothing and reports `false`.
+ */
+export async function confirmSettlementByStatement(
+  eventId: Types.ObjectId | string,
+  options: {
+    confirmedAt?: Date;
+    principal?: ApiPrincipal;
+    statementImportId?: Types.ObjectId | string | null;
+  } = {},
+): Promise<{ event: PaymentEventRecord | null; promoted: boolean }> {
+  await connectToDatabase();
+
+  const confirmedAt = options.confirmedAt ?? new Date();
+
+  const event = await PaymentEventModel.findOneAndUpdate(
+    { _id: eventId, confirmation: "MANUAL_REVIEW", status: "SETTLED" },
+    {
+      $set: {
+        confirmation: "STATEMENT_MATCH",
+        confirmedAt,
+        // Which upload proved it. Null on the claim until now, so this is a new
+        // fact rather than an overwrite, and it is what lets the reconciliation
+        // screen link a confirmed claim back to the file that confirmed it.
+        ...(options.statementImportId
+          ? { statementImportId: options.statementImportId }
+          : {}),
+      },
+    },
+    { new: true },
+  ).lean<PaymentEventRecord | null>();
+
+  if (!event) {
+    return { event: null, promoted: false };
+  }
+
+  if (options.principal) {
+    await auditFinanceAction(options.principal, {
+      action: "PAYMENT_EVENT_CONFIRMED",
+      // No balance moves: the money was already counted when it settled. Both
+      // sides are the event's own amount so the envelope still says what was
+      // confirmed.
+      amountAfter: event.amount,
+      amountBefore: event.amount,
+      entityId: event._id,
+      entityType: "PaymentEvent",
+      eventId: event._id.toString(),
+      hostelId: event.hostelId,
+      invoiceId: event.invoiceId?.toString(),
+      source: "STATEMENT_IMPORT",
+    });
+  }
+
+  return { event, promoted: true };
 }
 
 /**

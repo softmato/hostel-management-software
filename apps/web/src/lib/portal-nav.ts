@@ -635,6 +635,24 @@ export const RESIDENT_NAV: PortalNavGroup[] = [
         keywords: ["due", "rent", "upload", "receipt", "esewa", "proof"],
         label: "Fees & Payments",
       },
+      {
+        // Its own entry rather than a tab inside Fees & Payments: a resident
+        // opens that page to *do* something about a due date, and the
+        // programme's own view is what they open when they want to see what
+        // their codes and receipts add up to. Two errands, two destinations.
+        href: "/resident/offer-program",
+        icon: "sparkles",
+        keywords: [
+          "offer",
+          "program",
+          "reference",
+          "code",
+          "certified",
+          "receipt",
+          "membership",
+        ],
+        label: "Offer Program",
+      },
       { href: "/resident/food", icon: "food", label: "Food Menu" },
       // No Community entry: it is one platform-wide room at `/community`,
       // linked from the portal header instead of each portal's sidebar.

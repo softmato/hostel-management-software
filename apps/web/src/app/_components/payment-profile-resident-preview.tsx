@@ -36,6 +36,14 @@ export type ProfileDraft = {
   esewaId: string;
   khaltiId: string;
   paymentInstructions: string;
+  /**
+   * What the QR poster says it pays. Read off the image at upload, and typed
+   * here only when that read came back empty — the resident never sees these
+   * (they read the poster itself), but `evidence-payee` matches receipts
+   * against them, which is what makes a QR-only hostel verifiable.
+   */
+  qrPayeeName: string;
+  qrPayeeNumber: string;
 };
 
 /** Stand-in invoice. Round numbers so nothing here reads as real hostel data. */

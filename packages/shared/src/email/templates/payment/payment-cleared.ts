@@ -49,6 +49,7 @@ export function paymentClearedEmail(input: {
   ].filter(Boolean);
 
   return {
+    category: "billing",
     subject: `Payment cleared — ${escapeHtml(input.residentName)} · ${monthName(input.month)}`,
     html: emailLayout({
       heading: "Payment cleared ✅",

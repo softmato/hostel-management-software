@@ -7,6 +7,7 @@ export function hostelSubmissionReceivedEmail(input: {
   const greeting = input.ownerName ? `Hi ${escapeHtml(input.ownerName)},` : "Hi,";
 
   return {
+    category: "info",
     subject: `We received your hostel registration — ${input.hostelName}`,
     html: emailLayout({
       heading: "Registration received",

@@ -41,6 +41,42 @@ export const FINANCE_ERROR_STATUS = {
    * resident's evidence that they sent it.
    */
   EVIDENCE_IS_SYSTEM_DOCUMENT: 422,
+  /**
+   * The evidence is an image, but a blank or thumbnail-sized one (gap fix 3).
+   * Measured at upload rather than guessed at here: nothing could be read off
+   * it, so it cannot be a screenshot of a payment.
+   */
+  EVIDENCE_NOT_READABLE: 422,
+  /**
+   * The evidence was read clearly and carries no trace of a payment — no
+   * provider, no currency, no transaction vocabulary, no date. Distinct from
+   * `EVIDENCE_NOT_READABLE`, which is about a file nothing could be read off:
+   * this one is about a file we read perfectly well and which is a photograph of
+   * something else. A receipt that merely reads *badly* is still accepted and
+   * flagged for review — only zero signals in readable text refuses.
+   */
+  EVIDENCE_NOT_A_PAYMENT: 422,
+  /**
+   * The evidence is a real, readable payment receipt — for the wrong
+   * transaction. Three cases share this code because the resident's next step is
+   * identical in all three: go and find a different file.
+   *
+   * 1. **The wrong direction.** A credit-side receipt records money arriving in
+   *    the resident's own account. It used to pass every check in the pipeline,
+   *    and honestly so — on such a receipt the amount, the transaction ID and the
+   *    date are all correct. Only the verb differs.
+   * 2. **The transaction failed or was cancelled**, so nothing moved. Pending is
+   *    *not* included: banks settle those a day later and the money does arrive.
+   * 3. **The wrong payee.** The money reached an account this hostel does not
+   *    collect in — the case where the receipt is entirely genuine and the hostel
+   *    still receives nothing.
+   *
+   * Distinct from every other evidence code in that the file is legitimate and
+   * legible; what is wrong is the transaction it records. The message carries the
+   * specifics, because "which account" and "which direction" are the only things
+   * that make the refusal actionable.
+   */
+  EVIDENCE_WRONG_TRANSACTION: 422,
   /** The same evidence hash was already used in this hostel (target §8.1). */
   EVIDENCE_ALREADY_USED: 409,
   /** `{hostelId, provider, providerTxnId}` collides. */
@@ -53,6 +89,18 @@ export const FINANCE_ERROR_STATUS = {
    * rather than by a unique index that can only say "no".
    */
   TXN_ID_ALREADY_CLAIMED: 409,
+  /**
+   * A method that hands the payer a reference was submitted without one (gap fix
+   * 3). A claim with no id can never be reconciled against the provider's own
+   * statement — it can only be believed.
+   */
+  TXN_ID_REQUIRED: 422,
+  /**
+   * What was typed cannot be a transaction id at all — a placeholder, a repeated
+   * character, a sequence (gap fix 3). Shape only: whether a well-formed id
+   * corresponds to real money is the provider's answer, not ours.
+   */
+  TXN_ID_NOT_PLAUSIBLE: 422,
   /** The asset does not belong to the submitting resident (target §13.2). */
   ASSET_NOT_OWNED: 403,
   /** The asset's upload was never verified (target §13.3). */

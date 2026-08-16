@@ -138,6 +138,7 @@ describe("the resident's view", () => {
       lean([
         {
           _id: receiptId,
+          amount: 12000,
           invoiceId,
           receiptNumber: "RCP-EDU-2026-08-00001",
         },
@@ -146,10 +147,69 @@ describe("the resident's view", () => {
 
     const view = await getResidentFinanceView({} as never);
 
-    expect(view.invoices[0]).toMatchObject({
-      receiptId: receiptId.toString(),
-      receiptNumber: "RCP-EDU-2026-08-00001",
-    });
+    expect(view.invoices[0]!.receipts).toEqual([
+      {
+        amount: 12000,
+        id: receiptId.toString(),
+        issuedAt: null,
+        number: "RCP-EDU-2026-08-00001",
+      },
+    ]);
+  });
+
+  it("keeps every receipt on a month paid in instalments", async () => {
+    // One receipt per settled *payment*, so a month paid twice has two — and the
+    // earlier one used to vanish from the screen the moment the second was
+    // issued, which is precisely when the resident goes looking for it.
+    const first = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e1");
+    const second = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e2");
+
+    mocks.receiptFind.mockReturnValue(
+      lean([
+        {
+          _id: second,
+          amount: 11940,
+          invoiceId,
+          issuedAt: new Date("2026-08-11T00:00:00.000Z"),
+          receiptNumber: "RCP-EDU-2026-08-00002",
+        },
+        {
+          _id: first,
+          amount: 60,
+          invoiceId,
+          issuedAt: new Date("2026-08-05T00:00:00.000Z"),
+          receiptNumber: "RCP-EDU-2026-08-00001",
+        },
+      ]),
+    );
+
+    const view = await getResidentFinanceView({} as never);
+
+    // Newest first, and both reachable.
+    expect(view.invoices[0]!.receipts.map((receipt) => receipt.number)).toEqual([
+      "RCP-EDU-2026-08-00002",
+      "RCP-EDU-2026-08-00001",
+    ]);
+    expect(view.invoices[0]!.receipts[1]!.amount).toBe(60);
+  });
+
+  it("carries the reference code onto the payments page", async () => {
+    // The Resident Offer Program banner names the code for the open month, so it
+    // has to reach the screen without opening the pay panel — which is where the
+    // code used to live, and where a resident paying from habit never goes.
+    mocks.invoiceFind.mockReturnValue(
+      lean([{ _id: invoiceId, referenceCode: "EDU-0001-F" }]),
+    );
+
+    const view = await getResidentFinanceView({} as never);
+
+    expect(view.invoices[0]!.referenceCode).toBe("EDU-0001-F");
+  });
+
+  it("reports no code rather than guessing when the invoice has none", async () => {
+    const view = await getResidentFinanceView({} as never);
+
+    expect(view.invoices[0]!.referenceCode).toBeNull();
   });
 
   it("never offers a voided receipt", async () => {

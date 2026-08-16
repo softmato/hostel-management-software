@@ -19,6 +19,7 @@ export function paymentVerifiedEmail(input: {
       : paragraph("This month's fee is now fully settled. Thank you!");
 
   return {
+    category: "billing",
     subject: `Payment verified — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
       heading: "Payment verified ✅",

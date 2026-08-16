@@ -17,6 +17,7 @@ import { InvoiceModel } from "@hostel/db/models/Invoice";
 import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { StatementImportModel } from "@hostel/db/models/StatementImport";
+import { UserModel } from "@hostel/db/models/User";
 
 /**
  * The reconciliation screen's service — three buckets (target §11.5).
@@ -42,6 +43,12 @@ export type MatchedRow = {
   amount: number;
   /** Set when a resident's claim named this exact transaction — one tap. */
   claimEventId: string | null;
+  /**
+   * True when this credit confirmed a claim the hostel had already approved
+   * (item E.5) — nothing to tap, and nothing to settle. The row is shown because
+   * it is the good news: the money a warden took on trust is now in the account.
+   */
+  confirmsClaim: boolean;
   eventId: string;
   occurredAt: Date;
   period: string | null;
@@ -80,8 +87,32 @@ export type OrphanRow = {
   }[];
 };
 
+/**
+ * A claim a warden approved that no statement has ever carried (item E.6).
+ *
+ * **This is where the fraud actually surfaces, and it surfaces about a week
+ * late.** Payee matching on a screenshot is best-effort — a crop, an unfamiliar
+ * template or a competent forgery defeats it — so the only guarantee the product
+ * can offer is that the money either appears in the hostel's own account or this
+ * row appears instead. It names the approving warden as well as the resident,
+ * because "approved on trust and never arrived" is a fact about two people and
+ * showing only one of them is how a collusive approval stays invisible.
+ */
+export type ApprovedNotInStatementRow = {
+  amount: number;
+  approvedAt: Date | null;
+  approvedByName: string | null;
+  claimEventId: string;
+  period: string | null;
+  residentId: string;
+  residentName: string;
+  transactionCode: string | null;
+  why: string;
+};
+
 export type ReconciliationView = {
   buckets: {
+    approvedNotInStatement: ApprovedNotInStatementRow[];
     claimedNoTransaction: ClaimedNoTransactionRow[];
     matched: MatchedRow[];
     orphans: OrphanRow[];
@@ -106,6 +137,7 @@ type StatementEvent = {
   providerTxnId?: string | null;
   rawPayload?: {
     claimEventId?: string;
+    confirmsClaimEventId?: string;
     counterpartyName?: string | null;
     ladderTier?: string;
     ladderWhy?: string;
@@ -221,6 +253,16 @@ export async function getReconciliation(
   const matched: MatchedRow[] = [];
   const orphans: OrphanRow[] = [];
 
+  // Read once for the whole view, so a row whose claim was approved *after* this
+  // file was imported renders as already-recorded rather than as one tap away
+  // from crediting the same transfer twice. `confirmsClaimEventId` alone cannot
+  // know this: it is written at import time.
+  const settledClaimIds = await settledClaimsAmong(
+    events
+      .map((event) => event.rawPayload?.claimEventId)
+      .filter((id): id is string => Boolean(id)),
+  );
+
   for (const event of events) {
     const tier = event.rawPayload?.ladderTier;
     const claimEventId = event.rawPayload?.claimEventId ?? null;
@@ -229,6 +271,9 @@ export async function getReconciliation(
       matched.push({
         amount: event.amount,
         claimEventId,
+        confirmsClaim:
+          Boolean(event.rawPayload?.confirmsClaimEventId) ||
+          (claimEventId !== null && settledClaimIds.has(claimEventId)),
         eventId: event._id.toString(),
         occurredAt: event.occurredAt,
         period: event.invoiceId
@@ -274,16 +319,37 @@ export async function getReconciliation(
     rowNumber: 0,
   }));
 
-  const claimedNoTransaction = findOrphanClaims(
-    context,
-    rows,
-    record.periodEnd ?? null,
-  ).map((orphan) => ({
+  const unmatchedClaims = findOrphanClaims(context, rows, record.periodEnd ?? null);
+
+  // Split by whether anyone has already acted, because the two are different
+  // decisions (item E.6). An unapproved claim with no credit behind it is a
+  // question for the resident; an *approved* one is a question about money the
+  // hostel has already told them it received.
+  const claimedNoTransaction = unmatchedClaims
+    .filter((orphan) => !orphan.claim.settled)
+    .map((orphan) => ({
+      amount: orphan.claim.amount,
+      bedLabel:
+        context.openInvoices.find(
+          (invoice) => invoice.residentId === orphan.claim.residentId,
+        )?.bedLabel ?? null,
+      claimEventId: orphan.claim.eventId,
+      period: orphan.claim.period,
+      residentId: orphan.claim.residentId,
+      residentName: orphan.claim.residentName,
+      transactionCode: orphan.claim.transactionCode,
+      why: orphan.why,
+    }));
+
+  const approvedClaims = unmatchedClaims.filter((orphan) => orphan.claim.settled);
+  const approvers = await approverNamesFor(
+    approvedClaims.map((orphan) => orphan.claim.eventId),
+  );
+
+  const approvedNotInStatement = approvedClaims.map((orphan) => ({
     amount: orphan.claim.amount,
-    bedLabel:
-      context.openInvoices.find(
-        (invoice) => invoice.residentId === orphan.claim.residentId,
-      )?.bedLabel ?? null,
+    approvedAt: approvers.get(orphan.claim.eventId)?.reviewedAt ?? null,
+    approvedByName: approvers.get(orphan.claim.eventId)?.name ?? null,
     claimEventId: orphan.claim.eventId,
     period: orphan.claim.period,
     residentId: orphan.claim.residentId,
@@ -293,7 +359,7 @@ export async function getReconciliation(
   }));
 
   return {
-    buckets: { claimedNoTransaction, matched, orphans },
+    buckets: { approvedNotInStatement, claimedNoTransaction, matched, orphans },
     fileName: record.fileName ?? null,
     matchedTotal: matched.reduce((total, row) => total + row.amount, 0),
     parserVersion: record.parserVersion,
@@ -388,12 +454,36 @@ export async function approveMatchedRows(
   await connectToDatabase();
 
   const view = await getReconciliation(statementImportId, principal.hostelIds);
-  const pending = view.buckets.matched.filter((row) => row.status === "PENDING");
+  // A confirming row is deliberately left pending forever and must never be
+  // swept (item E.5): the claim it confirms already holds this money, so
+  // settling it here would credit the same transfer to the same invoice twice.
+  const pending = view.buckets.matched.filter(
+    (row) => row.status === "PENDING" && !row.confirmsClaim,
+  );
+
+  /**
+   * The mirror of `assertNotAlreadyRecordedFromStatement`, and the half that
+   * catches the *other* order.
+   *
+   * `confirmsClaim` is decided at import time, so it only knows about claims that
+   * were already approved when the file was read. A warden who approves the claim
+   * an hour *after* the upload leaves a row that still looks tappable — and
+   * tapping it credits the same transfer a second time. So the claim's status is
+   * read again here, at the write, rather than trusted from the import.
+   */
+  const settledClaimIds = await settledClaimsAmong(
+    pending.map((row) => row.claimEventId).filter((id): id is string => Boolean(id)),
+  );
 
   let approved = 0;
   let skipped = 0;
 
   for (const row of pending) {
+    if (row.claimEventId && settledClaimIds.has(row.claimEventId)) {
+      skipped += 1;
+      continue;
+    }
+
     try {
       await settleEvent(row.eventId, {
         confirmation: "STATEMENT_MATCH",
@@ -474,6 +564,71 @@ export async function askResidentAboutClaim(
   });
 
   return { notified: true };
+}
+
+/**
+ * Who approved each of these claims, and when (item E.6).
+ *
+ * Two queries and only for the rows that need it — the bucket is normally empty,
+ * and paying for a join on every reconciliation view to fill a list nobody sees
+ * is the wrong trade.
+ */
+/**
+ * Which of these claims a human has already settled.
+ *
+ * `SETTLED` alone, not `status: { $ne: "PENDING" }`: a rejected claim moved no
+ * money, so the statement row that carries it is still the credit and must stay
+ * tappable — the reviewer turned down the resident's *evidence*, not the transfer.
+ */
+async function settledClaimsAmong(claimEventIds: string[]): Promise<Set<string>> {
+  if (claimEventIds.length === 0) {
+    return new Set();
+  }
+
+  const settled = await PaymentEventModel.find({
+    _id: { $in: claimEventIds },
+    status: "SETTLED",
+  })
+    .select("_id")
+    .lean<{ _id: Types.ObjectId }[]>();
+
+  return new Set(settled.map((event) => event._id.toString()));
+}
+
+async function approverNamesFor(eventIds: string[]) {
+  const empty = new Map<string, { name: string | null; reviewedAt: Date | null }>();
+
+  if (eventIds.length === 0) {
+    return empty;
+  }
+
+  const events = await PaymentEventModel.find({ _id: { $in: eventIds } })
+    .select("reviewedAt reviewedBy")
+    .lean<
+      { _id: Types.ObjectId; reviewedAt?: Date; reviewedBy?: Types.ObjectId }[]
+    >();
+
+  const users = await UserModel.find({
+    _id: { $in: events.map((event) => event.reviewedBy).filter(Boolean) },
+  })
+    .select("name")
+    .lean<{ _id: Types.ObjectId; name?: string }[]>();
+
+  const nameById = new Map(
+    users.map((user) => [user._id.toString(), user.name ?? null]),
+  );
+
+  return new Map(
+    events.map((event) => [
+      event._id.toString(),
+      {
+        name: event.reviewedBy
+          ? (nameById.get(event.reviewedBy.toString()) ?? null)
+          : null,
+        reviewedAt: event.reviewedAt ?? null,
+      },
+    ]),
+  );
 }
 
 async function namesFor(ids: Types.ObjectId[]) {

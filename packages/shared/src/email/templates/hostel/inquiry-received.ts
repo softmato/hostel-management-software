@@ -26,6 +26,7 @@ export function hostelInquiryReceivedEmail(input: {
   ].filter(Boolean) as string[];
 
   return {
+    category: "support",
     subject: `New inquiry for ${input.hostelName}`,
     html: emailLayout({
       heading: "You have a new inquiry",

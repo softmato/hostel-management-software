@@ -5,6 +5,7 @@ export function hostelPublishedEmail(input: {
   listingUrl: string;
 }): EmailContent {
   return {
+    category: "info",
     subject: `Your hostel is now live — ${input.hostelName}`,
     html: emailLayout({
       heading: "Your listing is live 🎉",

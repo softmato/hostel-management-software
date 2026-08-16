@@ -6,7 +6,7 @@ import { existsSync } from "fs";
 
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
 import { rateLimitPublicForm } from "@/lib/rate-limit";
-import { generateFileKey, getR2Client } from "@/lib/r2";
+import { generateFileKey, getR2Client, publicBucket } from "@/lib/r2";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ function r2Configured() {
   return !!(
     process.env.R2_ENDPOINT &&
     process.env.R2_ACCESS_KEY_ID &&
-    process.env.R2_BUCKET_NAME
+    process.env.R2_BUCKET_PUBLIC
   );
 }
 
@@ -66,8 +66,10 @@ export async function POST(request: NextRequest) {
     let url: string;
 
     if (r2Configured()) {
+      // Always the public bucket: this route exists to serve hostel
+      // registration documents back over an unsigned URL.
       const key = generateFileKey("public-uploads", fileName);
-      const bucket = process.env.R2_BUCKET_NAME!;
+      const bucket = publicBucket();
 
       const command = new PutObjectCommand({
         Bucket: bucket,

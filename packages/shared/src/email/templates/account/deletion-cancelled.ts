@@ -12,6 +12,7 @@ export function accountDeletionCancelledEmail(input: {
   userName?: string;
 }): EmailContent {
   return {
+    category: "security",
     subject: "Your account has been reactivated",
     html: emailLayout({
       heading: "Your account is active again",

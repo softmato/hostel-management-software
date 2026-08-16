@@ -583,7 +583,7 @@ Block 3 change, made together with the screen that uses them.
 
 ## 6. Work breakdown
 
-### Completion status — 33 of 39 items, verified 2026-08-09
+### Completion status — 45 of 46 items, verified 2026-08-12
 
 Counted from the `☑`/`☐` markers in this file, not estimated. A `☑` is a claim
 that the item's acceptance statement was **observed** to be true.
@@ -597,8 +597,9 @@ that the item's acceptance statement was **observed** to be true.
 | 4 — Tier 0.5 reconciliation | 4.1–4.6 | **6 / 6** | ☑ Complete — XLS/XLSX in; PDF parsing deferred to 4b |
 | 5 — Reliability | 5.1–5.3 | **3 / 3** | ☑ Complete |
 | 6 — Tier 1 gateway | 6.0–6.8 | **8 / 9** | ☐ 6.0–6.7 done; eSewa and Khalti settle, monitor and reconcile. Only 6.8 (Fonepay) waits on merchant credentials |
+| E — Claim integrity | E.1–E.9 | **9 / 9** | ☑ Complete — provisional settlement, the approved-but-unconfirmed bucket and rule, provisional receipts, the six smaller findings, and the claim/statement double-credit |
 | 7 — Deferred | — | — | Not scheduled |
-| **Total** | | **40 / 41** | |
+| **Total** | | **45 / 46** | |
 
 **Where the codebase stands.** 1308 tests (from 440 at the start of Block 0);
 typecheck and lint clean across `apps/web`, `packages/db` and `packages/shared`;
@@ -1731,6 +1732,289 @@ Notes that matter more than the wireframes:
 *Tests:* `claim.test.ts` — duplicate screenshot, reused txn ID, foreign asset, amount
 out of bounds, and the happy path each produce exactly the right error code and
 **never reach the owner queue** (target P7).
+
+---
+
+### Evidence integrity pass — 2026-08-11
+
+Every check on a resident claim verified something **the payer controls**. The
+amount they entered, the transaction ID they copied, the reference code they
+typed into the remarks box. Two consequences, both found by testing the shipped
+code rather than reading it:
+
+1. **A resident submitted a credit-side transaction PDF and it was accepted.**
+   Money arriving in their own wallet, offered as proof they had paid. Every
+   check went green, and honestly so: on a credit receipt the amount is right,
+   the transaction ID is right, the vocabulary is a receipt's vocabulary. A
+   credit receipt and a debit receipt are the same document with one word
+   different, and nothing read that word.
+2. **A payment to a friend's account passes the entire pipeline.** Send the exact
+   rent to any wallet, type the invoice's own reference code in the remarks,
+   screenshot it. `EVIDENCE`, `REFERENCE`, `AMOUNT`, `INVOICE_OPEN` and
+   `SIMILARITY` all go green — so `Approve all` settles it and issues a receipt
+   without a human opening the image. The payment is real, the receipt is real,
+   the code is real. The hostel receives nothing and the friend withdraws it.
+
+The `EVIDENCE` green was also circular: the form autofills the amount and the ID
+*from* the screenshot, so "the screenshot agrees with the claim" could mean no
+more than that the image agrees with itself. `evidence-ocr.ts` said as much in a
+comment; the check went green anyway.
+
+**☑ E.1** `evidence-direction.ts` — which way the money moved, and whether it
+moved. `DEBIT` / `CREDIT` / `UNKNOWN`, plus the transaction outcome. A confidently
+-read credit receipt is **refused at submission**; so is one that says the
+transaction failed or was cancelled. `PENDING` is not refused — banks settle
+those a day later and the money does arrive — it flags instead. An account
+statement carries both directions at once and is never refused (`isLedgerView`).
+**☑ E.2** `evidence-payee.ts` — who received the money, matched against the
+accounts on the hostel's own `HostelPaymentProfile`. The one field on a receipt
+the payer does not control. A cleanly-read foreign payee is refused; an
+unreadable or unconfigured one is amber and never green. `bankName` is
+deliberately not a payee name, and generic tokens (`HOSTEL`, `BOYS`, `PVT`) do
+not match, or the check would pass for any hostel in the country.
+**☑ E.3** Both wired into `submitClaim` and into the resident form's live read,
+off a single OCR pass, with the *same functions* computing both — so the sentence
+on the form and the sentence from the submit path cannot drift apart. New error
+code `EVIDENCE_WRONG_TRANSACTION` (422) covers all three refusals: the resident's
+next step is identical for each, which is to go and find a different file.
+**☑ E.4** New `PAYEE` review check, sixth in the queue. `Approve all` now
+requires it, which is what makes the friend's-account claim unsweepable even if
+the payee could not be read. `EVIDENCE` is no longer green on an unread
+direction — on such a file the numbers agreeing means nothing.
+
+**☑ E.4b** Corrected against a real receipt the same evening. A resident uploaded
+a genuine Everest Bank QR receipt — a successful, debit-side payment — and was
+told *"that receipt shows money coming into your account"*. Two defects at once,
+and both were in the same assumption, that a receipt states its direction in
+words:
+
+- **It read a direction that was not there.** The credit markers were untiered,
+  so a two-letter `cr` — which is what a recogniser makes of a logo, a Devanagari
+  heading or a table rule — was enough to refuse. The list is now ordered
+  strongest-first with a cut at `STRONG_CREDIT_MARKERS`: `cr`, `sender`, `payer`
+  and a bare `credit` still count toward the tally and toward `isLedgerView`, but
+  **no weak marker may refuse a resident on its own**.
+- **It could not read the direction that was.** The EBL receipt carries no
+  directional word anywhere — `Reference Code`, `Channel`, `Payment Attribute`,
+  `Service Name`, `Amount`, `Initiator`, `Qr Merchant Name`, `Remarks`, `Status`
+  — which is the shape of the commonest receipt in Nepal, a QR merchant payment.
+  Direction now also reads **structure**: a merchant, a QR and an initiator exist
+  only on the paying side. Nobody receives money via a `Qr Merchant Name`.
+
+Two more followed from the same file. `extractPayee` only understood a
+*punctuated* label, so on a two-column receipt — label in one cell, value in the
+next — the payee was invisible: a payment to `TEA TIME ANYTIME CAFETERIA` read as
+*no payee found*. `PAYEE_LABELS_TABULAR` handles the layout, with the bare `to`
+deliberately excluded because unanchored it matches mid-sentence and this verdict
+can refuse a resident. And **a verified payee now settles the direction**: money
+that reached an account the hostel registered left the resident's, whatever words
+the receipt uses — without which the commonest genuine receipt in the country is
+amber on a hostel that has done everything right.
+
+**☑ E.4c** `evidence-receipt.ts` — reading a receipt as a **document with
+fields**, per provider, rather than by scanning the page for patterns. The
+generic readers stay as the fallback; this is what gives them something solid to
+decide from. Three shapes, because residents send all three:
+
+| Shape | Example | What it can prove |
+|---|---|---|
+| Post-payment screenshot | eSewa `Payment Successful`, Khalti confirmation, Fonepay QR result | One payment, fully |
+| Bank payment receipt | Everest Bank's two-column `Payment Receipt`, ConnectIPS voucher | One payment, fully |
+| Statement | eSewa `Cr.`/`Dr.` export, Khalti `Amount(+)`/`Amount(-)`, a bank's account statement | That the resident has an account — **not which row is this month's rent** |
+
+Templates for eSewa, Khalti, Fonepay, ConnectIPS and a bank catch-all, each with
+its own labels — eSewa's `Transaction Code`, Khalti's `Purchase Order ID`, the
+bank's `Qr Merchant Name` and `Initiator`. `labelledValue` reads all four layouts
+a recogniser actually produces: `Label: value`, `Label   value`, `Label | value`,
+and the value wrapped onto the next line.
+
+**The statement is the case that needed care, and the rule is that no field is
+read off one.** On a month of rows every label matches the first row that carries
+it, so a payee read from a statement names whoever the resident paid *first that
+month* — and that name would then be handed to the payee check as the recipient
+of this payment, which is the one output that can refuse someone who genuinely
+paid. Statements are detected by their column pairs (the same vocabulary the
+statement parsers were corrected against) or their own heading, and they produce
+a shape and nothing else. A running balance is deliberately not a signal: plenty
+of single-payment receipts print one.
+
+Two new flags, both amber: `EVIDENCE_IS_STATEMENT` (with resident-side guidance
+asking for the single receipt — never a refusal, since the payment really is on
+that page) and `EVIDENCE_METHOD_MISMATCH`, raised only on a *positive*
+disagreement between the provider read and the method the resident tapped.
+
+**☑ E.4d** The submit-proof modal, simplified. It asked the resident to choose
+between **six chips of equal weight**, and that was the wrong shape for the
+question — five of them (eSewa, Khalti, Fonepay, bank, another app) are the same
+answer as far as this form is concerned: *an app, with a receipt, carrying a
+transaction ID*. The sixth, cash, is a different kind of payment: no receipt, no
+ID, a person's name where the ID goes.
+
+So: **one dropdown and one button.** The dropdown lists the apps and defaults to
+**Auto — read it from my receipt**; cash sits beside it on its own. Under it, one
+line, and only when it has something to say: `Read from your receipt: Khalti`.
+
+**Auto is the default because we are better at this than the resident is.** The
+receipt names its own issuer and E.4c reads it off a recognised layout, while the
+resident is choosing from memory, in an app that is not the one they paid with —
+which is exactly how a Khalti receipt gets submitted as eSewa and earns an
+`EVIDENCE_METHOD_MISMATCH` nobody needed. Three details make it safe:
+
+- **The choice and the resolved method are separate values.** The dropdown keeps
+  showing `Auto` after a receipt resolves it, or the setting changes silently
+  under the resident and their *next* upload is locked to the app the *last* one
+  happened to be.
+- **Auto with nothing read submits nothing.** The old default was a hard-coded
+  `ESEWA`, so a resident who uploaded a bank receipt and never touched the chips
+  declared a wallet payment they had not made. It now asks.
+- **The template's provider beats the branding scan**, and its amount and id fill
+  only what the page scan missed — with the id run through the same plausibility
+  rule `submitClaim` applies, because pre-filling a value the submit path is
+  certain to refuse is worse than pre-filling nothing.
+
+**The asymmetry is the whole design, and it is the existing rule.** A refusal
+requires a *positive* read of a contradiction — this receipt names somebody else,
+this receipt says failed, this receipt says received. A missing confirmation is
+always amber, because the alternative is refusing every receipt whose wording we
+have not seen, and there are more Nepali banks than anyone has receipts from.
+
+*Verified:* typecheck and lint clean; 1122 tests pass (was 1085 — 16 in
+`evidence-direction.test.ts`, 21 in `evidence-payee.test.ts`, 7 attack cases in
+`claim.test.ts` including the credit PDF and the friend's-account payment, and 4
+in `review-checks.test.ts`). `claim.test.ts`'s receipt fixture was a bare amount
+and ID; it is now a whole receipt with a payee line, because the old one would
+have left the happy path permanently amber and stopped the tests exercising the
+clean case at all. **No screen was opened in a browser** — same limit as 3.1.
+
+**Still open, and E.1–E.4 do not close it.** Payee matching is best-effort: a
+cropped screenshot, an unusual template or a forged image defeats it. The
+guarantee has to be reconciliation, and reconciliation is currently switched off
+the moment a warden approves — `loadMatchContext` loads `status: "PENDING"`
+claims only (`matching/ladder.service.ts`), so an approved claim leaves the
+matching universe permanently and the statement that would prove the money never
+landed is never compared against it. Tier E can only ever catch claims nobody has
+approved yet. The remaining work, in order — **all four done, 2026-08-12**:
+
+**☑ E.9** One transfer, two screens, one credit. Found while building E.5 and
+fixed after it, because it predates Tier E and E.5 alone would not have closed it.
+
+A resident's claim and the statement row naming the same transaction are the same
+money, and the product has an action for each: `Approve matched` on the reconcile
+screen settles the row, `Approve` in the review queue settles the claim. **Nothing
+connected them.** A hostel that used both features credited one month's rent twice
+against one invoice — on different days, by different people, neither of whom did
+anything odd — and because both rows are real, the reconcile screen displayed the
+result as two correct entries. `E.5`'s `confirmsClaimEventId` covers only the
+claims that were *already* approved when the file was read; a warden approving an
+hour after the upload lands in exactly the same place.
+
+Two guards, both **re-derived at the moment of the write** rather than kept as a
+flag: a flag has to be maintained by whoever settles the other row, and the one
+path that forgets is the one that double-credits. The link already exists in the
+statement event's payload, so both directions can just read it.
+
+- `approveClaim` refuses when a `SETTLED` statement event names this claim, and
+  says the money *is* credited rather than implying the claim was bad — the owner
+  pressed approve on a transfer that really did arrive.
+- `approveMatchedRows` re-reads the linked claims' statuses and skips the settled
+  ones; `getReconciliation` marks those rows `confirmsClaim`, so the screen shows
+  them as confirming rather than as one tap away, and the `Approve all N` count
+  stops promising rows the sweep cannot work through.
+
+`SETTLED` only, deliberately: a *rejected* claim moved no money, so the statement
+row is still the credit and must stay tappable. The reviewer turned down the
+resident's evidence, not the transfer.
+
+*Verified:* typecheck and lint clean; 1594 tests pass (was 1544 — the promotion
+guard in `ledger-models.test.ts`, the drift rule in `ledger-drift.test.ts`, the
+new bucket in `reconcile.test.ts`, the confirming row in
+`statement-import.test.ts`, the provisional receipt in `receipt-pdf.test.ts`,
+E.8's six in `claim.test.ts`, and E.9's two guards in `review.test.ts` and
+`reconcile.test.ts`). `next build` passes. **No screen was opened in a browser** —
+same limit as 3.1 and E.4d.
+
+**☑ E.5** Provisional settlement. A `MANUAL_REVIEW` settlement stays
+`confirmation: "MANUAL_REVIEW"` and remains in scope for matching; a statement
+credit promotes it to `STATEMENT_MATCH`. The invoice reads paid and dunning stops
+either way — the resident is not held hostage to statement lag.
+
+**`confirmation` is a frozen field, and the promotion had to stay compatible with
+that.** The freeze is what stops a settled row being rewritten, so the exception is
+written into the model guard rather than around it: `MANUAL_REVIEW → STATEMENT_MATCH`
+and nothing else, refused if any other frozen field rides along, and on the update
+path the *filter* must pin the source level — which makes the write structurally
+incapable of weakening a `GATEWAY_VERIFIED` settlement or of matching one at all.
+`confirmedAt` and `statementImportId` record which upload proved it.
+
+**The statement row must not settle, and that is the part that would have been
+easy to get wrong.** A confirming credit and the claim it confirms are the same
+transfer; settling both credits one month's rent twice, against one invoice, and
+every row involved looks correct on the screen. So `ingest` promotes the claim and
+returns, the confirming row carries `confirmsClaimEventId` and stays pending
+forever, and `approveMatchedRows` skips it explicitly rather than by luck.
+
+**☑ E.6** `loadMatchContext` includes settled-but-unconfirmed claims, and a new
+reconciliation bucket plus a nightly `ledger-drift` rule surfaces *approved, and
+still not in any statement after 2× `statementCadenceDays`* — with the resident,
+the amount and the approving warden named. This is where the fraud actually
+surfaces, about a week later.
+
+One `status: "PENDING"` was the whole of the hole: an approved claim left the
+matching universe the instant a warden touched it. The loader now takes
+`PENDING` *or* `SETTLED` + `MANUAL_REVIEW`; `GATEWAY_VERIFIED` never enters,
+because the provider's API already confirmed that money and a bucket full of rows
+nobody can act on is a bucket owners learn to skip.
+
+The unmatched-claim list splits on `claim.settled` into two buckets, because they
+are two different decisions — an undecided claim is a question for the resident, an
+approved one is a question about money the hostel has already said it received. The
+second is deliberately read-only on the screen: there is no one-tap correction here
+that would not be worse than the problem. `CLAIM_UNCONFIRMED` is `WARN`, not
+`ERROR` — the overwhelmingly likely cause is an owner who has not uploaded a
+statement, and an ERROR that is usually housekeeping devalues every real one.
+**☑ E.7** Receipt wording follows the confirmation level: provisional receipts
+say *subject to confirmation against our account statement*, and become
+unqualified on statement match. Provisional credit, as card and ACH networks
+already do it.
+
+**The level is read at render time, never snapshotted onto the receipt.** The
+whole point of provisional credit is that the confirmation arrives *after* the
+document is minted, so a copy stored on the `Receipt` row would still be hedging
+weeks after the statement settled the question — and the resident would have to
+ask for a reissue to get a document that says what is true.
+
+The stamp changes with it: `CERTIFIED` in green becomes `PROVISIONAL` in amber,
+because the stamp is the most legible thing on the page to somebody deciding
+whether the document is genuine, and a green certification over money nothing
+independent has confirmed is the one place this renderer could mislead at a
+glance. A voided receipt gets neither — `VOID` already answers the question the
+qualifier asks. Only `MANUAL_REVIEW` hedges: a statement match and a gateway
+verification are both independent of the payer, and a pre-ledger receipt with no
+event behind it must not be marked down for a distinction the product did not
+make when it was issued.
+**☑ E.8** The six smaller findings from the same read: `paidAt` is unbounded and
+a forward-dated claim is invisible to `findOrphanClaims` (`ladder.service.ts`
+skips claims after `periodEnd`); no rate limit on the claim route while each POST
+costs up to 8s of sharp+tesseract; no upper amount bound once `outstanding` is 0;
+`describePriorClaim` leaks another resident's claim period; a rejected claim frees
+its transaction ID for unlimited resubmission; and no age bound on the evidence
+asset.
+
+| Finding | What it is now |
+|---|---|
+| `paidAt` unbounded | Six hours forward (clock skew, and Nepal's :45 offset gets a client's local time wrong in exactly this direction), one year back (a genuine arrear is real; a bound tight enough to catch a typo refuses them) |
+| Forward-dated claim invisible to Tier E | The grace period is dated by `submittedAt`, which is ours, not by `occurredAt`, which is a form field |
+| No rate limit on the claim route | 8/hour per client, applied **before** the body is parsed and the principal resolved — work done ahead of the limiter is work an attacker gets for free |
+| No ceiling once `outstanding` is 0 | The invoice total takes over as the ceiling; the old guard switched itself off on a settled invoice, so 1,200,000 against a paid 12,000 month passed, and if approved became credit |
+| `describePriorClaim` leaks | The two facts are returned only when the prior claim is the caller's own. The refusal is unchanged either way — the message must not become an oracle for whether an id exists |
+| Rejected id reusable forever | Three attempts, and only by the resident who filed the first. Freeing it stays right — "wrong month" has to be correctable and the corrected claim carries the same real id |
+| No age bound on the evidence asset | Fourteen days from `uploadCompletedAt` |
+
+The two lookups behind the leak are hostel-scoped, not resident-scoped, and that
+is correct: an id or hash colliding with *another* resident's claim is the
+interesting case. Two residents on a family bank account produce it without
+anybody doing anything wrong — and the card then told the submitter which month
+that stranger had paid for.
 
 ---
 

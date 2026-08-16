@@ -1,89 +1,188 @@
 # EMAIL_SYSTEM.md — Email Triggers & Templates
 
 **Email Provider:** Resend
-**Template Engine:** React Email (or Handlebars templates stored in `packages/shared/email-templates/`)
 **Sending Strategy:** Immediate (no batching/digesting in v1)
 
 This document specifies EVERY email trigger in the system. All emails must be implemented from Phase 1 onward as needed per phase.
 
+Sections 1–9 are the *trigger* specification — what gets sent, to whom, with
+what data. Section 0 below is the *infrastructure*: how any of it actually
+leaves the building.
+
 ---
 
-## Email Infrastructure
+## 0. Sending Infrastructure
 
-### Template Structure
+### 0.1 The shared Softmato domain
+
+This product does not own an email domain. It sends through Softmato's central
+one, which every Softmato SaaS shares:
 
 ```
-packages/shared/email-templates/
-  auth/
-    verification.tsx
-    password-reset.tsx
-    credentials-issued.tsx
-    account-upgraded.tsx
-  hostel/
-    submission-received.tsx
-    hostel-approved.tsx  # includes cook credentials section if enabled
-    hostel-rejected.tsx
-    inquiry-received.tsx
-  cook/
-    credentials-issued.tsx  # sent when cook portal enabled
-  payment/
-    payment-due-reminder.tsx
-    payment-overdue.tsx
-    proof-uploaded.tsx
-    payment-verified.tsx
-    payment-rejected.tsx
-  resident/
-    qr-activation.tsx
-    new-notice.tsx
-    complaint-status-updated.tsx
-    complaint-resolved.tsx
-  guardian/
-    invitation.tsx
-    sos-alert.tsx
-  service-provider/
-    registration-received.tsx
-    provider-approved.tsx
-    provider-rejected.tsx
-  platform/
-    new-hostel-pending.tsx
-    subscription-expiring.tsx
+                    softmato.com
+                         |
+                  DNS managed by Vercel
+                         |
+          +--------------+--------------+
+          |                             |
+        Resend                       ImprovMX
+      SEND (outbound)             RECEIVE (inbound)
+          |                             |
+          |                             v
+          |                   work.softmato@gmail.com
+          v
+   info@ alert@ billing@ security@ support@ noreply@
 ```
 
-### Sending Function
+Two consequences the code depends on:
+
+- **The domain is verified as a whole in Resend.** Any local-part on it can send
+  without its own verification. Adding a new mailbox to send *from* costs
+  nothing and needs no DNS change.
+- **Sending and receiving are separate systems.** A Resend sender address does
+  not create an inbox. A reply only reaches a person if that same address also
+  exists as an **ImprovMX forwarding alias** to `work.softmato@gmail.com`.
+
+Never point the root MX records at a second receiving provider, and never delete
+Resend's DKIM/SPF/return-path records. Both are DNS changes made in **Vercel**,
+not at the registrar.
+
+### 0.2 Categories — which mailbox a message comes from
+
+Because local-parts are free, the local-part carries meaning. A resident who
+sees `alert@` in their inbox knows before opening it that this one is not a
+receipt.
+
+| Category | Mailbox | What it carries |
+|---|---|---|
+| `info` | `info@` | Ordinary product mail — notices, approvals, invitations, confirmations |
+| `alert` | `alert@` | Needs attention now — SOS, overdue fees, a gateway that is down, an urgent notice |
+| `billing` | `billing@` | Money — invoices, receipts, reminders, refunds |
+| `security` | `security@` | Credentials and account safety — OTPs, resets, deletion, issued logins |
+| `support` | `support@` | Mail a person will reply to — inquiries, complaint threads |
+| `noreply` | `noreply@` | Machine mail with nothing to say back to |
+
+The split is by **what the message is**, not by which module sent it: a payment
+gateway going down is an `alert` although it comes out of finance, and a
+password reset is `security` although auth also sends ordinary `info` mail.
+
+The display name gains a matching suffix, so `billing` mail arrives from
+`HostelHub Billing <billing@softmato.com>` while `info` mail is just
+`HostelHub <info@softmato.com>`.
+
+### 0.2a Where replies go
+
+Sending from a mailbox does not make it able to *receive* — that needs an
+ImprovMX forwarding alias per address. So the `From` and the `Reply-To` are
+answering different questions, and only one of them has to be a real inbox.
+
+Every category except `noreply` carries **`Reply-To: info@<domain>`** unless the
+platform owner sets an explicit address. That is derived from the sending domain
+at send time, so it can never point somewhere unowned, and it means **one alias
+(`info@`) is enough to make every reply in the product reach a human.**
+
+`noreply` carries no `Reply-To` at all — that is the whole meaning of the
+category.
+
+> **This was a real bug, briefly.** `Reply-To` originally fell back to the site's
+> public support email, whose shipped default is `support@hostelhub.com.np` — a
+> domain nobody owns. Sending worked flawlessly and every reply bounced. The
+> support email is a contact detail printed in the footer for humans to read; it
+> is not a routing address and is no longer consulted here. `replyToFor()` in
+> `packages/shared/src/email/identity.ts` owns this now, with tests.
+
+**Inbound aliases to create in ImprovMX:** `info@` is the one that matters —
+it catches every reply. Add `support@` and `billing@` only if you want mail sent
+*directly* to those addresses (from a business card, the footer) to land too;
+replies do not need them. `alert@`, `security@` and `noreply@` are outbound-only
+by design.
+
+### 0.3 Where the sender is configured
+
+| Piece | Lives in | Why |
+|---|---|---|
+| Sending domain | `EMAIL_DOMAIN` env | Must match what Resend verified. A typo in a settings form would silently stop all email. |
+| Display name | Website Config → Site Content → **Email Sending** | Branding. Falls back to the site name. |
+| Reply-to | same | Falls back to `info@<domain>` — **not** to the public support email. See §0.2a. |
+| Local-part per category | same | The platform owner decides which mailboxes exist. Falls back to the table above. |
+
+Every configurable field may be left blank; blank means "use the fallback", so a
+fresh database sends correctly branded mail from the right mailboxes without
+anyone opening the settings page.
+
+`packages/shared` cannot read the database — it is shared with the mobile app —
+so it exposes a resolver hook that `apps/web/src/lib/email-identity.ts` fills in
+at boot from `instrumentation.ts`. Settings are cached for 60 seconds and the
+in-flight read is shared, so a broadcast of 500 notices costs one settings read,
+not 500.
+
+### 0.4 Template structure
+
+Templates are plain TypeScript functions returning `EmailContent`
+(`{ category, subject, html }`) — no React Email, no Handlebars, no runtime
+template resolution by name.
+
+```
+packages/shared/src/email/
+  identity.ts            # categories, mailbox map, From-header assembly
+  sender.ts              # sendEmail() — the only thing that talks to Resend
+  templates/
+    layout.ts            # emailLayout / ctaButton / paragraph / escapeHtml / monthName
+    account/    auth/    guardian/    hostel/
+    payment/    platform/ resident/   service-provider/
+```
+
+Each template declares its own category, so a call site never names one:
 
 ```typescript
-// packages/shared/email/sender.ts
-export async function sendEmail({
-  to,
-  subject,
-  template,
-  data,
-  replyTo,
-}: {
-  to: string | string[];
-  subject: string;
-  template: string; // template name
-  data: Record<string, any>;
-  replyTo?: string;
-}) {
-  const html = await renderTemplate(template, data);
-  
-  await resend.emails.send({
-    from: process.env.EMAIL_FROM!,
-    to: Array.isArray(to) ? to : [to],
-    subject,
-    html,
-    replyTo,
-  });
-  
-  // Log for debugging
-  console.log(`[EMAIL] Sent ${template} to ${to}`);
-}
+// packages/shared/src/email/templates/payment/payment-overdue.ts
+return {
+  category: "alert",
+  subject: `Payment overdue — ${monthName(input.month)} · ${input.hostelName}`,
+  html: emailLayout({ ... }),
+};
 ```
+
+```typescript
+// the call site — spreading the template carries the category with it
+await sendEmail({ to: resident.email, ...paymentOverdueEmail({ ... }) });
+```
+
+`sendEmail()` never throws: a business flow must not fail because delivery did.
+It returns `{ sent: false, reason }` and logs. With no `RESEND_API_KEY` (local
+development) it logs the message instead of sending it.
+
+Interpolate anything user-provided through `escapeHtml()` — `bodyHtml` is
+trusted markup.
 
 ---
 
 ## 1. Authentication & Account Emails
+
+### 1.0 Signup One-Time Code
+
+**Trigger:** `POST /api/v1/auth/otp/request` — the OTP signup flow
+**Recipients:** the address being verified
+**Template:** `auth/otp-code` · **Category:** `security`
+**Subject:** "Your verification code"
+
+**Data:**
+```typescript
+{
+  code: string;
+  expiresInMinutes?: number;  // from OTP_TTL_MINUTES
+  siteName?: string;
+}
+```
+
+Not in the original spec, and for a while not in the shared system either: the
+auth service called Resend directly with its own hand-rolled HTML, its own
+`From` header, and "HostelHub" hard coded into the subject, heading and body.
+The one email a brand-new user is guaranteed to receive was the one email that
+ignored whatever the platform owner had named the product. It now goes through
+`sendEmail()` like everything else.
+
+---
 
 ### 1.1 Email Verification (PUBLIC Signup)
 
@@ -861,16 +960,23 @@ SOS emails CANNOT be disabled.
 
 ## Implementation Checklist
 
-- [ ] Set up Resend account and get API key
-- [ ] Create all email templates in `packages/shared/email-templates/`
-- [ ] Implement `sendEmail()` helper function
-- [ ] Create email service layer in `packages/shared/email/`
-- [ ] Add email queue (optional: use Vercel Queue or BullMQ for reliability)
-- [ ] Implement all triggers in respective route handlers
-- [ ] Add email preferences to User/Resident/Guardian settings
-- [ ] Test all email scenarios in development
+- [x] Set up Resend account and get API key
+- [x] Create email templates in `packages/shared/src/email/templates/` (37 built)
+- [x] Implement `sendEmail()` helper function
+- [x] Create email service layer in `packages/shared/src/email/`
+- [x] Route every send through one function — no module calls Resend directly
+- [x] Per-category sender mailboxes (§0.2)
+- [x] Sender identity configurable by the platform owner (§0.3)
+- [x] Configure SPF/DKIM/return-path for `softmato.com` (Resend records, in Vercel DNS)
+- [x] Point every reply at a mailbox on the sending domain (§0.2a)
+- [ ] Confirm the inbound ImprovMX alias for `info@` forwards to the team inbox (§0.2a)
+- [ ] Add email queue (optional: for delivery reliability under load)
+- [ ] Add email preferences to User/Resident/Guardian settings — the opt-out
+      matrix below and the three `PlatformConfig.emailSettings` toggles are
+      **specified but not built**; every non-SOS email currently sends
+      unconditionally
+- [ ] Test all email scenarios against a live inbox
 - [ ] Set up email logging/monitoring for debugging
-- [ ] Configure SPF/DKIM/DMARC for production domain
 
 ---
 

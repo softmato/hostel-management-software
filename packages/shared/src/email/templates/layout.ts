@@ -1,6 +1,17 @@
 import { PRODUCT_NAME } from "../../index";
+import type { EmailCategory } from "../identity";
 
 export type EmailContent = {
+  /**
+   * Which mailbox this template sends from — `alert@`, `billing@`, and so on.
+   *
+   * It lives on the template rather than on the call site because the category
+   * is a property of the *message*, and the call site is the one place that
+   * cannot see the whole message. A service that reaches for
+   * `paymentOverdueEmail()` should not also have to remember that overdue mail
+   * is an alert; spreading the template into `sendEmail()` carries it along.
+   */
+  category: EmailCategory;
   subject: string;
   html: string;
 };

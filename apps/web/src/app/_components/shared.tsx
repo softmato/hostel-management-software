@@ -403,6 +403,7 @@ export function PublicShell({
     | "community"
     | "compare"
     | "jobs"
+    | "offer-program"
     | "pricing"
     | "providers"
     | "register-hostel";

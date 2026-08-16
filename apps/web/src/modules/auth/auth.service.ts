@@ -16,6 +16,7 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import { Role } from "@/lib/roles";
 import { landingPathForRole } from "@/lib/route-access";
 import { sendEmail } from "@hostel/shared/email/sender";
+import { otpCodeEmail } from "@hostel/shared/email/templates/auth/otp-code";
 import { verificationEmail } from "@hostel/shared/email/templates/auth/verification";
 import { passwordResetEmail } from "@hostel/shared/email/templates/auth/password-reset";
 import type {
@@ -128,38 +129,31 @@ function generateOtpCode() {
 }
 
 function otpDeliveryProvider() {
-  return process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL ? "resend" : null;
+  return process.env.RESEND_API_KEY ? "resend" : null;
 }
 
-function renderOtpEmail(code: string) {
-  return `<!doctype html>
-<html>
-  <body style="margin:0;background:#f3faf8;padding:32px 16px;font-family:Inter,Arial,sans-serif;color:#0f172a;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #dbeee8;border-radius:14px;overflow:hidden;">
-      <tr>
-        <td style="padding:28px 32px;background:#0f766e;color:#ffffff;">
-          <h1 style="margin:0;font-size:22px;line-height:1.25;">HostelHub verification</h1>
-        </td>
-      </tr>
-      <tr>
-        <td style="padding:32px;">
-          <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#334155;">Use this one-time code to verify your email and finish creating your HostelHub account.</p>
-          <div style="margin:28px 0;text-align:center;">
-            <span style="display:inline-block;border:1px dashed #14b8a6;border-radius:12px;background:#f0fdfa;padding:14px 24px;font-size:30px;font-weight:800;letter-spacing:8px;color:#0f766e;">${code}</span>
-          </div>
-          <p style="margin:0;font-size:13px;line-height:1.6;color:#64748b;">This code expires soon. If you did not request it, you can ignore this email.</p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
-}
-
+/**
+ * Sends the signup one-time code.
+ *
+ * This used to call Resend directly with its own hand-rolled HTML, its own
+ * `From` header read straight from `RESEND_FROM_EMAIL`, and "HostelHub" hard
+ * coded into the heading, the copy and the subject — so the one email a brand
+ * new user is guaranteed to receive was the one email that ignored whatever the
+ * platform owner had named the product. It now goes through `sendEmail()` and
+ * the shared `otpCodeEmail` template like everything else, which also means it
+ * arrives from `security@` rather than from the general mailbox.
+ */
 async function sendResendOtp(input: { code: string; identifier: string }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
+  const delivery = await sendEmail({
+    to: input.identifier,
+    ...otpCodeEmail({ code: input.code, expiresInMinutes: otpTtlMs() / 60_000 }),
+  });
 
-  if (!apiKey || !from) {
+  if (delivery.sent) {
+    return;
+  }
+
+  if (delivery.reason === "not_configured") {
     throw new AuthServiceError(
       "Resend OTP email is not configured.",
       "OTP_DELIVERY_NOT_CONFIGURED",
@@ -167,24 +161,7 @@ async function sendResendOtp(input: { code: string; identifier: string }) {
     );
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
-    body: JSON.stringify({
-      from,
-      subject: "Your HostelHub verification code",
-      html: renderOtpEmail(input.code),
-      text: `Your HostelHub verification code is ${input.code}. It expires soon.`,
-      to: [input.identifier],
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
-
-  if (!response.ok) {
-    throw new AuthServiceError("Could not send OTP email.", "OTP_DELIVERY_FAILED", 502);
-  }
+  throw new AuthServiceError("Could not send OTP email.", "OTP_DELIVERY_FAILED", 502);
 }
 
 async function dispatchOtpChallenge(input: {

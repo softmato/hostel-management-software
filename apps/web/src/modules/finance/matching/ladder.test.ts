@@ -48,6 +48,8 @@ function claim(overrides: Partial<LadderClaim> = {}): LadderClaim {
     period: "2026-08",
     residentId: "res-bishal",
     residentName: "Bishal Rai",
+    settled: false,
+    submittedAt: new Date(2026, 7, 6),
     transactionCode: "9910233",
     ...overrides,
   };
@@ -258,9 +260,12 @@ describe("Tier E — claims with no money behind them", () => {
     expect(orphans[0]?.why).toContain("closest real credit");
   });
 
+  // Dated by submission, not by the resident's `paidAt` — item E.8. A claim that
+  // *arrived* after the statement was cut has not had its chance to appear yet;
+  // one that merely says it was paid later has.
   it("does not flag a claim the statement was cut before", () => {
     const orphans = findOrphanClaims(
-      context({ claims: [claim({ occurredAt: new Date(2026, 7, 20) })] }),
+      context({ claims: [claim({ submittedAt: new Date(2026, 7, 20) })] }),
       rows,
       new Date(2026, 7, 14),
     );

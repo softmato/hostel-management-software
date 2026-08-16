@@ -7,6 +7,7 @@ export function credentialsIssuedEmail(input: {
   loginUrl: string;
 }): EmailContent {
   return {
+    category: "security",
     subject: "Your HostelHub account credentials",
     html: emailLayout({
       heading: "Your account is ready",

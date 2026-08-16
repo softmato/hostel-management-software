@@ -2,13 +2,8 @@ import type { NextRequest } from "next/server";
 
 import { requireApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import {
-  ACCESS_TOKEN_COOKIE,
-  REFRESH_TOKEN_COOKIE,
-  accessTokenTtlSeconds,
-  refreshTokenTtlSeconds,
-} from "@/lib/auth";
 import { shouldExposeRefreshToken } from "@/lib/mobile-auth";
+import { applySessionCookies } from "@/lib/session-cookies";
 import { activateResident } from "@/modules/residents/activation.service";
 import { activationCodeSchema } from "@/modules/residents/activation.validation";
 
@@ -32,22 +27,8 @@ export async function POST(request: NextRequest) {
       "Resident activated",
     );
 
-    response.cookies.set(ACCESS_TOKEN_COOKIE, result.session.accessToken, {
-      httpOnly: true,
-      maxAge: accessTokenTtlSeconds(),
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-    response.cookies.set(REFRESH_TOKEN_COOKIE, result.session.refreshToken, {
-      httpOnly: true,
-      maxAge: refreshTokenTtlSeconds(),
-      path: "/api/v1/auth",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-
-    return response;
+    // Same session shape as every other sign-in path — see applySessionCookies.
+    return applySessionCookies(response, result.session);
   } catch (error) {
     return handleRouteError(error);
   }

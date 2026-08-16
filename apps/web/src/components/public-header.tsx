@@ -28,6 +28,7 @@ type PublicHeaderProps = {
     | "contact"
     | "home"
     | "jobs"
+    | "offer-program"
     | "pricing"
     | "privacy"
     | "providers"
@@ -73,6 +74,11 @@ const navItems = [
   // than buried in a portal sidebar — signed-out readers included.
   { href: "/community", id: "community", label: "Community" },
   { href: "/compare", id: "compare", label: "Compare" },
+  // Top level rather than under More: it is the page every payment email links
+  // to, and the one a guardian paying the rent is sent without having an
+  // account of their own. Labelled short — the page itself carries the full
+  // "Resident Offer Program" name that the emails and receipts use.
+  { href: "/resident-offer-program", id: "offer-program", label: "Offer Program" },
   { href: "/register-hostel", id: "register-hostel", label: "Register Hostel" },
   // Lands on the public directory; registering is the CTA on that page.
   { href: "/service-providers", id: "providers", label: "Service Providers" },
@@ -90,8 +96,19 @@ const providerNavItems = [
   { href: "/community", id: "community", label: "Community" },
 ] as const;
 
+/**
+ * `/blog` is deliberately absent.
+ *
+ * The route still exists and still renders, but its six posts are hardcoded
+ * placeholders — invented titles and dates, stock photography, and no article
+ * routes behind them, so every card is unclickable. Linking that from the
+ * public header ships it as if it were the company's real writing.
+ *
+ * Put the entry back the moment there is something to read. That needs either a
+ * `blog` section in the site config or a `BlogPost` model with detail routes;
+ * neither exists today, and both are a feature rather than a copy change.
+ */
 const moreItems = [
-  { href: "/blog", id: "blog", label: "Blog" },
   { href: "/about", id: "about", label: "About Us" },
   { href: "/contact", id: "contact", label: "Contact" },
   { href: "/terms", id: "terms", label: "Terms" },

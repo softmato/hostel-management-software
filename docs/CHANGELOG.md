@@ -6,6 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/) — sections per 
 
 ## [Unreleased]
 
+### Changed
+- **Email now sends from the mailbox that matches the message.** Every email in the product
+  went out from one address, set by `RESEND_FROM_EMAIL`, so a receipt and an emergency SOS
+  arrived looking identical. Each of the 37 templates now declares a category —
+  `info` / `alert` / `billing` / `security` / `support` / `noreply` — and `sendEmail()` builds
+  the `From` header from it: `HostelHub Billing <billing@softmato.com>`,
+  `HostelHub Alerts <alert@softmato.com>`, and so on. The category lives on the template rather
+  than the call site, so no service had to change. See EMAIL_SYSTEM.md §0.
+- **The sender identity is the platform owner's, not the environment's.** Display name, reply-to
+  and the local-part for each category moved out of `.env` and into
+  Website Config → Site Content → **Email Sending**. The name previously came from
+  `RESEND_FROM_NAME` and could contradict the site name configured in the same admin UI. Only
+  `EMAIL_DOMAIN` stays in the environment — it must match a domain verified in Resend, and a
+  settings form is where that gets mistyped. Blank config fields fall back (sender name → site
+  name, reply-to → support email, mailbox → its shipped local-part), so a fresh database sends
+  correctly branded mail with nothing configured.
+- **One env file.** The repo root `.env` and `apps/web/.env.local` were near-copies that had
+  already drifted — the root held the R2 bucket names and nothing else, `.env.local` held the
+  Pusher and LLM keys and nothing else, and both carried stale duplicates of the rest. Whichever
+  you edited, you had even odds of editing the one not being read. The root `.env` is now the
+  single source; `.env.local` is empty and documented as override-only.
+
+### Fixed
+- **Every reply to a platform email bounced.** `Reply-To` fell back to the site's public support
+  address, whose shipped default is `support@hostelhub.com.np` — a domain nobody owns. Sending
+  succeeded, Resend reported success, and the failure only surfaced when a recipient hit Reply and
+  got a Mail Delivery Subsystem bounce. The support email is a contact detail printed in the
+  footer for humans to read; it is not a routing address and is no longer consulted. `Reply-To` is
+  now derived from the sending domain (`info@<domain>`), so it cannot point somewhere unowned and
+  one forwarding alias covers every reply in the product. `noreply` mail carries no `Reply-To` at
+  all. See EMAIL_SYSTEM.md §0.2a.
+- **The signup OTP email ignored the configured product name.** `auth.service.ts` called Resend
+  directly with hand-rolled HTML and "HostelHub" hard coded into its subject, heading and body —
+  so the one email every new user is guaranteed to receive was the one that could not be
+  rebranded. It now uses the shared `auth/otp-code` template and `sendEmail()`, and arrives from
+  `security@`. Nothing outside `packages/shared/src/email/sender.ts` talks to Resend any more.
+
+### Removed
+- `EMAIL_FROM`, `RESEND_FROM_NAME`, `RESEND_FROM_EMAIL` — replaced by `EMAIL_DOMAIN` plus the
+  admin-configured identity above.
+
 ### Planned
 - Phase 6: React Native mobile app with QR scanning, push notifications, **background location service**, **cook mobile app**, **community mobile**
 

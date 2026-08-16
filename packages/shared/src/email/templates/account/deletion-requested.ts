@@ -17,6 +17,7 @@ export function accountDeletionRequestedEmail(input: {
   userName?: string;
 }): EmailContent {
   return {
+    category: "security",
     subject: "Account deletion requested — 60 days to cancel",
     html: emailLayout({
       heading: "Account deletion requested",

@@ -21,6 +21,7 @@ export function sosAlertEmail(input: {
       : `<strong>${escapeHtml(input.residentName)}</strong> has raised an emergency SOS at <strong>${escapeHtml(input.hostelName)}</strong>. Respond immediately.`;
 
   return {
+    category: "alert",
     subject: `URGENT: SOS raised by ${input.residentName} — ${input.hostelName}`,
     html: emailLayout({
       heading: "🚨 Emergency SOS",

@@ -2,6 +2,11 @@ import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from
 
 export function residentNewNoticeEmail(input: {
   body: string;
+  /**
+   * The *notice's* category ("Maintenance", "Events"), printed in the body.
+   * Not to be confused with the returned `category`, which is the mailbox this
+   * goes out from.
+   */
   category?: string;
   hostelName: string;
   isUrgent?: boolean;
@@ -13,6 +18,10 @@ export function residentNewNoticeEmail(input: {
   const prefix = input.isUrgent ? "Urgent notice" : "New notice";
 
   return {
+    // The one template whose mailbox depends on its content: an urgent notice
+    // is the hostel raising its voice, and it should not arrive looking like
+    // the weekly menu.
+    category: input.isUrgent ? "alert" : "info",
     subject: `${prefix}: ${input.title} — ${input.hostelName}`,
     html: emailLayout({
       heading: input.isUrgent ? "Urgent notice" : "New notice",

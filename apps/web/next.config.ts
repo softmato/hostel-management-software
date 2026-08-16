@@ -51,7 +51,26 @@ const nextConfig: NextConfig = {
    * renderer fails silently inside Next — it works under vitest, which does no
    * bundling, so the gap only shows up in the running app.
    */
-  serverExternalPackages: ["@napi-rs/canvas"],
+  /**
+   * `tesseract.js` is here for the same reason and the same trap: it resolves its
+   * WASM core and language model out of `node_modules` at runtime and starts a
+   * worker to run them. Bundled, those paths do not exist — and because the
+   * evidence recogniser degrades to "no signal" on any failure, it would fail
+   * *silently*: every claim flagged `EVIDENCE_NOT_MACHINE_CHECKED`, no error
+   * anywhere, and it works under vitest.
+   */
+  /**
+   * `unpdf` reads the text layer of PDF receipts. It carries its own pdf.js build
+   * and resolves it at runtime, so it is external for the same reason as the two
+   * above — and with the same silent failure if it is wrong, since a PDF that
+   * cannot be read degrades to "no signal" rather than to an error.
+   */
+  serverExternalPackages: [
+    "@napi-rs/canvas",
+    "tesseract.js",
+    "tesseract.js-core",
+    "unpdf",
+  ],
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];
   },

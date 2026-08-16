@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { HostelPaymentCredentialsReminder } from "@/app/_components/hostel-payment-credentials-reminder";
 import { HostelPhotoReminder } from "@/app/_components/hostel-photo-reminder";
 import { PortalShell } from "@/components/portal-shell";
 import { canAccessWorkspace, workspaceHostelName } from "@/lib/hostel-workspace";
@@ -33,6 +34,9 @@ export default async function HostelAdminWorkspaceLayout({
       tone="admin"
       workspaceName={(await workspaceHostelName(hostelSlug)) ?? "Hostel Workspace"}
     >
+      <HostelPaymentCredentialsReminder
+        paymentProfileHref={`/${hostelSlug}/admin/payment-setup`}
+      />
       <HostelPhotoReminder profileHref={`/${hostelSlug}/admin/profile`} />
       {children}
     </PortalShell>

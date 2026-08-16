@@ -12,6 +12,23 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
     message: "",
     tone: "info",
   },
+  /**
+   * All blank, deliberately. Blank is not "unset and broken" here — each field
+   * resolves to a working fallback (see `emailSchema`), so a fresh database
+   * sends correctly branded mail from `info@`, `alert@`, `billing@` and friends
+   * without anyone visiting the settings page.
+   */
+  email: {
+    alertMailbox: "",
+    billingMailbox: "",
+    domain: "",
+    infoMailbox: "",
+    noreplyMailbox: "",
+    replyTo: "",
+    securityMailbox: "",
+    senderName: "",
+    supportMailbox: "",
+  },
   facilities: [
     { enabled: true, icon: "wifi", label: "Free WiFi", slug: "wifi" },
     { enabled: true, icon: "utensils", label: "Meals Included", slug: "meals" },
@@ -44,7 +61,14 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   identity: {
     address: "Kathmandu, Nepal",
     siteName: "HostelHub",
-    supportEmail: "support@hostelhub.com.np",
+    /**
+     * Published in the public footer, so it has to be a domain that exists.
+     * The previous default was `support@hostelhub.com.np` — a plausible-looking
+     * address nobody owns — which sat unnoticed until it leaked into the email
+     * `Reply-To` and bounced. A placeholder that looks real is worse than an
+     * obvious one; this is the actual Softmato support address.
+     */
+    supportEmail: "support@softmato.com",
     supportPhone: "+977-1-5432123",
     tagline: "Find & manage hostels in Nepal",
   },

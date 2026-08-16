@@ -37,6 +37,7 @@ vi.mock("@/modules/finance/audit-finance", () => ({ auditFinanceAction: mocks.au
 vi.mock("@/modules/finance/finance-notify", () => ({
   notifyAdminsOfClaim: vi.fn(),
   notifyClaimReviewed: mocks.notifyReviewed,
+  notifyResidentOfClaim: vi.fn(),
 }));
 
 vi.mock("@/modules/finance/payment-event.service", () => ({
@@ -124,7 +125,10 @@ function greenEvent(overrides: Record<string, unknown> = {}) {
     // that the REFERENCE check actually reads what the resident submitted.
     rawPayload: { transactionCode: "EDU-0001-F" },
     residentId,
-    reviewFlags: [],
+    // Passing every check now includes the payee: the money has to have reached
+    // an account the hostel registered. It is the one check a payer cannot
+    // satisfy by typing, which is exactly why a green row must carry it.
+    reviewFlags: ["EVIDENCE_PAYEE_VERIFIED"],
     status: "PENDING",
     ...overrides,
   };
@@ -139,7 +143,14 @@ beforeEach(() => {
     chain([{ _id: residentId, firstName: "Suman", lastName: "Tamang" }]),
   );
   // `approveClaim` re-loads the claim through `findClaim` before settling.
-  mocks.eventFindOne.mockReturnValue(chain({ ...greenEvent(), hostelId }));
+  // Filter-aware since the double-credit guard: `approveClaim` also asks whether
+  // a statement row has already settled this claim's money, and a blanket answer
+  // makes every claim in this file look like one that had.
+  mocks.eventFindOne.mockImplementation((filter: Record<string, unknown>) =>
+    chain(
+      "rawPayload.claimEventId" in filter ? null : { ...greenEvent(), hostelId },
+    ),
+  );
   mocks.invoiceFindOne.mockReturnValue(chain(invoice));
   mocks.settleEvent.mockResolvedValue({
     balance: { settledAmount: 10000 },
@@ -161,6 +172,25 @@ describe("claimChecks", () => {
     });
 
     expect(checks.find((check) => check.key === "EVIDENCE")?.ok).toBe(false);
+  });
+
+  it("flags evidence nothing could inspect, even though it is attached", () => {
+    // Gap fix 3. This check used to assert only that an asset id existed, so a
+    // claim whose evidence was a photograph of anything at all went green — and
+    // with the other four green, `Approve all` settled it without a human ever
+    // opening the image. Nothing here can read what an image depicts, so the
+    // honest answer is amber, which keeps the row out of the sweep.
+    const checks = claimChecks(
+      greenEvent({
+        reviewFlags: ["EVIDENCE_NOT_MACHINE_CHECKED", "EVIDENCE_PAYEE_VERIFIED"],
+      }),
+      invoice,
+      { settled: 0 },
+    );
+    const evidence = checks.find((check) => check.key === "EVIDENCE");
+
+    expect(evidence?.ok).toBe(false);
+    expect(evidence?.detail).toContain("open it");
   });
 
   it("flags a part payment — legitimate, but a decision a sweep must not make", () => {
@@ -264,9 +294,76 @@ describe("claimChecks", () => {
     );
   });
 
+  it("flags a claim whose receiving account could not be confirmed", () => {
+    // The claim that motivated the check: a resident sends the exact rent to a
+    // friend's wallet with the right reference code in the remarks. Amount,
+    // reference and invoice all pass, because all three are things the payer
+    // typed. Only the payee distinguishes it, and an unconfirmed payee must
+    // never be green.
+    const checks = claimChecks(
+      greenEvent({ reviewFlags: ["EVIDENCE_PAYEE_UNVERIFIED"] }),
+      invoice,
+      { settled: 0 },
+    );
+    const payee = checks.find((check) => check.key === "PAYEE");
+
+    expect(payee?.ok).toBe(false);
+    expect(payee?.detail).toContain("open it");
+    expect(checks.every((check) => check.ok)).toBe(false);
+  });
+
+  it("does not call the payee checked when there is no payee flag at all", () => {
+    // OCR off, or a claim predating the check. Neither is a verification, and
+    // claiming one would make the badge assert something nobody established.
+    const checks = claimChecks(greenEvent({ reviewFlags: [] }), invoice, {
+      settled: 0,
+    });
+
+    expect(checks.find((check) => check.key === "PAYEE")?.ok).toBe(false);
+  });
+
+  it("keeps a receipt of unknown direction out of the green", () => {
+    // A credit-side receipt is refused at submission, so what reaches the queue
+    // is the file whose direction could not be read. On such a file the numbers
+    // agreeing means nothing — it may be a record of the resident being paid —
+    // so reporting the amount match in green would be true and misleading.
+    const checks = claimChecks(
+      greenEvent({
+        reviewFlags: [
+          "EVIDENCE_TEXT_MATCHES_CLAIM",
+          "EVIDENCE_DIRECTION_UNVERIFIED",
+          "EVIDENCE_PAYEE_VERIFIED",
+        ],
+      }),
+      invoice,
+      { settled: 0 },
+    );
+    const evidence = checks.find((check) => check.key === "EVIDENCE");
+
+    expect(evidence?.ok).toBe(false);
+    expect(evidence?.detail).toContain("money going out");
+  });
+
+  it("tells the reviewer to wait when the receipt says the transfer is pending", () => {
+    // Not a refusal — banks settle these a day later and the money does arrive.
+    // It is precisely the row where the right decision is the statement, not
+    // today's judgement.
+    const checks = claimChecks(
+      greenEvent({
+        reviewFlags: ["EVIDENCE_OUTCOME_PENDING", "EVIDENCE_PAYEE_VERIFIED"],
+      }),
+      invoice,
+      { settled: 0 },
+    );
+
+    expect(checks.find((check) => check.key === "EVIDENCE")?.detail).toContain(
+      "still pending",
+    );
+  });
+
   it("flags evidence that looks like an earlier screenshot", () => {
     const checks = claimChecks(
-      greenEvent({ reviewFlags: ["SIMILAR_EVIDENCE"] }),
+      greenEvent({ reviewFlags: ["SIMILAR_EVIDENCE", "EVIDENCE_PAYEE_VERIFIED"] }),
       invoice,
       { settled: 0 },
     );
@@ -306,7 +403,7 @@ describe("listReviewQueue", () => {
     const [row] = await listReviewQueue(hostelId);
 
     expect(row?.allGreen).toBe(true);
-    expect(row?.checks).toHaveLength(5);
+    expect(row?.checks).toHaveLength(6);
   });
 
   it("does not mark a part payment all-green", async () => {

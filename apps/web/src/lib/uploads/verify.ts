@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 
 import { getR2Client } from "@/lib/r2";
 import { validateFileAssetMetadata } from "@/lib/file-assets";
+import { contentTypeMismatch } from "@/lib/uploads/sniff";
 
 /**
  * Post-upload verification (target §13.3, plan item 0.3).
@@ -13,6 +14,13 @@ import { validateFileAssetMetadata } from "@/lib/file-assets";
  * declaration is checked against it. What storage reports is the truth; the
  * declaration is only a claim, and a claim that disagrees invalidates the asset
  * rather than being quietly corrected.
+ *
+ * **With one thing that was not true until gap fix 1.** Storage's `ContentType`
+ * is not independent evidence: on a presigned PUT it is the header the uploading
+ * client sent, so comparing it against the presigned declaration compared the
+ * client's claim to the client's own claim, and passed for any bytes whatsoever.
+ * The stored bytes are now sniffed for their real container signature, which is
+ * the one thing in this exchange the uploader does not author.
  */
 
 export class UploadVerificationError extends Error {
@@ -38,6 +46,31 @@ export type VerifiedUpload = {
   mimeType: string;
   sizeBytes: number;
 };
+
+/**
+ * The stored bytes of an object, or null when they cannot be read.
+ *
+ * For callers that need the file *after* upload — the evidence OCR reads the
+ * screenshot at claim time rather than at upload, so that no transcript of a
+ * bank receipt is ever written to the database. Null rather than throwing: every
+ * caller so far treats an unreadable object as "no signal", and a claim must not
+ * fail because storage hiccupped.
+ */
+export async function readStoredObject(input: {
+  bucket: string;
+  key: string;
+}): Promise<Buffer | null> {
+  try {
+    const object = await getR2Client().send(
+      new GetObjectCommand({ Bucket: input.bucket, Key: input.key }),
+    );
+    const bytes = await object.Body?.transformToByteArray();
+
+    return bytes ? Buffer.from(bytes) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** SHA-256 of the bytes as stored. Also the evidence hash of target §8.1. */
 export function hashBytes(bytes: Buffer | Uint8Array) {
@@ -116,6 +149,15 @@ export async function verifyUploadedObject(input: {
   }
 
   const buffer = Buffer.from(bytes);
+
+  // The only check here that the uploader cannot author. Runs against the stored
+  // bytes and the *declared* type, since the two are the same string by this
+  // point and it is the declaration we are testing.
+  const mismatch = contentTypeMismatch(mimeType, buffer);
+
+  if (mismatch) {
+    throw new UploadVerificationError(mismatch, "UPLOAD_CONTENT_MISMATCH", 422);
+  }
 
   return { bytes: buffer, contentHash: hashBytes(buffer), mimeType, sizeBytes };
 }

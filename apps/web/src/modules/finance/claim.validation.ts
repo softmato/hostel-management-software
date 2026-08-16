@@ -18,9 +18,37 @@ export const PAYMENT_METHODS = [
   "OTHER",
 ] as const;
 
+/**
+ * How far back a resident may date a payment, and how far forward (item E.8).
+ *
+ * `paidAt` was an unbounded `z.coerce.date()`, and it is not a cosmetic field: it
+ * becomes the event's `occurredAt`, which orders the ledger, dates the receipt and
+ * decides which statement period a claim belongs to. A claim dated next March sat
+ * permanently beyond every statement's cut-off — invisible to the one bucket whose
+ * job is to notice a claim with no money behind it.
+ *
+ * The forward allowance is a few hours rather than zero because a phone's clock and
+ * a server's disagree, and because Nepal is on a :45 offset that a client sending
+ * local time gets wrong in exactly this direction. The backward one is a year: a
+ * resident settling an old arrear is real, and a bound tight enough to catch a typo
+ * would refuse them.
+ */
+const PAID_AT_FUTURE_TOLERANCE_MS = 6 * 60 * 60 * 1000;
+const PAID_AT_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
+
+const paidAtSchema = z.coerce
+  .date()
+  .refine((value) => value.getTime() <= Date.now() + PAID_AT_FUTURE_TOLERANCE_MS, {
+    message: "That payment date is in the future. Enter the date you actually paid.",
+  })
+  .refine((value) => value.getTime() >= Date.now() - PAID_AT_MAX_AGE_MS, {
+    message:
+      "That payment date is more than a year ago. Please contact your hostel about this payment.",
+  });
+
 export const claimSubmitSchema = z.object({
   amount: z.number().int().positive(),
-  paidAt: z.coerce.date().optional(),
+  paidAt: paidAtSchema.optional(),
   paymentMethod: z.enum(PAYMENT_METHODS),
   proofImageAssetId: z.string().trim().min(1),
   referenceNote: z.string().trim().max(500).optional(),

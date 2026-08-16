@@ -14,6 +14,7 @@ export function paymentOverdueEmail(input: {
   const dayLabel = input.daysOverdue === 1 ? "day" : "days";
 
   return {
+    category: "alert",
     subject: `Payment overdue — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
       heading: "Your hostel fee is overdue",

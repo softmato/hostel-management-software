@@ -10,7 +10,7 @@ import {
   Loader2,
   QrCode,
   Smartphone,
-  X,
+  Sparkles,
 } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 
@@ -20,6 +20,12 @@ import { dayMonthYear, daysLeftLabel, monthLabel } from "@/lib/format-month";
 import { usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
 import { cn } from "@/lib/utils";
+import { ModalAmount, ResidentFlowModal } from "./resident-flow-modal";
+import {
+  OFFER_PROGRAM_NAME,
+  OfferProgramBadge,
+  OfferProgramCallout,
+} from "./resident-offer-program";
 
 /**
  * How to pay one invoice (target §11.1, plan item 3.3).
@@ -30,6 +36,11 @@ import { cn } from "@/lib/utils";
  * they are typing that code into a banking app on another device, so anything
  * that scrolls off screen is something they have to remember. The summary rail
  * does not move.
+ *
+ * **Opened as a modal** (see {@link ResidentFlowModal}). It was a section
+ * injected into the middle of Fees & Payments, which meant a checkout rendered
+ * beside an outstanding total, a status filter and every month the resident had
+ * ever paid — and, on a phone, frequently below the fold they were looking at.
  *
  * **The reference code keeps the strongest treatment on the screen.** Everything
  * downstream depends on the resident actually typing it: statement matching,
@@ -370,29 +381,23 @@ export const ResidentPayInvoicePanel = memo(function ResidentPayInvoicePanel({
   const needsReference = methods.some((method) => method.kind !== "GATEWAY");
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <header className="flex items-start justify-between gap-3 border-b border-border/60 px-5 py-4">
-        <div>
-          <h2 className="font-heading text-base font-bold text-foreground">
-            Complete your payment
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-            {instructions?.period
-              ? `Rent for ${monthLabel(instructions.period)}`
-              : "This invoice"}
-          </p>
-        </div>
-        <button
-          aria-label="Close payment instructions"
-          className="rounded-lg border border-border p-2 transition hover:bg-muted"
-          onClick={onClose}
-          type="button"
-        >
-          <X className="size-4" />
-        </button>
-      </header>
-
-      <div className="p-5">
+    <ResidentFlowModal
+      amount={
+        instructions ? (
+          <ModalAmount label="To pay" value={currency(instructions.amountDue)} />
+        ) : null
+      }
+      badge={<OfferProgramBadge />}
+      description={
+        instructions?.period
+          ? `Rent for ${monthLabel(instructions.period)}`
+          : "This invoice"
+      }
+      onClose={onClose}
+      title="Complete your payment"
+      wide
+    >
+      <>
         {resource.state === "loading" ? <LoadingRows /> : null}
         {resource.state === "error" ? (
           <EmptyState label="Payment instructions could not be loaded." />
@@ -576,24 +581,48 @@ export const ResidentPayInvoicePanel = memo(function ResidentPayInvoicePanel({
                         value={instructions.referenceCode}
                       />
                     </div>
-                    <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-                      {needsReference
-                        ? "Without it your hostel has to match the payment by hand, which is slower and sometimes wrong."
-                        : `Added automatically when you pay through ${primary ? methodLabel(primary) : "the app"}.`}
+                    {/* The programme is what makes this instruction worth
+                        following, so it is said *here* — attached to the code, at
+                        the moment they are about to type it — rather than only in
+                        the banner at the top of the page they have scrolled past. */}
+                    <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-muted-foreground">
+                      <Sparkles
+                        aria-hidden
+                        className="mt-0.5 size-3 shrink-0 text-role-resident"
+                      />
+                      <span>
+                        {needsReference ? (
+                          <>
+                            Payments carrying it are confirmed faster and keep you in
+                            the{" "}
+                            <span className="font-semibold text-foreground">
+                              {OFFER_PROGRAM_NAME}
+                            </span>
+                            . Without it your hostel has to match the payment by
+                            hand, which is slower and sometimes wrong.
+                          </>
+                        ) : (
+                          <>
+                            Added automatically when you pay through{" "}
+                            {primary ? methodLabel(primary) : "the app"}, so this
+                            payment counts towards the{" "}
+                            <span className="font-semibold text-foreground">
+                              {OFFER_PROGRAM_NAME}
+                            </span>{" "}
+                            on its own.
+                          </>
+                        )}
+                      </span>
                     </p>
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11.5px] leading-4 text-amber-800 dark:text-amber-300">
-                    This invoice has no reference code. Write your full name in the
-                    remarks instead, then submit your screenshot so your hostel can
-                    match it.
-                  </div>
+                  <OfferProgramCallout state="unavailable" />
                 )}
               </div>
             </aside>
           </div>
         ) : null}
-      </div>
-    </section>
+      </>
+    </ResidentFlowModal>
   );
 });

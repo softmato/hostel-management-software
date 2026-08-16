@@ -45,6 +45,49 @@ import { formatNPR } from "@/modules/finance/money";
  */
 export const SYSTEM_DOCUMENT_MARKER = "HOSTELDAYS-SYSTEM-DOCUMENT";
 
+/**
+ * The **printed** marker, for the case the metadata one cannot reach.
+ *
+ * The metadata stamp survives a download and a re-save. It does not survive a
+ * *screenshot* — and a screenshot of the receipt is precisely the file a resident
+ * uploads, because it is what their phone gives them when they tap the PDF. The
+ * marker is gone, the receipt looks like a payment record by every OCR signal it
+ * has (provider name, currency, an amount, a date), and it carries this invoice's
+ * reference code because we printed it there ourselves. That is the strongest
+ * corroboration in the system, and it went green on our own document.
+ *
+ * So the same fact is also stated in ink, in two independent forms:
+ *
+ * - {@link RECEIPT_NUMBER_PATTERN} — the receipt number's own shape. Distinctive
+ *   because we mint it: `RCP`, a hostel prefix, a period and a sequence. Nothing
+ *   a bank prints looks like this.
+ * - {@link SYSTEM_DOCUMENT_FOOTER} — the sentence at the foot of every page,
+ *   matched loosely enough to survive a recogniser losing a word.
+ *
+ * Either one is enough. Both are checked against OCR'd text, so a hit is not
+ * certain the way the metadata read is — which is why the caller uses it to
+ * *refuse the claim*, with copy that assumes an honest mistake, rather than to
+ * flag anything as fraud.
+ */
+export const RECEIPT_NUMBER_PATTERN = /\bRCP[-\s]?[A-Z]{3}[-\s]?\d{4}[-\s]?\d{2}[-\s]?\d{5}\b/i;
+
+/** The footer sentence, minus the wording a recogniser is likely to mangle. */
+export const SYSTEM_DOCUMENT_FOOTER = /not\s+a\s+proof[-\s]?of[-\s]?payment\s+upload/i;
+
+/**
+ * The qualifier a provisional receipt carries (item E.7).
+ *
+ * Exported so the tests and the screens quote the same sentence — a receipt that
+ * hedges in the PDF and not in the app has told the resident two things.
+ */
+export const SUBJECT_TO_CONFIRMATION =
+  "Subject to confirmation against our account statement.";
+
+/** Printed on every page, and half of why {@link SYSTEM_DOCUMENT_FOOTER} matches. */
+function footerLine(kind: "receipt" | "statement"): string {
+  return `Computer-generated ${kind} issued by the hostel. Not a proof-of-payment upload.`;
+}
+
 /** What kind of document the marker was found in. */
 export type SystemDocumentKind = "RECEIPT" | "STATEMENT";
 
@@ -66,10 +109,37 @@ function stampSystemDocument(pdf: PDFDocumentType, kind: SystemDocumentKind) {
 
 export type ReceiptPdfInput = {
   amount: number;
+  /**
+   * What the money buys, as dates rather than a month string.
+   *
+   * `2026-08` is unambiguous to us and not to a landlord, a visa officer or a
+   * bank — the three readers a receipt is actually produced for. They ask "paid
+   * for which dates", and a receipt that answers "2026-08" makes them ask again.
+   *
+   * Optional because not every invoice covers a span: an admission fee or a
+   * deposit buys no period at all, and inventing one for it would be a worse
+   * answer than omitting the line.
+   */
+  coversFrom?: Date | null;
+  coversTo?: Date | null;
   hostelName: string;
   invoicePeriod?: string | null;
   issuedAt: Date;
   method?: string | null;
+  /**
+   * True while the money is credited on a human's judgement alone (item E.7).
+   *
+   * **Provisional credit, printed as such — the way a card network does it.** A
+   * warden approves a screenshot and the resident is paid up that instant, which
+   * is right: statements lag by days and holding an honest resident hostage to
+   * that lag is a worse product than the fraud it guards against. But the
+   * document handed over says the hostel *received* the money, and until the
+   * hostel's own account statement carries the credit, nobody has established
+   * that. One line is the difference between a receipt that overstates what is
+   * known and one that does not, and it costs the honest resident nothing —
+   * their receipt stops hedging as soon as the statement lands.
+   */
+  provisional?: boolean;
   receiptNumber: string;
   referenceCode?: string | null;
   residentName: string;
@@ -90,6 +160,96 @@ function sanitize(text: string): string {
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
+
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/**
+ * `01 Aug 2026` — for the coverage window only.
+ *
+ * Spelled rather than numeric because the coverage line is the one a human reads
+ * aloud, and `08/09/2026` is two different days depending on which side of the
+ * world the reader learned to write dates on. Everything else on the page stays
+ * ISO, which is unambiguous for exactly the opposite reason.
+ */
+function formatLongDate(date: Date): string {
+  return `${String(date.getUTCDate()).padStart(2, "0")} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+}
+
+/**
+ * The certification stamp (target §4.4).
+ *
+ * A drawn mark rather than an image: an embedded PNG would have to be a build
+ * asset, and the point of the stamp is that it is *ours* — a resident's own
+ * screenshot of a bank app can carry any logo, but nothing outside this function
+ * draws this box with this receipt number in it.
+ *
+ * It is also the most legible part of the document to a person holding a printout
+ * and asking whether it is genuine, which is the question the whole receipt
+ * exists to answer.
+ */
+function drawCertificationStamp(
+  page: ReturnType<PDFDocumentType["addPage"]>,
+  fonts: { bold: Awaited<ReturnType<PDFDocumentType["embedFont"]>>; regular: Awaited<ReturnType<PDFDocumentType["embedFont"]>> },
+  receiptNumber: string,
+  y: number,
+  provisional = false,
+) {
+  // Amber rather than green while the credit is provisional. The stamp is the
+  // most legible thing on the page to someone deciding whether the document is
+  // genuine, and a green CERTIFIED over money nothing independent has confirmed
+  // is the one place this renderer could mislead at a glance.
+  const accent = provisional ? rgb(0.6, 0.4, 0.04) : rgb(0.09, 0.42, 0.29);
+  const width = 236;
+  const height = 76;
+  const x = 595.28 - 56 - width;
+
+  page.drawRectangle({
+    borderColor: accent,
+    borderWidth: 1.6,
+    color: rgb(0.96, 0.98, 0.97),
+    height,
+    width,
+    x,
+    y: y - height,
+  });
+
+  page.drawText(provisional ? "PROVISIONAL" : "CERTIFIED", {
+    color: accent,
+    font: fonts.bold,
+    size: 15,
+    x: x + 16,
+    y: y - 26,
+  });
+  page.drawText(sanitize(OFFER_PROGRAM_TITLE.toUpperCase()), {
+    color: accent,
+    font: fonts.bold,
+    size: 10,
+    x: x + 16,
+    y: y - 44,
+  });
+  // The number is inside the stamp as well as in the table above it. A stamp
+  // that does not name the document it certifies certifies every document.
+  page.drawText(sanitize(receiptNumber), {
+    color: rgb(0.42, 0.45, 0.44),
+    font: fonts.regular,
+    size: 8,
+    x: x + 16,
+    y: y - 62,
+  });
+}
+
+/**
+ * The programme name, duplicated from the resident-facing module on purpose.
+ *
+ * `resident-offer-program.tsx` is a client component, and importing it here would
+ * drag React into a PDF renderer that runs in a route handler. The name is a
+ * three-word string that changes approximately never; the coupling would be
+ * permanent.
+ */
+export const OFFER_PROGRAM_TITLE = "Resident Offer Program";
 
 export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
@@ -139,6 +299,13 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
     rows.push(["Period", input.invoicePeriod]);
   }
 
+  // Stated as two labelled dates rather than one range string, so a reader
+  // scanning for "until when am I paid up" finds a line with that label on it.
+  if (input.coversFrom && input.coversTo) {
+    rows.push(["Covers from", formatLongDate(input.coversFrom)]);
+    rows.push(["Covers until", formatLongDate(input.coversTo)]);
+  }
+
   if (input.referenceCode) {
     rows.push(["Reference", input.referenceCode]);
   }
@@ -159,6 +326,17 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
     cursor -= 22;
   }
 
+  // Under the table and above the stamp, so a reader who takes in only the
+  // certified box and the amount cannot miss it. Not printed on a voided
+  // receipt: "void" already answers the question this line qualifies.
+  if (input.provisional && !input.voidedAt) {
+    cursor -= 8;
+    write("Provisional", { bold: true, color: rgb(0.72, 0.45, 0.05), size: 12 });
+    cursor -= 16;
+    write(SUBJECT_TO_CONFIRMATION, { color: muted, size: 9 });
+    cursor -= 6;
+  }
+
   // A voided receipt still renders — a resident holding one is exactly who needs
   // to be told it no longer stands, and refusing to render it would leave them
   // with a document and no way to learn its status.
@@ -172,10 +350,21 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
     );
   }
 
-  write(
-    "Computer-generated receipt issued by the hostel. Not a proof-of-payment upload.",
-    { color: muted, size: 9, y: 56 },
-  );
+  // Below the table, never over it: a stamp that overlaps the amount is the one
+  // thing on this page nobody may have to squint at. A voided receipt gets no
+  // stamp at all — certifying a document that has been withdrawn is the single
+  // most misleading thing this renderer could do.
+  if (!input.voidedAt) {
+    drawCertificationStamp(
+      page,
+      { bold, regular },
+      input.receiptNumber,
+      cursor - 24,
+      input.provisional,
+    );
+  }
+
+  write(footerLine("receipt"), { color: muted, size: 9, y: 56 });
 
   stampSystemDocument(pdf, "RECEIPT");
 
@@ -311,10 +500,13 @@ export async function renderStatementPdf(
   // number the statement is usually produced to answer.
   row([`Outstanding: ${formatNPR(Math.max(billed - paid, 0))}`], { bold: true });
 
-  page.drawText(
-    "Computer-generated statement issued by the hostel. Not a proof-of-payment upload.",
-    { color: muted, font: regular, size: 9, x: margin, y: 56 },
-  );
+  page.drawText(footerLine("statement"), {
+    color: muted,
+    font: regular,
+    size: 9,
+    x: margin,
+    y: 56,
+  });
 
   stampSystemDocument(pdf, "STATEMENT");
 

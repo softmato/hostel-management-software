@@ -23,6 +23,16 @@ export const residentEndpoints = {
   /** What the "checking…" screen polls. Settles nothing by being visited. */
   checkoutStatus: (reference: string) =>
     `/api/v1/resident/finance/checkout/${encodeURIComponent(reference)}`,
+  /**
+   * Reads an uploaded payment screenshot so the claim form can fill itself in.
+   * A POST that streams NDJSON stages — never passed to `usePortalResource`.
+   */
+  readEvidence: (assetId: string, invoiceId?: string) =>
+    `/api/v1/resident/finance/evidence/${assetId}/read${
+      // Optional, and only ever a hint about *which* invoice to check the
+      // reference code against — the read itself works without it.
+      invoiceId ? `?invoiceId=${encodeURIComponent(invoiceId)}` : ""
+    }`,
   profile: "/api/v1/resident/profile",
   referral: "/api/v1/resident/referral",
   /** A PDF download, not a query — never passed to `usePortalResource`. */

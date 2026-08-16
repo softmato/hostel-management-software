@@ -6,6 +6,7 @@ export function hostelUnpublishedEmail(input: {
   reason: string;
 }): EmailContent {
   return {
+    category: "info",
     subject: `Your listing has been unpublished — ${input.hostelName}`,
     html: emailLayout({
       heading: "Listing unpublished",

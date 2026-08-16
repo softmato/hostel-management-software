@@ -7,6 +7,7 @@ export function complaintResolvedEmail(input: {
   title: string;
 }): EmailContent {
   return {
+    category: "support",
     subject: `Complaint resolved: ${input.title} — ${input.hostelName}`,
     html: emailLayout({
       heading: "Complaint resolved",

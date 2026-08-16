@@ -2,13 +2,8 @@ import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { rateLimitAuthAttempts } from "@/lib/rate-limit";
-import {
-  ACCESS_TOKEN_COOKIE,
-  REFRESH_TOKEN_COOKIE,
-  accessTokenTtlSeconds,
-  refreshTokenTtlSeconds,
-} from "@/lib/auth";
 import { shouldExposeRefreshToken } from "@/lib/mobile-auth";
+import { applySessionCookies } from "@/lib/session-cookies";
 import { AuthServiceError, registerPublicAccount } from "@/modules/auth/auth.service";
 import { registerSchema } from "@/modules/auth/auth.validation";
 
@@ -40,23 +35,10 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
 
-    response.cookies.set(ACCESS_TOKEN_COOKIE, result.accessToken, {
-      httpOnly: true,
-      maxAge: accessTokenTtlSeconds(),
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-
-    response.cookies.set(REFRESH_TOKEN_COOKIE, result.refreshToken, {
-      httpOnly: true,
-      maxAge: refreshTokenTtlSeconds(),
-      path: "/api/v1/auth",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-
-    return response;
+    // Was hand-rolled here, and wrote the refresh cookie to "/api/v1/auth"
+    // while every other sign-in path wrote it to "/api" — two shapes of session
+    // depending on which door you came through. One helper now.
+    return applySessionCookies(response, result);
   } catch (error) {
     if (error instanceof AuthServiceError) {
       return errorResponse(error.message, error.errorCode, error.status);

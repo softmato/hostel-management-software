@@ -1,6 +1,8 @@
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
 import {
+  RECEIPT_NUMBER_PATTERN,
+  SYSTEM_DOCUMENT_FOOTER,
   SYSTEM_DOCUMENT_MARKER,
   type SystemDocumentKind,
 } from "@/modules/finance/receipt-pdf";
@@ -167,4 +169,43 @@ export async function systemDocumentKind(
     // Not a PDF we can read. Not ours, as far as anyone can tell.
     return null;
   }
+}
+
+/**
+ * The same question, asked of the *text* on the evidence.
+ *
+ * {@link systemDocumentKind} reads metadata, which is exact and which a
+ * screenshot does not have. And a screenshot is what residents actually upload:
+ * they open the receipt on their phone, screenshot it, and attach that. Every
+ * OCR signal then agrees it is a payment record — there is a provider, a
+ * currency, an amount, a date — and it carries the invoice's reference code
+ * because we printed it there ourselves, which is the strongest corroboration
+ * this system has. Our own receipt was the best-scoring evidence a resident could
+ * submit.
+ *
+ * That is the bug behind the report this was written for: a receipt issued for a
+ * 60-rupee part payment was re-submitted against the remaining 1,230, and the
+ * reference check confirmed it, because the invoice's code is the same code all
+ * month — one code per invoice is correct for *matching money to a month*, and it
+ * was never meant to identify a single payment. The receipt number is what does
+ * that, and it is the thing to look for here.
+ *
+ * **Two independent markers, either sufficient**, because OCR loses characters:
+ * the receipt number's shape, and the footer sentence. A recogniser that mangles
+ * one usually leaves the other.
+ *
+ * Returns `RECEIPT` or null only. A statement's text is not distinctive enough to
+ * match on without catching real bank statements, which residents legitimately
+ * upload — and the metadata path already covers the statement PDF itself.
+ */
+export function systemDocumentKindFromText(
+  text: string | null | undefined,
+): SystemDocumentKind | null {
+  if (!text) {
+    return null;
+  }
+
+  return RECEIPT_NUMBER_PATTERN.test(text) || SYSTEM_DOCUMENT_FOOTER.test(text)
+    ? "RECEIPT"
+    : null;
 }

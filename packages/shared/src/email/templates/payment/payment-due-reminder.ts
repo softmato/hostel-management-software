@@ -12,6 +12,7 @@ export function paymentDueReminderEmail(input: {
   const currency = input.currency ?? "NPR";
 
   return {
+    category: "billing",
     subject: `Payment due soon — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
       heading: "Your hostel fee is due soon",

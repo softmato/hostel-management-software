@@ -41,6 +41,13 @@ export const paymentProfileUpdateSchema = z
     hostelId: z.string().optional(),
     khaltiId: optionalText(64),
     paymentInstructions: optionalText(600),
+    /**
+     * The name and number printed on the QR poster, when the recogniser could
+     * not read them. Typing either marks the pair `MANUAL`, which is what stops
+     * a later re-read of the same image from overwriting the admin's answer.
+     */
+    qrPayeeName: optionalText(120),
+    qrPayeeNumber: optionalText(64),
     /** The uploaded QR image. Null removes it. */
     staticQrAssetId: z.string().nullable().optional(),
     statementCadenceDays: z.number().int().min(1).max(90).optional(),

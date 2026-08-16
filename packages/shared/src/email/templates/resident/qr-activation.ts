@@ -19,6 +19,7 @@ export function residentQrActivationEmail(input: {
       );
 
   return {
+    category: "security",
     subject: `Activate your HostelHub account — ${input.hostelName}`,
     html: emailLayout({
       heading: "Activate your resident account",

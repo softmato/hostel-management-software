@@ -84,6 +84,16 @@ const paymentEventSchema = new Schema(
       default: "UNCONFIRMED",
       required: true,
     },
+    /**
+     * When a statement credit confirmed a settlement that a human had made
+     * (target §7 Tier E, plan item E.5).
+     *
+     * Null on everything else, including a `MANUAL_REVIEW` settlement that no
+     * statement has reached yet — which is exactly the state the drift job looks
+     * for, so "not confirmed" has to be storable rather than inferred from a
+     * confirmation level that already means several things.
+     */
+    confirmedAt: { type: Date, default: null },
     status: {
       type: String,
       enum: ["PENDING", "SETTLED", "FAILED", "EXPIRED", "REJECTED", "REVERSED"],
@@ -152,6 +162,30 @@ export const FROZEN_EVENT_FIELDS = [
   "confirmation",
 ] as const;
 
+/**
+ * The one change of a frozen field that records history rather than rewriting it
+ * (plan item E.5).
+ *
+ * A settlement a warden approved is `MANUAL_REVIEW`; when the hostel's own
+ * statement later carries the credit, the same money is `STATEMENT_MATCH`. That
+ * is new evidence about an unchanged fact, not a correction — and it has to be
+ * writable, because the alternative is either freezing every claim at the weaker
+ * level forever (so a receipt can never stop hedging) or leaving `confirmation`
+ * unfrozen entirely, which reopens the hole the freeze exists to close.
+ *
+ * **Monotonic, and only this one step.** Nothing may weaken a confirmation, and
+ * no other frozen field rides along: a write that touches `amount` or `invoiceId`
+ * is refused whatever else it does. The update path additionally requires the
+ * filter to pin the *source* level, so the write is incapable of promoting
+ * anything that was not `MANUAL_REVIEW` when it matched.
+ */
+export function isPermittedPromotion(
+  from: string | undefined,
+  to: unknown,
+): boolean {
+  return from === "MANUAL_REVIEW" && to === "STATEMENT_MATCH";
+}
+
 function immutabilityError() {
   return new FinanceModelError(
     "A settled payment event cannot be modified. Write a reversing event instead.",
@@ -170,14 +204,29 @@ function immutabilityError() {
 export function frozenFieldsTouchedOnSave(
   statusAtLoad: string | undefined,
   modifiedPaths: string[],
+  /** The confirmation levels before and after, for {@link isPermittedPromotion}. */
+  confirmation?: { after: unknown; before: string | undefined },
 ): string[] {
   if (statusAtLoad !== "SETTLED") {
     return [];
   }
 
-  return modifiedPaths.filter((path) =>
+  const touched = modifiedPaths.filter((path) =>
     FROZEN_EVENT_FIELDS.includes(path as (typeof FROZEN_EVENT_FIELDS)[number]),
   );
+
+  // Only when `confirmation` is the *sole* frozen field in the write. A save
+  // that promotes the confirmation and also edits the amount is an amount edit.
+  if (
+    touched.length === 1 &&
+    touched[0] === "confirmation" &&
+    confirmation &&
+    isPermittedPromotion(confirmation.before, confirmation.after)
+  ) {
+    return [];
+  }
+
+  return touched;
 }
 
 /**
@@ -210,6 +259,21 @@ export function updateViolatesImmutability(
     return false;
   }
 
+  // The promotion of item E.5, and it is the *filter* that makes it safe: pinning
+  // `confirmation: "MANUAL_REVIEW"` means the write cannot match an event at any
+  // other level, so this branch is structurally incapable of weakening one or of
+  // re-promoting a `GATEWAY_VERIFIED` settlement down to a statement match.
+  if (
+    touched.length === 1 &&
+    touched[0] === "confirmation" &&
+    isPermittedPromotion(
+      typeof filter.confirmation === "string" ? filter.confirmation : undefined,
+      assignments.confirmation,
+    )
+  ) {
+    return false;
+  }
+
   const filterStatus = filter.status;
 
   return !(typeof filterStatus === "string" && filterStatus !== "SETTLED");
@@ -226,7 +290,12 @@ export function updateViolatesImmutability(
  * The single permitted write to a settled event is `reversedByEventId`: pointing
  * at the event that reversed it touches no financial field (target §9.3).
  */
-type StatusCarrier = { _statusAtLoad?: string; status?: string };
+type StatusCarrier = {
+  _confirmationAtLoad?: string;
+  _statusAtLoad?: string;
+  confirmation?: string;
+  status?: string;
+};
 
 /**
  * The status the document had when it was read.
@@ -237,6 +306,7 @@ type StatusCarrier = { _statusAtLoad?: string; status?: string };
  */
 paymentEventSchema.post("init", function rememberStatus(this: StatusCarrier) {
   this._statusAtLoad = this.status;
+  this._confirmationAtLoad = this.confirmation;
 });
 
 paymentEventSchema.pre("save", function guardSettled() {
@@ -250,8 +320,10 @@ paymentEventSchema.pre("save", function guardSettled() {
   }
 
   if (
-    frozenFieldsTouchedOnSave(event._statusAtLoad, event.modifiedPaths())
-      .length > 0
+    frozenFieldsTouchedOnSave(event._statusAtLoad, event.modifiedPaths(), {
+      after: event.confirmation,
+      before: event._confirmationAtLoad,
+    }).length > 0
   ) {
     throw immutabilityError();
   }

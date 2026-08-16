@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Ported from apps/web/src/app/globals.css.
+ *
+ * The web defines these in oklch; React Native has no oklch parser, so they are
+ * the hex equivalents here. The *names* are identical on purpose — a token
+ * renamed on the web must be renamed here, and a colour should never be written
+ * literally in a component.
+ *
+ * The brand is green (#0a8a4b). Mockups in docs/ are blue; that is historical.
+ * See docs/DESIGN.md §"The brand is green, not blue."
+ */
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #1c1917;
+    --card: #ffffff;
+    --card-foreground: #1c1917;
+    --popover: #ffffff;
+    --popover-foreground: #1c1917;
+    --primary: #0a8a4b;
+    --primary-foreground: #ffffff;
+    --secondary: #f4f4f5;
+    --secondary-foreground: #18181b;
+    --muted: #f5f5f4;
+    --muted-foreground: #78716c;
+    --accent: #f5f5f4;
+    --accent-foreground: #1c1917;
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
+    --border: #e7e5e4;
+    --input: #e7e5e4;
+    --ring: #0a8a4b;
+
+    --surface: #fffaf4;
+    --surface-strong: #fff8ef;
+    --warning: #d97706;
+    --warning-soft: #fffbeb;
+    --success: #16a34a;
+    --success-soft: #dcfce7;
+
+    --brand: #0a8a4b;
+    --brand-soft: #e6f4ec;
+
+    /* Portal chrome. One per audience — see docs/DESIGN.md. */
+    --role-platform: #0d9488;
+    --role-platform-soft: #ccfbf1;
+    --role-admin: #0891b2;
+    --role-admin-soft: #ecfeff;
+    --role-resident: #16a34a;
+    --role-resident-soft: #dcfce7;
+    --role-guardian: #d97706;
+    --role-guardian-soft: #fffbeb;
+    --role-cook: #ea580c;
+    --role-cook-soft: #fff7ed;
+    --role-provider: #7c3aed;
+    --role-provider-soft: #f5f3ff;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: #0c0a09;
+      --foreground: #fafaf9;
+      --card: #1c1917;
+      --card-foreground: #fafaf9;
+      --popover: #1c1917;
+      --popover-foreground: #fafaf9;
+      --primary: #12a95d;
+      --primary-foreground: #04140c;
+      --secondary: #27272a;
+      --secondary-foreground: #fafafa;
+      --muted: #292524;
+      --muted-foreground: #a8a29e;
+      --accent: #27272a;
+      --accent-foreground: #fafafa;
+      --destructive: #ef4444;
+      --destructive-foreground: #ffffff;
+      --border: #292524;
+      --input: #292524;
+      --ring: #12a95d;
+
+      --surface: #1c1917;
+      --surface-strong: #232020;
+      --warning: #f59e0b;
+      --warning-soft: #2a1f07;
+      --success: #22c55e;
+      --success-soft: #06240f;
+
+      --brand: #12a95d;
+      --brand-soft: #07301f;
+
+      --role-platform: #2dd4bf;
+      --role-platform-soft: #0a2b28;
+      --role-admin: #22d3ee;
+      --role-admin-soft: #082c33;
+      --role-resident: #22c55e;
+      --role-resident-soft: #06240f;
+      --role-guardian: #f59e0b;
+      --role-guardian-soft: #2a1f07;
+      --role-cook: #fb923c;
+      --role-cook-soft: #2b1607;
+      --role-provider: #a78bfa;
+      --role-provider-soft: #1d1436;
+    }
+  }
+
+  .dark:root,
+  .dark {
+    --background: #0c0a09;
+    --foreground: #fafaf9;
+    --card: #1c1917;
+    --card-foreground: #fafaf9;
+    --popover: #1c1917;
+    --popover-foreground: #fafaf9;
+    --primary: #12a95d;
+    --primary-foreground: #04140c;
+    --secondary: #27272a;
+    --secondary-foreground: #fafafa;
+    --muted: #292524;
+    --muted-foreground: #a8a29e;
+    --accent: #27272a;
+    --accent-foreground: #fafafa;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #292524;
+    --input: #292524;
+    --ring: #12a95d;
+
+    --surface: #1c1917;
+    --surface-strong: #232020;
+    --warning: #f59e0b;
+    --warning-soft: #2a1f07;
+    --success: #22c55e;
+    --success-soft: #06240f;
+
+    --brand: #12a95d;
+    --brand-soft: #07301f;
+
+    --role-platform: #2dd4bf;
+    --role-platform-soft: #0a2b28;
+    --role-admin: #22d3ee;
+    --role-admin-soft: #082c33;
+    --role-resident: #22c55e;
+    --role-resident-soft: #06240f;
+    --role-guardian: #f59e0b;
+    --role-guardian-soft: #2a1f07;
+    --role-cook: #fb923c;
+    --role-cook-soft: #2b1607;
+    --role-provider: #a78bfa;
+    --role-provider-soft: #1d1436;
+  }
+}

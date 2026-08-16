@@ -17,6 +17,7 @@ export function complaintStatusUpdatedEmail(input: {
   const label = STATUS_LABEL[input.status] ?? input.status.toLowerCase();
 
   return {
+    category: "support",
     subject: `Your complaint is now ${label} — ${input.hostelName}`,
     html: emailLayout({
       heading: "Complaint update",

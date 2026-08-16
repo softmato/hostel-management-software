@@ -3,14 +3,14 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { generateFileKey, getR2Client } from "@/lib/r2";
+import { generateFileKey, getR2Client, publicBucket } from "@/lib/r2";
 import { siteUrl } from "@/lib/site";
 
 function r2Configured() {
   return Boolean(
     process.env.R2_ENDPOINT &&
     process.env.R2_ACCESS_KEY_ID &&
-    process.env.R2_BUCKET_NAME &&
+    process.env.R2_BUCKET_PUBLIC &&
     process.env.R2_PUBLIC_URL,
   );
 }
@@ -37,7 +37,7 @@ export async function storePublicAsset(input: {
       await getR2Client().send(
         new PutObjectCommand({
           Body: input.body,
-          Bucket: process.env.R2_BUCKET_NAME,
+          Bucket: publicBucket(),
           ContentType: input.contentType,
           Key: key,
         }),

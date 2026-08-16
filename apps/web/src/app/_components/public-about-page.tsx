@@ -44,7 +44,8 @@ const buildValues = (siteName: string) => [
 ];
 
 export function PublicAboutPage() {
-  const siteName = useSiteConfig().identity.siteName;
+  const { identity } = useSiteConfig();
+  const { address, siteName, supportEmail } = identity;
   const values = buildValues(siteName);
 
   return (
@@ -110,11 +111,22 @@ export function PublicAboutPage() {
         <div className="mt-16 rounded-xl border border-border bg-muted/50 p-6 text-sm text-muted-foreground">
           <p className="font-semibold text-foreground">Want to know more?</p>
           <p className="mt-1">
-            Reach out at{" "}
-            <a className="text-primary hover:underline" href="mailto:hello@hostelhub.com">
-              hello@hostelhub.com
-            </a>{" "}
-            or visit our office in Kathmandu, Nepal.
+            {supportEmail ? (
+              <>
+                Reach out at{" "}
+                <a
+                  className="text-primary hover:underline"
+                  href={`mailto:${supportEmail}`}
+                >
+                  {supportEmail}
+                </a>
+                {address ? ` or visit our office in ${address}.` : "."}
+              </>
+            ) : address ? (
+              `Visit our office in ${address}.`
+            ) : (
+              "Reach out through the in-app support system."
+            )}
           </p>
         </div>
       </div>

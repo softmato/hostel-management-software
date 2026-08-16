@@ -14,7 +14,11 @@ import {
   classifyCredit,
   loadMatchContext,
 } from "@/modules/finance/matching/ladder.service";
-import { appendEvent, settleEvent } from "@/modules/finance/payment-event.service";
+import {
+  appendEvent,
+  confirmSettlementByStatement,
+  settleEvent,
+} from "@/modules/finance/payment-event.service";
 import { withRun } from "@/modules/finance/reconciliation/run-recorder";
 import { resolveParser } from "@/modules/finance/statements/parsers/registry";
 import {
@@ -298,6 +302,10 @@ async function ingest(input: {
             }))
           : [],
       ...(claim ? { claimEventId: claim.eventId } : {}),
+      // The claim was already approved and already counted, so this row is
+      // *evidence about it*, not a second credit (item E.5). Recorded on the
+      // event so the reconcile screen can say so without re-running the ladder.
+      ...(claim?.settled ? { confirmsClaimEventId: claim.eventId } : {}),
     },
     referenceCode: matched?.referenceCode ?? null,
     residentId: matched?.residentId ?? claim?.residentId ?? null,
@@ -306,7 +314,31 @@ async function ingest(input: {
     status: "PENDING",
   });
 
-  if (!created || !matched) {
+  if (!created) {
+    return;
+  }
+
+  /**
+   * The credit that proves a provisionally-settled claim (item E.5).
+   *
+   * **This row must never settle.** The claim already moved the money when the
+   * warden approved it; settling the statement event too would credit the same
+   * rent twice, against the same invoice, from the same transaction — and it
+   * would look entirely correct on the reconcile screen, because both rows are
+   * real. The statement's job here is confirmation, and confirmation is a
+   * promotion on the event that already holds the money.
+   */
+  if (claim?.settled) {
+    await confirmSettlementByStatement(claim.eventId, {
+      confirmedAt: row.occurredAt,
+      principal: input.principal,
+      statementImportId: input.statementImportId,
+    });
+
+    return;
+  }
+
+  if (!matched) {
     return;
   }
 

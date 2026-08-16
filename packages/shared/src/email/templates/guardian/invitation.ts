@@ -22,6 +22,7 @@ export function guardianInvitationEmail(input: {
         );
 
   return {
+    category: "info",
     subject: `${input.residentName} added you as their guardian — ${input.hostelName}`,
     html: emailLayout({
       heading: "Guardian invitation",

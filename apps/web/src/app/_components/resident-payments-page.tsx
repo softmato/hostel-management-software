@@ -3,6 +3,7 @@
 import {
   CalendarDays,
   Check,
+  CircleAlert,
   Download,
   Loader2,
   ReceiptText,
@@ -20,6 +21,7 @@ import { dayMonthYear, daysLeftLabel, monthLabel } from "@/lib/format-month";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
 import { cn } from "@/lib/utils";
+import { OfferProgramBanner } from "./resident-offer-program";
 import { type Payment, type PaymentProof, Message } from "./resident-shared";
 import {
   DataTable,
@@ -70,15 +72,23 @@ function FocusCard({
   onSubmitProof,
   payment,
   pendingClaim,
+  rejectedClaim,
 }: {
   credit: number;
   onPay: () => void;
   onSubmitProof: () => void;
   payment: Payment;
   pendingClaim: PaymentProof | undefined;
+  /**
+   * The hostel's last rejection for this month, and only when nothing is
+   * pending — a resident who has already re-submitted is waiting again, so
+   * leading with the old rejection would tell them to act twice.
+   */
+  rejectedClaim: PaymentProof | undefined;
 }) {
   const outstanding = Math.max(payment.dueAmount - payment.paidAmount, 0);
   const overdue = payment.status === "OVERDUE";
+  const partlyPaid = payment.paidAmount > 0 && outstanding > 0;
 
   return (
     <section
@@ -94,9 +104,33 @@ function FocusCard({
           <p className="text-sm font-semibold text-muted-foreground">
             {monthLabel(payment.month)}
           </p>
-          <p className="mt-1 font-heading text-4xl font-bold text-foreground">
+          {/* **The big number is labelled.** It is the *remaining* balance, not
+              the month's rent, and on a part-paid month the two differ — a
+              resident who paid NPR 60 of NPR 1,290 was shown a bare "NPR 1,230"
+              under the month's name and had no way to tell which of the two
+              numbers it was, or whether their 60 had registered at all. */}
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {partlyPaid ? "Still to pay" : "Amount due"}
+          </p>
+          <p className="font-heading text-4xl font-bold text-foreground">
             {currency(outstanding)}
           </p>
+          {/* The arithmetic, written out. Every part-paid month raises the same
+              support question — *where did my payment go* — and the answer is a
+              subtraction the resident can check against their own bank app. */}
+          {partlyPaid ? (
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
+              <span>{currency(payment.dueAmount)} billed</span>
+              <span aria-hidden>−</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                {currency(payment.paidAmount)} received
+              </span>
+              <span aria-hidden>=</span>
+              <span className="font-semibold text-foreground">
+                {currency(outstanding)}
+              </span>
+            </p>
+          ) : null}
           <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <CalendarDays className="size-3.5" />
@@ -116,12 +150,6 @@ function FocusCard({
           {credit > 0 ? (
             <p className="mt-2 inline-block rounded-md bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
               {currency(credit)} credit will be applied
-            </p>
-          ) : null}
-          {payment.paidAmount > 0 ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {currency(payment.paidAmount)} of {currency(payment.dueAmount)} already
-              received.
             </p>
           ) : null}
         </div>
@@ -151,6 +179,29 @@ function FocusCard({
           You submitted {currency(pendingClaim.amount)} for this month. Your hostel is
           checking it — you do not need to pay again.
         </p>
+      ) : null}
+
+      {/* A rejection the resident is never shown is worse than no claim at all:
+          they believe the month is handled, the hostel believes they were told,
+          and the invoice quietly goes overdue between them. */}
+      {rejectedClaim ? (
+        <div className="mt-4 rounded-xl bg-rose-500/15 p-3 text-sm text-rose-800 dark:text-rose-300">
+          <p className="flex items-start gap-2 font-semibold">
+            <CircleAlert className="mt-0.5 size-4 shrink-0" />
+            Your hostel could not accept the {currency(rejectedClaim.amount)} you
+            submitted for this month.{" "}
+            {/* Named, not "this month is still due". A resident who had part of
+                the month accepted and part rejected reads a bare "still due" as
+                *everything* still due — the sentence has to say the number. */}
+            {currency(outstanding)} is still to pay.
+          </p>
+          {rejectedClaim.rejectionReason ? (
+            <p className="mt-1.5 pl-6">Reason: {rejectedClaim.rejectionReason}</p>
+          ) : null}
+          <p className="mt-1.5 pl-6">
+            Check the details and submit proof again, or ask your hostel office.
+          </p>
+        </div>
       ) : null}
     </section>
   );
@@ -189,8 +240,28 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
   const state = paymentsResource.state;
   const message = actionMessage || paymentsResource.message;
 
-  const proofByPaymentId = useMemo(
-    () => new Map(proofs.map((proof) => [proof.invoiceId, proof])),
+  // Keyed by status, not last-one-wins. The API returns every claim a resident
+  // has ever filed — pending, settled *and* rejected — so a single map keyed by
+  // invoice handed the screen whichever claim happened to come last, and the
+  // focus card then rendered "your hostel is checking it" for a claim that had
+  // already been rejected. A month can also carry both: rejected, then
+  // re-submitted, in which case pending is the state that matters.
+  const pendingProofByPaymentId = useMemo(
+    () =>
+      new Map(
+        proofs
+          .filter((proof) => proof.status === "PENDING")
+          .map((proof) => [proof.invoiceId, proof]),
+      ),
+    [proofs],
+  );
+  const rejectedProofByPaymentId = useMemo(
+    () =>
+      new Map(
+        proofs
+          .filter((proof) => proof.status === "REJECTED")
+          .map((proof) => [proof.invoiceId, proof]),
+      ),
     [proofs],
   );
 
@@ -285,6 +356,15 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
       />
       <Message value={message} />
 
+      {/* Standing, not a response to anything they just did — and above the fold,
+          because the commonest way to fail the programme is to pay from a banking
+          app having never seen the code, which until now lived only behind
+          `Pay now`. Hidden when nothing is owed: a code with no invoice to quote
+          it against is an instruction with no occasion. */}
+      {state === "ready" && stats.nextDue ? (
+        <OfferProgramBanner code={stats.nextDue.referenceCode} />
+      ) : null}
+
       {state === "loading" ? <LoadingRows /> : null}
       {state === "error" ? <EmptyState label="Payments could not be loaded." /> : null}
 
@@ -298,7 +378,12 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
           }}
           onSubmitProof={() => openClaimFor(stats.nextDue!.id)}
           payment={stats.nextDue}
-          pendingClaim={proofByPaymentId.get(stats.nextDue.id)}
+          pendingClaim={pendingProofByPaymentId.get(stats.nextDue.id)}
+          rejectedClaim={
+            pendingProofByPaymentId.has(stats.nextDue.id)
+              ? undefined
+              : rejectedProofByPaymentId.get(stats.nextDue.id)
+          }
         />
       ) : null}
 
@@ -415,10 +500,22 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
           <EmptyInline label="No payments in this filter." />
         ) : null}
         {state === "ready" && filteredPayments.length > 0 ? (
-          <DataTable className="min-w-[680px]">
+          <DataTable className="min-w-[820px]">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                {["Month", "Amount (NPR)", "Status", "Due Date", "Paid", "Receipt"].map(
+                {/* Billed, received *and* still to pay. Two of the three used to
+                    be here and the resident was left to subtract them — on the
+                    one row where it matters, the part-paid month, that is the
+                    subtraction they came to the page to have done for them. */}
+                {[
+                  "Month",
+                  "Billed",
+                  "Received",
+                  "Still to pay",
+                  "Status",
+                  "Due Date",
+                  "Receipts",
+                ].map(
                   (heading) => (
                     <TableHead
                       className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
@@ -432,11 +529,13 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
             </TableHeader>
             <TableBody>
               {filteredPayments.map((payment) => {
-                const proof = proofByPaymentId.get(payment.id);
+                const awaitingReview = pendingProofByPaymentId.has(payment.id);
                 const isOpen =
                   payment.status === "UNPAID" ||
                   payment.status === "OVERDUE" ||
                   payment.status === "PARTIAL";
+                const remaining = Math.max(payment.dueAmount - payment.paidAmount, 0);
+                const receipts = payment.receipts ?? [];
 
                 return (
                   <TableRow key={payment.id}>
@@ -444,15 +543,33 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
                       {monthLabel(payment.month)}
                     </TableCell>
                     <TableCell>{currency(payment.dueAmount)}</TableCell>
+                    <TableCell
+                      className={cn(
+                        payment.paidAmount > 0
+                          ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {payment.paidAmount > 0 ? currency(payment.paidAmount) : "—"}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        remaining > 0
+                          ? "font-semibold text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {remaining > 0 ? currency(remaining) : "—"}
+                    </TableCell>
                     <TableCell>
                       <SoftBadge
                         tone={
-                          proof?.status === "PENDING"
+                          awaitingReview
                             ? "amber"
                             : statusToneFromLabel(payment.status)
                         }
                       >
-                        {proof?.status === "PENDING"
+                        {awaitingReview
                           ? "AWAITING REVIEW"
                           : payment.status.replaceAll("_", " ")}
                       </SoftBadge>
@@ -460,32 +577,56 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
                     <TableCell className="text-muted-foreground">
                       {dayMonthYear(payment.dueDate)}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {payment.paidAmount > 0 ? currency(payment.paidAmount) : "—"}
-                    </TableCell>
                     <TableCell>
-                      {payment.receiptId ? (
-                        <a
-                          className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10.5px] font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
-                          href={residentEndpoints.receiptPdf(payment.receiptId)}
-                        >
-                          <Download className="size-3" />
-                          {payment.receiptNumber ?? "Receipt"}
-                        </a>
-                      ) : isOpen ? (
-                        <button
-                          className="rounded-full border border-role-resident/40 bg-role-resident/10 px-2.5 py-1 text-[10.5px] font-semibold text-role-resident transition hover:bg-role-resident/20"
-                          onClick={() => {
-                            setPayingInvoiceId(payment.id);
-                            setClaimInvoiceId("");
-                          }}
-                          type="button"
-                        >
-                          Pay now
-                        </button>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                      {/* One chip per receipt, each carrying its own amount.
+                          A month settled in two payments has two receipts, and
+                          the amount is what tells them apart — a resident
+                          looking for the NPR 60 they paid on the 5th cannot
+                          pick it out of two identical serial numbers. */}
+                      <div className="flex flex-col items-start gap-1">
+                        {receipts.map((receipt) => (
+                          <a
+                            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10.5px] font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
+                            href={residentEndpoints.receiptPdf(receipt.id)}
+                            key={receipt.id}
+                          >
+                            <Download className="size-3" />
+                            {currency(receipt.amount)}
+                            <span className="font-normal opacity-80">
+                              {receipt.number}
+                            </span>
+                          </a>
+                        ))}
+                        {/* A part-paid month keeps *both*: the receipts already
+                            issued and the way to settle the rest. The old cell
+                            was an either/or, so the row that most needs a `Pay
+                            now` — the one with money still on it — was the one
+                            row that lost the button as soon as a receipt
+                            existed. */}
+                        {isOpen ? (
+                          <button
+                            className="rounded-full border border-role-resident/40 bg-role-resident/10 px-2.5 py-1 text-[10.5px] font-semibold text-role-resident transition hover:bg-role-resident/20"
+                            onClick={() => {
+                              setPayingInvoiceId(payment.id);
+                              setClaimInvoiceId("");
+                            }}
+                            type="button"
+                          >
+                            {receipts.length > 0 ? "Pay the rest" : "Pay now"}
+                          </button>
+                        ) : null}
+                        {/* Answers the question a second receipt number raises
+                            before it is asked: the next payment does not rewrite
+                            this receipt, it adds another one beside it. */}
+                        {isOpen && receipts.length > 0 ? (
+                          <span className="text-[10.5px] text-muted-foreground">
+                            Paying the rest adds another receipt here.
+                          </span>
+                        ) : null}
+                        {receipts.length === 0 && !isOpen ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

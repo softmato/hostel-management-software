@@ -94,7 +94,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       }
 
       const resolvedKey = resolveVariantKey(fileAsset, variant);
-      targetUrl = await getPresignedReadUrl(resolvedKey);
+      targetUrl = await getPresignedReadUrl(fileAsset.bucket, resolvedKey);
     }
 
     return NextResponse.redirect(targetUrl, 302);

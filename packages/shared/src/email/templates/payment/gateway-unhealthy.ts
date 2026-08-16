@@ -22,6 +22,7 @@ export function gatewayUnhealthyEmail(input: {
   title: string;
 }): EmailContent {
   return {
+    category: "alert",
     subject: `${input.title} · ${input.hostelName}`,
     html: emailLayout({
       heading: input.title,

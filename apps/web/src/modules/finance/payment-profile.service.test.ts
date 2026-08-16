@@ -18,6 +18,16 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   profileFindOne: vi.fn(),
   profileFindOneAndUpdate: vi.fn(),
+  readEvidenceText: vi.fn(),
+  readStoredObject: vi.fn(),
+}));
+
+// The QR read is a real network fetch and a real recogniser. Both are stubbed
+// here so these tests describe the *decision* — what may overwrite what — rather
+// than tesseract's accuracy, which `qr-payee.test.ts` covers on fixed text.
+vi.mock("@/lib/uploads/verify", () => ({ readStoredObject: mocks.readStoredObject }));
+vi.mock("@/modules/finance/evidence-ocr", () => ({
+  readEvidenceText: mocks.readEvidenceText,
 }));
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: vi.fn() }));
@@ -65,7 +75,18 @@ beforeEach(() => {
   mocks.profileFindOne.mockReturnValue(lean(null));
   mocks.profileFindOneAndUpdate.mockReturnValue(lean({ cashApprovalThreshold: 20000 }));
   mocks.assetFindOne.mockReturnValue(
-    lean({ _id: assetId, hostelId, uploadCompletedAt: new Date() }),
+    lean({
+      _id: assetId,
+      bucket: "hostel-files",
+      hostelId,
+      key: `qr/${assetId}.png`,
+      mimeType: "image/png",
+      uploadCompletedAt: new Date(),
+    }),
+  );
+  mocks.readStoredObject.mockResolvedValue(Buffer.from("qr"));
+  mocks.readEvidenceText.mockResolvedValue(
+    ["Scan & Pay", "Merchant Name: GREEN VIEW HOSTEL", "eSewa ID: 9801234567"].join("\n"),
   );
 });
 
@@ -92,6 +113,51 @@ describe("getPaymentProfile", () => {
     mocks.profileFindOne.mockReturnValue(lean({ displayName: "Green View Hostel" }));
 
     expect((await getPaymentProfile(hostelId)).usable).toBe(false);
+  });
+
+  /**
+   * A QR poster prints the account number beside the code, so a hostel that
+   * uploaded one has already given us an identifier — this is what makes the
+   * common QR-only hostel verifiable without it typing anything.
+   */
+  it("is payee-verifiable from the number read off the QR", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({ qrPayeeNumber: "9801234567", qrPayeeSource: "OCR", staticQrAssetId: assetId }),
+    );
+
+    expect((await getPaymentProfile(hostelId)).payeeVerifiable).toBe(true);
+  });
+
+  /**
+   * The one case the admin banner exists for: a poster nothing could read. The
+   * hostel collects money perfectly well and yet no receipt can be matched back
+   * to it, so `usable` and `payeeVerifiable` have to be able to disagree — if
+   * they ever collapse into one flag, the hostel that needs the ask stops
+   * getting it.
+   */
+  it("is usable but not payee-verifiable when the QR could not be read", async () => {
+    mocks.profileFindOne.mockReturnValue(lean({ staticQrAssetId: assetId }));
+
+    const view = await getPaymentProfile(hostelId);
+
+    expect(view.usable).toBe(true);
+    expect(view.payeeVerifiable).toBe(false);
+  });
+
+  it("is payee-verifiable once an account identifier is on the profile", async () => {
+    mocks.profileFindOne.mockReturnValue(lean({ khaltiId: "9800000000" }));
+
+    expect((await getPaymentProfile(hostelId)).payeeVerifiable).toBe(true);
+  });
+
+  it("does not count an account name as a credential", async () => {
+    // Names match by token against the hostel's own name, which every hostel
+    // has — counting them here would report every profile as verifiable.
+    mocks.profileFindOne.mockReturnValue(
+      lean({ bankAccountName: "Green View Hostel", bankName: "NIC Asia" }),
+    );
+
+    expect((await getPaymentProfile(hostelId)).payeeVerifiable).toBe(false);
   });
 
   it("stays TIER_0 while the gateway is only half configured", async () => {
@@ -158,6 +224,90 @@ describe("updatePaymentProfile", () => {
     expect(
       mocks.profileFindOneAndUpdate.mock.calls[0][1].$set.staticQrAssetId,
     ).toBeNull();
+  });
+
+  it("stores the payee identity read off a newly uploaded QR", async () => {
+    await updatePaymentProfile(
+      hostelId,
+      { staticQrAssetId: assetId.toString() },
+      principal,
+    );
+
+    const { $set } = mocks.profileFindOneAndUpdate.mock.calls[0][1];
+
+    expect($set.qrPayeeName).toBe("GREEN VIEW HOSTEL");
+    expect($set.qrPayeeNumber).toBe("9801234567");
+    expect($set.qrPayeeSource).toBe("OCR");
+  });
+
+  it("saves the QR anyway when nothing could read it", async () => {
+    // The whole point of the silent-failure contract: a hostel must never be
+    // unable to publish its QR because a recogniser did not load. It simply
+    // gets asked for the two fields on the setup screen.
+    mocks.readEvidenceText.mockResolvedValue(null);
+
+    await updatePaymentProfile(
+      hostelId,
+      { staticQrAssetId: assetId.toString() },
+      principal,
+    );
+
+    const { $set } = mocks.profileFindOneAndUpdate.mock.calls[0][1];
+
+    expect($set.staticQrAssetId).toEqual(assetId);
+    expect($set.qrPayeeName).toBeNull();
+  });
+
+  it("does not let a re-read overwrite what an admin typed", async () => {
+    // The admin was looking at the physical poster; the recogniser was looking
+    // at a JPEG of it. Same QR, so the stored answer stands.
+    mocks.profileFindOne.mockReturnValue(
+      lean({
+        qrPayeeName: "SUNRISE HOSTEL",
+        qrPayeeNumber: "0010012345678",
+        qrPayeeSource: "MANUAL",
+        staticQrAssetId: assetId,
+      }),
+    );
+
+    await updatePaymentProfile(
+      hostelId,
+      { staticQrAssetId: assetId.toString() },
+      principal,
+    );
+
+    const { $set } = mocks.profileFindOneAndUpdate.mock.calls[0][1];
+
+    expect($set).not.toHaveProperty("qrPayeeName");
+    expect($set).not.toHaveProperty("qrPayeeNumber");
+  });
+
+  it("marks a typed name and number as MANUAL", async () => {
+    await updatePaymentProfile(
+      hostelId,
+      { qrPayeeName: "GREEN VIEW HOSTEL", qrPayeeNumber: "9801234567" },
+      principal,
+    );
+
+    expect(mocks.profileFindOneAndUpdate.mock.calls[0][1].$set.qrPayeeSource).toBe(
+      "MANUAL",
+    );
+  });
+
+  it("forgets a read identity when the QR is removed", async () => {
+    // The poster is no longer this hostel's registered account, so matching
+    // receipts against what it said would verify money sent somewhere else.
+    mocks.profileFindOne.mockReturnValue(
+      lean({ qrPayeeNumber: "9801234567", qrPayeeSource: "OCR", staticQrAssetId: assetId }),
+    );
+
+    await updatePaymentProfile(hostelId, { staticQrAssetId: null }, principal);
+
+    const { $set } = mocks.profileFindOneAndUpdate.mock.calls[0][1];
+
+    expect($set.staticQrAssetId).toBeNull();
+    expect($set.qrPayeeNumber).toBeNull();
+    expect($set.qrPayeeSource).toBeNull();
   });
 
   it("audits the cash threshold as the amount before and after", async () => {

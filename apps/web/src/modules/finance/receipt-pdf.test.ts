@@ -11,8 +11,25 @@ import { describe, expect, it } from "vitest";
 
 import { PDFDocument } from "pdf-lib";
 
-import { systemDocumentKind } from "@/modules/finance/evidence";
-import { renderReceiptPdf, renderStatementPdf } from "@/modules/finance/receipt-pdf";
+import {
+  systemDocumentKind,
+  systemDocumentKindFromText,
+} from "@/modules/finance/evidence";
+import {
+  SUBJECT_TO_CONFIRMATION,
+  renderReceiptPdf,
+  renderStatementPdf,
+} from "@/modules/finance/receipt-pdf";
+
+/** The receipt's own text layer, which is what a screenshot of it would show. */
+async function textOf(bytes: Uint8Array): Promise<string> {
+  const { extractText, getDocumentProxy } = await import("unpdf");
+  const { text } = await extractText(await getDocumentProxy(new Uint8Array(bytes)), {
+    mergePages: true,
+  });
+
+  return Array.isArray(text) ? text.join("\n") : text;
+}
 
 const header = (bytes: Uint8Array) =>
   String.fromCharCode(...bytes.slice(0, 5));
@@ -164,5 +181,170 @@ describe("the system-document stamp", () => {
     const resaved = await (await PDFDocument.load(original)).save();
 
     await expect(systemDocumentKind(resaved)).resolves.toBe("RECEIPT");
+  });
+});
+
+/**
+ * The printed marker, which is the half a screenshot cannot strip.
+ *
+ * This is the regression test for the reported bug: a receipt issued for a 60
+ * -rupee part payment was submitted back as proof against the 1,230 still
+ * outstanding, and the reference check confirmed it — because the invoice's code
+ * is the same code all month and we print it on the receipt ourselves. The
+ * metadata stamp does not help there, since what gets uploaded is a screenshot.
+ */
+describe("the printed system-document marker", () => {
+  it("is readable off a rendered receipt's own text", async () => {
+    const bytes = await renderReceiptPdf({
+      amount: 60,
+      coversFrom: new Date(Date.UTC(2026, 6, 1)),
+      coversTo: new Date(Date.UTC(2026, 6, 31)),
+      hostelName: "Education Light Hostel",
+      invoicePeriod: "2026-07",
+      issuedAt: new Date("2026-07-14T00:00:00.000Z"),
+      receiptNumber: "RCP-EDU-2026-07-00004",
+      referenceCode: "EDU-0002-P",
+      residentName: "Aadarsh Yadav",
+    });
+
+    expect(systemDocumentKindFromText(await textOf(bytes))).toBe("RECEIPT");
+  });
+
+  it("matches on the receipt number alone, as OCR would read it", () => {
+    // A recogniser that loses the footer still sees the number, and vice versa.
+    expect(systemDocumentKindFromText("Receipt number RCP-EDU-2026-07-00004")).toBe(
+      "RECEIPT",
+    );
+    expect(
+      systemDocumentKindFromText("Computer generated receipt. Not a proof of payment upload."),
+    ).toBe("RECEIPT");
+  });
+
+  it("does not match a real wallet or bank receipt", () => {
+    // The false-positive direction is the one that costs a resident their rent
+    // submission, so the markers have to be things no provider prints.
+    expect(
+      systemDocumentKindFromText(
+        "eSewa PAYMENT RECEIPT\nTransaction Code: 8823119471\nAmount : 1290.00\nStatus: Complete\n2026-07-14",
+      ),
+    ).toBeNull();
+    expect(
+      systemDocumentKindFromText(
+        "Nabil Bank\nFund Transfer Successful\nRef No: RCP123\nNPR 1,290.00\nRemarks: EDU-0002-P",
+      ),
+    ).toBeNull();
+    expect(systemDocumentKindFromText("")).toBeNull();
+    expect(systemDocumentKindFromText(null)).toBeNull();
+  });
+});
+
+describe("the receipt's coverage window and certification", () => {
+  it("states the dates the payment covers, not just the month", async () => {
+    const bytes = await renderReceiptPdf({
+      amount: 1290,
+      coversFrom: new Date(Date.UTC(2026, 7, 1)),
+      coversTo: new Date(Date.UTC(2026, 7, 31)),
+      hostelName: "Rupa Hostel",
+      invoicePeriod: "2026-08",
+      issuedAt: new Date("2026-08-07T00:00:00.000Z"),
+      receiptNumber: "RCP-RUP-2026-08-00001",
+      residentName: "Sita Sharma",
+    });
+    const text = await textOf(bytes);
+
+    expect(text).toContain("Covers from");
+    expect(text).toContain("01 Aug 2026");
+    expect(text).toContain("Covers until");
+    expect(text).toContain("31 Aug 2026");
+    expect(text).toContain("CERTIFIED");
+    expect(text).toContain("RESIDENT OFFER PROGRAM");
+  });
+
+  it("omits the coverage lines when the invoice buys no period", async () => {
+    // An admission fee or a deposit covers no span. Inventing one would be a
+    // worse answer on a document a landlord may read than saying nothing.
+    const text = await textOf(
+      await renderReceiptPdf({
+        amount: 5000,
+        hostelName: "Rupa Hostel",
+        issuedAt: new Date("2026-08-07T00:00:00.000Z"),
+        receiptNumber: "RCP-RUP-2026-08-00002",
+        residentName: "Sita Sharma",
+      }),
+    );
+
+    expect(text).not.toContain("Covers from");
+  });
+
+  it("does not certify a voided receipt", async () => {
+    // A stamp on a withdrawn document is the most misleading thing this
+    // renderer could produce — and the resident holding it is exactly who
+    // would be misled.
+    const text = await textOf(
+      await renderReceiptPdf({
+        amount: 1290,
+        hostelName: "Rupa Hostel",
+        issuedAt: new Date("2026-08-07T00:00:00.000Z"),
+        receiptNumber: "RCP-RUP-2026-08-00003",
+        residentName: "Sita Sharma",
+        voidReason: "Issued against the wrong invoice",
+        voidedAt: new Date("2026-08-09T00:00:00.000Z"),
+      }),
+    );
+
+    expect(text).toContain("VOID");
+    expect(text).not.toContain("CERTIFIED");
+  });
+});
+
+/**
+ * Item E.7 — a receipt says only as much as is known.
+ *
+ * A warden's approval credits the money instantly, which is right. What it does
+ * not establish is that the hostel received anything, and until the account
+ * statement carries the credit the receipt must not claim otherwise.
+ */
+describe("provisional receipts", () => {
+  const base = {
+    amount: 12000,
+    hostelName: "Rupa Hostel",
+    issuedAt: new Date("2026-08-07T00:00:00.000Z"),
+    receiptNumber: "RCP-RUP-2026-08-00007",
+    residentName: "Sita Sharma",
+  };
+
+  it("says it is subject to confirmation, and does not certify", async () => {
+    const text = await textOf(
+      await renderReceiptPdf({ ...base, provisional: true }),
+    );
+
+    expect(text).toContain(SUBJECT_TO_CONFIRMATION);
+    expect(text).toContain("PROVISIONAL");
+    expect(text).not.toContain("CERTIFIED");
+  });
+
+  it("stops hedging once the statement has confirmed it", async () => {
+    const text = await textOf(
+      await renderReceiptPdf({ ...base, provisional: false }),
+    );
+
+    expect(text).not.toContain(SUBJECT_TO_CONFIRMATION);
+    expect(text).toContain("CERTIFIED");
+  });
+
+  // "Void" already answers the question the qualifier asks, and stacking the two
+  // reads as a document arguing with itself.
+  it("does not qualify a voided receipt", async () => {
+    const text = await textOf(
+      await renderReceiptPdf({
+        ...base,
+        provisional: true,
+        voidReason: "Issued against the wrong invoice",
+        voidedAt: new Date("2026-08-09T00:00:00.000Z"),
+      }),
+    );
+
+    expect(text).toContain("VOID");
+    expect(text).not.toContain(SUBJECT_TO_CONFIRMATION);
   });
 });

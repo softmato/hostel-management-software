@@ -64,17 +64,44 @@ export function toPortalInvoice(invoice: LedgerInvoice): PortalInvoice {
   };
 }
 
+/** One receipt on a resident's month, as their screen lists it. */
+export type ResidentInvoiceReceipt = {
+  amount: number;
+  id: string;
+  issuedAt: string | null;
+  number: string;
+};
+
 /**
  * An invoice as the resident's own screen needs it.
  *
- * `receiptId` is the one addition: a settled month has a receipt, and a resident
+ * `receipts` is the one addition: a settled month has receipts, and a resident
  * who needs proof of rent for a visa or a landlord should be one tap from the
  * PDF rather than emailing the hostel for it. The admin matrix has no use for
- * it, so it lives on this shape instead of `PortalInvoice`.
+ * them, so they live on this shape instead of `PortalInvoice`.
+ *
+ * **All of them, not the newest.** There is one receipt per settled *payment*,
+ * not per month, so a resident who paid NPR 60 and then the remaining NPR 1,230
+ * has two — and returning only the latest quietly made the first unreachable the
+ * moment the second was issued. The screen showed a single chip whose number
+ * changed under a row whose `Paid` column had gone up, which is exactly the
+ * question this page keeps getting asked: *did my earlier payment survive?*
+ * Newest first, because the last thing they paid is the thing they are looking
+ * for.
  */
 export type ResidentPortalInvoice = PortalInvoice & {
-  receiptId: string | null;
-  receiptNumber: string | null;
+  receipts: ResidentInvoiceReceipt[];
+  /**
+   * The invoice's reference code (§5, ADR-7), so the payments page can show the
+   * resident the code for the month they owe without opening the pay screen.
+   *
+   * The commonest way to pay without a code is never to have seen one: the code
+   * lived only behind `Pay now`, and a resident who pays from their banking app
+   * out of habit never opens that screen. It is not on `PortalInvoice` because
+   * the admin matrix has no use for it, and it is read here rather than through
+   * the ledger facade because the facade describes balances, not identifiers.
+   */
+  referenceCode: string | null;
 };
 
 export type ResidentFinanceView = {
@@ -101,6 +128,19 @@ export async function getResidentFinanceView(
     getCreditAmount(resident.hostelId, resident._id),
   ]);
 
+  const codeRows = invoices.length
+    ? await InvoiceModel.find({
+        _id: { $in: invoices.map((invoice) => invoice.id) },
+        residentId: resident._id,
+      })
+        .select("referenceCode")
+        .lean<{ _id: Types.ObjectId; referenceCode?: string }[]>()
+    : [];
+
+  const codeByInvoice = new Map(
+    codeRows.map((row) => [row._id.toString(), row.referenceCode ?? null]),
+  );
+
   // Voided receipts are excluded: a receipt that was voided when its payment was
   // reversed must not stay downloadable, or the resident keeps a document
   // asserting a payment the ledger no longer counts.
@@ -110,30 +150,37 @@ export async function getResidentFinanceView(
         residentId: resident._id,
         voidedAt: null,
       })
-        .select("invoiceId issuedAt receiptNumber")
+        .select("amount invoiceId issuedAt receiptNumber")
         .sort({ issuedAt: -1 })
         .lean<
           {
             _id: Types.ObjectId;
+            amount: number;
             invoiceId?: Types.ObjectId | null;
+            issuedAt?: Date | null;
             receiptNumber: string;
           }[]
         >()
     : [];
 
-  // Sorted newest first above, so the first receipt seen for an invoice — the
-  // most recent — is the one kept for a month settled in more than one payment.
-  const receiptByInvoice = new Map<string, { id: string; number: string }>();
+  // Sorted newest first above, and appended in that order, so each month's list
+  // reads most-recent-first without a second sort.
+  const receiptsByInvoice = new Map<string, ResidentInvoiceReceipt[]>();
 
   for (const receipt of receipts) {
     const key = receipt.invoiceId?.toString();
 
-    if (key && !receiptByInvoice.has(key)) {
-      receiptByInvoice.set(key, {
-        id: receipt._id.toString(),
-        number: receipt.receiptNumber,
-      });
-    }
+    if (!key) continue;
+
+    const list = receiptsByInvoice.get(key) ?? [];
+
+    list.push({
+      amount: receipt.amount,
+      id: receipt._id.toString(),
+      issuedAt: receipt.issuedAt?.toISOString() ?? null,
+      number: receipt.receiptNumber,
+    });
+    receiptsByInvoice.set(key, list);
   }
 
   return {
@@ -141,12 +188,11 @@ export async function getResidentFinanceView(
     credit,
     invoices: invoices.map((invoice) => {
       const portal = toPortalInvoice(invoice);
-      const receipt = receiptByInvoice.get(portal.id) ?? null;
 
       return {
         ...portal,
-        receiptId: receipt?.id ?? null,
-        receiptNumber: receipt?.number ?? null,
+        receipts: receiptsByInvoice.get(portal.id) ?? [],
+        referenceCode: codeByInvoice.get(portal.id) ?? null,
       };
     }),
   };

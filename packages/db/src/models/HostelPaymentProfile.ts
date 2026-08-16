@@ -118,6 +118,22 @@ const hostelPaymentProfileSchema = new Schema(
     bankName: { type: String, trim: true },
     bankAccountName: { type: String, trim: true },
     bankAccountNumber: { type: String, trim: true },
+    /**
+     * Who the QR poster says it pays, read off the image at upload.
+     *
+     * A static QR prints the account holder and the account/wallet number beside
+     * the code, so a QR-only hostel has already given us its payee identity —
+     * `evidence-payee.ts` simply had no way to reach it, and returned `UNKNOWN`
+     * on every claim such a hostel received. These carry that identity into the
+     * database, where the payee check can compare a receipt against it.
+     *
+     * `qrPayeeSource` exists so a re-upload knows what it may overwrite: an
+     * `OCR` value is ours to replace with a fresh read, a `MANUAL` one was typed
+     * by an admin who saw the poster with their own eyes and outranks us.
+     */
+    qrPayeeName: { type: String, trim: true },
+    qrPayeeNumber: { type: String, trim: true },
+    qrPayeeSource: { enum: ["OCR", "MANUAL"], type: String },
     /** Free text shown under the QR, e.g. "please add your room number". */
     paymentInstructions: { type: String, trim: true },
 

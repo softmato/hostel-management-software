@@ -6,7 +6,14 @@ import { existsSync } from "fs";
 
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
-import { generateFileKey, getR2Client } from "@/lib/r2";
+import {
+  type AccessLevel,
+  bucketForAccessLevel,
+  generateFileKey,
+  getR2Client,
+} from "@/lib/r2";
+import { inspectImage, isInspectableImage } from "@/lib/uploads/image-integrity";
+import { contentTypeMismatch } from "@/lib/uploads/sniff";
 import { hashBytes } from "@/lib/uploads/verify";
 import { computePerceptualHash, systemDocumentKind } from "@/modules/finance/evidence";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
@@ -21,7 +28,8 @@ function r2Configured() {
   return !!(
     process.env.R2_ENDPOINT &&
     process.env.R2_ACCESS_KEY_ID &&
-    process.env.R2_BUCKET_NAME
+    process.env.R2_BUCKET_PUBLIC &&
+    process.env.R2_BUCKET_PRIVATE
   );
 }
 
@@ -57,11 +65,34 @@ export async function POST(request: NextRequest) {
     const mimeType = file.type;
     const sizeBytes = file.size;
 
+    // `file.type` is the browser's guess from the extension, so this door needs
+    // the same byte-level check as the presigned one (gap fix 1) — otherwise a
+    // renamed binary is simply stored labelled `image/png` here instead.
+    const mismatch = contentTypeMismatch(mimeType, buffer);
+
+    if (mismatch) {
+      return errorResponse(mismatch, "UPLOAD_CONTENT_MISMATCH", 422);
+    }
+
+    let imageInsight: Awaited<ReturnType<typeof inspectImage>> = null;
+
+    if (isInspectableImage(mimeType)) {
+      imageInsight = await inspectImage(buffer);
+
+      if (!imageInsight) {
+        return errorResponse(
+          "This image could not be opened — it may be damaged or incomplete. Please upload it again.",
+          "UPLOAD_IMAGE_UNDECODABLE",
+          422,
+        );
+      }
+    }
+
     let url: string;
 
     if (r2Configured()) {
       const key = generateFileKey("uploads", fileName);
-      const bucket = process.env.R2_BUCKET_NAME!;
+      const bucket = bucketForAccessLevel(accessLevel as AccessLevel);
 
       const command = new PutObjectCommand({
         Bucket: bucket,
@@ -72,8 +103,15 @@ export async function POST(request: NextRequest) {
 
       await getR2Client().send(command);
 
-      const publicUrl = process.env.R2_PUBLIC_URL;
-      url = publicUrl ? `${publicUrl}/${key}` : key;
+      // Only a PUBLIC asset has an unsigned URL. Building one for a PRIVATE
+      // asset used to produce a link into a bucket that no longer serves it —
+      // and, before the split, one that served it permanently and unsigned.
+      // Everything else is reached through the authorised read route.
+      const publicBase = process.env.R2_PUBLIC_URL;
+      url =
+        accessLevel === "PUBLIC" && publicBase
+          ? `${publicBase.replace(/\/+$/, "")}/${key}`
+          : key;
 
       await FileAssetModel.create({
         storageProvider: "CLOUDFLARE_R2",
@@ -89,6 +127,7 @@ export async function POST(request: NextRequest) {
         // The bytes passed through this process, so type, size and hash are
         // measured rather than declared — no separate verification leg needed.
         contentHash: hashBytes(buffer),
+        imageInsight: imageInsight ?? undefined,
         perceptualHash: (await computePerceptualHash(buffer)) ?? undefined,
         systemDocumentKind: (await systemDocumentKind(buffer)) ?? undefined,
         uploadCompletedAt: new Date(),

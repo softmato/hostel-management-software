@@ -3,6 +3,10 @@ import { Types } from "mongoose";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
+import { readStoredObject } from "@/lib/uploads/verify";
+import { hostelPayeeIdentity } from "@/modules/finance/evidence-payee";
+import { readEvidenceText } from "@/modules/finance/evidence-ocr";
+import { hasQrPayee, readQrPayeeFromImage } from "@/modules/finance/qr-payee";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import {
@@ -43,7 +47,25 @@ export type PaymentProfileView = {
   enabledProviders: string[];
   khaltiId: string | null;
   lastStatementUploadAt: string | null;
+  /**
+   * Can a receipt be checked against this hostel at all?
+   *
+   * `usable` says residents have *somewhere* to send money; this says we can
+   * recognise the hostel on the receipt that comes back. They are not the same
+   * profile: a hostel with only a static QR is perfectly usable and yet every
+   * claim it receives reads `UNKNOWN` on the payee — the one check a payer
+   * cannot satisfy by typing is switched off, silently, for that hostel.
+   *
+   * Deliberately computed from `hostelPayeeIdentity` rather than from a second
+   * list of fields, so the banner that nags for a credential and the check that
+   * consumes it can never disagree about what counts as one.
+   */
+  payeeVerifiable: boolean;
   paymentInstructions: string | null;
+  /** Read off the QR poster, or typed by the admin when it could not be read. */
+  qrPayeeName: string | null;
+  qrPayeeNumber: string | null;
+  qrPayeeSource: "MANUAL" | "OCR" | null;
   staticQrAssetId: string | null;
   statementCadenceDays: number;
   tier: PaymentTier;
@@ -62,6 +84,9 @@ type ProfileDocument = {
   khaltiId?: string | null;
   lastStatementUploadAt?: Date | null;
   paymentInstructions?: string | null;
+  qrPayeeName?: string | null;
+  qrPayeeNumber?: string | null;
+  qrPayeeSource?: "MANUAL" | "OCR" | null;
   staticQrAssetId?: Types.ObjectId | null;
   statementCadenceDays?: number;
 };
@@ -84,7 +109,15 @@ function toView(profile: ProfileDocument | null): PaymentProfileView {
     lastStatementUploadAt: source.lastStatementUploadAt
       ? new Date(source.lastStatementUploadAt).toISOString()
       : null,
+    // Names are excluded on purpose. The hostel's own name is always available
+    // to match on, so a name-based test would report "verifiable" for every
+    // hostel on the platform and nag nobody. An account identifier is the part
+    // an unconfigured hostel is actually missing.
+    payeeVerifiable: hostelPayeeIdentity(source).accountIds.length > 0,
     paymentInstructions: source.paymentInstructions ?? null,
+    qrPayeeName: source.qrPayeeName ?? null,
+    qrPayeeNumber: source.qrPayeeNumber ?? null,
+    qrPayeeSource: source.qrPayeeSource ?? null,
     staticQrAssetId: source.staticQrAssetId
       ? source.staticQrAssetId.toString()
       : null,
@@ -121,7 +154,10 @@ async function assertQrAssetUsable(
         status: "ACTIVE",
       }).lean<{
         _id: Types.ObjectId;
+        bucket?: string;
         hostelId?: Types.ObjectId;
+        key?: string;
+        mimeType?: string;
         uploadCompletedAt?: Date;
       } | null>()
     : null;
@@ -140,7 +176,57 @@ async function assertQrAssetUsable(
     );
   }
 
-  return asset._id;
+  return asset;
+}
+
+/**
+ * Read the poster's payee identity, and decide what it may overwrite.
+ *
+ * Ordered by who saw more. An admin who typed the name and number was looking at
+ * the physical QR; a recogniser was looking at a JPEG of it. So `MANUAL` values
+ * survive a re-read, and only a *new* upload — where the previous read describes
+ * an image that is no longer the profile's QR — clears them.
+ *
+ * Every failure here is silent by design. The QR still saves, the resident pay
+ * screen still renders it, and the admin screen asks for the two fields in a
+ * box. A hostel must never be unable to publish its QR because a WASM binary did
+ * not load.
+ */
+async function readQrPayeeFields(
+  asset: { bucket?: string; key?: string; mimeType?: string },
+  before: ProfileDocument | null,
+  isNewQr: boolean,
+): Promise<Record<string, unknown>> {
+  if (!isNewQr && before?.qrPayeeSource === "MANUAL") {
+    return {};
+  }
+
+  try {
+    if (!asset.bucket || !asset.key) return {};
+
+    const bytes = await readStoredObject({ bucket: asset.bucket, key: asset.key });
+
+    if (!bytes) return {};
+
+    const read = await readQrPayeeFromImage(bytes, asset.mimeType, readEvidenceText);
+
+    if (!hasQrPayee(read)) {
+      // A new poster we could not read must not keep the old one's identity —
+      // that would match receipts against an account this hostel may no longer
+      // collect in, which is the one outcome worse than `UNKNOWN`.
+      return isNewQr
+        ? { qrPayeeName: null, qrPayeeNumber: null, qrPayeeSource: null }
+        : {};
+    }
+
+    return {
+      qrPayeeName: read.name,
+      qrPayeeNumber: read.accountNumber,
+      qrPayeeSource: "OCR",
+    };
+  } catch {
+    return {};
+  }
 }
 
 /** Field names the form may write, so an unexpected key cannot reach the update. */
@@ -179,10 +265,38 @@ export async function updatePaymentProfile(
     update.statementCadenceDays = input.statementCadenceDays;
   }
 
+  // Typed by an admin who was looking at the poster, so it outranks any read of
+  // it — recorded as `MANUAL` precisely so a later re-read cannot undo it.
+  if (input.qrPayeeName !== undefined || input.qrPayeeNumber !== undefined) {
+    if (input.qrPayeeName !== undefined) update.qrPayeeName = input.qrPayeeName;
+    if (input.qrPayeeNumber !== undefined) update.qrPayeeNumber = input.qrPayeeNumber;
+    update.qrPayeeSource = "MANUAL";
+  }
+
   if (input.staticQrAssetId !== undefined) {
-    update.staticQrAssetId = input.staticQrAssetId
-      ? await assertQrAssetUsable(input.staticQrAssetId, hostelId)
-      : null;
+    if (input.staticQrAssetId) {
+      const asset = await assertQrAssetUsable(input.staticQrAssetId, hostelId);
+
+      update.staticQrAssetId = asset._id;
+
+      const isNewQr = before?.staticQrAssetId?.toString() !== asset._id.toString();
+
+      // Only when the admin is not typing the fields in the same request: their
+      // value is the one that was just chosen deliberately.
+      if (update.qrPayeeSource !== "MANUAL") {
+        Object.assign(update, await readQrPayeeFields(asset, before, isNewQr));
+      }
+    } else {
+      // The QR is gone, so an identity read off it is no longer this hostel's
+      // registered account and must not go on matching receipts.
+      update.staticQrAssetId = null;
+
+      if (before?.qrPayeeSource === "OCR") {
+        update.qrPayeeName = null;
+        update.qrPayeeNumber = null;
+        update.qrPayeeSource = null;
+      }
+    }
   }
 
   const saved = await HostelPaymentProfileModel.findOneAndUpdate(

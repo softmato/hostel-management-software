@@ -32,6 +32,11 @@ vi.mock("@hostel/db/models/FileAsset", () => ({
 }));
 
 vi.mock("@/lib/r2", () => ({
+  // Mirrors the real split: anything not PUBLIC belongs in the bucket with no
+  // public base URL. Named distinctly so an assertion on the chosen bucket
+  // cannot pass by accident.
+  bucketForAccessLevel: (accessLevel: string) =>
+    accessLevel === "PUBLIC" ? "test-public-bucket" : "test-private-bucket",
   generateFileKey: (prefix: string, name: string) => `${prefix}/${name}`,
   getPresignedReadUrl: mocks.presignedReadUrl,
   getPresignedUploadUrl: mocks.presignedUploadUrl,
@@ -230,6 +235,74 @@ describe("POST /api/v1/files/presign", () => {
     expect(response.status).toBe(200);
     expect(mocks.create).toHaveBeenCalledWith(
       expect.objectContaining({ hostelId: undefined }),
+    );
+  });
+
+  /**
+   * The bucket split is the thing standing between a payment proof and a
+   * permanent unsigned URL, so it is asserted on the row that gets written and
+   * on the presign that gets signed — not merely on the helper in isolation.
+   *
+   * A regression here does not fail loudly: the upload still succeeds, the
+   * proof is simply readable by anyone holding the key, forever.
+   */
+  it("presigns a payment proof into the private bucket", async () => {
+    mocks.loadApiPrincipal.mockResolvedValue({
+      hostelIds: [HOSTEL_A],
+      role: Role.RESIDENT,
+      userId: RESIDENT_USER,
+    });
+
+    const response = await POST(presignRequest({ ...proofBody, hostelId: HOSTEL_A }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ accessLevel: "PRIVATE", bucket: "test-private-bucket" }),
+    );
+    expect(mocks.presignedUploadUrl).toHaveBeenCalledWith(
+      "test-private-bucket",
+      expect.any(String),
+      expect.any(String),
+      expect.any(Number),
+    );
+  });
+
+  it("defaults an unlabelled upload to the private bucket", async () => {
+    mocks.loadApiPrincipal.mockResolvedValue({
+      hostelIds: [],
+      role: Role.SUPERADMIN,
+      userId: "770000000000000000000004",
+    });
+
+    await POST(
+      presignRequest({ fileName: "logo.png", mimeType: "image/png", sizeBytes: 512 }),
+    );
+
+    // Default-deny applies to placement too: an upload that does not say it is
+    // public must not land in the bucket that serves anything unsigned.
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ accessLevel: "PRIVATE", bucket: "test-private-bucket" }),
+    );
+  });
+
+  it("presigns an explicitly public upload into the public bucket", async () => {
+    mocks.loadApiPrincipal.mockResolvedValue({
+      hostelIds: [],
+      role: Role.SUPERADMIN,
+      userId: "770000000000000000000004",
+    });
+
+    await POST(
+      presignRequest({
+        accessLevel: "PUBLIC",
+        fileName: "gallery.png",
+        mimeType: "image/png",
+        sizeBytes: 512,
+      }),
+    );
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ accessLevel: "PUBLIC", bucket: "test-public-bucket" }),
     );
   });
 });

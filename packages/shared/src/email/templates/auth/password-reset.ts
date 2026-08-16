@@ -5,6 +5,7 @@ export function passwordResetEmail(input: {
   expiresInMinutes: number;
 }): EmailContent {
   return {
+    category: "security",
     subject: "Reset your HostelHub password",
     html: emailLayout({
       heading: "Password reset",

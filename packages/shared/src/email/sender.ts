@@ -1,3 +1,11 @@
+import {
+  DEFAULT_EMAIL_CATEGORY,
+  fromHeaderFor,
+  replyToFor,
+  resolveEmailIdentity,
+  type EmailCategory,
+} from "./identity";
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
 /**
@@ -12,9 +20,17 @@ export type EmailAttachment = {
 
 export type SendEmailInput = {
   attachments?: EmailAttachment[];
+  /**
+   * Which mailbox this goes out from. Templates carry their own — every
+   * `EmailContent` sets one — so ordinary call sites spread the template and
+   * never name a category. Pass it directly only for ad-hoc mail with no
+   * template behind it.
+   */
+  category?: EmailCategory;
   to: string | string[];
   subject: string;
   html: string;
+  /** Overrides the configured reply address for this one send. */
   replyTo?: string;
 };
 
@@ -23,49 +39,31 @@ export type SendEmailResult =
   | { sent: false; reason: "not_configured" | "send_failed"; detail?: string };
 
 /**
- * Resolves the Resend "From" header. Precedence:
- *   1. EMAIL_FROM — used verbatim (already a full `Name <email>` header).
- *   2. RESEND_FROM_EMAIL — if it already contains `<`, used verbatim; otherwise
- *      combined with the optional RESEND_FROM_NAME into `Name <email>`.
- * Returns null when no sender is configured (local dev → email is logged, not sent).
- */
-function fromAddress(): string | null {
-  const explicit = process.env.EMAIL_FROM?.trim();
-  if (explicit) {
-    return explicit;
-  }
-
-  const email = process.env.RESEND_FROM_EMAIL?.trim();
-  if (!email) {
-    return null;
-  }
-
-  if (email.includes("<")) {
-    return email;
-  }
-
-  const name = process.env.RESEND_FROM_NAME?.trim();
-  return name ? `${name} <${email}>` : email;
-}
-
-/**
- * Sends a transactional email through Resend (EMAIL_SYSTEM.md).
+ * Sends a transactional email through Resend (docs/EMAIL_SYSTEM.md).
+ *
+ * The `From` header is built per send from the platform owner's configured
+ * identity and the message's category, so `billing@` and `alert@` mail carries
+ * the right sender without any call site knowing how the address is assembled.
  *
  * Never throws: callers must not fail a business flow because email delivery
  * failed. Failures are logged and reported in the result so callers can
- * surface/queue them if needed. When RESEND_API_KEY / EMAIL_FROM are not
- * configured (local dev), the email is logged instead of sent.
+ * surface/queue them if needed. With no `RESEND_API_KEY` (local dev), the email
+ * is logged instead of sent.
  */
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = fromAddress();
+  const category = input.category ?? DEFAULT_EMAIL_CATEGORY;
+  const identity = await resolveEmailIdentity();
+  const from = fromHeaderFor(category, identity);
+  const replyTo = input.replyTo ?? replyToFor(category, identity);
 
   if (!apiKey || !from) {
     console.info(
       JSON.stringify({
         level: "info",
         action: "email_skipped",
-        message: "Resend not configured (RESEND_API_KEY / EMAIL_FROM); email not sent.",
+        category,
+        message: "Resend not configured (RESEND_API_KEY / EMAIL_DOMAIN); email not sent.",
         subject: input.subject,
         to: input.to,
       }),
@@ -93,7 +91,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
               })),
             }
           : {}),
-        ...(input.replyTo ? { reply_to: input.replyTo } : {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
 
@@ -103,6 +101,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         JSON.stringify({
           level: "error",
           action: "email_send_failed",
+          category,
+          from,
           message: `Resend returned ${response.status}`,
           subject: input.subject,
         }),
@@ -115,6 +115,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       JSON.stringify({
         level: "info",
         action: "email_sent",
+        category,
+        from,
         message: "Email dispatched via Resend.",
         subject: input.subject,
         emailId: payload.id ?? null,
@@ -126,6 +128,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       JSON.stringify({
         level: "error",
         action: "email_send_failed",
+        category,
         message: error instanceof Error ? error.message : "Unknown email error",
         subject: input.subject,
       }),

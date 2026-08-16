@@ -14,6 +14,7 @@ import { ResidentModel } from "@hostel/db/models/Resident";
 import type { EmailAttachment } from "@hostel/shared/email/sender";
 import { gatewayUnhealthyEmail } from "@hostel/shared/email/templates/payment/gateway-unhealthy";
 import { paymentClearedEmail } from "@hostel/shared/email/templates/payment/payment-cleared";
+import { paymentProofReceivedEmail } from "@hostel/shared/email/templates/payment/proof-received";
 import { paymentProofUploadedEmail } from "@hostel/shared/email/templates/payment/proof-uploaded";
 import { paymentRejectedEmail } from "@hostel/shared/email/templates/payment/payment-rejected";
 import { paymentReversedEmail } from "@hostel/shared/email/templates/payment/payment-reversed";
@@ -76,6 +77,8 @@ export async function notifyAdminsOfClaim(input: {
                 method: "POST",
               },
             ],
+            // Clicking the row opens the review queue; the button decides in place.
+            actionUrl: "/hostel-admin/payments",
             body: `${residentName} submitted proof of NPR ${input.amount.toLocaleString("en-US")}${
               input.period ? ` for ${input.period}` : ""
             }.`,
@@ -104,6 +107,107 @@ export async function notifyAdminsOfClaim(input: {
         eventId: input.eventId,
         level: "warn",
         message: error instanceof Error ? error.message : "Unknown notification error",
+      }),
+    );
+  }
+}
+
+/**
+ * Tell the **resident** we have their proof (target §11.2).
+ *
+ * The counterpart to {@link notifyAdminsOfClaim}, and it did not exist: a claim
+ * mailed the hostel and left the person who submitted it with a spinner and no
+ * confirmation of any kind. A resident whose transfer has already left their bank
+ * and who then hears nothing for two days assumes the upload failed and either
+ * pays twice or calls — and the second claim is refused as a duplicate, which
+ * reads to them as the system losing their money.
+ *
+ * **The in-app notification is outside the email switch**, for the reason item
+ * 0.6 established across this module: `sendPaymentEmails` turns off *email*, and
+ * a hostel that turned it off must not thereby stop telling residents anything at
+ * all.
+ *
+ * **Never throws.** The claim is recorded before this runs. A mail server having
+ * a bad day must not turn a successful submission into an error the resident
+ * sees, because the retry they would then make is the duplicate above.
+ */
+export async function notifyResidentOfClaim(input: {
+  amount: number;
+  hostelId: Types.ObjectId | string;
+  invoiceId: string | null;
+  period: string | null;
+  /** The invoice's own code — not the transaction id the resident typed. */
+  referenceCode: string | null;
+  residentId: Types.ObjectId | string;
+}): Promise<void> {
+  try {
+    const resident = await ResidentModel.findOne({
+      _id: input.residentId,
+      isDeleted: false,
+    }).lean<{
+      _id: Types.ObjectId;
+      email?: string;
+      firstName: string;
+      lastName: string;
+      userId?: Types.ObjectId;
+    } | null>();
+
+    if (!resident) {
+      return;
+    }
+
+    const [config, hostelName, contact] = await Promise.all([
+      getOperationsConfig(),
+      getHostelName(input.hostelId),
+      resolveResidentContact(resident),
+    ]);
+
+    if (resident.userId) {
+      await createInAppNotification({
+        // The row is informational — `kind: "NORMAL"` keeps it out of the
+        // "Needs action" queue — but it still opens the ledger it is about.
+        actionUrl: "/resident/payments",
+        // "Sent for checking", never "received" on its own: the resident's
+        // question is whether the money counted yet, and it has not.
+        body: `Your proof of NPR ${input.amount.toLocaleString("en-US")}${
+          input.period ? ` for ${input.period}` : ""
+        } was sent to your hostel to check. Nothing is credited until they verify it.`,
+        category: "PAYMENT",
+        data: { invoiceId: input.invoiceId ?? undefined },
+        hostelId: input.hostelId.toString(),
+        kind: "NORMAL",
+        title: "Payment proof sent",
+        userId: resident.userId.toString(),
+      });
+    }
+
+    if (!contact || !config.sendPaymentEmails) {
+      return;
+    }
+
+    const email = paymentProofReceivedEmail({
+      amount: input.amount,
+      hostelName,
+      month: input.period ?? "",
+      offerProgramUrl: appUrl("/resident-offer-program"),
+      paymentsUrl: appUrl("/resident/payments"),
+      referenceCode: input.referenceCode,
+      residentName: contact.name ?? resident.firstName,
+    });
+
+    await sendNotificationEmail({
+      action: "payment_proof_received",
+      html: email.html,
+      subject: email.subject,
+      to: contact.email,
+    });
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "payment_proof_received_notification_failed",
+        level: "warn",
+        message: error instanceof Error ? error.message : "Unknown notification error",
+        residentId: input.residentId.toString(),
       }),
     );
   }
@@ -239,6 +343,7 @@ export async function notifyClaimReviewed(input: {
 
   if (resident.userId) {
     await createInAppNotification({
+      actionUrl: "/resident/payments",
       body:
         input.outcome.kind === "verified"
           ? `Your payment for ${period} was verified.${
@@ -248,6 +353,7 @@ export async function notifyClaimReviewed(input: {
       category: "PAYMENT",
       data: { invoiceId: input.invoiceId ?? undefined },
       hostelId: input.hostelId.toString(),
+      kind: "NORMAL",
       title:
         input.outcome.kind === "verified" ? "Payment verified" : "Payment proof rejected",
       userId: resident.userId.toString(),
@@ -432,10 +538,12 @@ export async function notifyPaymentReversed(input: {
 
   if (resident.userId) {
     await createInAppNotification({
+      actionUrl: "/resident/payments",
       body: `A payment of NPR ${input.amount.toLocaleString("en-US")} was reversed: ${input.reason}`,
       category: "PAYMENT",
       data: { invoiceId: input.invoiceId ?? undefined },
       hostelId: input.hostelId.toString(),
+      kind: "NORMAL",
       title: "Payment reversed",
       userId: resident.userId.toString(),
     });

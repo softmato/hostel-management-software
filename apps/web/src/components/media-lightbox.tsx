@@ -110,6 +110,14 @@ export function MediaLightbox({
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        // **Stopped dead, not merely handled.** A dialog that opened this viewer
+        // has its own Escape listener on `document`, so one press used to close
+        // both — the receipt *and* the payment form behind it. Listening in the
+        // capture phase (below) puts this first in the propagation path, and
+        // `stopImmediatePropagation` halts every remaining listener for this
+        // event, including ones already registered on `document` itself.
+        event.preventDefault();
+        event.stopImmediatePropagation();
         onClose();
         return;
       }
@@ -139,13 +147,15 @@ export function MediaLightbox({
       }
     }
 
-    document.addEventListener("keydown", handleKey);
+    // Capture phase: the viewer is the topmost surface on screen, so it gets
+    // first refusal on the keys it owns — see the Escape branch above.
+    document.addEventListener("keydown", handleKey, true);
     // Stop the page behind the overlay from scrolling while it is open.
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     return () => {
-      document.removeEventListener("keydown", handleKey);
+      document.removeEventListener("keydown", handleKey, true);
       document.body.style.overflow = previousOverflow;
     };
   }, [onClose, resetZoom, step, zoomBy]);
@@ -164,7 +174,25 @@ export function MediaLightbox({
   return createPortal(
     <div
       aria-modal
-      className="fixed inset-0 z-[100] flex flex-col bg-slate-950/80 backdrop-blur-md"
+      // **`pointer-events-auto` is load-bearing.** A modal Radix dialog sets
+      // `pointer-events: none` on `document.body` and re-enables it only on its
+      // own layer, so that nothing behind it can be clicked. This viewer portals
+      // to `document.body` — so while a dialog is open it inherits that `none`
+      // and becomes completely unclickable: the backdrop, the X and the arrows
+      // all stop responding.
+      //
+      // That is the "first click does nothing, second click closes the whole
+      // modal" report: the first click is swallowed by `pointer-events: none`,
+      // and the second lands on the dialog's own overlay once the viewer is out
+      // of the way. Declared here rather than in any one dialog, because the
+      // viewer is the topmost surface on screen and must be interactive no
+      // matter what is underneath it.
+      className="pointer-events-auto fixed inset-0 z-[100] flex flex-col bg-slate-950/80 backdrop-blur-md"
+      // How a dialog underneath recognises a click in here as *inside* the app
+      // rather than as clicking itself away — see `isInsideMediaViewer` in
+      // `ui/dialog`. This element is the portal root, so every part of the
+      // viewer, backdrop included, is within it.
+      data-media-lightbox=""
       onClick={onClose}
       role="dialog"
     >

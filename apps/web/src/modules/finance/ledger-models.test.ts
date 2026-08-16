@@ -257,3 +257,69 @@ describe("settled-event immutability — update queries", () => {
     expect(updateViolatesImmutability({ _id: "x" }, null)).toBe(false);
   });
 });
+
+/**
+ * Item E.5 — the one frozen field that may change on a settled event, and only
+ * upwards.
+ *
+ * The freeze exists so no settled row can be rewritten; the exception exists so
+ * a provisional settlement can stop being provisional when the hostel's own
+ * statement carries it. What separates the two is that the write can only ever
+ * strengthen a confirmation, and only from the one level a human produced.
+ */
+describe("statement confirmation — the permitted promotion", () => {
+  const promote = { $set: { confirmation: "STATEMENT_MATCH", confirmedAt: new Date() } };
+
+  it("allows MANUAL_REVIEW to become STATEMENT_MATCH when the filter pins it", () => {
+    expect(
+      updateViolatesImmutability(
+        { _id: "x", confirmation: "MANUAL_REVIEW", status: "SETTLED" },
+        promote,
+      ),
+    ).toBe(false);
+  });
+
+  // Without the pin the same `$set` could match a GATEWAY_VERIFIED settlement
+  // and quietly weaken it, which is the failure the pin exists to make impossible.
+  it("refuses the same promotion with no source level pinned", () => {
+    expect(
+      updateViolatesImmutability({ _id: "x", status: "SETTLED" }, promote),
+    ).toBe(true);
+  });
+
+  it("refuses a weakening", () => {
+    expect(
+      updateViolatesImmutability(
+        { _id: "x", confirmation: "GATEWAY_VERIFIED", status: "SETTLED" },
+        { $set: { confirmation: "MANUAL_REVIEW" } },
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a promotion that also rewrites the amount", () => {
+    expect(
+      updateViolatesImmutability(
+        { _id: "x", confirmation: "MANUAL_REVIEW", status: "SETTLED" },
+        { $set: { amount: 1, confirmation: "STATEMENT_MATCH" } },
+      ),
+    ).toBe(true);
+  });
+
+  it("allows the same promotion on save()", () => {
+    expect(
+      frozenFieldsTouchedOnSave("SETTLED", ["confirmation", "confirmedAt"], {
+        after: "STATEMENT_MATCH",
+        before: "MANUAL_REVIEW",
+      }),
+    ).toEqual([]);
+  });
+
+  it("still refuses an unexplained confirmation change on save()", () => {
+    expect(
+      frozenFieldsTouchedOnSave("SETTLED", ["confirmation"], {
+        after: "GATEWAY_VERIFIED",
+        before: "MANUAL_REVIEW",
+      }),
+    ).toEqual(["confirmation"]);
+  });
+});

@@ -70,7 +70,11 @@ type PaymentProfile = {
   enabledProviders: string[];
   esewaId: string | null;
   khaltiId: string | null;
+  payeeVerifiable: boolean;
   paymentInstructions: string | null;
+  qrPayeeName: string | null;
+  qrPayeeNumber: string | null;
+  qrPayeeSource: "MANUAL" | "OCR" | null;
   staticQrAssetId: string | null;
   tier: "TIER_0" | "TIER_1";
   usable: boolean;
@@ -87,6 +91,8 @@ const EMPTY_DRAFT: ProfileDraft = {
   esewaId: "",
   khaltiId: "",
   paymentInstructions: "",
+  qrPayeeName: "",
+  qrPayeeNumber: "",
 };
 
 function draftFrom(profile: PaymentProfile): ProfileDraft {
@@ -99,6 +105,8 @@ function draftFrom(profile: PaymentProfile): ProfileDraft {
     esewaId: profile.esewaId ?? "",
     khaltiId: profile.khaltiId ?? "",
     paymentInstructions: profile.paymentInstructions ?? "",
+    qrPayeeName: profile.qrPayeeName ?? "",
+    qrPayeeNumber: profile.qrPayeeNumber ?? "",
   };
 }
 
@@ -115,7 +123,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof ProfileDraft)[]> = {
   ESEWA: ["esewaId"],
   GENERAL: ["displayName", "paymentInstructions", "cashApprovalThreshold"],
   KHALTI: ["khaltiId"],
-  QR: [],
+  QR: ["qrPayeeName", "qrPayeeNumber"],
 };
 
 function SaveRow({
@@ -543,6 +551,66 @@ export const HostelAdminPaymentProfilePageContent = memo(
                       </div>
                     </div>
                   </div>
+
+                  {/*
+                    What the poster says it pays.
+
+                    A QR is not an opaque image: the account name and number are
+                    printed beside the code, and they are read off it at upload.
+                    That read is what lets `evidence-payee` recognise this hostel
+                    on the receipts residents send back — the only check in the
+                    claim pipeline a payer cannot satisfy by typing. So it is
+                    shown rather than hidden: an admin who can see a wrong name
+                    here fixes it in ten seconds, and an admin who never sees it
+                    finds out when a warden approves a payment made to somebody
+                    else. When the read came back empty the same two fields are
+                    the ask, which is the only time this hostel has to type
+                    anything at all.
+                  */}
+                  {profile.staticQrAssetId ? (
+                    <form
+                      className="mt-5 space-y-3 border-t border-border pt-4"
+                      onSubmit={submitSection("QR")}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-heading text-sm font-bold">
+                          What this QR says
+                        </p>
+                        {profile.qrPayeeSource === "OCR" ? (
+                          <span className="rounded-full bg-role-admin-soft px-2 py-0.5 text-[11px] font-semibold text-role-admin">
+                            Read from your QR
+                          </span>
+                        ) : null}
+                        {profile.qrPayeeSource === "MANUAL" ? (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                            Entered by you
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {profile.qrPayeeSource
+                          ? "We match this against every payment receipt your residents upload, so we can tell you whether the money actually reached you. Correct it if it is wrong."
+                          : "We could not read the name and number printed on your QR. Type them in once and we can check that each payment receipt was really paid to you."}
+                      </p>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Input
+                          hint="Exactly as printed on the QR."
+                          label="Account name on the QR"
+                          name="qrPayeeName"
+                          onChange={(event) => set("qrPayeeName")(event.target.value)}
+                          value={draft.qrPayeeName}
+                        />
+                        <Input
+                          hint="Bank account or wallet number on the QR."
+                          label="Account number on the QR"
+                          name="qrPayeeNumber"
+                          onChange={(event) => set("qrPayeeNumber")(event.target.value)}
+                          value={draft.qrPayeeNumber}
+                        />
+                      </div>
+                      <SaveRow onCancel={cancel} saving={saving} />
+                    </form>
+                  ) : null}
                 </MethodCard>
 
                 <MethodCard

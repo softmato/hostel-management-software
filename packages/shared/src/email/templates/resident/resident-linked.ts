@@ -13,6 +13,7 @@ export function residentLinkedEmail(input: {
   residentName: string;
 }): EmailContent {
   return {
+    category: "info",
     subject: `You are now a resident of ${input.hostelName}`,
     html: emailLayout({
       heading: "Welcome to your resident portal",

@@ -1,3 +1,4 @@
+import { HostelPaymentCredentialsReminder } from "@/app/_components/hostel-payment-credentials-reminder";
 import { PortalShell } from "@/components/portal-shell";
 import { HOSTEL_ADMIN_NAV, HOSTEL_ADMIN_SEARCH_ENTRIES } from "@/lib/portal-nav";
 
@@ -15,6 +16,7 @@ export default function HostelAdminLayout({
       tone="admin"
       workspaceName="Hostel Workspace"
     >
+      <HostelPaymentCredentialsReminder paymentProfileHref="/hostel-admin/payment-setup" />
       {children}
     </PortalShell>
   );

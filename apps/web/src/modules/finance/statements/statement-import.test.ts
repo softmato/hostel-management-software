@@ -24,6 +24,7 @@ const importId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c1");
 const mocks = vi.hoisted(() => ({
   appendEvent: vi.fn(),
   assetFindOne: vi.fn(),
+  confirmSettlement: vi.fn(),
   eventFind: vi.fn(),
   importCreate: vi.fn(),
   importUpdateOne: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("@/modules/finance/audit-finance", () => ({ auditFinanceAction: vi.fn() 
 
 vi.mock("@/modules/finance/payment-event.service", () => ({
   appendEvent: mocks.appendEvent,
+  confirmSettlementByStatement: mocks.confirmSettlement,
   settleEvent: mocks.settleEvent,
 }));
 
@@ -129,6 +131,7 @@ beforeEach(() => {
     event: { _id: new Types.ObjectId() },
   }));
   mocks.settleEvent.mockResolvedValue({});
+  mocks.confirmSettlement.mockResolvedValue({ event: null, promoted: true });
   mocks.loadMatchContext.mockResolvedValue({
     claims: [],
     claimsByTxnId: new Map(),
@@ -320,5 +323,89 @@ describe("a file that cannot be read", () => {
         provider: "ESEWA",
       }),
     ).rejects.toThrow(/did not finish uploading/i);
+  });
+});
+
+/**
+ * Item E.5 — the credit that confirms a claim somebody already approved.
+ *
+ * The assertion that matters is the negative one. Both rows are real money and
+ * both name the same transfer, so settling the statement row *as well* would
+ * credit the same rent twice against the same invoice and look entirely correct
+ * on the reconcile screen. The statement's job here is to promote, not to pay.
+ */
+describe("a claim the hostel already approved", () => {
+  function claimAlreadySettled() {
+    const claim = {
+      amount: 8000,
+      eventId: "evt-claim",
+      invoiceId: "inv-2",
+      occurredAt: new Date(2026, 7, 12),
+      period: "2026-08",
+      residentId: "res-2",
+      residentName: "Suman Tamang",
+      settled: true,
+      submittedAt: new Date(2026, 7, 12),
+      transactionCode: "ESW003",
+    };
+
+    mocks.loadMatchContext.mockResolvedValue({
+      claims: [claim],
+      claimsByTxnId: new Map([["ESW003", claim]]),
+      // The fixture's Tier B invoice stays, so "settles nothing" is measured
+      // against a run where something else legitimately does settle.
+      invoicesByCode: new Map([
+        [
+          CODE,
+          {
+            bedLabel: "Dormitory",
+            dueDate: new Date(2026, 7, 5),
+            invoiceId: "inv-1",
+            outstanding: 8000,
+            period: "2026-08",
+            referenceCode: CODE,
+            residentId: "res-1",
+            residentName: "Bikash Thapa",
+            totalAmount: 8000,
+          },
+        ],
+      ]),
+      openInvoices: [],
+    });
+  }
+
+  it("promotes the claim and settles nothing", async () => {
+    claimAlreadySettled();
+
+    await importStatement({
+      assetId: assetId.toString(),
+      hostelId,
+      principal,
+      provider: "ESEWA",
+    });
+
+    expect(mocks.confirmSettlement).toHaveBeenCalledWith(
+      "evt-claim",
+      expect.objectContaining({ statementImportId: importId }),
+    );
+    // The Tier B row of the fixture still settles; the confirming row does not.
+    expect(mocks.settleEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("records on the statement event which claim it confirms", async () => {
+    claimAlreadySettled();
+
+    await importStatement({
+      assetId: assetId.toString(),
+      hostelId,
+      principal,
+      provider: "ESEWA",
+    });
+
+    const confirming = mocks.appendEvent.mock.calls
+      .map((call) => call[0] as { rawPayload?: { confirmsClaimEventId?: string } })
+      .find((input) => input.rawPayload?.confirmsClaimEventId);
+
+    expect(confirming?.rawPayload?.confirmsClaimEventId).toBe("evt-claim");
   });
 });

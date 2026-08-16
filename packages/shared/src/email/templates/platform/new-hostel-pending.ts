@@ -22,6 +22,7 @@ export function newHostelPendingEmail(input: {
   ].filter(Boolean) as string[];
 
   return {
+    category: "info",
     subject: `Hostel awaiting approval — ${input.hostelName}`,
     html: emailLayout({
       heading: "A hostel is waiting for review",
