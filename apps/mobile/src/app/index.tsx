@@ -1,6 +1,4 @@
 import { Redirect } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
 
 import { BrandSplash } from "@/components/brand-splash";
 import { resolveHome } from "@/constants/roles";
@@ -17,17 +15,14 @@ import { useAppSelector } from "@/hooks/redux";
  * That is the whole no-flash trick. Anything that awaits here — a `/auth/me`
  * call, a permissions check — pushes a blank or wrong screen in front of the
  * user on every cold start.
+ *
+ * Hiding the splash is **not** this screen's job, though it used to be: a deep
+ * link mounts its own route and never renders the gate, so the hide would never
+ * fire and the splash would sit over the app forever. `_layout.tsx` owns it,
+ * because it is the one component every route mounts under.
  */
 export default function BootGate() {
   const { account, isReady, isResidentActivated } = useAppSelector((state) => state.auth);
-
-  useEffect(() => {
-    if (isReady) {
-      // Safe to uncover: the <Redirect> below renders in the same commit, so
-      // the next thing drawn is the destination, never this screen.
-      void SplashScreen.hideAsync();
-    }
-  }, [isReady]);
 
   if (!isReady) {
     return <BrandSplash />;

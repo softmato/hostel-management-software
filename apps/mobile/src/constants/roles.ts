@@ -26,6 +26,7 @@ export type Role = (typeof ROLE)[keyof typeof ROLE];
 export type HomeRoute =
   | "/(admin)"
   | "/(auth)/login"
+  | "/(browse)"
   | "/(cook)"
   | "/(guardian)"
   | "/(provider)"
@@ -54,6 +55,12 @@ export type AccountShape = {
  *
  * The visible difference between signed-out and signed-in is what sits at the
  * bottom of the screen: a Login call to action, or that role's tabs.
+ *
+ * That difference is why signed-out lands on `/(public)` and a signed-in
+ * browser lands on `/(browse)`. They render the same screens from the same
+ * components; they differ only in navigator — a stack with a floating Log in
+ * pill, or four tabs — and expo-router cannot switch one group between the two
+ * at runtime.
  */
 export function resolveHome(account: AccountShape | null): HomeRoute {
   if (!account) {
@@ -73,12 +80,15 @@ export function resolveHome(account: AccountShape | null): HomeRoute {
       return "/(admin)";
     case ROLE.SUPERADMIN:
     case ROLE.PLATFORM_MODERATOR:
-      // Platform administration is web-only by design; staff get the public app.
-      return "/(public)";
+      // Platform administration is web-only by design; staff get the browsing
+      // app. The signed-out stack would strand them — it has no sign-out,
+      // because it is built for someone who has never signed in.
+      return "/(browse)";
     case ROLE.PUBLIC:
-      return account.isApprovedProvider ? "/(provider)" : "/(public)";
+      return account.isApprovedProvider ? "/(provider)" : "/(browse)";
     default:
-      return "/(public)";
+      // An unrecognised role still has a session, so it still needs a way out.
+      return "/(browse)";
   }
 }
 

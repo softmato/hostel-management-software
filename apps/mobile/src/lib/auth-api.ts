@@ -113,6 +113,54 @@ export async function fetchActivationStatus() {
   return unwrap(response).isActivated;
 }
 
+/**
+ * Redeem a QR activation code.
+ *
+ * ## This is an authenticated call
+ *
+ * The route runs `requireApiPrincipal` before anything else
+ * (`api/v1/resident/activate/route.ts`), so it goes through `api`, not
+ * `publicApi`. Activation *links an existing account* to a resident profile —
+ * it promotes the signed-in user to `RESIDENT`, adds the hostel to their
+ * `hostelIds`, and marks the code used. There is no way to redeem a code
+ * without first having an account.
+ *
+ * ## It returns a whole new session
+ *
+ * `activateResident` ends with `issueSessionForUser(user)`, so the response
+ * carries fresh `accessToken`/`refreshToken` plus the *updated* user — the one
+ * whose role is now `RESIDENT`. The old access token still names the old role,
+ * so the tokens have to be written and the account replaced (`startSession`),
+ * not just re-fetched. Logging in again afterwards would be a second session
+ * for no reason.
+ */
+export type ActivationResult = LoginResult & {
+  activation: {
+    expiresAt: string;
+    hostelId: string;
+    id: string;
+    residentId: string;
+    status: string;
+    usedAt?: string;
+  };
+  /** `serializeResidentSummary` — same shape as `ResidentSummary` in resident-api. */
+  resident: { fullName: string; hostelId: string; id: string; roomType: string };
+};
+
+export async function activateResident(input: {
+  code: string;
+  /** Feeds the admin's device-fingerprint record on the `QRActivation` row. */
+  deviceInfo: Record<string, unknown>;
+  sessionInfo: Record<string, unknown>;
+}) {
+  const response = await api.post<ApiEnvelope<ActivationResult>>(
+    "/resident/activate",
+    input,
+  );
+
+  return unwrap(response);
+}
+
 export async function logout(refreshToken: string) {
   await publicApi.post("/auth/logout", { refreshToken }).catch(() => {
     // A failed revoke must not trap the user in a session they asked to leave.

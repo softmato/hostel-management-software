@@ -13,6 +13,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "HostelHub uses the camera to scan your hostel activation QR code and to attach photos to payment claims, complaints and meals.",
+        "NSLocationWhenInUseUsageDescription": "HostelHub uses your approximate location to sort hostels by how far they are from you. Your location is never saved or shared.",
         "NSPhotoLibraryUsageDescription": "HostelHub needs your photo library so you can attach payment receipts and meal photos.",
         "NSFaceIDUsageDescription": "HostelHub can use Face ID to unlock the app."
       }
@@ -28,7 +29,16 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "permissions": ["CAMERA", "VIBRATE", "USE_BIOMETRIC", "USE_FINGERPRINT"]
+      "permissions": [
+        "CAMERA",
+        "VIBRATE",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "ACCESS_COARSE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -65,11 +75,20 @@
         }
       ],
       [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false,
+          "locationWhenInUsePermission": "Allow HostelHub to use your approximate location to sort hostels by distance. It is never saved or shared."
+        }
+      ],
+      [
         "expo-local-authentication",
         {
           "faceIDPermission": "Allow HostelHub to use Face ID to unlock the app."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": false,

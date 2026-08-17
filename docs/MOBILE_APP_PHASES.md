@@ -76,6 +76,24 @@ and the whole thing is a Reanimated worklet on the UI thread rather than JS.
 scrolled-and-hidden would otherwise hand the next one a missing tab bar that
 cannot be scrolled back into view.
 
+### Tab sets (agreed 2026-08-16, against the discovery mockups)
+
+Mockups for the public/discovery side live in
+[`docs/mockups/mobile/`](mockups/mobile/README.md). Three decisions came out of
+them and are settled:
+
+- **Residents keep `Home · Payments · Food · Notices · More`.** Discovery is an
+  **Explore** entry inside More, not a tab. Someone who already has a bed opens
+  the app to pay rent or read a notice.
+- **`PUBLIC_USER` tabs are `Home · Search · Compare · Profile`.** The mockups'
+  *Bookings*, *Messages* and *Saved* are **cut**: there is no booking model, no
+  messaging endpoint and no favourites collection anywhere on the server, and a
+  tab that opens onto a permanent empty state is the tab people stop trusting,
+  not the feature.
+- **Signed-out keeps the floating Log in pill and no tab bar**, per the shell
+  contract above. The mockups draw a tab bar on signed-out screens; that part
+  does not apply, the rest of each screen does.
+
 ### Boot contract (agreed)
 
 The splash screen must never flash a wrong screen.
@@ -107,6 +125,12 @@ they exist in `apps/web`. Each is tracked as an item in its phase below.
 | **No mobile Google client IDs.** `POST /api/v1/auth/google` accepts an `idToken` and is portable, but there is no Android/iOS OAuth client configured. | `apps/web/src/app/api/v1/auth/google/route.ts` | Google sign-in on mobile |
 | **Cook has one endpoint.** Only `POST /api/v1/cook/food-ready` exists; the cook's own menu/resident-count reads live under `hostel-admin/*` behind staff capability checks. | `api/v1/cook/` | Cook home screen (M7) |
 | **Provider job claim is unbuilt.** `/public/service-providers/me/jobs` returns directly-assigned work only; broadcast-and-claim does not exist server-side. | PHASES.md §6.1, superseded note | Provider job feed (M7) — ship assigned-only |
+| **No resident-facing invoice line items.** `Invoice.lines` holds the per-line description, signed amount, basis and proration basis, but `toPortalInvoice()` returns only the totals and there is no `GET /resident/finance/invoices/{id}`. A resident can see *what* they owe, never *why*. Reads have to go through the ledger facade (ADR-3), so this is a deliberate finance-module change, not a quick serializer edit. | `apps/web/src/modules/finance/invoice-list.service.ts:54` | Invoice detail line items (M3) — shipped without them |
+| **eSewa checkout cannot be handed off from mobile.** `createPaymentIntent` returns a `FORM_POST` handoff for eSewa — signed fields that must reach the provider as a POST body in emitted order. `expo-web-browser` opens URLs only, a `data:` URL form is blocked by Chrome, and re-signing client-side means shipping the merchant secret to a phone. Needs a server page that accepts the reference and performs the POST itself. | `apps/web/src/modules/finance/gateway/esewa.provider.ts:182` | eSewa on mobile (M3) — Khalti works, eSewa falls back to manual + claim |
+| **`PaymentIntent.deeplinks` is declared and populated by nothing.** `{ label, url }[]`, "deep links into wallet apps, where the provider offers them" — no adapter sets it and `PaymentIntentView` does not return it, so it never reaches a client. Mobile falls back to `Linking.openURL` on the redirect URL and lets Android App Links / iOS Universal Links find the wallet app. A named "Open in Khalti" button needs the server to fill this in; the client should not keep a table of six vendors' URL schemes in step. | `apps/web/src/modules/finance/gateway/provider.types.ts:94` | Named wallet-app buttons (M3) — OS handoff ships |
+| ☑ ~~**No ratings on the public hostel list or detail.**~~ **Fixed 2026-08-17.** `ratingSummariesFor()` is now one aggregation shared by `listPublicHostels`, `getPublicHostelBySlug` and `comparePublicHostels`, and every public payload carries `ratingSummary`. One round trip per page, not one per card — the listing returns up to 60. `VISIBLE` reviews only, unrounded (rounding would have silently changed what compare has always returned), and `total` is the field that says whether a rating exists at all. 6 tests; web suite green at 1,694. | `apps/web/src/modules/hostels/hostel.service.ts` | — |
+| **Gateway return URL is web-only.** The intent's `returnUrl` is `{siteUrl}/resident/payments/checkout/{reference}` with no mobile scheme, so the in-app browser never redirects to `hostelhub://`. Mobile polls instead, which is correct regardless — but a deep link would close the browser automatically. | `apps/web/src/modules/finance/gateway/intent.service.ts:152` | Auto-dismissing the checkout browser (M3) — polling ships |
+| **No resident-facing `nightStatus`/`complaints` on the dashboard.** Both blocks in `getResidentDashboard()` are hardcoded literals. Mobile Home makes a second request to `/resident/night-status` and hides complaints entirely. | `apps/web/src/modules/residents/resident-dashboard.service.ts:186` | One extra request on every Home load (M3) |
 
 > ☑ **Dead payment endpoints — addressed 2026-08-16.** The old client called
 > `/api/v1/resident/payments` and `/resident/payments/{id}/proof`; **both are
@@ -189,10 +213,25 @@ Goal: every later screen is assembled from primitives that already match the web
       screen's scroll offset), absolutely positioned, hide-on-scroll
 - ☑ Tab shells for all five signed-in roles, each in its own accent colour
 - ☑ Public shell with the Login CTA where tabs would be
-- ☐ Remaining primitives as screens need them: `Select`, `Badge`, `Avatar`, `Skeleton`,
-      `Sheet`, `ListRow`, `Money`, `StatusPill`
+- ◐ Remaining primitives as screens need them: ☑ `Badge`, ☑ `StatusPill`, ☑ `ListRow`,
+      ☑ `Money`; ☐ `Select`, ☐ `Avatar`, ☐ `Skeleton`, ☐ `Sheet`
+  - ☑ The status→tone **table** lives in `lib/status.ts`, not in the pill. Vitest here
+        is node-side with no RN shim, so anything importing `react-native` cannot be
+        tested — and the table is the part that needs it. The web's `StatusBadge`
+        matches substrings, and `"UNPAID".includes("PAID")` renders an unpaid invoice
+        green
 - ☐ Global upload-progress toaster (the web's universal uploader pattern, ported)
-- ☐ Nepali rupee formatting + Nepali/English date helpers
+- ◐ Nepali rupee formatting + date helpers — `lib/format.ts`, 13 tests
+  - ☑ `formatMoney`/`formatAmount`: hand-rolled grouping, paisa shown only when the
+        amount has any. Not `Intl` — Hermes borrows the *platform's* ICU, so `en-NP`
+        resolves differently per handset and an unknown locale silently becomes `en-US`
+  - ☑ Dates fixed to NPT (UTC+05:45, no DST) by shifting the instant and reading the
+        UTC getters, so a phone left on another timezone still shows Nepali days.
+        Without it, "today's menu" serves the wrong dinner for the last 5h45m of
+        every day
+  - ☐ Bikram Sambat calendar — no converter exists anywhere in the repo and a BS
+        month-length table is its own decision; dates are Gregorian in Nepal time
+        until you ask for otherwise
 - ☐ Real logo replacing the placeholders *(waiting on you)*
 
 ---
@@ -241,30 +280,158 @@ Goal: the boot contract in §0 works, on cold start, warm start, and after a tok
 
 ---
 
-## M3 — Resident core
+## M3 — Resident core ◐ *(all five tabs landed 2026-08-16)*
 
 The primary audience. Tabs: **Home · Payments · Food · Notices · More**.
 
-- ☐ `(resident)/_layout.tsx` — bottom tabs, resident role colour
-- ☐ **Home** — `GET /resident/dashboard`: room/bed, dues summary, today's menu,
+Every tab and every payment flow is built. Two things are **not** done and neither
+is client-side: invoice **line items** and **eSewa checkout**, both blocked on
+server changes logged in §1.
+
+Verified the same way M0 was: `typecheck` clean, `lint` clean, 65 Vitest cases, and
+`expo export --platform android` bundles — which is the real check, since typecheck
+alone misses Metro resolution errors. The in-app Browser pane still cannot render
+these (it runs with `document.hidden === true`, so React never hydrates); a device
+run against a live resident account is yours to confirm, and the three acceptance
+tests below are the ones that need it.
+
+- ☑ `(resident)/_layout.tsx` — bottom tabs, resident role colour *(the shell landed with
+      M1's `RoleTabs`; Home · Payments · Food · Notices · More, accent `RESIDENT`)*
+- ☑ **Home** — `GET /resident/dashboard`: dues summary, room/hostel, today's menu,
       latest notices, night status, quick actions
+  - ☑ `hooks/use-resource.ts` — the one GET-with-four-states hook. `loading` is the
+        first load only (a pull-to-refresh that swaps the list for a spinner throws
+        away what the user is reading); responses are matched to the request that
+        asked for them, or a slow first load overwrites a fast refresh; refocus
+        revalidates silently, because paying an invoice happens on another screen
+  - ☑ **Night status comes from `GET /resident/night-status`, not from the
+        dashboard.** `resident-dashboard.service.ts` returns a *hardcoded*
+        `{ status: "UNKNOWN", checkedAt: null }` — nothing writes it — so a screen
+        reading that field tells every resident their status is unknown, forever.
+        Its `complaints: { openCount: 0, recent: [] }` is a literal too, and is not
+        rendered at all rather than shown as a confident zero
+  - ☑ The night-status request is tolerant: if safety errors, that card drops and
+        dues + today's menu still render
+  - ☐ Server: give the dashboard a real `nightStatus`/`complaints` block so Home
+        stops needing the second request
 - ☑ `lib/finance-api.ts` — the whole finance surface typed against the live routes,
       with the dead `/resident/payments` paths named in its header so the old mistake
       cannot recur
-- ☐ **Payments** — `GET /resident/finance/invoices` list + detail
-  - ☐ Invoice detail with line items and running balance
-  - ☐ `GET /invoices/[id]/pay-instructions` — bank/QR payee details
-  - ☐ `POST /invoices/[id]/claims` — submit a payment claim with evidence
-  - ☐ Evidence upload: `expo-image-picker` → `/files/presign` → PUT to R2 → `/files/[assetId]/complete`
-  - ☐ Gateway checkout: `POST /invoices/[id]/checkout` → eSewa/Khalti via `expo-web-browser`,
-        return handled by the `hostelhub://` deep link
-  - ☐ Receipts: `GET /receipts/[id]/pdf` and `GET /statement/pdf` → native share/open
-- ☐ **Food** — `GET /resident/food`: weekly routine, month-end special, photo gallery
-  - ☐ Feedback: `POST /resident/food/feedback` (rating + optional anonymous comment)
-  - ☐ Photo upload: `POST /resident/food/photos`
-- ☐ **Notices** — `GET /resident/notices`, category filter, urgent styling,
+- ☑ **Payments** — `GET /resident/finance/invoices` list + detail
+  - ☑ List: total outstanding, carried credit (shown only when non-zero), open claims,
+        one row per month. The **reference code is on the row**, not only behind
+        "Pay now" — a resident paying from their banking app out of habit never opens
+        the detail screen, and a transfer with no code is matched to a person by hand
+  - ☑ `invoice/[id]` at the **root** stack, not inside `(resident)/`: a folder nested
+        under a `<Tabs>` layout becomes another tab
+  - ◐ Invoice detail with line items and running balance
+    - ☑ Running balance — `lib/invoice-ledger.ts`, 8 tests. Receipts are re-sorted
+          oldest-first (the server sends newest-first for the list) and any gap
+          between `paidAmount` and the receipt total gets its **own line**. The two
+          legitimately disagree — a payment can settle before its receipt is issued,
+          and receipts voided with a reversed payment are excluded — and a statement
+          that closes on a different number from the headline above it reads as the
+          hostel's accounting being broken
+    - ☑ Copyable reference code, receipts list, claims filed against this invoice
+    - ☐ **Line items — blocked server-side.** `Invoice.lines` exists in the database
+          with a description, signed amount, basis and proration basis per line, but
+          `toPortalInvoice()` drops it and no resident endpoint exposes it, so *why*
+          a month costs what it costs cannot be shown. Needs a server change; see §1
+  - ☑ `GET /invoices/[id]/pay-instructions` — `invoice/[id]/pay`. One method
+        expanded, the rest folded away: six panels of account numbers open at once
+        is how somebody pays the right hostel from the wrong app. The server ranks
+        them, so the primary is `methods[0]` and no client opinion can drift from it
+    - ☑ **`finance-api.ts`'s pay-instructions and checkout types were wrong** and
+          would have thrown on the first real call. They had been written from the
+          route names: `PayInstructions` claimed `bankAccounts[]`/`wallets[]`/
+          `qrAssetId` when the server returns one ordered discriminated `methods[]`,
+          and checkout claimed `{ url, fields, method }` when it returns
+          `{ handoff, reference, … }`. Rule that catches it: read the *service*
+    - ☑ The static QR goes through `/files/{assetId}/url`, which authorises — so it
+          needs `expo-image`'s `headers`, not a bare `<Image src>`
+  - ☑ `POST /invoices/[id]/claims` — `invoice/[id]/claim`. Amount prefilled from
+        what is *outstanding* (not the invoice total), method chips, optional
+        transaction code, evidence picker
+    - ☑ Validation mirrors `claim.validation.ts` client-side (`lib/claim-form.ts`,
+          9 tests) and **there is no retry on failure**: the endpoint runs OCR over a
+          full-size screenshot and allows 8 an hour, so every avoidable round trip
+          spends one of a resident's eight
+    - ☑ `created: false` is reported as "already submitted", not a second success —
+          the server collapses a replay onto the existing claim
+  - ☑ Evidence upload: `expo-image-picker` → `/files/presign` → PUT to R2 →
+        `/files/[assetId]/complete` (`lib/uploads.ts`)
+    - ☑ The PUT carries **no** `Authorization` header — the URL's signature is the
+          credential and an extra auth header makes S3-compatible storage reject it
+    - ☑ `kind: "PAYMENT_PROOF"`, because presign refuses a financial asset that is
+          not tenant-scoped; and `complete` is not optional — until it runs the asset
+          is a reservation the finance module will not accept as evidence
+    - ☑ SDK 54 replaced `getInfoAsync`/`createUploadTask` with the `File` object;
+          the old names still resolve from `expo-file-system/legacy` and typecheck
+          clean from the wrong import, so this is worth knowing before the next one
+    - ☑ MIME resolution lives in `lib/mime.ts` (7 tests): R2 signs `Content-Type`
+          into the URL, so presign and PUT must agree or the failure is a signature
+          error that mentions nothing about types
+  - ◐ Gateway checkout — `checkout/[reference]`
+    - ☑ **The wallet's own app takes the handoff, not a browser tab** (`lib/wallet.ts`).
+          A Custom Tab / `SFSafariViewController` loads the launch URL itself and never
+          hands it to a native app that claims the domain — so a resident with Khalti
+          installed was typing their password into a web form while the app on the same
+          phone already held the session, the balance and the biometric unlock.
+          `Linking.openURL` goes through App Links / Universal Links instead, so no
+          wallet scheme is hardcoded — a guessed `esewa://` is the same class of mistake
+          as inventing an API shape, and Android 11+ needs a `<queries>` entry before
+          `canOpenURL` answers honestly anyway. Browser only as a fallback
+    - ☑ Khalti (`REDIRECT`) hands off, then the status screen polls
+          `GET /checkout/{reference}` with geometric backoff, stopping on `settled`,
+          a terminal status, or expiry. A failed poll is not a failed payment
+    - ☑ **No `hostelhub://` deep link, deliberately.** The intent's `returnUrl` is
+          built server-side as `{siteUrl}/resident/payments/checkout/{reference}` — a
+          web page with no mobile scheme — so `openAuthSessionAsync` would wait
+          forever. The browser closing was never evidence anyway; the provider is
+    - ☐ **eSewa is blocked.** Its v2 checkout is a `FORM_POST` whose signature covers
+          fields positionally, and `expo-web-browser` can only open a URL. A `data:`
+          URL carrying a self-submitting form is blocked from top-level navigation by
+          Chrome, and re-signing client-side would ship the merchant secret to a
+          phone. Needs a server-side page that performs the POST from a reference —
+          see §1
+  - ☑ Receipts: `GET /receipts/[id]/pdf` and `GET /statement/pdf` → native share
+        (`lib/documents.ts`, `expo-sharing` added). Downloaded **with** the bearer
+        header, because these stream through our API: an unauthenticated open saves
+        a file containing a JSON 401, which is worse than an error the resident can
+        read. Cache directory, not documents — the server can always regenerate them
+- ☑ **Food** — `GET /resident/food`: weekly routine, month-end special, photo gallery
+  - ☑ A **day at a time**, today selected, with a day strip. The routine is a 7×4
+        grid and a phone is one column wide; someone checking at 6pm wants tonight's
+        dinner, not a table to scroll sideways through
+  - ☑ Day arithmetic in `lib/food-week.ts` (10 tests) — the enums moved there from
+        `resident-api.ts` because that module imports the axios client and therefore
+        React Native, which makes a node-side test file unloadable
+  - ☑ Feedback: `POST /resident/food/feedback`, per meal per day, with the anonymous
+        option. The date sent is **this week's occurrence of the selected day** — a
+        rating filed against today whatever day is showing blames the wrong dinner,
+        and wrong analytics are worse than none because they get acted on
+  - ☑ Photo upload: `POST /resident/food/photos`, meal guessed from the Nepali clock
+        rather than asked. A picker between "I want to share this" and it being
+        shared is where people give up
+- ☑ **Notices** — `GET /resident/notices`, category filter, urgent styling,
       `PATCH /notices/[id]/read`
-- ☐ **More** — profile, complaints, night status, referral, settings, logout entries
+  - ☑ Read is marked **on expand**, not on render: marking on render clears the
+        badge for a list somebody scrolled past on the way to Payments, and the water
+        cut tomorrow is exactly the notice that gets scrolled past
+  - ☑ Optimistic — the row un-bolds immediately, the PATCH runs behind it, and the
+        server's `$setOnInsert` makes a replay a no-op. Both failure modes beat a tap
+        that appears to do nothing
+  - ☑ Urgent is a left border, not a red card. Two red cards on one screen and
+        neither reads as urgent
+- ☑ **More** — profile card, stay entries, Explore, app settings, sign out
+  - ☑ **Explore lives here, not in a tab** (agreed 2026-08-16). Residents keep
+        `Home · Payments · Food · Notices · More`; someone who already has a bed
+        opens the app to pay rent, not to shop for another hostel
+  - ☑ Entries whose screens are M5 (complaints, night status, ID card, referrals,
+        reviews) are listed and say which release they land in. A row that navigates
+        nowhere is indistinguishable from a bug; a row that explains itself is a
+        roadmap
+  - ☑ Theme toggle wired to `uiSlice`; sign out confirms first
 
 **Acceptance**
 - ☐ Upload a payment claim from the camera roll → it appears in the admin's review queue on web
@@ -346,18 +513,192 @@ The one phase with mandatory server work.
 
 ---
 
-## M6 — Public discovery & QR activation
+## M6 — Public discovery & QR activation ◐ *(all four work items built 2026-08-17)*
 
-- ☐ `(public)/` group for `PUBLIC_USER` accounts — the app is usable before anyone is a resident
-- ☐ Hostel search + filters (`GET /public/hostels`), map/list toggle
-- ☐ Hostel detail: photos, facilities, pricing, rules, reviews, room availability
-- ☐ Compare screen (`GET /public/hostels/compare`)
-- ☐ Send inquiry (`POST /public/hostels/[slug]/inquiries`)
-- ☐ **QR activation** — `expo-camera` scanner + manual code entry fallback,
-      `POST /resident/activate`, then re-route into `(resident)` without a relaunch
-- ☐ Torch toggle for low-light scanning
-- ☐ Activation carries device + session info for the admin's device-fingerprint record
-- ☐ Referral deep link `hostelhub://ref/<code>` prefills the inquiry form
+**Status:** every screen in this milestone is written, typechecked, linted, unit
+tested and bundling. What is left is a **device pass** (the three acceptance
+lines below), a map/list toggle on browse, and two items that are not mobile
+code at all — the web's `?ref=` gap and verified app links. **No `☑` here means
+"seen working on a phone"**: the in-app Browser pane cannot render React Native,
+so nothing in `apps/mobile` has been run against a live account yet.
+
+Built against the mockups in [`docs/mockups/mobile/`](mockups/mobile/README.md).
+`lib/public-api.ts` is typed from `hostel.service.ts` and the two Zod query
+schemas — the service, not the route names, after `finance-api.ts` showed what
+guessing costs.
+
+- ☑ `(public)/` + `(browse)/` groups for `PUBLIC_USER` accounts — the app is usable before anyone is a resident
+  - ☑ Signed out: plain stack, floating **Log in** pill, no tab bar
+  - ☑ Signed-in `PUBLIC_USER` tabs `Home · Search · Compare · Profile` *(2026-08-17)*.
+        **Two groups, not one.** expo-router cannot switch a group between a stack
+        and a tab navigator at runtime, and `resolveHome` sent both a signed-out
+        visitor and a signed-in `PUBLIC_USER` to `/(public)`. So `(public)` stays
+        the signed-out stack untouched and `(browse)` carries the tabs; the
+        screens themselves are shared components (`components/public-home.tsx`,
+        `hostel-browser.tsx`, `hostel-compare.tsx`), because two copies of the
+        home screen is how the hero drifts
+  - ☑ Platform staff (`SUPERADMIN`, `PLATFORM_MODERATOR`) also land on `(browse)`.
+        They were being sent to the signed-out stack, which has no tab bar and no
+        sign-out — its bottom edge belongs to the Log in pill — so a signed-in
+        staff account had no way to see who it was or to leave. A test now
+        asserts no account with a session resolves to `/(public)`
+  - ☑ Profile tab is deliberately thin: account, theme, notifications, privacy,
+        sign out. Saved hostels and Inquiries are honest "not yet" rows — there is
+        no favourites collection and no public-account inquiry-history endpoint
+- ☑ Hostel search + filters (`GET /public/hostels`)
+  - ☑ **The filter sheet offers only what the server accepts.** The query schema
+        takes *one* `facility` and *one* `roomType`, has no `sort` and no
+        pagination, and returns the first 60 cheapest-first. The mockup draws
+        facilities as a checkbox group and a Sort dropdown — both would be controls
+        that silently do nothing while the user believes the list is narrowed. So
+        facilities are single-select and Sort is absent until there is one
+  - ☑ Filters edit a **draft** and lift on Apply, so the list behind the sheet does
+        not reshuffle under a control still being used
+  - ☑ Home shortcuts deep-link into the list pre-filtered (`?type=`, `?facility=`, `?q=`)
+  - ☑ `Sort: nearest` chip *(2026-08-17)* — the one sort control, and an honest
+        one: it re-orders rows already returned using coordinates already in the
+        payload, so unlike a server-side Sort dropdown it does something. A
+        toggle rather than a dropdown, because there is exactly one alternative
+        to cheapest-first, and above the results rather than in the filter sheet
+        so its permission dialogue is attached to a tap the user can see
+  - ☐ Map/list toggle on browse — the map itself now exists (`hostel-map.tsx`)
+        and the home screen uses it; a full-screen map *mode* over the filtered
+        list is still unbuilt
+- ☑ Hostel detail: photos, facilities, pricing, rules, room availability, nearby
+  - ☑ **Every block is gated on having content.** A published hostel can have no
+        rules, no nearby places and no room configurations; drawing the frame anyway
+        gives a sparse listing a column of empty headings, which reads as the app
+        being broken rather than the listing being thin
+  - ☑ `Call hostel` renders only when there is a number — a dead call button fails
+        after the tap, not before
+- ☑ Compare screen (`GET /public/hostels/compare`)
+  - ☑ Pinned label column, scrolling hostel columns: on a phone a real table loses
+        the reader halfway across, which is the one thing a comparison must not do
+  - ☑ Selection lives on the browse list (compare icon per card), capped at 3
+        because the server rejects a fourth id outright
+- ☑ Send inquiry (`POST /public/hostels/[slug]/inquiries`)
+  - ☑ Called an **inquiry**, not a booking, in the copy and on the button. There is
+        no booking model, no availability hold and no confirmation; the mockup's
+        "Book a Visit" would promise a reserved bed the product cannot deliver
+  - ☑ Name + phone are the only required fields (`lib/inquiry-form.ts`, 7 tests) —
+        this form gets filled in on a bus
+- ☑ `ratingSummary` now on every public payload, so cards show a real star
+  - ☑ An unreviewed hostel shows **"New"**, never `0 ★`. Every average is `0` before
+        the first review, so rendering the number puts a one-star badge on each new
+        hostel — a searcher filters it out and it never earns a review
+- ☑ Shared `HostelCard` in two widths (`carousel`, `list`). A second component for
+      the second width is how the verified chip ends up in a different corner
+- ☑ `lib/hostel-display.ts` — 24 tests over the branches a screenshot would not
+      catch: `NPR 8,000 – 8,000` for a single-price hostel, metres printed as
+      `3200 km`, `0 beds vacant` hidden as if it were unknown
+- ☑ **Device location → nearby hostels**, plus a map on the home screen *(2026-08-17)*
+  - ☑ **Client-side haversine, no server change** (`lib/geo.ts`, 16 tests). The
+        server has no `2dsphere` index and no `lat`/`lng` in the query schema, but
+        `/public/hostels` already returns `coordinates` on every row and caps at
+        60 — so sorting 60 points in JS is correct at this size and costs one
+        pass. `haversineMeters` mirrors `apps/web/src/lib/maps/nearby.ts` so a
+        distance on the phone matches the one on the web. The server query
+        (`Point` mirror field + `2dsphere` + `$geoNear` + a backfill migration)
+        becomes a plan item when the dataset outgrows the cap
+  - ☑ **Prompted on intent, never on launch** — the "Near me" button in Home's
+        *Near you* card and the `Sort: nearest` chip on browse. Nothing runs at
+        boot: a dialogue before the product has shown a hostel is the one people
+        decline, and on Android a "don't ask again" refusal is permanent
+  - ☑ Coarse only: `ACCESS_COARSE_LOCATION` requested, `ACCESS_FINE_LOCATION` in
+        `blockedPermissions`, and `Accuracy.Low` at the call site. Sorting by
+        rough proximity does not need a street-level fix
+  - ☑ **Coordinates are never persisted.** The position is `useState` in
+        `use-nearby.ts` and dies with the screen — never dispatched to Redux,
+        which `redux-persist` writes to disk. Same line `apps/web` holds
+        attendance pings to
+  - ☑ Every failure keeps the list usable: denied → cheapest-first with a
+        reason; blocked → the chip becomes an *Open settings* link rather than
+        vanishing; no fix in 8s → unsorted, never a spinner over working content.
+        Last-known fix is used first so an indoor cold GPS lock is not 30s of wait
+  - ☑ Un-geocoded hostels sort **last** rather than being dropped, and show no
+        distance at all — `0 m away` on a hostel nobody placed is a confident lie
+  - ☑ **Map is Leaflet + OSM tiles in a `react-native-webview`**, not
+        `react-native-maps` (`components/hostel-map.tsx`). No Google Maps Android
+        key exists, and `apps/web` already draws the same OSM tiles — one map
+        provider across the product beats a second one for a single platform.
+        The map is an addition to the sort and never the only route to a hostel:
+        it is blank without a network, and the sorted list beside it is not
+- ☑ **QR activation** — `expo-camera` scanner + manual code entry, `POST
+      /resident/activate`, then straight into `(resident)` with no relaunch *(2026-08-17)*
+  - ☑ **The QR does not contain the code — it contains a URL.**
+        `activationUrl()` renders the PNG from
+        `<app>/resident-activation?code=…` because the same image is printed for
+        the web flow, so a scanner that posts the decoded string gets
+        `ACTIVATION_CODE_INVALID` while the code in the picture was perfectly
+        good. `lib/activation-code.ts` (13 tests) pulls the code out of the URL,
+        accepts a bare code, and rejects a QR for something else — a wifi config
+        or a vCard — rather than posting it as a failed attempt
+  - ☑ **Activation is a sign-in.** The route runs `requireApiPrincipal` *first*,
+        so the user is already signed in; it then promotes them to `RESIDENT`,
+        adds the hostel to `hostelIds`, and ends with `issueSessionForUser`. The
+        token in memory still names the old role, so the response goes through
+        `startSession` exactly as a login would. `isResidentActivated` is then
+        set locally rather than re-fetched — the call that just returned *is* the
+        activation, and if that extra request failed on a flaky connection the
+        boot gate would send them straight back here
+  - ☑ Double-submit guarded by a **ref, not state**: `onBarcodeScanned` fires
+        every frame the code is in view, several times before React re-renders,
+        and each one would burn the single-use code and then 409 on itself
+  - ☑ **Manual entry is the other half, not a fallback** — scanning fails on
+        cracked screens, photocopied stickers and bad light. Both paths run one
+        `submit`; codes are normalised (the server hashes `trim().toUpperCase()`)
+  - ☑ Camera permission is **not** requested on mount, for the same reason as
+        location: refused-with-don't-ask-again cannot be undone from inside the
+        app. Prompt behind a button; permanent refusal offers system settings
+  - ☑ A wrong QR is answered **at the camera**, as a strip over the frame; what
+        the server says lands under the field holding the code it rejected
+  - ☑ **Sign out is in the app bar.** The boot gate sends an unactivated resident
+        here on every launch, so without it an expired code is a locked app —
+        and an expired code is the normal case for anyone who left it a week
+- ☑ Torch toggle for low-light scanning (`enableTorch`)
+- ☑ Activation carries device + session info *(2026-08-17)* — `lib/device-info.ts`,
+      from `expo-device`/`expo-application`, tagged `source: "mobile"` to mirror the
+      web's `{ source: "web" }`. Per-install id only: no location, no phone number,
+      no advertising id.
+      **Note: nothing renders this yet.** No admin screen reads
+      `QRActivation.deviceInfo` — the only `deviceInfo.fingerprint` reader in the
+      repo is `operations-analytics.service.ts`, which is `FoodReadyLog`, a
+      different collection. It is written because the answer to "which phone
+      claimed this code" cannot be reconstructed later, not because a panel shows it
+- ☑ Referral deep link `hostelhub://ref/<code>` → `app/ref/[code].tsx` *(2026-08-17)*
+  - ☑ **The file name is the handler.** expo-router resolves the scheme to the
+        route on a cold start and while the app is running, so there is no
+        `getInitialURL`/`addEventListener` pair and no cold-start case to forget
+  - ☑ **Fixed a cold-start bug this uncovered:** the splash was hidden from
+        `app/index.tsx`, which a deep link never renders — so a link-launched app
+        would have sat behind the splash forever. `_layout.tsx` owns the hide now,
+        being the one component every route mounts under. This would have hit
+        *every* future deep link, not just referrals
+  - ☑ Posts to `/public/inquiries/with-referral` — a different endpoint from the
+        plain hostel inquiry, and rate limited. One `InquiryFields` component,
+        branching only on which function it calls
+  - ☑ `lib/referral-link.ts` (12 tests) parses the app scheme **and** the
+        `/inquiry?ref=<code>` web link residents actually share. Note the range
+        is 4–32, *not* activation's 6–32 — one shared validator would have
+        silently rejected valid four-character codes
+  - ☑ **The screen cannot name the hostel, and does not pretend to.** The server
+        resolves the code to `referralCode.hostelId`; no public endpoint maps a
+        code to a hostel, so the copy says "a friend has referred you to their
+        hostel". Guessing a name would send someone's details to the wrong place
+        confidently
+  - ☐ **Server/web gap found while building this: every referral shared so far has
+        been dropped.** `referral.service.ts` hands residents a `/inquiry?ref=<code>`
+        link, but `public-inquiry-page.tsx` reads only `hostel` and `room` and
+        ignores `ref` — and nothing outside a test has ever called
+        `/public/inquiries/with-referral`. The mobile screen is the product's
+        first real consumer; the web page needs the same treatment
+  - ☐ An `https://` referral link still opens the browser, not the app — verified
+        app links need `assetlinks.json` on the domain plus `intentFilters`
+        (Android) and `associatedDomains` + AASA (iOS), none of which is
+        configured. The parser already accepts that form, so it is config, not code
+
+> **Work order, blockers and traps for the rest of M6:**
+> [`MOBILE_M6_HANDOFF.md`](MOBILE_M6_HANDOFF.md).
 
 **Acceptance**
 - ☐ Fresh install → browse hostels without an account

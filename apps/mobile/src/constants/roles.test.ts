@@ -41,11 +41,12 @@ describe("resolveHome", () => {
     expect(resolveHome({ role: ROLE.HOSTEL_ADMIN })).toBe("/(admin)");
   });
 
-  it("gives platform staff the public app, not an admin surface", () => {
+  it("gives platform staff the browsing app, not an admin surface", () => {
     // Platform administration is web-only by design (PHASES.md §6.1). A
-    // superadmin on a phone is just a person browsing hostels.
-    expect(resolveHome({ role: ROLE.SUPERADMIN })).toBe("/(public)");
-    expect(resolveHome({ role: ROLE.PLATFORM_MODERATOR })).toBe("/(public)");
+    // superadmin on a phone is just a person browsing hostels — but a signed-in
+    // one, so they get the tabs and their sign-out, not the signed-out stack.
+    expect(resolveHome({ role: ROLE.SUPERADMIN })).toBe("/(browse)");
+    expect(resolveHome({ role: ROLE.PLATFORM_MODERATOR })).toBe("/(browse)");
   });
 
   it("separates an approved service provider from an ordinary public account", () => {
@@ -54,8 +55,31 @@ describe("resolveHome", () => {
     expect(resolveHome({ isApprovedProvider: true, role: ROLE.PUBLIC })).toBe(
       "/(provider)",
     );
-    expect(resolveHome({ isApprovedProvider: false, role: ROLE.PUBLIC })).toBe("/(public)");
-    expect(resolveHome({ role: ROLE.PUBLIC })).toBe("/(public)");
+    expect(resolveHome({ isApprovedProvider: false, role: ROLE.PUBLIC })).toBe(
+      "/(browse)",
+    );
+    expect(resolveHome({ role: ROLE.PUBLIC })).toBe("/(browse)");
+  });
+
+  it("never lands a signed-in account on the signed-out stack", () => {
+    // `(public)` is the one group with no tab bar and no sign-out: its bottom
+    // edge belongs to the Log in pill. Anything with a session that lands there
+    // is stuck — it can browse, but it cannot leave or see who it is.
+    const signedIn = [
+      { isResidentActivated: true, role: ROLE.RESIDENT },
+      { role: ROLE.GUARDIAN },
+      { role: ROLE.COOK },
+      { role: ROLE.WARDEN },
+      { role: ROLE.HOSTEL_ADMIN },
+      { role: ROLE.SUPERADMIN },
+      { role: ROLE.PLATFORM_MODERATOR },
+      { isApprovedProvider: true, role: ROLE.PUBLIC },
+      { role: ROLE.PUBLIC },
+    ] as const;
+
+    for (const account of signedIn) {
+      expect(resolveHome(account)).not.toBe("/(public)");
+    }
   });
 });
 

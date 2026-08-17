@@ -1,14 +1,6 @@
-import { AppBar } from "@/components/ui/app-bar";
-import { EmptyState } from "@/components/ui/states";
-import { Screen } from "@/components/ui/screen";
+import { HostelBrowser } from "@/components/hostel-browser";
 
+/** Browse, pushed from the signed-out home — so it keeps its back button. */
 export default function PublicHostelsScreen() {
-  return (
-    <Screen header={<AppBar showBack title="Hostels" />}>
-      <EmptyState
-        description="Search, filters, the map/list toggle and hostel detail pages land in M6."
-        title="Hostel discovery"
-      />
-    </Screen>
-  );
+  return <HostelBrowser compareHref="/compare" showBack />;
 }
