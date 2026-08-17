@@ -6,6 +6,7 @@ import { Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { API_BASE_URL } from "@/lib/api";
 import {
   campusDistanceLabel,
   coverPhoto,
@@ -15,6 +16,7 @@ import {
   ratingDisplay,
   vacancyLabel,
 } from "@/lib/hostel-display";
+import { absoluteMediaUrl } from "@/lib/media";
 import type { PublicHostel } from "@/lib/public-api";
 
 /**
@@ -75,6 +77,14 @@ export function HostelCard({
   const { colors } = useAppTheme();
 
   const cover = coverPhoto(hostel.photos);
+  /*
+   * Photo URLs are stored relative (`/api/v1/files/…`) so one row works on
+   * every web origin. A phone has no origin to resolve them against, so
+   * without this the `<Image>` fails silently and every card is a grey box.
+   * Branching on the *resolved* URL means an unresolvable photo falls through
+   * to the placeholder below rather than rendering a broken image.
+   */
+  const coverUri = absoluteMediaUrl(cover?.url, API_BASE_URL);
   const rating = ratingDisplay(hostel.ratingSummary);
   const vacancy = vacancyLabel(hostel.capacitySummary);
   const campus = showCampusDistance ? campusDistanceLabel(hostel.nearbyPlaces) : null;
@@ -98,11 +108,11 @@ export function HostelCard({
       onPress={() => router.push(`/hostel/${hostel.slug}`)}
     >
       <View>
-        {cover ? (
+        {coverUri ? (
           <Image
-            accessibilityLabel={cover.alt || hostel.name}
+            accessibilityLabel={cover?.alt || hostel.name}
             contentFit="cover"
-            source={{ uri: cover.url }}
+            source={{ uri: coverUri }}
             style={{ backgroundColor: colors.muted, height: isCarousel ? 128 : 168 }}
             transition={150}
           />

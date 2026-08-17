@@ -15,6 +15,7 @@ import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { API_BASE_URL } from "@/lib/api";
 import { formatMoney, humanizeEnum } from "@/lib/format";
 import {
   campusDistanceLabel,
@@ -23,6 +24,7 @@ import {
   priceRange,
   ratingDisplay,
 } from "@/lib/hostel-display";
+import { absoluteMediaUrl } from "@/lib/media";
 import {
   getPublicHostel,
   HOSTEL_TYPE_LABELS,
@@ -208,7 +210,16 @@ export default function HostelDetailScreen() {
 function Gallery({ hostel }: { hostel: PublicHostelDetail }) {
   const { colors } = useAppTheme();
   const [index, setIndex] = useState(0);
-  const photos = hostel.photos.filter((photo) => photo.url);
+  /*
+   * Resolved against the API origin before anything is drawn: the stored URLs
+   * are relative, and a phone has no page origin to resolve them against (see
+   * lib/media.ts). Filtering on the resolved value also drops a photo row whose
+   * URL is blank, which the gallery would otherwise render as a grey panel the
+   * user can swipe to.
+   */
+  const photos = hostel.photos
+    .map((photo) => ({ ...photo, uri: absoluteMediaUrl(photo.url, API_BASE_URL) }))
+    .filter((photo): photo is typeof photo & { uri: string } => photo.uri !== null);
 
   if (photos.length === 0) {
     return (
@@ -238,8 +249,8 @@ function Gallery({ hostel }: { hostel: PublicHostelDetail }) {
           <Image
             accessibilityLabel={photo.alt || hostel.name}
             contentFit="cover"
-            key={photo.url}
-            source={{ uri: photo.url }}
+            key={photo.uri}
+            source={{ uri: photo.uri }}
             style={{ backgroundColor: colors.muted, height: 240, width: 400 }}
             transition={150}
           />

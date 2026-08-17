@@ -213,14 +213,52 @@ Goal: every later screen is assembled from primitives that already match the web
       screen's scroll offset), absolutely positioned, hide-on-scroll
 - ☑ Tab shells for all five signed-in roles, each in its own accent colour
 - ☑ Public shell with the Login CTA where tabs would be
-- ◐ Remaining primitives as screens need them: ☑ `Badge`, ☑ `StatusPill`, ☑ `ListRow`,
-      ☑ `Money`; ☐ `Select`, ☐ `Avatar`, ☐ `Skeleton`, ☐ `Sheet`
+- ☑ Remaining primitives: ☑ `Badge`, ☑ `StatusPill`, ☑ `ListRow`, ☑ `Money`,
+      ☑ `Select`, ☑ `Avatar`, ☑ `Skeleton`, ☑ `Sheet` *(last four 2026-08-17)*
   - ☑ The status→tone **table** lives in `lib/status.ts`, not in the pill. Vitest here
         is node-side with no RN shim, so anything importing `react-native` cannot be
         tested — and the table is the part that needs it. The web's `StatusBadge`
         matches substrings, and `"UNPAID".includes("PAID")` renders an unpaid invoice
         green
-- ☐ Global upload-progress toaster (the web's universal uploader pattern, ported)
+  - ☑ `Sheet` is `@gorhom/bottom-sheet`, whose provider had been mounted at the root
+        since M1 with nothing using it. A plain `<Modal>` — what `hostel-browser.tsx`'s
+        filter panel is — cannot be dragged away, and a bottom sheet with no drag reads
+        as broken rather than as a different component. Wrapped declaratively (`open`
+        prop, private ref) because every caller already holds the boolean
+  - ☑ `Select` is that sheet, not `@react-native-picker/picker`: the picker is a
+        spinner on iOS and a dropdown on Android, so one field would be two controls of
+        two heights on a form that is otherwise all `Input`s. The trigger mirrors
+        `Input` exactly — same height, border, label and error slots
+  - ☑ `Avatar` falls back to one initial on a name-hashed tone, matching the web's
+        `community-post-card.tsx` so the same person is the same colour in both
+        clients. It swaps to the initial `onError` as well as on a null URL — a private
+        asset that 401s returns a URL that exists and cannot be drawn. Pure half in
+        `lib/avatar.ts`, 10 tests
+  - ☑ `Skeleton` pulses from a Reanimated shared value, so it keeps animating while JS
+        is parsing the very response it is waiting for. Never for a refresh:
+        `use-resource.ts` deliberately keeps data on screen, and swapping it for grey
+        blocks throws away what the user was reading
+- ☑ Global upload-progress toaster *(2026-08-17)* — `lib/upload-queue.ts` +
+      `components/upload-toaster.tsx`, ported from the web's `stores/upload-store.ts`
+  - ☑ Every `uploadAsset` call registers itself, so a screen gets progress, a stage
+        label and a failure reason without wiring anything up — the web's rule that
+        call sites never build their own progress UI. `claim.tsx` lost its inline
+        percentage and its failure toast to it; two notices for one event reads as
+        two failures
+  - ☑ **Not a Redux slice.** `redux-persist` writes to AsyncStorage on change and byte
+        progress fires dozens of times a second — dozens of disk writes per photo on
+        exactly the low-end handsets this targets. It is also meaningless after a
+        relaunch: an upload the app died during did not happen. Plain module store read
+        through `useSyncExternalStore`; 15 tests
+  - ☑ **Anchored to the top edge**, unlike the web's bottom-right. This is a root
+        overlay and the root cannot know what is beneath it: half the app's screens sit
+        in a `<Tabs>` navigator with an absolutely-positioned bar and the rest may hold
+        a sticky footer with the only submit button. Bottom anchoring would cover one
+        or the other — the unpressable button §0 exists to prevent. The transient toast
+        host moves down while cards are showing rather than stacking on them
+  - ☑ It reports "Dismiss", not "Cancel": `expo-file-system`'s upload has no abort
+        handle once in flight, and a cancel that only hides the row is a lie about
+        where the bytes went
 - ◐ Nepali rupee formatting + date helpers — `lib/format.ts`, 13 tests
   - ☑ `formatMoney`/`formatAmount`: hand-rolled grouping, paisa shown only when the
         amount has any. Not `Intl` — Hermes borrows the *platform's* ICU, so `en-NP`
@@ -265,11 +303,65 @@ Goal: the boot contract in §0 works, on cold start, warm start, and after a tok
 - ☑ Logout: revoke, clear tokens, reset store, purge
 - ☑ Unactivated resident routes to `activate` rather than a dashboard that would 404
 - ☑ Suspended account (403 on refresh) surfaces its own message, not a silent failure
-- ☐ `(auth)/register.tsx` — signup → OTP challenge → verify → session *(screen is a stub;
-      `requestOtp`/`verifyOtp`/`register` are already typed in `lib/auth-api.ts`)*
-- ☐ `(auth)/forgot-password.tsx` → reset flow *(stub)*
-- ☐ Google sign-in via `expo-auth-session` **(needs server gap #2)**
-- ☐ `mustChangePassword` accounts (provisioned cook/warden) forced through a set-password step
+- ☑ `(auth)/register.tsx` — details → email OTP → verify → session *(2026-08-17)*
+  - ☑ **`lib/auth-api.ts` had the OTP contract wrong**, the same way `finance-api.ts`
+        did: `requestOtp` was typed `"email" | "sms"` × `"registration" |
+        "password-reset"` and `register` took a `phone`. `auth.validation.ts` accepts
+        `z.enum(["email"])` and `z.enum(["registration"])` and `registerSchema` has no
+        phone field — so an SMS channel would have 400'd and a phone number would have
+        been silently stripped, leaving an account whose owner believes it has one.
+        Read the *validation schema*, not the route name
+  - ☑ One screen with two steps, not two routes: Back from the code step must return
+        to the details with everything still filled in, and a `challengeId` threaded
+        through navigation params is a second place to lose it
+  - ☑ The whole draft is validated **before** the code is requested (`lib/auth-form.ts`,
+        21 tests). `/auth/otp/request` sends an email per call and allows five in
+        fifteen minutes, so a password the phone could have rejected costs one of five
+  - ☑ The resend button counts down 60s locally, because the server's
+        `OTP_RESEND_COOLDOWN` 429 also spends an attempt
+  - ☑ `ACCOUNT_ALREADY_EXISTS` is reported back on the **details** step next to the
+        email. Left on the code step it reads as a bad code, and the user retypes it
+        until the attempts run out
+  - ☑ The account created is `PUBLIC`, so it lands in `(browse)`. Signing up is not
+        how anyone becomes a resident — that is the QR code
+- ☑ `(auth)/forgot-password.tsx` → reset flow *(2026-08-17)*
+  - ☑ Two steps: request the link, then redeem it. The confirmation is phrased
+        conditionally ("if an account exists"), matching the server — `requestPasswordReset`
+        returns `{ requested: true }` either way on purpose, because an endpoint that
+        says "no such user" is an account-enumeration oracle
+  - ☑ **The token is pasted, not deep-linked.** The emailed link is
+        `{appUrl}/reset-password?token=…` — a web URL, because the same mail goes to
+        people who signed up on the website. Tapping it finishes in the browser, which
+        works; the paste path exists so somebody already standing in the app is not at a
+        dead end. `extractResetToken` unwraps the whole URL, since the whole URL is what
+        a phone copies, and refuses a URL with no `token=` rather than spending an
+        attempt on it
+  - ☑ Lands on login afterwards, never a session: `resetPasswordWithToken` bumps
+        `tokenVersion` and revokes everything, so there is no session to hand back
+- ☐ Google sign-in via `expo-auth-session` **(blocked: needs server gap #2)** — the
+      exchange endpoint is portable and `signInWithGoogle` is typed, but
+      `verifyGoogleIdToken` checks `audience: GOOGLE_CLIENT_ID` and no Android/iOS
+      OAuth client exists to issue a token with that audience. Creating those two
+      clients in Google Cloud is yours; the screen is an hour once they exist
+- ☑ `mustChangePassword` accounts (provisioned cook/warden) forced through a
+      set-password step *(2026-08-17)* — `(auth)/set-password.tsx`
+  - ☑ The check sits in `resolveHome` **above the role branch**, so it is a gate on
+        every launch rather than a prompt with the app visible behind it. Until the
+        password is replaced, the admin who issued it can still sign in as that account
+        and everything it logs is deniable
+  - ☑ No current-password field: `changePassword` requires one only when the flag is
+        false, and asking for it would demand back the temporary password this exists
+        to retire. A confirmation field instead — the password is being invented and it
+        is masked, and a typo nobody catches locks the account out until an admin
+        issues another
+  - ☑ Sign out lives in the app bar, for the same reason it does on `activate`: the
+        gate is on every launch, so without it a forgotten temporary password is a
+        locked app
+  - ☑ **Fixed while wiring this:** `revalidateSession`'s return value was discarded in
+        `_layout.tsx`, which made "and the role has not changed" (§0 step 3) a no-op —
+        a resident promoted to warden, an account newly flagged, or a QR activated on
+        another device all stayed on the stale screen until the next cold start. The
+        result now re-routes, and it only returns an account when something moved
 - ☐ Verify on device: cold start with a valid token shows **no login flash**
 
 **Acceptance**
@@ -588,6 +680,42 @@ guessing costs.
         hostel — a searcher filters it out and it never earns a review
 - ☑ Shared `HostelCard` in two widths (`carousel`, `list`). A second component for
       the second width is how the verified chip ends up in a different corner
+- ☑ **Photos render on device** *(fixed 2026-08-17)*. `827a52c` made stored photo
+      URLs **relative** (`/api/v1/files/<id>/url`) so one row works on every web
+      origin — correct for a browser, which resolves against the page origin, but
+      **a phone has no page origin**, so every `<Image>` failed *silently* and the
+      whole app showed grey boxes. `lib/media.ts` (8 tests) resolves them against
+      `API_BASE_URL` and leaves absolute URLs alone — the demo hostels carry
+      `images.unsplash.com` photos, and prefixing those would break the one set
+      that worked. No bearer token is needed: `files/[assetId]/url` 302-redirects
+      a `PUBLIC` asset straight to R2 without loading a principal
+- ☑ **Home screen brought in line with the mockup** *(2026-08-17)* — hero photo
+      with a real listing floating over it, "Premium hostels" with client-side
+      type pills, trust tiles, and the stats band. Three decisions taken with the
+      product owner rather than copied from the drawing:
+  - ☑ **The stats band shows real figures.** The mockup and
+        `public-home-page.tsx` both hard-code "500+ Verified Hostels / 10,000+
+        Happy Students / 50+ Cities / 4.6 ★"; nothing derives any of it and none
+        of it is true yet. Mobile computes them from the payload it already has
+        (`lib/home-stats.ts`, 11 tests). "Happy Students" has no honest
+        equivalent — nothing counts students — so that tile is **vacant beds**,
+        which is real and is what a room-hunter wants. The average is weighted by
+        review count, and unrated hostels are excluded rather than counted as
+        zero. **The web still ships the invented numbers**
+  - ☑ **Tabs stay four** — `Home · Search · Compare · Profile`. The mockup draws
+        Bookings and Messages; there is no booking model and no messaging
+        endpoint, and a tab that opens onto a permanent empty state is the tab
+        people stop trusting
+  - ☑ **"Services to make life easy" row skipped.** Its "Book a Room" needs a
+        booking model that does not exist, and "Report an Issue" is complaints,
+        which is M5. Same for the mockup's "Rent on the go" grid, and for "List
+        your Hostel" — there is no hostel-registration screen on mobile to send
+        anyone to
+  - ☑ Hero imagery is the **best-rated verified listing that has a photo**, not
+        stock art: the card over it is tappable and goes where it says
+  - ☐ Mockup's "Announcements / Notices" section — no public announcements
+        endpoint exists (`/api/v1/public/*` has no notices route), and the mockup
+        itself draws it empty. Needs a server endpoint before it can be built
 - ☑ `lib/hostel-display.ts` — 24 tests over the branches a screenshot would not
       catch: `NPR 8,000 – 8,000` for a single-price hostel, metres printed as
       `3200 km`, `0 beds vacant` hidden as if it were unknown

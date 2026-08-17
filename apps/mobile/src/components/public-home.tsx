@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
@@ -16,7 +17,11 @@ import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useNearby } from "@/hooks/use-nearby";
 import { useResource } from "@/hooks/use-resource";
+import { API_BASE_URL } from "@/lib/api";
 import { sortByDistance } from "@/lib/geo";
+import { homeStats } from "@/lib/home-stats";
+import { coverPhoto, priceRange, ratingDisplay } from "@/lib/hostel-display";
+import { absoluteMediaUrl } from "@/lib/media";
 import {
   FACILITIES,
   HOSTEL_TYPE_LABELS,
@@ -94,13 +99,35 @@ export function PublicHome({
     useCallback(() => listPublicHostels(), []),
   );
 
-  const all = hostels.data ?? [];
+  // Memoised so the hero pick and the stats below are not recomputed on every
+  // keystroke in the search field: `?? []` is a fresh array each render.
+  const all = useMemo(() => hostels.data ?? [], [hostels.data]);
   // The server sorts cheapest-first and caps at 60, so "popular" and "newly
   // listed" are slices of one request rather than three round trips for three
   // rows nobody has ranked differently yet.
   const featured = all.filter((hostel) => hostel.ratingSummary.total > 0).slice(0, 6);
   const popular = (featured.length > 0 ? featured : all).slice(0, 6);
   const newest = [...all].reverse().slice(0, 6);
+
+  /*
+   * The hero's photo and its floating card are a real listing, as on the web —
+   * the best-rated verified hostel that actually has a picture. A stock image
+   * would be the one photo on the screen that is not a hostel anyone can book,
+   * and the card doubles as the first tappable result.
+   */
+  const heroHostel = useMemo(
+    () =>
+      [...all]
+        .filter(
+          (hostel) =>
+            hostel.verificationStatus === "VERIFIED" && coverPhoto(hostel.photos) !== null,
+        )
+        .sort((a, b) => b.ratingSummary.averageRating - a.ratingSummary.averageRating)[0] ??
+      null,
+    [all],
+  );
+
+  const stats = useMemo(() => homeStats(all), [all]);
 
   const search = useCallback(() => {
     router.push(
@@ -145,7 +172,12 @@ export function PublicHome({
       scroll
     >
       <View className="gap-7 pt-1">
-        <Hero onQueryChange={setQuery} onSearch={search} query={query} />
+        <Hero
+          hostel={heroHostel}
+          onQueryChange={setQuery}
+          onSearch={search}
+          query={query}
+        />
 
         <NearbySection hostels={all} nearby={nearby} />
 
@@ -159,6 +191,8 @@ export function PublicHome({
           title="Popular right now"
         />
 
+        <PremiumHostels browseHref={browseHref} hostels={all} />
+
         <BrowseByType browseHref={browseHref} />
 
         <HostelRow
@@ -170,6 +204,10 @@ export function PublicHome({
         />
 
         <BrowseByFacility browseHref={browseHref} />
+
+        <TrustPoints />
+
+        <StatsBand stats={stats} />
 
         {/* Only for people who have no account. Someone already signed in as a
             resident reaches all of this from their own tabs. */}
@@ -312,10 +350,13 @@ function NearbySection({
 }
 
 function Hero({
+  hostel,
   onQueryChange,
   onSearch,
   query,
 }: {
+  /** A real listing behind the hero image, or null before the list loads. */
+  hostel: PublicHostel | null;
   onQueryChange: (value: string) => void;
   onSearch: () => void;
   query: string;
@@ -333,6 +374,8 @@ function Hero({
           your rent, meals and notices live here too.
         </Text>
       </View>
+
+      {hostel ? <HeroHostel hostel={hostel} /> : null}
 
       <View className="flex-row items-center gap-2 rounded-xl bg-card px-3">
         <Ionicons color={colors.mutedForeground} name="search" size={18} />
@@ -361,6 +404,73 @@ function Hero({
         ))}
       </View>
     </View>
+  );
+}
+
+/**
+ * The hero's photo, with a real listing floating over its corner.
+ *
+ * Follows the mockup, which draws an image with a small hostel card overlapping
+ * it — except the mockup's is a drawing and this is the actual best-rated
+ * verified listing, so the card is tappable and goes where it says. An image
+ * with an invented hostel on it would be the one thing on the screen a user
+ * could not act on.
+ */
+function HeroHostel({ hostel }: { hostel: PublicHostel }) {
+  const { colors } = useAppTheme();
+
+  const cover = coverPhoto(hostel.photos);
+  const uri = absoluteMediaUrl(cover?.url, API_BASE_URL);
+  const rating = ratingDisplay(hostel.ratingSummary);
+
+  if (!uri) {
+    return null;
+  }
+
+  return (
+    <Pressable
+      accessibilityLabel={`${hostel.name}, ${hostel.location.area}`}
+      accessibilityRole="button"
+      className="active:opacity-90"
+      onPress={() => router.push(`/hostel/${hostel.slug}`)}
+    >
+      <View className="overflow-hidden rounded-2xl">
+        <Image
+          accessibilityLabel={cover?.alt || hostel.name}
+          contentFit="cover"
+          source={{ uri }}
+          style={{ backgroundColor: colors.muted, height: 150, width: "100%" }}
+          transition={150}
+        />
+      </View>
+
+      {/* Overlapping the image's lower edge, as drawn. Pulled up rather than
+          absolutely positioned, so the card cannot cover a shorter image on a
+          small screen. */}
+      <View className="-mt-7 ml-auto mr-2 w-56 rounded-xl bg-card p-3 shadow-lg">
+        <Text className="font-semibold" numberOfLines={1}>
+          {hostel.name}
+        </Text>
+        <Text numberOfLines={1} variant="caption">
+          {[hostel.location.area, hostel.location.city].filter(Boolean).join(", ")}
+        </Text>
+        <View className="mt-1 flex-row items-center justify-between">
+          <Text className="text-primary" variant="label">
+            {priceRange(hostel.pricing)}
+          </Text>
+          {/* "New" rather than 0 stars for an unreviewed hostel — see
+              ratingDisplay. */}
+          {rating.kind === "rated" ? (
+            <View className="flex-row items-center gap-1">
+              <Ionicons color={colors.warning} name="star" size={11} />
+              <Text variant="caption">{rating.value}</Text>
+            </View>
+          ) : (
+            <Text variant="caption">New</Text>
+          )}
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -438,6 +548,224 @@ function HostelRow({
           ))}
         </ScrollView>
       )}
+    </View>
+  );
+}
+
+/**
+ * "Premium Hostels" — the top-rated verified listings, filtered by type.
+ *
+ * The pills filter **on the client**, over rows the server already returned.
+ * That is honest here for the same reason `Sort: nearest` is on the browse
+ * screen and unlike the filter sheet's absent Sort: nothing is being claimed
+ * about a query. Tapping a pill genuinely narrows what is on screen.
+ *
+ * "Premium" is defined here as verified and well-reviewed, because the server
+ * has no premium flag, no tier and no paid placement. If one is ever added this
+ * should read it rather than keep guessing.
+ */
+const PREMIUM_MIN_RATING = 4;
+
+function PremiumHostels({
+  browseHref,
+  hostels,
+}: {
+  browseHref: string;
+  hostels: PublicHostel[];
+}) {
+  const [type, setType] = useState<HostelType | null>(null);
+
+  const premium = useMemo(() => {
+    const eligible = hostels.filter(
+      (hostel) =>
+        hostel.verificationStatus === "VERIFIED" &&
+        hostel.ratingSummary.total > 0 &&
+        hostel.ratingSummary.averageRating >= PREMIUM_MIN_RATING,
+    );
+
+    // Nothing rated that highly yet — fall back to every verified hostel rather
+    // than showing an empty section on a catalogue that is simply young.
+    const pool =
+      eligible.length > 0
+        ? eligible
+        : hostels.filter((hostel) => hostel.verificationStatus === "VERIFIED");
+
+    return pool
+      .filter((hostel) => (type ? hostel.hostelType === type : true))
+      .sort((a, b) => b.ratingSummary.averageRating - a.ratingSummary.averageRating)
+      .slice(0, 6);
+  }, [hostels, type]);
+
+  if (hostels.length === 0) {
+    return null;
+  }
+
+  return (
+    <View>
+      <SectionHeader
+        action={
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => router.push(browseHref)}
+          >
+            <Text className="text-primary" variant="label">
+              View all
+            </Text>
+          </Pressable>
+        }
+        subtitle="Verified, and rated highly by students"
+        title="Premium hostels"
+      />
+
+      <ScrollView
+        contentContainerClassName="gap-2 pr-5"
+        horizontal
+        showsHorizontalScrollIndicator={false}
+      >
+        <TypePill label="All" onPress={() => setType(null)} selected={type === null} />
+        {HOSTEL_TYPES.map((option) => (
+          <TypePill
+            key={option}
+            label={HOSTEL_TYPE_LABELS[option]}
+            onPress={() => setType(option)}
+            selected={type === option}
+          />
+        ))}
+      </ScrollView>
+
+      {premium.length === 0 ? (
+        <Card className="mt-3">
+          <Text variant="muted">No hostels of that type are listed yet.</Text>
+        </Card>
+      ) : (
+        <ScrollView
+          className="mt-3"
+          contentContainerClassName="gap-3 pr-5"
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {premium.map((hostel) => (
+            <HostelCard hostel={hostel} key={hostel.id} variant="carousel" />
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function TypePill({
+  label,
+  onPress,
+  selected,
+}: {
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      className={`rounded-full border px-4 py-2 active:opacity-70 ${
+        selected ? "border-primary bg-primary" : "border-border bg-card"
+      }`}
+      onPress={onPress}
+    >
+      <Text
+        className={`text-xs font-semibold ${selected ? "text-primary-foreground" : ""}`}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * "Why students trust us" — the mockup's four tiles.
+ *
+ * Wording with no database home, exactly as `public-home-content.ts` holds it
+ * for the web, so the two surfaces make the same promises. Kept to claims the
+ * product actually keeps: every one of these is a feature that exists —
+ * verification, a price with no hidden fees, and reviews you can read.
+ */
+const TRUST_POINTS = [
+  {
+    description: "Every listing is checked before it goes live.",
+    icon: "shield-checkmark-outline",
+    title: "Verified with care",
+  },
+  {
+    description: "The monthly rent you see is the rent you pay.",
+    icon: "pricetag-outline",
+    title: "Transparent prices",
+  },
+  {
+    description: "Ratings and reviews written by people living there.",
+    icon: "chatbubble-ellipses-outline",
+    title: "Honest reviews",
+  },
+  {
+    description: "Rent, meals and notices in one place once you move in.",
+    icon: "home-outline",
+    title: "More than a search",
+  },
+] as const;
+
+function TrustPoints() {
+  const { colors } = useAppTheme();
+
+  return (
+    <View>
+      <SectionHeader
+        subtitle="Hostel hunting, without the guesswork"
+        title={`Why students use ${APP_NAME}`}
+      />
+
+      <View className="flex-row flex-wrap gap-3">
+        {TRUST_POINTS.map((point) => (
+          <View
+            className="w-[47%] gap-2 rounded-2xl border border-border bg-card p-4"
+            key={point.title}
+          >
+            <Ionicons color={colors.primary} name={point.icon} size={20} />
+            <Text variant="label">{point.title}</Text>
+            <Text variant="caption">{point.description}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * The stats band.
+ *
+ * **Real figures, not the mockup's copy.** The mockup and the web both hard-code
+ * "500+ Verified Hostels / 10,000+ Happy Students / 50+ Cities / 4.6 ★"; none of
+ * it is derived and none of it is true yet. Agreed with the product owner
+ * 2026-08-17 to compute these from the same payload the cards above render —
+ * see `lib/home-stats.ts`, which also explains why the fourth tile counts vacant
+ * beds rather than students.
+ *
+ * Renders nothing at all when there is nothing to count, rather than a row of
+ * zeros on an empty catalogue.
+ */
+function StatsBand({ stats }: { stats: ReturnType<typeof homeStats> }) {
+  if (stats.length === 0) {
+    return null;
+  }
+
+  return (
+    <View className="flex-row flex-wrap justify-around gap-y-5 rounded-3xl bg-primary px-4 py-6">
+      {stats.map((stat) => (
+        <View className="min-w-[40%] items-center gap-1" key={stat.label}>
+          <Text className="text-2xl font-bold text-primary-foreground">{stat.value}</Text>
+          <Text className="text-xs font-medium text-primary-foreground/80">
+            {stat.label}
+          </Text>
+        </View>
+      ))}
     </View>
   );
 }
