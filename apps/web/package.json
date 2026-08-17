@@ -25,6 +25,7 @@
     "verify:finance-ledger": "node scripts/verify-finance-ledger.mjs",
     "backfill:resident-accounts": "node scripts/backfill-resident-accounts.mjs",
     "backfill:fileasset-hostel": "node scripts/backfill-fileasset-hostel.mjs",
+    "backfill:photo-url-origins": "node scripts/backfill-photo-url-origins.mjs",
     "repair:archived-residents": "node scripts/repair-archived-residents.mjs",
     "migrate:r2-buckets": "node scripts/migrate-r2-buckets.mjs",
     "deploy:check": "next build",

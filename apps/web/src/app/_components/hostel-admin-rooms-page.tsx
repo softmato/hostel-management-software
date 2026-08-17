@@ -251,7 +251,8 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
               fileAssetId: outcome.result.assetId,
               kind: "ROOM",
               roomType,
-              url: `${window.location.origin}/api/v1/files/${outcome.result.assetId}/url`,
+              // Relative on purpose — see the note in hostel-admin-profile-page.
+              url: `/api/v1/files/${outcome.result.assetId}/url`,
             }),
             method: "POST",
           });

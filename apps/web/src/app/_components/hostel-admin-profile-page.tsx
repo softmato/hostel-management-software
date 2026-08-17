@@ -483,7 +483,12 @@ export const HostelAdminProfilePageContent = memo(
               body: JSON.stringify({
                 fileAssetId: outcome.result.assetId,
                 kind,
-                url: `${window.location.origin}/api/v1/files/${outcome.result.assetId}/url`,
+                // Relative on purpose: this string is persisted, and an origin
+                // baked in here follows the photo forever. Uploads made from a
+                // dev machine stored http://localhost:3000/... and every
+                // visitor to production then requested images from their own
+                // machine. The path resolves against whatever host serves it.
+                url: `/api/v1/files/${outcome.result.assetId}/url`,
               }),
               method: "POST",
             });
