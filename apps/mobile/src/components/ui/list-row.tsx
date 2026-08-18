@@ -17,6 +17,7 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 export function ListRow({
   className = "",
   icon,
+  left,
   onPress,
   right,
   subtitle,
@@ -25,6 +26,14 @@ export function ListRow({
 }: {
   className?: string;
   icon?: keyof typeof Ionicons.glyphMap;
+  /**
+   * Replaces the icon circle — an `<Avatar>`, a thumbnail, a checkbox.
+   *
+   * Takes precedence over `icon` rather than rendering beside it: a row with
+   * both a face and a symbol in front of the text has two leading columns and
+   * no clear subject.
+   */
+  left?: ReactNode;
   onPress?: () => void;
   /** Replaces the chevron/value slot entirely — a switch, a pill, a button. */
   right?: ReactNode;
@@ -37,11 +46,12 @@ export function ListRow({
 
   const body = (
     <View className={`min-h-14 flex-row items-center gap-3 py-3 ${className}`}>
-      {icon ? (
-        <View className="h-9 w-9 items-center justify-center rounded-full bg-muted">
-          <Ionicons color={colors.mutedForeground} name={icon} size={18} />
-        </View>
-      ) : null}
+      {left ??
+        (icon ? (
+          <View className="h-9 w-9 items-center justify-center rounded-full bg-muted">
+            <Ionicons color={colors.mutedForeground} name={icon} size={18} />
+          </View>
+        ) : null)}
 
       <View className="flex-1">
         <Text numberOfLines={1} variant="label">

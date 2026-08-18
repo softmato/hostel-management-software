@@ -17,6 +17,7 @@ import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError, readApiErrorCode } from "@/lib/api-contract";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import {
   complaintCategoryLabel,
   complaintStanding,
@@ -214,7 +215,17 @@ function ComplaintDetail({
 function AttachmentGallery({ complaint }: { complaint: Complaint }) {
   const token = useAppSelector((state) => state.auth.accessToken);
   const { colors } = useAppTheme();
-  const [zoomed, setZoomed] = useState<string | null>(null);
+
+  /*
+   * Handed to the global viewer whole, not one photo at a time: someone who
+   * attached four pictures of the same leak wants to swipe between them, and
+   * the sheet this replaced opened exactly one and trapped you there.
+   */
+  const items = complaint.attachments.map((attachment) => ({
+    assetId: attachment.fileAssetId,
+    caption: formatDateTime(complaint.createdAt),
+    title: complaint.title,
+  }));
 
   return (
     <View>
@@ -228,13 +239,13 @@ function AttachmentGallery({ complaint }: { complaint: Complaint }) {
       />
 
       <View className="flex-row flex-wrap gap-2">
-        {complaint.attachments.map((attachment) => (
+        {complaint.attachments.map((attachment, index) => (
           <Pressable
             accessibilityLabel="Open photo"
             accessibilityRole="imagebutton"
             className="active:opacity-80"
             key={attachment.id}
-            onPress={() => setZoomed(attachment.fileAssetId)}
+            onPress={() => openAssetViewer(items, index)}
           >
             <Image
               contentFit="cover"
@@ -253,22 +264,6 @@ function AttachmentGallery({ complaint }: { complaint: Complaint }) {
         ))}
       </View>
 
-      <Sheet onClose={() => setZoomed(null)} open={Boolean(zoomed)} title="Attachment">
-        {zoomed ? (
-          <View className="px-5 pt-3">
-            <Image
-              contentFit="contain"
-              source={privateAssetSource(zoomed, token)}
-              style={{
-                backgroundColor: colors.muted,
-                borderRadius: 16,
-                height: 360,
-                width: "100%",
-              }}
-            />
-          </View>
-        ) : null}
-      </Sheet>
     </View>
   );
 }

@@ -16,6 +16,7 @@ import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { planHandoff } from "@/lib/checkout";
@@ -344,15 +345,35 @@ function QrPanel({ method }: { method: Extract<PayMethod, { kind: "QR" }> }) {
   return (
     <View className="gap-3">
       <View className="items-center gap-2 rounded-xl border border-border p-4">
-        <Image
+        {/*
+          Tappable, because 208dp of QR is scanned by *another* phone held over
+          this one — and a code that will not resolve at arm's length is a
+          payment that does not happen. Full-screen is the whole screen's width.
+        */}
+        <Pressable
+          accessibilityHint="Opens the code full screen"
           accessibilityLabel="Scan to pay"
-          contentFit="contain"
-          source={{
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-            uri: fileAssetUrl(method.assetId),
-          }}
-          style={{ backgroundColor: colors.card, height: 208, width: 208 }}
-        />
+          accessibilityRole="imagebutton"
+          className="active:opacity-80"
+          onPress={() =>
+            openAssetViewer([
+              {
+                assetId: method.assetId,
+                caption: "Scan with any payment app",
+                title: "Pay by QR",
+              },
+            ])
+          }
+        >
+          <Image
+            contentFit="contain"
+            source={{
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+              uri: fileAssetUrl(method.assetId),
+            }}
+            style={{ backgroundColor: colors.card, height: 208, width: 208 }}
+          />
+        </Pressable>
         <Text variant="caption">Scan with any payment app</Text>
       </View>
 

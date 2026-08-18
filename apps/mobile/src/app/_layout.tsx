@@ -14,6 +14,7 @@ import { Provider } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
 
 import { BottomChromeProvider } from "@/components/bottom-chrome";
+import { AssetViewer } from "@/components/asset-viewer";
 import { BrandSplash } from "@/components/brand-splash";
 import { UploadToaster } from "@/components/upload-toaster";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
@@ -23,6 +24,7 @@ import { useRealtime } from "@/hooks/use-realtime";
 import { useUploads } from "@/hooks/use-uploads";
 import { resolveHome } from "@/constants/roles";
 import { bootstrapSession, revalidateSession } from "@/lib/auth-session";
+import { startUploadNotifications } from "@/lib/upload-notifier";
 import { persistor, store } from "@/store";
 import { setReady } from "@/store/slices/authSlice";
 
@@ -60,6 +62,17 @@ function RootShell() {
    */
   usePush();
   useRealtime();
+
+  /*
+   * The shade's half of the universal uploader.
+   *
+   * At the root for the same reason the toaster is: a transfer outlives the
+   * screen that started it, and the case this exists for is the user *leaving*
+   * the app mid-upload — where the toaster, and every screen, is gone. It posts
+   * nothing unless notification permission has already been granted; it never
+   * asks (§4.5).
+   */
+  useEffect(() => startUploadNotifications(), []);
 
   /*
    * The splash is uncovered here, not in the boot gate.
@@ -301,6 +314,13 @@ function RootShell() {
         screen that started it, so its report is drawn at the app root.
       */}
       <UploadToaster />
+
+      {/*
+        The one asset viewer. At the root because any screen can open it, and
+        because a `Modal` mounted inside a tab would still be inside that tab's
+        navigator — this one has to draw over the tab bar and the SOS button.
+      */}
+      <AssetViewer />
 
       {/*
         Transient toasts move down to clear the upload cards rather than

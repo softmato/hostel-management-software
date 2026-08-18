@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import { readApiError } from "@/lib/api-contract";
 import {
   addPostComment,
@@ -412,6 +413,18 @@ function MediaGrid({ media }: { media: CommunityMedia[] }) {
 
   const single = media.length === 1;
 
+  /*
+   * Images go to the in-app viewer; a video still leaves for the OS, because the
+   * viewer draws stills and a play button that opened a frozen frame would be
+   * worse than the browser. The viewer's collection is therefore the **images
+   * only** — passing every item would make the counter say "3 of 5" and then
+   * skip two pages that cannot be drawn.
+   */
+  const images = media.filter((item) => item.kind !== "VIDEO");
+  const imageItems = images.map((item) => ({
+    url: communityMediaUrl(item.assetId, "ORIGINAL"),
+  }));
+
   return (
     <View className="flex-row flex-wrap gap-1.5">
       {media.map((item, index) => {
@@ -425,8 +438,17 @@ function MediaGrid({ media }: { media: CommunityMedia[] }) {
             className="overflow-hidden rounded-xl active:opacity-90"
             key={item.assetId}
             onPress={() => {
-              // PUBLIC assets, so the OS can fetch this with no credential of ours.
-              void Linking.openURL(communityMediaUrl(item.assetId, "ORIGINAL"));
+              if (isVideo) {
+                // PUBLIC assets, so the OS can fetch this with no credential of ours.
+                void Linking.openURL(communityMediaUrl(item.assetId, "ORIGINAL"));
+
+                return;
+              }
+
+              openAssetViewer(
+                imageItems,
+                images.findIndex((image) => image.assetId === item.assetId),
+              );
             }}
             style={{
               height: single ? 240 : spansBoth ? 150 : 120,

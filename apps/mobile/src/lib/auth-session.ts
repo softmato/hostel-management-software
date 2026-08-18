@@ -27,6 +27,7 @@ import {
   logout as revokeSession,
 } from "@/lib/auth-api";
 import { revokePushToken } from "@/lib/push-notifications";
+import { resetUploadNotifications } from "@/lib/upload-notifier";
 import { clearTokens, readTokens, writeTokens } from "@/lib/session";
 import { persistor, resetStore, store } from "@/store";
 import {
@@ -196,6 +197,13 @@ export async function endSession(options?: {
    * signed out of. Never throws — see `revokePushToken`.
    */
   await revokePushToken();
+
+  /*
+   * Clears the upload shade for the departing account. The tally is per-batch
+   * and holds a label like "Payment proof"; leaving it posted would show the
+   * next person to sign in on this handset what the last one was uploading.
+   */
+  resetUploadNotifications();
 
   if (revoke) {
     const tokens = await readTokens();

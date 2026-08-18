@@ -39,6 +39,7 @@ import { Platform } from "react-native";
 
 import { api } from "@/lib/api";
 import { palette } from "@/constants/theme";
+import { UPLOAD_NOTIFICATION_TYPE } from "@/lib/upload-notification";
 
 /*
  * The notification LED / accent colour is deliberately the light palette's,
@@ -82,15 +83,31 @@ function easProjectId(): string | undefined {
  * `shouldShowBanner`/`shouldShowList` are the SDK 52+ replacements for the
  * deprecated `shouldShowAlert`, which is still returned because older Expo
  * runtimes read that one and ignore the new pair.
+ *
+ * ## The one exception: our own upload progress
+ *
+ * `lib/upload-notifier.ts` reposts a notification every 5% of a transfer. With
+ * the default answer that is a banner sliding over the screen twenty times per
+ * file, on top of the `<UploadToaster />` already showing the same thing — so
+ * foregrounded, it goes to the **list only**, silently. The shade is where it
+ * is useful; the screen already has a better version of it.
+ *
+ * Android's LOW-importance channel would suppress the heads-up on its own, but
+ * iOS has no channels and this handler is the only place to say it.
  */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const isUploadProgress =
+      notification.request.content.data?.type === UPLOAD_NOTIFICATION_TYPE;
+
+    return {
+      shouldPlaySound: !isUploadProgress,
+      shouldSetBadge: !isUploadProgress,
+      shouldShowAlert: !isUploadProgress,
+      shouldShowBanner: !isUploadProgress,
+      shouldShowList: true,
+    };
+  },
 });
 
 async function createAndroidChannels() {
