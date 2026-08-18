@@ -88,8 +88,17 @@ function authHeaders(): Record<string, string> {
 
 /**
  * Android notification channel, which decides the sound and whether the
- * notification can interrupt. Created client-side in `lib/push-notifications.ts`;
- * the ids must match or Android silently falls back to "default".
+ * notification can interrupt. Created client-side in `lib/push-notifications.ts`
+ * and the ids must match that file exactly — an id the phone has no channel for
+ * is not an error and not a dropped notification, but it does land on
+ * expo-notifications' own fallback channel, which is IMPORTANCE_HIGH with the
+ * system sound. So a mismatch shows up as ordinary notifications suddenly
+ * buzzing like alerts, on the phones that have not updated yet.
+ *
+ * `default_v2` and `food_v2` carry the app's own notification tone. The suffix
+ * is not decoration: a channel's sound is frozen when Android creates it, so
+ * giving those two a sound meant giving them new ids. `urgent` keeps the
+ * phone's own alert sound and therefore keeps its id.
  */
 function androidChannel(category: string, priority: PushPayload["priority"]) {
   if (category === "SOS" || category === "URGENT" || priority === "URGENT") {
@@ -97,10 +106,10 @@ function androidChannel(category: string, priority: PushPayload["priority"]) {
   }
 
   if (category === "FOOD") {
-    return "food";
+    return "food_v2";
   }
 
-  return "default";
+  return "default_v2";
 }
 
 function isHighPriority(payload: PushPayload) {

@@ -87,7 +87,10 @@
         {
           "icon": "./assets/images/android-icon-monochrome.png",
           "color": "#0a8a4b",
-          "androidMode": "default"
+          "androidMode": "default",
+          "sounds": [
+            "./assets/notifications/water_drop.mp3"
+          ]
         }
       ],
       [

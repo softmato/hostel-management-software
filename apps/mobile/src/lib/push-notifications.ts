@@ -15,14 +15,49 @@
  * ship a `calls_v2` id, because its original `calls` channel had been created
  * with a short message chime and could never be corrected in place.
  *
+ * ## `sound` is a filename, and ours is `water_drop.mp3`
+ *
+ * Android's key takes a *file*, not a value: `customSoundExists` looks the
+ * string up with `getIdentifier(name, "raw", packageName)` and
+ * `SoundResolver.resolve` builds `android.resource://…/raw/<name>` from it. So
+ * the string has to name a resource the APK actually carries, which is what the
+ * `sounds` array in `app.json`'s `expo-notifications` block is for — the plugin
+ * copies each file into `android/app/src/main/res/raw` at prebuild.
+ *
+ * Two consequences worth knowing before touching this:
+ *
+ * - **The filename is a resource name.** `assertValidAndroidAssetName` rejects
+ *   anything but lowercase letters, digits and underscores, which is why the
+ *   file is `water_drop.mp3` and not the name it was downloaded under.
+ * - **It cannot be shipped by an update.** A raw resource lives in the APK, so
+ *   this needs `expo run:android` or an EAS build. EAS Update carries JS and
+ *   assets, never resources.
+ *
+ * `sound: "default"` used to sit here, which is a file called `default.wav`
+ * that no build has ever contained — three `Custom sound 'default' not found in
+ * native app` errors per cold start. It was pure noise rather than a broken
+ * tone: `resolve` returns `Settings.System.DEFAULT_NOTIFICATION_URI` when the
+ * lookup misses, which is what a channel gets when the key is omitted anyway.
+ *
+ * ## `urgent` deliberately keeps the system tone
+ *
+ * The water drop is a soft two-note chime — right for a meal, a reply or an
+ * invoice, wrong for the one channel that exists to say somebody has hit the
+ * SOS button. That channel keeps whatever the phone's own alert sound is, which
+ * is the sound its owner already reacts to. Its id is therefore unchanged, and
+ * so is its entry in `androidChannel()`.
+ *
  * So the ids below are a one-way door. Changing what one *does* means
  * publishing a new id — `urgent_v2` — **and** changing `androidChannel()` in
  * `push.service.ts` in the same release, since the server is what stamps
- * `channelId` on the message and Android silently falls back to `default` when
- * the id does not resolve.
+ * `channelId` on the message. An id the phone cannot resolve is not a dropped
+ * notification: `BaseNotificationBuilder` logs it and falls back to
+ * expo-notifications' own channel, which is IMPORTANCE_HIGH with the system
+ * sound — so the failure mode is a phone that has not updated yet treating
+ * every notification as an alert, not silence.
  *
  * The three ids match that function exactly: `urgent` (SOS and anything
- * URGENT), `food` (meal-ready), `default` (everything else).
+ * URGENT), `food_v2` (meal-ready), `default_v2` (everything else).
  *
  * ## Failure is always silent and never fatal
  *
@@ -50,14 +85,30 @@ import { UPLOAD_NOTIFICATION_TYPE } from "@/lib/upload-notification";
 const BRAND = palette.light;
 
 /**
+ * The raw resource name, as the plugin copied it — extension included, because
+ * `filenameToBasename` strips it back off on the native side either way.
+ */
+const SOUND = "water_drop.mp3";
+
+/**
  * Must match `androidChannel()` in `apps/web/src/modules/notifications/
  * push.service.ts`. See the note above before changing any of these.
  */
 export const PUSH_CHANNEL = {
-  DEFAULT: "default",
-  FOOD: "food",
+  DEFAULT: "default_v2",
+  FOOD: "food_v2",
   URGENT: "urgent",
 } as const;
+
+/**
+ * The ids `DEFAULT` and `FOOD` used to have, kept only to be deleted.
+ *
+ * A channel's sound is frozen at creation, so the water drop could not be given
+ * to `default` and `food` on any phone that already had them — hence the `_v2`
+ * ids. Left alone, the originals would sit in the app's notification settings
+ * forever as two dead categories a user can still toggle and never hear from.
+ */
+const RETIRED_CHANNELS = ["default", "food"];
 
 /**
  * Read from app.json rather than hardcoded. `getExpoPushTokenAsync` needs it
@@ -119,7 +170,7 @@ async function createAndroidChannels() {
     importance: Notifications.AndroidImportance.DEFAULT,
     lightColor: BRAND.primary,
     name: "General",
-    sound: "default",
+    sound: SOUND,
     vibrationPattern: [0, 250, 250, 250],
   });
 
@@ -139,7 +190,6 @@ async function createAndroidChannels() {
     lightColor: BRAND.destructive,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     name: "Urgent alerts",
-    sound: "default",
     vibrationPattern: [0, 400, 200, 400],
   });
 
@@ -153,9 +203,22 @@ async function createAndroidChannels() {
     importance: Notifications.AndroidImportance.HIGH,
     lightColor: BRAND.primary,
     name: "Meals",
-    sound: "default",
+    sound: SOUND,
     vibrationPattern: [0, 250, 250, 250],
   });
+
+  /*
+   * Last, and never fatal: a phone that has only ever run the new build has no
+   * `default`/`food` channels to delete, and the call for a missing id is a
+   * no-op. Deleting is one-way in the sense that matters here — Android
+   * remembers a deleted channel's settings and restores them if the same id is
+   * ever created again, which is exactly why these ids are not being reused.
+   */
+  await Promise.all(
+    RETIRED_CHANNELS.map((channelId) =>
+      Notifications.deleteNotificationChannelAsync(channelId).catch(() => undefined),
+    ),
+  );
 }
 
 export type PushPermission = "blocked" | "denied" | "granted" | "unsupported";
