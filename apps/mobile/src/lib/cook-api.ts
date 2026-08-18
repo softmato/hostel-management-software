@@ -156,3 +156,53 @@ export async function uploadCookFoodPhoto(input: {
 
   return unwrap(response).photo;
 }
+
+/**
+ * One photo in the kitchen's own feed.
+ *
+ * `source` rather than an uploader id: the cook login is shared kitchen-wide,
+ * so the server cannot say *which* cook posted a photo and does not pretend to.
+ * What it can say honestly is kitchen or resident, and that is the distinction
+ * the screen needs — a resident's photo of their plate is not the kitchen's
+ * record of the meal.
+ */
+export type CookFoodPhoto = {
+  caption: string;
+  /** The meal's date. Grouping is done server-side; this is for the detail line. */
+  date: string;
+  id: string;
+  mealType: MealType;
+  photoAssetId: string;
+  source: "KITCHEN" | "RESIDENT";
+  /** When it actually reached the server — what "posted 7:41 pm" reads off. */
+  uploadedAt: string;
+};
+
+export type CookPhotoDay = {
+  /** `YYYY-MM-DD` in **Nepal time**, not UTC — see `food-photo-days.ts`. */
+  day: string;
+  /** Distinct meals covered that day, out of four. Not a photo count. */
+  mealsCovered: number;
+  photos: CookFoodPhoto[];
+};
+
+/**
+ * `GET /cook/food-photos` — what this kitchen has posted, newest day first.
+ *
+ * The read half of the upload route, added 2026-08-18. Until then the route was
+ * POST-only: a cook could post a photo of dinner and had no way to see it, or to
+ * see whether anyone had posted at all today, while every resident in the hostel
+ * could.
+ *
+ * **Days are grouped by the server**, in `Asia/Kathmandu`. Doing it here would
+ * mean the phone's timezone decided which day a meal belonged to, and a cook
+ * whose handset is set to anything else would see breakfast filed under
+ * yesterday — Nepal is +05:45, so an early meal is the previous UTC day.
+ */
+export async function listCookFoodPhotos() {
+  const response = await api.get<
+    ApiEnvelope<{ days: CookPhotoDay[]; hasMore: boolean; total: number }>
+  >("/cook/food-photos");
+
+  return unwrap(response);
+}

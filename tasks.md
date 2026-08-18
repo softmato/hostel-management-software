@@ -299,6 +299,41 @@ Do not restructure a screen that is already right.
    silent omission is not.
 4. Apply, then `mobile:typecheck && mobile:lint && mobile:test`, then tick.
 
+### The shared kit this pass introduced (2026-08-18)
+
+Three pieces landed before the first screen, because every screen wanted them:
+
+- **`lib/responsive.ts` + `components/ui/layout.tsx`** — *fit the handset*, not
+  web breakpoints. A 320dp phone is 28% narrower than a 430dp one, so a tile row
+  hardcoded to four columns truncates its labels on the small end and leaves a
+  hole on the large one. `<Grid>` measures the width it was **given** (so it is
+  right inside a sheet, a card or a full screen), `columnsThatFit` picks the
+  count from a minimum cell width, and `cellWidth` floors the division — rounding
+  overflows by a fraction of a pixel and wraps the last cell onto its own line on
+  exactly one screen width. 21 tests. Also `<InfoTile>`, `<StatTile>`, `<Chip>`
+  and `<FactRow>` — the mockups' card grammar, once, so two screens cannot end up
+  with different versions of the same tile.
+- **Global asset viewer** (`lib/asset-viewer.ts`, `components/asset-viewer.tsx`,
+  mounted at the root). Tap any asset anywhere and it opens full-screen: pinch
+  and double-tap zoom, swipe-down to dismiss, paging across the whole gallery, a
+  save/share action, and the private-vs-public source decision made **once**
+  (`viewerSourceFor`, 17 tests) rather than at each call site — a public R2 URL
+  that gets an `Authorization` header is rejected outright, and that branch was
+  one copy-paste away from happening. Wired into complaint attachments (which had
+  a fixed-height sheet with no zoom), food photos, community media (which left
+  for the OS browser), the hostel gallery and the payment QR.
+- **Upload progress in the notification shade** (`lib/upload-notification.ts`,
+  `lib/upload-notifier.ts`). The web's universal uploader ported the rest of the
+  way: the toaster covers the app, this covers the case it cannot — someone
+  photographs a rent receipt and switches to their banking app. One notification
+  per **batch**, not per file; the percentage floors to 5% so a transfer costs
+  ~20 reposts instead of one per network chunk; the finished summary is built
+  from a running tally because the queue prunes a succeeded row after 2.5s. It
+  **never asks for permission** (§4.5) — it reads it, and stays silent without
+  it. 26 tests. Foregrounded, it goes to the shade list only: the handler in
+  `push-notifications.ts` now excludes it from the banner path, or it would slide
+  over the screen twenty times a file on top of the toaster saying the same thing.
+
 ### Rules that already caught things once
 
 - **Screens show data, not marketing.** The mobile home already had hero copy, trust
@@ -331,14 +366,199 @@ Do not restructure a screen that is already right.
 | `notifications` | `notifications-page.tsx` |
 | `settings` | `resident-profile-page.tsx` + `(auth)/account/privacy/page.tsx` |
 
-- ☐ **5.1 Resident** — home, payments, food, notices, more
-- ☐ **5.2 Guardian** — home, payments, safety, more
-- ☐ **5.3 Cook** — home, menu, photos, more
-- ☐ **5.4 Provider** — home, card, more
-- ☐ **5.5 Admin-lite** — home, residents, alerts, more
-- ☐ **5.6 Public / browse** — home, hostels, search, compare, profile
-- ☐ **5.7 Shared modals and sheets** — filter panel, select, confirm sheets, SOS overlay,
-      upload toaster
+- ☑ **5.1 Resident** — home, payments, food, notices, more *(2026-08-18)*
+      **Home.** Ported from the web: the hostel contact card (phone and email as
+      tap-to-call/mail chips), notice **previews** (the rows showed a category
+      where the web shows two lines of the body), and **QuestionCall**, which
+      existed on the web for students and was absent from mobile entirely — new
+      `openQuestionCall()`, opened in an in-app browser so the back gesture
+      returns to the app. New metric strip (notices / complaints / night status)
+      replaces the full-width night-status card; `feeStatus.unpaidCount` was in
+      the payload and drawn nowhere, and now qualifies the amount ("across 2
+      unpaid invoices").
+      **Ordering differs from the web deliberately: the money leads.** The web
+      opens on a full-width hostel photo. A resident opens this app to pay rent or
+      read a notice and already knows which building they live in, so the photo is
+      a 64dp thumbnail beside the contact chips (tappable into the asset viewer)
+      and the outstanding balance is the first thing on the screen.
+      **Not ported: the web's "Unread notices" metric and its "New" badge.**
+      `serializeNotice` on the dashboard emits no `isRead` at all, so `!isRead` is
+      true for every row and the web marks all of them new. The tile counts
+      **urgent** instead, which is a field the serializer does emit.
+      **Payments.** The web rebuilt this page around "what do I owe and how do I
+      pay it" and the screen had not followed — it opened on a total and six
+      identical-looking rows. Added the **focus card** (oldest open month, its
+      reference code with copy-to-clipboard, and both actions: paying was two taps
+      into a detail screen), the **metric strip** (next due / last paid / settled),
+      and an **Open/Settled/All** filter as chips rather than the web's tab bar.
+      New `paymentStats` and `filterInvoices` in `invoice-ledger.ts` (+10 tests) —
+      `nextDue` is the **oldest** open month, not the first row: the list arrives
+      newest-first, so taking the head pointed a resident who is two months behind
+      at August while July aged into a default.
+      **Food.** Meal cards now match the dashboard and the web (soft icon square,
+      timing as a badge). The photo grid moved to `<Grid>` — three fixed 104dp
+      tiles plus gaps need 328dp and a 320dp phone has ~280, so the third wrapped
+      and left a hole — and now shows the **caption**, which the server stores and
+      the web displays. Photos open in the asset viewer. Fixed: this was the only
+      `uploadAsset` call in the app with no `label`, so the toaster and the new
+      shade notification both said "Uploading file".
+      *Recorded difference:* the web's upload form takes an optional caption;
+      mobile shares in one tap and sends none. Captions from the web still render.
+      **Notices.** The web filters by status (All/Unread/Urgent with counts) and
+      this screen filtered by category; both now share one chip scroller, because
+      two chip rows is one too many on a phone. Ported the web's icon square
+      (megaphone / alert), which is what makes a list of ten scannable. Fixed
+      along the way: the screen fetched page 1 and dropped `pagination.hasMore`,
+      so older notices were unreachable on the phone — there is now a "Load older
+      notices" button, hidden while a filter is applied since the filter runs over
+      what has been fetched.
+      **More.** Now uses the shared `<Avatar>` rather than a local initial circle,
+      and the hostel block became contact chips. Fixed stale copy: the
+      Notifications row still read "and why you cannot pick yet", which stopped
+      being true when §3.2 shipped.
+      Verified: typecheck, lint, **557 tests / 41 files**, `expo export` bundles.
+      Rendering and gestures are **[device]** — the viewer's pinch/drag and the
+      upload notification cannot be exercised from here.
+- ☑ **5.2 Guardian** — home, payments, safety, more *(2026-08-18)*
+      The screens were already the more careful of the two: they had cut the web's
+      **"Make a Payment"** button (no guardian payment route exists anywhere in
+      `apps/web`, so it did nothing) and its **"Emergency Status: Normal"** tile
+      (the payload has no SOS field, so it printed "Normal" whether or not an
+      alert was live). Both stay cut.
+      Ported: the web's **metric row** on Home, gated the same way every section
+      is — the tiles are *collected* rather than rendered with `null` holes, so a
+      guardian who shared only night status gets one tile filling the row instead
+      of one tile and two gaps. **"Paid" is new to mobile**: new
+      `guardianPaidAmount` (+4 tests) sums `paidAmount`, **not** `PAID` rows — a
+      `PARTIAL` month has real money against it — and returns `null` rather than
+      zero when finances are not shared, because a confident "NPR 0 paid" states
+      something about the ward this app has no basis for. It also joins the
+      payments summary card.
+      Today's meals now use the same block the resident screens use, so a parent
+      and their child are looking at the same thing.
+      **One contact card, not the web's two.** The web has "Warden / Hostel
+      In-charge" and "Hostel Emergency Contact" and both render the *same*
+      `hostel.contact.phone` — there is no warden field in the payload. Two cards
+      offering one number reads as two escalation routes and is one. The single
+      card gained the address and email the payload already carried, which is what
+      a parent wants at the moment their child is not answering.
+      Verified: typecheck, lint, 561 tests.
+- ☑ **5.3 Cook** — home, menu, photos, more *(2026-08-18)*
+      The cook screens were already built for their case — wet hands, in a hurry,
+      one-handed — so this was a legibility pass, not a rebuild. The four announce
+      cards gained the meal icon square: a cook picks the card by shape before
+      reading a word of it, and four cards distinguished only by a heading is the
+      version that gets breakfast announced at dinner. The weekly routine now uses
+      the same meal block the residents see, because the kitchen reading a
+      different rendering of the menu from the people eating it is how "the app
+      said chicken" starts.
+      **Extracted `components/meal-row.tsx`** while doing it. Four screens show a
+      meal — resident home, resident food, guardian home, cook menu — and they
+      showed it three different ways: a truncated `<ListRow>`, an icon beside a
+      heading, and a row with the timing as trailing text. Same dinner, different
+      thing depending on who was looking. Now one component: icon square, timing
+      as a badge (it is the second thing anyone looks for, and trailing muted text
+      is where it goes to be missed), items on two lines.
+      **Recorded, not built:** the cook cannot see their own photos. `/cook/food-
+      photos` is POST-only — no route lists what a kitchen has uploaded — so
+      residents see the photos and the cook who took them cannot. Appended to §7
+      rather than faked from the announcement log, which carries no photo ids.
+      Verified: typecheck, lint, 561 tests.
+- ☑ **5.4 Provider** — home, card, more *(2026-08-18)*
+      **The rows stay rows.** The web draws each job as a full card — title,
+      hostel, description, category, location, schedule, phone. Eight of those is
+      two jobs per screenful on a phone, and the detail screen already carries the
+      description and the call button, which is the tap the web card exists to
+      save and a phone does not need saving. Recorded rather than ported.
+      What the rows *did* lack was the trade: every row looked identical, so a
+      provider scanning for their own work read every title. New
+      `jobCategoryIcon` maps all eleven `maintenanceCategorySchema` values (+ a
+      fallback tool for one the server adds later, which is the case that
+      otherwise renders blank and looks like a broken build). New metric strip —
+      open / urgent / done — via `urgentJobCount` and `completedJobCount`; urgent
+      counts **open** HIGH and URGENT only, because a completed emergency is a
+      record, not something to look at today. +5 tests.
+      `card.tsx` unchanged: its status tag already carries the distinction that
+      matters (`PENDING_APPROVAL` explains an empty Jobs tab that would otherwise
+      look like a bug), and it deliberately does not re-render the platform ID
+      card that `app/id-card/` owns.
+      Verified: typecheck, lint, 566 tests.
+- ☑ **5.5 Admin-lite** — home, residents, alerts, more *(2026-08-18)*
+      **The biggest find in this section was on Alerts: `evidenceAssetId` has been
+      on the claim payload all along and the screen never showed it.** Approving a
+      payment claim is the one action here that moves money, and it was the only
+      one an admin had to take on trust. There is now a "View proof" button that
+      opens the receipt in the global viewer — it zooms, which matters because the
+      amount on a bank screenshot is small and the whole question is whether it
+      matches.
+      Overview: occupancy and listing reach became tile rows (three figures that
+      mean something *together* read badly as a stack of label/value rows, which
+      is read one at a time). **"Needs attention" stays rows** — those are a queue
+      where each item is a destination, and a tile with a number on it is a worse
+      tap target than a row with a label and a chevron. Occupancy still shows "—"
+      with "Configure rooms" rather than 0% when `capacitySummary` is missing.
+      Residents: a face per row via `<Avatar>`, whose colour is derived from the
+      name — which is what makes two adjacent rows of a forty-person roster tell
+      themselves apart at a glance. This needed a small `left` slot on `<ListRow>`
+      (takes precedence over `icon`, never renders beside it: two leading columns
+      and no clear subject).
+      The rest of the web dashboard — fee schedules, billing runs, reconciliation,
+      warden management, room config, nine report views — stays in the browser,
+      which is what the More tab already says.
+      Verified: typecheck, lint, 566 tests.
+- ☑ **5.6 Public / browse** — home, hostels, search, compare, profile *(2026-08-18)*
+      **A real paging bug on the hostel gallery.** The photos were a hardcoded
+      `width: 400` inside a `pagingEnabled` ScrollView, and paging snaps to the
+      **viewport**, not to the child — so on a 393dp phone every swipe left a 7dp
+      sliver of the next photo and drifted further out of alignment with each
+      page, and on a 430dp phone it stopped 30dp short. It looked right only on a
+      device exactly 400dp wide. Now `useWindowDimensions`, which follows a
+      rotation for free. Added the mockup's **thumbnail strip** under the hero
+      (twelve photos behind a swipe is twelve swipes to find the bathroom) — it
+      drives the carousel rather than opening the viewer, so browsing in place
+      still works.
+      **Two rows on the browse profile were lying.** "Saved hostels" toasted "it
+      lands in the next release" while `lib/saved-hostels.ts` was already storing
+      them and Home was already rendering the row — it now shows the count and
+      says they are device-local, which is the part worth knowing before you build
+      a shortlist. "Notifications" and "Privacy" did the same, and `/settings` has
+      held real preferences since §3.2; its routes take `requireApiPrincipal`, so
+      a browsing account could always reach them. `soon()` survives for
+      **Inquiries** alone, which genuinely has no endpoint.
+      Fit fixes on the public home: the four type tiles were `flex-1` in a row —
+      about 72dp each on a 320dp screen, where "Co-living" truncates — and
+      "Browse by facility" was `w-[47%]`, percentage arithmetic that has to stay
+      under half once the gap is counted. Both now measure. Hostel detail's price
+      tiles too: "NPR 10,000 – NPR 18,000" in a third of a 320dp screen was
+      truncating to "NPR 10,0…".
+      **Recorded, not ported:** the mockup's facility tiles carry a sub-label
+      ("High Speed" under Wi-Fi, "24/7 Security" under CCTV) drawn from nothing —
+      `facilities` is a `string[]`. Chips stay. Same for the mockup's third fee
+      tile: `pricing` has no security deposit, and two tiles that are true beat
+      three that look complete.
+      Verified: typecheck, lint, 566 tests.
+- ☑ **5.7 Shared modals and sheets** — filter panel, select, confirm sheets, SOS
+      overlay, upload toaster *(2026-08-18)*
+      Most of this section was already right and §4.6 had just been through the
+      keyboard behaviour, so the pass was a review with one real fix.
+      **The SOS countdown circle now grows with the text inside it.** It was a
+      fixed 144dp holding `text-6xl`, which is fine at the default font scale and
+      clips at the accessibility settings people actually use — Android reaches
+      2.0× and a two-digit countdown at 1.3× already overflows. `scaledHeight`
+      caps the growth at 1.3 rather than following it all the way: past that the
+      circle pushes Cancel off a short screen, and on this screen of all screens
+      Cancel must stay reachable. First use of the font-scale half of
+      `lib/responsive.ts`.
+      Reviewed and left alone, with the reasons: the **filter panel** keeps
+      "Clear all" in its header and one primary button in the footer rather than
+      the mockup's Reset/Apply pair — a header action plus one primary is the
+      phone idiom, and the panel's single-select `Choice` pills already match what
+      `publicHostelListQuerySchema` accepts. The **`Sheet`** keyboard modes,
+      insets and dynamic sizing are §4.6's and unchanged. The **upload toaster**
+      now has the shade notification as its sibling rather than a replacement:
+      the toaster is the primary readout while the app is open, and the
+      notification covers the case it cannot.
+      Verified: typecheck, lint, 566 tests, `expo export` bundles.
 
 ## 6. Device pass — [device], after everything above
 
@@ -360,6 +580,38 @@ Anything discovered while working the list above, appended here rather than fixe
       **pre-existing**, not caused by that change. Every real link carries `?hostel=`, so
       this only bites someone who types `/inquiry` directly, but the honest fix is either
       to redirect to `/hostels` or to ask which hostel.
+- ☑ **7.3 A kitchen can see its own food photos.** *(2026-08-18)*
+      `/cook/food-photos` was POST-only, so a cook could post a photo of dinner and
+      had no way to see it — or to see whether anyone had posted at all today —
+      while every resident in the hostel could.
+      **Server:** new `GET` on the same route and the same role list
+      (`COOK`/`HOSTEL_ADMIN`/`WARDEN`, scoped by `resolveCookHostelId`, so it is
+      not a door into another kitchen), plus `listCookFoodPhotos` in
+      `cook.service.ts` and a pure `food-photo-days.ts` (+12 tests).
+      **Grouped by day in `Asia/Kathmandu`, not UTC** — Nepal is +05:45, so a
+      breakfast photographed at 05:30 local is `23:45Z` the *previous* day. Group
+      by UTC and the kitchen sees yesterday's breakfast filed under the day
+      before, one row out, only ever for the early meals: the kind of wrong nobody
+      reports and everybody stops trusting. Doing it on the phone would have handed
+      the same decision to the handset's timezone. Each day carries
+      **`mealsCovered`**, distinct meals out of four — four photos of dinner is not
+      the same as one of each, and a photo count cannot tell those apart.
+      **`source: KITCHEN | RESIDENT`, not an uploader id.** The cook login is
+      shared kitchen-wide, so `uploadedBy` is the same user for every cook in the
+      building and cannot answer "who posted this". Kitchen-or-resident is the
+      distinction that is both true and useful.
+      **Verified against the running API with a minted COOK token** (never a typed
+      password): 200 with 22 photos over 2 days for *Education Light Hostel*,
+      `mealsCovered` per day, `source: KITCHEN`; a RESIDENT token gets **403
+      FORBIDDEN**; unauthenticated gets **401**.
+      **Mobile:** `(cook)/photos.tsx` now shows a day-grouped grid — date, meals
+      covered, photo count, and each tile captioned with its meal and the clock
+      time it went up — tapping into the global asset viewer scoped to **that
+      day**. Refreshes itself after a successful post, so the cook sees the photo
+      they just took. Its own `useResource`, so a failing announcement log does not
+      take the photos down with it.
+      Verified: mobile typecheck/lint/566 tests, web lint/**1805 tests**,
+      `expo export` bundles.
 - ☐ **7.2 `.next/types/validator.ts` fails `tsc --noEmit` in `apps/web`.**
       Generated route-type errors about `(hostel-admin)` layouts whose `params` are typed
       `Promise<{ hostelSlug: string }>` against Next 16's `LayoutProps`. Pre-existing and
@@ -378,3 +630,6 @@ Anything discovered while working the list above, appended here rather than fixe
 | 2026-08-18 08:12 | 3.2 notification preferences + quiet hours | next: §3.3 Bikram Sambat dates |
 | 2026-08-18 08:21 | 3.3 Bikram Sambat, 3.4 save ID card | §3 done bar 3.5 [yours]; next: §4 UI defects |
 | 2026-08-18 08:30 | §4 UI defects 4.1–4.9 all closed | next: §5 screen-by-screen UI pass (largest item left) |
+| 2026-08-18 09:25 | shared layout kit, global asset viewer, upload notifications, §5.1 resident | next: §5.2 guardian |
+| 2026-08-18 10:05 | §5.2–§5.7: guardian, cook, provider, admin, public/browse, shared sheets | §5 complete; next: §6 device pass, or §3.5/§7 |
+| 2026-08-18 10:20 | §7.3 cook food-photo GET + day-grouped grid | next: §6 device pass; §7.1/§7.2 still open |

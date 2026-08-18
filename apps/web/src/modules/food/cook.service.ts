@@ -10,11 +10,13 @@ import { publishResourceChange } from "@/lib/realtime/server";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
+import { FoodPhotoModel } from "@hostel/db/models/FoodPhoto";
 import { FoodReadyLogModel } from "@hostel/db/models/FoodReadyLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { UserModel } from "@hostel/db/models/User";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import { coveredMealCount, groupPhotosByDay } from "@/modules/food/food-photo-days";
 import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
 import { uploadFoodPhoto } from "@/modules/food/food.service";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
@@ -586,6 +588,96 @@ export async function uploadCookFoodPhoto(
   const hostelId = await resolveCookHostelId(principal, input.hostelId);
 
   return uploadFoodPhoto(input, principal, { hostelId });
+}
+
+type CookFoodPhotoRecord = {
+  _id: Types.ObjectId;
+  caption?: string;
+  date: Date;
+  mealType: string;
+  photoAssetId: string;
+  residentId?: Types.ObjectId;
+  uploadedAt: Date;
+};
+
+/**
+ * How many photos the kitchen's own feed reaches back over.
+ *
+ * Four meals a day plus the occasional resident post is roughly 5–8 rows a day,
+ * so 120 is about a fortnight — long enough to answer "did we post anything on
+ * Tuesday" and short enough that the response stays small on a kitchen tablet
+ * over a hostel's wifi. The cap is on **photos**, not days, because a day with
+ * thirty photos is exactly the case a day-based limit would blow up on.
+ */
+const COOK_PHOTO_LIMIT = 120;
+
+/**
+ * The kitchen's own view of the photo feed, grouped by day.
+ *
+ * ## Why this route did not exist until now
+ *
+ * `/cook/food-photos` was POST-only. A cook could post a photo of dinner and had
+ * no way to see it, or to see whether anyone had posted at all today — while
+ * every resident in the hostel could. There was no reason for that beyond nobody
+ * having written the GET.
+ *
+ * ## Days come from `Asia/Kathmandu`, not from UTC
+ *
+ * See `food-photo-days.ts`. A breakfast photographed at 05:30 local is
+ * `23:45Z` the previous day; grouped by UTC it lands under the day before and
+ * the kitchen quietly stops trusting the screen.
+ *
+ * ## `source`, not `uploadedBy`
+ *
+ * The cook login is shared kitchen-wide, so `uploadedBy` is the same user for
+ * every cook in the building and cannot answer "who posted this". What it *can*
+ * answer honestly is **kitchen or resident**, which is the distinction the
+ * screen actually needs — a resident's photo of their plate is not the
+ * kitchen's record of the meal.
+ */
+export async function listCookFoodPhotos(
+  principal: ApiPrincipal,
+  requestedHostelId?: string,
+) {
+  await connectToDatabase();
+
+  const hostelId = await resolveCookHostelId(principal, requestedHostelId);
+
+  const photos = await FoodPhotoModel.find({ hostelId })
+    // Same order the resident feed uses: the meal's own date leads, and
+    // `uploadedAt` breaks ties within a day so two lunches read in the order
+    // they were actually posted.
+    .sort({ date: -1, uploadedAt: -1 })
+    .limit(COOK_PHOTO_LIMIT)
+    .lean<CookFoodPhotoRecord[]>();
+
+  const serialized = photos.map((photo) => ({
+    caption: photo.caption ?? "",
+    date: photo.date,
+    id: photo._id.toString(),
+    mealType: photo.mealType,
+    photoAssetId: photo.photoAssetId,
+    source: photo.residentId ? ("RESIDENT" as const) : ("KITCHEN" as const),
+    uploadedAt: photo.uploadedAt,
+  }));
+
+  const days = groupPhotosByDay(serialized).map((entry) => ({
+    day: entry.day,
+    /** Distinct meals covered, which is what "did we document today" means. */
+    mealsCovered: coveredMealCount(entry.photos),
+    photos: entry.photos.map((photo) => ({
+      ...photo,
+      date: photo.date.toISOString(),
+      uploadedAt: photo.uploadedAt.toISOString(),
+    })),
+  }));
+
+  return {
+    days,
+    /** Whether the cap was hit, so a client knows the feed is not the whole history. */
+    hasMore: photos.length === COOK_PHOTO_LIMIT,
+    total: photos.length,
+  };
 }
 
 /** Recent announcements, for the cook dashboard and food-timing reports. */
