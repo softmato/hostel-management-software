@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  GOOGLE_BUILD_NOT_REGISTERED_MESSAGE,
   GOOGLE_NOT_CONFIGURED_MESSAGE,
   GOOGLE_NO_TOKEN_MESSAGE,
   type GoogleStatusCodes,
@@ -37,15 +38,34 @@ describe("googleFailureMessage", () => {
     expect(message).toContain("email and password");
   });
 
-  it("falls back to a retryable message for an unrecognised code", () => {
-    expect(googleFailureMessage("DEVELOPER_ERROR", ANDROID)).toBe(
-      "Could not sign in with Google. Try again, or use your email and password.",
+  /*
+   * The bug this branch was added for. `ErrorDto.kt` stringifies the numeric
+   * `ApiException` status, so `DEVELOPER_ERROR` arrives as `"10"` — never as
+   * its name — and used to land in the retry bucket, telling people to retry a
+   * build Google will refuse every time.
+   */
+  it("tells the user the build is unregistered, not to retry, on DEVELOPER_ERROR", () => {
+    const message = googleFailureMessage("10", ANDROID);
+
+    expect(message).toBe(GOOGLE_BUILD_NOT_REGISTERED_MESSAGE);
+    expect(message).not.toContain("Try again");
+  });
+
+  it("carries the code in the fallback so a report narrows something", () => {
+    expect(googleFailureMessage("7", ANDROID)).toBe(
+      "Could not sign in with Google (7). Try again, or use your email and password.",
     );
   });
 
-  it("falls back when there is no code at all", () => {
-    expect(googleFailureMessage(null, ANDROID)).not.toBeNull();
-    expect(googleFailureMessage(undefined, ANDROID)).not.toBeNull();
+  it("falls back when there is no code at all, without an empty bracket", () => {
+    for (const message of [
+      googleFailureMessage(null, ANDROID),
+      googleFailureMessage(undefined, ANDROID),
+    ]) {
+      expect(message).toBe(
+        "Could not sign in with Google. Try again, or use your email and password.",
+      );
+    }
   });
 
   /*

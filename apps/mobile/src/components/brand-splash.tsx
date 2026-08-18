@@ -1,5 +1,4 @@
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import Animated, {
@@ -11,15 +10,22 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { APP_NAME, POWERED_BY, logo } from "@/constants/branding";
+import { palette } from "@/constants/theme";
 
 /**
  * The JS splash, shown over the app while the boot gate decides where to go.
  *
- * It is drawn to match the *native* splash in app.json — same brand-green
- * ground, same centred mark — so the handover between the two is invisible.
- * The native splash covers the milliseconds before React mounts; this one
- * covers the token read. If they looked different you would see a flicker at
- * the seam, which is the exact thing the boot contract is about.
+ * It is drawn to match the *native* splash in app.json — same white ground,
+ * same centred green mark at the same size — so the handover between the two is
+ * invisible. The native splash covers the milliseconds before React mounts;
+ * this one covers the token read. If they looked different you would see a
+ * flicker at the seam, which is the exact thing the boot contract is about.
+ *
+ * It is also the only one of the two that can draw *words*: an Android splash
+ * is one image on one colour and nothing else, so `APP_NAME` and the
+ * "Powered by" line can only come from here. That is why `_layout.tsx` uncovers
+ * the native splash as soon as React has painted rather than holding it to the
+ * end of boot — otherwise this screen is never seen at all.
  *
  * The mark fades and lifts slightly rather than appearing hard, and the
  * "Powered by" line trails it — enough motion to feel deliberate, not so much
@@ -44,23 +50,16 @@ export function BrandSplash({ message }: { message?: string }) {
   const tailStyle = useAnimatedStyle(() => ({ opacity: tailOpacity.value }));
 
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <LinearGradient
-        colors={["#0a8a4b", "#088043", "#066636"]}
-        end={{ x: 1, y: 1 }}
-        start={{ x: 0, y: 0 }}
-        style={StyleSheet.absoluteFill}
-      />
-
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: palette.light.background }]}>
       <View className="flex-1 items-center justify-center px-8">
         <Animated.View className="items-center" style={markStyle}>
           <Image
             contentFit="contain"
-            source={logo.markLight}
-            style={{ height: 108, width: 108 }}
+            source={logo.mark}
+            style={{ height: 140, width: 140 }}
             transition={0}
           />
-          <Text className="mt-5 text-3xl font-semibold tracking-tight text-white">
+          <Text className="mt-5 text-3xl font-semibold tracking-tight text-foreground">
             {APP_NAME}
           </Text>
         </Animated.View>
@@ -69,12 +68,12 @@ export function BrandSplash({ message }: { message?: string }) {
       <Animated.View className="items-center pb-14" style={tailStyle}>
         {message ? (
           <View className="mb-5 flex-row items-center gap-2">
-            <ActivityIndicator color="rgba(255,255,255,0.85)" size="small" />
-            <Text className="text-sm text-white/80">{message}</Text>
+            <ActivityIndicator color={palette.light.brand} size="small" />
+            <Text className="text-muted-foreground text-sm">{message}</Text>
           </View>
         ) : null}
 
-        <Text className="text-xs font-medium uppercase tracking-[2px] text-white/70">
+        <Text className="text-muted-foreground text-xs font-medium uppercase tracking-[2px]">
           {POWERED_BY}
         </Text>
       </Animated.View>

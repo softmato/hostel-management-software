@@ -90,7 +90,7 @@ export const roleAccent = {
 export type RoleAccentKey = keyof typeof roleAccent;
 
 /** Splash background, duplicated in app.json — Expo reads that one before JS boots. */
-export const SPLASH_BACKGROUND = { dark: "#07301f", light: "#0a8a4b" } as const;
+export const SPLASH_BACKGROUND = { dark: "#0c0a09", light: "#ffffff" } as const;
 
 export const radius = { card: 16, control: 10, sheet: 24 } as const;
 

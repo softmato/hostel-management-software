@@ -17,7 +17,7 @@ import { BottomChromeProvider } from "@/components/bottom-chrome";
 import { AssetViewer } from "@/components/asset-viewer";
 import { BrandSplash } from "@/components/brand-splash";
 import { UploadToaster } from "@/components/upload-toaster";
-import { useAppDispatch, useAppSelector } from "@/hooks/redux";
+import { useAppDispatch } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { usePush } from "@/hooks/use-push";
 import { useRealtime } from "@/hooks/use-realtime";
@@ -35,7 +35,6 @@ void SplashScreen.preventAutoHideAsync();
 function RootShell() {
   const dispatch = useAppDispatch();
   const { colors, isDark } = useAppTheme();
-  const isReady = useAppSelector((state) => state.auth.isReady);
   const uploads = useUploads();
 
   /*
@@ -83,16 +82,21 @@ function RootShell() {
    * fired and the splash stayed over the app permanently. The root layout is the
    * one component mounted on every route, deep-linked or not.
    *
-   * The timing is unchanged: `isReady` still flips only after
-   * `bootstrapSession`, and this effect runs after the commit in which the gate
-   * has already resolved its `<Redirect>` — so the first thing drawn is still
-   * the destination.
+   * It fires on mount rather than waiting for `isReady`, and the handover is
+   * still seamless because `BrandSplash` is drawn to the same white ground and
+   * the same centred mark as the native splash in app.json. What it buys is the
+   * *words*: an Android splash is one image on one colour and cannot draw text,
+   * so `HostelHub` and "Powered by Softmato" exist only in `BrandSplash` — and
+   * holding the native one to the end of boot meant nobody ever saw them.
+   *
+   * There is still nothing to flash past. This effect runs after the subtree
+   * below has committed, and while `isReady` is false every route under it —
+   * the gate, and `PersistGate` above it — renders `BrandSplash`. The login
+   * screen the boot contract exists to hide is never among them.
    */
   useEffect(() => {
-    if (isReady) {
-      void SplashScreen.hideAsync();
-    }
-  }, [isReady]);
+    void SplashScreen.hideAsync();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

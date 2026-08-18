@@ -26,6 +26,33 @@ export const GOOGLE_NOT_CONFIGURED_MESSAGE =
   "Google sign-in is not set up in this build. Use your email and password.";
 
 /**
+ * Android's `DEVELOPER_ERROR`, as a literal — the one code here that is not
+ * injected, because the library's `statusCodes` has no entry for it and so
+ * there is nothing for the caller to pass in.
+ *
+ * Safe as a literal in a way the others are not: `ErrorDto.kt` stringifies
+ * `ApiException.getStatusCode()`, and Android's status codes are positive
+ * integers while iOS's `GIDSignInError` values are negative, so `"10"` cannot
+ * collide with an iOS code.
+ */
+const ANDROID_DEVELOPER_ERROR = "10";
+
+/**
+ * `DEVELOPER_ERROR`. Google could not match this *installed build* to an OAuth
+ * client: package name plus the SHA-1 of the certificate that signed the APK
+ * must be registered on an Android client in the same Google Cloud project as
+ * `webClientId`. The account sheet still opens — it is only on picking an
+ * account that Play services looks the app up and fails.
+ *
+ * Worth its own message because the generic one tells the user to try again,
+ * and no number of retries can fix a build that Google does not recognise.
+ * Nothing on the phone is wrong, so it says so and names the one action that
+ * helps.
+ */
+export const GOOGLE_BUILD_NOT_REGISTERED_MESSAGE =
+  "This app build is not registered with Google, so Google sign-in cannot work here. Nothing is wrong with your phone or your Google account. Sign in with your email and password, and tell the hostel this build needs its Google setup fixed.";
+
+/**
  * Shown when Google returns a signed-in user whose `idToken` is null. On
  * Android that means `webClientId` was missing or wrong at `configure()` time —
  * the token is minted for the *server's* client, and without one there is
@@ -65,5 +92,18 @@ export function googleFailureMessage(
     return "Google Play services is missing or out of date on this phone. Update it, or sign in with your email and password.";
   }
 
-  return "Could not sign in with Google. Try again, or use your email and password.";
+  if (code === ANDROID_DEVELOPER_ERROR) {
+    return GOOGLE_BUILD_NOT_REGISTERED_MESSAGE;
+  }
+
+  /*
+   * Everything else. The code is appended rather than swallowed: this branch
+   * exists precisely for failures nobody anticipated, and without it a report
+   * reads "it said try again" — which narrows nothing. `10` reaching a user
+   * once already cost a debugging session that a visible code would have ended
+   * in a minute.
+   */
+  return code
+    ? `Could not sign in with Google (${code}). Try again, or use your email and password.`
+    : "Could not sign in with Google. Try again, or use your email and password.";
 }
