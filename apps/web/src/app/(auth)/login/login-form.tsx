@@ -123,7 +123,7 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
             className="text-[13px] font-semibold text-[#0F172A]"
             htmlFor="login-identifier"
           >
-            Email or Phone Number
+            Email or Access Username
           </label>
           <div className="flex h-[52px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 transition focus-within:border-[#0A8A4B] focus-within:ring-2 focus-within:ring-[#0A8A4B]/15">
             <User className="size-[18px] shrink-0 text-slate-400" />
@@ -133,7 +133,7 @@ function LoginFormContent({ googleClientId }: { googleClientId: string }) {
               id="login-identifier"
               name="identifier"
               onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="Enter your email or phone number"
+              placeholder="Enter your email or temporary access username"
               required
               type="text"
               value={identifier}

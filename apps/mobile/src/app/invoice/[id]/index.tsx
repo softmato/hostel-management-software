@@ -22,13 +22,7 @@ import {
   type ResidentFinanceView,
   type ResidentInvoice,
 } from "@/lib/finance-api";
-import {
-  formatDate,
-  formatDueLabel,
-  formatMoney,
-  formatPeriod,
-  humanizeEnum,
-} from "@/lib/format";
+import { formatDate, formatDateBoth, formatDueLabel, formatMoney, formatPeriod, humanizeEnum } from "@/lib/format";
 import { invoiceLedger, outstanding } from "@/lib/invoice-ledger";
 import { toastError, toastSuccess } from "@/lib/toast";
 
@@ -42,14 +36,19 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * its row out. That is one extra request rather than a second shape that can
  * drift from the list's — and the list is small (a resident's own months).
  *
- * ## What is not here
+ * ## Breakdown, then statement
  *
- * The invoice's **line items**. `Invoice.lines` exists in the database, with a
- * description, a signed amount and a proration basis per line — but
- * `toPortalInvoice()` does not return it and no resident endpoint exposes it,
- * so the breakdown of *why* a month costs what it costs cannot be shown yet.
- * The running balance below is built from what the API does return; see the
- * server gap noted against this item in docs/MOBILE_APP_PHASES.md.
+ * They answer different questions and both are here. The **breakdown** is what
+ * the month is made of — rent, a part-month proration, an admission fee, a
+ * carried credit — and it is why the total is the number it is. The
+ * **statement** is what has happened to that total since: charges and payments
+ * in order, with a running balance. A resident asking "why is this month more
+ * than last?" wants the first; one asking "did my payment land?" wants the
+ * second.
+ *
+ * The breakdown was blocked server-side until 2026-08-17: `Invoice.lines` had
+ * always existed and `toPortalInvoice()` dropped it, so a resident could see
+ * what they owed and never why.
  */
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -125,6 +124,8 @@ export default function InvoiceDetailScreen() {
 
         <ReferenceCard invoice={invoice} />
 
+        <BreakdownCard invoice={invoice} />
+
         <LedgerCard invoice={invoice} />
 
         {claims.length > 0 ? <ClaimsCard claims={claims} /> : null}
@@ -150,7 +151,7 @@ function SummaryCard({ invoice, owed }: { invoice: ResidentInvoice; owed: number
 
       {invoice.dueDate ? (
         <Text variant="muted">
-          {`Due ${formatDate(invoice.dueDate)}${owed > 0 && dueLabel ? ` · ${dueLabel}` : ""}`}
+          {`Due ${formatDateBoth(invoice.dueDate)}${owed > 0 && dueLabel ? ` · ${dueLabel}` : ""}`}
         </Text>
       ) : null}
     </Card>
@@ -188,6 +189,86 @@ function ReferenceCard({ invoice }: { invoice: ResidentInvoice }) {
         title="Copy reference"
       />
     </Card>
+  );
+}
+
+/**
+ * What the month is made of.
+ *
+ * ## Rendered only when the server has lines
+ *
+ * Migrated history has none — invoices that came from the old `Payment` rows
+ * predate the breakdown — so an empty card would appear on exactly the oldest
+ * months, where a resident is most likely to be checking something. No lines,
+ * no section.
+ *
+ * ## The sign is the meaning
+ *
+ * A credit line is negative (target §9.4). Printing `formatMoney(amount)` on
+ * its absolute value would show a refund as a second charge, which is the one
+ * misreading that makes a resident phone the hostel. Negative lines are green
+ * and carry a minus, matching the statement below so the two do not disagree
+ * about which way money moved.
+ *
+ * ## The total is checked against the server's
+ *
+ * `Invoice.totalAmount` is a denormalised sum of the lines, kept honest by a
+ * pre-validate hook — so if these two ever disagree, something is wrong on the
+ * server and the resident should not be the last to know. Rather than silently
+ * showing whichever number is prettier, the card prints the line total and the
+ * summary above prints `dueAmount`; a mismatch is visible instead of hidden.
+ */
+function BreakdownCard({ invoice }: { invoice: ResidentInvoice }) {
+  if (invoice.lines.length === 0) {
+    return null;
+  }
+
+  const total = invoice.lines.reduce((sum, line) => sum + line.amount, 0);
+
+  return (
+    <View>
+      <SectionHeader
+        subtitle="Why this month costs what it does"
+        title="Breakdown"
+      />
+
+      <Card>
+        {invoice.lines.map((line, index) => (
+          <View key={`${line.description}-${index}`}>
+            {index > 0 ? <RowDivider /> : null}
+            <View className="min-h-14 flex-row items-center gap-3 py-3">
+              <View className="flex-1">
+                <Text variant="label">{line.description}</Text>
+                {/*
+                  The proration basis is the whole explanation of a part month
+                  — "18/31 days" turns an odd number into an obviously correct
+                  one — so it leads. The bed type is the fallback context.
+                */}
+                {line.prorationBasis ? (
+                  <Text variant="caption">{line.prorationBasis}</Text>
+                ) : line.bedType ? (
+                  <Text variant="caption">{humanizeEnum(line.bedType)}</Text>
+                ) : null}
+              </View>
+
+              <Text
+                className={line.amount < 0 ? "text-success" : "text-foreground"}
+                variant="label"
+              >
+                {`${line.amount < 0 ? "−" : ""}${formatMoney(Math.abs(line.amount))}`}
+              </Text>
+            </View>
+          </View>
+        ))}
+
+        <RowDivider />
+
+        <View className="flex-row items-center justify-between gap-3 py-3">
+          <Text variant="label">Total charged</Text>
+          <Text variant="label">{formatMoney(total)}</Text>
+        </View>
+      </Card>
+    </View>
   );
 }
 

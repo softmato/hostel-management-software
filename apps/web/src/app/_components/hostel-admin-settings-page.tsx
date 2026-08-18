@@ -10,6 +10,7 @@ import {
   Panel,
   Select,
 } from "@/app/_components/shared-ui";
+import { TemporaryCredentialsPanel } from "@/app/_components/temporary-credentials-panel";
 import { browserApi } from "@/lib/browser-api";
 import { usePortalResource } from "@/lib/portal-query";
 import { Message, PageHeader, field } from "./portal-shared";
@@ -172,11 +173,13 @@ export const HostelAdminSettingsPageContent = memo(
     return (
       <div className="mx-auto max-w-[1100px] space-y-6">
         <PageHeader
-          description="Location tracking, cook portal access, and community moderation for this hostel."
+          description="Temporary account access, location tracking, cook portal, and community moderation for this hostel."
           icon={Settings}
           title="Settings"
         />
         <Message value={message} />
+
+        <TemporaryCredentialsPanel tone="admin" />
 
         <Panel title="Location tracking & attendance">
           {attendanceResource.state === "loading" ? <LoadingRows /> : null}

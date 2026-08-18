@@ -8,14 +8,15 @@
  * package between the two yet, so this file is the seam: if a serializer
  * changes there, it changes here.
  *
- * ## Two fields on `/resident/dashboard` are not real yet
+ * ## `nightStatus` and `complaints` are real now
  *
- * `resident-dashboard.service.ts` returns `nightStatus: { status: "UNKNOWN",
- * checkedAt: null }` and `complaints: { openCount: 0, recent: [] }` as literals
- * — nothing writes them. They are typed here so the shape is honest, and
- * `getResidentNightStatus()` below exists because the real value has to come
- * from `GET /resident/night-status` instead. A screen that read the dashboard's
- * copy would tell every resident their status is unknown, forever.
+ * They used to be hardcoded literals on the server — `{ status: "UNKNOWN" }`,
+ * which is not a value the enum contains, and `{ openCount: 0, recent: [] }` —
+ * so Home made a second request to `/resident/night-status` and did not render
+ * complaints at all. `resident-dashboard.service.ts` reads both properly as of
+ * 2026-08-17, and `nightStatus` now carries the same `serializeNightStatus`
+ * shape the dedicated endpoint returns (absent means `NOT_VERIFIED`, never
+ * `UNKNOWN`). `getResidentNightStatus()` stays for the screen that *sets* it.
  */
 
 import { api } from "@/lib/api";
@@ -105,10 +106,20 @@ export type DashboardInvoice = {
   status: string;
 };
 
+/** The dashboard's cut of a complaint: enough for a row, no thread, no files. */
+export type DashboardComplaint = {
+  category: string;
+  createdAt?: string;
+  id: string;
+  /** Past its SLA and still open. The reason the row is worth showing at all. */
+  isOverdue: boolean;
+  status: string;
+  title: string;
+};
+
 export type ResidentDashboard = {
   accommodation: { roomType: string };
-  /** Server-side placeholder — see the file header. Do not render as truth. */
-  complaints: { openCount: number; recent: unknown[] };
+  complaints: { openCount: number; recent: DashboardComplaint[] };
   feeStatus: {
     dueAmount: number;
     latestPayment: DashboardInvoice | null;
@@ -118,8 +129,8 @@ export type ResidentDashboard = {
   /** Today's meals, already filtered to the current weekday by the server. */
   foodMenu: RoutineMeal[];
   hostel: ResidentHostel | null;
-  /** Server-side placeholder — see the file header. Read night status instead. */
-  nightStatus: { checkedAt: string | null; status: string };
+  /** Same `serializeNightStatus` shape the dedicated endpoint returns. */
+  nightStatus: NightStatus;
   notices: Pick<
     ResidentNotice,
     "category" | "content" | "id" | "isUrgent" | "publishedAt" | "title"

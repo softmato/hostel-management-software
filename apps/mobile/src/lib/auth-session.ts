@@ -26,6 +26,7 @@ import {
   fetchMe,
   logout as revokeSession,
 } from "@/lib/auth-api";
+import { revokePushToken } from "@/lib/push-notifications";
 import { clearTokens, readTokens, writeTokens } from "@/lib/session";
 import { persistor, resetStore, store } from "@/store";
 import {
@@ -131,8 +132,18 @@ export async function revalidateSession(): Promise<ApiUser | null> {
   const roleChanged = before.account?.role !== account.role;
   const providerChanged = before.account?.isServiceProvider !== account.isServiceProvider;
   const activationChanged = before.isResidentActivated !== activated;
+  /*
+   * An admin can re-issue a temporary password for an account that is already
+   * signed in on a phone. The boot gate routed from the cached flag, so without
+   * this the app carries on as normal until the next login — which is the whole
+   * window the set-password gate exists to close.
+   */
+  const passwordGateChanged =
+    Boolean(before.account?.mustChangePassword) !== Boolean(account.mustChangePassword);
 
-  return roleChanged || providerChanged || activationChanged ? account : null;
+  return roleChanged || providerChanged || activationChanged || passwordGateChanged
+    ? account
+    : null;
 }
 
 /** Called on every successful login, signup, Google exchange and QR activation. */
@@ -173,6 +184,18 @@ export async function endSession(options?: {
   revoke?: boolean;
 }) {
   const { reason = null, revoke = true } = options ?? {};
+
+  /*
+   * Before `clearTokens`, because this call is authenticated.
+   *
+   * Unconditional, unlike the session revoke below: `revoke: false` means the
+   * *refresh* token is already dead, not that this device should carry on
+   * receiving the departing account's notifications. The push row is keyed to a
+   * user id and survives sign-out, so without this the previous account's
+   * invoices, complaint replies and SOS alerts keep arriving on a handset it has
+   * signed out of. Never throws — see `revokePushToken`.
+   */
+  await revokePushToken();
 
   if (revoke) {
     const tokens = await readTokens();

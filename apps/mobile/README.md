@@ -48,6 +48,46 @@ them are secret — anything in here ships inside the APK and can be read out of
 | `EXPO_PUBLIC_WEB_DEV_PORT` | Dev web server port | `3000` |
 | `EXPO_PUBLIC_PUSHER_KEY` | Live notifications | — |
 | `EXPO_PUBLIC_PUSHER_CLUSTER` | Live notifications | — |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | Google sign-in — the only one code reads on Android | — |
+| `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` | Reference only; see below | — |
+| `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | Google sign-in (iOS) | — |
+
+> **These live in `apps/mobile/.env`, not the repo-root `.env`.** That is the one
+> deliberate exception to the single-env-file rule: Expo loads `.env` from the
+> project directory it is started in and does not walk up to the monorepo root,
+> so an `EXPO_PUBLIC_` var at the root never reaches the bundle. The root `.env`
+> keeps `GOOGLE_CLIENT_ID` for the *server's* audience check; all three IDs below
+> must come from the same Google Cloud project as it, or the token the phone gets
+> will not verify.
+
+### Google sign-in
+
+Two OAuth clients in one Google Cloud project, doing two different jobs:
+
+- The **web** client is what the ID token is *addressed to*. `configure({
+  webClientId })` makes Google mint a token whose `aud` is that client, and the
+  server verifies with `audience: GOOGLE_CLIENT_ID` — the same web client the
+  website uses. This is the only client id any mobile code reads.
+- The **Android** client is what authorises *this APK* to reach Google at all,
+  matched on `com.softmato.hostelhub` plus the signing certificate's SHA-1. It
+  must exist, and every keystore that signs a build needs its SHA-1 registered
+  on it — the EAS one **and** the local debug keystore, or `expo run:android`
+  fails while an EAS build works. It is never named in code.
+
+Naming the Android client in `configure()` is the obvious mistake and produces a
+token the server rejects as `GOOGLE_TOKEN_INVALID`, with nothing in the message
+to say why.
+
+**It needs a dev or preview build** — `@react-native-google-signin/google-signin`
+is a native module and is not in Expo Go. Nothing on the boot path imports
+[`src/lib/google-auth.ts`](src/lib/google-auth.ts), so the rest of the app still
+runs under Expo Go; only the Google button is dead there.
+
+No config plugin is registered for it. The plugin's bare form is its *Firebase*
+mode and demands a `google-services.json` this project does not have; the other
+form exists only to add an iOS URL scheme. Android needs neither. Add
+`["@react-native-google-signin/google-signin", { "iosUrlScheme": "…" }]` to
+`app.json` when an iOS client is created.
 
 In development you normally set none of these. `resolveApiBaseUrl` in
 [`src/lib/api.ts`](src/lib/api.ts) reads the LAN address Metro is being served

@@ -9,21 +9,38 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "567374505362-r3tl1gsj0rdhfmmbcdb713hqhhn999go.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "567374505362-se2ndertsjflc7mgqtdg0i0fbcp43qcp.apps.googleusercontent.com"
+      },
+      "environment": "development"
     },
     "preview": {
       "distribution": "internal",
       "channel": "preview",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://hostel-management-software-web.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "567374505362-r3tl1gsj0rdhfmmbcdb713hqhhn999go.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "567374505362-se2ndertsjflc7mgqtdg0i0fbcp43qcp.apps.googleusercontent.com"
+      },
+      "environment": "preview"
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://hostel-management-software-web.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "567374505362-r3tl1gsj0rdhfmmbcdb713hqhhn999go.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "567374505362-se2ndertsjflc7mgqtdg0i0fbcp43qcp.apps.googleusercontent.com"
+      },
+      "environment": "production"
     }
   },
   "submit": {

@@ -25,7 +25,6 @@ import {
 } from "@/lib/format";
 import {
   getResidentDashboard,
-  getResidentNightStatus,
   type NightStatus,
   type ResidentDashboard,
   type RoutineMeal,
@@ -34,26 +33,20 @@ import {
 /**
  * The resident's home.
  *
- * ## Why two requests
+ * ## One request
  *
- * `GET /resident/dashboard` returns a `nightStatus` field and it is a hardcoded
- * `{ status: "UNKNOWN", checkedAt: null }` — nothing on the server writes it.
- * Rendering that would tell every resident, forever, that their status is
- * unknown. The real value comes from `GET /resident/night-status`, so this
- * screen asks for both and ignores the dashboard's copy. The dashboard's
- * `complaints` block is a literal `{ openCount: 0, recent: [] }` for the same
- * reason, so it is not rendered at all rather than shown as a confident zero.
+ * It used to be two. `GET /resident/dashboard` returned `nightStatus` as a
+ * hardcoded `{ status: "UNKNOWN", checkedAt: null }` — a value the enum does
+ * not even contain, written by nothing — so this screen fetched
+ * `/resident/night-status` alongside it and ignored the dashboard's copy. Its
+ * `complaints` block was the literal `{ openCount: 0, recent: [] }`, and a
+ * confident zero on a resident with three open complaints is worse than an
+ * absent card, so it was not rendered at all.
  *
- * Night status is fetched **tolerantly**: if the safety module errors, that one
- * card drops out and the rest still renders. Dues and today's menu are why
- * someone opened the app, and they should not vanish because an unrelated
- * collection is having a bad day.
+ * `resident-dashboard.service.ts` reads both properly as of 2026-08-17, so the
+ * second request is gone and complaints render. The absent night status is
+ * `NOT_VERIFIED`, which is a real answer, not a missing one.
  */
-
-type HomeData = {
-  dashboard: ResidentDashboard;
-  nightStatus: NightStatus | null;
-};
 
 const MEAL_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   BREAKFAST: "sunny-outline",
@@ -69,20 +62,11 @@ const QUICK_ACTIONS = [
   { href: "/(resident)/more", icon: "person-outline", label: "Profile" },
 ] as const;
 
-async function loadHome(): Promise<HomeData> {
-  const [dashboard, nightStatus] = await Promise.all([
-    getResidentDashboard(),
-    getResidentNightStatus().catch(() => null),
-  ]);
-
-  return { dashboard, nightStatus };
-}
-
 export default function ResidentHomeScreen() {
   const account = useAppSelector((state) => state.auth.account);
-  const home = useResource<HomeData>(useCallback(() => loadHome(), []));
+  const home = useResource<ResidentDashboard>(useCallback(() => getResidentDashboard(), []));
 
-  const dashboard = home.data?.dashboard;
+  const dashboard = home.data;
   const firstName = dashboard?.resident.firstName ?? account?.name?.split(" ")[0] ?? "";
 
   const header = (
@@ -111,8 +95,6 @@ export default function ResidentHomeScreen() {
     );
   }
 
-  const nightStatus = home.data?.nightStatus ?? null;
-
   return (
     <Screen
       header={header}
@@ -130,7 +112,9 @@ export default function ResidentHomeScreen() {
           roomType={dashboard.accommodation.roomType}
         />
 
-        {nightStatus ? <NightStatusCard status={nightStatus} /> : null}
+        <NightStatusCard status={dashboard.nightStatus} />
+
+        <ComplaintsCard complaints={dashboard.complaints} />
 
         <TodaysMenuCard meals={dashboard.foodMenu} />
 
@@ -217,20 +201,102 @@ function RoomCard({
   );
 }
 
+/**
+ * Pressable since M5.2/M5.3, when `/night-status` started existing.
+ *
+ * The card deliberately does not offer the three choices inline. Setting a night
+ * status is a `POST` whose whole meaning is "where I am", and a dashboard tile
+ * that fires one on a mis-tap — next to a card about rent — is the wrong place
+ * for it. It reports and it links.
+ */
 function NightStatusCard({ status }: { status: NightStatus }) {
+  const { colors } = useAppTheme();
+
   return (
-    <Card className="gap-2">
-      <View className="flex-row items-center justify-between gap-3">
-        <Text variant="label">Night status</Text>
-        <StatusPill status={status.status} />
-      </View>
-      <Text variant="caption">
-        {status.checkedAt
-          ? `Last checked ${formatRelativeDay(status.checkedAt)}`
-          : "You have not been checked in tonight."}
-      </Text>
-      {status.note ? <Text variant="muted">{status.note}</Text> : null}
-    </Card>
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => router.push("/night-status")}
+    >
+      <Card className="gap-2 active:opacity-80">
+        <View className="flex-row items-center justify-between gap-3">
+          <Text variant="label">Night status</Text>
+          <View className="flex-row items-center gap-1">
+            <StatusPill status={status.status} />
+            <Ionicons color={colors.mutedForeground} name="chevron-forward" size={16} />
+          </View>
+        </View>
+        <Text variant="caption">
+          {status.checkedAt
+            ? `Last checked ${formatRelativeDay(status.checkedAt)}`
+            : "You have not been checked in tonight."}
+        </Text>
+        {status.note ? <Text variant="muted">{status.note}</Text> : null}
+      </Card>
+    </Pressable>
+  );
+}
+
+/**
+ * Only when there is something to say.
+ *
+ * A resident who has never complained does not need a card telling them so. The
+ * rows became pressable in M5.2, when `/complaints/[id]` started existing — the
+ * dashboard's cut of a complaint carries no thread and no attachments, so the row
+ * is a pointer into the real screen rather than a summary that tries to be one.
+ */
+function ComplaintsCard({
+  complaints,
+}: {
+  complaints: ResidentDashboard["complaints"];
+}) {
+  if (complaints.openCount === 0 && complaints.recent.length === 0) {
+    return null;
+  }
+
+  return (
+    <View>
+      <SectionHeader
+        action={
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => router.push("/complaints")}
+          >
+            <Text className="text-primary" variant="label">
+              See all
+            </Text>
+          </Pressable>
+        }
+        subtitle={
+          complaints.openCount === 1
+            ? "1 still open"
+            : `${complaints.openCount} still open`
+        }
+        title="Your complaints"
+      />
+
+      <Card>
+        {complaints.recent.map((complaint, index) => (
+          <View key={complaint.id}>
+            {index > 0 ? <RowDivider /> : null}
+            <ListRow
+              onPress={() => router.push(`/complaints/${complaint.id}`)}
+              right={
+                complaint.isOverdue ? (
+                  <Badge label="Overdue" tone="danger" />
+                ) : (
+                  <StatusPill status={complaint.status} />
+                )
+              }
+              subtitle={`${humanizeEnum(complaint.category)} · ${formatRelativeDay(
+                complaint.createdAt,
+              )}`}
+              title={complaint.title}
+            />
+          </View>
+        ))}
+      </Card>
+    </View>
   );
 }
 

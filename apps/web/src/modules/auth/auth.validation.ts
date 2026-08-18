@@ -1,9 +1,25 @@
 import { z } from "zod";
 
 import { objectIdSchema } from "@/lib/validators";
+import { temporaryCredentialUsernameSchema } from "@/modules/auth/temporary-credential.validation";
 
+/**
+ * `identifier` is an email address **or** a temporary-access username issued
+ * from Settings. The two namespaces are told apart by `@`, which an email
+ * always has and a temporary username never may — so this accepts either shape
+ * and `login()` routes on that one character.
+ */
 export const loginSchema = z.object({
-  identifier: z.string().trim().email("Expected a valid email address."),
+  identifier: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        value.includes("@")
+          ? z.string().email().safeParse(value).success
+          : temporaryCredentialUsernameSchema.safeParse(value).success,
+      "Enter a valid email address or temporary access username.",
+    ),
   password: z.string().min(1, "Password is required."),
 });
 

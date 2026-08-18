@@ -26,6 +26,7 @@ export type Role = (typeof ROLE)[keyof typeof ROLE];
 export type HomeRoute =
   | "/(admin)"
   | "/(auth)/login"
+  | "/(auth)/set-password"
   | "/(browse)"
   | "/(cook)"
   | "/(guardian)"
@@ -39,6 +40,8 @@ export type AccountShape = {
   isApprovedProvider?: boolean;
   /** False for a RESIDENT account that has not yet redeemed its QR code. */
   isResidentActivated?: boolean;
+  /** Set on admin-provisioned logins (cook, warden) until they pick their own. */
+  mustChangePassword?: boolean;
   role: Role;
 };
 
@@ -65,6 +68,18 @@ export type AccountShape = {
 export function resolveHome(account: AccountShape | null): HomeRoute {
   if (!account) {
     return "/(public)";
+  }
+
+  /*
+   * Before the role, deliberately.
+   *
+   * A cook or warden account is created by a hostel admin with a temporary
+   * password that the admin chose and can still use. Until it is replaced, the
+   * account's food-ready logs and messages are deniable — so this is a gate on
+   * every launch, not a prompt that can be dismissed into the app behind it.
+   */
+  if (account.mustChangePassword) {
+    return "/(auth)/set-password";
   }
 
   switch (account.role) {

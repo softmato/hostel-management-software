@@ -12,6 +12,12 @@ export type AuthTokenPayload = JWTPayload & {
   role: Role;
   hostelIds?: string[];
   sessionId?: string;
+  /**
+   * Present only when the session was opened with a temporary credential
+   * (Settings → Temporary access). Its presence *is* the "this is a borrowed
+   * login" flag, so there is no second boolean to keep in step with it.
+   */
+  temporaryCredentialId?: string;
   tokenType: TokenType;
 };
 
@@ -19,6 +25,7 @@ type TokenInput = {
   hostelIds?: string[];
   role: Role;
   sessionId?: string;
+  temporaryCredentialId?: string;
   userId: string;
 };
 
@@ -83,6 +90,9 @@ export async function signAccessToken(input: TokenInput) {
     role: input.role,
     hostelIds: input.hostelIds ?? [],
     sessionId: input.sessionId,
+    ...(input.temporaryCredentialId
+      ? { temporaryCredentialId: input.temporaryCredentialId }
+      : {}),
     tokenType: "access",
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -97,6 +107,9 @@ export async function signRefreshToken(input: TokenInput) {
     role: input.role,
     hostelIds: input.hostelIds ?? [],
     sessionId: input.sessionId,
+    ...(input.temporaryCredentialId
+      ? { temporaryCredentialId: input.temporaryCredentialId }
+      : {}),
     tokenType: "refresh",
   })
     .setProtectedHeader({ alg: "HS256" })

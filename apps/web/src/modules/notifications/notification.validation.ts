@@ -46,3 +46,32 @@ export const deviceTokenSaveSchema = z.object({
   platform: z.enum(["IOS", "ANDROID", "WEB"]),
   token: z.string().trim().min(8).max(4096),
 });
+
+/**
+ * Sign-out. Only the token, because the caller is already authenticated and the
+ * service refuses to revoke a row belonging to anyone else — see
+ * `revokeDeviceToken`.
+ */
+export const deviceTokenRevokeSchema = z.object({
+  token: z.string().trim().min(8).max(4096),
+});
+
+/**
+ * Notification preferences.
+ *
+ * Every field optional so the client can PATCH one switch without echoing the
+ * whole object back — a settings screen that has to round-trip the full record
+ * to flip one toggle will eventually overwrite a field it never showed.
+ *
+ * Times are minutes past local midnight (0–1439); see the model for why they are
+ * not `Date`s. `mutedCategories` is capped so the array cannot be used as
+ * unbounded storage.
+ */
+export const notificationPreferenceUpdateSchema = z.object({
+  mutedCategories: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
+  pushEnabled: z.boolean().optional(),
+  quietHoursEnabled: z.boolean().optional(),
+  quietHoursEnd: z.number().int().min(0).max(1439).optional(),
+  quietHoursStart: z.number().int().min(0).max(1439).optional(),
+  timeZone: z.string().trim().min(1).max(64).optional(),
+});

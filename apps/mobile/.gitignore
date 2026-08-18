@@ -19,6 +19,13 @@ expo-env.d.ts
 /android
 /ios
 
+# EAS signing credentials. `*.jks` already covers the keystore itself, but
+# credentials.json holds its passwords and key alias in plaintext — the two
+# halves of the signing identity, and losing them means anyone can publish an
+# APK Android accepts as an update to ours.
+credentials.json
+credentials/
+
 # Metro
 .metro-health-check*
 
@@ -33,6 +40,22 @@ yarn-error.*
 # local env files
 .env*.local
 .env
+
+# Firebase, for FCM only — this app signs in with Google through the OAuth client
+# ids in `.env`, not through Firebase Auth, so this file exists purely so Android
+# can receive push.
+#
+# Google's position is that the Android API key inside it is not a secret: it is
+# restricted by package name plus signing SHA and is meant to ship inside the
+# APK. That holds for a private repo. **This repo is public**, where a committed
+# `AIza…` key is scraped within hours and burns quota against a project that then
+# has to be rotated — so it stays out, and reaches a build as an EAS file
+# variable instead (`GOOGLE_SERVICES_JSON`, read by `app.config.js`).
+#
+# Ignored rather than merely untracked because the alternative was one `git add .`
+# away: nothing here warns you before the key is in a public history for good.
+google-services.json
+GoogleService-Info.plist
 
 # typescript
 *.tsbuildinfo

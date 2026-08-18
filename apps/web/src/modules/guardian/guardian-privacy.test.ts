@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   complaintFind: vi.fn(),
   connectToDatabase: vi.fn(),
   foodRoutine: vi.fn(),
+  guardianAccessCreate: vi.fn(),
   guardianAccessFindOne: vi.fn(),
   guardianFindOne: vi.fn(),
   guardianPermissionFindOne: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
 
 vi.mock("@hostel/db/models/GuardianAccess", () => ({
   GuardianAccessModel: {
+    create: mocks.guardianAccessCreate,
     findOne: mocks.guardianAccessFindOne,
     updateMany: vi.fn(),
     updateOne: vi.fn(),
@@ -79,7 +81,10 @@ vi.mock("@/modules/food/food-routine.service", () => ({
 
 vi.mock("@/modules/auth/auth.service", () => ({ issueSessionForUser: vi.fn() }));
 
-import { getGuardianDashboard } from "@/modules/guardian/guardian.service";
+import {
+  createGuardianAccess,
+  getGuardianDashboard,
+} from "@/modules/guardian/guardian.service";
 
 const hostelId = "64f0f0f0f0f0f0f0f0f0f0d1";
 const residentId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0d2");
@@ -151,7 +156,12 @@ describe("guardian dashboard privacy", () => {
       }),
     );
     mocks.hostelFindOne.mockReturnValue(
-      leanResult({ _id: new Types.ObjectId(hostelId), location: {}, name: "Sunrise" }),
+      leanResult({
+        _id: new Types.ObjectId(hostelId),
+        contact: { email: "office@sunrise.test", phone: "9812345678" },
+        location: {},
+        name: "Sunrise",
+      }),
     );
     // Since item 2.8 the guardian view reads through the ledger facade, so the
     // fixture is a pipeline row rather than a `Payment` document.
@@ -257,6 +267,57 @@ describe("guardian dashboard privacy", () => {
     expect(JSON.stringify(dashboard.safety)).not.toContain("22:45");
   });
 
+  /*
+   * The three below are the contract both clients render off. Each one was a
+   * live rendering bug on the web dashboard for as long as its hand-written
+   * type disagreed with this serializer: "undefined undefined" as the ward's
+   * name, "Invalid Date" in the Safety card, and a hard throw on `summary`.
+   */
+  it("names the resident with a single fullName, not first/last", async () => {
+    setPermissions(null);
+
+    const { dashboard } = await getGuardianDashboard(guardianPrincipal);
+
+    expect(dashboard.resident.fullName).toBe("Asha Rai");
+    expect(dashboard.resident).not.toHaveProperty("firstName");
+    expect(dashboard.resident).not.toHaveProperty("lastName");
+  });
+
+  it("returns a null summary — not a zeroed one — without payment permission", async () => {
+    setPermissions({ canViewSafety: true });
+
+    const { dashboard } = await getGuardianDashboard(guardianPrincipal);
+
+    expect(dashboard.summary).toBeNull();
+    expect(dashboard.permissions.canViewPayments).toBe(false);
+  });
+
+  it("carries the permission flags, so an empty section can be told from a denied one", async () => {
+    setPermissions({ canViewNotices: true });
+
+    const { dashboard } = await getGuardianDashboard(guardianPrincipal);
+
+    expect(dashboard.permissions).toEqual({
+      canViewComplaintStatus: false,
+      canViewFood: false,
+      canViewNotices: true,
+      canViewPayments: false,
+      canViewReceipts: false,
+      canViewSafety: false,
+    });
+  });
+
+  it("gives the guardian the hostel's own contact number", async () => {
+    setPermissions(null);
+
+    const { dashboard } = await getGuardianDashboard(guardianPrincipal);
+
+    expect(dashboard.hostel?.contact).toEqual({
+      email: "office@sunrise.test",
+      phone: "9812345678",
+    });
+  });
+
   it("only asks for notices addressed to guardians", async () => {
     setPermissions({ canViewNotices: true });
 
@@ -267,5 +328,85 @@ describe("guardian dashboard privacy", () => {
         targetAudience: { $in: ["ALL", "GUARDIANS"] },
       }),
     );
+  });
+});
+
+/**
+ * The access code is the credential `POST /guardian/login` takes, alongside a
+ * phone number that is not a secret. It was `Math.random().toString(36)` until
+ * 2026-08-17 — a seeded generator whose state is recoverable from a handful of
+ * outputs, which a hostel admin issuing several codes in an afternoon supplies.
+ */
+describe("guardian access codes", () => {
+  const adminPrincipal = {
+    hostelIds: [hostelId],
+    role: Role.HOSTEL_ADMIN,
+    sessionId: "session-a",
+    userId: "64f0f0f0f0f0f0f0f0f0f0e1",
+  };
+
+  function issue() {
+    return createGuardianAccess(
+      residentId.toString(),
+      { allowComplaintStatus: false, expiresInDays: 30, guardianId: guardianId.toString() },
+      adminPrincipal,
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.residentFindOne.mockReturnValue(
+      leanResult({
+        _id: residentId,
+        depositAmount: 5000,
+        firstName: "Asha",
+        hostelId: new Types.ObjectId(hostelId),
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        roomType: "DOUBLE",
+        status: "ACTIVE",
+      }),
+    );
+    mocks.guardianFindOne.mockReturnValue(
+      leanResult({
+        _id: guardianId,
+        firstName: "Bimala",
+        hostelId: new Types.ObjectId(hostelId),
+        lastName: "Rai",
+        phone: "9800000000",
+        relation: "Mother",
+        residentId,
+      }),
+    );
+    mocks.guardianAccessCreate.mockImplementation(
+      async (doc: Record<string, unknown>) => ({
+        ...doc,
+        _id: accessId,
+        expiresAt: doc.expiresAt,
+      }),
+    );
+  });
+
+  it("draws only from the unambiguous alphabet, at a fixed length", async () => {
+    // 0/O and 1/I are the pairs people mistype off a printed slip, and each one
+    // is a call to the hostel office.
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const { access } = await issue();
+
+      expect(access.accessCode).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+    }
+  });
+
+  it("does not repeat itself across a hostel's afternoon of invitations", async () => {
+    const codes = new Set<string>();
+
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      codes.add((await issue()).access.accessCode);
+    }
+
+    // 32^6 is ~1.07 billion, so 200 draws colliding even once would mean the
+    // source is not what this test thinks it is.
+    expect(codes.size).toBe(200);
   });
 });

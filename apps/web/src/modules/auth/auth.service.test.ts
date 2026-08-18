@@ -15,6 +15,8 @@ const serviceMocks = vi.hoisted(() => ({
   signAccessToken: vi.fn(),
   signPurposeToken: vi.fn(),
   signRefreshToken: vi.fn(),
+  authenticateTemporaryCredential: vi.fn(),
+  isTemporaryCredentialActive: vi.fn(),
   userCreate: vi.fn(),
   userFindOne: vi.fn(),
   verifyAccessToken: vi.fn(),
@@ -69,7 +71,17 @@ vi.mock("@hostel/db/models/User", () => ({
   },
 }));
 
-import { login, logout, refreshAccessToken } from "@/modules/auth/auth.service";
+vi.mock("@/modules/auth/temporary-credential.service", () => ({
+  authenticateTemporaryCredential: serviceMocks.authenticateTemporaryCredential,
+  isTemporaryCredentialActive: serviceMocks.isTemporaryCredentialActive,
+}));
+
+import {
+  getCurrentUser,
+  login,
+  logout,
+  refreshAccessToken,
+} from "@/modules/auth/auth.service";
 
 function createUser(overrides: Record<string, unknown> = {}) {
   return {
@@ -92,6 +104,9 @@ function createSession(overrides: Record<string, unknown> = {}) {
   return {
     _id: "session-1",
     refreshTokenHash: "pending",
+    // Declared so a test can assert the service revoked the row in place, the
+    // way the real mongoose document would let it.
+    revokedAt: null as Date | null,
     save: vi.fn(),
     ...overrides,
   };
@@ -189,5 +204,155 @@ describe("auth service", () => {
       { refreshTokenHash: "hash:refresh-token", revokedAt: null },
       { $set: { revokedAt: expect.any(Date) } },
     );
+  });
+
+  describe("temporary access logins", () => {
+    it("signs an identifier without an @ into the owner's own account", async () => {
+      const owner = createUser();
+
+      serviceMocks.authenticateTemporaryCredential.mockResolvedValue({
+        credentialId: "credential-1",
+        owner,
+      });
+
+      await expect(
+        login({ identifier: "accountant-oct", password: "issued-password" }),
+      ).resolves.toMatchObject({
+        user: {
+          // The very point of the feature: same account, same role.
+          email: "owner@example.com",
+          role: Role.SUPERADMIN,
+          viaTemporaryCredential: true,
+        },
+      });
+
+      // Never touched the users table on this path — the credential resolved it.
+      expect(serviceMocks.userFindOne).not.toHaveBeenCalled();
+
+      const session = serviceMocks.sessionInstances.at(-1);
+
+      // Stamped on the session so revoking the credential can reach it, and on
+      // the tokens so the API can refuse account-level actions.
+      expect(session?.temporaryCredentialId).toBe("credential-1");
+      expect(serviceMocks.signAccessToken).toHaveBeenCalledWith(
+        expect.objectContaining({ temporaryCredentialId: "credential-1" }),
+      );
+    });
+
+    it("rejects an unknown or expired temporary username as plain bad credentials", async () => {
+      serviceMocks.authenticateTemporaryCredential.mockResolvedValue(null);
+
+      await expect(
+        login({ identifier: "revoked-login", password: "issued-password" }),
+      ).rejects.toMatchObject({ errorCode: "INVALID_CREDENTIALS" });
+    });
+
+    it("does not retry a failed email login as a temporary username", async () => {
+      serviceMocks.userFindOne.mockReturnValueOnce({
+        select: vi.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        login({ identifier: "owner@example.com", password: "wrong" }),
+      ).rejects.toMatchObject({ errorCode: "INVALID_CREDENTIALS" });
+
+      expect(serviceMocks.authenticateTemporaryCredential).not.toHaveBeenCalled();
+    });
+
+    it("marks an ordinary password login as not temporary", async () => {
+      serviceMocks.userFindOne.mockReturnValueOnce({
+        select: vi.fn().mockResolvedValue(createUser()),
+      });
+      serviceMocks.verifyPassword.mockResolvedValue(true);
+
+      await expect(
+        login({ identifier: "owner@example.com", password: "ChangeMe123!" }),
+      ).resolves.toMatchObject({ user: { viaTemporaryCredential: false } });
+
+      expect(serviceMocks.sessionInstances.at(-1)?.temporaryCredentialId).toBeNull();
+    });
+
+    it("re-authorises a borrowed session on every refresh", async () => {
+      const session = createSession({
+        refreshTokenHash: "hash:old-refresh-token",
+        temporaryCredentialId: "credential-1",
+      });
+
+      serviceMocks.verifyRefreshToken.mockResolvedValue({
+        role: Role.SUPERADMIN,
+        sessionId: "session-1",
+        sub: "user-1",
+        tokenType: "refresh",
+      });
+      serviceMocks.sessionFindOne.mockResolvedValue(session);
+      serviceMocks.userFindOne.mockResolvedValue(createUser());
+      serviceMocks.isTemporaryCredentialActive.mockResolvedValue(true);
+
+      await expect(refreshAccessToken("old-refresh-token")).resolves.toMatchObject({
+        user: { viaTemporaryCredential: true },
+      });
+      expect(serviceMocks.isTemporaryCredentialActive).toHaveBeenCalledWith(
+        "credential-1",
+      );
+    });
+
+    it("kills the session when the credential behind it was revoked", async () => {
+      const session = createSession({
+        refreshTokenHash: "hash:old-refresh-token",
+        temporaryCredentialId: "credential-1",
+      });
+
+      serviceMocks.verifyRefreshToken.mockResolvedValue({
+        role: Role.SUPERADMIN,
+        sessionId: "session-1",
+        sub: "user-1",
+        tokenType: "refresh",
+      });
+      serviceMocks.sessionFindOne.mockResolvedValue(session);
+      serviceMocks.userFindOne.mockResolvedValue(createUser());
+      serviceMocks.isTemporaryCredentialActive.mockResolvedValue(false);
+
+      await expect(refreshAccessToken("old-refresh-token")).rejects.toMatchObject({
+        errorCode: "TEMPORARY_CREDENTIAL_INVALID",
+      });
+      // Otherwise the holder could keep minting 30-day refresh tokens forever.
+      expect(session.revokedAt).toBeInstanceOf(Date);
+      expect(serviceMocks.signRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it("stops reporting a signed-in user once the credential is revoked", async () => {
+      serviceMocks.verifyAccessToken.mockResolvedValue({
+        role: Role.SUPERADMIN,
+        sub: "user-1",
+        temporaryCredentialId: "credential-1",
+        tokenType: "access",
+      });
+      serviceMocks.isTemporaryCredentialActive.mockResolvedValue(false);
+
+      // Otherwise the portal shell keeps rendering for a revoked holder until
+      // the access token expires, while every data call under it 401s.
+      await expect(getCurrentUser("access-token")).rejects.toMatchObject({
+        errorCode: "TEMPORARY_CREDENTIAL_INVALID",
+      });
+      expect(serviceMocks.userFindOne).not.toHaveBeenCalled();
+    });
+
+    it("leaves an ordinary session's refresh free of a credential check", async () => {
+      const session = createSession({ refreshTokenHash: "hash:old-refresh-token" });
+
+      serviceMocks.verifyRefreshToken.mockResolvedValue({
+        role: Role.SUPERADMIN,
+        sessionId: "session-1",
+        sub: "user-1",
+        tokenType: "refresh",
+      });
+      serviceMocks.sessionFindOne.mockResolvedValue(session);
+      serviceMocks.userFindOne.mockResolvedValue(createUser());
+
+      await expect(refreshAccessToken("old-refresh-token")).resolves.toMatchObject({
+        user: { viaTemporaryCredential: false },
+      });
+      expect(serviceMocks.isTemporaryCredentialActive).not.toHaveBeenCalled();
+    });
   });
 });

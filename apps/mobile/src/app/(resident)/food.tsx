@@ -33,7 +33,7 @@ import {
   uploadFoodPhoto,
 } from "@/lib/resident-api";
 import { toastError, toastSuccess } from "@/lib/toast";
-import { assetUrl, uploadAsset } from "@/lib/uploads";
+import { privateAssetSource, uploadAsset } from "@/lib/uploads";
 
 /**
  * The week's food, and the two things a resident can put back into it.
@@ -443,10 +443,7 @@ function PhotoGallery({
             <View className="gap-1" key={photo.id}>
               <Image
                 contentFit="cover"
-                source={{
-                  headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                  uri: assetUrl(photo.photoAssetId),
-                }}
+                source={privateAssetSource(photo.photoAssetId, token, "THUMBNAIL")}
                 style={{
                   backgroundColor: colors.muted,
                   borderRadius: 12,

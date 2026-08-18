@@ -8,12 +8,20 @@ import { assertHostelAccess } from "@/lib/tenant";
 import { Role } from "@/lib/roles";
 import { grantingPermissionKeys } from "@/lib/warden-capability";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
+import { isTemporaryCredentialActive } from "@/modules/auth/temporary-credential.service";
 import type { WardenPermissionKey } from "@/modules/wardens/warden.validation";
 
 export type ApiPrincipal = {
   hostelIds: string[];
   role: Role;
   sessionId?: string;
+  /**
+   * Set when the caller signed in with a temporary credential instead of the
+   * account's own password. The identity is otherwise identical — same user,
+   * same role, same hostels — so anything that must stay with the real owner
+   * gates on this via {@link assertPrimaryCredentialPrincipal}.
+   */
+  temporaryCredentialId?: string;
   userId: string;
 };
 
@@ -50,16 +58,54 @@ export async function loadApiPrincipal(request: NextRequest) {
       return null;
     }
 
+    const temporaryCredentialId =
+      typeof payload.temporaryCredentialId === "string"
+        ? payload.temporaryCredentialId
+        : undefined;
+
+    /*
+     * Revocation has to bite now, not at the next token refresh: the whole
+     * point of "revoke" is that the person you handed the login to loses it
+     * while you watch. Costs one indexed lookup, and only on the rare requests
+     * that carry a temporary token — an ordinary session never reaches here.
+     */
+    if (
+      temporaryCredentialId &&
+      !(await isTemporaryCredentialActive(temporaryCredentialId))
+    ) {
+      return null;
+    }
+
     return {
       hostelIds: Array.isArray(payload.hostelIds)
         ? payload.hostelIds.map((hostelId) => String(hostelId))
         : [],
       role: payload.role,
       sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+      temporaryCredentialId,
       userId: payload.sub,
     } satisfies ApiPrincipal;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Refuses a caller who is signed in with a temporary credential.
+ *
+ * Guards the actions that must stay with whoever owns the account rather than
+ * whoever is currently holding a borrowed login: minting or revoking temporary
+ * credentials (otherwise a borrower could issue themselves a fresh one and
+ * outlive the expiry date), and changing the account password (otherwise a
+ * borrower could lock the owner out of their own account).
+ */
+export function assertPrimaryCredentialPrincipal(principal: ApiPrincipal) {
+  if (principal.temporaryCredentialId) {
+    throw new ApiAuthError(
+      "Sign in with your own password to manage account access.",
+      "TEMPORARY_CREDENTIAL_FORBIDDEN",
+      403,
+    );
   }
 }
 

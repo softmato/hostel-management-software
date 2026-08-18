@@ -44,13 +44,32 @@ export async function login(identifier: string, password: string) {
   return unwrap(response);
 }
 
+/**
+ * Starts an email OTP challenge.
+ *
+ * **Email only, registration only.** This was typed with `"email" | "sms"` and
+ * `"registration" | "password-reset"`, which is what the endpoint sounds like
+ * it should take; `otpRequestSchema` in `apps/web` accepts
+ * `z.enum(["email"])` and `z.enum(["registration"])` and rejects the rest with
+ * a 400 — and each rejected call still spends one of the five attempts the
+ * route allows per fifteen minutes. Password reset is a *link*, not an OTP:
+ * see `forgotPassword` below.
+ *
+ * `devCode` is returned by the server outside production so the flow can be
+ * completed on a device without waiting on mail delivery.
+ */
 export async function requestOtp(input: {
-  channel: "email" | "sms";
+  channel: "email";
   identifier: string;
-  purpose: "registration" | "password-reset";
+  purpose: "registration";
 }) {
   const response = await publicApi.post<
-    ApiEnvelope<{ challengeId: string; devCode?: string; expiresAt: string }>
+    ApiEnvelope<{
+      challengeId: string;
+      delivery: unknown;
+      devCode?: string;
+      expiresAt: string;
+    }>
   >("/auth/otp/request", input);
 
   return unwrap(response);
@@ -64,12 +83,23 @@ export async function verifyOtp(challengeId: string, code: string) {
   return unwrap(response);
 }
 
+/**
+ * Creates the account, once its OTP challenge has been verified.
+ *
+ * No `phone`: `registerSchema` takes email, name, `otpChallengeId` and
+ * password, and Zod strips anything else — so a phone number collected here
+ * would be silently dropped and the account would look, to its owner, as
+ * though it had one. Phone lives on the resident profile, which activation
+ * creates.
+ *
+ * The new account is `PUBLIC_USER`, so it lands in `(browse)`, not a
+ * dashboard.
+ */
 export async function register(input: {
   email: string;
   name: string;
   otpChallengeId: string;
   password: string;
-  phone?: string;
 }) {
   const response = await publicApi.post<ApiEnvelope<LoginResult>>("/auth/register", input);
 
@@ -84,10 +114,58 @@ export async function signInWithGoogle(idToken: string) {
   return unwrap(response);
 }
 
+/**
+ * Sends the reset link.
+ *
+ * **Always reports success.** `requestPasswordReset` looks the address up and
+ * returns `{ requested: true }` whether or not an account exists — that is
+ * deliberate on the server's side, because an endpoint that answers "no such
+ * user" is an account-enumeration oracle. The screen must not claim to know
+ * that mail was sent to a real inbox.
+ */
 export async function forgotPassword(email: string) {
-  const response = await publicApi.post<ApiEnvelope<null>>("/auth/forgot-password", {
-    email,
-  });
+  const response = await publicApi.post<ApiEnvelope<{ requested: boolean }>>(
+    "/auth/forgot-password",
+    { email },
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * Completes the reset with the token from the emailed link.
+ *
+ * Does **not** return a session: `resetPasswordWithToken` bumps `tokenVersion`
+ * and revokes every session, which is the point — a password reset is what
+ * somebody does when they think another person has their account. So the
+ * screen sends them to login afterwards rather than signing them in.
+ */
+export async function resetPassword(input: { newPassword: string; token: string }) {
+  const response = await publicApi.post<ApiEnvelope<{ reset: boolean }>>(
+    "/auth/reset-password",
+    input,
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * Sets a new password for the signed-in user.
+ *
+ * `currentPassword` is required **unless** the account is flagged
+ * `mustChangePassword` — an admin-issued cook or warden login, which has no
+ * password its owner knows to type. Either way the server revokes every
+ * session and issues a fresh one, so the response has to go through
+ * `startSession`; the token in memory is dead the moment this returns.
+ */
+export async function changePassword(input: {
+  currentPassword?: string;
+  newPassword: string;
+}) {
+  const response = await api.post<ApiEnvelope<LoginResult>>(
+    "/auth/change-password",
+    input,
+  );
 
   return unwrap(response);
 }

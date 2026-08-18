@@ -10,7 +10,6 @@ import {
   Phone,
   RefreshCw,
   ShieldCheck,
-  Siren,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useState } from "react";
 
@@ -56,11 +55,17 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  const residentName = dashboard
-    ? `${dashboard.resident.firstName} ${dashboard.resident.lastName}`.trim()
-    : "Resident";
+  const residentName = dashboard?.resident.fullName || "Resident";
   const safetyStatus = (dashboard?.safety?.status ?? "NOT_VERIFIED").replaceAll("_", " ");
   const safetyTone = statusToneFromLabel(dashboard?.safety?.status ?? "pending");
+  const hostelPhone = dashboard?.hostel?.contact.phone ?? "";
+  /**
+   * Null — not "no status" — when the resident has not shared safety. The two
+   * are different answers and this page exists to give one of them, so an
+   * ungranted dashboard says so instead of rendering "NOT VERIFIED" as though
+   * the hostel had failed to check.
+   */
+  const safetyShared = Boolean(dashboard?.safety);
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
@@ -91,7 +96,9 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-lg font-bold text-foreground">{residentName}</p>
-                    <SoftBadge tone={safetyTone}>{safetyStatus}</SoftBadge>
+                    {safetyShared ? (
+                      <SoftBadge tone={safetyTone}>{safetyStatus}</SoftBadge>
+                    ) : null}
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {dashboard.hostel?.name ?? "Hostel"} · Guardian view only
@@ -102,44 +109,55 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-border/70 bg-muted/15 p-3">
-                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <ShieldCheck className="size-3.5 text-emerald-600" />
-                    Current Status
+              {/*
+                Two tiles, not three. The third was an "Emergency Status /
+                Normal / No active alerts" card, and the guardian dashboard
+                returns no SOS field of any kind — so it printed "Normal"
+                whether or not an alert was live. Telling a parent there is no
+                emergency without having asked is the one lie this page must
+                not tell.
+              */}
+              {safetyShared ? (
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-border/70 bg-muted/15 p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <ShieldCheck className="size-3.5 text-emerald-600" />
+                      Current Status
+                    </div>
+                    <p className="mt-2 text-base font-bold text-foreground">
+                      {safetyStatus}
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Marked by hostel
+                    </p>
                   </div>
-                  <p className="mt-2 text-base font-bold text-foreground">
-                    {safetyStatus}
+                  <div className="rounded-xl border border-border/70 bg-muted/15 p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Clock3 className="size-3.5 text-role-guardian" />
+                      Last Update
+                    </div>
+                    {/* A date. The serializer truncates it on purpose — §4.1. */}
+                    <p className="mt-2 text-base font-bold text-foreground">
+                      {dashboard.safety?.asOf
+                        ? new Date(`${dashboard.safety.asOf}T00:00:00`).toLocaleDateString()
+                        : "Not verified"}
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Day only, never a time
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-5 rounded-xl border border-border/70 bg-muted/15 p-4">
+                  <p className="text-sm font-semibold text-foreground">
+                    Safety status is not shared with you
                   </p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Marked by hostel
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {residentName} has not turned on safety sharing for this guardian
+                    account. They can change that from their own portal.
                   </p>
                 </div>
-                <div className="rounded-xl border border-border/70 bg-muted/15 p-3">
-                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <Siren className="size-3.5 text-role-platform" />
-                    Emergency Status
-                  </div>
-                  <p className="mt-2 text-base font-bold text-foreground">Normal</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    No active alerts
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-muted/15 p-3">
-                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <Clock3 className="size-3.5 text-role-guardian" />
-                    Last Update
-                  </div>
-                  <p className="mt-2 text-base font-bold text-foreground">
-                    {dashboard.safety?.checkedAt
-                      ? new Date(dashboard.safety.checkedAt).toLocaleString()
-                      : "Not verified"}
-                  </p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    From hostel system
-                  </p>
-                </div>
-              </div>
+              )}
 
               <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
                 <Lock className="mt-0.5 size-4 shrink-0" />
@@ -166,26 +184,32 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                       {dashboard.hostel?.name ?? "Hostel Office"}
                     </p>
                     <p className="text-xs text-muted-foreground">Hostel administration</p>
-                    <SoftBadge className="mt-1" tone="green">
-                      On duty · Available
-                    </SoftBadge>
+                    {/*
+                      There was an "On duty · Available" badge here. Nothing in
+                      the payload says who is on duty, so it was green whether
+                      the office was staffed or shut.
+                    */}
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {hostelPhone || "No number on file"}
+                    </p>
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <RoleButton
-                    className="w-full"
-                    tone="guardian"
-                    type="button"
-                    variant="soft"
-                  >
-                    <Phone className="size-4" />
-                    Call
-                  </RoleButton>
-                  <Button className="h-10 rounded-xl" type="button" variant="outline">
-                    <MessageSquare className="size-4" />
-                    Message
-                  </Button>
-                </div>
+                {hostelPhone ? (
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <RoleButton asChild className="w-full" tone="guardian" variant="soft">
+                      <a href={`tel:${hostelPhone}`}>
+                        <Phone className="size-4" />
+                        Call
+                      </a>
+                    </RoleButton>
+                    <Button asChild className="h-10 rounded-xl" variant="outline">
+                      <a href={`sms:${hostelPhone}`}>
+                        <MessageSquare className="size-4" />
+                        Message
+                      </a>
+                    </Button>
+                  </div>
+                ) : null}
               </SectionCard>
 
               <SectionCard title="Hostel Emergency Contact">
@@ -197,16 +221,29 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
                     </p>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    24/7 Emergency Helpline
+                    Hostel office line
                   </p>
-                  <p className="mt-3 text-2xl font-bold text-rose-600">Contact Hostel</p>
-                  <RoleButton
-                    className="mt-4 w-full bg-rose-600 hover:bg-rose-600/90"
-                    tone="guardian"
-                  >
-                    <Phone className="size-4" />
-                    Call Emergency
-                  </RoleButton>
+                  {/*
+                    The number itself, dialled by the button under it. This card
+                    used to headline "24/7 Emergency Helpline" over a button
+                    that called nobody — the hostel's own contact number is what
+                    the platform actually holds, so that is what it offers.
+                  */}
+                  <p className="mt-3 text-2xl font-bold text-rose-600">
+                    {hostelPhone || "Not on file"}
+                  </p>
+                  {hostelPhone ? (
+                    <RoleButton
+                      asChild
+                      className="mt-4 w-full bg-rose-600 hover:bg-rose-600/90"
+                      tone="guardian"
+                    >
+                      <a href={`tel:${hostelPhone}`}>
+                        <Phone className="size-4" />
+                        Call the hostel
+                      </a>
+                    </RoleButton>
+                  ) : null}
                 </div>
                 <p className="mt-3 text-xs text-muted-foreground">
                   For critical emergencies, contact the hostel immediately.
@@ -215,12 +252,8 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
             </div>
           </div>
 
-          <SectionCard
-            actions={
-              <span className="text-xs font-semibold text-role-guardian">View all</span>
-            }
-            title="Guardian-Visible Notices"
-          >
+          {dashboard.permissions.canViewNotices ? (
+          <SectionCard title="Guardian-Visible Notices">
             {dashboard.notices.length === 0 ? (
               <EmptyInline label="No safety-related notices." />
             ) : (
@@ -255,19 +288,12 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
               </div>
             )}
           </SectionCard>
+          ) : null}
 
-          <div className="flex flex-col gap-3 rounded-xl border border-role-guardian/25 bg-role-guardian-soft/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 text-sm text-foreground">
-              <ShieldCheck className="size-4 text-role-guardian" />
-              In case of any emergency, contact the warden or hostel immediately.
-            </div>
-            <Button
-              className="h-9 rounded-xl border-role-guardian/30"
-              type="button"
-              variant="outline"
-            >
-              How We Ensure Safety
-            </Button>
+          {/* The "How We Ensure Safety" button beside this went nowhere. */}
+          <div className="flex items-center gap-2 rounded-xl border border-role-guardian/25 bg-role-guardian-soft/40 px-4 py-3 text-sm text-foreground">
+            <ShieldCheck className="size-4 shrink-0 text-role-guardian" />
+            In case of any emergency, contact the warden or hostel immediately.
           </div>
         </>
       ) : null}

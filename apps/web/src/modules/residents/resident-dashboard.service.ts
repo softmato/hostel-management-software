@@ -6,11 +6,13 @@ import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { GuardianModel } from "@hostel/db/models/Guardian";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NoticeModel } from "@hostel/db/models/Notice";
+import { summarizeResidentComplaints } from "@/modules/complaints/complaint.service";
 import {
   listResidentInvoices,
   type LedgerInvoice,
 } from "@/modules/finance/ledger-read.service";
 import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
+import { readNightStatusFor } from "@/modules/safety/safety.service";
 import {
   findCurrentResident,
   serializeResidentSummary,
@@ -187,23 +189,32 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
-  const { hostel, notices, payments, roomType, routine } =
-    await loadResidentBase(resident);
+  /*
+   * `nightStatus` and `complaints` were hardcoded literals — `{ status:
+   * "UNKNOWN" }` (not a value the enum contains) and `{ openCount: 0, recent:
+   * [] }`. Nothing wrote them, so the resident portal quietly showed everyone an
+   * unknown status and no complaints, and the mobile app had to make a second
+   * request to `/resident/night-status` to say anything true.
+   *
+   * Both reads go alongside the existing ones rather than after them: they are
+   * one indexed document and one small find, and serialising them behind the
+   * others would add a round trip to the first screen of the app.
+   */
+  const [{ hostel, notices, payments, roomType, routine }, nightStatus, complaints] =
+    await Promise.all([
+      loadResidentBase(resident),
+      readNightStatusFor(resident._id),
+      summarizeResidentComplaints(resident),
+    ]);
 
   return {
     dashboard: {
       accommodation: serializeAccommodation(roomType),
-      complaints: {
-        openCount: 0,
-        recent: [],
-      },
+      complaints,
       feeStatus: buildFeeSummary(payments),
       foodMenu: mealsOn(routine, new Date()),
       hostel: serializeHostel(hostel),
-      nightStatus: {
-        checkedAt: null,
-        status: "UNKNOWN",
-      },
+      nightStatus,
       notices: notices.map(serializeNotice),
       resident: serializeResidentSummary(resident),
     },

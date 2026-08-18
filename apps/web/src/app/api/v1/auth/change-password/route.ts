@@ -33,6 +33,16 @@ export async function POST(request: NextRequest) {
       return errorResponse("Access token is invalid.", "UNAUTHENTICATED", 401);
     }
 
+    // A borrowed login must not be able to lock the owner out of their own
+    // account — and `changePassword` revokes every session, so it would.
+    if (payload.temporaryCredentialId) {
+      return errorResponse(
+        "A temporary login cannot change the account password.",
+        "TEMPORARY_CREDENTIAL_FORBIDDEN",
+        403,
+      );
+    }
+
     const input = changePasswordSchema.parse(await request.json());
     const result = await changePassword(payload.sub, input, {
       ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),

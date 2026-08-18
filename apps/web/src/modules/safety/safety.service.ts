@@ -271,14 +271,29 @@ export async function getResidentNightStatus(principal: ApiPrincipal) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
-  const status = await NightStatusModel.findOne({
-    residentId: resident._id,
-  }).lean<NightStatusRecord | null>();
 
   return {
     resident: serializeResidentSummary(resident),
-    status: serializeNightStatus(status),
+    status: await readNightStatusFor(resident._id),
   };
+}
+
+/**
+ * One resident's current night status, for callers that already hold the
+ * resident — the dashboard, which would otherwise pay for a second
+ * `findCurrentResident`.
+ *
+ * Exported so that "no row means NOT_VERIFIED" stays a fact of this module.
+ * The resident dashboard used to return a hardcoded `{ status: "UNKNOWN" }`,
+ * which is not even a value `NightStatusValue` contains — a screen reading it
+ * told every resident their status was unknown, forever.
+ */
+export async function readNightStatusFor(residentId: Types.ObjectId) {
+  const status = await NightStatusModel.findOne({
+    residentId,
+  }).lean<NightStatusRecord | null>();
+
+  return serializeNightStatus(status);
 }
 
 export async function listAdminNightStatus(

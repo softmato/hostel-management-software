@@ -122,16 +122,21 @@ export default function SubmitClaimScreen() {
       try {
         const assetId = await uploadAsset(asset, {
           kind: "PAYMENT_PROOF",
+          label: "Payment proof",
           onProgress: setUpload,
         });
 
         setProofAssetId(assetId);
-      } catch (caught) {
-        // The preview is cleared with it: leaving a thumbnail on screen after a
-        // failed upload is how somebody submits believing they attached
-        // something.
+      } catch {
+        /*
+         * The preview is cleared: leaving a thumbnail on screen after a failed
+         * upload is how somebody submits believing they attached something.
+         *
+         * No toast — `uploadAsset` registers with the global upload queue, and
+         * the toaster at the root already shows this failure with its reason.
+         * Two notices for one event reads as two failures.
+         */
         setProofPreview(null);
-        toastError("Upload failed", readApiError(caught));
       } finally {
         setUpload(null);
       }
@@ -298,17 +303,14 @@ export default function SubmitClaimScreen() {
                 />
 
                 {upload ? (
+                  /*
+                   * Attachment state, not progress: the percentage is on the
+                   * upload card at the top of the screen, and printing it twice
+                   * on one screen is how the two end up disagreeing by a frame.
+                   */
                   <View className="flex-row items-center gap-2">
                     <ActivityIndicator color={colors.primary} size="small" />
-                    <Text variant="caption">
-                      {upload.stage === "verifying"
-                        ? "Checking the image…"
-                        : `Uploading${
-                            upload.fraction === null
-                              ? "…"
-                              : ` ${Math.round(upload.fraction * 100)}%`
-                          }`}
-                    </Text>
+                    <Text variant="caption">Attaching…</Text>
                   </View>
                 ) : proofAssetId ? (
                   <View className="flex-row items-center gap-1.5">

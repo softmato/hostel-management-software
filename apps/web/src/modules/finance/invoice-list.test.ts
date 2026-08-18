@@ -212,6 +212,88 @@ describe("the resident's view", () => {
     expect(view.invoices[0]!.referenceCode).toBeNull();
   });
 
+  it("explains what the month is made of", async () => {
+    // Until this landed, a resident could see *what* they owed and never *why*:
+    // `Invoice.lines` held the breakdown and `toPortalInvoice` dropped it, so a
+    // pro-rated first month or an admission fee was indistinguishable from a
+    // billing mistake.
+    mocks.invoiceFind.mockReturnValue(
+      lean([
+        {
+          _id: invoiceId,
+          lines: [
+            {
+              amount: 12000,
+              basis: "SCHEDULE",
+              bedType: "DOUBLE",
+              description: "Room rent",
+              feeScheduleId: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0f1"),
+              prorationBasis: "18/31 days",
+            },
+            {
+              amount: -1000,
+              basis: "CREDIT",
+              description: "Carried credit",
+            },
+          ],
+          referenceCode: "EDU-0001-F",
+        },
+      ]),
+    );
+
+    const view = await getResidentFinanceView({} as never);
+
+    expect(view.invoices[0]!.lines).toEqual([
+      {
+        amount: 12000,
+        basis: "SCHEDULE",
+        bedType: "DOUBLE",
+        description: "Room rent",
+        prorationBasis: "18/31 days",
+      },
+      // A credit line stays negative — the sign is the meaning (target §9.4),
+      // and an absolute value here would read as a second charge.
+      {
+        amount: -1000,
+        basis: "CREDIT",
+        bedType: null,
+        description: "Carried credit",
+        prorationBasis: null,
+      },
+    ]);
+  });
+
+  it("does not hand the resident the fee schedule id", async () => {
+    // Internal tracing handle: it means nothing to a resident and there is no
+    // route that would resolve it.
+    mocks.invoiceFind.mockReturnValue(
+      lean([
+        {
+          _id: invoiceId,
+          lines: [
+            {
+              amount: 12000,
+              basis: "SCHEDULE",
+              description: "Room rent",
+              feeScheduleId: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0f1"),
+            },
+          ],
+        },
+      ]),
+    );
+
+    const view = await getResidentFinanceView({} as never);
+
+    expect(view.invoices[0]!.lines[0]).not.toHaveProperty("feeScheduleId");
+  });
+
+  it("returns an empty breakdown rather than undefined for an invoice with no lines", async () => {
+    // Migrated history has none, and a screen mapping over `undefined` throws.
+    const view = await getResidentFinanceView({} as never);
+
+    expect(view.invoices[0]!.lines).toEqual([]);
+  });
+
   it("never offers a voided receipt", async () => {
     // A receipt voided with its reversed payment must stop being downloadable,
     // or the resident keeps a document asserting money the ledger dropped.

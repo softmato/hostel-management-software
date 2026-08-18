@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { Types } from "mongoose";
 import type { z } from "zod";
 
@@ -101,8 +102,37 @@ export class GuardianServiceError extends Error {
   }
 }
 
+/**
+ * The guardian access code — a real credential, so a real random source.
+ *
+ * This was `Math.random().toString(36).slice(2, 8)`, which is not a CSPRNG:
+ * V8's generator is seeded state that can be recovered from a handful of
+ * outputs, so codes issued in sequence are predictable from codes already seen
+ * — and a hostel admin issuing several in an afternoon publishes exactly that
+ * sample. `POST /guardian/login` takes this code plus a phone number and
+ * returns a session on the ward's guardian view.
+ *
+ * The alphabet drops the two glyph pairs people confuse when a code is read off
+ * a printout or over a phone (`0`/`O`, `1`/`I`), because each one of those is a
+ * support call. 32 symbols over 6 characters is ~1.07 billion codes, against a
+ * route now capped at 5 attempts per 15 minutes. Codes already issued from the
+ * old alphabet keep working: login matches the stored string exactly.
+ *
+ * `randomInt` rather than `randomBytes(n) % alphabet.length` — that modulo is
+ * only unbiased because 32 happens to divide 256, and it would silently skew
+ * the moment a character was added to the alphabet.
+ */
+const ACCESS_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const ACCESS_CODE_LENGTH = 6;
+
 function randomAccessCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
+  let code = "";
+
+  for (let index = 0; index < ACCESS_CODE_LENGTH; index += 1) {
+    code += ACCESS_CODE_ALPHABET[randomInt(ACCESS_CODE_ALPHABET.length)];
+  }
+
+  return code;
 }
 
 function expiresInDays(days: number) {
@@ -403,6 +433,7 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
     await Promise.all([
       HostelModel.findOne({ _id: access.hostelId, isDeleted: false }).lean<{
         _id: Types.ObjectId;
+        contact?: { email?: string; phone?: string };
         name: string;
         location?: Record<string, unknown>;
       } | null>(),
@@ -490,6 +521,13 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
       },
       hostel: hostel
         ? {
+            // The office's own published number, already on the public listing.
+            // A guardian dashboard that says "24/7 emergency helpline" and then
+            // has no number to dial is worse than not offering the row at all.
+            contact: {
+              email: hostel.contact?.email ?? "",
+              phone: hostel.contact?.phone ?? "",
+            },
             id: hostel._id.toString(),
             location: hostel.location ?? {},
             name: hostel.name,

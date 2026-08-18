@@ -6,8 +6,11 @@ import { Role } from "@/lib/roles";
 const serviceMocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
   bedFindOne: vi.fn(),
+  complaintCountDocuments: vi.fn(),
+  complaintFind: vi.fn(),
   connectToDatabase: vi.fn(),
   emergencyContactFind: vi.fn(),
+  nightStatusFindOne: vi.fn(),
   foodFeedbackCreate: vi.fn(),
   foodMenuFindOne: vi.fn(),
   foodMenuFindOneAndUpdate: vi.fn(),
@@ -160,6 +163,21 @@ vi.mock("@hostel/db/models/Bed", () => ({
 vi.mock("@hostel/db/models/Guardian", () => ({
   GuardianModel: {
     find: serviceMocks.guardianFind,
+  },
+}));
+
+// The dashboard's night-status and complaints blocks were hardcoded literals
+// until 2026-08-17; these two collections are what replaced them.
+vi.mock("@hostel/db/models/NightStatus", () => ({
+  NightStatusModel: {
+    findOne: serviceMocks.nightStatusFindOne,
+  },
+}));
+
+vi.mock("@hostel/db/models/Complaint", () => ({
+  ComplaintModel: {
+    countDocuments: serviceMocks.complaintCountDocuments,
+    find: serviceMocks.complaintFind,
   },
 }));
 
@@ -390,6 +408,9 @@ describe("resident daily-use services", () => {
     serviceMocks.invoiceAggregate.mockResolvedValueOnce([invoiceRow()]);
     serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
     serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
+    serviceMocks.nightStatusFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.complaintFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.complaintCountDocuments.mockResolvedValueOnce(0);
 
     const result = await getResidentDashboard(residentPrincipal);
 
@@ -404,6 +425,88 @@ describe("resident daily-use services", () => {
     expect(stages[0].$match).toMatchObject({
       hostelId: objectId(hostelId),
       residentId: objectId(residentId),
+    });
+  });
+
+  it("reads night status and complaints instead of returning the old literals", async () => {
+    /*
+     * Both blocks used to be hardcoded: `{ status: "UNKNOWN", checkedAt: null }`
+     * — a value `NightStatusValue` does not contain — and `{ openCount: 0,
+     * recent: [] }`. Every resident portal and the mobile home screen therefore
+     * showed a status nothing wrote and a complaint count that was always zero.
+     */
+    serviceMocks.residentFindOne.mockReturnValueOnce(
+      leanResult(residentRecord({ userId: objectId(userId) })),
+    );
+    serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
+    serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
+    serviceMocks.nightStatusFindOne.mockReturnValueOnce(
+      leanResult({
+        _id: objectId("64f0f0f0f0f0f0f0f0f0f0b1"),
+        checkedAt: new Date("2030-01-01T18:30:00.000Z"),
+        hostelId: objectId(hostelId),
+        residentId: objectId(residentId),
+        source: "RESIDENT",
+        status: "IN_HOSTEL",
+      }),
+    );
+    serviceMocks.complaintFind.mockReturnValueOnce(
+      queryResult([
+        {
+          _id: objectId("64f0f0f0f0f0f0f0f0f0f0b2"),
+          category: "MAINTENANCE",
+          createdAt: new Date("2030-01-01T00:00:00.000Z"),
+          hostelId: objectId(hostelId),
+          // Well past its SLA and still PENDING, which is the whole reason a
+          // dashboard row is worth showing.
+          slaDueAt: new Date("2020-01-01T00:00:00.000Z"),
+          status: "PENDING",
+          title: "Tap leaking",
+        },
+      ]),
+    );
+    serviceMocks.complaintCountDocuments.mockResolvedValueOnce(2);
+
+    const result = await getResidentDashboard(residentPrincipal);
+
+    expect(result.dashboard.nightStatus).toMatchObject({ status: "IN_HOSTEL" });
+    expect(result.dashboard.complaints.openCount).toBe(2);
+    expect(result.dashboard.complaints.recent[0]).toMatchObject({
+      isOverdue: true,
+      title: "Tap leaking",
+    });
+
+    // Scoped to this resident in this hostel, not to the hostel at large.
+    expect(serviceMocks.complaintCountDocuments).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostelId: objectId(hostelId),
+        residentId: objectId(residentId),
+        status: { $in: ["PENDING", "IN_PROGRESS"] },
+      }),
+    );
+  });
+
+  it("reports an absent night-status row as NOT_VERIFIED, never UNKNOWN", async () => {
+    serviceMocks.residentFindOne.mockReturnValueOnce(
+      leanResult(residentRecord({ userId: objectId(userId) })),
+    );
+    serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
+    serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
+    serviceMocks.nightStatusFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.complaintFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.complaintCountDocuments.mockResolvedValueOnce(0);
+
+    const result = await getResidentDashboard(residentPrincipal);
+
+    // The same answer `GET /resident/night-status` gives, so the two surfaces
+    // cannot disagree about a resident who has never been checked.
+    expect(result.dashboard.nightStatus).toMatchObject({
+      checkedAt: null,
+      status: "NOT_VERIFIED",
     });
   });
 

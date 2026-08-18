@@ -29,13 +29,24 @@ import {
  * in — and by the `(browse)` Compare tab, which is the same screen sitting
  * empty until a comparison has been picked.
  *
- * ## Columns scroll together, labels do not
+ * ## One scroll, shared by every row
  *
- * The mockup lays this out as a table. On a phone that means a fixed label
- * column and a horizontally scrolling body — otherwise the reader loses which
- * row they are on halfway across, which is the one thing a comparison must not
- * do. Each row here is a label pinned left with the hostel columns scrolling
- * beside it, and every column scrolls as one so the rows stay aligned.
+ * The mockup lays this out as a table. On a phone that means labels stacked
+ * above their values and the hostel columns scrolling sideways — otherwise the
+ * reader loses which row they are on halfway across, which is the one thing a
+ * comparison must not do.
+ *
+ * This file used to give **each of eleven rows its own `ScrollView`** while the
+ * header claimed the opposite. Two 172dp columns already overflow a phone, so
+ * that showed up at the minimum comparison size: scroll the rent row and the
+ * names above it stayed put, leaving one hostel's rent beside another's rating.
+ * A comparison that can be read out of alignment is worse than no comparison.
+ *
+ * So there is now exactly one horizontal `ScrollView`, wrapping the header
+ * cells, every field row and the inquiry buttons together. The labels sit above
+ * their own row inside it and travel with it — a pinned label column would need
+ * a synchronised second scroller, and the labels are short enough that stacking
+ * them costs less than that machinery would.
  *
  * ## Only the fields the server actually compares
  *
@@ -132,17 +143,24 @@ export function HostelCompare({
           Side by side, from what each hostel has published.
         </Text>
 
+        {/*
+          The one scroller. Everything that has to line up column-for-column
+          lives inside it, so there is a single scroll position by construction
+          rather than by keeping several in step.
+        */}
         <ScrollView
-          contentContainerClassName="gap-3 px-5"
+          contentContainerClassName="px-5"
           horizontal
           showsHorizontalScrollIndicator={false}
         >
-          {hostels.map((hostel) => (
-            <HeadCell hostel={hostel} key={hostel.id} />
-          ))}
-        </ScrollView>
+          <View>
+            <View className="flex-row gap-3">
+              {hostels.map((hostel) => (
+                <HeadCell hostel={hostel} key={hostel.id} />
+              ))}
+            </View>
 
-        <View className="gap-0 px-5">
+            <View className="gap-0 pt-4">
           <Row hostels={hostels} label="Monthly rent" value={(h) => priceRange(h.pricing)} />
           <Row hostels={hostels} label="Location" value={(h) => h.comparison.locationText || "—"} />
           <Row
@@ -195,22 +213,20 @@ export function HostelCompare({
             label="Verified"
             value={(h) => (h.verificationStatus === "VERIFIED" ? "Yes" : "Not yet")}
           />
-        </View>
-
-        <ScrollView
-          contentContainerClassName="gap-3 px-5 pb-2"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {hostels.map((hostel) => (
-            <View key={hostel.id} style={{ width: COLUMN_WIDTH }}>
-              <Button
-                label="Send inquiry"
-                onPress={() => router.push(`/hostel/${hostel.slug}/inquiry`)}
-                size="sm"
-              />
             </View>
-          ))}
+
+            <View className="flex-row gap-3 pb-2 pt-4">
+              {hostels.map((hostel) => (
+                <View key={hostel.id} style={{ width: COLUMN_WIDTH }}>
+                  <Button
+                    label="Send inquiry"
+                    onPress={() => router.push(`/hostel/${hostel.slug}/inquiry`)}
+                    size="sm"
+                  />
+                </View>
+              ))}
+            </View>
+          </View>
         </ScrollView>
 
         <Text className="px-5 pb-2" variant="caption">
@@ -268,12 +284,13 @@ function HeadCell({ hostel }: { hostel: ComparedHostel }) {
 }
 
 /**
- * One comparison row: a pinned label, then a scrolling strip of values.
+ * One comparison row: a label, then the values, one per hostel column.
  *
- * Each row scrolls independently, which is a deliberate trade. A single shared
- * scroll position would be tidier, but it needs a synchronised handler per row
- * and this reads fine because the columns are the same width and the reader is
- * comparing one row at a time.
+ * No `ScrollView` of its own — it sits inside the single one above, which is
+ * what keeps every row's columns under the same header. The label spans the full
+ * width above its values rather than being pinned left, so it scrolls out of
+ * view with them; the alternative is a second, synchronised scroller for the
+ * label column, which is a lot of machinery for six short words.
  */
 function Row({
   hostels,
@@ -289,13 +306,13 @@ function Row({
       <Text className="mb-1.5" variant="caption">
         {label}
       </Text>
-      <ScrollView contentContainerClassName="gap-3" horizontal showsHorizontalScrollIndicator={false}>
+      <View className="flex-row gap-3">
         {hostels.map((hostel) => (
           <View key={hostel.id} style={{ width: COLUMN_WIDTH }}>
             <Text variant="label">{value(hostel)}</Text>
           </View>
         ))}
-      </ScrollView>
+      </View>
     </View>
   );
 }

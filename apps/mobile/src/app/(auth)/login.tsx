@@ -1,8 +1,9 @@
 import { Image } from "expo-image";
-import { Link, router } from "expo-router";
+import { Link, router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
+import { AuthDivider, GoogleSignInButton } from "@/components/google-sign-in-button";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,8 +20,16 @@ import { setSessionEndReason } from "@/store/slices/authSlice";
 export default function LoginScreen() {
   const dispatch = useAppDispatch();
   const sessionEndReason = useAppSelector((state) => state.auth.sessionEndReason);
+  /*
+   * Prefilled only by a flow that already knows which mailbox the credentials
+   * went to — today that is the guardian invitation screen, which accepts the
+   * invite and then has to hand off, because `/guardian/accept-invitation`
+   * issues no session. Typing an address back in that the app just told you is
+   * busywork, and the password is still required either way.
+   */
+  const params = useLocalSearchParams<{ identifier?: string }>();
 
-  const [identifier, setIdentifier] = useState("");
+  const [identifier, setIdentifier] = useState(params.identifier?.trim() ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -58,6 +67,9 @@ export default function LoginScreen() {
         resolveHome({
           isApprovedProvider: result.user.isServiceProvider,
           isResidentActivated: auth.isResidentActivated ?? true,
+          // A provisioned cook or warden signing in with the temporary password
+          // their admin issued goes to set-password, not to their tabs.
+          mustChangePassword: result.user.mustChangePassword,
           role: result.user.role,
         }),
       );
@@ -123,10 +135,41 @@ export default function LoginScreen() {
 
             <Button label="Sign in" loading={submitting} onPress={onSubmit} size="lg" />
 
+            <AuthDivider />
+
+            {/*
+             * Clearing `sessionEndReason` here too: without it, a Google
+             * sign-in that fails would show its own message while "your
+             * session expired" is still sitting under the form from the last
+             * one, and the two read as a single confused sentence.
+             */}
+            <GoogleSignInButton
+              disabled={submitting}
+              onError={(message) => {
+                dispatch(setSessionEndReason(null));
+                setError(message);
+              }}
+            />
+
             <Link asChild href="/(auth)/forgot-password">
               <Pressable className="self-center py-2">
                 <Text className="text-primary" variant="label">
                   Forgot your password?
+                </Text>
+              </Pressable>
+            </Link>
+
+            {/*
+              Below the main form, not beside it. A guardian holding a printed
+              access code has no email account and no password — that is why
+              their hostel gave them a code — so the fields above are useless to
+              them, and this is where someone who has just failed to sign in
+              will look. See `app/(auth)/guardian-login.tsx`.
+            */}
+            <Link asChild href="/(auth)/guardian-login">
+              <Pressable className="self-center py-2">
+                <Text className="text-primary" variant="label">
+                  Sign in with a guardian access code
                 </Text>
               </Pressable>
             </Link>

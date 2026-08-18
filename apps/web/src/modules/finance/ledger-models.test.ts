@@ -29,7 +29,20 @@ import { INVOICE_STATUSES, InvoiceModel } from "@hostel/db/models/Invoice";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { ReceiptCounterModel } from "@hostel/db/models/ReceiptCounter";
 
-type IndexSpec = [Record<string, number>, Record<string, unknown> | undefined];
+/**
+ * The shape `schema.indexes()` hands back.
+ *
+ * The key half is `unknown`, not `number`: mongoose types an index direction as
+ * `IndexDirection` — `1 | -1 | '2d' | '2dsphere' | 'text' | 'hashed'` — so
+ * narrowing it to `number` made this file fail `tsc` while the suite itself
+ * stayed green, because Vitest does not typecheck. `next build` does, and
+ * tsconfig includes every `.ts` file with only `node_modules` excluded, so that
+ * lands as a failed deploy rather than a failed test.
+ *
+ * Nothing below reads a direction — the assertions are about *which fields* an
+ * index covers and the options beside it — so `unknown` loses nothing.
+ */
+type IndexSpec = [Record<string, unknown>, Record<string, unknown> | undefined];
 
 function indexesOf(model: { schema: { indexes(): IndexSpec[] } }) {
   return model.schema.indexes();

@@ -23,6 +23,7 @@ const serviceMocks = vi.hoisted(() => ({
   inquiryFindOne: vi.fn(),
   inquiryFindOneAndUpdate: vi.fn(),
   inquiryNoteCreate: vi.fn(),
+  ratingAggregate: vi.fn(),
   roomCountDocuments: vi.fn(),
   roomFind: vi.fn(),
   roomFindOne: vi.fn(),
@@ -95,6 +96,12 @@ vi.mock("@hostel/db/models/InquiryNote", () => ({
   },
 }));
 
+vi.mock("@hostel/db/models/RatingReview", () => ({
+  RatingReviewModel: {
+    aggregate: serviceMocks.ratingAggregate,
+  },
+}));
+
 import {
   createPublicHostelInquiry,
   getPublicHostelBySlug,
@@ -153,6 +160,8 @@ describe("hostel service phase 2 behavior", () => {
     // Public hostel detail also reads the published routine; default to none.
     serviceMocks.foodMenuFind.mockReturnValue(queryResult([]));
     serviceMocks.foodMenuFindOne.mockReturnValue(queryResult(null));
+    // Every public surface now carries a rating summary; default to unreviewed.
+    serviceMocks.ratingAggregate.mockResolvedValue([]);
   });
 
   it("filters public listings to approved published hostels and requested filters", async () => {
@@ -208,6 +217,107 @@ describe("hostel service phase 2 behavior", () => {
       slug: "sunrise-hostel",
       status: "PUBLISHED",
       verificationStatus: "VERIFIED",
+    });
+  });
+
+  /**
+   * The discovery mockups put a star rating on every list card and on the
+   * detail hero. Before this, `RatingReviewModel` was aggregated *only* in
+   * `comparePublicHostels`, so both of those had nothing behind them.
+   */
+  describe("public rating summaries", () => {
+    function ratingRow(overrides: Record<string, unknown> = {}) {
+      return {
+        _id: new Types.ObjectId(hostelId),
+        averageRating: 4.5,
+        cleanlinessRating: 4,
+        foodRating: 3.5,
+        safetyRating: 5,
+        total: 12,
+        ...overrides,
+      };
+    }
+
+    it("attaches a rating summary to every listing card", async () => {
+      serviceMocks.hostelFind.mockReturnValueOnce(queryResult([hostelRecord()]));
+      serviceMocks.ratingAggregate.mockResolvedValueOnce([ratingRow()]);
+
+      const result = await listPublicHostels({});
+
+      expect(result.hostels[0].ratingSummary).toEqual({
+        averageRating: 4.5,
+        cleanlinessRating: 4,
+        foodRating: 3.5,
+        safetyRating: 5,
+        total: 12,
+      });
+    });
+
+    it("counts only visible reviews", async () => {
+      // A review a moderator hid is hidden because it should not be read. An
+      // average that still includes it publishes its verdict as a number.
+      serviceMocks.hostelFind.mockReturnValueOnce(queryResult([hostelRecord()]));
+
+      await listPublicHostels({});
+
+      expect(serviceMocks.ratingAggregate).toHaveBeenCalledWith([
+        expect.objectContaining({
+          $match: expect.objectContaining({ status: "VISIBLE" }),
+        }),
+        expect.anything(),
+      ]);
+    });
+
+    it("reports an unreviewed hostel as total 0, not as zero stars", async () => {
+      serviceMocks.hostelFind.mockReturnValueOnce(queryResult([hostelRecord()]));
+      serviceMocks.ratingAggregate.mockResolvedValueOnce([]);
+
+      const result = await listPublicHostels({});
+
+      // `total` is the field that says whether there is a rating at all —
+      // branching on `averageRating` renders a brand-new hostel as one star.
+      expect(result.hostels[0].ratingSummary.total).toBe(0);
+      expect(result.hostels[0].ratingSummary.averageRating).toBe(0);
+    });
+
+    it("attaches a rating summary to the detail payload", async () => {
+      serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(hostelRecord()));
+      serviceMocks.ratingAggregate.mockResolvedValueOnce([ratingRow()]);
+
+      const result = await getPublicHostelBySlug("sunrise-hostel");
+
+      expect(result.hostel.ratingSummary).toMatchObject({
+        averageRating: 4.5,
+        total: 12,
+      });
+    });
+
+    it("survives a review that left the sub-scores blank", async () => {
+      // `$avg` returns null when every input is null, and null in a number
+      // field is how a card renders "NaN ★".
+      serviceMocks.hostelFind.mockReturnValueOnce(queryResult([hostelRecord()]));
+      serviceMocks.ratingAggregate.mockResolvedValueOnce([
+        ratingRow({ cleanlinessRating: null, foodRating: null, safetyRating: null }),
+      ]);
+
+      const result = await listPublicHostels({});
+
+      expect(result.hostels[0].ratingSummary).toMatchObject({
+        averageRating: 4.5,
+        cleanlinessRating: 0,
+        foodRating: 0,
+        total: 12,
+      });
+    });
+
+    it("does not query at all when the listing is empty", async () => {
+      // 60 hostels per page, so this is the one place a per-card lookup would
+      // have become 60 sequential queries.
+      serviceMocks.hostelFind.mockReturnValueOnce(queryResult([]));
+
+      await listPublicHostels({});
+
+      expect(serviceMocks.ratingAggregate).not.toHaveBeenCalled();
     });
   });
 

@@ -14,7 +14,9 @@ import { FoodReadyLogModel } from "@hostel/db/models/FoodReadyLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { UserModel } from "@hostel/db/models/User";
+import { ResidentModel } from "@hostel/db/models/Resident";
 import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
+import { uploadFoodPhoto } from "@/modules/food/food.service";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { normalizeObjectId } from "@/modules/residents/resident-access";
@@ -29,9 +31,11 @@ import type {
   cookPortalUpdateSchema,
   foodReadySchema,
 } from "@/modules/food/cook.validation";
+import type { foodPhotoUploadSchema } from "@/modules/food/food.validation";
 
 type CookPortalUpdateInput = z.infer<typeof cookPortalUpdateSchema>;
 type FoodReadyInput = z.infer<typeof foodReadySchema>;
+type FoodPhotoUploadInput = z.infer<typeof foodPhotoUploadSchema>;
 
 type HostelSettingsRecord = {
   _id: Types.ObjectId;
@@ -443,6 +447,145 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
       notifiedCount,
     },
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cook-scoped reads                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Everything a cook needs to start a shift, in one request.
+ *
+ * ## Why this exists at all
+ *
+ * Until now the cook had exactly one endpoint — `POST /cook/food-ready` — and
+ * the reads a kitchen actually needs sat under `hostel-admin/food/routine`
+ * behind `requireHostelCapability("manageFood")`, which is `HOSTEL_ADMIN` or
+ * `WARDEN` only. A cook is neither. So the person cooking the meal could
+ * announce it but could not look up what it was, or how many people to cook
+ * for. That was tracked as server gap #3 in MOBILE_APP_PHASES.md §1.
+ *
+ * ## Scope, and what is deliberately not returned
+ *
+ * `resolveCookHostelId` already handles both audiences: a COOK is pinned to the
+ * hostel on their principal, and hostel staff may pass one explicitly. So this
+ * is safe to expose to the shared kitchen login *and* useful to an admin
+ * previewing what the cook sees.
+ *
+ * `residentCount` is a **number**, not a list. A cook needs to know how many
+ * plates; nothing about the kitchen's job requires knowing whose. The names are
+ * a separate, narrower endpoint below, and even that returns no contact details.
+ *
+ * `announced` is today's `FoodReadyLog` rows, so the four buttons can show
+ * which meals have already gone out — the cooldown is enforced server-side and
+ * a button that 429s after the fact is a worse way to learn that.
+ */
+export async function getCookToday(principal: ApiPrincipal, requestedHostelId?: string) {
+  await connectToDatabase();
+
+  const hostelId = await resolveCookHostelId(principal, requestedHostelId);
+  const today = startOfToday();
+
+  const [hostel, routine, residentCount, announcements] = await Promise.all([
+    HostelModel.findOne({ _id: hostelId, isDeleted: false })
+      .select("name")
+      .lean<{ _id: Types.ObjectId; name: string } | null>(),
+    getFoodRoutine(hostelId),
+    // The same filter `resolveActiveResidentRecipients` counts for the
+    // announcement fan-out, so "cook for 38" and "38 residents notified" agree.
+    ResidentModel.countDocuments({ hostelId, isDeleted: false, status: "ACTIVE" }),
+    FoodReadyLogModel.find({ announcedAt: { $gte: today }, hostelId })
+      .sort({ announcedAt: -1 })
+      .limit(12)
+      .lean<
+        {
+          _id: Types.ObjectId;
+          announcedAt: Date;
+          mealType: string;
+          message?: string;
+          notifiedCount: number;
+        }[]
+      >(),
+  ]);
+
+  return {
+    today: {
+      announced: announcements.map((log) => ({
+        announcedAt: log.announcedAt.toISOString(),
+        id: log._id.toString(),
+        mealType: log.mealType,
+        message: log.message ?? "",
+        notifiedCount: log.notifiedCount,
+      })),
+      date: today.toISOString().slice(0, 10),
+      hostel: hostel
+        ? { id: hostel._id.toString(), name: hostel.name }
+        : { id: hostelId.toString(), name: "Your hostel" },
+      /** Today's weekday entries off the weekly routine, in meal order. */
+      meals: mealsOn(routine, today),
+      /** The whole week, so the menu screen needs no second request. */
+      routine,
+      residentCount,
+    },
+  };
+}
+
+/**
+ * The roster, reduced to what a kitchen has any business seeing.
+ *
+ * Name, room type and status — no phone, no email, no deposit, no move-in date,
+ * no account linkage. The cook login is **shared kitchen-wide** and effectively
+ * static (`provisionCookAccount` issues one password per hostel), so this is the
+ * one endpoint in the product where a leaked credential hands a stranger a list
+ * of residents. Keeping it to a name and a room means that list is worth
+ * nothing beyond what a noticeboard already shows.
+ *
+ * ACTIVE only: someone who has moved out is not eating here.
+ */
+export async function listCookResidents(
+  principal: ApiPrincipal,
+  requestedHostelId?: string,
+) {
+  await connectToDatabase();
+
+  const hostelId = await resolveCookHostelId(principal, requestedHostelId);
+  const residents = await ResidentModel.find({
+    hostelId,
+    isDeleted: false,
+    status: "ACTIVE",
+  })
+    .select("firstName lastName roomType")
+    .sort({ firstName: 1, lastName: 1 })
+    .limit(500)
+    .lean<
+      { _id: Types.ObjectId; firstName: string; lastName: string; roomType: string }[]
+    >();
+
+  return {
+    residents: residents.map((resident) => ({
+      fullName: `${resident.firstName} ${resident.lastName}`.trim(),
+      id: resident._id.toString(),
+      roomType: resident.roomType,
+    })),
+  };
+}
+
+/**
+ * A photo of the meal, straight from the kitchen.
+ *
+ * Delegates to `uploadFoodPhoto` rather than writing its own `FoodPhoto` —
+ * that function owns the audit row and the realtime publish that makes the
+ * photo appear on residents' food screens — and hands it the hostel this cook
+ * is scoped to, because `resolveAdminHostelId` inside it would refuse a COOK
+ * principal outright.
+ */
+export async function uploadCookFoodPhoto(
+  input: FoodPhotoUploadInput,
+  principal: ApiPrincipal,
+) {
+  const hostelId = await resolveCookHostelId(principal, input.hostelId);
+
+  return uploadFoodPhoto(input, principal, { hostelId });
 }
 
 /** Recent announcements, for the cook dashboard and food-timing reports. */

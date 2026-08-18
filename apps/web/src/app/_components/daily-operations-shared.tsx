@@ -30,22 +30,71 @@ export type SOSAlert = {
   status: "ACTIVE" | "ACKNOWLEDGED" | "RESOLVED" | "FALSE_ALARM";
 };
 
+/**
+ * What a guardian may be shown, field by field. Every flag defaults to false on
+ * the server — sharing is opt-in (PRD.md §10).
+ *
+ * These matter to the UI, not just to the query: each section of the dashboard
+ * is fetched **only** when its flag is set, so an ungranted section arrives as
+ * an empty array. Without the flags, "your ward has no complaints" and "you are
+ * not allowed to see complaints" are the same payload — so a section whose flag
+ * is off must be *absent*, never drawn empty.
+ */
+export type GuardianPermissions = {
+  canViewComplaintStatus: boolean;
+  canViewFood: boolean;
+  canViewNotices: boolean;
+  canViewPayments: boolean;
+  canViewReceipts: boolean;
+  canViewSafety: boolean;
+};
+
+/**
+ * Mirrors `getGuardianDashboard`'s return in
+ * `apps/web/src/modules/guardian/guardian.service.ts`. Read it there before
+ * changing anything here — this type had drifted from the serializer three ways
+ * at once, and every one of them rendered as broken text on the page:
+ * `firstName`/`lastName` (the serializer returns **`fullName`**) printed
+ * "undefined undefined"; `safety.checkedAt` (it returns **`asOf`**, a date, on
+ * purpose) printed "Invalid Date"; and a non-null `summary` (it returns
+ * **null** without `canViewPayments`) threw outright.
+ */
 export type GuardianDashboard = {
+  access: { accessCode: string; expiresAt: string; status: string };
   complaints: Array<{ id: string; status: string; title: string }>;
   food: Array<{ id: string; items: string[]; mealType: string; timing: string }>;
-  guardian: { name: string; phone: string; relation: string };
-  hostel: { name: string } | null;
-  notices: Array<{ content: string; id: string; isUrgent: boolean; title: string }>;
+  guardian: { id: string; name: string; phone: string; relation: string };
+  hostel: { contact: { email: string; phone: string }; id: string; name: string } | null;
+  notices: Array<{
+    category: string;
+    content: string;
+    id: string;
+    isUrgent: boolean;
+    title: string;
+  }>;
   payments: Array<{
     dueAmount: number;
+    dueDate?: string;
     id: string;
     month: string;
     paidAmount: number;
     status: string;
   }>;
-  resident: Resident;
-  safety: { checkedAt: string | null; status: string } | null;
-  summary: { dueAmount: number; unpaidCount: number };
+  permissions: GuardianPermissions;
+  receipts: Array<{
+    amount: number;
+    id: string;
+    issuedOn: string;
+    month: string;
+    receiptNumber: string;
+  }>;
+  resident: { fullName: string; id: string; roomType: string; status: string };
+  /** `asOf` is a **date** (`YYYY-MM-DD`), truncated deliberately: the exact time
+   * a resident was checked is the surveillance detail PHASES.md §4.1 forbids
+   * showing a guardian. Null when `canViewSafety` is false. */
+  safety: { asOf: string | null; status: string } | null;
+  /** Null when `canViewPayments` is false. */
+  summary: { dueAmount: number; unpaidCount: number } | null;
 };
 
 export type Review = {

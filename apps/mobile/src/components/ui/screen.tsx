@@ -182,11 +182,38 @@ export function Screen({
       */}
       {header ?? <View style={{ height: insets.top }} />}
 
+      {/*
+        The footer is **inside** this, and that is the whole point.
+
+        It used to be a sibling below, which meant the keyboard covered the
+        primary action on every form in the app — register, set-password,
+        forgot-password, raise-a-complaint, edit ID card, payment claim, night
+        status, leave a review, admin alerts and the hostel inquiry all put their
+        submit button in `footer`. On iOS `behavior="padding"` padded the scroll
+        body and left the footer exactly where it was, under the keyboard; on
+        Android the window's `adjustPan` shoved the whole thing up and pushed the
+        footer off the bottom edge. Either way the button was unreachable, with
+        nothing on screen to say the keyboard had to be dismissed first.
+
+        Android is `undefined` on purpose rather than `"padding"`:
+        `softwareKeyboardLayoutMode` is now `"resize"` (app.json), so the window
+        itself shrinks and the footer rides up with it. Adding padding on top of
+        that would compensate twice and leave a keyboard-height gap.
+      */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         className="flex-1"
       >
         {body}
+
+        {footer ? (
+          <View
+            className="border-t border-border bg-background px-5 pt-3"
+            style={{ paddingBottom: Math.max(insets.bottom, MIN_BOTTOM_PAD) }}
+          >
+            {footer}
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
 
       {floating ? (
@@ -212,14 +239,6 @@ export function Screen({
         </Animated.View>
       ) : null}
 
-      {footer ? (
-        <View
-          className="border-t border-border bg-background px-5 pt-3"
-          style={{ paddingBottom: Math.max(insets.bottom, MIN_BOTTOM_PAD) }}
-        >
-          {footer}
-        </View>
-      ) : null}
     </View>
   );
 }

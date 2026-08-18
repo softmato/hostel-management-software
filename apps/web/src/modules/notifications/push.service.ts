@@ -21,6 +21,7 @@
 import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
 
 import { connectToDatabase } from "@/lib/db";
+import { filterPushRecipients } from "@/modules/notifications/notification-preference.service";
 import { deepLinkForNotification } from "@/modules/notifications/push-routing";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
@@ -190,7 +191,32 @@ export async function sendPushToUsers(
   userIds: string[],
   payload: PushPayload,
 ): Promise<PushResult> {
-  const recipients = [...new Set(userIds.filter(Boolean))];
+  const everyone = [...new Set(userIds.filter(Boolean))];
+
+  if (everyone.length === 0) {
+    return EMPTY;
+  }
+
+  // Declared here rather than beside its other use below, because the
+  // preference filter needs it first — and one source for "is this urgent"
+  // keeps the exemption and the Expo priority from ever disagreeing.
+  const high = isHighPriority(payload);
+
+  /*
+   * Notification preferences and quiet hours, applied **before** the token
+   * lookup so a muted account costs one array filter rather than a query.
+   *
+   * `high` is what exempts SOS and anything URGENT from the whole mechanism —
+   * a preference screen that can silence a safety alert is a setting whose worst
+   * case is somebody not being found. See `notification-quiet-hours.ts`.
+   *
+   * A lookup failure returns the full audience: over-delivering during a
+   * database blip is recoverable, and silence is the failure nobody reports.
+   */
+  const recipients = await filterPushRecipients(everyone, {
+    category: payload.category,
+    isUrgent: high,
+  });
 
   if (recipients.length === 0) {
     return EMPTY;
@@ -214,8 +240,6 @@ export async function sendPushToUsers(
      */
     path: deepLinkForNotification(payload),
   };
-
-  const high = isHighPriority(payload);
 
   const messages: ExpoPushMessage[] = tokens.map((token) => ({
     body: payload.body,

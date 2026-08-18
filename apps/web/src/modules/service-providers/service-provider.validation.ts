@@ -100,3 +100,17 @@ export const hostelAdminServiceProviderListQuerySchema = z.object({
   category: serviceProviderCategorySchema.optional(),
   q: z.string().trim().min(1).max(160).optional(),
 });
+
+/**
+ * What a service provider may set on their own assigned job.
+ *
+ * Two of the five statuses, and the narrowing is the point:
+ * `maintenanceStatusUpdateSchema` is the hostel's schema and accepts
+ * `CANCELLED`, `SCHEDULED` and `PENDING` as well. Reusing it here would let a
+ * contractor cancel the hostel's work order, schedule themselves without a
+ * date, or reopen a job they had already been signed off for.
+ */
+export const serviceProviderJobStatusSchema = z.object({
+  note: z.string().trim().max(800).optional(),
+  status: z.enum(["CONTACTED", "COMPLETED"]),
+});

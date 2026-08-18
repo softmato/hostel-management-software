@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 
 import { HostelCard } from "@/components/hostel-card";
+import { HostelMap } from "@/components/hostel-map";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,8 +14,10 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useNearby } from "@/hooks/use-nearby";
 import { useResource } from "@/hooks/use-resource";
+import { useSavedHostels } from "@/hooks/use-saved";
 import { useSystemInsets } from "@/hooks/use-system-insets";
 import { sortByDistance } from "@/lib/geo";
+import { inCity } from "@/lib/home-sections";
 import {
   FACILITIES,
   HOSTEL_TYPE_LABELS,
@@ -77,6 +80,7 @@ export function HostelBrowser({
   showBack = false,
 }: HostelBrowserProps) {
   const params = useLocalSearchParams<{
+    city?: string;
     facility?: string;
     q?: string;
     type?: string;
@@ -92,10 +96,28 @@ export function HostelBrowser({
       ? (params.type as HostelType)
       : undefined,
   }));
+  /*
+   * City is **not** a `HostelFilters` field, because the server has no city
+   * filter: `publicHostelListQuerySchema`'s `area` matches `location.area` only,
+   * so a hostel in "Ghattekulo, Kathmandu" does not match `?area=Kathmandu`. It
+   * therefore narrows the rows already returned — the same trade `Sort: nearest`
+   * makes, and honest for the same reason: it changes what is on screen and does
+   * not claim to have narrowed the query. Held separately so it cannot be sent.
+   */
+  const [city, setCity] = useState(params.city ?? "");
   const [search, setSearch] = useState(params.q ?? "");
   const [sheetOpen, setSheetOpen] = useState(false);
+  /*
+   * List or map. Not a filter — both views show the same `ordered` rows, so
+   * switching never changes the result set, only how it is drawn. The map is
+   * deliberately not the default: it is blank without a network, it cannot show
+   * a hostel that has never been geocoded, and price and vacancy — the two
+   * things people actually compare — do not fit on a pin.
+   */
+  const [view, setView] = useState<"list" | "map">("list");
   const [compare, setCompare] = useState<string[]>([]);
   const nearby = useNearby();
+  const saved = useSavedHostels();
 
   const hostels = useResource<PublicHostel[]>(
     useCallback(() => listPublicHostels(filters), [filters]),
@@ -111,7 +133,13 @@ export function HostelBrowser({
 
   // Memoised only so the sort below is not redone on every keystroke in the
   // search field: `?? []` is a fresh array each render.
-  const rows = useMemo(() => hostels.data ?? [], [hostels.data]);
+  //
+  // `returned` is what the server sent; `rows` is what is on screen after the
+  // city narrowing. The two are separate because the "first 60" footer has to
+  // describe the *request* — narrowing 60 rows down to 9 does not mean the
+  // catalogue held 9.
+  const returned = useMemo(() => hostels.data ?? [], [hostels.data]);
+  const rows = useMemo(() => (city ? inCity(returned, city) : returned), [city, returned]);
 
   /*
    * With no position this is the server's order with every distance null, so
@@ -177,12 +205,18 @@ export function HostelBrowser({
         <AppBar showBack={showBack} subtitle="Verified hostels in Nepal" title="Browse" />
       }
       insideTabs={insideTabs}
-      onRefresh={hostels.refresh}
+      onRefresh={view === "list" ? hostels.refresh : undefined}
       padded={false}
       refreshing={hostels.refreshing}
-      scroll
+      /*
+       * The map takes over the scroll gesture, so the page must not also own
+       * one — see `fill` in `components/hostel-map.tsx`. Pull-to-refresh goes
+       * with it; the filters above still refetch, which is the case that
+       * matters.
+       */
+      scroll={view === "list"}
     >
-      <View className="gap-4 px-5">
+      <View className={`gap-4 px-5 ${view === "map" ? "flex-1" : ""}`}>
         <View className="flex-row items-center gap-2">
           <View className="h-12 flex-1 flex-row items-center gap-2 rounded-xl border border-border bg-card px-3">
             <Ionicons color={colors.mutedForeground} name="search" size={17} />
@@ -229,22 +263,47 @@ export function HostelBrowser({
           </Pressable>
         </View>
 
-        <NearestToggle nearby={nearby} />
+        <View className="flex-row items-center gap-2">
+          <View className="flex-1">
+            <NearestToggle nearby={nearby} />
+          </View>
+          <ViewSwitch onChange={setView} value={view} />
+        </View>
 
-        {activeCount > 0 ? <ActiveFilterChips filters={filters} onChange={setFilters} /> : null}
+        {activeCount > 0 || city ? (
+          <ActiveFilterChips
+            city={city}
+            filters={filters}
+            onChange={setFilters}
+            onClearCity={() => setCity("")}
+          />
+        ) : null}
 
         {hostels.loading ? (
           <LoadingState label="Finding hostels" />
         ) : hostels.error ? (
           <ErrorState message={hostels.error} onRetry={hostels.reload} />
+        ) : view === "map" ? (
+          /*
+             The same `ordered` rows the list would draw. A hostel with no
+             coordinates has no pin and the map says so — it is still in the
+             list, and dropping it from both would be the dishonest version.
+          */
+          <HostelMap
+            fill
+            hostels={ordered.map((row) => row.hostel)}
+            me={nearby.coordinates}
+            onSelect={(slug) => router.push(`/hostel/${slug}`)}
+          />
         ) : rows.length === 0 ? (
           <EmptyState
             action={
-              activeCount > 0 ? (
+              activeCount > 0 || city ? (
                 <Button
                   label="Clear filters"
                   onPress={() => {
                     setFilters({ q: filters.q });
+                    setCity("");
                     setSheetOpen(false);
                   }}
                   variant="outline"
@@ -252,9 +311,11 @@ export function HostelBrowser({
               ) : undefined
             }
             description={
-              activeCount > 0
-                ? "Nothing matches all of those filters. Try widening one."
-                : "No hostels are published yet."
+              city && returned.length > 0
+                ? `None of these listings are in ${city}. Clear the city to see the rest.`
+                : activeCount > 0
+                  ? "Nothing matches all of those filters. Try widening one."
+                  : "No hostels are published yet."
             }
             title="No results"
           />
@@ -262,6 +323,7 @@ export function HostelBrowser({
           <View className="gap-3">
             <Text variant="caption">
               {`${rows.length} verified ${rows.length === 1 ? "hostel" : "hostels"}`}
+              {city ? ` in ${city}` : ""}
               {nearby.isActive ? " · nearest first" : ""}
             </Text>
 
@@ -271,13 +333,17 @@ export function HostelBrowser({
                 hostel={row.hostel}
                 key={row.hostel.id}
                 onToggleCompare={toggleCompare}
+                onToggleSave={saved.toggle}
+                saved={saved.ids.has(row.hostel.id)}
                 selectedForCompare={compare.includes(row.hostel.id)}
                 showCampusDistance
               />
             ))}
 
             <Text className="py-4 text-center" variant="caption">
-              {rows.length >= 60
+              {/* Reads `returned`, not `rows`: the cap is a property of the
+                  request, and the city narrowing happens after it. */}
+              {returned.length >= 60
                 ? "Showing the first 60 — narrow your filters to see more."
                 : "You've reached the end"}
             </Text>
@@ -311,6 +377,67 @@ export function HostelBrowser({
  * it would leave a user who once tapped "Don't allow" with no way back and no
  * explanation of where the option went.
  */
+/**
+ * List or map, as one two-segment control.
+ *
+ * A segmented control rather than a single "Map" button because the state is
+ * exclusive and persistent — the user is *in* one of two views, and a lone
+ * toggle button leaves them guessing which. Both segments stay visible and the
+ * selected one is filled, so the current view and the way out of it are the
+ * same control.
+ *
+ * Sized against the 44dp touch target rather than the label: this sits beside a
+ * filter chip that people reach for with a thumb halfway down the screen.
+ */
+function ViewSwitch({
+  onChange,
+  value,
+}: {
+  onChange: (next: "list" | "map") => void;
+  value: "list" | "map";
+}) {
+  const { colors } = useAppTheme();
+
+  const options = [
+    { icon: "list-outline", label: "List", value: "list" },
+    { icon: "map-outline", label: "Map", value: "map" },
+  ] as const;
+
+  return (
+    <View className="flex-row overflow-hidden rounded-full border border-border">
+      {options.map((option) => {
+        const selected = option.value === value;
+
+        return (
+          <Pressable
+            accessibilityLabel={`${option.label} view`}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            className={`flex-row items-center gap-1.5 px-3 py-1.5 active:opacity-70 ${
+              selected ? "bg-primary" : ""
+            }`}
+            key={option.value}
+            onPress={() => onChange(option.value)}
+          >
+            <Ionicons
+              color={selected ? colors.primaryForeground : colors.mutedForeground}
+              name={option.icon}
+              size={14}
+            />
+            <Text
+              className={`text-xs font-medium ${
+                selected ? "text-primary-foreground" : "text-muted-foreground"
+              }`}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function NearestToggle({ nearby }: { nearby: ReturnType<typeof useNearby> }) {
   const { colors } = useAppTheme();
 
@@ -364,26 +491,71 @@ function NearestToggle({ nearby }: { nearby: ReturnType<typeof useNearby> }) {
 }
 
 function ActiveFilterChips({
+  city,
   filters,
   onChange,
+  onClearCity,
 }: {
+  /** Narrows on the client, so it is not a `HostelFilters` key — see above. */
+  city: string;
   filters: HostelFilters;
   onChange: (next: HostelFilters) => void;
+  onClearCity: () => void;
 }) {
-  const chips: { key: keyof HostelFilters; label: string }[] = [];
+  const chips: { clear: () => void; key: string; label: string }[] = [];
 
-  if (filters.type) chips.push({ key: "type", label: HOSTEL_TYPE_LABELS[filters.type] });
-  if (filters.roomType) chips.push({ key: "roomType", label: filters.roomType });
-  if (filters.facility) chips.push({ key: "facility", label: filters.facility });
-  if (filters.food) chips.push({ key: "food", label: filters.food === "veg" ? "Veg" : "Non-veg" });
-  if (filters.area) chips.push({ key: "area", label: filters.area });
+  /** Removes one server-side filter, and its partner where it has one. */
+  function drop(key: keyof HostelFilters) {
+    const next = { ...filters };
+
+    delete next[key];
+    // Budget is one chip over two fields, so clearing it clears both.
+    if (key === "minPrice") delete next.maxPrice;
+
+    onChange(next);
+  }
+
+  if (city) {
+    // First, because it is the one the user most likely arrived with — the home
+    // screen's "Browse by city" row deep-links straight into this list.
+    chips.push({ clear: onClearCity, key: "city", label: city });
+  }
+
+  if (filters.type) {
+    chips.push({
+      clear: () => drop("type"),
+      key: "type",
+      label: HOSTEL_TYPE_LABELS[filters.type],
+    });
+  }
+
+  if (filters.roomType) {
+    chips.push({ clear: () => drop("roomType"), key: "roomType", label: filters.roomType });
+  }
+
+  if (filters.facility) {
+    chips.push({ clear: () => drop("facility"), key: "facility", label: filters.facility });
+  }
+
+  if (filters.food) {
+    chips.push({
+      clear: () => drop("food"),
+      key: "food",
+      label: filters.food === "veg" ? "Veg" : "Non-veg",
+    });
+  }
+
+  if (filters.area) {
+    chips.push({ clear: () => drop("area"), key: "area", label: filters.area });
+  }
+
   if (filters.minPrice || filters.maxPrice) {
     const band = BUDGET_BANDS.find(
       (option) =>
         option.minPrice === filters.minPrice && option.maxPrice === filters.maxPrice,
     );
 
-    chips.push({ key: "minPrice", label: band?.label ?? "Budget" });
+    chips.push({ clear: () => drop("minPrice"), key: "budget", label: band?.label ?? "Budget" });
   }
 
   return (
@@ -394,15 +566,7 @@ function ActiveFilterChips({
           accessibilityRole="button"
           className="flex-row items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 active:opacity-70"
           key={chip.key}
-          onPress={() => {
-            const next = { ...filters };
-
-            delete next[chip.key];
-            // Budget is one chip over two fields, so clearing it clears both.
-            if (chip.key === "minPrice") delete next.maxPrice;
-
-            onChange(next);
-          }}
+          onPress={chip.clear}
         >
           <Text className="text-xs font-semibold text-primary-foreground">
             {chip.label}

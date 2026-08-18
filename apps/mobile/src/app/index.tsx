@@ -38,6 +38,7 @@ export default function BootGate() {
               // resident with a working session is not bounced to the QR
               // screen on a cold offline start. `revalidateSession` corrects it.
               isResidentActivated: isResidentActivated ?? true,
+              mustChangePassword: account.mustChangePassword,
               role: account.role,
             }
           : null,

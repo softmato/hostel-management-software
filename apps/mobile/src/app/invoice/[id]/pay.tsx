@@ -16,6 +16,7 @@ import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { planHandoff } from "@/lib/checkout";
 import {
@@ -26,7 +27,7 @@ import {
   type PayMethod,
   startCheckout,
 } from "@/lib/finance-api";
-import { formatDate, formatDueLabel, formatMoney, formatPeriod } from "@/lib/format";
+import { formatDateBoth, formatDueLabel, formatMoney, formatPeriod } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { openPaymentUrl } from "@/lib/wallet";
 
@@ -233,7 +234,7 @@ function AmountCard({ instructions }: { instructions: PayInstructions }) {
 
       {instructions.dueDate ? (
         <Text variant="caption">
-          {`Due ${formatDate(instructions.dueDate)}${dueLabel ? ` · ${dueLabel}` : ""}`}
+          {`Due ${formatDateBoth(instructions.dueDate)}${dueLabel ? ` · ${dueLabel}` : ""}`}
         </Text>
       ) : null}
     </Card>
@@ -371,9 +372,11 @@ function QrPanel({ method }: { method: Extract<PayMethod, { kind: "QR" }> }) {
 /**
  * Starts a live checkout and hands the resident to the provider.
  *
- * A gateway that cannot be opened from a mobile browser is reported *here*,
- * after the intent exists but before the resident thinks they have paid — see
- * `lib/checkout.ts` for why eSewa's form POST is one of them.
+ * Every provider the server offers can be opened: a `REDIRECT` goes straight to
+ * the wallet, and a `FORM_POST` — eSewa — goes through the server's `/pay`
+ * relay, which is the only place the signature can be rebuilt. A handoff kind
+ * this build does not recognise is reported *here*, after the intent exists but
+ * before the resident thinks they have paid.
  */
 function GatewayPanel({
   invoiceId,
@@ -390,7 +393,15 @@ function GatewayPanel({
 
     try {
       const intent = await startCheckout(invoiceId, method.provider);
-      const plan = planHandoff(intent.handoff);
+      /*
+       * The reference, not the signed fields, is what identifies this attempt
+       * to the relay page — the server rebuilds the signature from the stored
+       * intent, so nothing secret travels through a URL.
+       */
+      const plan = planHandoff(intent.handoff, {
+        baseUrl: API_BASE_URL,
+        reference: intent.reference,
+      });
 
       if (plan.kind === "OPEN_URL") {
         /*

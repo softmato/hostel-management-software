@@ -1,11 +1,11 @@
 import "@/global.css";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
-import { Stack } from "expo-router";
+import { router, Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Platform, StatusBar as RNStatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -15,8 +15,13 @@ import { PersistGate } from "redux-persist/integration/react";
 
 import { BottomChromeProvider } from "@/components/bottom-chrome";
 import { BrandSplash } from "@/components/brand-splash";
+import { UploadToaster } from "@/components/upload-toaster";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { usePush } from "@/hooks/use-push";
+import { useRealtime } from "@/hooks/use-realtime";
+import { useUploads } from "@/hooks/use-uploads";
+import { resolveHome } from "@/constants/roles";
 import { bootstrapSession, revalidateSession } from "@/lib/auth-session";
 import { persistor, store } from "@/store";
 import { setReady } from "@/store/slices/authSlice";
@@ -29,6 +34,32 @@ function RootShell() {
   const dispatch = useAppDispatch();
   const { colors, isDark } = useAppTheme();
   const isReady = useAppSelector((state) => state.auth.isReady);
+  const uploads = useUploads();
+
+  /*
+   * The route this launch started on, read through a ref so the boot effect can
+   * look at it after an await without re-running when it changes.
+   *
+   * `/` is the boot gate. Anything else means a deep link mounted its own screen
+   * — see the re-route guard below.
+   */
+  const pathname = usePathname();
+  const pathRef = useRef(pathname);
+
+  useEffect(() => {
+    pathRef.current = pathname;
+  });
+
+  /*
+   * Both live at the root, and both are no-ops while signed out.
+   *
+   * Push registration has to outlive any one screen — a notification tapped
+   * from the tray can mount any route, and the listener that routes it must
+   * already exist. The socket is here for the same reason the upload toaster
+   * is: it belongs to the session, not to whatever happens to be on screen.
+   */
+  usePush();
+  useRealtime();
 
   /*
    * The splash is uncovered here, not in the boot gate.
@@ -53,6 +84,11 @@ function RootShell() {
   useEffect(() => {
     let cancelled = false;
 
+    // Captured before anything awaits: by the time revalidation answers, the
+    // gate has long since redirected, so "are we at `/` now" would always be
+    // false. What matters is where this launch came in.
+    const startedAt = pathRef.current;
+
     async function boot() {
       // Restores the token into memory and returns the *cached* account. No
       // network — index.tsx routes off this synchronously.
@@ -62,10 +98,51 @@ function RootShell() {
 
       dispatch(setReady(true));
 
-      // Now that a screen is on its way, confirm the cache against the server.
-      // A change in role or activation re-routes; a failure is ignored, because
-      // an offline launch should still show the last known dashboard.
-      void revalidateSession();
+      /*
+       * Now that a screen is on its way, confirm the cache against the server.
+       * A failure is ignored, because an offline launch should still show the
+       * last known dashboard.
+       *
+       * The result was previously discarded, which made the "and the role has
+       * not changed" half of the boot contract (§0 step 3) a no-op: a resident
+       * promoted to warden on the web, an account newly flagged
+       * `mustChangePassword`, or a QR activated on another device all stayed on
+       * the stale screen until the next cold start. `revalidateSession` only
+       * returns an account when something actually moved, so this re-routes
+       * exactly then and never on an ordinary launch.
+       */
+      const changed = await revalidateSession();
+
+      if (cancelled || !changed) {
+        return;
+      }
+
+      /*
+       * Only re-route a launch that started at the boot gate.
+       *
+       * A deep link mounts its own screen — `hostelhub://ref/<code>`,
+       * `guardian-invite?token=…`, a notification's invoice — and the user is
+       * looking at the thing they tapped. Replacing it a second later because
+       * revalidation noticed a changed role is the app taking the screen away
+       * mid-read, and it lands hardest on exactly the links where a flag *has*
+       * just moved: a QR activated on another device, an invitation accepted.
+       *
+       * `/` is the gate's own path, so this is true only for an ordinary launch.
+       * Anything else keeps its screen; the store is already updated, so the
+       * correct tabs are underneath when they navigate back.
+       */
+      if (startedAt !== "/") {
+        return;
+      }
+
+      router.replace(
+        resolveHome({
+          isApprovedProvider: changed.isServiceProvider,
+          isResidentActivated: store.getState().auth.isResidentActivated ?? true,
+          mustChangePassword: changed.mustChangePassword,
+          role: changed.role,
+        }),
+      );
     }
 
     void boot();
@@ -163,14 +240,74 @@ function RootShell() {
         <Stack.Screen name="hostel/[slug]/inquiry" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="compare" options={{ animation: "slide_from_right" }} />
         {/*
+          The SOS floating button's tap destination. At the root rather than in
+          `(resident)/`, so pushing it slides over the tab bar — and so the
+          button that opens it, which lives in the resident layout, is not
+          rendering a screen inside itself.
+        */}
+        <Stack.Screen name="sos" options={{ animation: "slide_from_bottom" }} />
+        {/*
+          Complaints, reached from the More tab and from a push. At the root for
+          the same reason invoices are — and because a complaint push arrives for
+          a resident whose complaint may be open on any tab.
+        */}
+        <Stack.Screen name="complaints/index" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="complaints/new" options={{ animation: "slide_from_bottom" }} />
+        <Stack.Screen name="complaints/[id]" options={{ animation: "slide_from_right" }} />
+        {/* Reached from More and from the dashboard's night-status card. */}
+        <Stack.Screen name="night-status" options={{ animation: "slide_from_right" }} />
+        {/*
+          A provider's job detail. At the root for the same reason an invoice is:
+          it slides over the tab bar rather than becoming a fourth tab.
+        */}
+        <Stack.Screen name="job/[id]" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="profile" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="id-card/index" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="id-card/edit" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="referrals" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="review" options={{ animation: "slide_from_right" }} />
+        {/*
+          Community is readable signed out, so it sits on the root stack next to
+          the public group rather than inside any role's tabs — and
+          `community/[postId]` is a push and share-link target.
+        */}
+        <Stack.Screen name="community/index" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="community/[postId]" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
+        {/*
+          The bell's destination. At the root because `GET /notifications` is
+          scoped to the caller's own user id with no role branch — one screen
+          serves every audience, so it cannot live inside any one tab group.
+        */}
+        <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
+        {/*
           The referral deep link. The file name is the handler — expo-router
           resolves `hostelhub://ref/<code>` here on a cold start and while the
           app is already running, so there is no cold-start case to forget.
         */}
         <Stack.Screen name="ref/[code]" options={{ animation: "slide_from_right" }} />
+        {/*
+          The guardian invitation deep link. The file name matches the path in
+          the email — `guardian-invite.service.ts` builds
+          `{siteUrl}/guardian-invite?token=…` — so the https link routes here
+          the day verified app links are configured, and
+          `hostelhub://guardian-invite?token=…` already does.
+        */}
+        <Stack.Screen name="guardian-invite" options={{ animation: "slide_from_right" }} />
       </Stack>
 
-      <Toast topOffset={60} />
+      {/*
+        Above the transient toasts and below nothing: an upload can outlive the
+        screen that started it, so its report is drawn at the app root.
+      */}
+      <UploadToaster />
+
+      {/*
+        Transient toasts move down to clear the upload cards rather than
+        stacking on top of them — 88px is one card plus its gap, which is the
+        only case that overlaps in practice.
+      */}
+      <Toast topOffset={uploads.length > 0 ? 60 + 88 * uploads.length : 60} />
     </>
   );
 }

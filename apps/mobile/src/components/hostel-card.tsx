@@ -52,10 +52,52 @@ export function facilityIcon(facility: string): keyof typeof Ionicons.glyphMap {
   return FACILITY_ICONS[facility] ?? "checkmark-circle-outline";
 }
 
+/**
+ * The heart, shared by the cards and the home showcase so the two cannot end up
+ * with different icons for the same state.
+ *
+ * Green when saved rather than red: the palette is white, black and one green
+ * accent (docs/DESIGN.md), and a red heart is the only warm colour on the screen
+ * — it reads as a warning next to a `destructive` token that means exactly that.
+ *
+ * No haptic here. `useSavedHostels().toggle` already fires one, and two on a
+ * single tap is a stutter.
+ */
+export function SaveButton({
+  hostel,
+  onToggle,
+  saved,
+}: {
+  hostel: PublicHostel;
+  onToggle: (hostel: PublicHostel) => void;
+  saved: boolean;
+}) {
+  const { colors } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel={saved ? `Remove ${hostel.name} from saved` : `Save ${hostel.name}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected: saved }}
+      className="h-9 w-9 items-center justify-center rounded-full bg-card/95 active:opacity-70"
+      hitSlop={6}
+      onPress={() => onToggle(hostel)}
+    >
+      <Ionicons
+        color={saved ? colors.primary : colors.mutedForeground}
+        name={saved ? "heart" : "heart-outline"}
+        size={18}
+      />
+    </Pressable>
+  );
+}
+
 export function HostelCard({
   distanceMeters,
   hostel,
   onToggleCompare,
+  onToggleSave,
+  saved = false,
   selectedForCompare = false,
   showCampusDistance = false,
   variant = "list",
@@ -69,6 +111,9 @@ export function HostelCard({
   hostel: PublicHostel;
   /** Omitted on surfaces where comparing is not offered. */
   onToggleCompare?: (hostel: PublicHostel) => void;
+  /** The heart. Omitted where saving makes no sense — inside Favourites itself. */
+  onToggleSave?: (hostel: PublicHostel) => void;
+  saved?: boolean;
   selectedForCompare?: boolean;
   /** Students search by campus, so the browse list leads with that distance. */
   showCampusDistance?: boolean;
@@ -132,27 +177,35 @@ export function HostelCard({
           </View>
         ) : null}
 
-        {onToggleCompare ? (
-          <Pressable
-            accessibilityLabel={
-              selectedForCompare ? "Remove from compare" : "Add to compare"
-            }
-            accessibilityRole="button"
-            accessibilityState={{ selected: selectedForCompare }}
-            className="absolute right-3 top-3 h-9 w-9 items-center justify-center rounded-full bg-card/95 active:opacity-70"
-            hitSlop={6}
-            onPress={() => {
-              void Haptics.selectionAsync();
-              onToggleCompare(hostel);
-            }}
-          >
-            <Ionicons
-              color={selectedForCompare ? colors.primary : colors.mutedForeground}
-              name={selectedForCompare ? "git-compare" : "git-compare-outline"}
-              size={17}
-            />
-          </Pressable>
-        ) : null}
+        {/* One row, so a card offering both actions cannot stack them on top of
+            each other in the same corner. */}
+        <View className="absolute right-3 top-3 flex-row gap-2">
+          {onToggleCompare ? (
+            <Pressable
+              accessibilityLabel={
+                selectedForCompare ? "Remove from compare" : "Add to compare"
+              }
+              accessibilityRole="button"
+              accessibilityState={{ selected: selectedForCompare }}
+              className="h-9 w-9 items-center justify-center rounded-full bg-card/95 active:opacity-70"
+              hitSlop={6}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                onToggleCompare(hostel);
+              }}
+            >
+              <Ionicons
+                color={selectedForCompare ? colors.primary : colors.mutedForeground}
+                name={selectedForCompare ? "git-compare" : "git-compare-outline"}
+                size={17}
+              />
+            </Pressable>
+          ) : null}
+
+          {onToggleSave ? (
+            <SaveButton hostel={hostel} onToggle={onToggleSave} saved={saved} />
+          ) : null}
+        </View>
       </View>
 
       <View className="gap-1.5 p-3">

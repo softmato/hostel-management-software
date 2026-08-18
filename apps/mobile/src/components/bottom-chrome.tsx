@@ -72,6 +72,26 @@ export function BottomChromeProvider({ children }: { children: ReactNode }) {
   function onScroll(offsetY: number) {
     "worklet";
 
+    /*
+     * The first event after a `reset` establishes where the list *is*; it is not
+     * a scroll.
+     *
+     * `reset` runs when a screen takes focus and cannot know that screen's
+     * offset — a tab keeps its scroll position, so returning to one sitting at
+     * 800dp used to produce `delta = 800 - 0` on the very next event. That is
+     * far past `HIDE_AFTER`, so the tab bar slid away on the first touch of the
+     * list, in either direction, which reads as a glitch rather than as
+     * hide-on-scroll.
+     *
+     * `-1` means "no baseline yet". Taking this event as the baseline and
+     * returning costs nothing: there is no movement to measure between a screen
+     * appearing and the first finger on it.
+     */
+    if (lastOffset.value < 0) {
+      lastOffset.value = offsetY;
+      return;
+    }
+
     const delta = offsetY - lastOffset.value;
     lastOffset.value = offsetY;
 
@@ -117,7 +137,10 @@ export function BottomChromeProvider({ children }: { children: ReactNode }) {
    * obvious way to get it back.
    */
   function reset() {
-    lastOffset.value = 0;
+    // `-1`, not `0`: the next scroll event supplies the real offset. See the
+    // baseline note in `onScroll` — assuming zero here is what made the chrome
+    // vanish on the first touch of a tab that was already scrolled.
+    lastOffset.value = -1;
     accumulated.value = 0;
     hidden.value = 0;
     progress.value = withTiming(0, CHROME_TIMING);

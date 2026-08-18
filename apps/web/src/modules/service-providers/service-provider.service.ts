@@ -4,11 +4,14 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { paginationMeta, paginationRange } from "@/lib/pagination";
+import { REALTIME_TOPIC } from "@/lib/realtime/channels";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { escapeRegex } from "@/lib/validators";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { ServiceProviderApplicationModel } from "@hostel/db/models/ServiceProviderApplication";
 import { ServiceProviderDocumentModel } from "@hostel/db/models/ServiceProviderDocument";
 import { HostelModel } from "@hostel/db/models/Hostel";
+import { MaintenanceHistoryModel } from "@hostel/db/models/MaintenanceHistory";
 import { MaintenanceRequestModel } from "@hostel/db/models/MaintenanceRequest";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import { UserModel } from "@hostel/db/models/User";
@@ -31,6 +34,7 @@ import type {
 type MaintenanceJobRecord = {
   _id: Types.ObjectId;
   category: string;
+  completedAt?: Date;
   createdAt?: Date;
   description?: string;
   hostelId: Types.ObjectId;
@@ -660,6 +664,131 @@ export async function listOwnServiceProviderJobs(userId: string) {
         title: request.title,
       };
     }),
+  };
+}
+
+/**
+ * The two status moves a provider can make on their own assigned job.
+ *
+ * Deliberately not the admin's five. `CANCELLED` is the hostel's decision, not
+ * the contractor's; `SCHEDULED` carries a date the provider has no field to
+ * set; and `PENDING` is a reversal that would let a provider quietly un-finish
+ * work after being paid for it. What is left is the pair that only the person
+ * holding the spanner knows: they have made contact, and they are done.
+ */
+export type ProviderJobStatus = "COMPLETED" | "CONTACTED";
+
+/**
+ * A provider marking their own job contacted or complete.
+ *
+ * Scoped through `findOwnProvider` and pinned to `providerId`, so the id in the
+ * path is only ever resolved within the caller's own assignments — a job
+ * belonging to another provider is reported as a plain miss rather than a 403
+ * (RULES.md §3), which is also what an unapproved account gets.
+ *
+ * `CANCELLED` and `COMPLETED` are terminal: reopening a closed job is the
+ * hostel's call, so a provider who taps twice gets a refusal rather than
+ * silently rewriting the completion date.
+ */
+export async function updateOwnServiceProviderJobStatus(
+  userId: string,
+  jobId: string,
+  input: { note?: string; status: ProviderJobStatus },
+) {
+  await connectToDatabase();
+
+  const provider = await findOwnProvider(userId, { status: "APPROVED" });
+
+  if (!provider) {
+    throw new ServiceProviderServiceError(
+      "Job was not found.",
+      "MAINTENANCE_REQUEST_NOT_FOUND",
+      404,
+    );
+  }
+
+  const job = await MaintenanceRequestModel.findOne({
+    _id: normalizeObjectId(jobId, "job id"),
+    isDeleted: false,
+    providerId: provider._id,
+  }).lean<MaintenanceJobRecord | null>();
+
+  if (!job) {
+    throw new ServiceProviderServiceError(
+      "Job was not found.",
+      "MAINTENANCE_REQUEST_NOT_FOUND",
+      404,
+    );
+  }
+
+  if (job.status === "COMPLETED" || job.status === "CANCELLED") {
+    throw new ServiceProviderServiceError(
+      "This job is already closed. Ask the hostel to reopen it.",
+      "MAINTENANCE_REQUEST_CLOSED",
+      409,
+    );
+  }
+
+  const set: Record<string, unknown> = { status: input.status, updatedBy: userId };
+
+  if (input.status === "COMPLETED") {
+    set.completedAt = new Date();
+  }
+
+  const updated = await MaintenanceRequestModel.findOneAndUpdate(
+    // Pinned to the status we read, so two taps racing each other cannot both
+    // win and write two completion dates.
+    { _id: job._id, isDeleted: false, status: job.status },
+    { $set: set },
+    { new: true },
+  ).lean<MaintenanceJobRecord | null>();
+
+  if (!updated) {
+    throw new ServiceProviderServiceError(
+      "This job changed while you were working on it. Pull to refresh.",
+      "MAINTENANCE_REQUEST_CONFLICT",
+      409,
+    );
+  }
+
+  await MaintenanceHistoryModel.create({
+    action: "MAINTENANCE_STATUS_UPDATED",
+    actorId: userId,
+    hostelId: job.hostelId,
+    nextStatus: updated.status,
+    note: input.note,
+    previousStatus: job.status,
+    requestId: job._id,
+  });
+
+  await AuditLogModel.create({
+    action: "MAINTENANCE_STATUS_UPDATED",
+    actorId: userId,
+    entityId: job._id.toString(),
+    entityType: "MaintenanceRequest",
+    hostelId: job.hostelId,
+    metadata: {
+      nextStatus: updated.status,
+      previousStatus: job.status,
+      providerId: provider._id.toString(),
+      source: "SERVICE_PROVIDER",
+    },
+  });
+
+  // The hostel's maintenance queue is watching this topic, so the admin sees
+  // "completed" without refreshing. The provider is not on the hostel channel —
+  // they are not a member of it — so their own list refreshes from the response.
+  await publishResourceChange({
+    hostelIds: [job.hostelId.toString()],
+    topics: [REALTIME_TOPIC.MAINTENANCE],
+  });
+
+  return {
+    job: {
+      completedAt: updated.completedAt?.toISOString() ?? null,
+      id: updated._id.toString(),
+      status: updated.status,
+    },
   };
 }
 

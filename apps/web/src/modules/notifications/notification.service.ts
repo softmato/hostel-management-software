@@ -19,9 +19,13 @@ import {
 } from "@/lib/realtime/server";
 import { normalizeObjectId } from "@/modules/residents/resident-access";
 import { dispatchPush } from "@/modules/notifications/push.service";
-import type { deviceTokenSaveSchema } from "@/modules/notifications/notification.validation";
+import type {
+  deviceTokenRevokeSchema,
+  deviceTokenSaveSchema,
+} from "@/modules/notifications/notification.validation";
 
 type DeviceTokenSaveInput = z.infer<typeof deviceTokenSaveSchema>;
+type DeviceTokenRevokeInput = z.infer<typeof deviceTokenRevokeSchema>;
 
 export type NotificationKind = "NORMAL" | "ACTION";
 export type NotificationActionState = "PENDING" | "COMPLETED" | "DISMISSED";
@@ -450,4 +454,48 @@ export async function saveDeviceToken(
       userId: token.userId.toString(),
     },
   };
+}
+
+/**
+ * Stops delivery to one device, on sign-out.
+ *
+ * ## The leak this closes
+ *
+ * `saveDeviceToken` upserts on the **token** and stamps the caller's `userId`,
+ * which is right — a phone must only ever be attributed to whoever is signed in
+ * on it. But nothing ever cleared the attribution. Signing out only forgot the
+ * token *locally*, so the row stayed `ACTIVE` against the previous account and
+ * that person's invoices, complaint replies and SOS alerts kept arriving on a
+ * handset they had signed out of, indefinitely — on a shared or handed-down
+ * phone, to whoever was holding it. Nothing pruned it either: Expo only reports
+ * `DeviceNotRegistered` for a token the *app* no longer holds, and this one was
+ * still perfectly valid.
+ *
+ * ## Scoped to the caller, not to the token
+ *
+ * The filter carries `userId`, so a token belonging to someone else cannot be
+ * revoked by quoting it. Push tokens travel — they are posted by the client and
+ * are not secret — and without the scope this route would be a way to silence
+ * any device whose token had been observed.
+ *
+ * ## `REVOKED`, not deleted, and never an error
+ *
+ * Same reasoning as the `DeviceNotRegistered` pruning in `push.service.ts`: the
+ * row is the record that this device existed, and `account-purge` owns removal.
+ * A token that matches nothing answers success — the caller is signing out, the
+ * device is not receiving, and the desired state holds. Reporting a failure
+ * there would only give sign-out a way to fail for a reason nobody can act on.
+ */
+export async function revokeDeviceToken(
+  input: DeviceTokenRevokeInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const result = await DeviceTokenModel.updateMany(
+    { token: input.token, userId: principal.userId },
+    { $set: { status: "REVOKED" } },
+  );
+
+  return { revoked: result.modifiedCount ?? 0 };
 }

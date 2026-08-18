@@ -181,6 +181,87 @@ type RatingSummaryRecord = {
   total: number;
 };
 
+/**
+ * What a hostel's reviews add up to, on every public surface.
+ *
+ * **`total` is the field that says whether there is a rating at all.** The
+ * averages are `0` for a hostel nobody has reviewed, and `0` is also a
+ * legitimate thing to average to, so a screen that branches on `averageRating`
+ * shows a brand-new hostel as one-star. Branch on `total === 0` and say "New".
+ */
+export type PublicRatingSummary = {
+  averageRating: number;
+  cleanlinessRating: number;
+  foodRating: number;
+  safetyRating: number;
+  total: number;
+};
+
+const EMPTY_RATING_SUMMARY: PublicRatingSummary = {
+  averageRating: 0,
+  cleanlinessRating: 0,
+  foodRating: 0,
+  safetyRating: 0,
+  total: 0,
+};
+
+/**
+ * Review averages for a set of hostels, in one aggregation.
+ *
+ * One round trip for the whole page, not one per card: the listing returns up
+ * to 60 hostels, and a per-hostel lookup there is 60 sequential queries behind
+ * the slowest screen in the product.
+ *
+ * **Only `VISIBLE` reviews count.** A review a moderator hid is hidden because
+ * it should not be read — and an average that still includes it publishes its
+ * verdict as a number, which is the same leak with the words removed.
+ *
+ * Values are returned **unrounded**. Rounding is presentation, the clients
+ * already format money and dates, and rounding here would silently change what
+ * `comparePublicHostels` has always returned.
+ */
+async function ratingSummariesFor(hostelIds: Types.ObjectId[]) {
+  const summaries = new Map<string, PublicRatingSummary>();
+
+  if (hostelIds.length === 0) {
+    return summaries;
+  }
+
+  const rows = await RatingReviewModel.aggregate<RatingSummaryRecord>([
+    {
+      $match: {
+        hostelId: { $in: hostelIds },
+        status: "VISIBLE",
+      },
+    },
+    {
+      $group: {
+        _id: "$hostelId",
+        averageRating: { $avg: "$overallRating" },
+        cleanlinessRating: { $avg: "$cleanlinessRating" },
+        foodRating: { $avg: "$foodRating" },
+        safetyRating: { $avg: "$safetyRating" },
+        total: { $sum: 1 },
+      },
+    },
+  ]);
+
+  for (const row of rows) {
+    summaries.set(row._id.toString(), {
+      // `$avg` returns null when every input is null — a review that rated the
+      // hostel overall but left the sub-scores blank. Null in a number field is
+      // how a card renders "NaN ★".
+      averageRating: row.averageRating ?? 0,
+      cleanlinessRating: row.cleanlinessRating ?? 0,
+      foodRating: row.foodRating ?? 0,
+      safetyRating: row.safetyRating ?? 0,
+      total: row.total ?? 0,
+    });
+  }
+
+  return summaries;
+}
+
 export class HostelServiceError extends Error {
   constructor(
     message: string,
@@ -1611,8 +1692,16 @@ export async function listPublicHostels(query: PublicHostelListQuery) {
     .limit(60)
     .lean<HostelRecord[]>();
 
+  const ratings = await ratingSummariesFor(hostels.map((hostel) => hostel._id));
+
   return {
-    hostels: hostels.map(serializePublicHostel),
+    hostels: hostels.map((hostel) => ({
+      ...serializePublicHostel(hostel),
+      // On the card, not only on the detail page: a rating is how somebody
+      // decides which of twelve results to open, so withholding it until they
+      // have opened one is withholding it from the decision it is for.
+      ratingSummary: ratings.get(hostel._id.toString()) ?? EMPTY_RATING_SUMMARY,
+    })),
   };
 }
 
@@ -1652,12 +1741,16 @@ export async function getPublicHostelBySlug(slug: string) {
     throw new HostelServiceError("Hostel was not found.", "HOSTEL_NOT_FOUND", 404);
   }
 
-  const foodRoutine = await getFoodRoutine(hostel._id);
+  const [foodRoutine, ratings] = await Promise.all([
+    getFoodRoutine(hostel._id),
+    ratingSummariesFor([hostel._id]),
+  ]);
 
   return {
     hostel: {
       ...serializePublicHostel(hostel),
       foodRoutine,
+      ratingSummary: ratings.get(hostel._id.toString()) ?? EMPTY_RATING_SUMMARY,
     },
   };
 }
@@ -1681,27 +1774,7 @@ export async function comparePublicHostels(query: PublicHostelCompareQuery) {
     );
   }
 
-  const ratings = await RatingReviewModel.aggregate<RatingSummaryRecord>([
-    {
-      $match: {
-        hostelId: { $in: hostelIds },
-        status: "VISIBLE",
-      },
-    },
-    {
-      $group: {
-        _id: "$hostelId",
-        averageRating: { $avg: "$overallRating" },
-        cleanlinessRating: { $avg: "$cleanlinessRating" },
-        foodRating: { $avg: "$foodRating" },
-        safetyRating: { $avg: "$safetyRating" },
-        total: { $sum: 1 },
-      },
-    },
-  ]);
-  const ratingByHostelId = new Map(
-    ratings.map((rating) => [rating._id.toString(), rating]),
-  );
+  const ratingByHostelId = await ratingSummariesFor(hostelIds);
   const byRequestedOrder = new Map(
     hostels.map((hostel) => [hostel._id.toString(), hostel]),
   );
@@ -1711,13 +1784,17 @@ export async function comparePublicHostels(query: PublicHostelCompareQuery) {
       .map((id) => byRequestedOrder.get(id))
       .filter((hostel): hostel is HostelRecord => Boolean(hostel))
       .map((hostel) => {
-        const rating = ratingByHostelId.get(hostel._id.toString());
+        const rating =
+          ratingByHostelId.get(hostel._id.toString()) ?? EMPTY_RATING_SUMMARY;
 
         return {
           ...serializePublicHostel(hostel),
+          // Also at the top level, so a card rendered from a compare result and
+          // one rendered from the listing read the same field.
+          ratingSummary: rating,
           comparison: {
             facilities: hostel.facilities ?? [],
-            foodScore: rating?.foodRating ?? 0,
+            foodScore: rating.foodRating,
             locationText: [
               hostel.location.address,
               hostel.location.area,
@@ -1730,11 +1807,14 @@ export async function comparePublicHostels(query: PublicHostelCompareQuery) {
               max: hostel.pricing?.monthlyRentMax ?? 0,
               min: hostel.pricing?.monthlyRentMin ?? 0,
             },
+            // Kept here as well as at the top level: the compare screen reads
+            // `comparison.*` for every row it draws, and removing this one
+            // would be a breaking change to a shipped endpoint for no gain.
             ratingSummary: {
-              averageRating: rating?.averageRating ?? 0,
-              cleanlinessRating: rating?.cleanlinessRating ?? 0,
-              safetyRating: rating?.safetyRating ?? 0,
-              total: rating?.total ?? 0,
+              averageRating: rating.averageRating,
+              cleanlinessRating: rating.cleanlinessRating,
+              safetyRating: rating.safetyRating,
+              total: rating.total,
             },
             roomTypes: hostel.roomTypes ?? [],
             vacancy: hostel.capacitySummary?.vacantBeds ?? 0,

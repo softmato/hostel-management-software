@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  Building2,
-  CalendarDays,
-  Download,
-  Phone,
-  ReceiptText,
-  WalletCards,
-} from "lucide-react";
+import { Building2, CalendarDays, Phone, ReceiptText, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -69,14 +62,34 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
     );
     return {
       charges,
-      due: dashboard.summary.dueAmount,
+      // Null whenever the resident has not shared payments — the whole finance
+      // half of this page is hidden in that case, so zero is only ever read by
+      // a branch that is not rendered.
+      due: dashboard.summary?.dueAmount ?? 0,
       paid,
     };
   }, [dashboard]);
 
-  const residentName = dashboard
-    ? `${dashboard.resident.firstName} ${dashboard.resident.lastName}`.trim()
-    : "Resident";
+  /**
+   * Receipts arrive as their own list, keyed by the billing month they settle —
+   * which is the same `month` the dues table is already grouped by, so the two
+   * join without another request. Gated by `canViewReceipts` on the server, so
+   * this map is simply empty when the resident did not share them.
+   */
+  const receiptByMonth = useMemo(
+    () =>
+      new Map(
+        (dashboard?.receipts ?? []).map((receipt) => [
+          receipt.month,
+          receipt.receiptNumber,
+        ]),
+      ),
+    [dashboard],
+  );
+
+  const residentName = dashboard?.resident.fullName || "Resident";
+  const canViewPayments = dashboard?.permissions.canViewPayments ?? false;
+  const hostelPhone = dashboard?.hostel?.contact.phone ?? "";
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
@@ -90,7 +103,12 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
       {dashboard ? (
         <>
           <SectionCard>
-            <div className="grid gap-4 lg:grid-cols-[1.15fr_repeat(3,1fr)]">
+            {/*
+              Auto-fitting rather than a fixed four columns: the metric cards
+              beside the identity block are permission-gated, so this row can
+              legitimately hold one card or three.
+            */}
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div className="flex items-center gap-4 rounded-xl border border-border bg-muted/15 p-4">
                 <InitialsAvatar name={residentName} size="lg" tone="guardian" />
                 <div className="min-w-0">
@@ -108,39 +126,59 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                 </div>
               </div>
 
-              <MetricCard
-                icon={WalletCards}
-                label="Paid Amount"
-                tone="green"
-                trend="This session"
-                value={currency(totals.paid)}
-              />
-              <MetricCard
-                icon={ReceiptText}
-                label="Due Amount"
-                tone="amber"
-                trend={
-                  dashboard.summary.unpaidCount > 0
-                    ? `${dashboard.summary.unpaidCount} unpaid`
-                    : "No dues"
-                }
-                value={currency(totals.due)}
-              />
-              <MetricCard
-                icon={CalendarDays}
-                label="Safety Status"
-                tone="cyan"
-                trend={
-                  dashboard.safety?.checkedAt
-                    ? new Date(dashboard.safety.checkedAt).toLocaleString()
-                    : "Not verified recently"
-                }
-                value={(dashboard.safety?.status ?? "NOT_VERIFIED").replaceAll("_", " ")}
-              />
+              {canViewPayments ? (
+                <>
+                  <MetricCard
+                    icon={WalletCards}
+                    label="Paid Amount"
+                    tone="green"
+                    trend="Across shared invoices"
+                    value={currency(totals.paid)}
+                  />
+                  <MetricCard
+                    icon={ReceiptText}
+                    label="Due Amount"
+                    tone="amber"
+                    trend={
+                      (dashboard.summary?.unpaidCount ?? 0) > 0
+                        ? `${dashboard.summary?.unpaidCount} unpaid`
+                        : "No dues"
+                    }
+                    value={currency(totals.due)}
+                  />
+                </>
+              ) : null}
+              {/*
+                `asOf` is a date, not a timestamp — rendered as one. Showing a
+                guardian the exact minute their ward was checked is the
+                surveillance detail PHASES.md §4.1 rules out.
+              */}
+              {dashboard.safety ? (
+                <MetricCard
+                  icon={CalendarDays}
+                  label="Safety Status"
+                  tone="cyan"
+                  trend={
+                    dashboard.safety.asOf
+                      ? new Date(`${dashboard.safety.asOf}T00:00:00`).toLocaleDateString()
+                      : "Not verified recently"
+                  }
+                  value={dashboard.safety.status.replaceAll("_", " ")}
+                />
+              ) : null}
             </div>
           </SectionCard>
 
-          <div className="grid gap-5 xl:grid-cols-[1.4fr_0.9fr]">
+          <div
+            className={`grid gap-5 ${canViewPayments ? "xl:grid-cols-[1.4fr_0.9fr]" : ""}`}
+          >
+            {/*
+              Absent, not empty. `payments` comes back as `[]` both when the ward
+              owes nothing and when the resident never shared their finances —
+              drawing "No payment records yet." in the second case tells the
+              guardian something that is not true.
+            */}
+            {canViewPayments ? (
             <SectionCard title="Monthly Dues">
               {dashboard.payments.length === 0 ? (
                 <EmptyInline label="No payment records yet." />
@@ -183,10 +221,18 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                           </SoftBadge>
                         </TableCell>
                         <TableCell>
-                          {payment.status === "PAID" ? (
+                          {/*
+                            The receipt *number*, not a Download affordance: the
+                            guardian dashboard has no receipt PDF route behind
+                            it, and a download icon that downloads nothing is
+                            the same dead control as the button below used to
+                            be. The number is what they would quote to the
+                            office anyway.
+                          */}
+                          {receiptByMonth.get(payment.month) ? (
                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-role-guardian">
-                              <Download className="size-3.5" />
-                              Receipt
+                              <ReceiptText className="size-3.5" />
+                              {receiptByMonth.get(payment.month)}
                             </span>
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
@@ -198,8 +244,10 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                 </DataTable>
               )}
             </SectionCard>
+            ) : null}
 
             <div className="space-y-5">
+              {canViewPayments ? (
               <SectionCard title="Receipt Summary">
                 <dl className="space-y-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
@@ -229,11 +277,19 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                     {currency(totals.due)}
                   </p>
                 </div>
-                <RoleButton className="mt-4 w-full" tone="guardian" type="button">
-                  <WalletCards className="size-4" />
-                  Make a Payment
-                </RoleButton>
+                {/*
+                  There was a "Make a Payment" button here with no handler and
+                  no endpoint behind it — `/guardian/payments` is a GET, and the
+                  guardian payments view is read-only by design. A guardian who
+                  tapped it to settle their ward's dues got no feedback at all,
+                  so it says what to do instead.
+                */}
+                <p className="mt-4 text-xs text-muted-foreground">
+                  Guardians can see dues but cannot settle them here. Payment is made
+                  from the resident&apos;s own portal, or directly with the hostel office.
+                </p>
               </SectionCard>
+              ) : null}
 
               <SectionCard title="Contact Hostel">
                 <div className="flex items-start gap-3">
@@ -254,9 +310,17 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                     </p>
                   </div>
                 </div>
+                {hostelPhone ? (
+                  <RoleButton asChild className="mt-4 w-full" tone="guardian">
+                    <a href={`tel:${hostelPhone}`}>
+                      <Phone className="size-4" />
+                      Call {hostelPhone}
+                    </a>
+                  </RoleButton>
+                ) : null}
                 <RoleButton
                   asChild
-                  className="mt-4 w-full"
+                  className="mt-3 w-full"
                   tone="guardian"
                   variant="outline"
                 >
@@ -269,7 +333,14 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
             </div>
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-2">
+          <div
+            className={`grid gap-5 ${
+              dashboard.permissions.canViewNotices && dashboard.permissions.canViewFood
+                ? "xl:grid-cols-2"
+                : ""
+            }`}
+          >
+            {dashboard.permissions.canViewNotices ? (
             <SectionCard title="Notes from Hostel">
               {dashboard.notices.length === 0 ? (
                 <EmptyInline label="No notices shared with guardians." />
@@ -296,7 +367,9 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                 </div>
               )}
             </SectionCard>
+            ) : null}
 
+            {dashboard.permissions.canViewFood ? (
             <SectionCard title="Today's Food">
               {dashboard.food.length === 0 ? (
                 <EmptyInline label="No menu items available." />
@@ -318,6 +391,7 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
                 </div>
               )}
             </SectionCard>
+            ) : null}
           </div>
         </>
       ) : null}

@@ -34,6 +34,9 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   FAILED: "danger",
   IN_PROGRESS: "info",
   INITIATED: "info",
+  /** `Referral.status`: the friend has been in touch, nothing has happened yet. */
+  INQUIRY_CREATED: "info",
+  JOINED: "success",
   MOVED_OUT: "neutral",
   OPEN: "warning",
   OVERDUE: "danger",
@@ -43,6 +46,7 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   PENDING_PROOF: "warning",
   REJECTED: "danger",
   RESOLVED: "success",
+  REWARDED: "success",
   REVERSED: "danger",
   SETTLED: "success",
   SUBMITTED: "info",

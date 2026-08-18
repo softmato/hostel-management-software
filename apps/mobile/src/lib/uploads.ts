@@ -27,8 +27,9 @@ import { File, UploadType } from "expo-file-system";
 import type { ImagePickerAsset } from "expo-image-picker";
 
 import { API_BASE_URL, api } from "@/lib/api";
-import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
+import { type ApiEnvelope, readApiError, unwrap } from "@/lib/api-contract";
 import { resolveFileName, resolveMimeType } from "@/lib/mime";
+import { finishUpload, startUpload, updateUpload } from "@/lib/upload-queue";
 
 export type FileAssetKind = "GENERIC" | "PAYMENT_PROOF" | "PAYMENT_QR" | "STATEMENT";
 
@@ -53,16 +54,71 @@ type PresignResponse = { assetId: string; key: string; presignedUrl: string };
 /**
  * Uploads one picked file and returns the asset id to attach to a claim.
  *
- * `onProgress` is called at each stage so a caller can drive the global
- * progress toaster; the PUT itself reports byte progress where the platform
- * supports it.
+ * ## Progress reports itself
+ *
+ * Every call registers with `lib/upload-queue.ts`, which the always-mounted
+ * `<UploadToaster />` renders — so a screen gets live progress, a stage label
+ * and a failure message without wiring anything up, and an upload keeps
+ * reporting after the user has navigated away from the screen that started it.
+ * That is the web's universal-uploader rule ("call sites never build their own
+ * progress UI") and the reason `label` is the *task*, not the file name: "IMG
+ * 20260817 004312.jpg" tells nobody what is happening.
+ *
+ * `onProgress` stays for the rare screen that also wants an inline indicator
+ * next to the thing being uploaded.
  */
 export async function uploadAsset(
   asset: Pick<ImagePickerAsset, "fileName" | "fileSize" | "mimeType" | "uri">,
   {
+    accessLevel = "PRIVATE",
     kind = "GENERIC",
+    label = "File",
     onProgress,
-  }: { kind?: FileAssetKind; onProgress?: (progress: UploadProgress) => void } = {},
+  }: {
+    /**
+     * **`PRIVATE` unless the bytes are meant for strangers.** Default-deny, and
+     * every existing caller wants it: a payment proof, an ID photo and a complaint
+     * attachment are all read back through the authorising route.
+     *
+     * `PUBLIC` is for community media, matching the web's
+     * `useUploader({ accessLevel: "PUBLIC" })`. It has to be: a public community
+     * post is read by people who are neither the owner nor in the author's hostel,
+     * and `files/[assetId]/url` default-denies exactly that — so a PRIVATE upload
+     * would post an image only its author can see.
+     */
+    accessLevel?: "PRIVATE" | "PUBLIC";
+    kind?: FileAssetKind;
+    label?: string;
+    onProgress?: (progress: UploadProgress) => void;
+  } = {},
+): Promise<string> {
+  const rowId = startUpload(label);
+
+  const report = (progress: UploadProgress) => {
+    updateUpload(rowId, { fraction: progress.fraction, stage: progress.stage });
+    onProgress?.(progress);
+  };
+
+  try {
+    const assetId = await runUpload(asset, kind, accessLevel, report);
+
+    finishUpload(rowId);
+
+    return assetId;
+  } catch (caught) {
+    finishUpload(rowId, {
+      error: readApiError(caught, "That upload did not go through."),
+    });
+
+    throw caught;
+  }
+}
+
+async function runUpload(
+  asset: Pick<ImagePickerAsset, "fileName" | "fileSize" | "mimeType" | "uri">,
+  kind: FileAssetKind,
+  accessLevel: "PRIVATE" | "PUBLIC",
+  onProgress: (progress: UploadProgress) => void,
 ): Promise<string> {
   const mimeType = resolveMimeType(asset);
   const fileName = resolveFileName(asset);
@@ -79,11 +135,11 @@ export async function uploadAsset(
     throw new UploadError("That file could not be read, or it is empty.", "presigning");
   }
 
-  onProgress?.({ fraction: 0, stage: "presigning" });
+  onProgress({ fraction: 0, stage: "presigning" });
 
   const presigned = unwrap(
     await api.post<ApiEnvelope<PresignResponse>>("/files/presign", {
-      accessLevel: "PRIVATE",
+      accessLevel,
       fileName,
       kind,
       mimeType,
@@ -91,7 +147,7 @@ export async function uploadAsset(
     }),
   );
 
-  onProgress?.({ fraction: 0, stage: "uploading" });
+  onProgress({ fraction: 0, stage: "uploading" });
 
   /*
    * Straight to R2 with `expo-file-system`'s uploader rather than reading the
@@ -107,7 +163,7 @@ export async function uploadAsset(
     httpMethod: "PUT",
     mimeType,
     onProgress: ({ bytesSent, totalBytes }) => {
-      onProgress?.({
+      onProgress({
         fraction: totalBytes > 0 ? bytesSent / totalBytes : null,
         stage: "uploading",
       });
@@ -122,7 +178,7 @@ export async function uploadAsset(
     );
   }
 
-  onProgress?.({ fraction: 1, stage: "verifying" });
+  onProgress({ fraction: 1, stage: "verifying" });
 
   /*
    * Not optional. Until this runs the asset is a reservation, and the finance
@@ -139,7 +195,52 @@ export async function uploadAsset(
   return presigned.assetId;
 }
 
+/** Variants `files/[assetId]/url` will serve. Falls back to the original if absent. */
+export type AssetVariant = "LARGE" | "MEDIUM" | "ORIGINAL" | "THUMBNAIL";
+
 /** The authorising read route for a private asset. Needs the bearer token. */
-export function assetUrl(assetId: string) {
-  return `${API_BASE_URL}/api/v1/files/${assetId}/url`;
+export function assetUrl(assetId: string, variant: AssetVariant = "ORIGINAL") {
+  const query = variant === "ORIGINAL" ? "" : `?variant=${variant}`;
+
+  return `${API_BASE_URL}/api/v1/files/${assetId}/url${query}`;
+}
+
+/**
+ * An `<Image source>` for a **private** asset — a payment proof, a food photo, a
+ * complaint attachment.
+ *
+ * ## Why the header, and why it is the only mechanism available
+ *
+ * `files/[assetId]/url` is not the image. It authorises the caller, presigns the
+ * object, and **302s to R2**. A `PUBLIC` asset skips the auth check entirely, so
+ * a bare `<Image>` follows the redirect and loads (that is `lib/media.ts`'s
+ * case). A private one answers `401 UNAUTHENTICATED` without a principal, and
+ * `loadApiPrincipal` reads either the `Authorization` header or a cookie — the
+ * phone has no cookie, so the header is the whole of it.
+ *
+ * ## The part that was measured rather than assumed
+ *
+ * Against the live bucket on 2026-08-17: the presigned URL served `200
+ * image/jpeg` bare, and the **same URL with an `Authorization` header attached
+ * answered `400 InvalidRequest — Missing x-amz-content-sha256`**. R2 reads any
+ * `Authorization` header as SigV4 and stops honouring the query signature. So
+ * the header has to reach our route and *not* the redirect target.
+ *
+ * Both native loaders strip `Authorization` when a redirect crosses to another
+ * host, which is what makes this work — but that is one behaviour this app has
+ * never observed on a device, and it is the first thing to check if a private
+ * image renders blank while the same asset opens fine in the admin's browser.
+ * The fix, if it comes to that, is server-side: a mode on the read route that
+ * returns the presigned URL as JSON so the client can load it bare. That is why
+ * every private image in the app goes through this one function.
+ */
+export function privateAssetSource(
+  assetId: string,
+  token: string | null | undefined,
+  variant: AssetVariant = "ORIGINAL",
+) {
+  return {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    uri: assetUrl(assetId, variant),
+  };
 }

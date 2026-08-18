@@ -7,6 +7,10 @@ function invoice(overrides: Partial<ResidentInvoice> = {}): ResidentInvoice {
   return {
     dueAmount: 8500,
     id: "inv-1",
+    // The ledger is built from totals and receipts, never from the breakdown:
+    // a paid invoice's lines still sum to the full charge, so adding them in
+    // would double the opening balance.
+    lines: [],
     month: "2026-08",
     paidAmount: 0,
     receipts: [],

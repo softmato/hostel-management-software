@@ -61,6 +61,31 @@ describe("resolveHome", () => {
     expect(resolveHome({ role: ROLE.PUBLIC })).toBe("/(browse)");
   });
 
+  it("gates a provisioned account on setting its own password, whatever its role", () => {
+    // A cook or warden account is created with a temporary password its admin
+    // chose and can still use, so this outranks the role branch — including for
+    // a resident, and including on a cold start where the flag comes from cache.
+    expect(resolveHome({ mustChangePassword: true, role: ROLE.COOK })).toBe(
+      "/(auth)/set-password",
+    );
+    expect(resolveHome({ mustChangePassword: true, role: ROLE.WARDEN })).toBe(
+      "/(auth)/set-password",
+    );
+    expect(
+      resolveHome({
+        isResidentActivated: true,
+        mustChangePassword: true,
+        role: ROLE.RESIDENT,
+      }),
+    ).toBe("/(auth)/set-password");
+  });
+
+  it("lets an account through once the flag clears", () => {
+    expect(resolveHome({ mustChangePassword: false, role: ROLE.COOK })).toBe("/(cook)");
+    // Absent means false: every account that predates the flag has one.
+    expect(resolveHome({ role: ROLE.COOK })).toBe("/(cook)");
+  });
+
   it("never lands a signed-in account on the signed-out stack", () => {
     // `(public)` is the one group with no tab bar and no sign-out: its bottom
     // edge belongs to the Log in pill. Anything with a session that lands there

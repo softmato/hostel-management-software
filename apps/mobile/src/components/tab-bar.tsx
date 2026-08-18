@@ -97,7 +97,12 @@ export function AnimatedTabBar({
         return (
           <Pressable
             accessibilityLabel={label}
-            accessibilityRole="button"
+            /*
+             * `tab`, not `button`. With `button` a screen reader announces five
+             * unrelated buttons and drops the position-in-set — "tab 2 of 5" is
+             * the whole orientation cue for someone who cannot see the bar.
+             */
+            accessibilityRole="tab"
             accessibilityState={{ selected: focused }}
             className="flex-1 items-center justify-center gap-0.5 active:opacity-60"
             key={route.key}

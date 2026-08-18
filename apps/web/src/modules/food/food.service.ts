@@ -125,17 +125,26 @@ async function auditFoodAction(
   });
 }
 
+/**
+ * Three callers, three ways of knowing which hostel the photo belongs to.
+ *
+ * A resident's is looked up from their own record; hostel staff's comes from
+ * their principal; a **cook's** is resolved by `cook.service.ts` and handed in,
+ * because a cook is not hostel staff and `resolveAdminHostelId` would refuse
+ * them. The scope is a parameter rather than three near-copies of this function
+ * so that the audit row, the realtime publish and the serializer stay one path.
+ */
 export async function uploadFoodPhoto(
   input: FoodPhotoUploadInput,
   principal: ApiPrincipal,
-  residentScoped = false,
+  options: { hostelId?: Types.ObjectId; residentScoped?: boolean } = {},
 ) {
   await connectToDatabase();
 
-  const resident = residentScoped ? await findCurrentResident(principal) : null;
+  const resident = options.residentScoped ? await findCurrentResident(principal) : null;
   const hostelId = resident
     ? resident.hostelId
-    : resolveAdminHostelId(principal, input.hostelId);
+    : (options.hostelId ?? resolveAdminHostelId(principal, input.hostelId));
   const photo = await FoodPhotoModel.create({
     ...input,
     hostelId,

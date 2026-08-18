@@ -2,6 +2,7 @@
   "expo": {
     "name": "HostelHub",
     "slug": "hostelproject",
+    "owner": "softmatotechnology",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -20,9 +21,10 @@
     },
     "android": {
       "package": "com.softmato.hostelhub",
+      "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#0a8a4b",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -38,6 +40,33 @@
       ],
       "blockedPermissions": [
         "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "hostel-management-software-web.vercel.app",
+              "pathPrefix": "/ref/"
+            },
+            {
+              "scheme": "https",
+              "host": "hostel-management-software-web.vercel.app",
+              "path": "/inquiry"
+            },
+            {
+              "scheme": "https",
+              "host": "hostel-management-software-web.vercel.app",
+              "path": "/guardian-invite"
+            }
+          ]
+        }
       ]
     },
     "plugins": [

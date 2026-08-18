@@ -8,16 +8,19 @@ import {
   MapPin,
   Send,
   ShieldCheck,
+  Sparkles,
   Star,
   UserRound,
   Loader2,
   Utensils,
 } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { maybePromptForResidentProfile } from "@/components/resident-identity";
 import { browserApi } from "@/lib/browser-api";
+import { readReferralCode } from "@/lib/referral-code";
 import { cn } from "@/lib/utils";
 import {
   Breadcrumbs,
@@ -44,6 +47,7 @@ function slugifyRoom(value: string) {
 
 function PublicInquiryPageContent() {
   const searchParams = useSearchParams();
+  const referralCode = readReferralCode(searchParams);
   const hostelSlug = searchParams
     ? searchParams.get("hostel") || "green-view-hostel"
     : "green-view-hostel";
@@ -57,6 +61,16 @@ function PublicInquiryPageContent() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    /*
+     * Skipped entirely for a referral link. The early return further down picks
+     * the referral form, but an early return does not stop an effect — without
+     * this the page would still fetch `green-view-hostel` (the default slug) on
+     * every referral visit, for a column it never renders.
+     */
+    if (referralCode) {
+      return;
+    }
+
     async function loadHostel() {
       setState("loading");
       setMessage("");
@@ -83,7 +97,7 @@ function PublicInquiryPageContent() {
     }
 
     void loadHostel();
-  }, [hostelSlug, preselectedRoom]);
+  }, [hostelSlug, preselectedRoom, referralCode]);
 
   const hostelSummary = hostel ? mapPublicHostelToSummary(hostel) : null;
   const roomOptions = useMemo(() => {
@@ -100,6 +114,22 @@ function PublicInquiryPageContent() {
           : Math.round(minRent + ((maxRent - minRent) / (roomTypes.length - 1)) * index),
     }));
   }, [hostel, hostelSummary?.price]);
+
+  /*
+   * A referral link is a different form, not a variant of this one.
+   *
+   * The code resolves to a hostel **server-side** (`createReferredInquiry` files
+   * against `referralCode.hostelId`), and no public endpoint maps a code to a
+   * hostel — so this page genuinely cannot name the hostel, cannot show its
+   * photo, and cannot offer its room types. Rendering the hostel column anyway
+   * would mean showing `green-view-hostel`, the default slug, to someone whose
+   * friend lives somewhere else entirely.
+   *
+   * The fetch above is skipped for the same reason — see its guard.
+   */
+  if (referralCode) {
+    return <ReferredInquiryForm code={referralCode} />;
+  }
 
   if (state === "loading") {
     return (
@@ -474,6 +504,199 @@ function PublicInquiryPageContent() {
             )}
           </SectionCard>
         </div>
+      </section>
+    </PublicShell>
+  );
+}
+
+/**
+ * The `?ref=` form — a friend's referral link.
+ *
+ * ## Deliberately smaller than the ordinary inquiry
+ *
+ * `referredInquiryCreateSchema` takes **name, phone, optional email, optional
+ * message** and the code. Nothing else. So there is no gender field, no room
+ * type and no move-in date here — not because they would be unwelcome, but
+ * because the server has nowhere to put them, and a required field whose value
+ * is discarded is a worse form than a short one.
+ *
+ * ## The hostel is not named, on purpose
+ *
+ * The code resolves to a hostel inside `createReferredInquiry`; the client never
+ * learns which. A page that guessed would send someone's phone number to the
+ * wrong hostel with complete confidence, so the copy says "your friend's hostel"
+ * — the same call `apps/mobile/src/app/ref/[code].tsx` makes, for the same
+ * reason.
+ *
+ * ## `REFERRAL_ALREADY_EXISTS` is not a red box
+ *
+ * The service rejects a second inquiry from the same phone against the same code
+ * with a 409. That is someone submitting twice, which is not an error worth
+ * alarming them over — they are already in the queue and the referrer is already
+ * credited, so they get told exactly that.
+ */
+function ReferredInquiryForm({ code }: { code: string }) {
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const value = (name: string) => {
+      const field = form.get(name);
+
+      return typeof field === "string" ? field.trim() : "";
+    };
+
+    setSubmitting(true);
+
+    try {
+      await browserApi("/api/v1/public/inquiries/with-referral", {
+        body: JSON.stringify({
+          email: value("email") || undefined,
+          message: value("message") || undefined,
+          name: value("name"),
+          phone: value("phone"),
+          referralCode: code,
+        }),
+        method: "POST",
+      });
+
+      setSubmitted(true);
+      formElement.reset();
+    } catch (caught) {
+      const text = caught instanceof Error ? caught.message : "Could not send that.";
+
+      setError(
+        /already exists/i.test(text)
+          ? "You have already sent this one — the hostel has your details and your friend has the credit."
+          : text,
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <PublicShell active="browse">
+      <Breadcrumbs
+        items={[
+          { label: "Home", href: "/" },
+          { label: "Hostels", href: "/hostels" },
+          { label: "Referral" },
+        ]}
+      />
+
+      <section className="mx-auto max-w-[720px] px-6 pb-12">
+        <SectionCard
+          title="You have been referred"
+          description="Send your details and the hostel will get back to you — your friend gets the credit."
+        >
+          {submitted ? (
+            <div className="space-y-4 p-8 text-center">
+              <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-emerald-100 text-success">
+                <CheckCircle2 className="size-10" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-foreground">Inquiry sent</h3>
+                <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                  Your details are with the hostel and your friend has been credited.
+                  They will contact you on the number you gave.
+                </p>
+              </div>
+              <Link
+                className="inline-flex h-11 items-center justify-center rounded-lg bg-brand-teal px-6 text-xs font-semibold text-white shadow transition hover:brightness-105"
+                href="/hostels"
+              >
+                Browse other hostels
+              </Link>
+            </div>
+          ) : (
+            <form className="space-y-4 p-1" onSubmit={handleSubmit}>
+              <div className="flex items-start gap-2.5 rounded-lg border border-brand-teal/20 bg-brand-teal/5 p-3">
+                <Sparkles className="mt-0.5 size-4 shrink-0 text-brand-teal" />
+                <p className="text-xs text-muted-foreground">
+                  This goes straight to your friend&apos;s hostel. You do not need an
+                  account, and nothing is payable to send it.
+                </p>
+              </div>
+
+              {error ? (
+                <div className="rounded-lg border border-danger/20 bg-danger/5 p-3 text-sm font-semibold text-danger">
+                  {error}
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  icon={UserRound}
+                  label="Full Name *"
+                  name="name"
+                  placeholder="Enter your full name"
+                  required
+                />
+                <div>
+                  <label className="block text-sm font-semibold text-foreground">
+                    Phone Number *
+                    <span className="mt-2 flex h-12 items-center gap-2 rounded-lg border border-border bg-surface px-3 shadow-sm transition focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15">
+                      <span className="text-xs font-semibold text-foreground">
+                        NP (+977)
+                      </span>
+                      <span className="text-muted-foreground/30">|</span>
+                      <input
+                        className="h-full w-full bg-transparent text-sm font-normal outline-none placeholder:text-muted-foreground"
+                        name="phone"
+                        placeholder="98XXXXXXXX"
+                        required
+                        type="tel"
+                      />
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <FormField
+                icon={Mail}
+                label="Email Address"
+                name="email"
+                placeholder="Optional — for a written reply"
+                type="email"
+              />
+
+              <label className="block text-sm font-semibold text-foreground">
+                Anything to add?
+                <textarea
+                  className="mt-2 w-full rounded-lg border border-border bg-surface p-3 text-sm font-normal outline-none transition focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15"
+                  maxLength={1200}
+                  name="message"
+                  placeholder="When you are looking to move in, or anything you want to ask."
+                  rows={4}
+                />
+              </label>
+
+              <button
+                className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-brand-teal font-semibold text-white shadow transition hover:brightness-110 disabled:opacity-60"
+                disabled={submitting}
+                type="submit"
+              >
+                {submitting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+                {submitting ? "Sending..." : "Send inquiry"}
+              </button>
+
+              <p className="mt-3 text-center text-[10px] text-muted-foreground">
+                Your information is secure and will only be used for this inquiry.
+              </p>
+            </form>
+          )}
+        </SectionCard>
       </section>
     </PublicShell>
   );

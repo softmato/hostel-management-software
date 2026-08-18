@@ -44,8 +44,35 @@ const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 /** OSM's licence requires visible attribution. It is not decoration. */
 const ATTRIBUTION = "© OpenStreetMap contributors";
 
-const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+/*
+ * Leaflet, from unpkg.
+ *
+ * ## Why a CDN is acceptable here and not everywhere
+ *
+ * The map is useless without a network anyway — the tiles are remote — so a
+ * bundled copy would add ~150 KB to every install to save one request on a
+ * screen that is already making dozens. The list is always there with or without
+ * this component, and `renderError` says so.
+ *
+ * ## `integrity` is not optional
+ *
+ * This is third-party JavaScript executing inside a WebView that our own page
+ * hands a `postMessage` bridge to. Without a subresource-integrity hash, whoever
+ * controls the CDN — or anyone able to intercept it — chooses what runs next to
+ * that bridge. The hashes below are Leaflet 1.9.4's published ones; a mismatch
+ * makes the browser refuse the file, which fails to the empty-map state rather
+ * than to running something unverified.
+ *
+ * Changing the version means changing the hashes in the same edit. A stale hash
+ * looks exactly like an offline device.
+ */
+const LEAFLET_VERSION = "1.9.4";
+const LEAFLET_CSS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`;
+const LEAFLET_JS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
+const LEAFLET_CSS_SRI =
+  "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+const LEAFLET_JS_SRI =
+  "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
 
 type Marker = {
   lat: number;
@@ -56,11 +83,23 @@ type Marker = {
 };
 
 export function HostelMap({
+  fill = false,
   height = 260,
   hostels,
   me,
   onSelect,
 }: {
+  /**
+   * Take the whole space the parent gives instead of a fixed `height`, for the
+   * browse screen's Map view where the map *is* the page.
+   *
+   * A parent using this must not be scrollable: a full-bleed map inside a
+   * vertical `ScrollView` puts two pan gestures on the same pixels and the map
+   * loses roughly half of them, which reads as the map being unresponsive
+   * rather than as a gesture conflict.
+   */
+  fill?: boolean;
+  /** Ignored when `fill` is set. */
   height?: number;
   hostels: PublicHostel[];
   /** The device's position, when it has been given. Drawn as a separate dot. */
@@ -111,8 +150,10 @@ export function HostelMap({
   if (markers.length === 0) {
     return (
       <View
-        className="items-center justify-center rounded-2xl border border-border bg-card"
-        style={{ height }}
+        className={`items-center justify-center rounded-2xl border border-border bg-card ${
+          fill ? "flex-1" : ""
+        }`}
+        style={fill ? undefined : { height }}
       >
         <Text variant="muted">No hostels here have been placed on the map yet.</Text>
       </View>
@@ -121,8 +162,12 @@ export function HostelMap({
 
   return (
     <View
-      className="overflow-hidden rounded-2xl border border-border"
-      style={{ backgroundColor: colors.muted, height }}
+      className={`overflow-hidden rounded-2xl border border-border ${fill ? "flex-1" : ""}`}
+      style={
+        fill
+          ? { backgroundColor: colors.muted }
+          : { backgroundColor: colors.muted, height }
+      }
     >
       <WebView
         // Nothing here needs storage, cookies or a file handle; the page is a
@@ -178,7 +223,7 @@ function buildHtml(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<link rel="stylesheet" href="${LEAFLET_CSS}" />
+<link rel="stylesheet" href="${LEAFLET_CSS}" integrity="${LEAFLET_CSS_SRI}" crossorigin="anonymous" />
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; background: ${background}; }
   .pin {
@@ -204,7 +249,7 @@ function buildHtml(
 </head>
 <body>
 <div id="map"></div>
-<script src="${LEAFLET_JS}"></script>
+<script src="${LEAFLET_JS}" integrity="${LEAFLET_JS_SRI}" crossorigin="anonymous"></script>
 <script>
 (function () {
   var data = ${payload};

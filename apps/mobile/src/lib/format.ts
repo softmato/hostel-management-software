@@ -20,6 +20,8 @@
  * 5 hours 45 minutes of every day.
  */
 
+import NepaliDate from "nepali-date-converter";
+
 const NEPAL_OFFSET_MINUTES = 5 * 60 + 45;
 
 const MONTHS_SHORT = [
@@ -151,8 +153,14 @@ function nepalParts(date: Date): NepalParts {
   };
 }
 
-/** A day identity in Nepal time — the key "is this the same day" questions use. */
-function nepalDayKey(date: Date): string {
+/**
+ * A day identity in Nepal time — the key "is this the same day" questions use.
+ *
+ * Exported so callers that need a *shifted* day — `lib/night-status.ts` asks
+ * which night an instant belongs to, not which calendar day — can reuse the one
+ * definition of the offset instead of restating `+05:45` and drifting from it.
+ */
+export function nepalDayKey(date: Date): string {
   const { day, month, year } = nepalParts(date);
 
   return `${year}-${month}-${day}`;
@@ -169,6 +177,75 @@ export function formatDate(value: Date | string | null | undefined): string {
   const { day, month, year } = nepalParts(date);
 
   return `${day} ${MONTHS_SHORT[month]} ${year}`;
+}
+
+/**
+ * The same instant in Bikram Sambat — `2 Bhadra 2083`.
+ *
+ * ## Why both calendars, everywhere a date is money
+ *
+ * Decided 2026-08-17: **show both, side by side**, rather than choosing one.
+ * Nobody in Nepal reads a rent due date in a single calendar — the hostel's
+ * books run on BS and the bank's statement runs on AD — so a one-calendar date
+ * makes somebody convert in their head at exactly the moment a mistake costs
+ * money.
+ *
+ * ## The conversion is a dependency, deliberately
+ *
+ * BS month lengths **vary per year** and cannot be calculated; they are a
+ * tabulated table of real data. Hand-copying ~30 years of it would be inventing
+ * data that looks authoritative and is wrong in one cell nobody notices for a
+ * year. `nepali-date-converter` (MIT) carries the table, and it was checked here
+ * against five known New Year anchors — 2013-04-14, 2023-04-14, 2024-04-13,
+ * 2025-04-14 and 2026-04-14 all land on Baisakh 1 — before being adopted.
+ *
+ * ## Nepal time first
+ *
+ * The conversion runs on the *Nepal* calendar day, not the device's. An invoice
+ * due "1 Bhadra" must read the same on a phone left on another timezone, which
+ * is the same reason `nepalParts` exists.
+ */
+export function formatDateBs(value: Date | string | null | undefined): string {
+  const date = parseDate(value);
+
+  if (!date) {
+    return "—";
+  }
+
+  const { day, month, year } = nepalParts(date);
+
+  try {
+    // Constructed from the Nepal-local Y/M/D at noon, so no local-timezone
+    // shift on the device can push it across a day boundary on the way in.
+    const bs = new NepaliDate(new Date(Date.UTC(year, month, day, 12)));
+
+    return bs.format("D MMMM YYYY");
+  } catch {
+    // The table does not cover every year for ever. A date outside it falls back
+    // to Gregorian rather than showing a wrong Nepali date — being silently
+    // wrong about a due date is the one outcome worth avoiding here.
+    return formatDate(date);
+  }
+}
+
+/**
+ * Both calendars, BS first — `2 Bhadra 2083 · 18 Aug 2026`.
+ *
+ * BS leads because it is the one the hostel quotes; AD follows because it is the
+ * one the bank and the phone agree on. Falls back to the Gregorian date alone
+ * when the conversion is unavailable, never to a doubled or a wrong one.
+ */
+export function formatDateBoth(value: Date | string | null | undefined): string {
+  const date = parseDate(value);
+
+  if (!date) {
+    return "—";
+  }
+
+  const ad = formatDate(date);
+  const bs = formatDateBs(date);
+
+  return bs === ad ? ad : `${bs} · ${ad}`;
 }
 
 /** `2:45 pm`. Lowercase meridiem — it sits next to a date, not alone. */

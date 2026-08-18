@@ -155,15 +155,32 @@ Rows are flagged where reality differs from the original plan:
 | POST | `/api/v1/auth/signup` | none | `{ email, password }` | Creates `PUBLIC` account with `emailVerified: false`, sends verification email |
 | POST | `/api/v1/auth/verify-email` | none | `{ token }` | Verifies email, sets `emailVerified: true` |
 | POST | `/api/v1/auth/resend-verification` | none | `{ email }` | Resends verification email |
-| POST | `/api/v1/auth/login` | none | `{ email, password }` | Unified login — see ARCHITECTURE.md §3.1. Returns `{ role, redirectPath, mustChangePassword }` |
+| POST | `/api/v1/auth/login` | none | `{ identifier, password }` | Unified login — see ARCHITECTURE.md §3.1. `identifier` is an email address **or** a temporary access username (§2.1); the two are told apart by `@`. Returns `{ role, redirectPath, mustChangePassword }` |
 | GET | `/api/auth/google` | none | — | ↔ **Superseded.** ID-token POST to `/api/v1/auth/google` instead of a GET redirect (ARCHITECTURE.md §3.1 — no client secret in env). |
 | GET | `/api/auth/google/callback` | none | `?code=` | ↔ **Superseded.** No callback leg: Google Identity Services returns the ID token to the browser, which posts it to `/api/v1/auth/google`. |
 | POST | `/api/v1/auth/refresh` | refresh token (cookie or header) | — | Rotates and reissues tokens |
 | POST | `/api/v1/auth/logout` | access token | — | Clears cookies, bumps `tokenVersion` |
-| GET | `/api/v1/auth/me` | access token | — | Returns `{ id, email, role, hostelId?, mustChangePassword, emailVerified, userResidentId }`. `userResidentId` is `null` until the user saves a resident profile — see §18 |
-| POST | `/api/v1/auth/change-password` | access token | `{ currentPassword?, newPassword }` | `currentPassword` optional only when `mustChangePassword = true` |
+| GET | `/api/v1/auth/me` | access token | — | Returns `{ id, email, role, hostelId?, mustChangePassword, emailVerified, userResidentId, viaTemporaryCredential }`. `userResidentId` is `null` until the user saves a resident profile — see §18. `viaTemporaryCredential` is `true` when the session was opened with a temporary login (§2.1); a revoked one answers `401` here, not a stale `200` |
+| POST | `/api/v1/auth/change-password` | access token | `{ currentPassword?, newPassword }` | `currentPassword` optional only when `mustChangePassword = true`. `403 TEMPORARY_CREDENTIAL_FORBIDDEN` for a session opened with a temporary login — it must not lock the owner out |
 | POST | `/api/v1/auth/forgot-password` | none | `{ email }` | Sends password reset email |
 | POST | `/api/v1/auth/reset-password` | none | `{ token, newPassword }` | Resets password with token from email |
+
+### 2.1 Temporary access logins (all authenticated roles)
+
+A second, expiring username + password that opens **the owner's own account** —
+same role, same hostels, same data — so access can be handed over for a while
+without sharing the real password. Account-level, so every role manages them
+through the same endpoints (Settings → Temporary access logins).
+
+| Method | Path | Auth | Body | Notes |
+|---|---|---|---|---|
+| GET | `/api/v1/users/temporary-credentials` | access token (owner login only) | — | `{ credentials[], limit }`, newest first, live and recently dead. Each row carries `username, status (ACTIVE\|EXPIRED\|REVOKED), expiresAt, lastUsedAt, useCount, label` — never the password |
+| POST | `/api/v1/users/temporary-credentials` | access token (owner login only) | `{ username, expiresInHours?, label? }` | `201`. The generated `password` is returned **once** and only its hash is stored. `username` is unique platform-wide, 4–32 chars, no `@`; `expiresInHours` 1–720 (default 24). `409 TEMPORARY_CREDENTIAL_LIMIT` past 5 active, `409 TEMPORARY_CREDENTIAL_USERNAME_TAKEN` on a clash. Rate limited |
+| DELETE | `/api/v1/users/temporary-credentials/[id]` | access token (owner login only) | — | Revokes the credential **and every session it opened**, at once. Another account's id answers `404` exactly as a non-existent one does |
+
+All three refuse a caller who is themselves signed in with a temporary login
+(`403 TEMPORARY_CREDENTIAL_FORBIDDEN`): a borrower must not be able to mint
+one that outlives its expiry, cull the owner's, or enumerate them.
 
 ---
 
@@ -171,15 +188,35 @@ Rows are flagged where reality differs from the original plan:
 
 | Method | Path | Auth | Query Params | Notes |
 |---|---|---|---|---|
-| GET | `/api/v1/public/hostels` | none | `area?, minPrice?, maxPrice?, roomType?, genderType?, food?, facilities[]?, collegeId?, sortBy?, page?, pageSize?` | Search/filter hostels. Returns only `status: APPROVED` hostels |
-| GET | `/api/v1/public/hostels/[slug]` | none | — | Full profile: photos, facilities, rooms summary, food, rules, ratings (excluding hidden), verification badge |
+| GET | `/api/v1/public/hostels` | none | `area?, minPrice?, maxPrice?, roomType?, genderType?, food?, facilities[]?, collegeId?, sortBy?, page?, pageSize?` | Search/filter hostels. Returns only `status: APPROVED` hostels. Each card carries `ratingSummary` — see below |
+| GET | `/api/v1/public/hostels/[slug]` | none | — | Full profile: photos, facilities, rooms summary, food, rules, `ratingSummary` (excluding hidden), verification badge |
 | GET | `/api/public/hostels/:id/nearby` | none | — | ↔ **Superseded.** Nearby places are cached on the hostel and returned inside `GET /api/v1/public/hostels/[slug]`. |
 | GET | `/api/v1/public/hostels/compare` | none | `ids=a,b,c` | Max 3 ids. Side-by-side comparison |
 | POST | `/api/v1/public/hostels/[slug]/inquiries` | none or `PUBLIC` | `{ hostelId, name, phone, email?, message? }` | Submit inquiry. Response also carries `shouldCollectProfile` — see §18 |
 | POST | `/api/v1/public/hostels/[slug]/views` | none or any role | — | Records a page view for the hostel's listing stats and returns the resident-profile prompt decision. See §18.3 |
 | GET | `/api/v1/public/service-providers` | none | `category?, area?, city?` | Public provider directory — `status: APPROVED` only (HIDDEN and INACTIVE never surface). **Carries no phone numbers**: contact details are hostel-admin-only (§6). Returns `countsByCategory` computed over the location-scoped set, so the category chips stay correct while a category is selected. |
 | POST | `/api/v1/public/service-providers/register` | none | `{ fullName, phone, category, area, city?, availability?, description?, experience?, photoAssetId?, documents[]? }` | Register as service provider (always `status: PENDING_APPROVAL`). Rate limited. |
+| GET | `/api/v1/public/service-providers/me` | any signed-in | — | The caller's own application, or `{ provider: null }` when they have never applied — which is the normal case, not an error. There is **no `SERVICE_PROVIDER` role**: a provider is a `PUBLIC` account with an APPROVED `ServiceProvider` record, so being signed in is the only gate. |
+| GET | `/api/v1/public/service-providers/me/jobs` | any signed-in | — | Maintenance requests a hostel assigned to this provider **by name**. Broadcast-and-claim does not exist (PHASES.md §6.1), so there is no open board. Carries the hostel's name, area and phone; carries nothing about residents — a maintenance job is about a place. An unapproved account gets `[]`, not a 403. |
+| PATCH | `/api/v1/public/service-providers/me/jobs/[id]` | any signed-in | `{ status: CONTACTED\|COMPLETED, note? }` | The two moves a provider may make on their **own** job. Narrower than the hostel's `maintenanceStatusUpdateSchema` on purpose: `CANCELLED` is the hostel's decision, `SCHEDULED` carries a date a provider cannot set, and `PENDING` would let one un-finish paid work. Scoped through the caller's own provider record, so another provider's job is a plain **404**. A closed job is **409**; so is a write that lost a race, because the update is pinned to the status it read. Writes `MaintenanceHistory` + an audit row tagged `source: "SERVICE_PROVIDER"` and publishes on `maintenance`. |
 | GET | `/api/public/colleges` | none | `?search=` | ↔ **Superseded.** The college list is a small fixed reference set bundled at `lib/maps/nepal-colleges.ts`; shipping it as data avoids a request on every listing page load. |
+
+**`ratingSummary`** — on all three public hostel payloads (list, detail, compare)
+since 2026-08-17. Until then it existed only inside compare's `comparison` block,
+and this table's claim that the detail returned ratings was wrong.
+
+```json
+{ "averageRating": 4.5, "cleanlinessRating": 4, "foodRating": 3.5, "safetyRating": 5, "total": 12 }
+```
+
+Built by one aggregation per request over `VISIBLE` reviews only — a review a
+moderator hid must not have its verdict republished as a number. Values are
+**unrounded**; formatting is the client's.
+
+**Read `total`, not `averageRating`, to decide whether a hostel has a rating.**
+Every average is `0` for an unreviewed hostel, and `0` is also something reviews
+can genuinely average to, so a card that branches on the average shows a
+brand-new hostel as one star. `total === 0` means "New".
 
 ---
 
@@ -349,27 +386,36 @@ They never see the resident's email, phone or deposit, whatever else is enabled.
 
 | Method | Path | Notes |
 |---|---|---|---|
-| GET | `/api/v1/guardian/dashboard` | Returns only permitted fields: hostel info, emergency contact, fee summary (if enabled), notices (if enabled), night status summary (if enabled), complaint titles (if enabled). Full complaint details NEVER returned. |
+| GET | `/api/v1/guardian/dashboard` | Returns only permitted fields: hostel info (name + the office's published `contact`), fee summary (if enabled), notices (if enabled), night status summary (if enabled), complaint titles (if enabled). Full complaint details NEVER returned. **Also returns `permissions`** — the six flags — and clients must render off them: each query is gated by its own flag, so an ungranted section arrives as an empty array and is otherwise indistinguishable from one that is genuinely empty. `resident` is `{ fullName, id, roomType, status }` (**one `fullName`**, never first/last), `safety` and `summary` are **null** when their flag is off — not zeroed. |
 | GET | `/api/v1/guardian/payments` | `canViewPayments`: paid/unpaid/due summary. `canViewReceipts`: receipt number, amount, month, issue **date**. Never raw proof images. |
 | GET | `/api/v1/guardian/notices` | `canViewNotices`: notices with `targetAudience IN ('ALL','GUARDIANS')`. |
 | GET | `/api/v1/guardian/food` | `canViewFood`: today's meals off the weekly routine. |
 | GET | `/api/v1/guardian/safety-summary` | `canViewSafety`: `{ asOf: 'YYYY-MM-DD', status }` — a **date**, never a timestamp, never coordinates. `canViewComplaintStatus`: complaint titles + status only. |
-| POST | `/api/v1/guardian/accept-invitation` | Public. `{ token, name? }` — accepts an emailed invitation, creating or upgrading the account through `registerOrUpgradeUserByEmail` (so an email already holding another role is refused `409`). Token is single-use and expires after 7 days. |
+| POST | `/api/v1/guardian/accept-invitation` | Public. `{ token, name? }` — accepts an emailed invitation, creating or upgrading the account through `registerOrUpgradeUserByEmail` (so an email already holding another role is refused `409`). Token is single-use and expires after 7 days. **Issues no session** — credentials are emailed and the guardian signs in afterwards. |
+| POST | `/api/v1/guardian/login` | Public. `{ accessCode, phone }` — the code-and-phone path, for a guardian with no email address. **Issues a full session** (same payload as `/auth/login`), unlike accept-invitation. Rate limited to **5 attempts per 15 minutes per IP**; the refresh token is returned in the body only to the mobile client and set as an httpOnly cookie otherwise. `INVALID_GUARDIAN_LOGIN` (401) is returned when *either* half is wrong — deliberately, since naming the half turns a phone number into an oracle for enumerating codes; `GUARDIAN_ACCESS_EXPIRED` (410) also marks the row EXPIRED on the way out; `PHONE_ALREADY_HAS_ROLE` (409) when the number belongs to a resident or staff account, which is refused rather than demoting them. |
 
 ---
 
 ## 9. Cook Portal
 
-All routes require `role = COOK`, scoped to `cook.hostelId`.
+Every route allows `COOK`, `HOSTEL_ADMIN` and `WARDEN` — one list, shared by all
+five. A COOK is pinned to the hostel on their principal; staff may pass
+`?hostelId=`. Note that **`requireHostelCapability` is not used here**: it
+resolves to HOSTEL_ADMIN or WARDEN only, which is exactly why the cook's own
+reads could not live under `hostel-admin/food/*`.
+
+One account exists per hostel (`provisionCookAccount`) — kitchen staff share it,
+so per-announcement attribution comes from `FoodReadyLog.deviceInfo` rather than
+separate logins.
 
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
-| GET | `/api/cook/dashboard` | — | ⏳ **Phase 6.** Today's food menu, recent food ready logs, resident count |
-| POST | `/api/v1/cook/food-ready` | `{ mealType, customMessage?, fetchFromMenu }` | Marks food as ready, creates FoodReadyLog, sends push notification to all residents of hostel. If `fetchFromMenu=true`, auto-fetches the items from the routine's entry for today's weekday |
-| POST | `/api/cook/food-photos` | `{ mealType, photoUrl }` | ⏳ **Phase 6.** Upload food photo for today's meal |
-| GET | `/api/cook/food-menu` | `?date=` | ⏳ **Phase 6.** View food menu for planning |
-| GET | `/api/cook/residents` | — | ⏳ **Phase 6.** List of residents (names + photos only, no sensitive data) |
-| GET | `/api/cook/analytics` | `?startDate=, endDate=` | ⏳ **Phase 6.** Food timing analytics: avg ready time, delays, patterns |
+| GET | `/api/v1/cook/today` | `?hostelId=` | Today's meals off the weekly routine, the **whole** routine (so a menu screen needs no second call), the active-resident head count, and today's `FoodReadyLog` rows so the four buttons can show what has already gone out. `residentCount` uses the same filter the announcement fan-out notifies, so "cook for 38" and "38 residents notified" agree. |
+| POST | `/api/v1/cook/food-ready` | `{ mealType, message?, useMenuDescription, deviceInfo }` | Marks food as ready, creates `FoodReadyLog`, notifies every active resident. `useMenuDescription=true` builds the message from today's routine entry. **Returns `notifiedCount`** — a `201` means the announcement was *recorded*, not that anyone heard it. Rate-limited by `foodReadyCooldownMinutes`: a repeat inside the window is **429** with the wait named, which is the guard against a leaked shared credential spamming a hostel. |
+| GET | `/api/v1/cook/food-ready` | `?hostelId=` | The last 50 announcements for this hostel. |
+| POST | `/api/v1/cook/food-photos` | `{ mealType, date, photoAssetId, caption? }` | Cook's door to the same `FoodPhoto` feed the resident and admin routes write to — same `foodPhotoUploadSchema`, same audit row, same FOOD publish. The asset goes through `/files` first. |
+| GET | `/api/v1/cook/residents` | `?hostelId=` | Active residents, **`{ fullName, id, roomType }` and nothing else**. No phone, email, deposit, move-in date or account linkage: the cook credential is shared kitchen-wide and effectively static, so this is the one list a leaked password would expose, and it is deliberately worth no more than a noticeboard. |
+| GET | `/api/cook/analytics` | `?startDate=, endDate=` | ⏳ Not built. Food timing analytics: avg ready time, delays, patterns |
 
 ---
 

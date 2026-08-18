@@ -37,10 +37,30 @@ import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
 /* -------------------------------------------------------------------------- */
 
 /** Matches `PortalInvoice & { receipts, referenceCode }`. */
+/**
+ * One line of the breakdown — what the month is made of.
+ *
+ * Everything here is snapshotted on the invoice when it is issued, so a
+ * historical month stays correct after every fee schedule it came from is
+ * closed. `amount` is **signed**: a credit line is negative, and rendering its
+ * absolute value would show a refund as a second charge.
+ */
+export type InvoiceLine = {
+  amount: number;
+  /** SCHEDULE | OVERRIDE | MANUAL | CREDIT — how the amount was arrived at. */
+  basis: string;
+  bedType: string | null;
+  description: string;
+  /** e.g. `"18/31 days"`. The whole reason a first month costs less. */
+  prorationBasis: string | null;
+};
+
 export type ResidentInvoice = {
   dueAmount: number;
   dueDate?: string;
   id: string;
+  /** Empty on migrated history, which predates the line breakdown. */
+  lines: InvoiceLine[];
   method?: string;
   month: string;
   paidAmount: number;

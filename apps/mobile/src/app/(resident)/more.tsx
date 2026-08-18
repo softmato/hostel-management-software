@@ -20,19 +20,23 @@ import {
   type ResidentProfile,
   getResidentProfile,
 } from "@/lib/resident-api";
-import { toastInfo } from "@/lib/toast";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
 /**
  * Everything that is not a tab.
  *
- * ## Entries whose screens do not exist yet say so
+ * ## Every row opens a real screen, as of M5.9
  *
- * Complaints, SOS, the digital ID card, referrals, reviews and community are
- * M5. They are listed here — a resident should be able to see the product has
- * them — but tapping one says which release it lands in rather than opening a
- * blank screen. A row that navigates nowhere is indistinguishable from a bug;
- * a row that explains itself is a roadmap.
+ * This file used to carry a `soon()` helper that toasted "it lands in the next
+ * release" for the M5 entries — a row that navigates nowhere is indistinguishable
+ * from a bug, and one that explains itself is a roadmap. All of them now navigate:
+ * **complaints** (`/complaints`), **night status** (`/night-status`), **profile**
+ * (`/profile`), the **digital ID** (`/id-card`), **community** (`/community`),
+ * **referrals** (`/referrals`), **reviews** (`/review`) and both App rows
+ * (`/settings`). The helper is gone with them.
+ *
+ * If a later milestone wants a row listed before its screen exists, bring `soon()`
+ * back rather than pointing the row at nothing.
  *
  * **Explore** is the discovery entry (agreed 2026-08-16): residents keep their
  * own five tabs, and hostel browsing lives here rather than taking a tab from
@@ -63,10 +67,6 @@ export default function ResidentMoreScreen() {
 
   const profile = more.data?.profile;
   const resident = profile?.resident;
-
-  const soon = useCallback((what: string) => {
-    toastInfo(`${what} is coming`, "It lands in the next release.");
-  }, []);
 
   const signOut = useCallback(() => {
     Alert.alert("Sign out?", "You'll need your password to get back in.", [
@@ -136,14 +136,14 @@ export default function ResidentMoreScreen() {
           <Card>
             <ListRow
               icon="person-outline"
-              onPress={() => soon("Your profile")}
+              onPress={() => router.push("/profile")}
               subtitle="Personal details, guardians, emergency contacts"
               title="Profile"
             />
             <RowDivider inset />
             <ListRow
               icon="moon-outline"
-              onPress={() => soon("Night status")}
+              onPress={() => router.push("/night-status")}
               subtitle={
                 more.data?.nightStatus
                   ? humanizeEnum(more.data.nightStatus.status)
@@ -154,14 +154,14 @@ export default function ResidentMoreScreen() {
             <RowDivider inset />
             <ListRow
               icon="chatbox-ellipses-outline"
-              onPress={() => soon("Complaints")}
+              onPress={() => router.push("/complaints")}
               subtitle="Raise an issue and follow it to resolution"
               title="Complaints"
             />
             <RowDivider inset />
             <ListRow
               icon="card-outline"
-              onPress={() => soon("Your ID card")}
+              onPress={() => router.push("/id-card")}
               subtitle="Your hostel identity card"
               title="Digital ID"
             />
@@ -182,16 +182,28 @@ export default function ResidentMoreScreen() {
               title="Explore hostels"
             />
             <RowDivider inset />
+            {/*
+              One community for everyone — signed out, public account, resident,
+              staff — which is why it is a root-stack screen rather than something
+              inside a role's tabs. See `community.service.ts`.
+            */}
+            <ListRow
+              icon="people-outline"
+              onPress={() => router.push("/community")}
+              subtitle="Ask, answer and see what other residents are saying"
+              title="Community"
+            />
+            <RowDivider inset />
             <ListRow
               icon="gift-outline"
-              onPress={() => soon("Referrals")}
+              onPress={() => router.push("/referrals")}
               subtitle="Share your code with a friend"
               title="Refer a friend"
             />
             <RowDivider inset />
             <ListRow
               icon="star-outline"
-              onPress={() => soon("Reviews")}
+              onPress={() => router.push("/review")}
               subtitle="Rate food, cleanliness and safety"
               title="Review your hostel"
             />
@@ -209,16 +221,21 @@ export default function ResidentMoreScreen() {
               value={`Switch to ${nextTheme}`}
             />
             <RowDivider inset />
+            {/*
+              One Settings screen holds theme, the notification position and the
+              privacy/deletion panel, so both of these rows lead there rather than
+              splitting one short screen in two.
+            */}
             <ListRow
               icon="notifications-outline"
-              onPress={() => soon("Notification settings")}
-              subtitle="Choose what buzzes your phone"
+              onPress={() => router.push("/settings")}
+              subtitle="What we send, and why you cannot pick yet"
               title="Notifications"
             />
             <RowDivider inset />
             <ListRow
               icon="shield-checkmark-outline"
-              onPress={() => soon("Privacy & account settings")}
+              onPress={() => router.push("/settings")}
               subtitle="Privacy policy and account deletion"
               title="Privacy & account"
             />

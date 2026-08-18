@@ -4,6 +4,8 @@ import {
   daysUntil,
   formatAmount,
   formatDate,
+  formatDateBoth,
+  formatDateBs,
   formatDateTime,
   formatDueLabel,
   formatMoney,
@@ -110,5 +112,35 @@ describe("labels", () => {
     expect(greetingFor(new Date("2026-08-16T18:30:00.000Z"))).toBe("Good morning");
     expect(greetingFor(new Date("2026-08-16T06:15:00.000Z"))).toBe("Good afternoon");
     expect(greetingFor(new Date("2026-08-16T13:00:00.000Z"))).toBe("Good evening");
+  });
+});
+
+describe("formatDateBs / formatDateBoth", () => {
+  it("converts against the Bikram Sambat New Year anchors", () => {
+    // The five dates the library was adopted on. BS month lengths vary per year
+    // and are tabulated data, so these are the checks that say the table is the
+    // real one rather than something that merely looks plausible.
+    expect(formatDateBs("2013-04-14T06:00:00.000Z")).toBe("1 Baisakh 2070");
+    expect(formatDateBs("2023-04-14T06:00:00.000Z")).toBe("1 Baisakh 2080");
+    expect(formatDateBs("2024-04-13T06:00:00.000Z")).toBe("1 Baisakh 2081");
+    expect(formatDateBs("2025-04-14T06:00:00.000Z")).toBe("1 Baisakh 2082");
+    expect(formatDateBs("2026-04-14T06:00:00.000Z")).toBe("1 Baisakh 2083");
+  });
+
+  it("shows both calendars, BS first", () => {
+    // BS leads because it is the calendar the hostel quotes; AD follows because
+    // it is the one the bank statement and the phone agree on.
+    expect(formatDateBoth("2026-08-18T06:00:00.000Z")).toBe("2 Bhadra 2083 · 18 Aug 2026");
+  });
+
+  it("converts on the Nepal day, not the device's", () => {
+    // 18:30 UTC is already the next day in Kathmandu (+05:45). A phone left on
+    // another timezone must still read the date the hostel means.
+    expect(formatDateBs("2026-08-18T18:30:00.000Z")).toBe("3 Bhadra 2083");
+  });
+
+  it("returns an em dash for nothing, like every other formatter here", () => {
+    expect(formatDateBs(null)).toBe("—");
+    expect(formatDateBoth(undefined)).toBe("—");
   });
 });

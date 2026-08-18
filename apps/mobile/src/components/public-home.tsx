@@ -1,26 +1,27 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
 
+import { DiscoveryHeader } from "@/components/discovery-header";
 import { facilityIcon, HostelCard } from "@/components/hostel-card";
 import { HostelMap } from "@/components/hostel-map";
-import { AppBar } from "@/components/ui/app-bar";
+import { HostelShowcase } from "@/components/hostel-showcase";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { FloatingButton } from "@/components/ui/floating-button";
 import { Screen } from "@/components/ui/screen";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { APP_NAME } from "@/constants/branding";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useNearby } from "@/hooks/use-nearby";
 import { useResource } from "@/hooks/use-resource";
+import { useSavedHostels } from "@/hooks/use-saved";
 import { API_BASE_URL } from "@/lib/api";
 import { sortByDistance } from "@/lib/geo";
-import { homeStats } from "@/lib/home-stats";
-import { coverPhoto, priceRange, ratingDisplay } from "@/lib/hostel-display";
+import { type CitySummary, cityCounts, showcaseHostels } from "@/lib/home-sections";
 import { absoluteMediaUrl } from "@/lib/media";
 import {
   FACILITIES,
@@ -30,6 +31,7 @@ import {
   listPublicHostels,
   type PublicHostel,
 } from "@/lib/public-api";
+import type { SavedHostel } from "@/lib/saved-hostels";
 
 /**
  * The public home — the app's landing page, signed in or out.
@@ -39,38 +41,50 @@ import {
  * Two route groups render it: `(public)`, the signed-out stack, and `(browse)`,
  * the tabs a signed-in `PUBLIC_USER` gets. expo-router cannot switch one group
  * between a stack and a tab navigator at runtime, so there have to be two
- * groups — but there must not be two heros. Copy the screen and the wording,
- * the chips and the section order drift apart within a release.
+ * groups — but there must not be two home screens. Copy the screen and the
+ * wording, the chips and the section order drift apart within a release.
  *
  * The two groups differ only in where the browse and compare links point, and
  * whether a tab bar is reserved at the bottom. Everything else is shared.
  *
- * Follows the discovery mockup (docs/mockups/mobile/README.md §1) with three
- * departures, all recorded there:
+ * ## What this screen is
  *
- * - **No tab bar when signed out.** The bottom belongs to the floating Log in
- *   pill until there is an account (§0 shell contract). The mockup draws tabs
- *   on screens a signed-out visitor sees; that part does not apply.
- * - **No Bookings, Messages or Saved.** There is no booking model, messaging
- *   endpoint or favourites collection on the server. A tab that opens onto a
- *   permanent empty state is the tab people stop trusting, not the feature.
- * - **NPR, and HostelHub.** The mockup's price chips use ₹ and its wordmark
- *   reads HostelDays.
+ * A listings screen. Every block on it is hostels, or a way to reach hostels:
+ * the search field and the bell in the header, then photographs, then rows the
+ * catalogue fills. Reworked 2026-08-17 from a marketing-shaped page — a green
+ * hero with a headline and three trust chips, "why students trust us" tiles, a
+ * platform stats band and a sign-up callout — which put four screenfuls of copy
+ * between the fold and the first hostel. What was removed and why:
  *
- * The mockup's trust band, stats band and "why students trust us" tiles are
- * marketing copy with no data behind them; the sections that survive are the
- * ones a hostel can actually fill — which is also what makes the screen worth
- * pulling to refresh.
+ * - **The green hero.** It occupied the whole first screenful to hold one photo.
+ *   Its search field moved up into the header, where it is reachable without
+ *   scrolling, and the space became `HostelShowcase` — real listings at a size
+ *   worth looking at, sliding on their own.
+ * - **Trust chips and "why students use HostelHub" tiles.** Hard-coded copy with
+ *   no data behind it. `Verified` is already a chip on every card that earns it,
+ *   which is the claim made where it can be checked.
+ * - **The stats band.** These were real figures, not the mockup's invented ones
+ *   (the old `lib/home-stats.ts` derived them from this payload) — but a row of
+ *   platform statistics is furniture on a screen for finding a room.
+ * - **The residents callout.** A second "create an account" prompt on a screen
+ *   that already floats a Log in pill over the bottom edge for exactly the
+ *   audience it addressed.
+ *
+ * Follows the discovery mockup (docs/mockups/mobile/README.md §1) for the parts
+ * that have a server behind them; the departures recorded there still hold —
+ * no tab bar when signed out, no Bookings or Messages, NPR rather than ₹.
+ *
+ * **Saved is the one that changed.** The mockup's heart was cut with the Saved
+ * tab because there is no favourites collection on the server, and there still
+ * isn't. The hearts here write to the device instead — see `lib/saved-hostels.ts`
+ * — and the section says so rather than implying an account-wide list.
  */
-
-const HERO_CHIPS = [
-  { icon: "shield-checkmark-outline", label: "Verified hostels" },
-  { icon: "pricetag-outline", label: "No hidden fees" },
-  { icon: "headset-outline", label: "Real support" },
-] as const;
 
 /** The facilities worth a shortcut. The full list lives in the filter sheet. */
 const BROWSE_FACILITIES = FACILITIES.slice(0, 6);
+
+/** Enough to be worth a row; more than this and the chips stop being scannable. */
+const MAX_CITIES = 8;
 
 export type PublicHomeProps = {
   /**
@@ -90,50 +104,46 @@ export function PublicHome({
   compareHref,
   insideTabs = false,
 }: PublicHomeProps) {
-  const { colors } = useAppTheme();
   const account = useAppSelector((state) => state.auth.account);
   const [query, setQuery] = useState("");
   const nearby = useNearby();
+  const saved = useSavedHostels();
 
   const hostels = useResource<PublicHostel[]>(
     useCallback(() => listPublicHostels(), []),
   );
 
-  // Memoised so the hero pick and the stats below are not recomputed on every
-  // keystroke in the search field: `?? []` is a fresh array each render.
+  // Memoised so the slices below are not recomputed on every keystroke in the
+  // search field: `?? []` is a fresh array each render.
   const all = useMemo(() => hostels.data ?? [], [hostels.data]);
+
+  /*
+   * Keep the saved snapshots current from the payload the screen already has.
+   * `sync` dispatches nothing when nothing differs, so this is a no-op on an
+   * unchanged catalogue rather than a write to disk per refresh.
+   */
+  const { sync } = saved;
+
+  useEffect(() => {
+    sync(all);
+  }, [all, sync]);
+
   // The server sorts cheapest-first and caps at 60, so "popular" and "newly
   // listed" are slices of one request rather than three round trips for three
   // rows nobody has ranked differently yet.
-  const featured = all.filter((hostel) => hostel.ratingSummary.total > 0).slice(0, 6);
-  const popular = (featured.length > 0 ? featured : all).slice(0, 6);
+  const showcase = useMemo(() => showcaseHostels(all), [all]);
+  const cities = useMemo(() => cityCounts(all).slice(0, MAX_CITIES), [all]);
+  const rated = all.filter((hostel) => hostel.ratingSummary.total > 0).slice(0, 6);
+  const popular = (rated.length > 0 ? rated : all).slice(0, 6);
   const newest = [...all].reverse().slice(0, 6);
-
-  /*
-   * The hero's photo and its floating card are a real listing, as on the web —
-   * the best-rated verified hostel that actually has a picture. A stock image
-   * would be the one photo on the screen that is not a hostel anyone can book,
-   * and the card doubles as the first tappable result.
-   */
-  const heroHostel = useMemo(
-    () =>
-      [...all]
-        .filter(
-          (hostel) =>
-            hostel.verificationStatus === "VERIFIED" && coverPhoto(hostel.photos) !== null,
-        )
-        .sort((a, b) => b.ratingSummary.averageRating - a.ratingSummary.averageRating)[0] ??
-      null,
-    [all],
-  );
-
-  const stats = useMemo(() => homeStats(all), [all]);
 
   const search = useCallback(() => {
     router.push(
       query.trim() ? `${browseHref}?q=${encodeURIComponent(query)}` : browseHref,
     );
   }, [browseHref, query]);
+
+  const seeAll = useCallback(() => router.push(browseHref), [browseHref]);
 
   return (
     <Screen
@@ -147,23 +157,12 @@ export function PublicHome({
         )
       }
       header={
-        <AppBar
-          actions={
-            <Pressable
-              accessibilityLabel="Compare hostels"
-              accessibilityRole="button"
-              hitSlop={10}
-              onPress={() => router.push(compareHref)}
-            >
-              <Ionicons
-                color={colors.mutedForeground}
-                name="git-compare-outline"
-                size={22}
-              />
-            </Pressable>
-          }
-          subtitle="Hostels across Nepal"
-          title={APP_NAME}
+        <DiscoveryHeader
+          browseHref={browseHref}
+          compareHref={compareHref}
+          onQueryChange={setQuery}
+          onSearch={search}
+          query={query}
         />
       }
       insideTabs={insideTabs}
@@ -172,48 +171,282 @@ export function PublicHome({
       scroll
     >
       <View className="gap-7 pt-1">
-        <Hero
-          hostel={heroHostel}
-          onQueryChange={setQuery}
-          onSearch={search}
-          query={query}
+        <QuickTypes browseHref={browseHref} />
+
+        <HostelShowcase
+          hostels={showcase}
+          loading={hostels.loading}
+          onToggleSave={saved.toggle}
+          savedIds={saved.ids}
         />
 
-        <NearbySection hostels={all} nearby={nearby} />
+        {/* Above the error branch on purpose: favourites are snapshots on the
+            device, so this row is the one thing that still works on a cold
+            offline start. */}
+        <SavedRow items={saved.items} onRemove={saved.remove} />
 
-        <HostelRow
-          emptyLabel={
-            hostels.loading ? "Loading hostels…" : "No hostels listed yet."
-          }
-          hostels={popular}
-          onSeeAll={() => router.push(browseHref)}
-          subtitle="Verified and rated by students"
-          title="Popular right now"
-        />
+        {hostels.error && all.length === 0 ? (
+          <ErrorState message={hostels.error} onRetry={hostels.reload} />
+        ) : (
+          <>
+            <NearbySection hostels={all} nearby={nearby} saved={saved} />
 
-        <PremiumHostels browseHref={browseHref} hostels={all} />
+            <HostelRow
+              emptyLabel={
+                hostels.loading ? "Loading hostels…" : "No hostels listed yet."
+              }
+              hostels={popular}
+              onSeeAll={seeAll}
+              saved={saved}
+              subtitle="Verified and rated by students"
+              title="Popular right now"
+            />
 
-        <BrowseByType browseHref={browseHref} />
+            <CitiesRow browseHref={browseHref} cities={cities} />
 
-        <HostelRow
-          emptyLabel={hostels.loading ? "" : "Nothing new this week."}
-          hostels={newest}
-          onSeeAll={() => router.push(browseHref)}
-          subtitle="The most recent additions"
-          title="Newly listed"
-        />
+            <PremiumHostels hostels={all} onSeeAll={seeAll} saved={saved} />
 
-        <BrowseByFacility browseHref={browseHref} />
+            <HostelRow
+              emptyLabel={hostels.loading ? "" : "Nothing new this week."}
+              hostels={newest}
+              onSeeAll={seeAll}
+              saved={saved}
+              subtitle="The most recent additions"
+              title="Newly listed"
+            />
 
-        <TrustPoints />
-
-        <StatsBand stats={stats} />
-
-        {/* Only for people who have no account. Someone already signed in as a
-            resident reaches all of this from their own tabs. */}
-        {account ? null : <ResidentsCallout />}
+            <BrowseByFacility browseHref={browseHref} />
+          </>
+        )}
       </View>
     </Screen>
+  );
+}
+
+/** Everything a card row needs from `useSavedHostels`, and nothing more. */
+type SavedControls = Pick<ReturnType<typeof useSavedHostels>, "ids" | "toggle">;
+
+/**
+ * The mockup's category row, and what used to be a "Browse by type" section
+ * further down the page.
+ *
+ * One row, at the top, rather than both: the same four destinations twice on one
+ * screen is how a user learns that tapping things here is a guess. These are
+ * deep links into the browse list (`?type=`), not client-side filters — the
+ * results, the count and every other filter live there.
+ */
+const TYPE_ICONS: Record<HostelType, keyof typeof Ionicons.glyphMap> = {
+  BOYS: "man-outline",
+  CO_LIVING: "people-outline",
+  GIRLS: "woman-outline",
+};
+
+function QuickTypes({ browseHref }: { browseHref: string }) {
+  return (
+    <View className="flex-row gap-3">
+      <TypeTile icon="grid-outline" label="All" onPress={() => router.push(browseHref)} />
+      {HOSTEL_TYPES.map((type) => (
+        <TypeTile
+          icon={TYPE_ICONS[type]}
+          key={type}
+          label={HOSTEL_TYPE_LABELS[type]}
+          onPress={() => router.push(`${browseHref}?type=${type}`)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function TypeTile({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      className="flex-1 items-center gap-1.5 rounded-2xl border border-border bg-card py-3 active:opacity-70"
+      onPress={onPress}
+    >
+      <Ionicons color={colors.primary} name={icon} size={22} />
+      <Text className="text-xs font-medium" numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * "Saved" — the favourites row.
+ *
+ * Renders from the stored snapshot rather than from the listing payload, which
+ * is what lets it survive a hostel dropping out of the server's first-60 window
+ * and an offline launch (`lib/saved-hostels.ts`). The trade is that a price here
+ * is as fresh as the last time that hostel appeared in a payload, which is why
+ * the card carries no rating or vacancy: those move often enough that a stale one
+ * would be a lie, while a name and a price are worth showing at their last known
+ * value.
+ *
+ * Absent entirely when nothing is saved. An empty "Saved" heading on every home
+ * screen is the section people learn to scroll past.
+ */
+function SavedRow({
+  items,
+  onRemove,
+}: {
+  items: SavedHostel[];
+  onRemove: (id: string) => void;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <View>
+      <SectionHeader
+        subtitle="Kept on this device — signing in elsewhere won't carry them over"
+        title="Saved"
+      />
+
+      <ScrollView
+        contentContainerClassName="gap-3 pr-5"
+        horizontal
+        showsHorizontalScrollIndicator={false}
+      >
+        {items.map((item) => (
+          <SavedCard item={item} key={item.id} onRemove={onRemove} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function SavedCard({
+  item,
+  onRemove,
+}: {
+  item: SavedHostel;
+  onRemove: (id: string) => void;
+}) {
+  const { colors } = useAppTheme();
+
+  const uri = absoluteMediaUrl(item.coverUrl, API_BASE_URL);
+
+  return (
+    <Pressable
+      accessibilityLabel={`${item.name}, ${item.place}`}
+      accessibilityRole="button"
+      className="w-52 overflow-hidden rounded-2xl border border-border bg-card active:opacity-80"
+      onPress={() => router.push(`/hostel/${item.slug}`)}
+    >
+      <View>
+        {uri ? (
+          <Image
+            accessibilityLabel={item.name}
+            contentFit="cover"
+            source={{ uri }}
+            style={{ backgroundColor: colors.muted, height: 100, width: "100%" }}
+            transition={150}
+          />
+        ) : (
+          <View
+            className="items-center justify-center"
+            style={{ backgroundColor: colors.muted, height: 100 }}
+          >
+            <Ionicons color={colors.mutedForeground} name="image-outline" size={24} />
+          </View>
+        )}
+
+        {/*
+          A filled heart, and it removes. Not `SaveButton`: that takes a
+          `PublicHostel` and this row holds snapshots, which carry an id and a
+          few strings and none of the fields a listing has.
+        */}
+        <Pressable
+          accessibilityLabel={`Remove ${item.name} from saved`}
+          accessibilityRole="button"
+          className="absolute right-2 top-2 h-9 w-9 items-center justify-center rounded-full bg-card/95 active:opacity-70"
+          hitSlop={6}
+          onPress={() => onRemove(item.id)}
+        >
+          <Ionicons color={colors.primary} name="heart" size={18} />
+        </Pressable>
+      </View>
+
+      <View className="gap-0.5 p-3">
+        <Text className="font-semibold" numberOfLines={1} variant="label">
+          {item.name}
+        </Text>
+        <Text numberOfLines={1} variant="caption">
+          {item.place || "Location not published"}
+        </Text>
+        <Text className="font-semibold text-primary" variant="label">
+          {item.price}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/**
+ * "Browse by city" — the busiest cities in the payload, with their counts.
+ *
+ * Deep-links to `?city=`, which the browse screen narrows **on the client**. The
+ * server has no city filter: its `area` matches `location.area` only, so a
+ * hostel in "Ghattekulo, Kathmandu" does not match `?area=Kathmandu`. Both the
+ * count here and the results there are derived from the same 60-row payload, so
+ * they agree — see `inCity` in `lib/home-sections.ts`.
+ *
+ * Hidden below two cities: a "Browse by city" row with one chip in it is a
+ * heading that describes nothing.
+ */
+function CitiesRow({
+  browseHref,
+  cities,
+}: {
+  browseHref: string;
+  cities: CitySummary[];
+}) {
+  const { colors } = useAppTheme();
+
+  if (cities.length < 2) {
+    return null;
+  }
+
+  return (
+    <View>
+      <SectionHeader subtitle="Where the listings are" title="Browse by city" />
+
+      <ScrollView
+        contentContainerClassName="gap-2 pr-5"
+        horizontal
+        showsHorizontalScrollIndicator={false}
+      >
+        {cities.map((row) => (
+          <Pressable
+            accessibilityLabel={`${row.city}, ${row.count} ${row.count === 1 ? "hostel" : "hostels"}`}
+            accessibilityRole="button"
+            className="flex-row items-center gap-2 rounded-full border border-border bg-card px-4 py-2.5 active:opacity-70"
+            key={row.city}
+            onPress={() =>
+              router.push(`${browseHref}?city=${encodeURIComponent(row.city)}`)
+            }
+          >
+            <Ionicons color={colors.primary} name="location-outline" size={15} />
+            <Text variant="label">{row.city}</Text>
+            <View className="rounded-full bg-muted px-2 py-0.5">
+              <Text variant="caption">{row.count}</Text>
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -242,9 +475,11 @@ export function PublicHome({
 function NearbySection({
   hostels,
   nearby,
+  saved,
 }: {
   hostels: PublicHostel[];
   nearby: ReturnType<typeof useNearby>;
+  saved: SavedControls;
 }) {
   // Only hostels that actually have coordinates: an un-geocoded listing has no
   // distance, and "0 m away" on a hostel nobody has placed is a lie the card
@@ -299,6 +534,8 @@ function NearbySection({
                   distanceMeters={row.distanceMeters}
                   hostel={row.hostel}
                   key={row.hostel.id}
+                  onToggleSave={saved.toggle}
+                  saved={saved.ids.has(row.hostel.id)}
                   variant="carousel"
                 />
               ))}
@@ -349,171 +586,18 @@ function NearbySection({
   );
 }
 
-function Hero({
-  hostel,
-  onQueryChange,
-  onSearch,
-  query,
-}: {
-  /** A real listing behind the hero image, or null before the list loads. */
-  hostel: PublicHostel | null;
-  onQueryChange: (value: string) => void;
-  onSearch: () => void;
-  query: string;
-}) {
-  const { colors } = useAppTheme();
-
-  return (
-    <View className="gap-4 overflow-hidden rounded-3xl bg-primary px-5 py-7">
-      <View className="gap-2">
-        <Text className="text-2xl font-semibold leading-8 text-primary-foreground">
-          Find a hostel you can actually trust
-        </Text>
-        <Text className="text-primary-foreground/80">
-          Verified listings, real photos and honest pricing — and once you move in,
-          your rent, meals and notices live here too.
-        </Text>
-      </View>
-
-      {hostel ? <HeroHostel hostel={hostel} /> : null}
-
-      <View className="flex-row items-center gap-2 rounded-xl bg-card px-3">
-        <Ionicons color={colors.mutedForeground} name="search" size={18} />
-        <SearchInput onChange={onQueryChange} onSubmit={onSearch} value={query} />
-        <Pressable
-          accessibilityLabel="Search"
-          accessibilityRole="button"
-          className="my-2 rounded-lg bg-primary px-4 py-2 active:opacity-80"
-          onPress={onSearch}
-        >
-          <Text className="font-semibold text-primary-foreground">Search</Text>
-        </Pressable>
-      </View>
-
-      <View className="flex-row flex-wrap gap-2">
-        {HERO_CHIPS.map((chip) => (
-          <View
-            className="flex-row items-center gap-1.5 rounded-full bg-primary-foreground/15 px-3 py-1.5"
-            key={chip.label}
-          >
-            <Ionicons color="#ffffff" name={chip.icon} size={13} />
-            <Text className="text-xs font-medium text-primary-foreground">
-              {chip.label}
-            </Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-/**
- * The hero's photo, with a real listing floating over its corner.
- *
- * Follows the mockup, which draws an image with a small hostel card overlapping
- * it — except the mockup's is a drawing and this is the actual best-rated
- * verified listing, so the card is tappable and goes where it says. An image
- * with an invented hostel on it would be the one thing on the screen a user
- * could not act on.
- */
-function HeroHostel({ hostel }: { hostel: PublicHostel }) {
-  const { colors } = useAppTheme();
-
-  const cover = coverPhoto(hostel.photos);
-  const uri = absoluteMediaUrl(cover?.url, API_BASE_URL);
-  const rating = ratingDisplay(hostel.ratingSummary);
-
-  if (!uri) {
-    return null;
-  }
-
-  return (
-    <Pressable
-      accessibilityLabel={`${hostel.name}, ${hostel.location.area}`}
-      accessibilityRole="button"
-      className="active:opacity-90"
-      onPress={() => router.push(`/hostel/${hostel.slug}`)}
-    >
-      <View className="overflow-hidden rounded-2xl">
-        <Image
-          accessibilityLabel={cover?.alt || hostel.name}
-          contentFit="cover"
-          source={{ uri }}
-          style={{ backgroundColor: colors.muted, height: 150, width: "100%" }}
-          transition={150}
-        />
-      </View>
-
-      {/* Overlapping the image's lower edge, as drawn. Pulled up rather than
-          absolutely positioned, so the card cannot cover a shorter image on a
-          small screen. */}
-      <View className="-mt-7 ml-auto mr-2 w-56 rounded-xl bg-card p-3 shadow-lg">
-        <Text className="font-semibold" numberOfLines={1}>
-          {hostel.name}
-        </Text>
-        <Text numberOfLines={1} variant="caption">
-          {[hostel.location.area, hostel.location.city].filter(Boolean).join(", ")}
-        </Text>
-        <View className="mt-1 flex-row items-center justify-between">
-          <Text className="text-primary" variant="label">
-            {priceRange(hostel.pricing)}
-          </Text>
-          {/* "New" rather than 0 stars for an unreviewed hostel — see
-              ratingDisplay. */}
-          {rating.kind === "rated" ? (
-            <View className="flex-row items-center gap-1">
-              <Ionicons color={colors.warning} name="star" size={11} />
-              <Text variant="caption">{rating.value}</Text>
-            </View>
-          ) : (
-            <Text variant="caption">New</Text>
-          )}
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-/**
- * A bare `TextInput`, not the design system's `Input`.
- *
- * `Input` carries a label, its own border and its own height — all of which
- * fight a field that has to sit *inside* the search pill next to a button.
- */
-function SearchInput({
-  onChange,
-  onSubmit,
-  value,
-}: {
-  onChange: (value: string) => void;
-  onSubmit: () => void;
-  value: string;
-}) {
-  const { colors } = useAppTheme();
-
-  return (
-    <TextInput
-      className="h-12 flex-1 text-base text-foreground"
-      onChangeText={onChange}
-      onSubmitEditing={onSubmit}
-      placeholder="Search by area, hostel or landmark"
-      placeholderTextColor={colors.mutedForeground}
-      returnKeyType="search"
-      value={value}
-    />
-  );
-}
-
 function HostelRow({
   emptyLabel,
   hostels,
   onSeeAll,
+  saved,
   subtitle,
   title,
 }: {
   emptyLabel: string;
   hostels: PublicHostel[];
   onSeeAll: () => void;
+  saved: SavedControls;
   subtitle: string;
   title: string;
 }) {
@@ -544,7 +628,13 @@ function HostelRow({
           showsHorizontalScrollIndicator={false}
         >
           {hostels.map((hostel) => (
-            <HostelCard hostel={hostel} key={hostel.id} variant="carousel" />
+            <HostelCard
+              hostel={hostel}
+              key={hostel.id}
+              onToggleSave={saved.toggle}
+              saved={saved.ids.has(hostel.id)}
+              variant="carousel"
+            />
           ))}
         </ScrollView>
       )}
@@ -553,28 +643,28 @@ function HostelRow({
 }
 
 /**
- * "Premium Hostels" — the top-rated verified listings, filtered by type.
- *
- * The pills filter **on the client**, over rows the server already returned.
- * That is honest here for the same reason `Sort: nearest` is on the browse
- * screen and unlike the filter sheet's absent Sort: nothing is being claimed
- * about a query. Tapping a pill genuinely narrows what is on screen.
+ * "Premium hostels" — the top-rated verified listings.
  *
  * "Premium" is defined here as verified and well-reviewed, because the server
  * has no premium flag, no tier and no paid placement. If one is ever added this
  * should read it rather than keep guessing.
+ *
+ * The type pills this section used to carry are gone: the same four choices now
+ * sit at the top of the screen as `QuickTypes`, and two type filters on one page
+ * — one that navigates, one that narrows in place — is a coin toss about what a
+ * tap will do.
  */
 const PREMIUM_MIN_RATING = 4;
 
 function PremiumHostels({
-  browseHref,
   hostels,
+  onSeeAll,
+  saved,
 }: {
-  browseHref: string;
   hostels: PublicHostel[];
+  onSeeAll: () => void;
+  saved: SavedControls;
 }) {
-  const [type, setType] = useState<HostelType | null>(null);
-
   const premium = useMemo(() => {
     const eligible = hostels.filter(
       (hostel) =>
@@ -590,213 +680,24 @@ function PremiumHostels({
         ? eligible
         : hostels.filter((hostel) => hostel.verificationStatus === "VERIFIED");
 
-    return pool
-      .filter((hostel) => (type ? hostel.hostelType === type : true))
+    return [...pool]
       .sort((a, b) => b.ratingSummary.averageRating - a.ratingSummary.averageRating)
       .slice(0, 6);
-  }, [hostels, type]);
+  }, [hostels]);
 
-  if (hostels.length === 0) {
+  if (premium.length === 0) {
     return null;
   }
 
   return (
-    <View>
-      <SectionHeader
-        action={
-          <Pressable
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => router.push(browseHref)}
-          >
-            <Text className="text-primary" variant="label">
-              View all
-            </Text>
-          </Pressable>
-        }
-        subtitle="Verified, and rated highly by students"
-        title="Premium hostels"
-      />
-
-      <ScrollView
-        contentContainerClassName="gap-2 pr-5"
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
-        <TypePill label="All" onPress={() => setType(null)} selected={type === null} />
-        {HOSTEL_TYPES.map((option) => (
-          <TypePill
-            key={option}
-            label={HOSTEL_TYPE_LABELS[option]}
-            onPress={() => setType(option)}
-            selected={type === option}
-          />
-        ))}
-      </ScrollView>
-
-      {premium.length === 0 ? (
-        <Card className="mt-3">
-          <Text variant="muted">No hostels of that type are listed yet.</Text>
-        </Card>
-      ) : (
-        <ScrollView
-          className="mt-3"
-          contentContainerClassName="gap-3 pr-5"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {premium.map((hostel) => (
-            <HostelCard hostel={hostel} key={hostel.id} variant="carousel" />
-          ))}
-        </ScrollView>
-      )}
-    </View>
-  );
-}
-
-function TypePill({
-  label,
-  onPress,
-  selected,
-}: {
-  label: string;
-  onPress: () => void;
-  selected: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      className={`rounded-full border px-4 py-2 active:opacity-70 ${
-        selected ? "border-primary bg-primary" : "border-border bg-card"
-      }`}
-      onPress={onPress}
-    >
-      <Text
-        className={`text-xs font-semibold ${selected ? "text-primary-foreground" : ""}`}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-/**
- * "Why students trust us" — the mockup's four tiles.
- *
- * Wording with no database home, exactly as `public-home-content.ts` holds it
- * for the web, so the two surfaces make the same promises. Kept to claims the
- * product actually keeps: every one of these is a feature that exists —
- * verification, a price with no hidden fees, and reviews you can read.
- */
-const TRUST_POINTS = [
-  {
-    description: "Every listing is checked before it goes live.",
-    icon: "shield-checkmark-outline",
-    title: "Verified with care",
-  },
-  {
-    description: "The monthly rent you see is the rent you pay.",
-    icon: "pricetag-outline",
-    title: "Transparent prices",
-  },
-  {
-    description: "Ratings and reviews written by people living there.",
-    icon: "chatbubble-ellipses-outline",
-    title: "Honest reviews",
-  },
-  {
-    description: "Rent, meals and notices in one place once you move in.",
-    icon: "home-outline",
-    title: "More than a search",
-  },
-] as const;
-
-function TrustPoints() {
-  const { colors } = useAppTheme();
-
-  return (
-    <View>
-      <SectionHeader
-        subtitle="Hostel hunting, without the guesswork"
-        title={`Why students use ${APP_NAME}`}
-      />
-
-      <View className="flex-row flex-wrap gap-3">
-        {TRUST_POINTS.map((point) => (
-          <View
-            className="w-[47%] gap-2 rounded-2xl border border-border bg-card p-4"
-            key={point.title}
-          >
-            <Ionicons color={colors.primary} name={point.icon} size={20} />
-            <Text variant="label">{point.title}</Text>
-            <Text variant="caption">{point.description}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-/**
- * The stats band.
- *
- * **Real figures, not the mockup's copy.** The mockup and the web both hard-code
- * "500+ Verified Hostels / 10,000+ Happy Students / 50+ Cities / 4.6 ★"; none of
- * it is derived and none of it is true yet. Agreed with the product owner
- * 2026-08-17 to compute these from the same payload the cards above render —
- * see `lib/home-stats.ts`, which also explains why the fourth tile counts vacant
- * beds rather than students.
- *
- * Renders nothing at all when there is nothing to count, rather than a row of
- * zeros on an empty catalogue.
- */
-function StatsBand({ stats }: { stats: ReturnType<typeof homeStats> }) {
-  if (stats.length === 0) {
-    return null;
-  }
-
-  return (
-    <View className="flex-row flex-wrap justify-around gap-y-5 rounded-3xl bg-primary px-4 py-6">
-      {stats.map((stat) => (
-        <View className="min-w-[40%] items-center gap-1" key={stat.label}>
-          <Text className="text-2xl font-bold text-primary-foreground">{stat.value}</Text>
-          <Text className="text-xs font-medium text-primary-foreground/80">
-            {stat.label}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function BrowseByType({ browseHref }: { browseHref: string }) {
-  const { colors } = useAppTheme();
-
-  const icons: Record<HostelType, keyof typeof Ionicons.glyphMap> = {
-    BOYS: "man-outline",
-    CO_LIVING: "people-outline",
-    GIRLS: "woman-outline",
-  };
-
-  return (
-    <View>
-      <SectionHeader subtitle="Find a space that suits how you live" title="Browse by type" />
-
-      <View className="flex-row gap-3">
-        {HOSTEL_TYPES.map((type) => (
-          <Pressable
-            accessibilityRole="button"
-            className="flex-1 items-center gap-2 rounded-2xl border border-border bg-card py-5 active:opacity-70"
-            key={type}
-            onPress={() => router.push(`${browseHref}?type=${type}`)}
-          >
-            <Ionicons color={colors.primary} name={icons[type]} size={24} />
-            <Text variant="label">{HOSTEL_TYPE_LABELS[type]}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
+    <HostelRow
+      emptyLabel=""
+      hostels={premium}
+      onSeeAll={onSeeAll}
+      saved={saved}
+      subtitle="Verified, and rated highly by students"
+      title="Premium hostels"
+    />
   );
 }
 
@@ -829,30 +730,6 @@ function BrowseByFacility({ browseHref }: { browseHref: string }) {
           </Pressable>
         ))}
       </View>
-    </View>
-  );
-}
-
-function ResidentsCallout() {
-  return (
-    <View>
-      <SectionHeader
-        subtitle="Already living in one of our hostels?"
-        title="Residents"
-      />
-      <Card className="gap-3">
-        <Text variant="muted">
-          Sign in to see your rent, this week&apos;s meals, notices from your warden,
-          and to raise a complaint.
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          className="h-12 items-center justify-center rounded-xl border border-border active:opacity-70"
-          onPress={() => router.push("/(auth)/register")}
-        >
-          <Text className="font-semibold">Create an account</Text>
-        </Pressable>
-      </Card>
     </View>
   );
 }

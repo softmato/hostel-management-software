@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.softmato.hostelhub",
+      "sha256_cert_fingerprints": [
+        "AA:45:1C:E1:DC:30:3E:BB:BC:D4:27:A1:AC:76:EE:05:BF:7F:A5:54:69:E6:B4:98:74:0E:78:7F:62:31:E8:E1"
+      ]
+    }
+  }
+]

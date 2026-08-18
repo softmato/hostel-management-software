@@ -10,6 +10,10 @@
  *  3. On 401: refresh once, replay the queued requests, and if the refresh
  *     itself fails, end the session properly — wipe every slice, purge what is
  *     on disk, and send the user to login.
+ *
+ * The refresh **rotates**: the server invalidates the token it was given and
+ * returns a new one, so both tokens are written back. `lib/refresh-tokens.ts`
+ * has the reasoning and the failure mode that follows from getting it wrong.
  */
 
 import {
@@ -22,9 +26,33 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 
 import { AUTH_CLIENT_HEADER, MOBILE_AUTH_CLIENT } from "@/lib/api-contract";
-import { clearTokens, readTokens, writeAccessToken } from "@/lib/session";
+import {
+  readRefreshOutcome,
+  type RefreshResponseBody,
+} from "@/lib/refresh-tokens";
+import { clearTokens, readTokens, writeAccessToken, writeTokens } from "@/lib/session";
 
-const FALLBACK_API_URL = "http://localhost:3000";
+/**
+ * The deployed web app. It serves the API under `/api/v1`, so this is the origin
+ * every build that is not talking to a dev machine should use.
+ */
+const PRODUCTION_API_URL = "https://hostel-management-software-web.vercel.app";
+
+/**
+ * Where to go when `EXPO_PUBLIC_API_URL` is unset.
+ *
+ * Split by build type, because "unset" means opposite things in each. In a dev
+ * build it means "you are running the web app yourself" and localhost is right.
+ * In a release build it means the build was configured wrong — and answering
+ * `localhost` there is the worst possible failure: every request dies at the
+ * loopback with nothing on screen to explain why, and the app looks broken
+ * rather than misconfigured. The deployed origin is the only sane answer, so a
+ * missing variable costs nothing instead of costing the build.
+ *
+ * `eas.json` still sets it explicitly on `preview` and `production`. This is the
+ * floor, not the mechanism.
+ */
+const FALLBACK_API_URL = __DEV__ ? "http://localhost:3000" : PRODUCTION_API_URL;
 const DEV_WEB_PORT = process.env.EXPO_PUBLIC_WEB_DEV_PORT?.trim() || "3000";
 
 function trimTrailingSlash(value?: string | null) {
@@ -73,6 +101,18 @@ function forEmulator(host: string) {
     : host;
 }
 
+/**
+ * Where `EXPO_PUBLIC_API_URL` comes from, per build:
+ *
+ * - **Expo Go / `expo start`** — `apps/mobile/.env`, which does not set it. The
+ *   Metro-host branch below takes over.
+ * - **`development` EAS profile** — deliberately *not* set in `eas.json`. A dev
+ *   client is meant to talk to the dev machine, and a configured public origin
+ *   would switch the branch below off (a non-private configured host wins).
+ * - **`preview` / `production` EAS profiles** — set in `eas.json` to the
+ *   deployed origin. `.env` is gitignored and never reaches an EAS build, which
+ *   is exactly how a release APK ended up pointed at its own loopback.
+ */
 export function resolveApiBaseUrl() {
   const configured = trimTrailingSlash(process.env.EXPO_PUBLIC_API_URL);
 
@@ -183,17 +223,33 @@ api.interceptors.response.use(
         throw error;
       }
 
-      const response = await publicApi.post<{
-        data: { accessToken: string };
-      }>("/auth/refresh", { refreshToken: tokens.refreshToken });
+      const response = await publicApi.post<RefreshResponseBody>("/auth/refresh", {
+        refreshToken: tokens.refreshToken,
+      });
 
-      const accessToken = response.data?.data?.accessToken;
+      const outcome = readRefreshOutcome(response.data);
 
-      if (!accessToken) {
+      if (!outcome.ok) {
         throw error;
       }
 
-      await writeAccessToken(accessToken);
+      const { accessToken, refreshToken } = outcome;
+
+      /*
+       * Both tokens, not just the access one.
+       *
+       * The server rotates on every refresh and invalidates the token it was
+       * handed (`refreshAccessToken` overwrites `session.refreshTokenHash`), so
+       * keeping the old one on disk buys exactly one more refresh before the
+       * session dies for good. See `lib/refresh-tokens.ts` — a missing
+       * `refreshToken` in the response means "unchanged", not "cleared".
+       */
+      if (refreshToken) {
+        await writeTokens({ accessToken, refreshToken });
+      } else {
+        await writeAccessToken(accessToken);
+      }
+
       handlers?.onAccessToken(accessToken);
       releaseWaiters(accessToken);
 

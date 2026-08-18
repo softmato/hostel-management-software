@@ -73,6 +73,29 @@ export type ResidentInvoiceReceipt = {
 };
 
 /**
+ * One line of an invoice, as the resident is shown it.
+ *
+ * Everything here is already snapshotted on the invoice — the amount above all,
+ * which is why a historical invoice stays correct after every fee schedule it
+ * came from is closed (see `Invoice.lines`). Nothing is re-derived.
+ *
+ * `feeScheduleId` is deliberately **not** carried through. It exists for
+ * tracing, it means nothing to a resident, and a schedule id on a customer-facing
+ * payload is an internal identifier the client would have no way to resolve.
+ */
+export type ResidentInvoiceLine = {
+  /** Signed — a credit line is negative (target §9.4). */
+  amount: number;
+  /** How the amount was arrived at: SCHEDULE, OVERRIDE, MANUAL or CREDIT. */
+  basis: string;
+  /** Null on non-rent lines: admission fees and adjustments have no bed type. */
+  bedType: string | null;
+  description: string;
+  /** e.g. `"18/31 days"` — why a part month costs what it costs. */
+  prorationBasis: string | null;
+};
+
+/**
  * An invoice as the resident's own screen needs it.
  *
  * `receipts` is the one addition: a settled month has receipts, and a resident
@@ -90,6 +113,26 @@ export type ResidentInvoiceReceipt = {
  * for.
  */
 export type ResidentPortalInvoice = PortalInvoice & {
+  /**
+   * What the month is actually made of (target §3.3).
+   *
+   * The second addition, and for the same reason as `receipts`: without it a
+   * resident can see *what* they owe and never *why*. A month that costs more
+   * than the last one — a part-month proration, an admission fee, a credit from
+   * an overpayment — is indistinguishable from a mistake, and the only way to
+   * find out is to ask the hostel, who then have to open the admin portal to
+   * read back a breakdown the database has had all along.
+   *
+   * Not on `PortalInvoice`: the admin matrix is one row per resident per month
+   * and would carry every line of every invoice for nothing.
+   *
+   * Read from `InvoiceModel` beside `referenceCode` rather than through the
+   * ledger facade, on the same grounds (ADR-3) — the facade describes
+   * *balances*, and these are the invoice's own description of itself. The
+   * balance still comes from the facade; the two are not summed against each
+   * other here, because a paid invoice's lines still total the full amount.
+   */
+  lines: ResidentInvoiceLine[];
   receipts: ResidentInvoiceReceipt[];
   /**
    * The invoice's reference code (§5, ADR-7), so the payments page can show the
@@ -128,17 +171,47 @@ export async function getResidentFinanceView(
     getCreditAmount(resident.hostelId, resident._id),
   ]);
 
-  const codeRows = invoices.length
+  const detailRows = invoices.length
     ? await InvoiceModel.find({
         _id: { $in: invoices.map((invoice) => invoice.id) },
         residentId: resident._id,
       })
-        .select("referenceCode")
-        .lean<{ _id: Types.ObjectId; referenceCode?: string }[]>()
+        .select("lines referenceCode")
+        .lean<
+          {
+            _id: Types.ObjectId;
+            lines?: {
+              amount: number;
+              basis: string;
+              bedType?: string | null;
+              description: string;
+              prorationBasis?: string | null;
+            }[];
+            referenceCode?: string;
+          }[]
+        >()
     : [];
 
   const codeByInvoice = new Map(
-    codeRows.map((row) => [row._id.toString(), row.referenceCode ?? null]),
+    detailRows.map((row) => [row._id.toString(), row.referenceCode ?? null]),
+  );
+
+  // Mapped rather than passed through: the stored subdocument carries
+  // `feeScheduleId`, which is an internal tracing handle with no meaning to a
+  // resident and no route that would resolve it.
+  const linesByInvoice = new Map(
+    detailRows.map((row) => [
+      row._id.toString(),
+      (row.lines ?? []).map(
+        (line): ResidentInvoiceLine => ({
+          amount: line.amount,
+          basis: line.basis,
+          bedType: line.bedType ?? null,
+          description: line.description,
+          prorationBasis: line.prorationBasis ?? null,
+        }),
+      ),
+    ]),
   );
 
   // Voided receipts are excluded: a receipt that was voided when its payment was
@@ -191,6 +264,7 @@ export async function getResidentFinanceView(
 
       return {
         ...portal,
+        lines: linesByInvoice.get(portal.id) ?? [],
         receipts: receiptsByInvoice.get(portal.id) ?? [],
         referenceCode: codeByInvoice.get(portal.id) ?? null,
       };

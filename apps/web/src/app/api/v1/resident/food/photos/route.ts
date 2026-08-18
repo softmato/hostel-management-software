@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     const principal = await requireResidentPrincipal(request);
     const input = foodPhotoUploadSchema.parse(await request.json());
-    const result = await uploadFoodPhoto(input, principal, true);
+    const result = await uploadFoodPhoto(input, principal, { residentScoped: true });
 
     return successResponse(result, "Food photo uploaded", { status: 201 });
   } catch (error) {

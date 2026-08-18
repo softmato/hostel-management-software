@@ -23,6 +23,7 @@ import { getOperationsConfig } from "@/modules/platform-config/operations-config
 import {
   findCurrentResident,
   normalizeObjectId,
+  type ResidentRecord,
   serializeResidentSummary,
 } from "@/modules/residents/resident-access";
 import type {
@@ -449,6 +450,53 @@ export async function listResidentComplaints(
     ),
     pagination: paginationMeta(query, total),
     resident: serializeResidentSummary(resident),
+  };
+}
+
+/** Statuses that still need something to happen. Mirrors `isOverdue`'s exclusions. */
+const OPEN_COMPLAINT_STATUSES: ComplaintStatus[] = ["PENDING", "IN_PROGRESS"];
+
+/**
+ * The dashboard's complaints block: how many are still open, and the last few.
+ *
+ * Takes the resident rather than the principal because the caller already has
+ * one, and `findCurrentResident` is a query. Attachments and update threads are
+ * deliberately not loaded — the dashboard shows a title and a status, and
+ * `complaintChildren` is two more round trips for text nobody renders there.
+ *
+ * This block used to be the literal `{ openCount: 0, recent: [] }`, which is
+ * why the mobile dashboard did not render it at all: a confident zero on a
+ * resident who has three open complaints is worse than an absent card.
+ */
+export async function summarizeResidentComplaints(
+  resident: Pick<ResidentRecord, "_id" | "hostelId">,
+  limit = 3,
+) {
+  const filter = { hostelId: resident.hostelId, residentId: resident._id };
+
+  const [recent, openCount] = await Promise.all([
+    ComplaintModel.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean<ComplaintRecord[]>(),
+    ComplaintModel.countDocuments({
+      ...filter,
+      status: { $in: OPEN_COMPLAINT_STATUSES },
+    }),
+  ]);
+
+  return {
+    openCount,
+    recent: recent.map((complaint) => ({
+      category: complaint.category,
+      createdAt: complaint.createdAt?.toISOString(),
+      id: complaint._id.toString(),
+      isOverdue:
+        !["RESOLVED", "REJECTED"].includes(complaint.status) &&
+        complaint.slaDueAt.getTime() < Date.now(),
+      status: complaint.status,
+      title: complaint.title,
+    })),
   };
 }
 

@@ -1,33 +1,72 @@
 import { describe, expect, it } from "vitest";
 
-import { isCheckoutFinished, planHandoff } from "@/lib/checkout";
+import { isCheckoutFinished, planHandoff, relayUrl } from "@/lib/checkout";
+
+const BASE = "https://api.test";
 
 describe("planHandoff", () => {
-  it("opens a redirect handoff", () => {
-    expect(planHandoff({ kind: "REDIRECT", url: "https://khalti.test/pay" })).toEqual({
+  it("opens a redirect handoff at the provider's own URL", () => {
+    // Never through the relay: a REDIRECT is already a URL, and wrapping it
+    // would put a browser between the resident and the wallet app that claims
+    // that domain.
+    expect(
+      planHandoff({ kind: "REDIRECT", url: "https://khalti.test/pay" }, { baseUrl: BASE, reference: "EDU-1-1" }),
+    ).toEqual({
       kind: "OPEN_URL",
       url: "https://khalti.test/pay",
     });
   });
 
-  it("refuses a form POST instead of opening something that will fail", () => {
+  it("sends a form POST through the server's relay page", () => {
     // eSewa v2 signs its fields positionally, so they have to reach the
-    // provider as a POST body. `expo-web-browser` can only open a URL, and a
-    // resident finding that out *after* committing to pay is the bad outcome.
-    const plan = planHandoff({
-      fields: { signature: "abc", total_amount: "12000" },
-      kind: "FORM_POST",
-      url: "https://esewa.test/form",
-    });
+    // provider as a POST body — which a phone cannot do. `/pay/{reference}`
+    // rebuilds the same signature server-side and serves a real form.
+    const plan = planHandoff(
+      {
+        fields: { signature: "abc", total_amount: "12000" },
+        kind: "FORM_POST",
+        url: "https://esewa.test/form",
+      },
+      { baseUrl: BASE, reference: "EDU-0001-F-2" },
+    );
 
-    expect(plan.kind).toBe("UNSUPPORTED");
+    expect(plan).toEqual({
+      kind: "OPEN_URL",
+      url: relayUrl("EDU-0001-F-2", BASE),
+    });
+  });
+
+  it("puts nothing but the reference in the relay URL", () => {
+    // The signed fields are deliberately not carried: a signature in a URL is a
+    // signature in a browser history, a server log and a referrer header.
+    const plan = planHandoff(
+      {
+        fields: { signature: "abc", total_amount: "12000" },
+        kind: "FORM_POST",
+        url: "https://esewa.test/form",
+      },
+      { baseUrl: BASE, reference: "EDU-0001-F-2" },
+    );
+
+    expect(plan.kind === "OPEN_URL" && plan.url).not.toContain("abc");
+    expect(plan.kind === "OPEN_URL" && plan.url).not.toContain("12000");
   });
 
   it("hands a QR payload back to be rendered", () => {
-    expect(planHandoff({ kind: "QR", payload: "fonepay://x" })).toEqual({
+    expect(planHandoff({ kind: "QR", payload: "fonepay://x" }, { baseUrl: BASE, reference: "EDU-1-1" })).toEqual({
       kind: "SHOW_QR",
       payload: "fonepay://x",
     });
+  });
+});
+
+describe("relayUrl", () => {
+  it("escapes the reference rather than trusting its shape", () => {
+    // References are built from a hostel-chosen prefix, so a stray `/` or `?`
+    // would otherwise land the browser on a different route entirely.
+    expect(relayUrl("EDU/0001?x", "https://api.test")).toBe(
+      "https://api.test/pay/EDU%2F0001%3Fx",
+    );
   });
 });
 

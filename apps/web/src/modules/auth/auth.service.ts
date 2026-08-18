@@ -32,6 +32,10 @@ import { OtpChallengeModel } from "@hostel/db/models/OtpChallenge";
 import { SessionModel } from "@hostel/db/models/Session";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import { UserModel } from "@hostel/db/models/User";
+import {
+  authenticateTemporaryCredential,
+  isTemporaryCredentialActive,
+} from "@/modules/auth/temporary-credential.service";
 import type {
   GoogleAuthInput,
   LoginInput,
@@ -209,12 +213,19 @@ export async function issueSessionForUser(
     status: string;
   },
   context?: RequestContext,
+  /**
+   * Set when a temporary credential opened this session. It is stamped on both
+   * the session row and the tokens, which is what lets a revoke reach live
+   * sessions and lets the API refuse account-level actions to a borrowed login.
+   */
+  options?: { temporaryCredentialId?: string },
 ) {
   const safeUser = publicUser(user);
 
   const session = new SessionModel({
     expiresAt: refreshTokenExpiresAt(),
     ipAddress: context?.ipAddress,
+    temporaryCredentialId: options?.temporaryCredentialId ?? null,
     userAgent: context?.userAgent,
     userId: safeUser.id,
   });
@@ -224,6 +235,7 @@ export async function issueSessionForUser(
     hostelIds: safeUser.hostelIds,
     role: safeUser.role,
     sessionId,
+    temporaryCredentialId: options?.temporaryCredentialId,
     userId: safeUser.id,
   };
   const [accessToken, refreshToken] = await Promise.all([
@@ -237,7 +249,10 @@ export async function issueSessionForUser(
   return {
     accessToken,
     refreshToken,
-    user: safeUser,
+    user: {
+      ...safeUser,
+      viaTemporaryCredential: Boolean(options?.temporaryCredentialId),
+    },
   };
 }
 
@@ -586,6 +601,31 @@ export async function login(input: LoginInput, context?: RequestContext) {
   await connectToDatabase();
 
   const identifier = input.identifier.trim().toLowerCase();
+
+  /*
+   * A temporary username can never contain `@` (see
+   * temporaryCredentialUsernameSchema), and an email address always does — so
+   * the two namespaces cannot collide and one character decides which table to
+   * look in. No fallback between the branches: an identifier with an `@` that
+   * fails is a failed *email* login, and letting it retry as a username would
+   * turn one attempt into two against the rate limit.
+   */
+  if (!identifier.includes("@")) {
+    const match = await authenticateTemporaryCredential(identifier, input.password);
+
+    if (!match) {
+      throw new AuthServiceError("Invalid credentials.", "INVALID_CREDENTIALS");
+    }
+
+    // The owner already proved their email when they created this, and the
+    // credential is short-lived by construction, so there is no second
+    // verification gate here — only the account's own ACTIVE status, which
+    // `authenticateTemporaryCredential` has already enforced.
+    return issueSessionForUser(match.owner, context, {
+      temporaryCredentialId: match.credentialId,
+    });
+  }
+
   // INVITED covers admin-issued accounts (wardens, cooks, upgraded admins)
   // logging in for the first time with their emailed temporary password.
   const user = await UserModel.findOne({
@@ -647,12 +687,36 @@ export async function refreshAccessToken(refreshToken: string) {
     throw new AuthServiceError("User no longer has access.", "USER_INACTIVE");
   }
 
+  /*
+   * A borrowed session is re-authorised on every refresh, not just at login:
+   * without this a temporary credential revoked (or simply expired) an hour ago
+   * would keep minting fresh 30-day refresh tokens for as long as the holder
+   * kept the tab open, which would make the expiry date decorative.
+   */
+  const temporaryCredentialId = session.temporaryCredentialId
+    ? String(session.temporaryCredentialId)
+    : undefined;
+
+  if (
+    temporaryCredentialId &&
+    !(await isTemporaryCredentialActive(temporaryCredentialId))
+  ) {
+    session.revokedAt = new Date();
+    await session.save();
+
+    throw new AuthServiceError(
+      "This temporary login is no longer valid.",
+      "TEMPORARY_CREDENTIAL_INVALID",
+    );
+  }
+
   session.lastSeenAt = new Date();
   const safeUser = publicUser(user);
   const tokenInput = {
     hostelIds: safeUser.hostelIds,
     role: safeUser.role,
     sessionId: String(session._id),
+    temporaryCredentialId,
     userId: safeUser.id,
   };
   const [accessToken, nextRefreshToken] = await Promise.all([
@@ -666,7 +730,7 @@ export async function refreshAccessToken(refreshToken: string) {
   return {
     accessToken,
     refreshToken: nextRefreshToken,
-    user: safeUser,
+    user: { ...safeUser, viaTemporaryCredential: Boolean(temporaryCredentialId) },
   };
 }
 
@@ -674,6 +738,25 @@ export async function getCurrentUser(accessToken: string) {
   await connectToDatabase();
 
   const payload = await verifyAccessToken(accessToken);
+  const viaTemporaryCredential = typeof payload.temporaryCredentialId === "string";
+
+  /*
+   * This endpoint answers "who is signed in?", and the portal shell renders on
+   * the strength of it. Checking the token's signature alone would leave a
+   * revoked holder looking signed in — shell drawn, nav drawn — until the
+   * access token expired, with every data call underneath it 401ing. Same
+   * database check the API guard makes, for the same reason.
+   */
+  if (
+    viaTemporaryCredential &&
+    !(await isTemporaryCredentialActive(payload.temporaryCredentialId as string))
+  ) {
+    throw new AuthServiceError(
+      "This temporary login is no longer valid.",
+      "TEMPORARY_CREDENTIAL_INVALID",
+    );
+  }
+
   const user = await UserModel.findOne({
     _id: payload.sub,
     isDeleted: { $ne: true },
@@ -704,7 +787,16 @@ export async function getCurrentUser(accessToken: string) {
       }),
     );
 
-  return { ...publicUser(user), isServiceProvider };
+  return {
+    ...publicUser(user),
+    isServiceProvider,
+    /**
+     * Lets the portal header say "you are on a temporary login" — the account
+     * looks identical otherwise, and a borrower who does not realise it will
+     * report the blocked account-settings actions as a bug.
+     */
+    viaTemporaryCredential,
+  };
 }
 
 export async function logout(refreshToken: string) {
