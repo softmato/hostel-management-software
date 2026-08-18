@@ -17,15 +17,47 @@ import {
   vacancyLabel,
 } from "@/lib/hostel-display";
 import { absoluteMediaUrl } from "@/lib/media";
-import type { PublicHostel } from "@/lib/public-api";
+import { HOSTEL_TYPE_LABELS, type PublicHostel } from "@/lib/public-api";
 
 /**
  * One hostel, as every discovery surface draws it.
  *
- * Two widths, one component: `carousel` for the horizontally-scrolling rows on
- * the home screen, `list` for the full-width browse results. A second component
- * for the second width is how the two drift — the verified chip ends up in a
- * different corner, and the price loses its `/month` on one of them.
+ * Three shapes, one component: `carousel` for a horizontally-scrolling row,
+ * `list` for the full-width browse results, and `grid` for the two-column
+ * "Nearby Hostels" block on the home screen. A second component per shape is how
+ * they drift — the verified chip ends up in a different corner, and the price
+ * loses its `/month` on one of them.
+ *
+ * ## What `grid` changes, and why
+ *
+ * It is half a screen wide, so roughly 150dp of text column. Two things do not
+ * survive that width and are therefore drawn differently rather than squeezed:
+ *
+ * - **The badge is the hostel type, not "Verified".** At this size only one pill
+ *   fits over the photo, and Boys/Girls is the thing being scanned for; the
+ *   verified tick moves *inside* that pill, as it already does on the showcase.
+ * - **Facilities lose their labels.** "Attached bathroom" beside three others is
+ *   four wrapped lines here. They become a row of circled icons, which is the
+ *   mockup's shape and is also the only one that fits four of them.
+ *
+ * Vacancy is dropped from this shape for the same reason — there is no line left
+ * for it, and it is on the detail screen the card opens.
+ *
+ * ## Distance gets its own badge, and the badge is a button
+ *
+ * A `grid` card with a position reads `1.2 km away · Ghattekulo, Kathmandu` on
+ * one `numberOfLines={1}` caption in a 174dp column — so the address was cut to
+ * make room for the number, and the number itself sat in a line the eye reads as
+ * "where this is", not "how far this is from you". The distance is now a pill on
+ * the photograph and the caption is the address again. Both are legible, and the
+ * one that changes when the reader walks down the street is the one that stands
+ * out. It opens the map on that hostel with directions already running — the
+ * number is the question, and the map is the answer to it.
+ *
+ * Nested inside the card's own `Pressable`, which is legal and does what it
+ * looks like: the inner press wins, the outer one still covers everything else.
+ * With `hitSlop` because the badge is small enough to read at a glance and too
+ * small to aim at.
  *
  * ## The rating is the interesting part
  *
@@ -35,21 +67,40 @@ import type { PublicHostel } from "@/lib/public-api";
  * and it never gets its first review. See `ratingDisplay`.
  */
 
+/**
+ * Keyed by `facilityKey`, not by the label.
+ *
+ * `FACILITIES` in `lib/public-api.ts` is the list the filter sheet offers, but a
+ * hostel's `facilities` array is **free text** — it is whatever the hostel admin
+ * typed into the registration form. "Wi-Fi", "WIFI" and "Wifi" all arrive, and
+ * an exact-match table gave every one of them the generic tick, so a card ended
+ * up showing four identical circles instead of four different facilities.
+ */
 const FACILITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  AC: "snow-outline",
-  "Attached bathroom": "water-outline",
-  CCTV: "videocam-outline",
-  Gym: "barbell-outline",
-  "Hot water": "thermometer-outline",
-  Laundry: "shirt-outline",
-  Parking: "car-outline",
-  "Power backup": "flash-outline",
-  "Study table": "book-outline",
-  WiFi: "wifi-outline",
+  ac: "snow-outline",
+  airconditioning: "snow-outline",
+  attachedbathroom: "water-outline",
+  cctv: "videocam-outline",
+  gym: "barbell-outline",
+  hotwater: "thermometer-outline",
+  kitchen: "restaurant-outline",
+  laundry: "shirt-outline",
+  meals: "restaurant-outline",
+  parking: "car-outline",
+  powerbackup: "flash-outline",
+  security: "shield-checkmark-outline",
+  studytable: "book-outline",
+  water: "water-outline",
+  wifi: "wifi-outline",
 };
 
+/** Case, spaces and punctuation all dropped: `Hot Water` and `hot-water` are one key. */
+function facilityKey(facility: string): string {
+  return facility.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 export function facilityIcon(facility: string): keyof typeof Ionicons.glyphMap {
-  return FACILITY_ICONS[facility] ?? "checkmark-circle-outline";
+  return FACILITY_ICONS[facilityKey(facility)] ?? "checkmark-circle-outline";
 }
 
 /**
@@ -79,9 +130,17 @@ export function SaveButton({
       accessibilityLabel={saved ? `Remove ${hostel.name} from saved` : `Save ${hostel.name}`}
       accessibilityRole="button"
       accessibilityState={{ selected: saved }}
-      className="h-9 w-9 items-center justify-center rounded-full bg-card/95 active:opacity-70"
+      /*
+        The disc is painted from `colors`, not `bg-card/95`. This heart sits on
+        a photograph, so the disc is the only thing separating a grey outline
+        from a grey roof — and an opacity modifier on a `var(--card)` colour is
+        the one Tailwind form that can come out as no background at all, which
+        is exactly how it rendered: a bare heart floating on the picture.
+      */
+      className="h-9 w-9 items-center justify-center rounded-full active:opacity-70"
       hitSlop={6}
       onPress={() => onToggle(hostel)}
+      style={{ backgroundColor: colors.card }}
     >
       <Ionicons
         color={saved ? colors.primary : colors.mutedForeground}
@@ -100,6 +159,7 @@ export function HostelCard({
   saved = false,
   selectedForCompare = false,
   showCampusDistance = false,
+  showVacancy = false,
   variant = "list",
 }: {
   /**
@@ -117,7 +177,16 @@ export function HostelCard({
   selectedForCompare?: boolean;
   /** Students search by campus, so the browse list leads with that distance. */
   showCampusDistance?: boolean;
-  variant?: "carousel" | "list";
+  /**
+   * Adds the free-bed count to a `grid` card.
+   *
+   * Off by default and on for exactly one row — the home screen's "Rooms
+   * Available Now", where it is the claim the heading makes. Everywhere else the
+   * line is dropped on purpose: it is the fastest-moving number on the card and
+   * a stale "2 beds vacant" is worse than none.
+   */
+  showVacancy?: boolean;
+  variant?: "carousel" | "grid" | "list";
 }) {
   const { colors } = useAppTheme();
 
@@ -134,6 +203,16 @@ export function HostelCard({
   const vacancy = vacancyLabel(hostel.capacitySummary);
   const campus = showCampusDistance ? campusDistanceLabel(hostel.nearbyPlaces) : null;
   const isCarousel = variant === "carousel";
+  const isGrid = variant === "grid";
+  const imageHeight = isGrid ? 118 : isCarousel ? 128 : 168;
+  /*
+   * Metres straight from `haversineMeters` — the device's own fix against this
+   * hostel's coordinates, measured on the client because the server has no
+   * geospatial query (see `lib/geo.ts`). `typeof`, not a truthiness check: a
+   * hostel 30m up the road rounds to `0` at this precision, and `0 || …` would
+   * hide the badge on the single nearest listing in the row.
+   */
+  const measured = typeof distanceMeters === "number";
 
   // Distance from *you* outranks distance from a campus: it is the thing the
   // user just asked for by tapping "Near me", and the campus line is a guess at
@@ -158,23 +237,59 @@ export function HostelCard({
             accessibilityLabel={cover?.alt || hostel.name}
             contentFit="cover"
             source={{ uri: coverUri }}
-            style={{ backgroundColor: colors.muted, height: isCarousel ? 128 : 168 }}
+            style={{ backgroundColor: colors.muted, height: imageHeight }}
             transition={150}
           />
         ) : (
           <View
             className="items-center justify-center"
-            style={{ backgroundColor: colors.muted, height: isCarousel ? 128 : 168 }}
+            style={{ backgroundColor: colors.muted, height: imageHeight }}
           >
             <Ionicons color={colors.mutedForeground} name="image-outline" size={28} />
           </View>
         )}
 
-        {hostel.verificationStatus === "VERIFIED" ? (
+        {isGrid ? (
+          // Small: it is a label on a photograph, not the headline of the card,
+          // and at `px-2.5 py-1.5` it was the biggest thing on the picture.
+          <View className="absolute left-2.5 top-2.5 flex-row items-center gap-1 rounded-full bg-primary px-2 py-0.5">
+            {hostel.verificationStatus === "VERIFIED" ? (
+              <Ionicons
+                color={colors.primaryForeground}
+                name="shield-checkmark"
+                size={9}
+              />
+            ) : null}
+            <Text className="text-[9px] font-semibold uppercase tracking-wide text-primary-foreground">
+              {HOSTEL_TYPE_LABELS[hostel.hostelType]}
+            </Text>
+          </View>
+        ) : hostel.verificationStatus === "VERIFIED" ? (
           <View className="absolute left-3 top-3 flex-row items-center gap-1 rounded-full bg-card/95 px-2.5 py-1">
             <Ionicons color={colors.success} name="shield-checkmark" size={12} />
             <Text className="text-xs font-semibold">Verified</Text>
           </View>
+        ) : null}
+
+        {measured ? (
+          // Bottom-left, which is the one corner of the photo nothing else uses:
+          // the type pill has the top-left and the heart the top-right.
+          <Pressable
+            accessibilityHint="Opens a map of the route from you to this hostel"
+            accessibilityLabel={`${formatDistance(distanceMeters as number)} away, show directions`}
+            accessibilityRole="button"
+            className="absolute bottom-1.5 left-2 flex-row items-center gap-0.5 rounded-full px-1 py-0.5 active:opacity-70"
+            hitSlop={12}
+            onPress={() => router.push(`/map?route=1&slug=${hostel.slug}`)}
+            style={{ backgroundColor: colors.card }}
+          >
+            <Ionicons color={colors.primary} name="navigate" size={7} />
+            {/* The number alone. "away" is the caption's job, and dropping it
+                takes a third off a badge that sits on top of a photograph. */}
+            <Text className="text-[8px] font-semibold text-foreground">
+              {formatDistance(distanceMeters as number)}
+            </Text>
+          </Pressable>
         ) : null}
 
         {/* One row, so a card offering both actions cannot stack them on top of
@@ -208,6 +323,77 @@ export function HostelCard({
         </View>
       </View>
 
+      {isGrid ? (
+        <View className="gap-1.5 p-3">
+          <Text className="font-bold" numberOfLines={1} variant="label">
+            {hostel.name}
+          </Text>
+
+          <View className="flex-row items-center gap-1">
+            <Ionicons color={colors.mutedForeground} name="location-outline" size={11} />
+            <Text className="flex-1" numberOfLines={1} variant="caption">
+              {/* The badge above already carries the distance on this shape. */}
+              {(measured ? place : subtitle) || "Location not published"}
+            </Text>
+          </View>
+
+          {/* The soft brand pill the showcase card uses, so one hostel does not
+              wear two different score badges on one screen. */}
+          <View className="flex-row">
+            <View
+              className="flex-row items-center gap-1 rounded-lg px-2 py-0.5"
+              style={{ backgroundColor: colors.brandSoft }}
+            >
+              {rating.kind === "rated" ? (
+                <>
+                  <Ionicons color={colors.primary} name="star" size={11} />
+                  <Text className="text-xs font-bold">{rating.value}</Text>
+                  <Text variant="caption">{`(${rating.count})`}</Text>
+                </>
+              ) : (
+                <Text className="text-xs font-semibold">New</Text>
+              )}
+            </View>
+          </View>
+
+          {/* Wraps rather than truncating — see the showcase card for why a
+              half-printed price is worse than a two-line one. */}
+          <View className="flex-row flex-wrap items-baseline gap-1">
+            <Text className="text-sm font-bold text-primary">
+              {priceRange(hostel.pricing)}
+            </Text>
+            <Text variant="caption">/month</Text>
+          </View>
+
+          {showVacancy && vacancy ? (
+            <View className="flex-row items-center gap-1">
+              <Ionicons color={colors.primary} name="bed-outline" size={12} />
+              <Text className="text-xs font-semibold text-primary">{vacancy}</Text>
+            </View>
+          ) : null}
+
+          {/* Icons only — see the note at the top of the file for why the labels
+              cannot come along at this width. The name is on the icon's own
+              accessibility label, so a screen reader still reads them out. */}
+          {hostel.facilities.length > 0 ? (
+            <View className="mt-0.5 flex-row flex-wrap gap-1.5">
+              {hostel.facilities.slice(0, 4).map((facility) => (
+                <View
+                  accessibilityLabel={facility}
+                  className="h-7 w-7 items-center justify-center rounded-full border border-border"
+                  key={facility}
+                >
+                  <Ionicons
+                    color={colors.mutedForeground}
+                    name={facilityIcon(facility)}
+                    size={13}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : (
       <View className="gap-1.5 p-3">
         <View className="flex-row items-start gap-2">
           <Text className="flex-1" numberOfLines={1} variant="subtitle">
@@ -273,6 +459,7 @@ export function HostelCard({
           ) : null}
         </View>
       </View>
+      )}
     </Pressable>
   );
 }

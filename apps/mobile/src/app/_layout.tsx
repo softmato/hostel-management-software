@@ -254,6 +254,9 @@ function RootShell() {
         */}
         <Stack.Screen name="hostel/[slug]/index" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="hostel/[slug]/inquiry" options={{ animation: "slide_from_right" }} />
+        {/* The map, opened by the distance badge on any card that has one. */}
+        <Stack.Screen name="map" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="directions/[slug]" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="compare" options={{ animation: "slide_from_right" }} />
         {/*
           The SOS floating button's tap destination. At the root rather than in
@@ -279,7 +282,12 @@ function RootShell() {
         <Stack.Screen name="job/[id]" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="profile" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="id-card/index" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="id-card/edit" options={{ animation: "slide_from_right" }} />
+        {/*
+          Bottom, not right: this is a form you open, fill and finish — the same
+          shape as `complaints/new` — and on the web it is literally a modal. The
+          card it belongs to slides from the right like every other destination.
+        */}
+        <Stack.Screen name="id-card/edit" options={{ animation: "slide_from_bottom" }} />
         <Stack.Screen name="referrals" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="review" options={{ animation: "slide_from_right" }} />
         {/*

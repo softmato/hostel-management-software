@@ -1,11 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { type ColorValue, View } from "react-native";
 
 import { AnimatedTabBar } from "@/components/tab-bar";
+import { Avatar } from "@/components/ui/avatar";
 import type { RoleAccentKey } from "@/constants/theme";
+import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { API_BASE_URL } from "@/lib/api";
+import { absoluteMediaUrl } from "@/lib/media";
 
 export type TabDef = {
+  /**
+   * Draw the signed-in account's picture instead of `icon` — for the Profile
+   * tab, which means "you" rather than a category. `icon` still has to be given:
+   * `Avatar` falls back to an initial, and a signed-out shell falls back to the
+   * glyph.
+   */
+  avatar?: boolean;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   name: string;
@@ -30,6 +42,7 @@ export function RoleTabs({
   tabs: readonly TabDef[];
 }) {
   const { colors } = useAppTheme();
+  const account = useAppSelector((state) => state.auth.account);
 
   return (
     <Tabs
@@ -49,17 +62,64 @@ export function RoleTabs({
             // Ionicons ships each glyph twice: `home` filled and
             // `home-outline` hollow. Swapping between them is the whole
             // selected state, so the tab bar itself needs no icon knowledge.
-            tabBarIcon: ({ color, focused, size }) => (
-              <Ionicons
-                color={color}
-                name={focused ? tab.icon : (`${tab.icon}-outline` as typeof tab.icon)}
-                size={size}
-              />
-            ),
+            tabBarIcon: ({ color, focused, size }) =>
+              tab.avatar && account ? (
+                <AvatarTabIcon
+                  account={account}
+                  focused={focused}
+                  tint={color}
+                />
+              ) : (
+                <Ionicons
+                  color={color}
+                  name={focused ? tab.icon : (`${tab.icon}-outline` as typeof tab.icon)}
+                  size={size}
+                />
+              ),
             title: tab.label,
           }}
         />
       ))}
     </Tabs>
+  );
+}
+
+/**
+ * The Profile tab's icon: the account's own face.
+ *
+ * The selected state cannot be a filled-vs-hollow glyph swap here, so it is a
+ * ring in the accent colour — the same signal the label underneath already
+ * carries, which is what keeps the tab readable for anyone who cannot tell the
+ * two tints apart at 22px.
+ *
+ * `absoluteMediaUrl` because `user.image` is a Google URL for a Google sign-in
+ * and a relative path for anything we stored; `Avatar` handles the third case,
+ * where the URL exists and cannot be drawn, by falling back to the initial.
+ */
+function AvatarTabIcon({
+  account,
+  focused,
+  tint,
+}: {
+  account: { image: string | null; name: string };
+  focused: boolean;
+  tint: ColorValue;
+}) {
+  return (
+    <View
+      className="items-center justify-center rounded-full"
+      style={{
+        borderColor: focused ? tint : "transparent",
+        borderWidth: 1.5,
+        height: 27,
+        width: 27,
+      }}
+    >
+      <Avatar
+        name={account.name}
+        size="xs"
+        uri={absoluteMediaUrl(account.image, API_BASE_URL)}
+      />
+    </View>
   );
 }

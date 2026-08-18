@@ -13,7 +13,9 @@ import { Text } from "@/components/ui/text";
 import { readableRole } from "@/constants/roles";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { API_BASE_URL } from "@/lib/api";
 import { endSession } from "@/lib/auth-session";
+import { absoluteMediaUrl } from "@/lib/media";
 import { toastInfo } from "@/lib/toast";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
@@ -80,7 +82,11 @@ export default function BrowseProfileScreen() {
           <View className="flex-row items-center gap-3">
             {/* The shared component, which also handles a Google photo and a
                 photo URL that exists but cannot be drawn. */}
-            <Avatar name={account?.name} size="lg" uri={account?.image} />
+            <Avatar
+              name={account?.name}
+              size="lg"
+              uri={absoluteMediaUrl(account?.image, API_BASE_URL)}
+            />
 
             <View className="flex-1">
               <Text variant="subtitle">{account?.name ?? "Your account"}</Text>

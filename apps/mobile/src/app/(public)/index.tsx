@@ -5,5 +5,5 @@ import { PublicHome } from "@/components/public-home";
  * `components/public-home.tsx` for why the two groups exist.
  */
 export default function PublicHomeScreen() {
-  return <PublicHome browseHref="/(public)/hostels" compareHref="/compare" />;
+  return <PublicHome browseHref="/(public)/hostels" />;
 }

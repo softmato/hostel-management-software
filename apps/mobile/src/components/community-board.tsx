@@ -67,11 +67,30 @@ import { uploadAsset } from "@/lib/uploads";
  * `GET /community` uses `loadApiPrincipal`, so this screen works signed out. What
  * changes is `spaces.viewer.canPost`: the composer is replaced by a sign-in line,
  * and reactions, comments and votes say so when tapped rather than being hidden.
+ *
+ * ## Why this is a component and not just a screen
+ *
+ * Two routes render it, for the same reason `public-home.tsx` is shared: it is a
+ * **tab** in the `(browse)` shell a signed-in `PUBLIC_USER` gets, and a pushed
+ * screen everywhere else — the role `more.tsx` menus and the `/community/[postId]`
+ * share link both reach it that way. They differ in two things only, the back
+ * button and the tab bar's reserved height, so both are props rather than a
+ * second copy of a 500-line feed.
  */
 
 const SEARCH_DEBOUNCE_MS = 300;
 
-export default function CommunityScreen() {
+export type CommunityBoardProps = {
+  /** Set when this renders as a tab, so the list clears the tab bar. */
+  insideTabs?: boolean;
+  /** A pushed screen keeps its back button; a tab is a destination and has none. */
+  showBack?: boolean;
+};
+
+export function CommunityBoard({
+  insideTabs = false,
+  showBack = false,
+}: CommunityBoardProps) {
   const { colors } = useAppTheme();
 
   const spaces = useResource<CommunitySpaces>(
@@ -176,6 +195,8 @@ export default function CommunityScreen() {
     firstPage.refresh();
   }, [firstPage, resetTail, spaces]);
 
+  const appBar = <AppBar showBack={showBack} title="Community" />;
+
   const header = (
     <View className="gap-3 pb-1">
       <Input
@@ -259,7 +280,7 @@ export default function CommunityScreen() {
 
   if (firstPage.loading) {
     return (
-      <Screen header={<AppBar showBack title="Community" />}>
+      <Screen header={appBar} insideTabs={insideTabs}>
         <LoadingState label="Loading the community" />
       </Screen>
     );
@@ -267,14 +288,14 @@ export default function CommunityScreen() {
 
   if (firstPage.error && posts.length === 0) {
     return (
-      <Screen header={<AppBar showBack title="Community" />}>
+      <Screen header={appBar} insideTabs={insideTabs}>
         <ErrorState message={firstPage.error} onRetry={firstPage.reload} />
       </Screen>
     );
   }
 
   return (
-    <Screen header={<AppBar showBack title="Community" />} padded={false}>
+    <Screen header={appBar} insideTabs={insideTabs} padded={false}>
       {/*
         A `FlatList` rather than `<Screen scroll>`: this is the one screen with an
         unbounded list, so rows have to be recycled and `onEndReached` is what

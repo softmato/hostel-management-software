@@ -8,6 +8,7 @@ import {
   hasIdCard,
   hasIdentityErrors,
   idCardNoun,
+  idCardTypeForAccount,
   type IdentityDraft,
   toProfileInput,
   validateIdentity,
@@ -172,6 +173,21 @@ describe("idCardNoun", () => {
     expect(idCardNoun("RESIDENT")).toBe("resident");
     expect(idCardNoun("HOSTEL_OWNER")).toBe("hostel owner");
     expect(idCardNoun("SERVICE_PROVIDER")).toBe("service provider");
+  });
+});
+
+describe("idCardTypeForAccount", () => {
+  it("mirrors resolvePlatformIdCard's order of precedence", () => {
+    // A hostel admin who also holds an approved provider record is an owner:
+    // the server checks the role first and returns before it looks for one.
+    expect(
+      idCardTypeForAccount({ isServiceProvider: true, role: "HOSTEL_ADMIN" }),
+    ).toBe("HOSTEL_OWNER");
+    expect(idCardTypeForAccount({ isServiceProvider: true, role: "PUBLIC" })).toBe(
+      "SERVICE_PROVIDER",
+    );
+    expect(idCardTypeForAccount({ role: "PUBLIC" })).toBe("RESIDENT");
+    expect(idCardTypeForAccount({ role: "RESIDENT" })).toBe("RESIDENT");
   });
 });
 

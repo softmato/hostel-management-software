@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 
-import { SaveButton } from "@/components/hostel-card";
+import { facilityIcon, SaveButton } from "@/components/hostel-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -27,7 +27,7 @@ import { HOSTEL_TYPE_LABELS, type PublicHostel } from "@/lib/public-api";
  * ## What this replaced, and why
  *
  * A full-width green card with a headline, a search field and three trust chips
- * — the mockup's hero. It filled the first screenful with copy nobody reads and
+ * — an older mockup's hero. It filled the first screenful with copy nobody reads and
  * one photo, on a screen whose entire job is showing hostels. This puts the
  * hostels there instead, at the size a photo is actually worth looking at, and
  * the search field moved up into the header where it is reachable without
@@ -64,7 +64,38 @@ const SLIDE_MS = 4_500;
 const CARD_GAP = 12;
 /** `Screen`'s `px-5` on both sides — the card is inset, not full-bleed. */
 const PAGE_INSET = 40;
-const IMAGE_HEIGHT = 200;
+/**
+ * The card is a **split**: photograph on the left, the details column on the
+ * right, both running the full height. That is the mockup's shape, and it is
+ * what lets one card carry the price, the rating, three facilities and a call
+ * to action without becoming a screenful.
+ *
+ * ## The two numbers below are the whole shape of the card
+ *
+ * The mockup's card is **short and wide**, with a nearly square photograph. This
+ * shipped at `0.42 × 268`, which on a 360dp handset is a 134×268 photo — a tall
+ * strip, twice as high as it is wide, on a card half again as deep as the design
+ * draws it. Both numbers moved together, because either one alone makes it
+ * worse: a shorter card with a 42% photo is a *thinner* strip, and a wider photo
+ * on a 268 card is a taller one.
+ *
+ * The photo stops at 44% rather than going to the mockup's half, and the number
+ * is the reason. On a 360dp handset an even split leaves about 130dp of text
+ * column, and `NPR 10,000 – 18,000 /month` needs about 155 at the sizes below —
+ * so the price, the one string on the card people are actually reading, either
+ * came out as `NPR 10,000 – 1…` or dropped its `/month` onto a line of its own,
+ * which is the shape a price should never have. 44%, an 8dp column padding and
+ * a point off both type sizes are what fit the whole thing on one line; the row
+ * still wraps rather than truncates if a longer range ever does not.
+ *
+ * The height is what the contents need and no more: name, place, rating, price
+ * and facilities are ~100dp stacked once they come off the variant table, the
+ * View Details bar is 36, and the rest is padding. It came down with the type
+ * rather than by squeezing: the numbers are what the mockup's short, wide card
+ * costs, and cutting further starts clipping the bar at large system font sizes.
+ */
+const IMAGE_RATIO = 0.44;
+const CARD_HEIGHT = 192;
 
 export type HostelShowcaseProps = {
   hostels: PublicHostel[];
@@ -148,11 +179,12 @@ export function HostelShowcase({
   );
 
   if (loading && count === 0) {
-    return <Skeleton height={IMAGE_HEIGHT + 76} radius={24} />;
+    return <Skeleton height={CARD_HEIGHT} radius={24} />;
   }
 
   // No hostel with a usable photo. The rows below still work, and an empty
-  // 200px frame at the top of the screen reads as a broken app.
+  // card-sized frame at the top of the screen reads as a broken app. The
+  // section's heading is hidden by the caller for the same reason.
   if (count === 0) {
     return null;
   }
@@ -203,28 +235,39 @@ function ShowcaseCard({
   const cover = coverPhoto(hostel.photos);
   const uri = absoluteMediaUrl(cover?.url, API_BASE_URL);
   const rating = ratingDisplay(hostel.ratingSummary);
+  const imageWidth = Math.round(width * IMAGE_RATIO);
+
+  /*
+   * Three, which is what the mockup lists — `facilities` is a free list a hostel
+   * admin fills in and eight of them is a real payload. They are drawn at 10px
+   * with a tight gap so three short labels ("Wi-Fi · Food · Laundry") hold one
+   * line, and the row is allowed to wrap onto a second rather than truncate: a
+   * long one ("Attached bathroom") is still readable wrapped, and the card has
+   * the height for two lines with the View Details bar pinned to the bottom.
+   */
+  const facilities = hostel.facilities.slice(0, 3);
 
   return (
     <Pressable
       accessibilityLabel={`${hostel.name}, ${locationLabel(hostel.location)}`}
       accessibilityRole="button"
-      className="overflow-hidden rounded-3xl border border-border bg-card active:opacity-90"
+      className="flex-row overflow-hidden rounded-3xl border border-border bg-card active:opacity-90"
       onPress={() => router.push(`/hostel/${hostel.slug}`)}
-      style={{ width }}
+      style={{ height: CARD_HEIGHT, width }}
     >
-      <View>
+      <View style={{ width: imageWidth }}>
         {uri ? (
           <Image
             accessibilityLabel={cover?.alt || hostel.name}
             contentFit="cover"
             source={{ uri }}
-            style={{ backgroundColor: colors.muted, height: IMAGE_HEIGHT, width: "100%" }}
+            style={{ backgroundColor: colors.muted, height: "100%", width: "100%" }}
             transition={150}
           />
         ) : (
           <View
-            className="items-center justify-center"
-            style={{ backgroundColor: colors.muted, height: IMAGE_HEIGHT }}
+            className="h-full w-full items-center justify-center"
+            style={{ backgroundColor: colors.muted }}
           >
             <Ionicons color={colors.mutedForeground} name="image-outline" size={32} />
           </View>
@@ -235,45 +278,114 @@ function ShowcaseCard({
           verified tick belongs inside it — a separate Verified chip alongside
           leaves two floating labels fighting for the same corner.
         */}
-        <View className="absolute left-4 top-4 flex-row items-center gap-1.5 rounded-full bg-primary px-3 py-1.5">
+        <View className="absolute left-2.5 top-2.5 flex-row items-center gap-1 rounded-full bg-primary px-2 py-0.5">
           {hostel.verificationStatus === "VERIFIED" ? (
-            <Ionicons color={colors.primaryForeground} name="shield-checkmark" size={12} />
+            <Ionicons color={colors.primaryForeground} name="shield-checkmark" size={9} />
           ) : null}
-          <Text className="text-[11px] font-bold uppercase tracking-wide text-primary-foreground">
+          <Text className="text-[9px] font-semibold uppercase tracking-wide text-primary-foreground">
             {HOSTEL_TYPE_LABELS[hostel.hostelType]}
           </Text>
         </View>
 
-        <View className="absolute right-4 top-4">
+        <View className="absolute right-3 top-3">
           <SaveButton hostel={hostel} onToggle={onToggleSave} saved={saved} />
         </View>
       </View>
 
-      <View className="gap-1 p-4">
-        <View className="flex-row items-baseline gap-2">
-          <Text className="flex-1 font-semibold" numberOfLines={1} variant="subtitle">
+      <View className="flex-1 justify-between p-2">
+        <View className="gap-1">
+          {/*
+            The whole column is the `<Text>` variant table — `label` for the
+            name, `caption` for the place and the unit, `text-xs` for the score
+            — rather than a size per line. It shipped a size larger throughout,
+            which is what pushed the price onto two lines and the card to 268dp
+            tall: a 14dp name and a 14dp price hold everything the mockup shows
+            in a column 174dp wide. The two 10px facility labels below are the
+            one exception, and they are the reason there is a comment here: the
+            table has nothing under `caption`, and a facility row at 12 wraps to
+            three lines on a long label.
+          */}
+          <Text className="font-bold" numberOfLines={1} variant="label">
             {hostel.name}
           </Text>
-          <Text className="font-semibold text-primary">{priceRange(hostel.pricing)}</Text>
-          <Text variant="caption">/mo</Text>
+
+          <View className="flex-row items-center gap-1">
+            <Ionicons color={colors.mutedForeground} name="location-outline" size={13} />
+            <Text className="flex-1" numberOfLines={1} variant="caption">
+              {locationLabel(hostel.location) || "Location not published"}
+            </Text>
+          </View>
+
+          {/*
+            "New" rather than 0 star for an unreviewed hostel — see ratingDisplay.
+
+            A soft brand fill with a brand-coloured star, which is how the design
+            draws it, and it is also the only warm/cool decision on the card: an
+            amber star is the one non-green accent on a screen whose palette is
+            white, black and one green (docs/DESIGN.md), and at this size it read
+            as a warning badge rather than a score. Painted from `colors` rather
+            than `bg-brand-soft` for the reason every measured value here is
+            inline — one token, one place it can fail.
+          */}
+          <View className="flex-row">
+            <View
+              className="flex-row items-center gap-1 rounded-lg px-2 py-0.5"
+              style={{ backgroundColor: colors.brandSoft }}
+            >
+              {rating.kind === "rated" ? (
+                <>
+                  <Ionicons color={colors.primary} name="star" size={12} />
+                  <Text className="text-xs font-bold">{rating.value}</Text>
+                  <Text variant="caption">{`(${rating.count})`}</Text>
+                </>
+              ) : (
+                <Text className="text-xs font-semibold">New</Text>
+              )}
+            </View>
+          </View>
+
+          {/*
+            Wraps, and the price carries no `numberOfLines`. A truncated price is
+            the one piece of text on this card that is worse than useless — a
+            reader cannot tell `NPR 10,000 – 1…` from 12,000 or 19,000 — so if
+            the column is ever too narrow, `/month` drops to the next line and
+            the number stays whole.
+          */}
+          <View className="flex-row flex-wrap items-baseline gap-1">
+            <Text className="text-sm font-bold text-primary">
+              {priceRange(hostel.pricing)}
+            </Text>
+            <Text variant="caption">/month</Text>
+          </View>
+
+          {facilities.length > 0 ? (
+            <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
+              {facilities.map((facility) => (
+                <View className="flex-row items-center gap-1" key={facility}>
+                  <Ionicons
+                    color={colors.mutedForeground}
+                    name={facilityIcon(facility)}
+                    size={11}
+                  />
+                  <Text className="text-[10px] text-muted-foreground" numberOfLines={1}>
+                    {facility}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
 
-        <View className="flex-row items-center gap-2">
-          <Ionicons color={colors.mutedForeground} name="location-outline" size={13} />
-          <Text className="flex-1" numberOfLines={1} variant="caption">
-            {locationLabel(hostel.location) || "Location not published"}
-          </Text>
-
-          {/* "New" rather than 0 ★ for an unreviewed hostel — see ratingDisplay. */}
-          {rating.kind === "rated" ? (
-            <View className="flex-row items-center gap-1">
-              <Ionicons color={colors.warning} name="star" size={12} />
-              <Text className="text-xs font-semibold">{rating.value}</Text>
-              <Text variant="caption">{`(${rating.count})`}</Text>
-            </View>
-          ) : (
-            <Text variant="caption">New</Text>
-          )}
+        {/*
+          Not a `<Button>`, and it has no `onPress`: this sits inside a card that
+          is already one tap target for exactly this action. A nested pressable
+          would be a second, smaller target doing the same thing, and a screen
+          reader would announce the hostel twice. So it is drawn as the mockup's
+          soft brand bar — an affordance, not a competing control.
+        */}
+        <View className="mt-1.5 h-9 flex-row items-center justify-center gap-1.5 rounded-xl bg-brand-soft">
+          <Text className="text-sm font-bold text-primary">View Details</Text>
+          <Ionicons color={colors.primary} name="arrow-forward" size={14} />
         </View>
       </View>
     </Pressable>

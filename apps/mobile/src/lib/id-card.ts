@@ -100,6 +100,31 @@ export function idCardNoun(cardType: IdCardType = "RESIDENT"): string {
   return CARD_NOUNS[cardType];
 }
 
+/**
+ * Which variant an account will be issued, decided from `/auth/me` alone.
+ *
+ * The server is still the authority — `resolvePlatformIdCard` does exactly this
+ * against the database, and `GET /users/resident-identity` returns its answer.
+ * This mirror exists for the one place that has to name the card **before**
+ * fetching anything: the home header's button, which offers to create a card for
+ * an account that has none. Calling the endpoint just to word a label would put
+ * a network round trip in front of a tap.
+ *
+ * Keep it in step with `resolvePlatformIdCard`: `HOSTEL_ADMIN` outranks the
+ * provider record, an approved provider outranks the default, and everyone else
+ * is a resident.
+ */
+export function idCardTypeForAccount(account: {
+  isServiceProvider?: boolean;
+  role: string;
+}): IdCardType {
+  if (account.role === "HOSTEL_ADMIN") {
+    return "HOSTEL_OWNER";
+  }
+
+  return account.isServiceProvider ? "SERVICE_PROVIDER" : "RESIDENT";
+}
+
 export const OCCUPATION_LABELS: Record<Occupation, string> = {
   OTHER: "Resident",
   STUDENT: "Student",

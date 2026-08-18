@@ -5,6 +5,15 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { boundsCenter, type Coordinates, hostelCoordinates } from "@/lib/geo";
+import {
+  ATTRIBUTION,
+  inlineJson,
+  LEAFLET_CSS,
+  LEAFLET_CSS_SRI,
+  LEAFLET_JS,
+  LEAFLET_JS_SRI,
+  TILE_URL,
+} from "@/lib/leaflet";
 import { priceRange } from "@/lib/hostel-display";
 import type { PublicHostel } from "@/lib/public-api";
 
@@ -39,40 +48,9 @@ import type { PublicHostel } from "@/lib/public-api";
  * a photo, which is what a map is; an inverted one reads as broken.
  */
 
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-
-/** OSM's licence requires visible attribution. It is not decoration. */
-const ATTRIBUTION = "© OpenStreetMap contributors";
-
-/*
- * Leaflet, from unpkg.
- *
- * ## Why a CDN is acceptable here and not everywhere
- *
- * The map is useless without a network anyway — the tiles are remote — so a
- * bundled copy would add ~150 KB to every install to save one request on a
- * screen that is already making dozens. The list is always there with or without
- * this component, and `renderError` says so.
- *
- * ## `integrity` is not optional
- *
- * This is third-party JavaScript executing inside a WebView that our own page
- * hands a `postMessage` bridge to. Without a subresource-integrity hash, whoever
- * controls the CDN — or anyone able to intercept it — chooses what runs next to
- * that bridge. The hashes below are Leaflet 1.9.4's published ones; a mismatch
- * makes the browser refuse the file, which fails to the empty-map state rather
- * than to running something unverified.
- *
- * Changing the version means changing the hashes in the same edit. A stale hash
- * looks exactly like an offline device.
- */
-const LEAFLET_VERSION = "1.9.4";
-const LEAFLET_CSS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`;
-const LEAFLET_JS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
-const LEAFLET_CSS_SRI =
-  "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
-const LEAFLET_JS_SRI =
-  "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
+/* The CDN build, the tiles and the attribution live in `lib/leaflet.ts`: the
+   directions map loads the same ones, and an SRI hash that drifts from its
+   version renders as a blank grey box rather than as an error. */
 
 type Marker = {
   lat: number;
@@ -195,14 +173,7 @@ export function HostelMap({
   );
 }
 
-/**
- * The whole page, as one string.
- *
- * Leaflet comes from unpkg rather than being bundled: the map is useless without
- * a network anyway — the tiles are remote — so a local copy of the library would
- * add ~150 KB to every bundle to save a request on a screen that is already
- * making dozens.
- */
+/** The whole page, as one string. */
 function buildHtml(
   markers: Marker[],
   me: Coordinates | null,
@@ -213,10 +184,7 @@ function buildHtml(
     markers.map((marker) => ({ lat: marker.lat, lng: marker.lng })),
   );
 
-  const payload = JSON.stringify({ accent, center, markers, me, zoom })
-    // `</script>` inside a JSON string would close the tag it sits in. A hostel
-    // called "</script>" is unlikely; a hostel called anything is not our call.
-    .replace(/</g, "\\u003c");
+  const payload = inlineJson({ accent, center, markers, me, zoom });
 
   return `<!doctype html>
 <html>

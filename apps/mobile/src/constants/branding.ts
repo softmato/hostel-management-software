@@ -9,6 +9,14 @@
 
 export const APP_NAME = "HostelHub";
 
+/**
+ * The wordmark, split so the home header can draw the tail in brand green — the
+ * two-tone lockup the discovery mockup uses. Kept beside `APP_NAME` rather than
+ * sliced out of it at the call site: a rename that changes where the halves fall
+ * should be one edit here, not a `slice(0, 6)` somewhere in a component.
+ */
+export const APP_NAME_PARTS = { head: "Hostel", tail: "Hub" } as const;
+
 /** Shown under the mark on the splash screen. */
 export const POWERED_BY = "Powered by Softmato";
 

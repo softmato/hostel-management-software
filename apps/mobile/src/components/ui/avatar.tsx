@@ -39,6 +39,8 @@ const SIZES = {
   lg: { font: "text-2xl", px: 64 },
   md: { font: "text-base", px: 40 },
   sm: { font: "text-xs", px: 28 },
+  /** Icon-sized, for the Profile tab — it sits in a row of 23px glyphs. */
+  xs: { font: "text-[10px]", px: 22 },
   xl: { font: "text-3xl", px: 96 },
 } as const;
 

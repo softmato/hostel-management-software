@@ -14,6 +14,7 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
+import { revalidateSession } from "@/lib/auth-session";
 import {
   draftFromProfile,
   hasIdentityErrors,
@@ -60,6 +61,12 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * `saveResidentIdentity` allocates the resident id on the first completed save and
  * emails the card once — later saves are edits and send nothing. So the first
  * submit is the moment the card comes into existence, and the toast says so.
+ *
+ * That first save also **lands on the card**, rather than going back where it
+ * came from. The web does the same thing in its modal — a "your resident ID is
+ * ready" panel with the id and an Open my ID card button — and the reason holds
+ * here: the form was never the destination. A later edit does go back, because
+ * then the card is where the person already was.
  */
 
 const GENDER_OPTIONS: { label: string; value: Gender }[] = [
@@ -200,6 +207,24 @@ function IdentityForm({
           ? "Any hostel can now register you from your QR code or your ID."
           : undefined,
       );
+
+      if (isFirstSave) {
+        /*
+         * The save minted the id, so the cached `/auth/me` copy is now stale in
+         * the one field the home header reads to decide whether there is a card
+         * — `userResidentId`. Not awaited: the card below does not depend on it,
+         * and a slow refresh must not hold the screen on a form that has already
+         * been saved.
+         */
+        void revalidateSession();
+
+        // `replace`, not `push`: the form is finished, and its whole point was
+        // the card. Backing out of the card should leave, not re-open thirty
+        // fields that are already saved.
+        router.replace("/id-card");
+        return;
+      }
+
       router.back();
     } catch (caught) {
       toastError("Could not save your details", readApiError(caught));

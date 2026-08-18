@@ -76,15 +76,31 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
     privacy: { body: "", updatedAt: "" },
     terms: { body: "", updatedAt: "" },
   },
+  /**
+   * The cities the platform is open in. Two surfaces read this, and the second
+   * one is why the order matters:
+   *
+   * 1. The public site's search and registration filters (`areas` fills the
+   *    area dropdown under each city).
+   * 2. The mobile home screen's **Popular Cities** row, which draws one card per
+   *    enabled city **in this order** and shows each one's real listing count —
+   *    `0` included. So this list is the launch plan, not a report: a city
+   *    belongs here as soon as the business is open in it, and its card is what
+   *    the first hostel there will have been found through.
+   *
+   * Edited at Website Config → Locations, which is where it should be changed —
+   * these are the shipped defaults for a fresh database, nothing more.
+   */
   locations: [
     {
       areas: ["Baneshwor", "Koteshwor", "Kirtipur", "Dillibazar", "Bhaisepati"],
       city: "Kathmandu",
       enabled: true,
     },
-    { areas: ["Lakeside", "Bagar", "Chipledhunga"], city: "Pokhara", enabled: true },
     { areas: ["Lalitpur", "Bagdol", "Jhamsikhel"], city: "Lalitpur", enabled: true },
     { areas: ["Suryabinayak", "Thimi"], city: "Bhaktapur", enabled: true },
+    { areas: ["Lakeside", "Bagar", "Chipledhunga"], city: "Pokhara", enabled: true },
+    { areas: ["Bharatpur", "Narayangarh", "Sauraha"], city: "Chitwan", enabled: true },
     { areas: ["Biratnagar"], city: "Biratnagar", enabled: true },
   ],
   pricing: [

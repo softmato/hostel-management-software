@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 
 import type { Coordinates } from "@/lib/geo";
@@ -6,14 +7,23 @@ import { isUsableCoordinate } from "@/lib/geo";
 /**
  * The device's position, asked for once, held nowhere.
  *
- * ## Never on launch
+ * ## Asked at most once, then never unprompted again
  *
- * Nothing in here runs at boot. It is called from an explicit tap — the "Near
- * me" chip on the home screen, `Sort: nearest` on browse — because a permission
- * dialogue shown before the product has proved itself is the one people decline,
- * and on Android a denial with "don't ask again" is permanent from the app's
- * side. `hasPermission()` exists so a screen can render the right label without
- * triggering the prompt to find out.
+ * The home screen's Nearby row fills itself, so this *is* reached without a tap
+ * — but only under two conditions, and the pair is the whole policy:
+ *
+ * - **Permission already granted** → read the position silently. No dialogue can
+ *   appear, and the row is populated by the time the screen settles.
+ * - **Never asked on this install** → ask once, and record that it happened
+ *   (`rememberLocationPrompt`). Every later launch takes the branch above or
+ *   nothing at all, so a refusal is respected permanently rather than re-asked
+ *   at every app start.
+ *
+ * That flag is the reason this is not just `hasPermission()`: Android's own
+ * `canAskAgain` only turns false after the *second* refusal, so relying on it
+ * would show the dialogue again on the next launch to somebody who has already
+ * said no. What is stored is a boolean about this app's behaviour — never a
+ * position; see below.
  *
  * ## Coarse, and only coarse
  *
@@ -39,6 +49,34 @@ export type LocationOutcome =
   | { canAskAgain: boolean; kind: "denied" }
   /** Permitted, but no fix: services off, indoors, or the timeout above. */
   | { kind: "unavailable" };
+
+/**
+ * Whether this install has ever put the location dialogue on screen.
+ *
+ * AsyncStorage rather than SecureStore or Redux: it is one boolean about what
+ * the app has already done, it is not a secret, and it must survive a sign-out
+ * — a permission prompt is not something a second account should get to ask
+ * again. A read failure returns `true` (as if asked), because the failure mode
+ * of guessing wrong in the other direction is prompting somebody repeatedly.
+ */
+const PROMPTED_KEY = "location.prompted";
+
+export async function hasPromptedForLocation(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(PROMPTED_KEY)) !== null;
+  } catch {
+    return true;
+  }
+}
+
+export async function rememberLocationPrompt(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PROMPTED_KEY, "1");
+  } catch {
+    // A screen that cannot record the prompt still works; it just may ask once
+    // more on a later launch. Not worth failing the reading over.
+  }
+}
 
 /** Reads the current grant **without** prompting. */
 export async function hasLocationPermission(): Promise<boolean> {

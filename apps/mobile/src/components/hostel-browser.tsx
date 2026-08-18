@@ -17,7 +17,7 @@ import { useResource } from "@/hooks/use-resource";
 import { useSavedHostels } from "@/hooks/use-saved";
 import { useSystemInsets } from "@/hooks/use-system-insets";
 import { sortByDistance } from "@/lib/geo";
-import { inCity } from "@/lib/home-sections";
+import { inCity, servingMeals } from "@/lib/home-sections";
 import {
   FACILITIES,
   HOSTEL_TYPE_LABELS,
@@ -82,6 +82,7 @@ export function HostelBrowser({
   const params = useLocalSearchParams<{
     city?: string;
     facility?: string;
+    meals?: string;
     q?: string;
     type?: string;
   }>();
@@ -105,6 +106,13 @@ export function HostelBrowser({
    * not claim to have narrowed the query. Held separately so it cannot be sent.
    */
   const [city, setCity] = useState(params.city ?? "");
+  /*
+   * "Serves food", from the home screen's Food tile. Client-side and held apart
+   * from `filters` for the same reason as `city`: the server's `food` filter
+   * chooses between veg and non-veg rather than answering whether meals are
+   * provided at all, so this narrows the returned rows on `mealsPerDay`.
+   */
+  const [meals, setMeals] = useState(params.meals === "1");
   const [search, setSearch] = useState(params.q ?? "");
   const [sheetOpen, setSheetOpen] = useState(false);
   /*
@@ -139,7 +147,11 @@ export function HostelBrowser({
   // describe the *request* — narrowing 60 rows down to 9 does not mean the
   // catalogue held 9.
   const returned = useMemo(() => hostels.data ?? [], [hostels.data]);
-  const rows = useMemo(() => (city ? inCity(returned, city) : returned), [city, returned]);
+  const rows = useMemo(() => {
+    const narrowed = city ? inCity(returned, city) : returned;
+
+    return meals ? servingMeals(narrowed) : narrowed;
+  }, [city, meals, returned]);
 
   /*
    * With no position this is the server's order with every distance null, so
@@ -270,12 +282,14 @@ export function HostelBrowser({
           <ViewSwitch onChange={setView} value={view} />
         </View>
 
-        {activeCount > 0 || city ? (
+        {activeCount > 0 || city || meals ? (
           <ActiveFilterChips
             city={city}
             filters={filters}
+            meals={meals}
             onChange={setFilters}
             onClearCity={() => setCity("")}
+            onClearMeals={() => setMeals(false)}
           />
         ) : null}
 
@@ -298,12 +312,13 @@ export function HostelBrowser({
         ) : rows.length === 0 ? (
           <EmptyState
             action={
-              activeCount > 0 || city ? (
+              activeCount > 0 || city || meals ? (
                 <Button
                   label="Clear filters"
                   onPress={() => {
                     setFilters({ q: filters.q });
                     setCity("");
+                    setMeals(false);
                     setSheetOpen(false);
                   }}
                   variant="outline"
@@ -313,7 +328,9 @@ export function HostelBrowser({
             description={
               city && returned.length > 0
                 ? `None of these listings are in ${city}. Clear the city to see the rest.`
-                : activeCount > 0
+                : meals && returned.length > 0
+                  ? "None of these listings have said they provide meals. Clear that to see the rest."
+                  : activeCount > 0
                   ? "Nothing matches all of those filters. Try widening one."
                   : "No hostels are published yet."
             }
@@ -493,14 +510,19 @@ function NearestToggle({ nearby }: { nearby: ReturnType<typeof useNearby> }) {
 function ActiveFilterChips({
   city,
   filters,
+  meals,
   onChange,
   onClearCity,
+  onClearMeals,
 }: {
   /** Narrows on the client, so it is not a `HostelFilters` key — see above. */
   city: string;
   filters: HostelFilters;
+  /** Also client-side, and also not a `HostelFilters` key — see above. */
+  meals: boolean;
   onChange: (next: HostelFilters) => void;
   onClearCity: () => void;
+  onClearMeals: () => void;
 }) {
   const chips: { clear: () => void; key: string; label: string }[] = [];
 
@@ -519,6 +541,10 @@ function ActiveFilterChips({
     // First, because it is the one the user most likely arrived with — the home
     // screen's "Browse by city" row deep-links straight into this list.
     chips.push({ clear: onClearCity, key: "city", label: city });
+  }
+
+  if (meals) {
+    chips.push({ clear: onClearMeals, key: "meals", label: "Serves food" });
   }
 
   if (filters.type) {

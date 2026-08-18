@@ -1,17 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 
-import { Avatar } from "@/components/ui/avatar";
+import { IdCardPrompt } from "@/components/id-card-prompt";
 import { Text } from "@/components/ui/text";
-import { APP_NAME } from "@/constants/branding";
+import { APP_NAME, APP_NAME_PARTS } from "@/constants/branding";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { useSystemInsets } from "@/hooks/use-system-insets";
-import { API_BASE_URL } from "@/lib/api";
-import { absoluteMediaUrl } from "@/lib/media";
+import { idCardNoun, idCardTypeForAccount } from "@/lib/id-card";
 import { listNotifications, type NotificationFeed } from "@/lib/notifications-api";
 
 /**
@@ -32,19 +31,37 @@ import { listNotifications, type NotificationFeed } from "@/lib/notifications-ap
  * but the window, so a class that fails to resolve renders as a black band under
  * the clock.
  *
+ * ## The wordmark, not a greeting
+ *
+ * This led with the account's face and "Welcome back, {name}" until the
+ * discovery mockup replaced it with the two-tone wordmark. Two reasons it is the
+ * better trade, beyond matching the design: the greeting spent the widest row on
+ * the screen telling people something they already know, and the avatar had to
+ * be non-pressable — this header renders in three different shells and only one
+ * of them has a Profile tab, so a tap would land somewhere different depending
+ * on how you got here. The Profile tab now draws that face, where tapping it
+ * does the obvious thing.
+ *
  * ## The chrome adapts to having an account, it does not duplicate
  *
- * Signed out there is no name to greet and no notifications to count, so the
- * left side becomes the wordmark and the bell is **absent** rather than disabled
- * — a bell that opens an empty "sign in first" screen is a worse answer than no
- * bell. Signed in, the same slot is the greeting and the bell appears with its
- * unread count.
+ * Signed out there is nothing to count and no card to hold, so both actions are
+ * **absent** rather than disabled — a bell that opens an empty "sign in first"
+ * screen is a worse answer than no bell. The wordmark is what is left, which is
+ * what the mockup draws.
  *
- * The avatar is deliberately **not** pressable. This header renders inside three
- * different shells — the signed-out `(public)` stack, the `(browse)` tabs, and a
- * resident who arrived from More → Explore — and only one of those has a Profile
- * tab to open. A tap that lands somewhere different depending on how you got
- * here is worse than a tap that does nothing.
+ * ## The ID card replaced Compare here
+ *
+ * Compare had a button in this header **and** a tab in `(browse)` **and** a bar
+ * that appears in the browse screen the moment two hostels are ticked — three
+ * ways to the same screen, one of which sat in the scarcest row in the app. It
+ * kept the two that are reached with hostels already chosen, which is the only
+ * state in which compare has anything to show.
+ *
+ * What took its place is the control the web puts in its account menu: the ID
+ * card. It does what that menu does — opens the card when there is one, offers
+ * to create it when there is not — because those are genuinely one intent, and a
+ * button that greys itself out for everyone who has not filled the form is a
+ * button that never teaches anybody what it is for.
  *
  * ## Search submits, it does not filter in place
  *
@@ -56,10 +73,22 @@ import { listNotifications, type NotificationFeed } from "@/lib/notifications-ap
  * control people decide the app is broken over.
  */
 
+/**
+ * The search row, and the button that lives inside it.
+ *
+ * Measured here rather than written as `h-16` / `h-12 w-12`, for the reason
+ * every other dimension in this app is: NativeWind resolves classes at bundle
+ * time, and a size nothing else uses can silently resolve to nothing. Keeping
+ * the two numbers side by side also makes the proportion explicit — the button
+ * is inset 8dp top and bottom, which is what keeps the row reading as one
+ * control rather than a field with a square stuck on the end.
+ */
+const SEARCH_HEIGHT = 54;
+const FILTER_BUTTON = 40;
+
 export type DiscoveryHeaderProps = {
   /** Where the filters button goes — the browse screen owns the filter sheet. */
   browseHref: string;
-  compareHref: string;
   onQueryChange: (value: string) => void;
   onSearch: () => void;
   query: string;
@@ -67,7 +96,6 @@ export type DiscoveryHeaderProps = {
 
 export function DiscoveryHeader({
   browseHref,
-  compareHref,
   onQueryChange,
   onSearch,
   query,
@@ -75,6 +103,7 @@ export function DiscoveryHeader({
   const insets = useSystemInsets();
   const { colors } = useAppTheme();
   const account = useAppSelector((state) => state.auth.account);
+  const [promptingIdCard, setPromptingIdCard] = useState(false);
 
   /*
    * No account, no request. `useResource` fetches on mount and on every refocus,
@@ -95,90 +124,133 @@ export function DiscoveryHeader({
   // shows no badge, which is what it shows when there is nothing unread anyway.
   const unread = feed.data?.unreadCount ?? 0;
 
+  /*
+   * Decided from the cached account, not from `/users/resident-identity` — the
+   * web header does the same (`user.userResidentId`), and for the same reason:
+   * the button has to know which of the two things it does *before* it is
+   * pressed, and a fetch on mount would be one more request on every home
+   * screen for a control most people will not touch.
+   *
+   * `userResidentId` is minted by the first successful profile save, so it is
+   * exactly "there is a card". `/id-card/edit` calls `revalidateSession()` after
+   * that save, which is what flips this without a sign-out.
+   */
+  const hasCard = Boolean(account?.userResidentId);
+  const cardType = idCardTypeForAccount({
+    isServiceProvider: account?.isServiceProvider,
+    role: account?.role ?? "PUBLIC",
+  });
+  const cardNoun = idCardNoun(cardType);
+
   return (
     <View style={{ backgroundColor: colors.background, paddingTop: insets.top }}>
       <View className="gap-3 px-5 pb-3 pt-2">
         <View className="flex-row items-center gap-3">
+          {/*
+            Sized with `style`, not `text-[30px]`. NativeWind compiles the class
+            list at build time, so an arbitrary value that appears nowhere else in
+            the app is absent from the generated CSS until the bundler is rebuilt
+            — the class resolves to nothing and the text silently renders at its
+            default size. Inline styles cannot fail that way, which is why every
+            measured dimension in this app is already written this way.
+          */}
+          <View accessibilityLabel={APP_NAME} accessibilityRole="header" className="flex-1">
+            <Text style={{ fontSize: 30, fontWeight: "800", letterSpacing: -0.5 }}>
+              <Text style={{ color: colors.foreground }}>{APP_NAME_PARTS.head}</Text>
+              <Text style={{ color: colors.primary }}>{APP_NAME_PARTS.tail}</Text>
+            </Text>
+          </View>
+
           {account ? (
             <>
-              <Avatar
-                name={account.name}
-                size="md"
-                uri={absoluteMediaUrl(account.image, API_BASE_URL)}
+              <IconButton
+                label={
+                  hasCard
+                    ? `My ${cardNoun} ID card`
+                    : `Create my ${cardNoun} ID card`
+                }
+                /*
+                  The same icon either way. A `+` here reads as "add something"
+                  beside a bell, and the button means "my ID card" whether or not
+                  one exists yet — which is what the label and the sheet say.
+                */
+                name="card-outline"
+                onPress={() =>
+                  hasCard ? router.push("/id-card") : setPromptingIdCard(true)
+                }
               />
-              <View className="flex-1">
-                <Text variant="caption">Welcome back</Text>
-                <Text className="font-semibold" numberOfLines={1} variant="subtitle">
-                  {account.name}
-                </Text>
-              </View>
+
+              <IconButton
+                badge={unread}
+                label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
+                name="notifications-outline"
+                onPress={() => router.push("/notifications")}
+              />
             </>
-          ) : (
-            <View className="flex-1">
-              <Text className="font-semibold" numberOfLines={1} variant="subtitle">
-                {APP_NAME}
-              </Text>
-              <Text numberOfLines={1} variant="caption">
-                Hostels across Nepal
-              </Text>
-            </View>
-          )}
-
-          <IconButton
-            label="Compare hostels"
-            name="git-compare-outline"
-            onPress={() => router.push(compareHref)}
-          />
-
-          {account ? (
-            <IconButton
-              badge={unread}
-              label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
-              name="notifications-outline"
-              onPress={() => router.push("/notifications")}
-            />
           ) : null}
         </View>
 
-        <View className="flex-row items-center gap-2">
-          <View className="h-12 flex-1 flex-row items-center gap-2 rounded-2xl bg-muted px-3">
-            <Ionicons color={colors.mutedForeground} name="search" size={18} />
-            {/*
-              A bare `TextInput`, not the design system's `Input`: that carries a
-              label, its own border and its own height, all of which fight a
-              field living inside a pill.
-            */}
-            <TextInput
-              className="h-full flex-1 text-base text-foreground"
-              onChangeText={onQueryChange}
-              onSubmitEditing={onSearch}
-              placeholder="Search hostels, areas or landmarks"
-              placeholderTextColor={colors.mutedForeground}
-              returnKeyType="search"
-              value={query}
-            />
-            {query ? (
-              <Pressable
-                accessibilityLabel="Clear search"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => onQueryChange("")}
-              >
-                <Ionicons color={colors.mutedForeground} name="close-circle" size={18} />
-              </Pressable>
-            ) : null}
-          </View>
+        {/*
+          One field, with the filter button *inside* it rather than beside it —
+          the mockup's shape, and the reason the search row reads as a single
+          control instead of a field plus a mystery square.
+        */}
+        <View
+          className="flex-row items-center gap-2 rounded-2xl border border-border bg-card"
+          style={{ height: SEARCH_HEIGHT, paddingLeft: 14, paddingRight: 8 }}
+        >
+          <Ionicons color={colors.mutedForeground} name="search" size={18} />
+
+          {/*
+            A bare `TextInput`, not the design system's `Input`: that carries a
+            label, its own border and its own height, all of which fight a field
+            living inside a pill.
+          */}
+          <TextInput
+            className="h-full flex-1 text-base text-foreground"
+            onChangeText={onQueryChange}
+            onSubmitEditing={onSearch}
+            placeholder="Search by city, hostel or landmark"
+            placeholderTextColor={colors.mutedForeground}
+            returnKeyType="search"
+            value={query}
+          />
+
+          {query ? (
+            <Pressable
+              accessibilityLabel="Clear search"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => onQueryChange("")}
+            >
+              <Ionicons color={colors.mutedForeground} name="close-circle" size={18} />
+            </Pressable>
+          ) : null}
 
           <Pressable
             accessibilityLabel="Filters"
             accessibilityRole="button"
-            className="h-12 w-12 items-center justify-center rounded-2xl bg-primary active:opacity-80"
+            className="items-center justify-center rounded-xl bg-primary active:opacity-80"
             onPress={() => router.push(browseHref)}
+            style={{ height: FILTER_BUTTON, width: FILTER_BUTTON }}
           >
-            <Ionicons color={colors.primaryForeground} name="options-outline" size={20} />
+            <Ionicons color={colors.primaryForeground} name="options-outline" size={18} />
           </Pressable>
         </View>
       </View>
+
+      {/*
+        Mounted here rather than on the screen: the button that opens it is this
+        component's, and both surfaces that render this header — the signed-out
+        stack and the browse tabs — would otherwise need the same state and the
+        same sheet. It portals to the root provider, so living inside a header
+        does not clip it.
+      */}
+      <IdCardPrompt
+        cardType={cardType}
+        onClose={() => setPromptingIdCard(false)}
+        open={promptingIdCard}
+      />
     </View>
   );
 }
