@@ -138,23 +138,27 @@ export type PublicHostel = {
   verificationStatus: "PENDING" | "REJECTED" | "UNVERIFIED" | "VERIFIED";
 };
 
-/** Only the detail endpoint carries the week's food routine. */
+/** The week's food routine, as the detail and compare endpoints return it. */
+export type PublicFoodRoutine = {
+  meals: {
+    dayOfWeek: string;
+    items: string[];
+    mealType: string;
+    note: string;
+    timing: string;
+  }[];
+  monthEndSpecial: { items: string[]; note: string } | null;
+  timings: Record<string, string | undefined>;
+  updatedAt: string;
+};
+
+/** The listing endpoint drops the routine; the detail endpoint carries it. */
 export type PublicHostelDetail = PublicHostel & {
-  foodRoutine: {
-    meals: {
-      dayOfWeek: string;
-      items: string[];
-      mealType: string;
-      note: string;
-      timing: string;
-    }[];
-    monthEndSpecial: { items: string[]; note: string } | null;
-    timings: Record<string, string | undefined>;
-    updatedAt: string;
-  };
+  foodRoutine: PublicFoodRoutine;
 };
 
 export type ComparedHostel = PublicHostel & {
+  foodRoutine: PublicFoodRoutine;
   comparison: {
     facilities: string[];
     foodScore: number;

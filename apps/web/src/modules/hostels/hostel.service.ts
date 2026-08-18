@@ -15,7 +15,11 @@ import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
 import { UserModel } from "@hostel/db/models/User";
 import { provisionCookAccount } from "@/modules/food/cook.service";
-import { getFoodRoutine } from "@/modules/food/food-routine.service";
+import {
+  EMPTY_ROUTINE,
+  getFoodRoutine,
+  getFoodRoutinesByHostelId,
+} from "@/modules/food/food-routine.service";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
@@ -1774,7 +1778,13 @@ export async function comparePublicHostels(query: PublicHostelCompareQuery) {
     );
   }
 
-  const ratingByHostelId = await ratingSummariesFor(hostelIds);
+  const [ratingByHostelId, routineByHostelId] = await Promise.all([
+    ratingSummariesFor(hostelIds),
+    // The compare screen draws the same weekly routine the detail page does,
+    // so the comparison has to carry it — one query for every hostel, not one
+    // per column.
+    getFoodRoutinesByHostelId(hostelIds),
+  ]);
   const byRequestedOrder = new Map(
     hostels.map((hostel) => [hostel._id.toString(), hostel]),
   );
@@ -1789,6 +1799,7 @@ export async function comparePublicHostels(query: PublicHostelCompareQuery) {
 
         return {
           ...serializePublicHostel(hostel),
+          foodRoutine: routineByHostelId.get(hostel._id.toString()) ?? EMPTY_ROUTINE,
           // Also at the top level, so a card rendered from a compare result and
           // one rendered from the listing read the same field.
           ratingSummary: rating,

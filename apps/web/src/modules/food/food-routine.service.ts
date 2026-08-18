@@ -53,7 +53,7 @@ type FoodRoutineRecord = {
   updatedAt?: Date;
 };
 
-const EMPTY_ROUTINE: FoodRoutine = {
+export const EMPTY_ROUTINE: FoodRoutine = {
   meals: [],
   monthEndSpecial: null,
   timings: {},
@@ -104,6 +104,33 @@ export async function getFoodRoutine(hostelId: Types.ObjectId): Promise<FoodRout
   }).lean<FoodRoutineRecord | null>();
 
   return serializeRoutine(routine);
+}
+
+/**
+ * The routines of many hostels in one query, keyed by hostel id. Hostels
+ * without a routine are absent from the map — callers that need the same
+ * shape for every hostel fall back to {@link EMPTY_ROUTINE}.
+ */
+export async function getFoodRoutinesByHostelId(
+  hostelIds: Types.ObjectId[],
+): Promise<Map<string, FoodRoutine>> {
+  const routines = new Map<string, FoodRoutine>();
+
+  if (hostelIds.length === 0) {
+    return routines;
+  }
+
+  await connectToDatabase();
+
+  const rows = await FoodRoutineModel.find({
+    hostelId: { $in: hostelIds },
+  }).lean<Array<FoodRoutineRecord & { hostelId: Types.ObjectId }>>();
+
+  for (const row of rows) {
+    routines.set(row.hostelId.toString(), serializeRoutine(row));
+  }
+
+  return routines;
 }
 
 /** The meals served on a given day, in meal order. */
