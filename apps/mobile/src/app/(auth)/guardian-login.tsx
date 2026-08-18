@@ -87,7 +87,6 @@ export default function GuardianLoginScreen() {
         resolveHome({
           isApprovedProvider: result.user.isServiceProvider,
           isResidentActivated: auth.isResidentActivated ?? true,
-          mustChangePassword: result.user.mustChangePassword,
           role: result.user.role,
         }),
       );

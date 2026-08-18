@@ -186,8 +186,8 @@ export function Screen({
         The footer is **inside** this, and that is the whole point.
 
         It used to be a sibling below, which meant the keyboard covered the
-        primary action on every form in the app — register, set-password,
-        forgot-password, raise-a-complaint, edit ID card, payment claim, night
+        primary action on every form in the app — register, forgot-password,
+        raise-a-complaint, edit ID card, payment claim, night
         status, leave a review, admin alerts and the hostel inquiry all put their
         submit button in `footer`. On iOS `behavior="padding"` padded the scroll
         body and left the footer exactly where it was, under the keyboard; on

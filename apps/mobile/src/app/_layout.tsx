@@ -122,9 +122,9 @@ function RootShell() {
        *
        * The result was previously discarded, which made the "and the role has
        * not changed" half of the boot contract (§0 step 3) a no-op: a resident
-       * promoted to warden on the web, an account newly flagged
-       * `mustChangePassword`, or a QR activated on another device all stayed on
-       * the stale screen until the next cold start. `revalidateSession` only
+       * promoted to warden on the web, an account whose provider application
+       * was approved, or a QR activated on another device all stayed on the
+       * stale screen until the next cold start. `revalidateSession` only
        * returns an account when something actually moved, so this re-routes
        * exactly then and never on an ordinary launch.
        */
@@ -156,7 +156,6 @@ function RootShell() {
         resolveHome({
           isApprovedProvider: changed.isServiceProvider,
           isResidentActivated: store.getState().auth.isResidentActivated ?? true,
-          mustChangePassword: changed.mustChangePassword,
           role: changed.role,
         }),
       );

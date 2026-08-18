@@ -63,6 +63,13 @@ const GOOGLE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/oauth2/v3/certs"),
 );
 
+/**
+ * Statuses a sign-in is allowed to claim. INVITED is an admin-issued account
+ * that has not signed in yet — the first sign-in is what turns it ACTIVE — so
+ * it is a pending account, not a revoked one. Every other non-ACTIVE status is.
+ */
+const CLAIMABLE_STATUSES = ["ACTIVE", "INVITED"];
+
 function publicUser(user: {
   _id: unknown;
   email?: string | null;
@@ -521,7 +528,7 @@ export async function authenticateWithGoogle(
     : null;
 
   // The linked user still exists but has been suspended/archived — a real denial.
-  if (linkedUser && linkedUser.get("status") !== "ACTIVE") {
+  if (linkedUser && !CLAIMABLE_STATUSES.includes(linkedUser.get("status"))) {
     throw new AuthServiceError(
       "Linked Google account no longer has access.",
       "USER_INACTIVE",
@@ -535,10 +542,18 @@ export async function authenticateWithGoogle(
   let user = linkedUser;
 
   if (!user) {
+    /*
+     * INVITED as well as ACTIVE, the same pair `login` accepts. A cook or
+     * warden is created INVITED and stays that way until the first sign-in, so
+     * matching only ACTIVE here did not fall through to a fresh signup — it
+     * fell into the `UserModel.create` below with an email the unique index
+     * already holds, and the duplicate-key error reached the account as a 500
+     * on the one button it was most likely to press.
+     */
     user = await UserModel.findOne({
       email: googleAccount.email,
       isDeleted: { $ne: true },
-      status: "ACTIVE",
+      status: { $in: CLAIMABLE_STATUSES },
     });
   }
 
@@ -572,6 +587,23 @@ export async function authenticateWithGoogle(
       user.set("emailVerifiedAt", new Date());
       changed = true;
     }
+
+    // The first sign-in is what activates an admin-issued account, exactly as
+    // it is in `login` — the route in is Google rather than a typed password.
+    if (user.get("status") === "INVITED") {
+      user.set("status", "ACTIVE");
+      changed = true;
+    }
+
+    /*
+     * `mustChangePassword` is deliberately left alone, along with the password
+     * behind it. A provisioned account keeps the credentials its warden issued
+     * — that pair is how a shared kitchen login is meant to be used, and a
+     * Google sign-in on the same address is an additional way in, not a reason
+     * to invalidate the one people have written down. Nothing routes on the
+     * flag any more (`resolveHome` in apps/mobile/src/constants/roles.ts), so
+     * it costs this sign-in nothing to carry.
+     */
 
     if (changed) {
       await user.save();

@@ -149,27 +149,6 @@ export async function resetPassword(input: { newPassword: string; token: string 
   return unwrap(response);
 }
 
-/**
- * Sets a new password for the signed-in user.
- *
- * `currentPassword` is required **unless** the account is flagged
- * `mustChangePassword` — an admin-issued cook or warden login, which has no
- * password its owner knows to type. Either way the server revokes every
- * session and issues a fresh one, so the response has to go through
- * `startSession`; the token in memory is dead the moment this returns.
- */
-export async function changePassword(input: {
-  currentPassword?: string;
-  newPassword: string;
-}) {
-  const response = await api.post<ApiEnvelope<LoginResult>>(
-    "/auth/change-password",
-    input,
-  );
-
-  return unwrap(response);
-}
-
 export async function fetchMe() {
   const response = await api.get<ApiEnvelope<{ user: ApiUser }>>("/auth/me");
 

@@ -133,18 +133,13 @@ export async function revalidateSession(): Promise<ApiUser | null> {
   const roleChanged = before.account?.role !== account.role;
   const providerChanged = before.account?.isServiceProvider !== account.isServiceProvider;
   const activationChanged = before.isResidentActivated !== activated;
-  /*
-   * An admin can re-issue a temporary password for an account that is already
-   * signed in on a phone. The boot gate routed from the cached flag, so without
-   * this the app carries on as normal until the next login — which is the whole
-   * window the set-password gate exists to close.
-   */
-  const passwordGateChanged =
-    Boolean(before.account?.mustChangePassword) !== Boolean(account.mustChangePassword);
 
-  return roleChanged || providerChanged || activationChanged || passwordGateChanged
-    ? account
-    : null;
+  /*
+   * `mustChangePassword` is deliberately not in this list. It no longer decides
+   * where anyone lands — see `resolveHome` — so a change to it is not a reason
+   * to pull the screen out from under someone mid-launch.
+   */
+  return roleChanged || providerChanged || activationChanged ? account : null;
 }
 
 /** Called on every successful login, signup, Google exchange and QR activation. */

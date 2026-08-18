@@ -26,7 +26,6 @@ export type Role = (typeof ROLE)[keyof typeof ROLE];
 export type HomeRoute =
   | "/(admin)"
   | "/(auth)/login"
-  | "/(auth)/set-password"
   | "/(browse)"
   | "/(cook)"
   | "/(guardian)"
@@ -40,8 +39,6 @@ export type AccountShape = {
   isApprovedProvider?: boolean;
   /** False for a RESIDENT account that has not yet redeemed its QR code. */
   isResidentActivated?: boolean;
-  /** Set on admin-provisioned logins (cook, warden) until they pick their own. */
-  mustChangePassword?: boolean;
   role: Role;
 };
 
@@ -64,22 +61,22 @@ export type AccountShape = {
  * components; they differ only in navigator — a stack with a floating Log in
  * pill, or four tabs — and expo-router cannot switch one group between the two
  * at runtime.
+ *
+ * **A session always reaches its role's home.** There used to be one exception:
+ * an account flagged `mustChangePassword` — a cook or warden holding the
+ * temporary password its admin issued — was sent to a set-password screen
+ * before its own group, on every launch. It is gone, along with the screen. A
+ * provisioned account signs in with the username and password its warden gave
+ * it and goes to work; anyone who wants a password of their own takes the
+ * ordinary route through Forgot password, off their own mailbox. The flag still
+ * exists server-side and the platform admin list still shows which accounts
+ * hold an initial password — it just no longer decides where anybody lands,
+ * which is what made a Google sign-in on an admin's account open a password
+ * form instead of their dashboard.
  */
 export function resolveHome(account: AccountShape | null): HomeRoute {
   if (!account) {
     return "/(public)";
-  }
-
-  /*
-   * Before the role, deliberately.
-   *
-   * A cook or warden account is created by a hostel admin with a temporary
-   * password that the admin chose and can still use. Until it is replaced, the
-   * account's food-ready logs and messages are deniable — so this is a gate on
-   * every launch, not a prompt that can be dismissed into the app behind it.
-   */
-  if (account.mustChangePassword) {
-    return "/(auth)/set-password";
   }
 
   switch (account.role) {

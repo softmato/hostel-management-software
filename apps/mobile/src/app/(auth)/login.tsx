@@ -67,9 +67,6 @@ export default function LoginScreen() {
         resolveHome({
           isApprovedProvider: result.user.isServiceProvider,
           isResidentActivated: auth.isResidentActivated ?? true,
-          // A provisioned cook or warden signing in with the temporary password
-          // their admin issued goes to set-password, not to their tabs.
-          mustChangePassword: result.user.mustChangePassword,
           role: result.user.role,
         }),
       );

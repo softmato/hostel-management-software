@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Role } from "@/lib/roles";
 
@@ -17,8 +17,12 @@ const serviceMocks = vi.hoisted(() => ({
   signRefreshToken: vi.fn(),
   authenticateTemporaryCredential: vi.fn(),
   isTemporaryCredentialActive: vi.fn(),
+  jwtVerify: vi.fn(),
+  oauthAccountCreate: vi.fn(),
+  oauthAccountFindOne: vi.fn(),
   userCreate: vi.fn(),
   userFindOne: vi.fn(),
+  userUpdateOne: vi.fn(),
   verifyAccessToken: vi.fn(),
   verifyPassword: vi.fn(),
   verifyPurposeToken: vi.fn(),
@@ -68,7 +72,23 @@ vi.mock("@hostel/db/models/User", () => ({
   UserModel: {
     create: serviceMocks.userCreate,
     findOne: serviceMocks.userFindOne,
+    updateOne: serviceMocks.userUpdateOne,
   },
+}));
+
+vi.mock("@hostel/db/models/OAuthAccount", () => ({
+  OAuthAccountModel: {
+    create: serviceMocks.oauthAccountCreate,
+    findOne: serviceMocks.oauthAccountFindOne,
+  },
+}));
+
+// `createRemoteJWKSet` runs at module load, so it has to answer with something
+// before any test does. Nothing reads the key set — `jwtVerify` is the mock the
+// tests drive.
+vi.mock("jose", () => ({
+  createRemoteJWKSet: vi.fn(() => "jwks"),
+  jwtVerify: serviceMocks.jwtVerify,
 }));
 
 vi.mock("@/modules/auth/temporary-credential.service", () => ({
@@ -77,6 +97,7 @@ vi.mock("@/modules/auth/temporary-credential.service", () => ({
 }));
 
 import {
+  authenticateWithGoogle,
   getCurrentUser,
   login,
   logout,
@@ -98,6 +119,23 @@ function createUser(overrides: Record<string, unknown> = {}) {
     status: "ACTIVE",
     ...overrides,
   };
+}
+
+/**
+ * A stand-in for a mongoose document. `authenticateWithGoogle` reads and writes
+ * through `.get`/`.set` while `publicUser` reads the plain properties, and a
+ * real document is both — a double that is only one of them passes for the
+ * wrong reason.
+ */
+function createUserDoc(overrides: Record<string, unknown> = {}) {
+  const doc = createUser(overrides) as Record<string, unknown>;
+
+  doc.get = (key: string) => doc[key];
+  doc.set = (key: string, value: unknown) => {
+    doc[key] = value;
+  };
+
+  return doc;
 }
 
 function createSession(overrides: Record<string, unknown> = {}) {
@@ -353,6 +391,72 @@ describe("auth service", () => {
         user: { viaTemporaryCredential: false },
       });
       expect(serviceMocks.isTemporaryCredentialActive).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("google sign-in", () => {
+    beforeEach(() => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      serviceMocks.jwtVerify.mockResolvedValue({
+        payload: {
+          email: "cook@example.com",
+          email_verified: true,
+          name: "Hostel Cook",
+          sub: "google-subject-1",
+        },
+      });
+      serviceMocks.oauthAccountFindOne.mockResolvedValue(null);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("matches an account that has been invited but never signed in", async () => {
+      const cook = createUserDoc({
+        email: "cook@example.com",
+        mustChangePassword: true,
+        role: Role.COOK,
+        status: "INVITED",
+      });
+
+      serviceMocks.userFindOne.mockResolvedValue(cook);
+
+      await authenticateWithGoogle({ idToken: "id-token" });
+
+      /*
+       * Matching only ACTIVE sent an INVITED cook into `UserModel.create` with
+       * an email the unique index already holds — a duplicate-key 500, not a
+       * signup.
+       */
+      expect(serviceMocks.userFindOne).toHaveBeenCalledWith(
+        expect.objectContaining({ status: { $in: ["ACTIVE", "INVITED"] } }),
+      );
+      expect(serviceMocks.userCreate).not.toHaveBeenCalled();
+      expect(cook.status).toBe("ACTIVE");
+    });
+
+    it("leaves the warden-issued password on the account it belongs to", async () => {
+      const cook = createUserDoc({
+        email: "cook@example.com",
+        mustChangePassword: true,
+        role: Role.COOK,
+        status: "INVITED",
+      });
+
+      serviceMocks.userFindOne.mockResolvedValue(cook);
+
+      await authenticateWithGoogle({ idToken: "id-token" });
+
+      /*
+       * A kitchen's username and password are issued by its warden and shared
+       * by the people who use them, so signing in with Google on the same
+       * address must not quietly retire the pair they have written down — and
+       * must not revoke the sessions already open on it.
+       */
+      expect(serviceMocks.userUpdateOne).not.toHaveBeenCalled();
+      expect(serviceMocks.sessionUpdateMany).not.toHaveBeenCalled();
+      expect(cook.mustChangePassword).toBe(true);
     });
   });
 });

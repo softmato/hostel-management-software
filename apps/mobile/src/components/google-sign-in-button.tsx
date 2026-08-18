@@ -65,7 +65,6 @@ export function GoogleSignInButton({
         resolveHome({
           isApprovedProvider: result.user.isServiceProvider,
           isResidentActivated: auth.isResidentActivated ?? true,
-          mustChangePassword: result.user.mustChangePassword,
           role: result.user.role,
         }),
       );
