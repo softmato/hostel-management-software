@@ -1,6 +1,8 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useState } from "react";
 import { View } from "react-native";
 
+import { mealIcon } from "@/components/meal-row";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +11,7 @@ import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { announceFoodReady, type CookToday, getCookToday } from "@/lib/cook-api";
@@ -52,6 +55,7 @@ import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
  * client-side copy of that rule would drift the moment an admin changes it.
  */
 export default function CookTodayScreen() {
+  const { colors } = useAppTheme();
   const today = useResource<CookToday>(useCallback(() => getCookToday(), []), {
     topics: [REALTIME_TOPIC.FOOD],
   });
@@ -143,7 +147,22 @@ export default function CookTodayScreen() {
 
           {buttons.map((button) => (
             <Card className="gap-3" key={button.mealType}>
-              <View className="flex-row items-start justify-between gap-3">
+              <View className="flex-row items-start gap-3">
+                {/*
+                  The icon square the rest of the app uses for a meal. A cook
+                  works this screen in a hurry with wet hands and picks the card
+                  by shape before reading a word of it — four identical cards
+                  distinguished only by a heading is the version that gets
+                  breakfast announced at dinner.
+                */}
+                <View className="h-11 w-11 items-center justify-center rounded-xl bg-brand-soft">
+                  <Ionicons
+                    color={colors.primary}
+                    name={mealIcon(button.mealType)}
+                    size={19}
+                  />
+                </View>
+
                 <View className="flex-1 gap-1">
                   <Text variant="subtitle">{humanizeEnum(button.mealType)}</Text>
                   <Text variant="caption">{mealSubtitle(button)}</Text>

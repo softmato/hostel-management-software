@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 import { Alert, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
+import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
@@ -18,17 +20,32 @@ import { setThemePreference } from "@/store/slices/uiSlice";
 /**
  * Profile, for someone who has an account but not a bed yet.
  *
- * Deliberately thin. There is no favourites collection, no saved-search
- * endpoint and no inquiry history endpoint for a public account on the server —
- * so the rows that would fill this screen out are the rows that would open onto
- * a permanent empty state. What is here is what exists: who you are signed in
- * as, the app's own settings, and the way out.
+ * Deliberately thin. There is no favourites collection and no inquiry history
+ * endpoint for a public account on the server, so the rows that would fill this
+ * screen out are the rows that would open onto a permanent empty state. What is
+ * here is what exists: who you are signed in as, the app's own settings, and the
+ * way out.
  *
  * Structure mirrors `(resident)/more.tsx` on purpose: one card per group, a
  * `ListRow` per entry, sign-out alone at the bottom in the destructive colour.
+ *
+ * ## Two rows here were lying (§5.6)
+ *
+ * **Saved hostels** toasted "it lands in the next release" — while `lib/saved-
+ * hostels.ts` was already storing them and the Home tab was already rendering
+ * the row. The feature shipped and this screen never found out.
+ *
+ * **Notifications** and **Privacy** did the same, and `/settings` has held real
+ * per-category preferences and quiet hours since §3.2. Its routes take
+ * `requireApiPrincipal`, not a resident principal, so a browsing account reaches
+ * them exactly like anybody else.
+ *
+ * `soon()` survives for **Inquiries** alone, which genuinely has no endpoint:
+ * `/public/inquiries` is a POST and nothing lists what you have sent.
  */
 export default function BrowseProfileScreen() {
   const account = useAppSelector((state) => state.auth.account);
+  const saved = useAppSelector((state) => state.saved.items);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
@@ -61,14 +78,9 @@ export default function BrowseProfileScreen() {
       <View className="gap-5 pt-1">
         <Card className="gap-3">
           <View className="flex-row items-center gap-3">
-            <View
-              className="h-14 w-14 items-center justify-center rounded-full"
-              style={{ backgroundColor: colors.brandSoft }}
-            >
-              <Text className="text-xl font-semibold" style={{ color: colors.primary }}>
-                {(account?.name ?? "?").charAt(0).toUpperCase()}
-              </Text>
-            </View>
+            {/* The shared component, which also handles a Google photo and a
+                photo URL that exists but cannot be drawn. */}
+            <Avatar name={account?.name} size="lg" uri={account?.image} />
 
             <View className="flex-1">
               <Text variant="subtitle">{account?.name ?? "Your account"}</Text>
@@ -91,18 +103,33 @@ export default function BrowseProfileScreen() {
           <SectionHeader title="Your search" />
           <Card>
             {/*
-              Both of these are honest "not yet" rows rather than absent ones:
-              the server has no favourites collection and no saved-search
-              endpoint, and someone who cannot find them assumes the app lost
-              their shortlist rather than never having had one.
+              Saved hostels are real and **device-local** — the subtitle says so,
+              because a shortlist that does not follow you to another phone is
+              worth knowing about before you build one. Home is where they are
+              rendered; there is no separate screen to send anyone to, and one
+              holding the same list twice is a second place for it to go stale.
             */}
             <ListRow
               icon="bookmark-outline"
-              onPress={() => soon("Saved hostels")}
-              subtitle="Shortlist hostels to come back to"
+              onPress={() => router.push("/(browse)")}
+              right={
+                saved.length > 0 ? (
+                  <Badge label={String(saved.length)} tone="success" />
+                ) : undefined
+              }
+              subtitle={
+                saved.length > 0
+                  ? "Kept on this device — shown on Home"
+                  : "Tap the heart on a hostel to shortlist it"
+              }
               title="Saved hostels"
             />
             <RowDivider inset />
+            {/*
+              The one honest "not yet" left. `/public/inquiries` is a POST and
+              nothing lists what you have sent, so this row would open onto a
+              permanent empty state.
+            */}
             <ListRow
               icon="mail-outline"
               onPress={() => soon("Your inquiries")}
@@ -123,16 +150,22 @@ export default function BrowseProfileScreen() {
               value={`Switch to ${nextTheme}`}
             />
             <RowDivider inset />
+            {/*
+              Both reach the real screen. They toasted "coming soon" for months
+              after §3.2 shipped the preference model — the settings routes take
+              `requireApiPrincipal`, so a browsing account has always been able
+              to use them.
+            */}
             <ListRow
               icon="notifications-outline"
-              onPress={() => soon("Notification settings")}
-              subtitle="Choose what buzzes your phone"
+              onPress={() => router.push("/settings")}
+              subtitle="Choose what reaches you, and set quiet hours"
               title="Notifications"
             />
             <RowDivider inset />
             <ListRow
               icon="shield-checkmark-outline"
-              onPress={() => soon("Privacy & account settings")}
+              onPress={() => router.push("/settings")}
               subtitle="Privacy policy and account deletion"
               title="Privacy & account"
             />

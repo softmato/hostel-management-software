@@ -311,3 +311,27 @@ export async function markNoticeRead(noticeId: string) {
 
   return unwrap(response);
 }
+
+/* -------------------------------------------------------------------------- */
+/* QuestionCall                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The study-partner hand-off, ported from the web's `ResidentQuestionCallCard`.
+ *
+ * The **server** decides where the resident goes: it records the click, mints a
+ * short-lived SSO token and returns the URL. A client that built that URL itself
+ * would be shipping the handshake in the app bundle, and the click that the
+ * platform's analytics counts would go unrecorded.
+ *
+ * `deviceType` is validated server-side as `"android" | "ios" | "web"`, so the
+ * caller passes `Platform.OS` and nothing else — a value outside the enum is a
+ * 400 on a card that otherwise looks fine.
+ */
+export async function openQuestionCall(deviceType: "android" | "ios") {
+  const response = await api.post<
+    ApiEnvelope<{ clickId: string; redirectUrl: string; ssoEnabled: boolean }>
+  >("/resident/questioncall/click", { deviceType });
+
+  return unwrap(response);
+}

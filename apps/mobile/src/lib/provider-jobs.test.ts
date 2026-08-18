@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { ProviderJob } from "@/lib/provider-api";
 import {
+  completedJobCount,
   isOpenJob,
   jobActions,
   jobAddress,
+  jobCategoryIcon,
   openJobCount,
   sortProviderJobs,
+  urgentJobCount,
 } from "@/lib/provider-jobs";
 
 function job(overrides: Partial<ProviderJob> = {}): ProviderJob {
@@ -143,5 +146,68 @@ describe("openJobCount", () => {
       openJobCount([job(), job({ status: "COMPLETED" }), job({ status: "SCHEDULED" })]),
     ).toBe(2);
     expect(isOpenJob(job({ status: "CANCELLED" }))).toBe(false);
+  });
+});
+
+describe("jobCategoryIcon", () => {
+  it("gives every schema category its own icon", () => {
+    // The eleven values of `maintenanceCategorySchema`. A category that falls
+    // through to the default here means the table has drifted from the server.
+    const categories = [
+      "APPLIANCE",
+      "CARPENTRY",
+      "CLEANING",
+      "ELECTRICAL",
+      "HEALTH",
+      "INTERNET",
+      "OTHER",
+      "PAINTING",
+      "PLUMBING",
+      "ROOM_REPAIR",
+      "WATER",
+    ];
+
+    for (const category of categories) {
+      expect(jobCategoryIcon(category)).toBeTruthy();
+    }
+
+    expect(jobCategoryIcon("PLUMBING")).toBe("water-outline");
+    expect(jobCategoryIcon("ELECTRICAL")).toBe("flash-outline");
+  });
+
+  it("falls back to a tool rather than nothing for an unknown category", () => {
+    expect(jobCategoryIcon("ROOFING")).toBe("construct-outline");
+    expect(jobCategoryIcon("")).toBe("construct-outline");
+  });
+});
+
+describe("urgentJobCount", () => {
+  it("counts open high and urgent work only", () => {
+    expect(
+      urgentJobCount([
+        job({ id: "a", priority: "URGENT", status: "PENDING" }),
+        job({ id: "b", priority: "HIGH", status: "SCHEDULED" }),
+        job({ id: "c", priority: "LOW", status: "PENDING" }),
+      ]),
+    ).toBe(2);
+  });
+
+  it("ignores urgent work that is already done", () => {
+    // A completed emergency is a record, not something to look at today.
+    expect(
+      urgentJobCount([job({ priority: "URGENT", status: "COMPLETED" })]),
+    ).toBe(0);
+  });
+});
+
+describe("completedJobCount", () => {
+  it("counts only completed jobs, not cancelled ones", () => {
+    expect(
+      completedJobCount([
+        job({ id: "a", status: "COMPLETED" }),
+        job({ id: "b", status: "CANCELLED" }),
+        job({ id: "c", status: "PENDING" }),
+      ]),
+    ).toBe(1);
   });
 });

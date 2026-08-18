@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
+import { MealRow } from "@/components/meal-row";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
@@ -139,25 +140,30 @@ export default function CookMenuScreen() {
             })}
           </ScrollView>
 
-          <Card>
+          <Card className="gap-2">
             {dayMeals.every((meal) => !meal) ? (
               <EmptyState
                 description="The hostel office has not filled in this day."
                 title="Nothing planned"
               />
             ) : (
+              /*
+               * The same block the residents see. The kitchen reading a
+               * different rendering of the menu from the people eating it is
+               * how "the app said chicken" starts.
+               */
               MEAL_TYPES.map((mealType, index) => {
                 const meal = dayMeals[index];
 
                 return (
-                  <View key={mealType}>
-                    {index > 0 ? <RowDivider /> : null}
-                    <ListRow
-                      subtitle={meal?.items.join(", ") || "Nothing planned"}
-                      title={humanizeEnum(mealType)}
-                      value={meal?.timing || today.routine.timings[mealType] || undefined}
-                    />
-                  </View>
+                  <MealRow
+                    items={meal?.items ?? []}
+                    key={mealType}
+                    mealType={mealType}
+                    note={meal?.note}
+                    placeholder="Nothing planned"
+                    timing={meal?.timing || today.routine.timings[mealType] || undefined}
+                  />
                 );
               })
             )}

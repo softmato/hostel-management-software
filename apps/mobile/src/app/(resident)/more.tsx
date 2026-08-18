@@ -1,11 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Linking, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
+import { Avatar } from "@/components/ui/avatar";
 import { StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { Chip } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
@@ -95,14 +97,14 @@ export default function ResidentMoreScreen() {
       <View className="gap-5 pt-1">
         <Card className="gap-3">
           <View className="flex-row items-center gap-3">
-            <View
-              className="h-14 w-14 items-center justify-center rounded-full"
-              style={{ backgroundColor: colors.brandSoft }}
-            >
-              <Text className="text-xl font-semibold" style={{ color: colors.primary }}>
-                {(resident?.firstName ?? account?.name ?? "?").charAt(0).toUpperCase()}
-              </Text>
-            </View>
+            {/*
+              The shared `<Avatar>`, not a local initial circle. It already
+              handles the case this screen has to handle anyway — an account
+              with a Google photo, one with none, and one whose photo URL exists
+              but cannot be drawn — and it colours the fallback the same way the
+              same person is coloured in Community.
+            */}
+            <Avatar name={resident?.fullName ?? account?.name} size="lg" uri={account?.image} />
 
             <View className="flex-1">
               <Text variant="subtitle">
@@ -117,16 +119,36 @@ export default function ResidentMoreScreen() {
           </View>
 
           {profile?.hostel ? (
-            <View className="gap-1 border-t border-border pt-3">
+            <View className="gap-2 border-t border-border pt-3">
               <Text variant="label">{profile.hostel.name}</Text>
-              <Text variant="caption">
-                {[
-                  humanizeEnum(profile.accommodation.roomType),
-                  resident ? `Since ${formatDate(resident.moveInDate)}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </Text>
+
+              {/*
+                Chips rather than a joined sentence, matching the dashboard's
+                hostel card — and the phone number becomes a tap-to-call, which
+                is the whole reason a phone shows contact details at all.
+              */}
+              <View className="flex-row flex-wrap gap-2">
+                <Chip
+                  icon="bed-outline"
+                  label={humanizeEnum(profile.accommodation.roomType)}
+                />
+                {resident ? (
+                  <Chip
+                    icon="calendar-outline"
+                    label={`Since ${formatDate(resident.moveInDate)}`}
+                  />
+                ) : null}
+                {profile.hostel.contact.phone ? (
+                  <Chip
+                    icon="call-outline"
+                    label={profile.hostel.contact.phone}
+                    onPress={() =>
+                      void Linking.openURL(`tel:${profile.hostel?.contact.phone}`)
+                    }
+                    tone="brand"
+                  />
+                ) : null}
+              </View>
             </View>
           ) : null}
         </Card>
@@ -229,7 +251,10 @@ export default function ResidentMoreScreen() {
             <ListRow
               icon="notifications-outline"
               onPress={() => router.push("/settings")}
-              subtitle="What we send, and why you cannot pick yet"
+              // Was "…and why you cannot pick yet", which stopped being true
+              // when the preference model shipped (§3.2). A row that describes
+              // a screen it no longer matches is worse than no subtitle.
+              subtitle="Choose what reaches you, and set quiet hours"
               title="Notifications"
             />
             <RowDivider inset />

@@ -1,14 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useState } from "react";
-import { Linking, ScrollView, View } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  useWindowDimensions,
+  View,
+} from "react-native";
 
 import { facilityIcon } from "@/components/hostel-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { FactRow, Grid, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
@@ -24,6 +31,7 @@ import {
   priceRange,
   ratingDisplay,
 } from "@/lib/hostel-display";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import { absoluteMediaUrl } from "@/lib/media";
 import {
   getPublicHostel,
@@ -126,7 +134,11 @@ export default function HostelDetailScreen() {
           </View>
 
           <View className="flex-row items-center gap-1.5">
-            <Ionicons color={colors.mutedForeground} name="location-outline" size={14} />
+            <Ionicons
+              color={colors.mutedForeground}
+              name="location-outline"
+              size={14}
+            />
             <Text className="flex-1" variant="caption">
               {[data.location.address, locationLabel(data.location)]
                 .filter(Boolean)
@@ -136,7 +148,11 @@ export default function HostelDetailScreen() {
 
           {campus ? (
             <View className="flex-row items-center gap-1.5">
-              <Ionicons color={colors.mutedForeground} name="school-outline" size={14} />
+              <Ionicons
+                color={colors.mutedForeground}
+                name="school-outline"
+                size={14}
+              />
               <Text variant="caption">{campus}</Text>
             </View>
           ) : null}
@@ -144,6 +160,13 @@ export default function HostelDetailScreen() {
 
         <PriceTiles hostel={data} />
 
+        {/*
+          Chips, not the mockup's icon tiles with a sub-label under each. The
+          sub-labels there — "High Speed" under Wi-Fi, "24/7 Security" under
+          CCTV — are drawn from nothing: `facilities` is a `string[]`, and the
+          only honest caption would be blank. A grid of tiles with empty second
+          lines reads as data that failed to load.
+        */}
         {data.facilities.length > 0 ? (
           <View>
             <SectionHeader title="Facilities" />
@@ -153,7 +176,11 @@ export default function HostelDetailScreen() {
                   className="flex-row items-center gap-1.5 rounded-xl border border-border px-3 py-2"
                   key={facility}
                 >
-                  <Ionicons color={colors.primary} name={facilityIcon(facility)} size={15} />
+                  <Ionicons
+                    color={colors.primary}
+                    name={facilityIcon(facility)}
+                    size={15}
+                  />
                   <Text variant="caption">{facility}</Text>
                 </View>
               ))}
@@ -209,6 +236,18 @@ export default function HostelDetailScreen() {
 /** Horizontal gallery with a counter — the server already sorts exterior-first. */
 function Gallery({ hostel }: { hostel: PublicHostelDetail }) {
   const { colors } = useAppTheme();
+  /*
+   * The page width, which is the whole point.
+   *
+   * These images were a hardcoded `width: 400` inside a `pagingEnabled`
+   * ScrollView — and paging snaps to the **viewport**, not to the child. So on
+   * a 393dp phone every swipe left a 7dp sliver of the next photo, drifting
+   * further out of alignment with each page; on a 430dp phone it stopped 30dp
+   * short. It only looked right on a device exactly 400dp wide, and nobody has
+   * one. Reading the real width also follows a rotation for free.
+   */
+  const { width } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   /*
    * Resolved against the API origin before anything is drawn: the stored URLs
@@ -218,8 +257,13 @@ function Gallery({ hostel }: { hostel: PublicHostelDetail }) {
    * user can swipe to.
    */
   const photos = hostel.photos
-    .map((photo) => ({ ...photo, uri: absoluteMediaUrl(photo.url, API_BASE_URL) }))
-    .filter((photo): photo is typeof photo & { uri: string } => photo.uri !== null);
+    .map((photo) => ({
+      ...photo,
+      uri: absoluteMediaUrl(photo.url, API_BASE_URL),
+    }))
+    .filter(
+      (photo): photo is typeof photo & { uri: string } => photo.uri !== null,
+    );
 
   if (photos.length === 0) {
     return (
@@ -227,7 +271,11 @@ function Gallery({ hostel }: { hostel: PublicHostelDetail }) {
         className="items-center justify-center"
         style={{ backgroundColor: colors.muted, height: 240 }}
       >
-        <Ionicons color={colors.mutedForeground} name="image-outline" size={32} />
+        <Ionicons
+          color={colors.mutedForeground}
+          name="image-outline"
+          size={32}
+        />
         <Text variant="caption">No photos yet</Text>
       </View>
     );
@@ -235,66 +283,192 @@ function Gallery({ hostel }: { hostel: PublicHostelDetail }) {
 
   return (
     <View>
-      <ScrollView
-        horizontal
-        onMomentumScrollEnd={(event) => {
-          const width = event.nativeEvent.layoutMeasurement.width;
+      <View>
+        <ScrollView
+          horizontal
+          onMomentumScrollEnd={(event) => {
+            const page = event.nativeEvent.layoutMeasurement.width;
 
-          setIndex(width > 0 ? Math.round(event.nativeEvent.contentOffset.x / width) : 0);
-        }}
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-      >
-        {photos.map((photo) => (
-          <Image
-            accessibilityLabel={photo.alt || hostel.name}
-            contentFit="cover"
-            key={photo.uri}
-            source={{ uri: photo.uri }}
-            style={{ backgroundColor: colors.muted, height: 240, width: 400 }}
-            transition={150}
-          />
-        ))}
-      </ScrollView>
+            setIndex(
+              page > 0
+                ? Math.round(event.nativeEvent.contentOffset.x / page)
+                : 0,
+            );
+          }}
+          pagingEnabled
+          ref={scrollRef}
+          showsHorizontalScrollIndicator={false}
+        >
+          {photos.map((photo, photoIndex) => (
+            <Pressable
+              accessibilityLabel={photo.alt || hostel.name}
+              accessibilityRole="imagebutton"
+              key={photo.uri}
+              /*
+               * The carousel is 240dp of a building. Opening it full-screen is
+               * the difference between "there is a photo" and being able to see
+               * the room — and it is the first thing anyone tries on a gallery.
+               */
+              onPress={() =>
+                openAssetViewer(
+                  photos.map((item) => ({
+                    caption: item.alt || undefined,
+                    title: hostel.name,
+                    url: item.uri,
+                  })),
+                  photoIndex,
+                )
+              }
+            >
+              <Image
+                contentFit="cover"
+                source={{ uri: photo.uri }}
+                style={{ backgroundColor: colors.muted, height: 240, width }}
+                transition={150}
+              />
+            </Pressable>
+          ))}
+        </ScrollView>
 
-      {hostel.verificationStatus === "VERIFIED" ? (
-        <View className="absolute left-5 top-3 flex-row items-center gap-1 rounded-full bg-card/95 px-2.5 py-1">
-          <Ionicons color={colors.success} name="shield-checkmark" size={12} />
-          <Text className="text-xs font-semibold">Verified hostel</Text>
-        </View>
-      ) : null}
+        {hostel.verificationStatus === "VERIFIED" ? (
+          <View className="absolute left-5 top-3 flex-row items-center gap-1 rounded-full bg-card/95 px-2.5 py-1">
+            <Ionicons
+              color={colors.success}
+              name="shield-checkmark"
+              size={12}
+            />
+            <Text className="text-xs font-semibold">Verified hostel</Text>
+          </View>
+        ) : null}
+
+        {photos.length > 1 ? (
+          <View className="absolute bottom-3 right-5 rounded-full bg-black/60 px-2.5 py-1">
+            <Text className="text-xs font-semibold text-white">
+              {`${index + 1}/${photos.length}`}
+            </Text>
+          </View>
+        ) : null}
+      </View>
 
       {photos.length > 1 ? (
-        <View className="absolute bottom-3 right-5 rounded-full bg-black/60 px-2.5 py-1">
-          <Text className="text-xs font-semibold text-white">
-            {`${index + 1}/${photos.length}`}
-          </Text>
-        </View>
+        <Thumbnails
+          active={index}
+          onSelect={(next) => {
+            // Drives the carousel rather than opening the viewer: the strip is
+            // navigation within the hero, and a tap that jumped straight to
+            // full-screen would leave no way to browse in place.
+            setIndex(next);
+            scrollRef.current?.scrollTo({ animated: true, x: next * width });
+          }}
+          photos={photos}
+        />
       ) : null}
     </View>
   );
 }
 
-function PriceTiles({ hostel }: { hostel: PublicHostelDetail }) {
-  const tiles = [
-    { label: "Monthly rent", value: priceRange(hostel.pricing) },
-    hostel.pricing.admissionFee
-      ? { label: "Admission fee", value: formatMoney(hostel.pricing.admissionFee) }
-      : null,
-    { label: "Type", value: HOSTEL_TYPE_LABELS[hostel.hostelType] },
-  ].filter((tile): tile is { label: string; value: string } => tile !== null);
+/**
+ * The mockup's thumbnail strip, under the hero.
+ *
+ * Twelve photos behind a swipe is twelve swipes to find the bathroom. The strip
+ * is how someone gets to the one they want, and it doubles as the honest count
+ * of what the hostel has actually uploaded — a hostel with three photos looks
+ * like a hostel with three photos.
+ *
+ * Only drawn past two, because a strip under a single photo is a control with
+ * nowhere to go.
+ */
+function Thumbnails({
+  active,
+  onSelect,
+  photos,
+}: {
+  active: number;
+  onSelect: (index: number) => void;
+  photos: { alt?: string; uri: string }[];
+}) {
+  const { colors } = useAppTheme();
 
   return (
-    <View className="flex-row gap-3">
-      {tiles.map((tile) => (
-        <Card className="flex-1 gap-1" key={tile.label}>
-          <Text variant="caption">{tile.label}</Text>
-          <Text numberOfLines={1} variant="label">
-            {tile.value}
-          </Text>
-        </Card>
+    <ScrollView
+      className="mt-2"
+      contentContainerClassName="gap-2 px-5"
+      horizontal
+      showsHorizontalScrollIndicator={false}
+    >
+      {photos.map((photo, photoIndex) => (
+        <Pressable
+          accessibilityLabel={`Photo ${photoIndex + 1}`}
+          accessibilityRole="imagebutton"
+          accessibilityState={{ selected: photoIndex === active }}
+          key={photo.uri}
+          onPress={() => onSelect(photoIndex)}
+        >
+          <Image
+            contentFit="cover"
+            source={{ uri: photo.uri }}
+            style={{
+              backgroundColor: colors.muted,
+              borderColor:
+                photoIndex === active ? colors.primary : "transparent",
+              borderRadius: 10,
+              borderWidth: 2,
+              height: 52,
+              width: 68,
+            }}
+          />
+        </Pressable>
       ))}
-    </View>
+    </ScrollView>
+  );
+}
+
+/**
+ * The mockup's fee strip — but only the fees this platform actually stores.
+ *
+ * The mockup draws "Monthly Fee · Security · Advance". `pricing` carries
+ * `monthlyRentMin/Max` and `admissionFee` and **no security deposit**, so a
+ * third tile would be an invented number on the screen a person decides where
+ * to live from. Two tiles that are true beat three that look complete.
+ *
+ * `<Grid>` rather than three `flex-1` cards: "NPR 10,000 – NPR 18,000" in a
+ * third of a 320dp screen is about 93dp, which truncated to "NPR 10,0…". The
+ * grid drops to two columns where three will not fit.
+ */
+function PriceTiles({ hostel }: { hostel: PublicHostelDetail }) {
+  const tiles = [
+    <StatTile
+      icon="cash-outline"
+      key="rent"
+      label="Monthly"
+      tone="brand"
+      trend="Per month"
+      value={priceRange(hostel.pricing)}
+    />,
+    hostel.pricing.admissionFee ? (
+      <StatTile
+        icon="document-text-outline"
+        key="admission"
+        label="Admission"
+        tone="neutral"
+        trend="One-off"
+        value={formatMoney(hostel.pricing.admissionFee)}
+      />
+    ) : null,
+    <StatTile
+      icon="people-outline"
+      key="type"
+      label="Type"
+      tone="neutral"
+      trend="Who it is for"
+      value={HOSTEL_TYPE_LABELS[hostel.hostelType]}
+    />,
+  ].filter(Boolean);
+
+  return (
+    <Grid gap={10} maxColumns={3} minCellWidth={116}>
+      {tiles}
+    </Grid>
   );
 }
 
@@ -313,7 +487,9 @@ function Rooms({ hostel }: { hostel: PublicHostelDetail }) {
               icon="bed-outline"
               subtitle={[
                 `${room.bedsPerRoom} ${room.bedsPerRoom === 1 ? "bed" : "beds"}`,
-                room.mealInclusion === "Included" ? "Meals included" : room.mealInclusion,
+                room.mealInclusion === "Included"
+                  ? "Meals included"
+                  : room.mealInclusion,
                 // 0 is a real answer and the one that decides a visit.
                 `${room.vacantBeds} vacant`,
               ].join(" · ")}
@@ -389,10 +565,7 @@ function HostelFacts({ hostel }: { hostel: PublicHostelDetail }) {
         {facts.map((fact, index) => (
           <View key={fact.label}>
             {index > 0 ? <RowDivider /> : null}
-            <View className="flex-row items-center justify-between gap-3 py-2.5">
-              <Text variant="muted">{fact.label}</Text>
-              <Text variant="label">{fact.value}</Text>
-            </View>
+            <FactRow label={fact.label} value={fact.value} />
           </View>
         ))}
       </Card>
@@ -403,7 +576,10 @@ function HostelFacts({ hostel }: { hostel: PublicHostelDetail }) {
 function Nearby({ hostel }: { hostel: PublicHostelDetail }) {
   return (
     <View>
-      <SectionHeader subtitle="Walking and riding distance" title="What's nearby" />
+      <SectionHeader
+        subtitle="Walking and riding distance"
+        title="What's nearby"
+      />
       <Card>
         {hostel.nearbyPlaces.slice(0, 8).map((place, index) => (
           <View key={`${place.name}-${place.type}`}>

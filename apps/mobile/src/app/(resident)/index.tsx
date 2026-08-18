@@ -1,12 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useCallback } from "react";
-import { Pressable, View } from "react-native";
+import * as WebBrowser from "expo-web-browser";
+import { useCallback, useState } from "react";
+import { Linking, Platform, Pressable, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge, StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { MealRow } from "@/components/meal-row";
+import { Chip, Grid, InfoTile, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
@@ -15,6 +19,9 @@ import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { API_BASE_URL } from "@/lib/api";
+import { readApiError } from "@/lib/api-contract";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import {
   formatDate,
   formatDueLabel,
@@ -23,12 +30,15 @@ import {
   greetingFor,
   humanizeEnum,
 } from "@/lib/format";
+import { absoluteMediaUrl } from "@/lib/media";
 import {
   getResidentDashboard,
   type NightStatus,
+  openQuestionCall,
   type ResidentDashboard,
   type RoutineMeal,
 } from "@/lib/resident-api";
+import { toastError } from "@/lib/toast";
 
 /**
  * The resident's home.
@@ -46,20 +56,43 @@ import {
  * `resident-dashboard.service.ts` reads both properly as of 2026-08-17, so the
  * second request is gone and complaints render. The absent night status is
  * `NOT_VERIFIED`, which is a real answer, not a missing one.
+ *
+ * ## Ordering, against `resident-dashboard-page.tsx` (§5.1)
+ *
+ * The web leads with a full-width hostel photo. **Here the money leads.** A
+ * resident opens this app to pay rent or to read a notice; they already know
+ * which building they live in, so a 200dp photo of it above the fold is the
+ * marketing row this project has cut twice before — while pushing the one
+ * actionable number below the first screenful.
+ *
+ * What the photo card *is* worth keeping is the part a phone does better than a
+ * browser: the hostel's phone number and email are one tap from a call, so they
+ * become chips and the photo shrinks to a thumbnail beside them.
+ *
+ * Ported from the web in this pass: **the hostel contact card** (phone, email,
+ * public page), **notice previews** (the web shows two lines of the body; the
+ * rows here showed only a category), and **QuestionCall**, which existed on the
+ * web for students and was entirely absent from mobile.
+ *
+ * Deliberately **not** ported: the web's "Unread notices" metric and its "New"
+ * badge. `serializeNotice` on the dashboard emits no `isRead` field at all, so
+ * `!notice.isRead` is true for every notice and the web marks all of them new.
+ * Repeating that would be repeating a bug. The unread count comes back the day
+ * the serializer carries the flag.
  */
 
-const MEAL_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  BREAKFAST: "sunny-outline",
-  DINNER: "moon-outline",
-  LUNCH: "restaurant-outline",
-  SNACKS: "cafe-outline",
-};
-
+/**
+ * The web offers Payments, Notices, Complaints, SOS and Reviews here. Payments
+ * and Notices are **tabs** on this app — a shortcut to the tab you can already
+ * see is a wasted target — so this row is the three the web has that mobile has
+ * nowhere else, plus the digital ID, which is the thing a resident is asked to
+ * produce at a gate.
+ */
 const QUICK_ACTIONS = [
-  { href: "/(resident)/payments", icon: "card-outline", label: "Payments" },
-  { href: "/(resident)/food", icon: "restaurant-outline", label: "Food" },
-  { href: "/(resident)/notices", icon: "megaphone-outline", label: "Notices" },
-  { href: "/(resident)/more", icon: "person-outline", label: "Profile" },
+  { href: "/complaints", icon: "chatbox-ellipses-outline", label: "Complaints" },
+  { href: "/id-card", icon: "card-outline", label: "Digital ID" },
+  { href: "/review", icon: "star-outline", label: "Review" },
+  { href: "/sos", icon: "alert-circle-outline", label: "SOS", tone: "danger" },
 ] as const;
 
 export default function ResidentHomeScreen() {
@@ -106,21 +139,34 @@ export default function ResidentHomeScreen() {
       <View className="gap-4 pt-1">
         <DuesCard feeStatus={dashboard.feeStatus} />
 
-        <RoomCard
+        <StatStrip
+          complaints={dashboard.complaints}
+          nightStatus={dashboard.nightStatus}
+          notices={dashboard.notices}
+        />
+
+        <HostelCard
           hostel={dashboard.hostel}
           moveInDate={dashboard.resident.moveInDate}
           roomType={dashboard.accommodation.roomType}
         />
 
-        <NightStatusCard status={dashboard.nightStatus} />
-
-        <ComplaintsCard complaints={dashboard.complaints} />
-
         <TodaysMenuCard meals={dashboard.foodMenu} />
 
         <NoticesCard notices={dashboard.notices} />
 
+        <ComplaintsCard complaints={dashboard.complaints} />
+
         <QuickActions />
+
+        {/*
+          Students only — a working professional has no use for it, and the API
+          repeats the check (403 `QUESTIONCALL_NOT_ELIGIBLE`), so hiding the card
+          is presentation rather than the gate.
+        */}
+        {(dashboard.resident.residentType ?? "STUDENT") === "STUDENT" ? (
+          <QuestionCallCard />
+        ) : null}
       </View>
     </Screen>
   );
@@ -137,6 +183,15 @@ function DuesCard({ feeStatus }: { feeStatus: ResidentDashboard["feeStatus"] }) 
         <View className="flex-1 gap-1">
           <Text variant="caption">{owes ? "Outstanding" : "Balance"}</Text>
           <Money owed size="display" value={feeStatus.dueAmount} />
+          {/*
+            The web's `unpaidCount` was on the dashboard payload all along and
+            drawn nowhere here. It is the difference between "you owe NPR 17,000"
+            and "you owe NPR 17,000 across two months", which is the question
+            anybody asks next.
+          */}
+          {owes && feeStatus.unpaidCount > 1 ? (
+            <Text variant="caption">Across {feeStatus.unpaidCount} unpaid invoices</Text>
+          ) : null}
         </View>
 
         {feeStatus.pendingProofs > 0 ? (
@@ -172,7 +227,75 @@ function DuesCard({ feeStatus }: { feeStatus: ResidentDashboard["feeStatus"] }) 
   );
 }
 
-function RoomCard({
+/**
+ * The three numbers worth a glance, as the mockup's metric strip.
+ *
+ * `<Grid>` decides how many fit: three across on any ordinary phone, two on a
+ * 320dp screen where three would truncate "Night status" to "Night s…".
+ *
+ * The night-status tile replaced a full-width card. Its note ("checked, in
+ * room") does not survive the move and is not reproduced here — a tile carries
+ * one line, and the note belongs on the screen that owns it, which this tile
+ * links to.
+ */
+function StatStrip({
+  complaints,
+  nightStatus,
+  notices,
+}: {
+  complaints: ResidentDashboard["complaints"];
+  nightStatus: NightStatus;
+  notices: ResidentDashboard["notices"];
+}) {
+  const urgent = notices.filter((notice) => notice.isUrgent).length;
+
+  return (
+    <Grid gap={10} maxColumns={3} minCellWidth={104}>
+      <StatTile
+        icon="megaphone-outline"
+        label="Notices"
+        onPress={() => router.push("/(resident)/notices")}
+        tone={urgent > 0 ? "danger" : "brand"}
+        // Not "unread": the dashboard's notices carry no read flag. Urgent is a
+        // field the serializer does emit, and is the one worth counting anyway.
+        trend={urgent > 0 ? `${urgent} urgent` : "Nothing urgent"}
+        value={String(notices.length)}
+      />
+
+      <StatTile
+        icon="chatbox-ellipses-outline"
+        label="Complaints"
+        onPress={() => router.push("/complaints")}
+        tone={complaints.openCount > 0 ? "warning" : "success"}
+        trend={complaints.openCount > 0 ? "Still open" : "All resolved"}
+        value={String(complaints.openCount)}
+      />
+
+      <StatTile
+        icon="moon-outline"
+        label="Night status"
+        onPress={() => router.push("/night-status")}
+        tone={nightStatus.status === "VERIFIED" ? "success" : "neutral"}
+        trend={
+          nightStatus.checkedAt
+            ? `Checked ${formatRelativeDay(nightStatus.checkedAt)}`
+            : "Not checked in"
+        }
+        value={humanizeEnum(nightStatus.status)}
+      />
+    </Grid>
+  );
+}
+
+/**
+ * Where you live, and how to reach it.
+ *
+ * The web's version is a banner with a 320dp-wide photo. Shrunk to a thumbnail
+ * here, for the reason in the file header — and the thumbnail is tappable, so
+ * the photo is still available full-screen through the global asset viewer to
+ * anyone who wants it.
+ */
+function HostelCard({
   hostel,
   moveInDate,
   roomType,
@@ -181,58 +304,96 @@ function RoomCard({
   moveInDate: string;
   roomType: string;
 }) {
-  // Residents are placed by room *type*, not by room number — that is all the
-  // accommodation detail the server holds, so showing a bed number here would
-  // mean inventing one.
-  const area = [hostel?.location.area, hostel?.location.city].filter(Boolean).join(", ");
-
-  return (
-    <Card>
-      <ListRow icon="bed-outline" subtitle="Room type" title={humanizeEnum(roomType)} />
-      <RowDivider inset />
-      <ListRow
-        icon="business-outline"
-        subtitle={area || undefined}
-        title={hostel?.name ?? "Your hostel"}
-      />
-      <RowDivider inset />
-      <ListRow icon="calendar-outline" subtitle="Moved in" title={formatDate(moveInDate)} />
-    </Card>
-  );
-}
-
-/**
- * Pressable since M5.2/M5.3, when `/night-status` started existing.
- *
- * The card deliberately does not offer the three choices inline. Setting a night
- * status is a `POST` whose whole meaning is "where I am", and a dashboard tile
- * that fires one on a mis-tap — next to a card about rent — is the wrong place
- * for it. It reports and it links.
- */
-function NightStatusCard({ status }: { status: NightStatus }) {
   const { colors } = useAppTheme();
+  const photo = absoluteMediaUrl(hostel?.photoUrl, API_BASE_URL);
+  const address = [hostel?.location.address, hostel?.location.area, hostel?.location.city]
+    .filter(Boolean)
+    .join(", ");
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => router.push("/night-status")}
-    >
-      <Card className="gap-2 active:opacity-80">
-        <View className="flex-row items-center justify-between gap-3">
-          <Text variant="label">Night status</Text>
-          <View className="flex-row items-center gap-1">
-            <StatusPill status={status.status} />
-            <Ionicons color={colors.mutedForeground} name="chevron-forward" size={16} />
+    <Card className="gap-3">
+      <View className="flex-row items-center gap-3">
+        {photo ? (
+          <Pressable
+            accessibilityLabel={`Photo of ${hostel?.name ?? "your hostel"}`}
+            accessibilityRole="imagebutton"
+            className="active:opacity-80"
+            onPress={() =>
+              openAssetViewer([{ caption: address || undefined, title: hostel?.name, url: photo }])
+            }
+          >
+            <Image
+              contentFit="cover"
+              source={{ uri: photo }}
+              style={{
+                backgroundColor: colors.muted,
+                borderRadius: 14,
+                height: 64,
+                width: 64,
+              }}
+              transition={150}
+            />
+          </Pressable>
+        ) : (
+          <View
+            className="h-16 w-16 items-center justify-center rounded-2xl"
+            style={{ backgroundColor: colors.brandSoft }}
+          >
+            <Ionicons color={colors.primary} name="business-outline" size={26} />
           </View>
+        )}
+
+        <View className="flex-1 gap-1">
+          <Text numberOfLines={1} variant="subtitle">
+            {hostel?.name ?? "Your hostel"}
+          </Text>
+          {address ? (
+            <View className="flex-row items-center gap-1">
+              <Ionicons color={colors.mutedForeground} name="location-outline" size={12} />
+              <Text className="flex-1" numberOfLines={2} variant="caption">
+                {address}
+              </Text>
+            </View>
+          ) : null}
         </View>
-        <Text variant="caption">
-          {status.checkedAt
-            ? `Last checked ${formatRelativeDay(status.checkedAt)}`
-            : "You have not been checked in tonight."}
-        </Text>
-        {status.note ? <Text variant="muted">{status.note}</Text> : null}
-      </Card>
-    </Pressable>
+      </View>
+
+      {/*
+        Chips rather than the web's rows of text. A phone number here is one tap
+        to a call and an email is one tap to a draft — the browser version is a
+        number you have to copy. Residents are placed by room *type*, not by room
+        number, so that is all the accommodation detail there is to show.
+      */}
+      <View className="flex-row flex-wrap gap-2">
+        <Chip icon="bed-outline" label={humanizeEnum(roomType)} />
+        <Chip icon="calendar-outline" label={`Since ${formatDate(moveInDate)}`} />
+
+        {hostel?.contact.phone ? (
+          <Chip
+            icon="call-outline"
+            label={hostel.contact.phone}
+            onPress={() => void Linking.openURL(`tel:${hostel.contact.phone}`)}
+            tone="brand"
+          />
+        ) : null}
+
+        {hostel?.contact.email ? (
+          <Chip
+            icon="mail-outline"
+            label={hostel.contact.email}
+            onPress={() => void Linking.openURL(`mailto:${hostel.contact.email}`)}
+          />
+        ) : null}
+
+        {hostel?.slug ? (
+          <Chip
+            icon="open-outline"
+            label="Hostel page"
+            onPress={() => router.push(`/hostel/${hostel.slug}`)}
+          />
+        ) : null}
+      </View>
+    </Card>
   );
 }
 
@@ -300,6 +461,14 @@ function ComplaintsCard({
   );
 }
 
+/**
+ * Today's meals, in the mockup's arrangement: a soft icon square, the meal, its
+ * timing as a badge on the right, and the items underneath.
+ *
+ * The items get two lines rather than one. A `<ListRow>` subtitle truncates, and
+ * "Rice, dal, seasonal vegetable, chicken curry, pickle" is exactly the string
+ * that gets cut at the part somebody cares about.
+ */
 function TodaysMenuCard({ meals }: { meals: RoutineMeal[] }) {
   return (
     <View>
@@ -319,20 +488,18 @@ function TodaysMenuCard({ meals }: { meals: RoutineMeal[] }) {
         title="Today's food"
       />
 
-      <Card>
+      <Card className="gap-2">
         {meals.length === 0 ? (
           <Text variant="muted">No menu published for today yet.</Text>
         ) : (
-          meals.map((meal, index) => (
-            <View key={meal.mealType}>
-              {index > 0 ? <RowDivider inset /> : null}
-              <ListRow
-                icon={MEAL_ICONS[meal.mealType] ?? "restaurant-outline"}
-                subtitle={meal.items.join(", ") || "Not set"}
-                title={humanizeEnum(meal.mealType)}
-                value={meal.timing || undefined}
-              />
-            </View>
+          meals.map((meal) => (
+            <MealRow
+              items={meal.items}
+              key={meal.mealType}
+              mealType={meal.mealType}
+              note={meal.note}
+              timing={meal.timing}
+            />
           ))
         )}
       </Card>
@@ -340,6 +507,11 @@ function TodaysMenuCard({ meals }: { meals: RoutineMeal[] }) {
   );
 }
 
+/**
+ * The web shows two lines of each notice's body under its title, and this screen
+ * showed only "Category · 3 days ago" — which for a notice titled "Water supply"
+ * leaves out the half that says when the water is off. Ported.
+ */
 function NoticesCard({ notices }: { notices: ResidentDashboard["notices"] }) {
   return (
     <View>
@@ -358,22 +530,34 @@ function NoticesCard({ notices }: { notices: ResidentDashboard["notices"] }) {
         title="Latest notices"
       />
 
-      <Card>
+      <Card className="gap-2">
         {notices.length === 0 ? (
           <Text variant="muted">Nothing from your hostel right now.</Text>
         ) : (
-          notices.slice(0, 3).map((notice, index) => (
-            <View key={notice.id}>
-              {index > 0 ? <RowDivider /> : null}
-              <ListRow
-                onPress={() => router.push("/(resident)/notices")}
-                right={notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : undefined}
-                subtitle={`${humanizeEnum(notice.category)} · ${formatRelativeDay(
-                  notice.publishedAt,
-                )}`}
-                title={notice.title}
-              />
-            </View>
+          notices.slice(0, 3).map((notice) => (
+            <Pressable
+              accessibilityRole="button"
+              className="gap-1 rounded-xl border border-border px-3 py-2.5 active:opacity-70"
+              key={notice.id}
+              onPress={() => router.push("/(resident)/notices")}
+            >
+              <View className="flex-row items-start justify-between gap-2">
+                <Text className="flex-1" numberOfLines={2} variant="label">
+                  {notice.title}
+                </Text>
+                {notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : null}
+              </View>
+
+              {notice.content ? (
+                <Text numberOfLines={2} variant="muted">
+                  {notice.content}
+                </Text>
+              ) : null}
+
+              <Text variant="caption">
+                {`${humanizeEnum(notice.category)} · ${formatRelativeDay(notice.publishedAt)}`}
+              </Text>
+            </Pressable>
           ))
         )}
       </Card>
@@ -382,21 +566,73 @@ function NoticesCard({ notices }: { notices: ResidentDashboard["notices"] }) {
 }
 
 function QuickActions() {
+  return (
+    <Grid gap={10} maxColumns={4} minCellWidth={78}>
+      {QUICK_ACTIONS.map((action) => (
+        <InfoTile
+          icon={action.icon}
+          key={action.href}
+          label={action.label}
+          onPress={() => router.push(action.href)}
+          tone={"tone" in action ? action.tone : "brand"}
+        />
+      ))}
+    </Grid>
+  );
+}
+
+/**
+ * The study-partner hand-off, which existed on the web and nowhere on mobile.
+ *
+ * Opened in an in-app browser rather than the system one: the resident is two
+ * taps from a tutor and should come back to the app with the back gesture, not
+ * find themselves in Chrome with the app dropped from the recents stack.
+ */
+function QuestionCallCard() {
   const { colors } = useAppTheme();
+  const [busy, setBusy] = useState(false);
+
+  const open = useCallback(async () => {
+    setBusy(true);
+
+    try {
+      // Not "web": the server validates the enum, and a wrong value is a 400 on
+      // a card that otherwise looks like it worked.
+      const { redirectUrl } = await openQuestionCall(Platform.OS === "ios" ? "ios" : "android");
+
+      await WebBrowser.openBrowserAsync(redirectUrl);
+    } catch (caught) {
+      toastError("Could not open QuestionCall", readApiError(caught, ""));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   return (
-    <View className="flex-row gap-3">
-      {QUICK_ACTIONS.map((action) => (
-        <Pressable
-          accessibilityRole="button"
-          className="flex-1 items-center gap-2 rounded-2xl border border-border bg-card py-4 active:opacity-70"
-          key={action.href}
-          onPress={() => router.push(action.href)}
+    <Card className="gap-3">
+      <View className="flex-row items-start gap-3">
+        <View
+          className="h-10 w-10 items-center justify-center rounded-xl"
+          style={{ backgroundColor: colors.brandSoft }}
         >
-          <Ionicons color={colors.primary} name={action.icon} size={22} />
-          <Text variant="caption">{action.label}</Text>
-        </Pressable>
-      ))}
-    </View>
+          <Ionicons color={colors.primary} name="school-outline" size={20} />
+        </View>
+
+        <View className="flex-1 gap-1">
+          <Text variant="label">Ask questions, get answers</Text>
+          <Text variant="muted">
+            QuestionCall connects students with tutors. Your name and hostel are shared
+            so you can sign in without filling another form.
+          </Text>
+        </View>
+      </View>
+
+      <Button
+        label="Open QuestionCall"
+        loading={busy}
+        onPress={() => void open()}
+        variant="outline"
+      />
+    </Card>
   );
 }

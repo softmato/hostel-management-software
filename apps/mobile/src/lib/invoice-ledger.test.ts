@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { ResidentInvoice } from "@/lib/finance-api";
-import { invoiceLedger, outstanding, totalOutstanding } from "@/lib/invoice-ledger";
+import {
+  filterInvoices,
+  invoiceLedger,
+  outstanding,
+  paymentStats,
+  totalOutstanding,
+} from "@/lib/invoice-ledger";
 
 function invoice(overrides: Partial<ResidentInvoice> = {}): ResidentInvoice {
   return {
@@ -119,5 +125,105 @@ describe("outstanding totals", () => {
     ]);
 
     expect(total).toBe(8500);
+  });
+});
+
+describe("paymentStats", () => {
+  it("points at the oldest open month, not the newest", () => {
+    // The list arrives newest-first. A resident two months behind must be sent
+    // to July, or it ages into a default while they settle August.
+    const stats = paymentStats([
+      invoice({ dueDate: "2026-08-07T00:00:00.000Z", id: "aug", month: "2026-08" }),
+      invoice({ dueDate: "2026-07-07T00:00:00.000Z", id: "jul", month: "2026-07" }),
+    ]);
+
+    expect(stats.nextDue?.id).toBe("jul");
+  });
+
+  it("sorts an undated invoice last rather than first", () => {
+    const stats = paymentStats([
+      invoice({ dueDate: undefined, id: "undated" }),
+      invoice({ dueDate: "2026-08-07T00:00:00.000Z", id: "aug" }),
+    ]);
+
+    expect(stats.nextDue?.id).toBe("aug");
+  });
+
+  it("has no next due when everything is settled", () => {
+    const stats = paymentStats([
+      invoice({ paidAmount: 8500, status: "PAID" }),
+      invoice({ id: "inv-2", paidAmount: 8500, status: "PAID" }),
+    ]);
+
+    expect(stats.nextDue).toBeNull();
+    expect(stats.settledCount).toBe(2);
+  });
+
+  it("takes the most recently paid month as the last payment", () => {
+    const stats = paymentStats([
+      invoice({
+        id: "jun",
+        paidAmount: 8500,
+        paidDate: "2026-06-04T00:00:00.000Z",
+        status: "PAID",
+      }),
+      invoice({
+        id: "jul",
+        paidAmount: 8500,
+        paidDate: "2026-07-02T00:00:00.000Z",
+        status: "PAID",
+      }),
+    ]);
+
+    expect(stats.lastPaid?.id).toBe("jul");
+  });
+
+  it("ignores an unpaid month when looking for the last payment", () => {
+    const stats = paymentStats([invoice({ paidAmount: 0, status: "UNPAID" })]);
+
+    expect(stats.lastPaid).toBeNull();
+  });
+
+  it("counts overdue months separately from open ones", () => {
+    const stats = paymentStats([
+      invoice({ id: "a", status: "OVERDUE" }),
+      invoice({ id: "b", status: "UNPAID" }),
+      invoice({ id: "c", paidAmount: 8500, status: "PAID" }),
+    ]);
+
+    expect(stats.overdueCount).toBe(1);
+    expect(stats.settledCount).toBe(1);
+  });
+
+  it("survives an empty ledger", () => {
+    expect(paymentStats([])).toEqual({
+      lastPaid: null,
+      nextDue: null,
+      overdueCount: 0,
+      settledCount: 0,
+    });
+  });
+});
+
+describe("filterInvoices", () => {
+  const ledger = [
+    invoice({ id: "open", status: "UNPAID" }),
+    invoice({ id: "proof", status: "PENDING_PROOF" }),
+    invoice({ id: "settled", paidAmount: 8500, status: "PAID" }),
+  ];
+
+  it("returns everything for all", () => {
+    expect(filterInvoices(ledger, "all")).toHaveLength(3);
+  });
+
+  it("counts a claim awaiting verification as still open", () => {
+    // The money may have moved, but the hostel has not confirmed it — so the
+    // resident still has something to watch, and hiding it under "settled"
+    // is how a rejected claim goes unnoticed.
+    expect(filterInvoices(ledger, "open").map((row) => row.id)).toEqual(["open", "proof"]);
+  });
+
+  it("returns only closed months for settled", () => {
+    expect(filterInvoices(ledger, "settled").map((row) => row.id)).toEqual(["settled"]);
   });
 });

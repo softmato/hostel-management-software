@@ -24,6 +24,7 @@ import {
   rejectClaim,
   replyToComplaint,
 } from "@/lib/admin-api";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import { type AlertKind, type AlertRow, buildAlertFeed } from "@/lib/admin-alerts";
 import { readApiError } from "@/lib/api-contract";
 import { formatMoney, formatRelativeDay } from "@/lib/format";
@@ -244,6 +245,35 @@ export default function AdminAlertsScreen() {
                           onPress={() =>
                             void run(row.id, () => acknowledgeSos(row.id), "Acknowledged")
                           }
+                        />
+                      ) : null}
+
+                      {/*
+                        The receipt itself, which this screen never showed —
+                        `evidenceAssetId` has been on the payload all along.
+                        Approving a payment claim without looking at the proof is
+                        the one action on this screen that moves money, and it
+                        was the only one an admin had to take on trust. Opens in
+                        the global viewer, so it zooms: the amount on a bank
+                        screenshot is small and the whole question is whether it
+                        matches.
+                      */}
+                      {claim?.evidenceAssetId ? (
+                        <Button
+                          label="View proof"
+                          onPress={() =>
+                            openAssetViewer([
+                              {
+                                assetId: claim.evidenceAssetId ?? undefined,
+                                caption: [claim.method, claim.confirmation]
+                                  .filter(Boolean)
+                                  .join(" · "),
+                                mimeType: claim.evidenceMimeType ?? undefined,
+                                title: `Claim for ${formatMoney(claim.amount)}`,
+                              },
+                            ])
+                          }
+                          variant="secondary"
                         />
                       ) : null}
 

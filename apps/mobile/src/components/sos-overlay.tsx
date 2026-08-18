@@ -1,10 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Modal, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  useWindowDimensions,
+  View,
+} from "react-native";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import type { useSos } from "@/hooks/use-sos";
+import { scaledHeight } from "@/lib/responsive";
 
 /**
  * The countdown, the spinner and the outcome — everything `useSos` has to say.
@@ -27,7 +33,10 @@ export function SosOverlay({
   sos: ReturnType<typeof useSos>;
 }) {
   const { colors } = useAppTheme();
+  const { fontScale } = useWindowDimensions();
   const { cancel, close, error, outcome, phase, remaining } = sos;
+
+  const circle = scaledHeight(144, fontScale);
 
   const failed = Boolean(error) || outcome?.tone === "unreached";
   const partial = !failed && outcome?.tone === "partial";
@@ -46,9 +55,23 @@ export function SosOverlay({
       <View className="flex-1 items-center justify-center bg-black/80 px-8">
         {phase === "armed" ? (
           <View className="w-full items-center gap-6">
+            {/*
+              The circle grows with the text inside it.
+              
+              `text-6xl` in a fixed 144dp circle is fine at the default font
+              scale and clips at the accessibility settings people actually use:
+              Android reaches 2.0× and a two-digit countdown at 1.3× already
+              overflows. `scaledHeight` caps the growth at 1.3 — past that the
+              circle would push the Cancel button off a short screen, and on this
+              screen of all screens Cancel must stay reachable.
+            */}
             <View
-              className="h-36 w-36 items-center justify-center rounded-full"
-              style={{ backgroundColor: colors.destructive }}
+              className="items-center justify-center rounded-full"
+              style={{
+                backgroundColor: colors.destructive,
+                height: circle,
+                width: circle,
+              }}
             >
               <Text
                 accessibilityLabel={`Sending in ${remaining} seconds`}
@@ -95,15 +118,27 @@ export function SosOverlay({
           <View className="w-full items-center gap-5">
             <Ionicons
               color={
-                failed ? colors.destructive : partial ? colors.warning : colors.success
+                failed
+                  ? colors.destructive
+                  : partial
+                    ? colors.warning
+                    : colors.success
               }
-              name={failed ? "alert-circle" : partial ? "warning" : "checkmark-circle"}
+              name={
+                failed
+                  ? "alert-circle"
+                  : partial
+                    ? "warning"
+                    : "checkmark-circle"
+              }
               size={56}
             />
 
             <View className="gap-2">
               <Text className="text-center text-2xl font-semibold text-white">
-                {error ? "The alert didn't send" : (outcome?.title ?? "Alert sent")}
+                {error
+                  ? "The alert didn't send"
+                  : (outcome?.title ?? "Alert sent")}
               </Text>
               <Text className="text-center text-base text-white/70">
                 {error ?? outcome?.detail}

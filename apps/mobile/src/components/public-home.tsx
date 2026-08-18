@@ -10,6 +10,7 @@ import { HostelMap } from "@/components/hostel-map";
 import { HostelShowcase } from "@/components/hostel-showcase";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { Grid, InfoTile } from "@/components/ui/layout";
 import { FloatingButton } from "@/components/ui/floating-button";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState } from "@/components/ui/states";
@@ -241,44 +242,34 @@ const TYPE_ICONS: Record<HostelType, keyof typeof Ionicons.glyphMap> = {
   GIRLS: "woman-outline",
 };
 
+/**
+ * All / Boys / Girls / Co-living.
+ *
+ * Was four `flex-1` tiles in a row, which is about 72dp each once a 320dp
+ * screen's padding is taken out — and "Co-living" in a 72dp box with
+ * `numberOfLines={1}` truncates to "Co-livi…". `<Grid>` fits what fits and drops
+ * to three columns on the narrow end rather than squeezing four.
+ */
 function QuickTypes({ browseHref }: { browseHref: string }) {
   return (
-    <View className="flex-row gap-3">
-      <TypeTile icon="grid-outline" label="All" onPress={() => router.push(browseHref)} />
-      {HOSTEL_TYPES.map((type) => (
-        <TypeTile
-          icon={TYPE_ICONS[type]}
-          key={type}
-          label={HOSTEL_TYPE_LABELS[type]}
-          onPress={() => router.push(`${browseHref}?type=${type}`)}
-        />
-      ))}
-    </View>
-  );
-}
-
-function TypeTile({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-}) {
-  const { colors } = useAppTheme();
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      className="flex-1 items-center gap-1.5 rounded-2xl border border-border bg-card py-3 active:opacity-70"
-      onPress={onPress}
-    >
-      <Ionicons color={colors.primary} name={icon} size={22} />
-      <Text className="text-xs font-medium" numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
+    <Grid gap={10} maxColumns={4} minCellWidth={78}>
+      {[
+        <InfoTile
+          icon="grid-outline"
+          key="all"
+          label="All"
+          onPress={() => router.push(browseHref)}
+        />,
+        ...HOSTEL_TYPES.map((type) => (
+          <InfoTile
+            icon={TYPE_ICONS[type]}
+            key={type}
+            label={HOSTEL_TYPE_LABELS[type]}
+            onPress={() => router.push(`${browseHref}?type=${type}`)}
+          />
+        )),
+      ]}
+    </Grid>
   );
 }
 
@@ -702,8 +693,6 @@ function PremiumHostels({
 }
 
 function BrowseByFacility({ browseHref }: { browseHref: string }) {
-  const { colors } = useAppTheme();
-
   return (
     <View>
       <SectionHeader
@@ -711,25 +700,25 @@ function BrowseByFacility({ browseHref }: { browseHref: string }) {
         title="Browse by facility"
       />
 
-      <View className="flex-row flex-wrap gap-3">
+      {/*
+        `w-[47%]` before this — two per row at every width, with the arithmetic
+        left to a percentage that has to stay under half once the gap is counted.
+        The grid measures instead, so a wide handset fits three and the last row
+        never leaves a hole.
+      */}
+      <Grid gap={10} maxColumns={3} minCellWidth={104}>
         {BROWSE_FACILITIES.map((facility) => (
-          <Pressable
-            accessibilityRole="button"
-            className="w-[47%] flex-row items-center gap-3 rounded-2xl border border-border bg-card px-4 py-4 active:opacity-70"
+          <InfoTile
+            icon={facilityIcon(facility)}
             key={facility}
+            label={facility}
             onPress={() =>
               router.push(`${browseHref}?facility=${encodeURIComponent(facility)}`)
             }
-          >
-            <Ionicons
-              color={colors.mutedForeground}
-              name={facilityIcon(facility)}
-              size={20}
-            />
-            <Text variant="label">{facility}</Text>
-          </Pressable>
+            tone="neutral"
+          />
         ))}
-      </View>
+      </Grid>
     </View>
   );
 }

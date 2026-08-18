@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Linking, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
+import { Avatar } from "@/components/ui/avatar";
 import { StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -113,6 +114,18 @@ export default function AdminResidentsScreen() {
                 <View key={resident.id}>
                   {index > 0 ? <RowDivider /> : null}
                   <ListRow
+                    /*
+                     * A face per row. Almost nobody here has uploaded a photo,
+                     * so this is the initial circle — and its colour is derived
+                     * from the name, which is what makes two adjacent rows of a
+                     * forty-person roster tell themselves apart at a glance.
+                     */
+                    left={
+                      <Avatar
+                        name={`${resident.firstName} ${resident.lastName}`.trim()}
+                        size="md"
+                      />
+                    }
                     onPress={
                       resident.phone
                         ? () => void Linking.openURL(`tel:${resident.phone}`)

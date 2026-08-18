@@ -93,3 +93,41 @@ export function jobAddress(job: ProviderJob): string {
 export function openJobCount(jobs: ProviderJob[]): number {
   return jobs.filter(isOpenJob).length;
 }
+
+/**
+ * The icon for a job's trade.
+ *
+ * Providers work one or two categories and scan a list for theirs; a column of
+ * identical rows makes them read every title. The keys are
+ * `maintenanceCategorySchema`'s eleven values exactly — a category the server
+ * adds later falls back to the generic tool rather than rendering blank, which
+ * is the failure mode that looks like a broken build.
+ */
+const CATEGORY_ICONS: Record<string, string> = {
+  APPLIANCE: "hardware-chip-outline",
+  CARPENTRY: "hammer-outline",
+  CLEANING: "sparkles-outline",
+  ELECTRICAL: "flash-outline",
+  HEALTH: "medkit-outline",
+  INTERNET: "wifi-outline",
+  OTHER: "construct-outline",
+  PAINTING: "color-palette-outline",
+  PLUMBING: "water-outline",
+  ROOM_REPAIR: "bed-outline",
+  WATER: "water-outline",
+};
+
+export function jobCategoryIcon(category: string): string {
+  return CATEGORY_ICONS[category] ?? "construct-outline";
+}
+
+/** Open jobs whose priority is one somebody should look at today. */
+export function urgentJobCount(jobs: ProviderJob[]): number {
+  return jobs.filter((job) => isOpenJob(job) && ["HIGH", "URGENT"].includes(job.priority))
+    .length;
+}
+
+/** Jobs this provider has finished. The number worth showing them. */
+export function completedJobCount(jobs: ProviderJob[]): number {
+  return jobs.filter((job) => job.status === "COMPLETED").length;
+}

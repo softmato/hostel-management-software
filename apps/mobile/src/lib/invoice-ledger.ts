@@ -111,3 +111,73 @@ export function totalOutstanding(invoices: ResidentInvoice[]): number {
     0,
   );
 }
+
+/** Is this month still an obligation? The same list `totalOutstanding` sums. */
+export function isOpenInvoice(invoice: ResidentInvoice): boolean {
+  return OPEN_STATUSES.includes(invoice.status);
+}
+
+export type PaymentFilter = "all" | "open" | "settled";
+
+export function filterInvoices(
+  invoices: ResidentInvoice[],
+  filter: PaymentFilter,
+): ResidentInvoice[] {
+  if (filter === "all") {
+    return invoices;
+  }
+
+  return invoices.filter((invoice) =>
+    filter === "open" ? isOpenInvoice(invoice) : !isOpenInvoice(invoice),
+  );
+}
+
+export type PaymentStats = {
+  /** The month the resident is actually here to deal with, or null. */
+  nextDue: ResidentInvoice | null;
+  /** The most recent month with money against it, for "you last paid…". */
+  lastPaid: ResidentInvoice | null;
+  overdueCount: number;
+  settledCount: number;
+};
+
+/**
+ * The four facts the payments screen leads with, ported from the web's `stats`.
+ *
+ * **`nextDue` is the earliest open month, not the newest.** The list arrives
+ * newest-first, so taking the first open row would point a resident who is two
+ * months behind at August while July quietly ages into a default. The one to
+ * settle first is always the oldest debt.
+ *
+ * A missing `dueDate` sorts last rather than first: an invoice with no date is
+ * not urgent, and treating absent as epoch-zero would put it above every real
+ * one.
+ */
+export function paymentStats(invoices: ResidentInvoice[]): PaymentStats {
+  const open = invoices.filter(isOpenInvoice);
+
+  const nextDue =
+    [...open].sort((left, right) => {
+      const leftDue = left.dueDate ? Date.parse(left.dueDate) : Number.POSITIVE_INFINITY;
+      const rightDue = right.dueDate ? Date.parse(right.dueDate) : Number.POSITIVE_INFINITY;
+
+      return leftDue - rightDue;
+    })[0] ?? null;
+
+  const lastPaid =
+    [...invoices]
+      .filter((invoice) => invoice.paidAmount > 0)
+      .sort((left, right) => {
+        const leftPaid = left.paidDate ? Date.parse(left.paidDate) : 0;
+        const rightPaid = right.paidDate ? Date.parse(right.paidDate) : 0;
+
+        return rightPaid - leftPaid;
+      })[0] ?? null;
+
+  return {
+    lastPaid,
+    nextDue,
+    overdueCount: invoices.filter((invoice) => invoice.status === "OVERDUE").length,
+    settledCount: invoices.filter((invoice) => !isOpenInvoice(invoice)).length,
+  };
+}

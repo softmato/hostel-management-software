@@ -5,6 +5,7 @@ import { View } from "react-native";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { Grid, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
@@ -38,6 +39,16 @@ import { humanizeEnum } from "@/lib/format";
  * configured its rooms does not have. `occupancyRate` returns null there rather
  * than 0: an admin with forty residents reading "0% occupied" stops believing
  * the rest of the screen, and they would be right to.
+ *
+ * ## Against `hostel-admin-dashboard-page.tsx` (§5.5)
+ *
+ * The web's metric grid is ported for the two blocks that are *figures read
+ * together* — occupancy and listing reach — because that is what a tile row is
+ * for. **"Needs attention" stays rows**, and deliberately: those are a queue,
+ * each one is a destination, and a tile with a number on it is a worse tap
+ * target than a row with a label and a chevron. The rest of the web dashboard —
+ * fee schedules, billing runs, reconciliation, warden management, room config,
+ * nine report views — stays in the browser, which is what the More tab says.
  */
 type Overview = { hostel: AdminHostel | null; report: AdminReport };
 
@@ -117,19 +128,37 @@ export default function AdminOverviewScreen() {
 
         <View>
           <SectionHeader title="Occupancy" />
-          <Card>
-            <ListRow
-              title="Residents"
+          {/*
+            Tiles rather than three label/value rows. These are the numbers an
+            owner glances at, and a glance is what a tile is for — a stack of
+            rows reads left-to-right, one at a time, which is the wrong shape for
+            three figures that mean something together.
+          */}
+          <Grid gap={10} maxColumns={3} minCellWidth={104}>
+            <StatTile
+              icon="people-outline"
+              label="Residents"
+              tone="brand"
+              trend="Active right now"
               value={String(report.residents)}
             />
-            <RowDivider />
-            <ListRow title="Vacant beds" value={String(report.vacantBeds)} />
-            <RowDivider />
-            <ListRow
-              title="Occupied"
-              value={occupancy === null ? "Rooms not configured" : `${occupancy}%`}
+            <StatTile
+              icon="bed-outline"
+              label="Vacant"
+              tone={report.vacantBeds > 0 ? "warning" : "neutral"}
+              trend={report.vacantBeds > 0 ? "Beds to fill" : "Full"}
+              value={String(report.vacantBeds)}
             />
-          </Card>
+            <StatTile
+              icon="pie-chart-outline"
+              label="Occupied"
+              tone={occupancy === null ? "neutral" : "success"}
+              // Null, not zero. An owner with forty residents reading "0%"
+              // stops believing the rest of the screen, and would be right to.
+              trend={occupancy === null ? "Configure rooms" : "Of configured beds"}
+              value={occupancy === null ? "—" : `${occupancy}%`}
+            />
+          </Grid>
         </View>
 
         <View>
@@ -178,20 +207,36 @@ export default function AdminOverviewScreen() {
 
         <View>
           <SectionHeader subtitle="Last 30 days" title="Your listing" />
-          <Card>
-            <ListRow title="Views" value={String(report.publicViewsLast30Days)} />
-            <RowDivider />
-            <ListRow
-              title="Unique visitors"
+          <Grid gap={10} maxColumns={3} minCellWidth={104}>
+            <StatTile
+              icon="eye-outline"
+              label="Views"
+              tone="neutral"
+              trend="Last 30 days"
+              value={String(report.publicViewsLast30Days)}
+            />
+            <StatTile
+              icon="person-outline"
+              label="Visitors"
+              tone="neutral"
+              trend="Unique"
               value={String(report.uniquePublicVisitors)}
             />
+            {/*
+              Absent rather than "Unknown" when the hostel read failed: a warden
+              scoped to several hostels has no single profile to show, which is
+              not the same as a listing whose status could not be determined.
+            */}
             {hostel ? (
-              <>
-                <RowDivider />
-                <ListRow title="Listing status" value={humanizeEnum(hostel.status)} />
-              </>
+              <StatTile
+                icon="storefront-outline"
+                label="Listing"
+                tone={hostel.status === "PUBLISHED" ? "success" : "warning"}
+                trend="Public profile"
+                value={humanizeEnum(hostel.status)}
+              />
             ) : null}
-          </Card>
+          </Grid>
         </View>
       </View>
     </Screen>

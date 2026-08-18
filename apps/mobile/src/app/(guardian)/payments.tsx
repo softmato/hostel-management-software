@@ -13,7 +13,12 @@ import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
 import { formatDueLabel, formatMoney, formatPeriod } from "@/lib/format";
-import { canSee, guardianOutstanding, receiptsByMonth } from "@/lib/guardian";
+import {
+  canSee,
+  guardianOutstanding,
+  guardianPaidAmount,
+  receiptsByMonth,
+} from "@/lib/guardian";
 import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api";
 
 /**
@@ -79,6 +84,7 @@ export default function GuardianPaymentsScreen() {
   }
 
   const receipts = receiptsByMonth(dashboard.receipts);
+  const paid = guardianPaidAmount(dashboard);
 
   return (
     <Screen
@@ -97,6 +103,22 @@ export default function GuardianPaymentsScreen() {
               ? `${dashboard.summary?.unpaidCount} month(s) unpaid`
               : "Nothing outstanding"}
           </Text>
+
+          {/*
+            The paid side, which the web shows as a metric and this screen did
+            not show at all — though it sums the rows directly below. An
+            outstanding figure on its own reads as a debt; beside what has been
+            settled it reads as a rhythm with one month left in it.
+          */}
+          {paid !== null ? (
+            <View className="flex-row items-center gap-2 border-t border-border pt-2">
+              <Badge label="Paid" tone="success" />
+              <Text className="flex-1" variant="muted">
+                {`${formatMoney(paid)} across the invoices shared with you.`}
+              </Text>
+            </View>
+          ) : null}
+
           <Text className="pt-1" variant="muted">
             Guardians can follow dues here but cannot settle them. Payment is made from
             the resident&apos;s own portal, or directly with the hostel office.

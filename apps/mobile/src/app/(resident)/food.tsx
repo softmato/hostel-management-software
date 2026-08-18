@@ -8,6 +8,7 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { Grid } from "@/components/ui/layout";
 import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
@@ -33,6 +34,7 @@ import {
   uploadFoodPhoto,
 } from "@/lib/resident-api";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import { privateAssetSource, uploadAsset } from "@/lib/uploads";
 
 /**
@@ -212,23 +214,31 @@ function MealCard({
   note: string;
   timing: string;
 }) {
+  const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
 
   return (
     <Card className="gap-2">
-      <View className="flex-row items-center gap-2">
-        <Ionicons name={MEAL_ICONS[mealType]} size={16} />
-        <Text className="flex-1" variant="label">
-          {humanizeEnum(mealType)}
-        </Text>
-        {timing ? <Text variant="caption">{timing}</Text> : null}
+      <View className="flex-row items-start gap-3">
+        <View className="h-11 w-11 items-center justify-center rounded-xl bg-brand-soft">
+          <Ionicons color={colors.primary} name={MEAL_ICONS[mealType]} size={19} />
+        </View>
+
+        <View className="flex-1 gap-1">
+          <View className="flex-row items-center justify-between gap-2">
+            <Text className="flex-1" variant="label">
+              {humanizeEnum(mealType)}
+            </Text>
+            {timing ? <Badge label={timing} tone="success" /> : null}
+          </View>
+
+          <Text variant={items.length ? "body" : "muted"}>
+            {items.length ? items.join(", ") : "Not published for this day."}
+          </Text>
+
+          {note ? <Text variant="caption">{note}</Text> : null}
+        </View>
       </View>
-
-      <Text variant={items.length ? "body" : "muted"}>
-        {items.length ? items.join(", ") : "Not published for this day."}
-      </Text>
-
-      {note ? <Text variant="caption">{note}</Text> : null}
 
       {/*
         Rating is per meal per day, because that is what the server aggregates:
@@ -394,7 +404,12 @@ function PhotoGallery({
     setBusy(true);
 
     try {
-      const photoAssetId = await uploadAsset(asset, { kind: "GENERIC" });
+      const photoAssetId = await uploadAsset(asset, {
+        kind: "GENERIC",
+        // Every other call site names the task; this one did not, so the
+        // toaster and the new shade notification both said "Uploading file".
+        label: "Food photo",
+      });
 
       await uploadFoodPhoto({
         date: new Date().toISOString(),
@@ -410,6 +425,18 @@ function PhotoGallery({
       setBusy(false);
     }
   }, [onUploaded]);
+
+  /*
+   * The grid and the viewer are built from the *same* slice, so the tapped tile
+   * and the page it opens cannot drift apart — indexing a 12-tile grid into an
+   * unsliced list is how a gallery opens on the wrong photo.
+   */
+  const shown = photos.slice(0, 12);
+  const items = shown.map((photo) => ({
+    assetId: photo.photoAssetId,
+    caption: [photo.caption, formatDate(photo.date)].filter(Boolean).join(" · "),
+    title: humanizeEnum(photo.mealType),
+  }));
 
   return (
     <View>
@@ -438,24 +465,48 @@ function PhotoGallery({
           </Text>
         </Card>
       ) : (
-        <View className="flex-row flex-wrap gap-2">
-          {photos.slice(0, 12).map((photo) => (
-            <View className="gap-1" key={photo.id}>
+        /*
+         * `<Grid>` rather than a fixed 104dp tile: three of those plus their
+         * gaps need 328dp, and a 320dp phone has about 280 after the screen's
+         * own padding — so the third tile wrapped to its own line and left a
+         * hole. The grid measures what it was given and fits what fits.
+         */
+        <Grid gap={8} maxColumns={3} minCellWidth={96}>
+          {shown.map((photo, index) => (
+            <Pressable
+              accessibilityLabel={`${humanizeEnum(photo.mealType)} on ${formatDate(photo.date)}`}
+              accessibilityRole="imagebutton"
+              className="gap-1 active:opacity-80"
+              key={photo.id}
+              onPress={() => openAssetViewer(items, index)}
+            >
               <Image
                 contentFit="cover"
                 source={privateAssetSource(photo.photoAssetId, token, "THUMBNAIL")}
                 style={{
+                  aspectRatio: 1,
                   backgroundColor: colors.muted,
                   borderRadius: 12,
-                  height: 104,
-                  width: 104,
+                  width: "100%",
                 }}
               />
               <Badge label={humanizeEnum(photo.mealType)} />
-              <Text variant="caption">{formatDate(photo.date)}</Text>
-            </View>
+              {/*
+                The caption is stored by the server and shown by the web, and
+                was dropped here. Meal photos are captioned with the thing worth
+                knowing — "this was Tuesday's dal" — so a grid without them is
+                twelve squares of curry.
+              */}
+              {photo.caption ? (
+                <Text numberOfLines={2} variant="caption">
+                  {photo.caption}
+                </Text>
+              ) : (
+                <Text variant="caption">{formatDate(photo.date)}</Text>
+              )}
+            </Pressable>
           ))}
-        </View>
+        </Grid>
       )}
     </View>
   );

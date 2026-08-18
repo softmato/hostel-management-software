@@ -148,3 +148,30 @@ export function receiptsByMonth(receipts: GuardianReceipt[]): Map<string, Guardi
 
   return map;
 }
+
+/**
+ * What the ward has actually paid across the invoices the guardian can see.
+ *
+ * The web draws this as a "Paid Amount" metric and mobile never showed it,
+ * though the rows it sums were already on screen. It is the reassuring half of
+ * the pair — a parent looking at "NPR 8,500 outstanding" with no sense of what
+ * has been settled reads a debt rather than a rhythm.
+ *
+ * **Summed from `paidAmount`, not from status.** A `PARTIAL` month has real
+ * money against it, and counting only `PAID` rows would report less than the
+ * hostel has received. The qualifier "across shared invoices" is the honest one:
+ * the guardian sees the invoices the resident shared and no others, so this is
+ * not the ward's lifetime total and must never be labelled as one.
+ */
+export function guardianPaidAmount(
+  dashboard: GuardianDashboard | null | undefined,
+): number | null {
+  if (!canSee(dashboard, "canViewPayments") || !dashboard) {
+    return null;
+  }
+
+  return dashboard.payments.reduce(
+    (sum, payment) => sum + Math.max(payment.paidAmount, 0),
+    0,
+  );
+}

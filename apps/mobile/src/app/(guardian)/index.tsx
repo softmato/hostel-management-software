@@ -5,7 +5,9 @@ import { View } from "react-native";
 import { GuardianWardCard } from "@/components/guardian-ward-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge, StatusPill } from "@/components/ui/badge";
+import { MealRow } from "@/components/meal-row";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { Grid, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
@@ -13,8 +15,13 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
-import { formatPeriod, humanizeEnum } from "@/lib/format";
-import { canSee, sharesNothing } from "@/lib/guardian";
+import { formatMoney, formatPeriod, humanizeEnum } from "@/lib/format";
+import {
+  canSee,
+  guardianDueAmount,
+  guardianPaidAmount,
+  sharesNothing,
+} from "@/lib/guardian";
 import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api";
 
 /**
@@ -35,6 +42,21 @@ import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api
  * states something about the hostel that this app has no basis for. So each
  * block below is behind `canSee(...)`, and a guardian who was granted nothing
  * gets one honest card instead of five empty ones.
+ *
+ * ## Against `guardian-dashboard-page.tsx` (§5.2)
+ *
+ * The web's metric row is ported, with the same permission gating: the tiles
+ * are built from what is shared, so this row can legitimately hold one tile or
+ * three. **"Paid" is new to mobile** — every row it sums was already on screen,
+ * but a parent looking at an outstanding figure with no sense of what has been
+ * settled reads a debt rather than a rhythm.
+ *
+ * Still not ported, and still deliberate: the web's **"Make a Payment" button**
+ * (there is no guardian payment route anywhere in `apps/web`, so it did
+ * nothing), and its **"Emergency Status: Normal"** tile on the safety page (the
+ * payload has no SOS field, so it printed "Normal" whether or not an alert was
+ * live). Telling a parent there is no emergency without having asked is the one
+ * thing these screens must never do.
  */
 export default function GuardianHomeScreen() {
   const guardian = useResource<GuardianDashboard>(
@@ -131,32 +153,38 @@ export default function GuardianHomeScreen() {
                 Payment" button with nothing behind it, which is worse than no
                 button at all.
               */}
-              <Text variant="caption">
+              <Text className="flex-1" variant="caption">
                 Payment is made from the resident&apos;s portal
               </Text>
             </View>
           </Card>
         ) : null}
 
+        <GuardianMetrics dashboard={dashboard} />
+
         {canSee(dashboard, "canViewFood") ? (
           <View>
             <SectionHeader subtitle="What the kitchen is serving" title="Today's meals" />
-            <Card>
+            <Card className="gap-2">
               {dashboard.food.length === 0 ? (
                 <EmptyState
                   description="The hostel has not published a routine for today."
                   title="No menu today"
                 />
               ) : (
-                dashboard.food.map((meal, index) => (
-                  <View key={meal.id}>
-                    {index > 0 ? <RowDivider /> : null}
-                    <ListRow
-                      subtitle={meal.items.join(", ") || undefined}
-                      title={humanizeEnum(meal.mealType)}
-                      value={meal.timing || undefined}
-                    />
-                  </View>
+                /*
+                 * The same meal block the resident's own screens use. A parent
+                 * and their child looking at today's dinner should be looking at
+                 * the same thing — and the items get two lines rather than a
+                 * truncated row, which is where the answer actually is.
+                 */
+                dashboard.food.map((meal) => (
+                  <MealRow
+                    items={meal.items}
+                    key={meal.id}
+                    mealType={meal.mealType}
+                    timing={meal.timing}
+                  />
                 ))
               )}
             </Card>
@@ -231,5 +259,76 @@ export default function GuardianHomeScreen() {
         ) : null}
       </View>
     </Screen>
+  );
+}
+
+/**
+ * The web's metric row, gated the same way everything else on this screen is.
+ *
+ * The tiles are **collected**, not rendered with `null` holes: a guardian who
+ * shared only night status gets one tile filling the row rather than one tile
+ * and two gaps where the finances would have been. `<Grid>` then fits whatever
+ * survived to the width of the phone.
+ */
+function GuardianMetrics({ dashboard }: { dashboard: GuardianDashboard }) {
+  const paid = guardianPaidAmount(dashboard);
+  const due = guardianDueAmount(dashboard);
+  const tiles = [];
+
+  if (due !== null) {
+    tiles.push(
+      <StatTile
+        icon="wallet-outline"
+        key="due"
+        label="Due"
+        tone={due > 0 ? "warning" : "success"}
+        trend={
+          (dashboard.summary?.unpaidCount ?? 0) > 0
+            ? `${dashboard.summary?.unpaidCount} unpaid`
+            : "Nothing owed"
+        }
+        value={formatMoney(due)}
+      />,
+    );
+  }
+
+  if (paid !== null) {
+    tiles.push(
+      <StatTile
+        icon="receipt-outline"
+        key="paid"
+        label="Paid"
+        tone="success"
+        // The qualifier matters: the guardian sees the invoices the resident
+        // shared and no others, so this is not a lifetime total.
+        trend="Across shared invoices"
+        value={formatMoney(paid)}
+      />,
+    );
+  }
+
+  if (canSee(dashboard, "canViewSafety") && dashboard.safety) {
+    tiles.push(
+      <StatTile
+        icon="moon-outline"
+        key="safety"
+        label="Night"
+        tone={dashboard.safety.status === "VERIFIED" ? "success" : "neutral"}
+        // A date, never a time — `asOf` is truncated by the serializer and
+        // deriving a time from it is the surveillance detail §4.1 rules out.
+        trend={dashboard.safety.asOf ? `As of ${dashboard.safety.asOf}` : "Not verified"}
+        value={humanizeEnum(dashboard.safety.status)}
+      />,
+    );
+  }
+
+  if (tiles.length === 0) {
+    return null;
+  }
+
+  return (
+    <Grid gap={10} maxColumns={3} minCellWidth={104}>
+      {tiles}
+    </Grid>
   );
 }

@@ -9,6 +9,7 @@ import {
   canSee,
   guardianDueAmount,
   guardianOutstanding,
+  guardianPaidAmount,
   NO_GUARDIAN_PERMISSIONS,
   permissionsOf,
   receiptsByMonth,
@@ -189,5 +190,49 @@ describe("receiptsByMonth", () => {
 
   it("is empty when receipts were not shared, so a row shows a dash", () => {
     expect(receiptsByMonth([]).size).toBe(0);
+  });
+});
+
+describe("guardianPaidAmount", () => {
+  it("sums what has been paid across the shared invoices", () => {
+    const total = guardianPaidAmount(
+      dashboard({
+        payments: [
+          payment({ id: "a", paidAmount: 5000, status: "PAID" }),
+          payment({ id: "b", paidAmount: 2000, status: "PARTIAL" }),
+        ],
+        permissions: { ...NO_GUARDIAN_PERMISSIONS, canViewPayments: true },
+      }),
+    );
+
+    expect(total).toBe(7000);
+  });
+
+  it("counts a partial month, which a status filter would drop", () => {
+    const total = guardianPaidAmount(
+      dashboard({
+        payments: [payment({ paidAmount: 2000, status: "PARTIAL" })],
+        permissions: { ...NO_GUARDIAN_PERMISSIONS, canViewPayments: true },
+      }),
+    );
+
+    expect(total).toBe(2000);
+  });
+
+  it("reports null rather than zero when payments are not shared", () => {
+    // A confident "NPR 0 paid" at a guardian who was never granted finances
+    // states something about the ward that this app has no basis for.
+    expect(
+      guardianPaidAmount(
+        dashboard({
+          payments: [payment({ paidAmount: 5000, status: "PAID" })],
+          permissions: NO_GUARDIAN_PERMISSIONS,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("survives a missing dashboard", () => {
+    expect(guardianPaidAmount(null)).toBeNull();
   });
 });
