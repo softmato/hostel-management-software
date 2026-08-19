@@ -161,7 +161,7 @@ export default function ActivateScreen() {
         { style: "cancel", text: "Cancel" },
         {
           onPress: () => {
-            void endSession().finally(() => router.replace("/(public)"));
+            void endSession().finally(() => router.replace("/(browse)"));
           },
           style: "destructive",
           text: "Sign out",

@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { useCallback, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 
@@ -27,7 +26,6 @@ import {
   MAX_DELETION_REASON,
   PATHWAY_COPY,
 } from "@/lib/account-pathways";
-import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { endSession } from "@/lib/auth-session";
 import { formatDate } from "@/lib/format";
@@ -83,13 +81,18 @@ export default function SettingsScreen() {
     useCallback(() => getDeletionStatus(), []),
   );
 
-  const openPrivacyPolicy = useCallback(async () => {
-    /*
-     * The public policy page, opened in the OS browser rather than a WebView: it is
-     * a legal document people should be able to see the address of, and
-     * `openBrowserAsync` gives them the URL bar and their own reader mode.
-     */
-    await WebBrowser.openBrowserAsync(`${API_BASE_URL}/privacy`);
+  /*
+   * The policy is a screen in this app now, not a trip to the browser.
+   *
+   * It used to open the website's `/privacy` in a Chrome Custom Tab, on
+   * the argument that a legal document should show its address. What that cost
+   * was worse: the one row that answers "what do you do with my data" was the
+   * one row that left the product to answer it, mid-way through the screen
+   * where someone is deciding whether to delete their account. Same document,
+   * from the same site configuration — see `app/legal/privacy.tsx`.
+   */
+  const openPrivacyPolicy = useCallback(() => {
+    router.push("/legal/privacy");
   }, []);
 
   return (
@@ -137,7 +140,7 @@ export default function SettingsScreen() {
           <Card>
             <ListRow
               icon="document-text-outline"
-              onPress={() => void openPrivacyPolicy()}
+              onPress={openPrivacyPolicy}
               subtitle="What we collect, why, and for how long"
               title="Privacy policy"
             />
@@ -541,7 +544,7 @@ function DeletionPanel({
                */
               if (result.data.pathway === "SELF_SERVICE") {
                 await endSession();
-                router.replace("/(public)");
+                router.replace("/(browse)");
                 return;
               }
 

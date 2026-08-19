@@ -294,6 +294,23 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
       },
       {
         description:
+          "Privacy, terms, About, FAQ and landing-page copy — shared by the website and the mobile app.",
+        href: "/platform/config/content",
+        icon: "file",
+        keywords: [
+          "content",
+          "copy",
+          "about",
+          "faq",
+          "privacy",
+          "terms",
+          "text",
+          "wording",
+        ],
+        label: "Page Content",
+      },
+      {
+        description:
           "Terms of service and privacy policy content served on the public site.",
         href: "/platform/config/legal",
         icon: "scroll",

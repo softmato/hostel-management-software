@@ -7,6 +7,8 @@ import {
 } from "@/components/site-config-provider";
 import { Mail, Phone, MapPin, Clock, MessageSquare, HelpCircle } from "lucide-react";
 
+import { fillPlaceholders } from "@/lib/site-content";
+
 type SiteIdentity = PublicSiteConfig["identity"];
 
 const buildContactMethods = (identity: SiteIdentity) => [
@@ -36,42 +38,34 @@ const buildContactMethods = (identity: SiteIdentity) => [
   },
 ];
 
-const buildFaqs = (siteName: string) => [
-  {
-    question: "How do I create an account?",
-    answer:
-      "Click the Sign Up button on the top right corner of any page. Fill in your details, verify your email or phone via OTP, and you are ready to go.",
-  },
-  {
-    question: "How do I list my hostel?",
-    answer:
-      "Navigate to the Register Hostel page and fill out the registration form. Our team will review and verify your listing within 2–3 business days.",
-  },
-  {
-    question: "Can I update my personal information?",
-    answer:
-      "Yes, you can update your name, email, phone, and profile photo from your account settings after logging in.",
-  },
-  {
-    question: "How do I report an issue with a hostel?",
-    answer:
-      "Use the inquiry system on the hostel detail page, or reach out to our support team directly via email or phone.",
-  },
-  {
-    question: `Is my data secure on ${siteName}?`,
-    answer:
-      "Absolutely. We use encryption for all data in transit and at rest, and we never share your personal information with third parties without your consent.",
-  },
-];
+/**
+ * The FAQ moved to Platform → Website Config → Page Content (`content.faq`),
+ * because the app's Contact screen asks and answers the same five questions.
+ *
+ * Two of the stored answers name a control — how to create an account, how to
+ * list a hostel — and each client rewrites those for its own chrome: the site
+ * says "the Sign Up button on the top right corner of any page", the app says
+ * "the Profile tab". The substitution is keyed on the question rather than on
+ * an index so reordering the list in the admin panel cannot mis-target it.
+ */
+const WEB_ANSWERS: Record<string, string> = {
+  "How do I create an account?":
+    "Click the Sign Up button on the top right corner of any page. Fill in your details, verify your email or phone via OTP, and you are ready to go.",
+  "How do I list my hostel?":
+    "Navigate to the Register Hostel page and fill out the registration form. Our team will review and verify your listing within 2–3 business days.",
+};
 
 export function PublicContactPage() {
   // Support channels come from Platform → Website Config → Site Identity.
-  const { identity } = useSiteConfig();
+  const { content, identity } = useSiteConfig();
   const contactMethods = buildContactMethods(identity);
-  const faqs = buildFaqs(identity.siteName);
+  const faqs = content.faq.map((faq) => ({
+    answer: fillPlaceholders(WEB_ANSWERS[faq.question] ?? faq.answer, identity),
+    question: fillPlaceholders(faq.question, identity),
+  }));
 
   return (
-    <PublicShell>
+    <PublicShell active="contact">
       <div className="mx-auto max-w-3xl px-6 py-20">
         {/* Header */}
         <div className="mb-16 text-center">

@@ -30,7 +30,6 @@ export type HomeRoute =
   | "/(cook)"
   | "/(guardian)"
   | "/(provider)"
-  | "/(public)"
   | "/(resident)"
   | "/activate";
 
@@ -53,14 +52,19 @@ export type AccountShape = {
  * student has no account yet and nothing to sign in with, and a login form is
  * the fastest way to lose them.
  *
- * The visible difference between signed-out and signed-in is what sits at the
- * bottom of the screen: a Login call to action, or that role's tabs.
+ * **And it goes to the same place a signed-in browser does.** There used to be a
+ * second group, `(public)`: the identical discovery screens in a plain stack
+ * with a floating Log in pill instead of tabs. Two groups meant two copies of
+ * every navigation decision, a pill hovering over the home screen of someone who
+ * had nothing to sign in with, and a Compare tab that existed or did not depending
+ * on whether you had an account — for screens that read the same public API
+ * either way.
  *
- * That difference is why signed-out lands on `/(public)` and a signed-in
- * browser lands on `/(browse)`. They render the same screens from the same
- * components; they differ only in navigator — a stack with a floating Log in
- * pill, or four tabs — and expo-router cannot switch one group between the two
- * at runtime.
+ * Now the shell is one shell. `(browse)` renders for everyone who is not routed
+ * to a role dashboard, and the only thing a session changes is the card at the
+ * top of the Profile tab: your account, or an invitation to make one. Every
+ * other audience — resident, guardian, cook, admin, provider — still goes
+ * straight to its own tabs, which is what this function is for.
  *
  * **A session always reaches its role's home.** There used to be one exception:
  * an account flagged `mustChangePassword` — a cook or warden holding the
@@ -76,7 +80,7 @@ export type AccountShape = {
  */
 export function resolveHome(account: AccountShape | null): HomeRoute {
   if (!account) {
-    return "/(public)";
+    return "/(browse)";
   }
 
   switch (account.role) {
@@ -93,8 +97,7 @@ export function resolveHome(account: AccountShape | null): HomeRoute {
     case ROLE.SUPERADMIN:
     case ROLE.PLATFORM_MODERATOR:
       // Platform administration is web-only by design; staff get the browsing
-      // app. The signed-out stack would strand them — it has no sign-out,
-      // because it is built for someone who has never signed in.
+      // app, where the Profile tab still has a sign-out.
       return "/(browse)";
     case ROLE.PUBLIC:
       return account.isApprovedProvider ? "/(provider)" : "/(browse)";

@@ -3,15 +3,12 @@
 import {
   ArrowRight,
   BedDouble,
-  Bell,
   Building2,
   ChevronRight,
   HeartHandshake,
   LayoutDashboard,
-  QrCode,
   ShieldCheck,
   Users,
-  Utensils,
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
@@ -34,6 +31,7 @@ import {
 } from "@/app/_components/public-hostel-registration-page";
 import { PublicShell } from "@/app/_components/shared";
 import { useSiteConfig } from "@/components/site-config-provider";
+import { contentIcon, resolveContentPage } from "@/lib/site-content";
 
 const SYMBOLS = "0SCB87675HJGS##&";
 
@@ -65,12 +63,13 @@ const stagger = {
 };
 
 type Feature = {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  tone: "teal" | "platform" | "admin" | "resident" | "guardian";
-  gradient: string;
   accent: string;
+  description: string;
+  gradient: string;
+  icon: LucideIcon;
+  imageIndex: number;
+  title: string;
+  tone: "teal" | "platform" | "admin" | "resident" | "guardian";
 };
 
 const heroSlides = [
@@ -112,104 +111,27 @@ const heroSlides = [
   },
 ];
 
-const features: (Feature & { imageIndex: number })[] = [
-  {
-    icon: LayoutDashboard,
-    title: "Central Dashboard",
-    description:
-      "Real-time occupancy, payments, complaints, staff activity, and reports — all from one command centre.",
-    tone: "platform",
-    gradient: "from-brand-teal/20 to-cyan-400/10",
-    accent: "bg-brand-teal",
-    imageIndex: 0,
-  },
-  {
-    icon: BedDouble,
-    title: "Digital Room & Bed Map",
-    description:
-      "Rooms, bed assignment, vacancy status, room type (1-4 seater), attached bathroom, balcony, and maintenance status per room.",
-    tone: "admin",
-    gradient: "from-blue-500/20 to-indigo-400/10",
-    accent: "bg-blue-500",
-    imageIndex: 1,
-  },
-  {
-    icon: Users,
-    title: "Resident Management + QR",
-    description:
-      "Admin registers residents. System generates unique QR code. Resident scans to activate their dashboard — no manual data entry.",
-    tone: "resident",
-    gradient: "from-emerald-400/20 to-green-400/10",
-    accent: "bg-emerald-500",
-    imageIndex: 2,
-  },
-  {
-    icon: WalletCards,
-    title: "Payments & Fee Tracking",
-    description:
-      "Track monthly fees, deposits, dues, and receipts. Residents upload payment proof (eSewa, Khalti, bank). Admin verifies and issues digital receipts.",
-    tone: "guardian",
-    gradient: "from-amber-400/20 to-orange-400/10",
-    accent: "bg-amber-500",
-    imageIndex: 3,
-  },
-  {
-    icon: Utensils,
-    title: "Food Transparency System",
-    description:
-      "Weekly menu, daily food photos, meal timing, veg/non-veg tracking, and resident food ratings — build trust with residents and guardians.",
-    tone: "teal",
-    gradient: "from-teal-400/20 to-emerald-400/10",
-    accent: "bg-teal-500",
-    imageIndex: 0,
-  },
-  {
-    icon: Bell,
-    title: "Notices & Complaints",
-    description:
-      "Send hostel, fee, holiday, and emergency notices. Residents submit complaints with photo attachments and track resolution status.",
-    tone: "platform",
-    gradient: "from-cyan-400/20 to-sky-400/10",
-    accent: "bg-cyan-500",
-    imageIndex: 1,
-  },
-  {
-    icon: ShieldCheck,
-    title: "Night Safety & SOS",
-    description:
-      "Privacy-first night status (Inside/Outside/Not Verified). SOS button alerts warden and guardian. Emergency contacts and safety guides.",
-    tone: "admin",
-    gradient: "from-rose-400/20 to-pink-400/10",
-    accent: "bg-rose-500",
-    imageIndex: 4,
-  },
-  {
-    icon: HeartHandshake,
-    title: "Guardian Trust Dashboard",
-    description:
-      "Guardians get limited visibility into fee status, food menu, notices, night safety summary, and emergency contact — privacy-first design.",
-    tone: "guardian",
-    gradient: "from-violet-400/20 to-purple-400/10",
-    accent: "bg-violet-500",
-    imageIndex: 5,
-  },
-  {
-    icon: QrCode,
-    title: "Move-in / Move-out Checklist",
-    description:
-      "Digital move-in: document collection, room photos, item checklist, deposit record. Move-out: fee check, damage check, deposit refund.",
-    tone: "teal",
-    gradient: "from-brand-teal/20 to-emerald-400/10",
-    accent: "bg-brand-teal",
-    imageIndex: 2,
-  },
-];
-
-const stats = [
-  { label: "Hostels Onboarded", value: "500+" },
-  { label: "Active Residents", value: "12,000+" },
-  { label: "NPR Managed Monthly", value: "Cr 5+" },
-  { label: "Avg. Occupancy Lift", value: "23%" },
+/**
+ * Presentation only. The nine features' **titles and descriptions** live in the
+ * site config under `content.registerHostel.sections`, because the app shows the
+ * same nine on its Register your hostel screen — see `contentSchema`. What stays
+ * here is what cannot be stored: the tone token, the gradient, and which hero
+ * slide each feature scrolls its image to.
+ *
+ * Indexed by position rather than by title, so an owner rewording "Central
+ * Dashboard" does not silently drop its colour. A tenth section added in the
+ * admin panel falls back to the first chrome entry rather than crashing.
+ */
+const featureChrome: { accent: string; gradient: string; imageIndex: number; tone: Feature["tone"] }[] = [
+  { accent: "bg-brand-teal", gradient: "from-brand-teal/20 to-cyan-400/10", imageIndex: 0, tone: "platform" },
+  { accent: "bg-blue-500", gradient: "from-blue-500/20 to-indigo-400/10", imageIndex: 1, tone: "admin" },
+  { accent: "bg-emerald-500", gradient: "from-emerald-400/20 to-green-400/10", imageIndex: 2, tone: "resident" },
+  { accent: "bg-amber-500", gradient: "from-amber-400/20 to-orange-400/10", imageIndex: 3, tone: "guardian" },
+  { accent: "bg-teal-500", gradient: "from-teal-400/20 to-emerald-400/10", imageIndex: 0, tone: "teal" },
+  { accent: "bg-cyan-500", gradient: "from-cyan-400/20 to-sky-400/10", imageIndex: 1, tone: "platform" },
+  { accent: "bg-rose-500", gradient: "from-rose-400/20 to-pink-400/10", imageIndex: 4, tone: "admin" },
+  { accent: "bg-violet-500", gradient: "from-violet-400/20 to-purple-400/10", imageIndex: 5, tone: "guardian" },
+  { accent: "bg-brand-teal", gradient: "from-brand-teal/20 to-emerald-400/10", imageIndex: 2, tone: "teal" },
 ];
 
 /** The signed-in owner's most recent hostel application, if they have one. */
@@ -225,7 +147,16 @@ async function fetchOwnerApplication(): Promise<OwnerApplication | null> {
 }
 
 export function PublicHostelRegistrationLandingPage() {
-  const siteName = useSiteConfig().identity.siteName;
+  const { content, identity } = useSiteConfig();
+  const siteName = identity.siteName;
+  const page = resolveContentPage(content.registerHostel, identity);
+  const stats = page.highlights;
+  const features: Feature[] = page.sections.map((section, index) => ({
+    ...(featureChrome[index] ?? featureChrome[0]),
+    description: section.body.join(" "),
+    icon: contentIcon(section.icon),
+    title: section.title,
+  }));
   const [currentSlide, setCurrentSlide] = useState(0);
   const [displayedWord, setDisplayedWord] = useState(siteName);
   const [showBottomCta, setShowBottomCta] = useState(false);

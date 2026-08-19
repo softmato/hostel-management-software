@@ -1,19 +1,18 @@
 "use client";
 
-import {
-  ArrowRight,
-  BadgeCheck,
-  FileText,
-  Receipt,
-  ShieldCheck,
-  Sparkles,
-  UserPlus,
-} from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 import { PublicShell } from "@/app/_components/shared";
+import {
+  ContentHeader,
+  ContentIntro,
+  ContentNote,
+  ContentSections,
+} from "@/components/content-sections";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { Button } from "@/components/ui/button";
+import { resolveContentPage } from "@/lib/site-content";
 import { useSessionStore } from "@/stores/session-store";
 
 /**
@@ -35,67 +34,11 @@ import { useSessionStore } from "@/stores/session-store";
  * is not decoration — residents have tried to re-submit an issued receipt as
  * proof of a later payment, and telling them plainly why that does not work is
  * cheaper than the rejection it otherwise becomes.
+ *
+ * That copy now lives in the site config under `content.offerProgram`, because
+ * the app shows the same explainer and a resident must not be able to read two
+ * different accounts of how their rent is matched.
  */
-
-const SECTIONS = [
-  {
-    icon: Sparkles,
-    title: "What the Resident Offer Program is",
-    content: [
-      "Every invoice you receive carries its own reference code — something like RUP-4821-K.",
-      "Quote that code when you pay, and your payment is matched to the right month automatically, usually within minutes instead of waiting on a manual check.",
-      "Verified payments are receipted under the programme, with a certified receipt you can download or forward at any time.",
-    ],
-  },
-  {
-    icon: UserPlus,
-    title: "Who is eligible",
-    content: [
-      "You must be a resident of a hostel that uses this platform — the programme runs on the invoices your hostel issues you.",
-      "Your resident account must be active, with at least one invoice raised against it.",
-      "There is no fee and no minimum. Eligibility is per resident, not per hostel.",
-      "If you are not a resident yet, join a hostel on the platform first — the button below will not be available until then.",
-    ],
-  },
-  {
-    icon: BadgeCheck,
-    title: "What you need to do",
-    content: [
-      "Copy the reference code from your invoice or from the Fees & Payments page in your resident portal.",
-      "Paste it into the remarks, purpose or notes field when you make the transfer or wallet payment.",
-      "If your bank strips that field or does not offer one, pay as normal — your rent still counts. Quoting the code speeds up matching; it is never a condition of payment.",
-    ],
-  },
-  {
-    icon: Receipt,
-    title: "What happens after you pay",
-    content: [
-      "Upload your payment screenshot in the resident portal. We email you straight away to confirm we have it.",
-      "Nothing is credited to your account until your hostel verifies the payment — a submitted proof is not yet a settled payment.",
-      "Once it is verified, we email you a certified receipt as a PDF and keep a copy in your portal to download any time.",
-    ],
-  },
-  {
-    icon: FileText,
-    title: "What is on your receipt",
-    content: [
-      "A receipt number unique to that one payment — no two receipts ever share it, even for the same month.",
-      "The amount paid, the date it was issued, and the exact dates the payment covers.",
-      "The invoice reference code it was matched against, and a Resident Offer Program certification stamp.",
-      "If a receipt is ever corrected, the original is marked VOID and a replacement is issued with its own number. Both stay readable.",
-    ],
-  },
-  {
-    icon: ShieldCheck,
-    title: "Why a receipt cannot be used as payment proof",
-    content: [
-      "A receipt is our record that the hostel received money. It is not evidence that you sent it — those are opposite directions.",
-      "Receipts we issue are marked so our system recognises them, and uploading one as proof of a payment will be refused, including a screenshot of it.",
-      "For proof, upload the confirmation from the app or bank you paid with — the screen showing the money leaving your account.",
-      "This protects you as much as the hostel: it is what stops one payment being counted twice and your balance going wrong.",
-    ],
-  },
-];
 
 /**
  * The apply block — the one part of this page that is not the same for everyone.
@@ -196,80 +139,26 @@ function ApplyBlock() {
 }
 
 export function PublicOfferProgramPage() {
-  const siteName = useSiteConfig().identity.siteName;
+  const { content, identity } = useSiteConfig();
+  const page = resolveContentPage(content.offerProgram, identity);
 
   return (
     <PublicShell active="offer-program">
       <div className="mx-auto max-w-3xl px-6 py-20">
-        {/* Header */}
-        <div className="mb-16 text-center">
-          <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary/10">
-            <Sparkles className="size-7 text-primary" />
-          </div>
-          <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground">
-            Resident Offer Program
-          </h1>
-          <p className="mt-3 text-muted-foreground">
-            How your rent payments are matched, verified and receipted
-          </p>
-          <div className="mx-auto mt-4 h-px max-w-xs bg-border" />
-        </div>
+        <ContentHeader
+          icon="sparkles"
+          subtitle={page.subtitle}
+          title="Resident Offer Program"
+        />
 
-        {/* Intro */}
-        <div className="mb-14 text-sm leading-relaxed text-muted-foreground">
-          <p>
-            The Resident Offer Program is how {siteName} makes sure a payment reaches
-            the right month, the right resident and the right hostel — without anyone
-            having to chase it. It costs you one extra step when you pay, and it is the
-            difference between a payment credited the same day and one sitting in a
-            queue waiting to be identified by hand.
-          </p>
-          <p className="mt-4">
-            Anyone can read the rules below. Applying needs a resident account.
-          </p>
-        </div>
+        <ContentIntro paragraphs={page.intro} />
 
-        {/* Sections */}
-        <div className="space-y-12">
-          {SECTIONS.map(({ icon: Icon, title, content }) => (
-            <section key={title}>
-              <div className="mb-4 flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
-                  <Icon className="size-4.5 text-primary" />
-                </span>
-                <h2 className="font-heading text-lg font-semibold text-foreground">
-                  {title}
-                </h2>
-              </div>
-              <ul className="ml-12 space-y-2.5">
-                {content.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-3 text-sm leading-relaxed text-muted-foreground"
-                  >
-                    <span className="mt-1.5 block size-1.5 shrink-0 rounded-full bg-primary/40" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
+        <ContentSections sections={page.sections} />
 
         {/* Apply — the only part of the page that depends on who is reading it. */}
         <ApplyBlock />
 
-        {/* Contact */}
-        <div className="mt-8 rounded-xl border border-border bg-muted/50 p-6 text-sm text-muted-foreground">
-          <p className="font-semibold text-foreground">
-            Not sure about a payment or a receipt?
-          </p>
-          <p className="mt-1">
-            Your hostel administration is the right first stop — they can see your
-            invoices, your payments and every receipt issued to you. You can also
-            reach them from the Fees &amp; Payments page in your resident portal.
-          </p>
-        </div>
+        <ContentNote body={page.noteBody} className="mt-8" title={page.noteTitle} />
       </div>
     </PublicShell>
   );

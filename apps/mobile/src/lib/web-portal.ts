@@ -50,3 +50,35 @@ export function webPortalUrl(baseUrl: string, slug: string, key: WebPortalKey): 
 
   return `${base}/${slug}/admin${path ? `/${path}` : ""}`;
 }
+
+/**
+ * Public website paths the app deliberately hands off to the browser.
+ *
+ * Everything the phone can do natively, it does natively — the whole point of
+ * moving the website's header and footer into the Profile tab. These two are
+ * the exceptions, and each is an exception for a reason that is about the flow
+ * and not about effort:
+ *
+ * - **`registerHostel`** is a long multi-step application with document uploads
+ *   and an ownership-papers step. It is filled in once, at a desk, usually from
+ *   files that live on a computer.
+ * - **`becomeProvider`** is gated on Google sign-in *before* the form, so the
+ *   email on the application is one Google has verified. That gate upgrades the
+ *   very account it signs in — a native flow would have to reimplement it and
+ *   get the upgrade path exactly right, for a form a tradesperson fills in once.
+ *
+ * The app explains each of them natively and in full; only the form itself
+ * leaves. `WebBrowser.openBrowserAsync` keeps the user on top of the app rather
+ * than switching them to Chrome.
+ */
+export const WEB_PUBLIC_PATHS = {
+  becomeProvider: "service-providers",
+  registerHostel: "register-hostel/form",
+} as const;
+
+export type WebPublicKey = keyof typeof WEB_PUBLIC_PATHS;
+
+/** `webPublicUrl("https://site", "registerHostel")` → `https://site/register-hostel/form`. */
+export function webPublicUrl(baseUrl: string, key: WebPublicKey): string {
+  return `${baseUrl.replace(/\/+$/, "")}/${WEB_PUBLIC_PATHS[key]}`;
+}

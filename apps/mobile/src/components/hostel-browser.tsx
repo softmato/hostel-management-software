@@ -34,9 +34,9 @@ import { toastInfo } from "@/lib/toast";
 /**
  * Browse and filter (docs/mockups/mobile/README.md §5).
  *
- * Rendered by both `(public)/hostels` (the signed-out stack, with a back
- * button) and the `(browse)` Search tab — see `components/public-home.tsx` for
- * why there are two groups.
+ * Rendered by the `(browse)` Search tab, and — with a back button — by the
+ * root-level `/hostels` screen that a resident, admin or provider reaches from
+ * their More tab.
  *
  * ## The filter sheet only offers what the server accepts
  *

@@ -397,16 +397,26 @@ export function PublicShell({
   active,
   children,
 }: {
+  /*
+   * Mirrors `PublicHeaderProps["active"]`. The four More-menu entries — About,
+   * Contact, Terms, Privacy — were missing, so those pages could not tell the
+   * header which item to highlight and the dropdown showed nothing selected.
+   */
   active?:
+    | "about"
     | "blog"
     | "browse"
     | "community"
     | "compare"
+    | "contact"
+    | "home"
     | "jobs"
     | "offer-program"
     | "pricing"
+    | "privacy"
     | "providers"
-    | "register-hostel";
+    | "register-hostel"
+    | "terms";
   children: ReactNode;
 }) {
   return (

@@ -79,10 +79,10 @@ export default function LoginScreen() {
 
   return (
     <Screen
-      // Back goes to the public app, not out of the stack: someone who opened
-      // login from the home CTA must be able to change their mind and carry on
+      // Back goes to the app, not out of the stack: someone who opened login
+      // from the Profile tab must be able to change their mind and carry on
       // browsing without an account.
-      header={<AppBar onBack={() => router.replace("/(public)")} showBack title="" />}
+      header={<AppBar onBack={() => router.replace("/(browse)")} showBack title="" />}
       scroll
     >
       <View className="flex-1 justify-between">

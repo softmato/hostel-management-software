@@ -152,8 +152,10 @@ export const MapExplorer = forwardRef<MapHandle, MapExplorerProps>(function MapE
     buildShell({
       accent: colors.primary,
       background: colors.background,
+      border: colors.border,
       card: colors.card,
       foreground: colors.foreground,
+      mutedForeground: colors.mutedForeground,
     }),
   );
 
@@ -337,13 +339,17 @@ export const MapExplorer = forwardRef<MapHandle, MapExplorerProps>(function MapE
 function buildShell({
   accent,
   background,
+  border,
   card,
   foreground,
+  mutedForeground,
 }: {
   accent: string;
   background: string;
+  border: string;
   card: string;
   foreground: string;
+  mutedForeground: string;
 }): string {
   return `<!doctype html>
 <html>
@@ -410,7 +416,7 @@ function buildShell({
      accent, and a second colour here would read as a second kind of thing. */
   .pin.on { height: 26px; width: 26px; }
   /*
-   * The chosen pin's name, drawn as part of the pin itself.
+   * Every pin's name, drawn as part of the pin itself.
    *
    * Not a Leaflet tooltip, which was the first attempt: a tooltip is positioned
    * by writing transform: translate3d(...) on its own element, so the
@@ -420,24 +426,50 @@ function buildShell({
    * sits inside .pin-wrap, which is already counter-rotated, so it stays
    * upright at every bearing without knowing that rotation exists.
    */
-  .pin-label-text {
+  .pin-label {
     background: ${card};
+    border: 1px solid ${border};
     border-radius: 8px;
-    bottom: 30px;
+    bottom: 22px;
     box-shadow: 0 1px 4px rgba(0,0,0,.3);
     color: ${foreground};
-    font: 600 11px/1.35 system-ui, -apple-system, sans-serif;
+    font: 600 10px/1.3 system-ui, -apple-system, sans-serif;
     left: 50%;
-    /* Long names wrap rather than running off the map. */
-    max-width: 160px;
-    padding: 3px 7px;
+    /*
+     * Sixty of these share one screen, so an unselected name stays on a single
+     * line and clips: the labels are there to tell the dots apart, and a wall
+     * of wrapped text would hide the map they sit on.
+     */
+    max-width: 104px;
+    overflow: hidden;
+    padding: 2px 6px;
     /* The pin under it is the tap target; this is only ever read. */
     pointer-events: none;
     position: absolute;
     text-align: center;
+    text-overflow: ellipsis;
     transform: translateX(-50%);
-    white-space: normal;
+    white-space: nowrap;
     width: max-content;
+  }
+  /* The chosen one is the only label allowed to take room: it clears the bigger
+     pin, shows the whole name, and is ringed in the accent — so it reads as the
+     one being looked at even before the line underneath says so. */
+  .pin-label.on {
+    border-color: ${accent};
+    bottom: 30px;
+    font-size: 11px;
+    line-height: 1.35;
+    max-width: 160px;
+    overflow: visible;
+    padding: 3px 7px;
+    white-space: normal;
+  }
+  .pin-label-sub {
+    color: ${mutedForeground};
+    font: 600 8px/1.5 system-ui, -apple-system, sans-serif;
+    letter-spacing: .06em;
+    text-transform: uppercase;
   }
   .me {
     background: #1d7fe0;
@@ -649,7 +681,8 @@ function buildShell({
   var fitted = false;
 
   /**
-   * The pin, and — when it is the chosen one — its name above it.
+   * The pin, its hostel's name, and — when it is the chosen one — a line
+   * underneath saying that this is the one being looked at.
    *
    * Built as DOM rather than as an HTML string, because the name is
    * hostel-supplied text: inlineJson protects the script it travels in, not the
@@ -663,11 +696,20 @@ function buildShell({
     body.className = on ? 'pin on' : 'pin';
     wrap.appendChild(body);
 
-    if (on && name) {
+    if (name) {
       var chip = document.createElement('div');
 
-      chip.className = 'pin-label-text';
+      chip.className = on ? 'pin-label on' : 'pin-label';
       chip.appendChild(document.createTextNode(name));
+
+      if (on) {
+        var sub = document.createElement('div');
+
+        sub.className = 'pin-label-sub';
+        sub.appendChild(document.createTextNode('Viewing now'));
+        chip.appendChild(sub);
+      }
+
       wrap.appendChild(chip);
     }
 
@@ -688,7 +730,11 @@ function buildShell({
       list.forEach(function (marker) {
         var pin = L.marker([marker.lat, marker.lng], {
           icon: icon(marker.id === selected, marker.name),
-          title: marker.name
+          title: marker.name,
+          // Now that every pin carries a name, neighbouring labels overlap. The
+          // chosen one is lifted out of that pile rather than being read
+          // through it.
+          zIndexOffset: marker.id === selected ? 1000 : 0
         });
 
         pin.on('click', function () { post({ id: marker.id, type: 'select' }); });
@@ -828,6 +874,7 @@ function buildShell({
       [selected, id].forEach(function (key) {
         if (key && byId[key]) {
           byId[key].setIcon(icon(key === id, nameById[key]));
+          byId[key].setZIndexOffset(key === id ? 1000 : 0);
         }
       });
 

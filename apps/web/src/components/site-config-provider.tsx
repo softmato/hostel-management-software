@@ -15,6 +15,7 @@ export type { PublicSiteConfig };
  */
 const FALLBACK: PublicSiteConfig = {
   announcement: DEFAULT_SITE_CONFIG.announcement,
+  content: DEFAULT_SITE_CONFIG.content,
   facilities: DEFAULT_SITE_CONFIG.facilities,
   features: DEFAULT_SITE_CONFIG.features,
   hero: DEFAULT_SITE_CONFIG.hero,

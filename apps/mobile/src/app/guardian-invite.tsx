@@ -77,7 +77,7 @@ export default function GuardianInviteScreen() {
           </Text>
           <Button
             label="Browse hostels"
-            onPress={() => router.replace("/(public)")}
+            onPress={() => router.replace("/(browse)")}
             variant="outline"
           />
         </Card>

@@ -9,12 +9,10 @@ import { HostelCard } from "@/components/hostel-card";
 import { HostelShowcase } from "@/components/hostel-showcase";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { FloatingButton } from "@/components/ui/floating-button";
 import { Screen } from "@/components/ui/screen";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useNearby } from "@/hooks/use-nearby";
 import { useResource } from "@/hooks/use-resource";
@@ -40,14 +38,18 @@ import { getSiteConfig, type MobileSiteConfig } from "@/lib/site-config-api";
  *
  * ## Why this is a component and not just a screen
  *
- * Two route groups render it: `(public)`, the signed-out stack, and `(browse)`,
- * the tabs a signed-in `PUBLIC_USER` gets. expo-router cannot switch one group
- * between a stack and a tab navigator at runtime, so there have to be two
- * groups — but there must not be two home screens. Copy the screen and the
- * wording, the chips and the section order drift apart within a release.
+ * It was two: `(public)`, a signed-out stack with a floating Log in pill, and
+ * `(browse)`, the tabs an account got. The pill is gone and so is the group —
+ * one shell renders for everyone now (see `constants/roles.ts`), and this
+ * component is what both used to share. It stays a component because `browseHref`
+ * still differs between the tab that owns Search and any future caller that has
+ * to push it.
  *
- * The two groups differ only in where the browse links point, and whether a tab
- * bar is reserved at the bottom. Everything else is shared.
+ * **The Log in pill is what this screen lost.** It hovered over the home screen
+ * of someone who had opened the app to look at hostels and had no account to
+ * sign in with, and it asked for the one thing a new user does not have before
+ * showing them anything. Signing in is now a card at the top of the Profile tab,
+ * which is where someone goes when they want their account.
  *
  * ## The screen is the discovery mockup, section for section
  *
@@ -71,8 +73,7 @@ import { getSiteConfig, type MobileSiteConfig } from "@/lib/site-config-api";
  * - **"Why students trust …"** — four hard-coded claims with nothing behind
  *   them. `Verified` is already a chip on every card that earns it, which is the
  *   same claim made where it can be checked.
- * - **Its tab bar** — this app's tabs come from `(browse)/_layout.tsx`, and the
- *   signed-out group has none at all by design (§0 shell contract).
+ * - **Its tab bar** — this app's tabs come from `(browse)/_layout.tsx`.
  *
  * ## What this replaced
  *
@@ -114,17 +115,16 @@ const CARD_WIDTH_RATIO = 0.62;
 
 export type PublicHomeProps = {
   /**
-   * Where "View all", the search field and the quick filters go. The signed-out
-   * stack pushes `/(public)/hostels`; the browse tabs switch to their own
-   * `search` tab, because pushing the other group's screen from inside a tab
-   * navigator leaves the tab bar behind.
+   * Where "View all", the search field and the quick filters go. The browse
+   * tabs switch to their own `search` tab rather than pushing `/hostels`,
+   * because pushing a root-stack screen from inside a tab navigator leaves the
+   * tab bar behind.
    */
   browseHref: string;
   insideTabs?: boolean;
 };
 
 export function PublicHome({ browseHref, insideTabs = false }: PublicHomeProps) {
-  const account = useAppSelector((state) => state.auth.account);
   const [query, setQuery] = useState("");
   /*
    * The row locates itself — see `useNearby`. Silently when permission is
@@ -183,15 +183,6 @@ export function PublicHome({ browseHref, insideTabs = false }: PublicHomeProps) 
 
   return (
     <Screen
-      floating={
-        account ? undefined : (
-          <FloatingButton
-            icon="log-in-outline"
-            label="Log in"
-            onPress={() => router.push("/(auth)/login")}
-          />
-        )
-      }
       header={
         <DiscoveryHeader
           browseHref={browseHref}

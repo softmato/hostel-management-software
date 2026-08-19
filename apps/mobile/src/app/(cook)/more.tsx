@@ -63,7 +63,7 @@ export default function CookMoreScreen() {
         {
           onPress: () => {
             setSigningOut(true);
-            void endSession().finally(() => router.replace("/(public)"));
+            void endSession().finally(() => router.replace("/(browse)"));
           },
           style: "destructive",
           text: "Sign out",

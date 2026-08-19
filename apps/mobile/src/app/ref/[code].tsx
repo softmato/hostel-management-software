@@ -103,7 +103,7 @@ export default function ReferralInquiryScreen() {
 
       // `back()` would return to whatever was underneath — and on a cold start
       // from the link there is nothing underneath at all.
-      router.replace("/(public)");
+      router.replace("/(browse)");
     } catch (caught) {
       toastError("Could not send that", readApiError(caught));
     } finally {
@@ -122,7 +122,7 @@ export default function ReferralInquiryScreen() {
           </Text>
           <Button
             label="Browse hostels"
-            onPress={() => router.replace("/(public)")}
+            onPress={() => router.replace("/(browse)")}
             variant="outline"
           />
         </Card>

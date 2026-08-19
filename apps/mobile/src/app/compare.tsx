@@ -6,5 +6,5 @@ import { HostelCompare } from "@/components/hostel-compare";
  * any one of them.
  */
 export default function CompareScreen() {
-  return <HostelCompare browseHref="/(public)/hostels" showBack />;
+  return <HostelCompare browseHref="/hostels" showBack />;
 }

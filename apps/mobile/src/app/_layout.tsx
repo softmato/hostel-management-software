@@ -220,11 +220,10 @@ function RootShell() {
         }}
       >
         <Stack.Screen name="index" options={{ animation: "none" }} />
-        <Stack.Screen name="(public)" options={{ animation: "fade" }} />
         {/*
-          The same discovery screens with tabs instead of a Log in pill — where
-          a signed-in account that has no hostel yet lands. See
-          `constants/roles.ts`.
+          The discovery shell, and the app's home for everyone who is not routed
+          to a role dashboard — signed in or not. There is no separate signed-out
+          group; see `constants/roles.ts` for what that replaced.
         */}
         <Stack.Screen name="(browse)" options={{ animation: "fade" }} />
         <Stack.Screen name="(auth)" options={{ animation: "slide_from_right" }} />
@@ -258,6 +257,25 @@ function RootShell() {
         <Stack.Screen name="map" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="directions/[slug]" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="compare" options={{ animation: "slide_from_right" }} />
+        {/* Browse with a back button, for the roles whose More tab links to it. */}
+        <Stack.Screen name="hostels" options={{ animation: "slide_from_right" }} />
+        {/*
+          The website's header and footer, natively (see `(browse)/profile.tsx`).
+          At the root because they are reachable from the Profile tab *and* from
+          a role's More tab, so they cannot live inside either group — and
+          because a legal document sliding over the tab bar is a detail view.
+        */}
+        <Stack.Screen name="about" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="contact" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="pricing" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="offer-program" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="register-hostel" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen
+          name="service-providers"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen name="legal/terms" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="legal/privacy" options={{ animation: "slide_from_right" }} />
         {/*
           The SOS floating button's tap destination. At the root rather than in
           `(resident)/`, so pushing it slides over the tab bar — and so the

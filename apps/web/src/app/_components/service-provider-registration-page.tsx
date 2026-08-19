@@ -23,7 +23,8 @@ import { browserApi } from "@/lib/browser-api";
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { cn } from "@/lib/utils";
 import { PublicShell } from "./shared";
-import { SiteName } from "@/components/site-config-provider";
+import { SiteName, useSiteConfig } from "@/components/site-config-provider";
+import { resolveContentPage } from "@/lib/site-content";
 import { useConfirm } from "@/app/_components/confirm-dialog";
 import { useHasResidentIdCard } from "@/lib/use-resident-id-card";
 
@@ -347,6 +348,14 @@ function LandingStep({
 }) {
   const [error, setError] = useState("");
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  /*
+   * The hero's words come from Platform → Website Config → Page Content, so the
+   * pitch a tradesperson reads here is the pitch they read on the app's Service
+   * providers screen. The stats beside it stay computed — a registered-provider
+   * count typed into a config field would be a number that stops being true.
+   */
+  const { content, identity } = useSiteConfig();
+  const page = resolveContentPage(content.serviceProviders, identity);
   // The button reports the signed-in user, but this page re-reads the session
   // itself on mount — a full reload is the simplest way to come back with the
   // cookie definitely in place.
@@ -364,11 +373,10 @@ function LandingStep({
         <div className="absolute -right-24 -top-28 size-[420px] rounded-full bg-white/10" />
         <div className="absolute -bottom-32 -left-24 size-[320px] rounded-full bg-black/10" />
         <h1 className="relative max-w-[600px] font-heading text-[clamp(2rem,4.2vw,3.25rem)] font-extrabold leading-[1.15] text-white">
-          Join Kathmandu&apos;s trusted service provider network
+          {page.subtitle}
         </h1>
         <p className="relative mt-5 max-w-[520px] text-[clamp(0.95rem,1.2vw,1.15rem)] leading-relaxed text-white/80">
-          Get matched with hostel maintenance jobs in your area — plumbing, electrical,
-          cleaning and more.
+          {page.intro[0]}
         </p>
         <div className="relative mt-12 flex flex-wrap gap-x-14 gap-y-8">
           <HeroStat
@@ -379,8 +387,7 @@ function LandingStep({
           <HeroStat label="review time" value="2 days" />
         </div>
         <p className="relative mt-12 max-w-[520px] text-sm leading-relaxed text-white/60">
-          Approved providers are notified the moment a matching job is broadcast by a
-          hostel in their area — first to accept wins the job.
+          {page.intro[1]}
         </p>
       </div>
 

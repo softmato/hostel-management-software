@@ -125,7 +125,7 @@ export default function AdminMoreScreen() {
       {
         onPress: () => {
           setSigningOut(true);
-          void endSession().finally(() => router.replace("/(public)"));
+          void endSession().finally(() => router.replace("/(browse)"));
         },
         style: "destructive",
         text: "Sign out",
@@ -191,7 +191,7 @@ export default function AdminMoreScreen() {
           <Card>
             <ListRow
               icon="search-outline"
-              onPress={() => router.push("/(public)/hostels")}
+              onPress={() => router.push("/hostels")}
               subtitle="See your listing the way a student does"
               title="Browse hostels"
             />

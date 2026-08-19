@@ -1,14 +1,12 @@
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
 
 /**
- * The signed-in discovery shell.
+ * The discovery shell — the app's home for everyone who is not routed to a role
+ * dashboard, signed in or not.
  *
- * A `PUBLIC_USER` — someone with an account who is still looking for a hostel —
- * gets tabs like every other signed-in audience. The signed-out `(public)`
- * group stays a plain stack with its floating Log in pill (§0 shell contract),
- * because expo-router cannot switch one group between a stack and a tab
- * navigator at runtime. `resolveHome` picks the group; the screens themselves
- * are shared components, so the two cannot drift.
+ * There is no separate signed-out group any more. `resolveHome` sends a null
+ * account here, and the only thing a session changes is the top card of the
+ * Profile tab. See `constants/roles.ts` for what that replaced and why.
  *
  * **No Bookings, Messages or Saved tab.** There is no booking model, messaging
  * endpoint or favourites collection on the server.

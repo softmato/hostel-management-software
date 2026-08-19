@@ -76,7 +76,7 @@ export default function ResidentMoreScreen() {
       {
         onPress: () => {
           setSigningOut(true);
-          void endSession().finally(() => router.replace("/(public)"));
+          void endSession().finally(() => router.replace("/(browse)"));
         },
         style: "destructive",
         text: "Sign out",
@@ -199,7 +199,7 @@ export default function ResidentMoreScreen() {
             */}
             <ListRow
               icon="search-outline"
-              onPress={() => router.push("/(public)/hostels")}
+              onPress={() => router.push("/hostels")}
               subtitle="Browse and compare hostels across Nepal"
               title="Explore hostels"
             />

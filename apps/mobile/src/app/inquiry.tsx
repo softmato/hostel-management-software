@@ -45,5 +45,5 @@ export default function InquiryLinkScreen() {
   // the service produces; the other two cost nothing to accept.
   const code = parseReferralLink(params.ref ?? params.referral ?? params.refCode ?? "");
 
-  return <Redirect href={code ? `/ref/${code}` : "/(public)"} />;
+  return <Redirect href={code ? `/ref/${code}` : "/(browse)"} />;
 }

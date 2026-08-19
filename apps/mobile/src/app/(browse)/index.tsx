@@ -1,8 +1,8 @@
 import { PublicHome } from "@/components/public-home";
 
 /**
- * The signed-in home. Identical body to `(public)/index`; the browse link points
- * at the sibling tab rather than at the public stack, so the tab bar survives it.
+ * Home. The one discovery home there is, signed in or out — see
+ * `constants/roles.ts` for why the signed-out group is gone.
  */
 export default function BrowseHomeScreen() {
   return <PublicHome browseHref="/(browse)/search" insideTabs />;

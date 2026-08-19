@@ -8,11 +8,18 @@ import { ROLE, accentForAccount, resolveHome } from "@/constants/roles";
  * which is precisely what the no-flash boot exists to prevent.
  */
 describe("resolveHome", () => {
-  it("sends a signed-out device to the public app, never to a login wall", () => {
+  it("sends a signed-out device to the discovery tabs, never to a login wall", () => {
     // The app is the website: browsing hostels needs no account, and a
-    // hostel-hunting student has nothing to sign in with yet. Login is reached
-    // from a button at the bottom of the public shell.
-    expect(resolveHome(null)).toBe("/(public)");
+    // hostel-hunting student has nothing to sign in with yet. Signing in is a
+    // card at the top of the Profile tab, not a gate in front of the product.
+    expect(resolveHome(null)).toBe("/(browse)");
+  });
+
+  it("gives a signed-out device the same shell a browsing account gets", () => {
+    // One shell, not two. The signed-out group used to be its own stack with a
+    // floating Log in pill; the difference between having an account and not is
+    // now a single card, so the route has to be the same route.
+    expect(resolveHome(null)).toBe(resolveHome({ role: ROLE.PUBLIC }));
   });
 
   it("sends an activated resident straight to the resident tabs", () => {
@@ -43,8 +50,7 @@ describe("resolveHome", () => {
 
   it("gives platform staff the browsing app, not an admin surface", () => {
     // Platform administration is web-only by design (PHASES.md §6.1). A
-    // superadmin on a phone is just a person browsing hostels — but a signed-in
-    // one, so they get the tabs and their sign-out, not the signed-out stack.
+    // superadmin on a phone is just a person browsing hostels.
     expect(resolveHome({ role: ROLE.SUPERADMIN })).toBe("/(browse)");
     expect(resolveHome({ role: ROLE.PLATFORM_MODERATOR })).toBe("/(browse)");
   });
@@ -76,10 +82,9 @@ describe("resolveHome", () => {
     );
   });
 
-  it("never lands a signed-in account on the signed-out stack", () => {
-    // `(public)` is the one group with no tab bar and no sign-out: its bottom
-    // edge belongs to the Log in pill. Anything with a session that lands there
-    // is stuck — it can browse, but it cannot leave or see who it is.
+  it("never lands a signed-in account on the login screen", () => {
+    // A session always reaches a shell it can work from. Landing on `(auth)` is
+    // the one answer that strands someone who is already signed in.
     const signedIn = [
       { isResidentActivated: true, role: ROLE.RESIDENT },
       { role: ROLE.GUARDIAN },
@@ -93,7 +98,7 @@ describe("resolveHome", () => {
     ] as const;
 
     for (const account of signedIn) {
-      expect(resolveHome(account)).not.toBe("/(public)");
+      expect(resolveHome(account)).not.toBe("/(auth)/login");
     }
   });
 });

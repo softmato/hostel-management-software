@@ -55,7 +55,7 @@ bindSessionHandlers({
      * someone with a login form they did not ask for. The reason is still on
      * the store, so the login screen explains itself if they go there.
      */
-    router.replace(reason === "SUSPENDED" ? "/(auth)/login" : "/(public)");
+    router.replace(reason === "SUSPENDED" ? "/(auth)/login" : "/(browse)");
   },
 });
 
