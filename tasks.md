@@ -640,6 +640,123 @@ Anything discovered while working the list above, appended here rather than fixe
 
 ---
 
+## 9. The hostel detail screen — owner report of 2026-08-19
+
+- ☑ **9.1 Centre the name, and put Share where a share button goes.** *(2026-08-19)*
+      `AppBar` gained `centerTitle`: three columns with the outer two pinned to a
+      fixed `SIDE_SLOT` (40dp) so they cancel and the title lands on the optical
+      centre. **Not** an absolutely-positioned title — that is what React
+      Navigation does, and it lets a long name run underneath the back arrow,
+      because an absolute child has no siblings to be constrained by. "Shanti
+      Bhawan Boys Hostel & Residency" is not an unusual name. Documented as
+      one-control-per-side; a second action would overflow under the title, so
+      leave `centerTitle` off there.
+      Share is `react-native`'s `Share.share` (the pattern `id-card`, `referrals`
+      and the community card already use), building its message in the pure,
+      tested `lib/hostel-share.ts`. The link is the **website's** `/hostels/{slug}`,
+      not a deep link: a shared hostel lands in a WhatsApp thread where most
+      people do not have the app, and on a phone that does, the verified App Links
+      from §2.3 hand that same URL back to the app anyway. The name, place and
+      price are repeated in the text because chat clients unfurl a link when they
+      feel like it — never in an SMS. A missing price drops its line rather than
+      shipping "— per month". The action only renders once there is a hostel, so
+      it cannot post a blank message over a loading spinner.
+- ☑ **9.2 The map, as the website's Location panel does it.** *(2026-08-19)*
+      `HostelMap` gained an optional `nearby` and an optional `onSelect` rather
+      than a third Leaflet page being written: `lib/leaflet.ts` exists precisely
+      because an SRI hash that drifts from its version renders as a blank grey box
+      that looks exactly like being offline, and two builders were already one too
+      many. Nearby places draw as small neutral dots with a glyph, deliberately
+      unlike the brand teardrop — the one thing a reader must never have to work
+      out is which pin is the place they might live in — and carry a negative
+      `zIndexOffset`, because a campus dot over a hostel *inside* that campus is
+      the likeliest collision on this map. The frame is fitted to the **hostels
+      only**; folding in a bus terminus 2 km out would shrink the hostel to a dot.
+      `onSelect` is omitted on this screen: one pin, and "View hostel" would link
+      to the screen it was tapped on.
+      The flat list of eight nearest places became the web's seven groups, in the
+      web's order and its labels (`lib/hostel-nearby.ts`, ported from
+      `NEARBY_GROUPS`) — a pharmacy at 200 m next to a park at 210 m is trivia; a
+      heading that says whether there is a campus is the answer most readers came
+      for. Unknown categories from the geocoder are kept in a trailing group
+      rather than dropped, so a hostel does not lose a selling point because the
+      client is a version behind. A "Get directions" button goes to the existing
+      `/directions/[slug]` (§7.4) rather than to Google Maps. No coordinates, no
+      grey rectangle: the address stands alone with the website's own explanation.
+      **Bug found and fixed while doing it:** the generated Leaflet page lives in a
+      JS template literal, and a comment I put inside it contained backticks —
+      which closed the template. Babel reports it at the comment, not at the
+      string. There is now a NOTE at that spot saying so.
+- ☑ **9.3 The food routine, in full, natively.** *(2026-08-19)*
+      This screen used to say "a weekly menu is published — you'll see the full
+      routine once you move in." **`/public/hostels/{slug}` already returns
+      `foodRoutine`**, all 28 cells of it, and the website draws every one on this
+      same page. The app was holding a menu it had already downloaded and telling
+      the reader to sign a tenancy to see it, on the screen where they decide
+      whether to.
+      The website's 7×4 table is right for a 1200dp column and wrong for 360dp, so
+      it is the resident Food tab's day strip instead — same 28 cells, same order,
+      opening on today rather than asking for a sideways scroll. Rather than
+      rebuild that beside the resident one, `DayStrip`, `MealCard` and the
+      month-end card moved into `components/food-routine.tsx` and both screens
+      render them; the rating form stayed in `(resident)/food.tsx` and is passed
+      through a `mealFooter` slot, because a visitor has no dinner to rate. It had
+      to be extracted as `MealFeedback` on the way, since its open/closed state is
+      per card — one flag for four cards would open lunch and dinner together.
+      Day is still resolved in Nepal time; the food facts stay as chips above the
+      week, because "is there veg every day" is a filter and "what is Thursday's
+      lunch" is a preview.
+      The website's "special meals" strip is **not** ported: it re-lists every
+      noted meal, and the day strip already shows each note on the day it happens.
+      The month-end special is the one entry belonging to no day, so it keeps its
+      card.
+
+      **Verified:** mobile typecheck + lint clean, **737 tests / 50 files** (was
+      721/48), `expo export --platform android` bundles (6.5 MB) from a clean run.
+- ☑ **9.4 Three defects found after the owner reported "several bugs".** *(2026-08-19)*
+      **Mine, and the worst of the three:** the Location map was a live, pannable
+      Leaflet map inside `<Screen scroll>`. `HostelMap`'s own header states the
+      rule — a pannable map in a vertical ScrollView puts two pan gestures on the
+      same pixels — and browse obeys it by switching scrolling off for its map
+      view. A fixed 220dp height does not dodge that; it makes it worse, because a
+      reader scrolling past drags the map instead of the page. `HostelMap` gained
+      `preview`: Leaflet's drag/zoom/tap handlers off **and**
+      `pointerEvents="none"` on the WebView so no touch reaches it at all, with a
+      `Pressable` over it going to `/directions/[slug]` — a screen that owns its
+      gestures. Belt and braces on purpose: the first stops the page reacting, the
+      second guarantees the ScrollView sees every gesture regardless.
+      **Also mine:** both new registration screens drew upload previews from the
+      raw URL. `POST /public/files/upload` answers with a **relative** path
+      whenever R2 is unconfigured, and a phone has no origin to resolve it
+      against — so the selfie and the document thumbnails were blank after uploads
+      that had actually succeeded. Both now go through `absoluteMediaUrl`, which is
+      the exact trap `lib/media.ts` exists to prevent.
+      **Not mine, found in logcat:** `Uncaught TypeError: Cannot read properties of
+      undefined (reading 'setBearing')`, thrown inside the map WebView.
+      `map-explorer.tsx` claims "injection is gated on `ready`" — but the gate was
+      written at each *effect's* call site, and the imperative handle is passed to
+      `app/map.tsx`, which is outside that discipline and cannot see the flag. Its
+      north-up effect fires `setBearing(0)` on mount, before the page has posted
+      `ready`; `webview.current?.` does not help, because the WebView exists and it
+      is the *page inside it* that has not run its script. The gate moved into
+      `call` itself, and `sentBearing` is cleared on `ready` so a bearing recorded
+      as sent while it was being dropped cannot suppress the real one. It surfaced
+      only as a `chromium` line in logcat, which is how it survived this long.
+      **Process note:** backticks went into a comment *inside* the generated page's
+      template literal twice in one session, and Babel reports that at the comment
+      rather than at the string — slow to diagnose. Both builders now carry a NOTE
+      at the top of their script block, and the check is one command: slice between
+      the delimiters and grep for a backtick. Also worth knowing: `expo lint` caches
+      in `.expo/cache/eslint` and will keep reporting a parse error after it is
+      fixed; delete that directory rather than trusting the run.
+
+      **Open — [device]:** the map is a WebView and the share sheet is the OS's;
+      neither can be exercised from here. Worth checking on the phone that the
+      place dots are legible at 16dp and that the centred title truncates rather
+      than collides on a long hostel name.
+
+---
+
 ## Session log
 
 | When | Session | Stopped at |
@@ -654,3 +771,107 @@ Anything discovered while working the list above, appended here rather than fixe
 | 2026-08-18 10:20 | §7.3 cook food-photo GET + day-grouped grid | next: §6 device pass; §7.1/§7.2 still open |
 | 2026-08-19 08:35 | §7.4 map: `MAP_NAV_PLAN.md` A–E done (search, fine location, steps, rotation, guidance) | next: MAP_NAV_PLAN F.3/F.4 on the phone |
 | 2026-08-19 09:30 | §7.4 cont.: §G the map springing back (owner-reported), §H layer switcher + pin name label | next: still F.3/F.4 on the phone |
+| 2026-08-19 13:45 | §8.1–8.4: CTA-first info screens, both registration wizards native (+ selfie), `/saved`, sectioned settings | next: the [device] camera pass on §8.2/§8.3 |
+| 2026-08-19 14:05 | §9.1–9.3: centred title + share, Location map with grouped nearby, food routine shared with the resident tab | next: [device] pass on §8 camera and §9 map/share |
+
+---
+
+## 8. Partner & programme screens — owner report of 2026-08-19
+
+Reported from the device against `/register-hostel`, `/service-providers`,
+`/offer-program` and the Profile tab's "Your search" group.
+
+- ☑ **8.1 Action first, then the reading.** *(2026-08-19)*
+      `DocumentScreen` gained an `action` slot rendered **under the masthead**, above
+      every word of copy, with a hairline under it (`InfoActions`). All three partner
+      screens moved their block from `extra` (which sits after the sections) into it.
+      **No copy was cut** — the owner's configured text is the owner's text, and an
+      app showing two thirds of a page the website shows in full is a second, worse
+      version of that page. What changed is its shape: `InfoSections` now folds, first
+      open, so nine sections are nine tappable headings rather than ~2,000 words you
+      scroll past to learn what the headings are; and `InfoIntro` is a padded, tinted
+      lede with the first paragraph open and a Read more. Section bodies gained `pr-2`
+      — a bullet ending flush with the screen gutter reads as clipped.
+      The action renders **above the can't-load states too**: a registration button
+      does not stop working because the platform has not shipped its page copy.
+- ☑ **8.2 Register your hostel, natively.** *(2026-08-19)*
+      `app/register-hostel/apply.tsx` — five steps (Basics, Location, Rooms,
+      Documents, Review) over a pure `lib/hostel-registration.ts` that owns the field
+      list, the per-step validation and the payload. Typed from
+      `publicHostelApplicationCreateSchema`, **not** from the web component, which
+      sends four keys Zod strips before the service sees them.
+      The old handoff reason — "ownership documents live on a computer" — was wrong
+      about which computer. A Nepali owner's citizenship certificate is a card in a
+      drawer, and the device pointed at it is this one. So the ID is **photographed**,
+      and the required rules document is generated from the platform's own three
+      templates via `uploadPublicText` (the applicant edits the words first; it
+      uploads as real `text/plain`). Neither requirement was relaxed — one reviewer
+      reviews both clients' applications.
+      Uploads go through the new `lib/public-uploads.ts` → `POST /public/files/upload`,
+      **not** the presign pipeline: `/files/presign` needs a principal and scopes the
+      row to a hostel, and an applicant owns neither. `lib/public-upload-limits.ts`
+      applies the route's own 5 MB / five-type rule **before** the bytes move, because
+      refusing a 9 MB photo after uploading 9 MB is a minute of someone's life.
+      Not ported: the localStorage draft, the VAT calculator, the portals sidebar, and
+      six optional document slots — the platform can request any of those afterwards
+      through `requestedDocuments`, which already exists.
+      The landing screen now also answers "what happened to mine?" from
+      `/public/hostel-applications/my-applications`, which is why the application is
+      filed through the **authenticated** client even though the route tolerates
+      anonymous.
+- ☑ **8.3 Become a service provider, natively — plus a live selfie step.** *(2026-08-19)*
+      `app/service-providers/apply.tsx`, five steps over `lib/provider-registration.ts`.
+      The handoff reason here was the Google gate — which exists to attach the
+      application to a verified account, and **the app already has one**: the session
+      was established at launch and `registerServiceProvider` posts through the
+      authenticated client, so `requireApiPrincipal` gets the same `userId` the web
+      flow works to produce. The upgrade path is unchanged; the app arrives already
+      through the gate.
+      **The selfie is step 4 and the camera is the only source.** Approval publishes
+      this person in a directory and issues an ID card a resident is shown at their
+      door before letting a stranger in; a gallery pick can be any image on the
+      internet. Submitted as `PROFILE_PHOTO` — not the more descriptive `SELFIE` —
+      because the reviewer's page looks up exactly that string, and a better name
+      would file the photo where their screen cannot see it. It is also **first** in
+      the documents array, so the 8-item cap drops a supporting file, never the face.
+      `categories` preserves tap order: the first is the headline trade.
+      The landing screen recognises all four states, and the third is the one a
+      two-state check gets wrong — an application *under review* must not be offered
+      "Apply" (the server 409s it) but must not be told "you're done" either.
+- ☑ **8.4 Saved hostels gets its own screen.** *(2026-08-19)*
+      `app/saved.tsx` — a full-width vertical list, every entry visible, each
+      removable where it sits. The row used to push `/(browse)`: tapping "Saved
+      hostels" and landing at the top of a discovery feed, shortlist in a carousel
+      three screenfuls down, reads as a broken link. Home's horizontal row stays —
+      that is a *glance* inside a browsing screen; this is the list.
+      Renders from the stored snapshots, so it is complete offline and survives a
+      hostel dropping out of the server's first-60 window; pull-to-refresh folds
+      newer prices in through `sync`, and a failed fetch is **not** an error state
+      because nothing on screen came from it. Deliberately not `<HostelCard>`: a
+      snapshot has no rating or vacancy, and `saved-hostels.ts` explains why — a
+      stale "2 beds free" is a lie where a stale price is merely old.
+      **The others:** Notifications and Privacy & your data both pushed plain
+      `/settings` — two subtitles promising two things, one screen delivering
+      whichever was scrolled to, and someone hunting "delete my account" landing on a
+      theme picker. `/settings?section=` now draws only the half asked for. A
+      parameter rather than three route files because all three share every hook;
+      splitting them would be three screens fetching the same deletion status. An
+      unknown value falls through to the whole screen, so the More tabs' plain
+      `/settings` link and any push deep link are unaffected.
+      Inquiries stays a "coming" toast: `/public/inquiries` is a POST and nothing
+      lists what you sent, so a dedicated screen would be a permanent empty state.
+
+      **Verified across 8.1–8.4:** mobile typecheck + lint clean, **721 tests / 48
+      files** (was 656/45), `expo export --platform android` bundles (6.5 MB). Web
+      lint clean, `tsc --noEmit` clean, **1826 tests / 128 files**.
+      The payload builders are checked against the **real Zod schemas** by
+      `apps/web/src/modules/hostels/mobile-registration-contract.test.ts` — it lives
+      in `apps/web` because that is where the schemas are, and a mobile-side test
+      could only assert against a hand-copied description of the contract, which is
+      the exact failure this repo keeps hitting. It imports two mobile modules that
+      have **no imports at all** (which is why they are pure value modules), so
+      nothing pulls React Native into the web run.
+      **Open — [device]:** the camera steps. Neither the selfie nor the ID photograph
+      can be exercised from here, and nor can a real multipart upload to
+      `/public/files/upload`. The next device pass should file one provider
+      application end to end and watch the portrait land on the platform review page.

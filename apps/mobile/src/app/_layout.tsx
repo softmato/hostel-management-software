@@ -260,6 +260,13 @@ function RootShell() {
         {/* Browse with a back button, for the roles whose More tab links to it. */}
         <Stack.Screen name="hostels" options={{ animation: "slide_from_right" }} />
         {/*
+          The shortlist, on its own. At the root rather than inside `(browse)`
+          because the Profile tab is where it is reached from, and a fifth tab
+          for a list that is empty on a fresh install is a tab bar that spends a
+          slot on nothing.
+        */}
+        <Stack.Screen name="saved" options={{ animation: "slide_from_right" }} />
+        {/*
           The website's header and footer, natively (see `(browse)/profile.tsx`).
           At the root because they are reachable from the Profile tab *and* from
           a role's More tab, so they cannot live inside either group — and
@@ -269,9 +276,27 @@ function RootShell() {
         <Stack.Screen name="contact" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="pricing" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="offer-program" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="register-hostel" options={{ animation: "slide_from_right" }} />
         <Stack.Screen
-          name="service-providers"
+          name="register-hostel/index"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="service-providers/index"
+          options={{ animation: "slide_from_right" }}
+        />
+        {/*
+          The two application wizards. They used to be `WebBrowser.openBrowserAsync`
+          calls — see `lib/web-portal.ts`, whose `WEB_PUBLIC_PATHS` no longer has
+          anything in it. Both are long forms someone works through in one sitting,
+          so they slide in from the right like any other detail screen and keep the
+          back gesture that a browser tab took away.
+        */}
+        <Stack.Screen
+          name="register-hostel/apply"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="service-providers/apply"
           options={{ animation: "slide_from_right" }}
         />
         <Stack.Screen name="legal/terms" options={{ animation: "slide_from_right" }} />

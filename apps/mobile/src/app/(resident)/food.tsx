@@ -2,8 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import {
+  FoodRoutineWeek,
+  MonthEndSpecial,
+} from "@/components/food-routine";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,12 +23,9 @@ import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import {
   dateForDay,
-  MEAL_TYPES,
   type MealType,
   mealTypeNow,
-  ROUTINE_DAYS,
   type RoutineDay,
-  todayInNepal,
 } from "@/lib/food-week";
 import { formatDate, humanizeEnum } from "@/lib/format";
 import {
@@ -50,28 +51,18 @@ import { privateAssetSource, uploadAsset } from "@/lib/uploads";
  * Day is resolved in **Nepal time**. `getDay()` on a phone left on another
  * timezone selects the wrong column for the last 5h45m of every day, which is
  * exactly the evening window when people check dinner.
+ *
+ * ## The routine itself moved out
+ *
+ * The day strip, the meal cards and the month-end card now live in
+ * `components/food-routine.tsx`, because the public hostel page shows the same
+ * routine from the same payload to someone deciding whether to move in. This
+ * screen keeps the two things that are a resident's alone — rating a meal, and
+ * posting a photo of it — and passes the first in through `mealFooter`.
  */
-
-const DAY_LABELS: Record<RoutineDay, string> = {
-  FRIDAY: "Fri",
-  MONDAY: "Mon",
-  SATURDAY: "Sat",
-  SUNDAY: "Sun",
-  THURSDAY: "Thu",
-  TUESDAY: "Tue",
-  WEDNESDAY: "Wed",
-};
-
-const MEAL_ICONS: Record<MealType, keyof typeof Ionicons.glyphMap> = {
-  BREAKFAST: "sunny-outline",
-  DINNER: "moon-outline",
-  LUNCH: "restaurant-outline",
-  SNACKS: "cafe-outline",
-};
 
 export default function ResidentFoodScreen() {
   const food = useResource<ResidentFood>(useCallback(() => getResidentFood(), []));
-  const [day, setDay] = useState<RoutineDay>(() => todayInNepal());
 
   const header = <AppBar subtitle="This week's routine" title="Food" />;
 
@@ -95,7 +86,6 @@ export default function ResidentFoodScreen() {
   }
 
   const { photos, routine } = food.data;
-  const today = todayInNepal();
 
   return (
     <Screen
@@ -106,41 +96,17 @@ export default function ResidentFoodScreen() {
       scroll
     >
       <View className="gap-5 pt-1">
-        <DayStrip active={day} onChange={setDay} today={today} />
+        <FoodRoutineWeek
+          mealFooter={({ day, hasItems, mealType }) =>
+            hasItems ? (
+              <MealFeedback day={day} key={`${day}:${mealType}`} mealType={mealType} />
+            ) : null
+          }
+          meals={routine.meals}
+          timings={routine.timings}
+        />
 
-        <View className="gap-3">
-          {MEAL_TYPES.map((mealType) => {
-            const meal = routine.meals.find(
-              (entry) => entry.dayOfWeek === day && entry.mealType === mealType,
-            );
-
-            return (
-              <MealCard
-                day={day}
-                key={mealType}
-                items={meal?.items ?? []}
-                mealType={mealType}
-                note={meal?.note ?? ""}
-                timing={meal?.timing || routine.timings[mealType] || ""}
-              />
-            );
-          })}
-        </View>
-
-        {routine.monthEndSpecial ? (
-          <Card className="gap-2 bg-brand-soft">
-            <View className="flex-row items-center gap-2">
-              <Ionicons name="sparkles-outline" size={16} />
-              <Text variant="label">Month-end special</Text>
-            </View>
-            <Text variant="muted">
-              {routine.monthEndSpecial.items.join(", ") || "Announced closer to the day."}
-            </Text>
-            {routine.monthEndSpecial.note ? (
-              <Text variant="caption">{routine.monthEndSpecial.note}</Text>
-            ) : null}
-          </Card>
-        ) : null}
+        <MonthEndSpecial special={routine.monthEndSpecial} />
 
         <PhotoGallery onUploaded={food.refresh} photos={photos} />
       </View>
@@ -148,123 +114,37 @@ export default function ResidentFoodScreen() {
   );
 }
 
-function DayStrip({
-  active,
-  onChange,
-  today,
-}: {
-  active: RoutineDay;
-  onChange: (day: RoutineDay) => void;
-  today: RoutineDay;
-}) {
-  return (
-    <ScrollView
-      contentContainerClassName="gap-2"
-      horizontal
-      showsHorizontalScrollIndicator={false}
-    >
-      {ROUTINE_DAYS.map((day) => {
-        const selected = day === active;
-
-        return (
-          <Pressable
-            accessibilityRole="tab"
-            accessibilityState={{ selected }}
-            className={`min-w-14 items-center rounded-xl border px-3 py-2 active:opacity-70 ${
-              selected ? "border-primary bg-primary" : "border-border"
-            }`}
-            key={day}
-            onPress={() => onChange(day)}
-          >
-            <Text
-              className={`text-sm font-medium ${
-                selected ? "text-primary-foreground" : "text-foreground"
-              }`}
-            >
-              {DAY_LABELS[day]}
-            </Text>
-            {/* Marked even when it is not the selected day, so a resident who
-                has browsed to Friday can find their way back. */}
-            {day === today ? (
-              <Text
-                className={`text-[10px] ${
-                  selected ? "text-primary-foreground/80" : "text-muted-foreground"
-                }`}
-              >
-                Today
-              </Text>
-            ) : null}
-          </Pressable>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
-function MealCard({
-  day,
-  items,
-  mealType,
-  note,
-  timing,
-}: {
-  day: RoutineDay;
-  items: string[];
-  mealType: MealType;
-  note: string;
-  timing: string;
-}) {
-  const { colors } = useAppTheme();
+/**
+ * The "Rate this meal" control, and the form it opens into.
+ *
+ * Its own component because it holds the open/closed state, and that state has
+ * to be **per meal card** — hoisting it into the screen would mean one flag for
+ * four cards, so opening lunch would open dinner as well. It used to live inside
+ * `MealCard`; when that card moved to `components/food-routine.tsx` to be shared
+ * with the public hostel page, the rating stayed here, because a visitor
+ * deciding where to live has no business rating a dinner they have not eaten.
+ *
+ * Rating is per meal *per day*, because that is what the server aggregates:
+ * feedback with no meal attached cannot tell an owner that Tuesday dinner is the
+ * problem, which is the only thing the feedback is for.
+ */
+function MealFeedback({ day, mealType }: { day: RoutineDay; mealType: MealType }) {
   const [open, setOpen] = useState(false);
 
+  if (open) {
+    return <FeedbackForm day={day} mealType={mealType} onDone={() => setOpen(false)} />;
+  }
+
   return (
-    <Card className="gap-2">
-      <View className="flex-row items-start gap-3">
-        <View className="h-11 w-11 items-center justify-center rounded-xl bg-brand-soft">
-          <Ionicons color={colors.primary} name={MEAL_ICONS[mealType]} size={19} />
-        </View>
-
-        <View className="flex-1 gap-1">
-          <View className="flex-row items-center justify-between gap-2">
-            <Text className="flex-1" variant="label">
-              {humanizeEnum(mealType)}
-            </Text>
-            {timing ? <Badge label={timing} tone="success" /> : null}
-          </View>
-
-          <Text variant={items.length ? "body" : "muted"}>
-            {items.length ? items.join(", ") : "Not published for this day."}
-          </Text>
-
-          {note ? <Text variant="caption">{note}</Text> : null}
-        </View>
-      </View>
-
-      {/*
-        Rating is per meal per day, because that is what the server aggregates:
-        a rating with no meal attached cannot tell an owner that Tuesday dinner
-        is the problem, which is the only thing the feedback is for.
-      */}
-      {items.length ? (
-        open ? (
-          <FeedbackForm
-            day={day}
-            mealType={mealType}
-            onDone={() => setOpen(false)}
-          />
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            className="self-start active:opacity-70"
-            onPress={() => setOpen(true)}
-          >
-            <Text className="text-primary" variant="label">
-              Rate this meal
-            </Text>
-          </Pressable>
-        )
-      ) : null}
-    </Card>
+    <Pressable
+      accessibilityRole="button"
+      className="self-start active:opacity-70"
+      onPress={() => setOpen(true)}
+    >
+      <Text className="text-primary" variant="label">
+        Rate this meal
+      </Text>
+    </Pressable>
   );
 }
 

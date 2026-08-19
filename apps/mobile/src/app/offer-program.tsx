@@ -115,7 +115,12 @@ function ApplyBlock() {
 export default function OfferProgramScreen() {
   return (
     <DocumentScreen
-      extra={<ApplyBlock />}
+      /*
+       * `action`, not `extra`: this block is the reason a resident opened the
+       * screen, and under nine sections of programme rules it was unreachable
+       * without reading them.
+       */
+      action={<ApplyBlock />}
       icon="sparkles-outline"
       page="offerProgram"
       webPath="resident-offer-program"

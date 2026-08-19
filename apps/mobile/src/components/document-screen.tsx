@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { View } from "react-native";
 
 import {
+  InfoActions,
   InfoHeader,
   InfoHighlights,
   InfoIntro,
@@ -46,6 +47,20 @@ import { fillPlaceholders, resolveContentPage } from "@/lib/site-content";
  * vocabulary as every other line of stored copy.
  */
 export function DocumentScreen({
+  /**
+   * The thing this page exists to let someone do — "Start your registration",
+   * "Apply as a service provider", the offer program's eligibility block.
+   *
+   * Rendered **directly under the masthead**, above every word of the copy. See
+   * `InfoActions` for why: a partner landing page is read by two people, one who
+   * wants the pitch and one who already had it, and only the first of them was
+   * being served by a button below nine feature sections.
+   *
+   * Distinct from `extra`, which stays where it was — after the sections, before
+   * the closing note — for anything that only makes sense once the page has been
+   * read.
+   */
+  action,
   extra,
   icon,
   /**
@@ -61,6 +76,8 @@ export function DocumentScreen({
   variant = "bullets",
   webPath,
 }: {
+  /** Rendered under the masthead, before the copy. */
+  action?: ReactNode;
   /** Rendered between the sections and the closing note. */
   extra?: ReactNode;
   icon: InfoIcon;
@@ -105,7 +122,12 @@ export function DocumentScreen({
       refreshing={refreshing}
       scroll
     >
-      <View className="gap-10 pb-4">
+      {/*
+        `gap-8`, down from `gap-10`. The sections fold now (see `InfoSections`),
+        so the page is a list of headings rather than a run of essays, and the
+        spacing that separated essays separates a list badly.
+      */}
+      <View className="gap-8 pb-4">
         <InfoHeader
           icon={icon}
           subtitle={
@@ -113,6 +135,13 @@ export function DocumentScreen({
           }
           title={heading}
         />
+
+        {/*
+          Above the copy, and above the "could not load it" states as well: a
+          registration button does not stop working because the platform has not
+          shipped its page copy yet.
+        */}
+        {action ? <InfoActions>{action}</InfoActions> : null}
 
         {isEmpty && loading ? <LoadingState /> : null}
 

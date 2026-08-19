@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import type { ReactNode } from "react";
-import { Linking, View } from "react-native";
+import { type ReactNode, useState } from "react";
+import { Linking, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -95,17 +95,67 @@ export function InfoHeader({
   );
 }
 
-/** The paragraphs between the masthead and the first section. */
+/**
+ * The paragraphs between the masthead and the first section.
+ *
+ * ## Two changes the phone forced, and neither is a cut
+ *
+ * **It is a padded block, not loose lines.** The website's intro sits in a
+ * centred column with a browser's own margins either side; on a 360dp screen the
+ * same text ran gutter to gutter with nothing marking where the page's
+ * introduction stopped and its first claim began. A tinted, padded card gives it
+ * back the inset the column used to give it, and says "this is the lede".
+ *
+ * **Only the first paragraph is open.** These intros run to three or four
+ * paragraphs of pitch; on the web that is one glance, here it was the entire
+ * first screenful — which is what "it feels like reading a book" describes. The
+ * rest is one tap away and **nothing is deleted**: the owner's copy is the
+ * owner's copy, and an app that silently shows two thirds of a page the website
+ * shows in full is a second, worse version of that page.
+ */
 export function InfoIntro({ paragraphs }: { paragraphs: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const [lede, ...rest] = paragraphs;
+  const shown = expanded ? paragraphs : [lede];
+
   return (
-    <View className="gap-3">
-      {paragraphs.map((paragraph) => (
+    <View className="gap-3 rounded-2xl bg-muted/40 px-4 py-4">
+      {shown.map((paragraph) => (
         <Text className="leading-6" key={paragraph} variant="muted">
           <LinkedText>{paragraph}</LinkedText>
         </Text>
       ))}
+
+      {rest.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => setExpanded((value) => !value)}
+        >
+          <Text className="text-primary" variant="label">
+            {expanded ? "Show less" : "Read more"}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
+}
+
+/**
+ * The one button the page exists for, directly under the masthead.
+ *
+ * Everything on these screens except this block is prose, and prose is what a
+ * reader scrolls past — so on the device the *only* thing you could do here sat
+ * two screenfuls below the fold, under a stat grid and nine feature sections.
+ * Someone who arrived having already decided ("register my hostel") had to read
+ * the pitch in order to find the button that skips the pitch.
+ *
+ * A hairline under it, so the copy below reads as the explanation of the action
+ * rather than as more of it.
+ */
+export function InfoActions({ children }: { children: ReactNode }) {
+  return <View className="gap-3 border-b border-border pb-8">{children}</View>;
 }
 
 /**
@@ -201,50 +251,115 @@ function Bullet({ children }: { children: string }) {
  */
 export function InfoSection({
   body,
+  collapsible = true,
+  defaultOpen = false,
   icon,
   title,
   variant = "bullets",
-}: InfoSectionData & { variant?: SectionVariant }) {
+}: InfoSectionData & {
+  /** Off for a page short enough to be read straight through. */
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  variant?: SectionVariant;
+}) {
   const { colors } = useAppTheme();
+  const [open, setOpen] = useState(defaultOpen);
+
+  const expanded = !collapsible || open;
+
+  const heading = (
+    <View className="flex-row items-center gap-3">
+      <View className="h-9 w-9 items-center justify-center rounded-xl bg-brand-soft">
+        <Ionicons color={colors.primary} name={contentIcon(icon)} size={18} />
+      </View>
+      <Text className="flex-1" variant="subtitle">
+        {title}
+      </Text>
+      {collapsible ? (
+        <Ionicons
+          color={colors.mutedForeground}
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={18}
+        />
+      ) : null}
+    </View>
+  );
 
   return (
     <View className="gap-3">
-      <View className="flex-row items-center gap-3">
-        <View className="h-9 w-9 items-center justify-center rounded-xl bg-brand-soft">
-          <Ionicons color={colors.primary} name={contentIcon(icon)} size={18} />
-        </View>
-        <Text className="flex-1" variant="subtitle">
-          {title}
-        </Text>
-      </View>
+      {collapsible ? (
+        <Pressable
+          accessibilityLabel={title}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          onPress={() => setOpen((value) => !value)}
+        >
+          {heading}
+        </Pressable>
+      ) : (
+        heading
+      )}
 
-      <View className="gap-2.5 pl-12">
-        {body.map((item) =>
-          variant === "paragraphs" ? (
-            <Text className="leading-6" key={item} variant="muted">
-              <LinkedText>{item}</LinkedText>
-            </Text>
-          ) : (
-            <Bullet key={item}>{item}</Bullet>
-          ),
-        )}
-      </View>
+      {expanded ? (
+        /*
+          `pr-2` as well as the icon-column indent. A bullet that ends flush with
+          the screen gutter has no margin to sit in and reads as clipped — the
+          same complaint the lede block answers one component up.
+        */
+        <View className="gap-2.5 pl-12 pr-2">
+          {body.map((item) =>
+            variant === "paragraphs" ? (
+              <Text className="leading-6" key={item} variant="muted">
+                <LinkedText>{item}</LinkedText>
+              </Text>
+            ) : (
+              <Bullet key={item}>{item}</Bullet>
+            ),
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
 
-/** Every section of a page, spaced the way the web spaces them. */
+/**
+ * Every section of a page.
+ *
+ * ## Why these fold
+ *
+ * The web draws nine of them open, one under the other, because a desktop page is
+ * scanned by eye at a glance and its headings are visible together. On a phone
+ * they are visible one at a time, so the same nine sections are ~2,000 words a
+ * reader must scroll through in order to learn what the nine *headings* are — the
+ * exact thing the desktop layout gives away for free.
+ *
+ * Folded, the headings are the glance and the body is the answer to a tap. The
+ * first is open so the pattern is obvious without anyone having to guess that the
+ * rows do something.
+ *
+ * The spacing tightens with them (`gap-8` becomes `gap-5`): eight collapsed rows
+ * spaced for open ones read as eight unrelated things rather than as one contents
+ * list.
+ */
 export function InfoSections({
+  collapsible = true,
   sections,
   variant = "bullets",
 }: {
+  collapsible?: boolean;
   sections: readonly InfoSectionData[];
   variant?: SectionVariant;
 }) {
   return (
-    <View className="gap-8">
-      {sections.map((section) => (
-        <InfoSection key={section.title} {...section} variant={variant} />
+    <View className={collapsible ? "gap-5" : "gap-8"}>
+      {sections.map((section, index) => (
+        <InfoSection
+          collapsible={collapsible}
+          defaultOpen={index === 0}
+          key={section.title}
+          {...section}
+          variant={variant}
+        />
       ))}
     </View>
   );

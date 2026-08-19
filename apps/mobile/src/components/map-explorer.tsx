@@ -159,12 +159,38 @@ export const MapExplorer = forwardRef<MapHandle, MapExplorerProps>(function MapE
     }),
   );
 
-  const call = useCallback((script: string) => {
-    // The trailing `true;` is required on iOS: `injectJavaScript` warns when the
-    // evaluated expression is not a primitive, and a Leaflet call returns an
-    // object.
-    webview.current?.injectJavaScript(`${script}; true;`);
-  }, []);
+  const call = useCallback(
+    (script: string) => {
+      /*
+       * The `ready` gate lives **here**, not only at the call sites.
+       *
+       * Every effect in this component already wrote `if (ready) { call(…) }` —
+       * but the imperative handle below hands `call` straight to `app/map.tsx`,
+       * which is outside that discipline and cannot see the flag. Its north-up
+       * effect fires `setBearing(0)` on mount, long before the page has posted
+       * `ready`, and `webview.current?.` does not help: the WebView exists, it is
+       * the *page inside it* that has not run its script yet. So the injection
+       * lands on a document where `window.__map` is undefined and throws
+       *
+       *   Uncaught TypeError: Cannot read properties of undefined
+       *   (reading 'setBearing')
+       *
+       * inside the WebView, where nothing in React Native surfaces it — it shows
+       * up only as a `chromium` line in logcat, which is how it survived this
+       * long. Gating the one function every path goes through closes all of them
+       * at once, and matches what this file's header already claims it does.
+       */
+      if (!ready) {
+        return;
+      }
+
+      // The trailing `true;` is required on iOS: `injectJavaScript` warns when the
+      // evaluated expression is not a primitive, and a Leaflet call returns an
+      // object.
+      webview.current?.injectJavaScript(`${script}; true;`);
+    },
+    [ready],
+  );
 
   /*
    * The last bearing actually sent to the page. A ref, not state: it changes
@@ -231,6 +257,17 @@ export const MapExplorer = forwardRef<MapHandle, MapExplorerProps>(function MapE
       const { id, type } = message as { id?: unknown; type?: unknown };
 
       if (type === "ready") {
+        /*
+         * Forget any bearing "sent" while the page was still loading.
+         *
+         * `worthSending` has a side effect — it records the value in
+         * `sentBearing` and suppresses the next identical one. Now that `call`
+         * drops injections before `ready`, a bearing could be recorded as sent
+         * without ever reaching the page, and the map would then refuse to
+         * rotate to that same heading once it was finally listening. Clearing it
+         * here makes the first bearing after load unconditional.
+         */
+        sentBearing.current = null;
         setReady(true);
         return;
       }

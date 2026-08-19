@@ -185,10 +185,15 @@ export default function BrowseProfileScreen() {
               because a shortlist that does not follow you to another phone is
               worth knowing about before you build one. It works signed out for
               the same reason: nothing about it touches an account.
+
+              This used to push `/(browse)` — the Home tab — because Home draws a
+              Saved row. Tapping "Saved hostels" and arriving at the top of a
+              discovery feed, with your shortlist in a carousel three screenfuls
+              down, reads as a broken link. `/saved` is the list and nothing else.
             */}
             <ListRow
               icon="bookmark-outline"
-              onPress={() => router.push("/(browse)")}
+              onPress={() => router.push("/saved")}
               right={
                 saved.length > 0 ? (
                   <Badge label={String(saved.length)} tone="success" />
@@ -196,7 +201,7 @@ export default function BrowseProfileScreen() {
               }
               subtitle={
                 saved.length > 0
-                  ? "Kept on this device — shown on Home"
+                  ? "Kept on this device"
                   : "Tap the heart on a hostel to shortlist it"
               }
               title="Saved hostels"
@@ -327,20 +332,36 @@ export default function BrowseProfileScreen() {
               Both need a session. `/settings` itself takes `requireApiPrincipal`,
               so these are not shown-and-refused — they are simply not offered to
               someone who has no preferences to set and no account to delete.
+
+              Two rows, two destinations. They both used to push plain `/settings`,
+              which meant two subtitles promising two different things and one
+              screen delivering whichever of them happened to be scrolled to. The
+              `section` parameter draws only the half that was asked for; see
+              `SETTINGS_TITLES` in `app/settings.tsx`.
             */}
             {account ? (
               <>
                 <RowDivider inset />
                 <ListRow
                   icon="notifications-outline"
-                  onPress={() => router.push("/settings")}
+                  onPress={() =>
+                    router.push({
+                      params: { section: "notifications" },
+                      pathname: "/settings",
+                    })
+                  }
                   subtitle="Choose what reaches you, and set quiet hours"
                   title="Notifications"
                 />
                 <RowDivider inset />
                 <ListRow
                   icon="shield-checkmark-outline"
-                  onPress={() => router.push("/settings")}
+                  onPress={() =>
+                    router.push({
+                      params: { section: "privacy" },
+                      pathname: "/settings",
+                    })
+                  }
                   subtitle="Your data, and closing your account"
                   title="Privacy & your data"
                 />

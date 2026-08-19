@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as WebBrowser from "expo-web-browser";
+import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { View } from "react-native";
 
@@ -13,8 +13,6 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useSiteConfig } from "@/hooks/use-site-config";
-import { API_BASE_URL } from "@/lib/api";
-import { webPublicUrl } from "@/lib/web-portal";
 
 /**
  * Plans, for a hostel owner.
@@ -42,8 +40,13 @@ export default function PricingScreen() {
   const { identity, pricing } = config;
   const [openPlan, setOpenPlan] = useState<string | null>(null);
 
-  const openRegistration = useCallback(async () => {
-    await WebBrowser.openBrowserAsync(webPublicUrl(API_BASE_URL, "registerHostel"));
+  /*
+   * The registration wizard, in the app. This was a browser tab until 2026-08-19
+   * — see `register-hostel/apply.tsx` for why the "the documents are on a
+   * computer" argument did not survive contact with the device.
+   */
+  const openRegistration = useCallback(() => {
+    router.push("/register-hostel/apply");
   }, []);
 
   return (
@@ -85,7 +88,7 @@ export default function PricingScreen() {
           <PlanCard
             expanded={openPlan === plan.name}
             key={plan.name}
-            onPress={() => void openRegistration()}
+            onPress={openRegistration}
             onToggle={() => setOpenPlan(openPlan === plan.name ? null : plan.name)}
             plan={plan}
           />
@@ -104,7 +107,7 @@ export default function PricingScreen() {
             <Button
               className="mt-1"
               label="Start your registration"
-              onPress={() => void openRegistration()}
+              onPress={openRegistration}
             />
           </Card>
         ) : null}

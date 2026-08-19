@@ -52,33 +52,21 @@ export function webPortalUrl(baseUrl: string, slug: string, key: WebPortalKey): 
 }
 
 /**
- * Public website paths the app deliberately hands off to the browser.
+ * There is no public website path the app hands off to any more.
  *
- * Everything the phone can do natively, it does natively — the whole point of
- * moving the website's header and footer into the Profile tab. These two are
- * the exceptions, and each is an exception for a reason that is about the flow
- * and not about effort:
+ * `WEB_PUBLIC_PATHS` used to live here with two entries — `registerHostel` and
+ * `becomeProvider` — each with an argument for why its form could not be native.
+ * Both arguments were retired on 2026-08-19 and the forms are now
+ * `app/register-hostel/apply.tsx` and `app/service-providers/apply.tsx`; those
+ * two files carry the reasoning, which is worth reading before anything is added
+ * back here.
  *
- * - **`registerHostel`** is a long multi-step application with document uploads
- *   and an ownership-papers step. It is filled in once, at a desk, usually from
- *   files that live on a computer.
- * - **`becomeProvider`** is gated on Google sign-in *before* the form, so the
- *   email on the application is one Google has verified. That gate upgrades the
- *   very account it signs in — a native flow would have to reimplement it and
- *   get the upgrade path exactly right, for a form a tradesperson fills in once.
+ * The short version: "the documents live on a computer" was wrong about where a
+ * Nepali hostel owner's citizenship certificate actually is, and "the Google gate
+ * has to happen before the form" describes a problem the app has already solved
+ * by having a session at all.
  *
- * The app explains each of them natively and in full; only the form itself
- * leaves. `WebBrowser.openBrowserAsync` keeps the user on top of the app rather
- * than switching them to Chrome.
+ * `WEB_PORTAL_PATHS` above is a different thing and stays: those are *hostel
+ * admin* surfaces the phone deliberately does not reimplement, not public forms
+ * it could not manage.
  */
-export const WEB_PUBLIC_PATHS = {
-  becomeProvider: "service-providers",
-  registerHostel: "register-hostel/form",
-} as const;
-
-export type WebPublicKey = keyof typeof WEB_PUBLIC_PATHS;
-
-/** `webPublicUrl("https://site", "registerHostel")` → `https://site/register-hostel/form`. */
-export function webPublicUrl(baseUrl: string, key: WebPublicKey): string {
-  return `${baseUrl.replace(/\/+$/, "")}/${WEB_PUBLIC_PATHS[key]}`;
-}

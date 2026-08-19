@@ -6,11 +6,14 @@ import {
   Linking,
   Pressable,
   ScrollView,
+  Share,
   useWindowDimensions,
   View,
 } from "react-native";
 
+import { FoodRoutineWeek, MonthEndSpecial } from "@/components/food-routine";
 import { facilityIcon } from "@/components/hostel-card";
+import { HostelMap } from "@/components/hostel-map";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +27,9 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { API_BASE_URL } from "@/lib/api";
 import { formatMoney, humanizeEnum } from "@/lib/format";
+import { hostelCoordinates } from "@/lib/geo";
+import { groupNearbyPlaces } from "@/lib/hostel-nearby";
+import { buildHostelShare, hostelPublicUrl } from "@/lib/hostel-share";
 import {
   campusDistanceLabel,
   formatDistance,
@@ -62,7 +68,50 @@ export default function HostelDetailScreen() {
   );
 
   const data = hostel.data;
-  const header = <AppBar showBack title={data?.name ?? "Hostel"} />;
+
+  /**
+   * Hand the hostel to whatever the phone can share with.
+   *
+   * Every failure here is a dismissal. `Share.share` rejects when the user
+   * swipes the sheet away on iOS, and reporting "could not share" for a decision
+   * someone just made is the app arguing with them — same reasoning as the
+   * community card's share.
+   */
+  const share = useCallback(async () => {
+    if (!data) {
+      return;
+    }
+
+    try {
+      await Share.share({
+        message: buildHostelShare({
+          name: data.name,
+          place: locationLabel(data.location),
+          price: priceRange(data.pricing),
+          url: hostelPublicUrl(API_BASE_URL, data.slug),
+        }),
+        title: data.name,
+      });
+    } catch {
+      // Dismissing the sheet is not an error worth reporting.
+    }
+  }, [data]);
+
+  /*
+   * `centerTitle`, because the bar now has something on both sides of it and a
+   * left-aligned name between a back arrow and a share button reads as neither
+   * one thing nor the other. The action is only rendered once there is a hostel
+   * to share — a share button over a loading spinner would post a blank message
+   * naming nothing.
+   */
+  const header = (
+    <AppBar
+      actions={data ? <ShareButton onPress={() => void share()} /> : undefined}
+      centerTitle
+      showBack
+      title={data?.name ?? "Hostel"}
+    />
+  );
 
   if (hostel.loading) {
     return (
@@ -225,9 +274,9 @@ export default function HostelDetailScreen() {
 
         <FoodBlock hostel={data} />
 
-        <HostelFacts hostel={data} />
+        <LocationBlock hostel={data} />
 
-        {data.nearbyPlaces.length > 0 ? <Nearby hostel={data} /> : null}
+        <HostelFacts hostel={data} />
       </View>
     </Screen>
   );
@@ -503,6 +552,25 @@ function Rooms({ hostel }: { hostel: PublicHostelDetail }) {
   );
 }
 
+/**
+ * The food routine, in full.
+ *
+ * ## This used to withhold the thing it was describing
+ *
+ * It said "a weekly menu is published — you'll see the full routine once you
+ * move in", on the argument that the week belongs to the resident Food tab. But
+ * `/public/hostels/{slug}` **already returns `foodRoutine`** with all 28 cells
+ * in it, and the website draws every one of them on this same page. So the app
+ * was holding a menu it had already downloaded and telling the reader to sign a
+ * tenancy agreement to see it — on the screen where they decide whether to.
+ *
+ * The routine is the same `<FoodRoutineWeek>` the resident tab renders, minus
+ * the rating footer: a visitor has no dinner to rate yet.
+ *
+ * The `food` flags stay as chips above it. They are the website's "food facts"
+ * strip, and they answer a different question from the menu — "is there veg
+ * every day" is a filter, "what is Thursday's lunch" is a preview.
+ */
 function FoodBlock({ hostel }: { hostel: PublicHostelDetail }) {
   const { food, foodRoutine } = hostel;
   const chips = [
@@ -511,7 +579,8 @@ function FoodBlock({ hostel }: { hostel: PublicHostelDetail }) {
     food.hasNonVeg ? "Non-veg" : null,
   ].filter((chip): chip is string => Boolean(chip));
 
-  const hasRoutine = foodRoutine?.meals?.length > 0;
+  const meals = foodRoutine?.meals ?? [];
+  const hasRoutine = meals.length > 0;
 
   if (chips.length === 0 && !hasRoutine && !food.notes) {
     return null;
@@ -519,26 +588,37 @@ function FoodBlock({ hostel }: { hostel: PublicHostelDetail }) {
 
   return (
     <View>
-      <SectionHeader title="Food" />
-      <Card className="gap-3">
-        {chips.length > 0 ? (
-          <View className="flex-row flex-wrap gap-2">
-            {chips.map((chip) => (
-              <Badge key={chip} label={chip} tone="success" />
-            ))}
-          </View>
+      <SectionHeader
+        subtitle={hasRoutine ? "This week, as the hostel publishes it" : undefined}
+        title="Food"
+      />
+
+      <View className="gap-3">
+        {chips.length > 0 || food.notes ? (
+          <Card className="gap-3">
+            {chips.length > 0 ? (
+              <View className="flex-row flex-wrap gap-2">
+                {chips.map((chip) => (
+                  <Badge key={chip} label={chip} tone="success" />
+                ))}
+              </View>
+            ) : null}
+
+            {food.notes ? <Text variant="muted">{food.notes}</Text> : null}
+          </Card>
         ) : null}
 
-        {food.notes ? <Text variant="muted">{food.notes}</Text> : null}
-
-        {/* The full week is the resident Food tab's job. Here it is a signal
-            that a routine exists at all — the thing a visitor is checking. */}
-        <Text variant="caption">
-          {hasRoutine
-            ? "A weekly menu is published. You'll see the full routine once you move in."
-            : "No weekly routine published yet."}
-        </Text>
-      </Card>
+        {hasRoutine ? (
+          <>
+            <FoodRoutineWeek meals={meals} timings={foodRoutine.timings} />
+            <MonthEndSpecial special={foodRoutine.monthEndSpecial} />
+          </>
+        ) : (
+          <Card>
+            <Text variant="caption">No weekly routine published yet.</Text>
+          </Card>
+        )}
+      </View>
     </View>
   );
 }
@@ -573,34 +653,149 @@ function HostelFacts({ hostel }: { hostel: PublicHostelDetail }) {
   );
 }
 
-function Nearby({ hostel }: { hostel: PublicHostelDetail }) {
+/**
+ * Location — the map, a way to walk there, and what is around it.
+ *
+ * ## The web's Location panel, in one column
+ *
+ * On the website this is a two-column section: the map on the left, the nearby
+ * places grouped down the right. A phone has one column, so the map comes first
+ * and the groups follow it — which is also the order the information is wanted
+ * in, because the map answers "where" and the list answers "how far from what".
+ *
+ * ## What replaced the flat list of eight
+ *
+ * This screen used to end in eight nearest places, mixed together, sorted by
+ * distance. That reads as trivia: a pharmacy at 200 m and a park at 210 m sit
+ * next to each other and neither tells you whether there is a campus nearby —
+ * which for most of the people reading this page is the only question. Grouping
+ * by category (the website's own order and labels, ported in
+ * `lib/hostel-nearby.ts`) makes the answer a heading rather than something to
+ * be found by scanning.
+ *
+ * ## The map is drawn only when the hostel has been placed on one
+ *
+ * `coordinates` is null until the hostel admin saves an address the geocoder can
+ * resolve. An empty map is a grey rectangle that looks like a failed image, so
+ * the address stands alone instead — and says why, in the website's own words.
+ */
+function LocationBlock({ hostel }: { hostel: PublicHostelDetail }) {
+  const { colors } = useAppTheme();
+
+  const point = hostelCoordinates(hostel);
+  const groups = groupNearbyPlaces(hostel.nearbyPlaces);
+  const address = [hostel.location.address, locationLabel(hostel.location)]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <View>
-      <SectionHeader
-        subtitle="Walking and riding distance"
-        title="What's nearby"
-      />
-      <Card>
-        {hostel.nearbyPlaces.slice(0, 8).map((place, index) => (
-          <View key={`${place.name}-${place.type}`}>
-            {index > 0 ? <RowDivider inset /> : null}
-            <ListRow
-              icon={
-                place.type === "college"
-                  ? "school-outline"
-                  : place.type === "hospital"
-                    ? "medkit-outline"
-                    : place.type === "bus_stop"
-                      ? "bus-outline"
-                      : "location-outline"
-              }
-              subtitle={humanizeEnum(place.type)}
-              title={place.name}
-              value={formatDistance(place.distance)}
+      <SectionHeader subtitle={address} title="Location" />
+
+      <View className="gap-3">
+        {point ? (
+          <>
+            {/*
+              `preview`, because this screen scrolls.
+
+              A pannable Leaflet map inside a vertical `ScrollView` puts two pan
+              gestures on the same pixels — the rule `HostelMap` states in its own
+              header, and the reason browse switches `<Screen scroll>` off for its
+              map view. A fixed height does not avoid it; it makes it worse, since
+              someone scrolling past a 220dp map drags the map instead of the
+              page. So this one is a picture, and the tap goes to a screen that
+              owns its gestures.
+
+              `onSelect` is deliberately absent too: there is one pin and it is
+              this hostel, so a "View hostel" link would navigate to the screen it
+              was tapped on.
+            */}
+            <HostelMap
+              height={220}
+              hostels={[hostel]}
+              me={null}
+              nearby={hostel.nearbyPlaces}
+              onPress={() => router.push(`/directions/${hostel.slug}`)}
+              preview
             />
-          </View>
-        ))}
-      </Card>
+
+            {/*
+              Directions is the action a map creates the appetite for, and the
+              screen for it already exists (`/directions/[slug]`, task §7.4). Not
+              a handoff to Google Maps: that screen draws the same OSM tiles with
+              live turn-by-turn, and it works for someone with no maps app set up.
+            */}
+            <Button
+              label="Get directions"
+              onPress={() => router.push(`/directions/${hostel.slug}`)}
+              variant="outline"
+            />
+          </>
+        ) : (
+          <Card className="items-center gap-2 py-6">
+            <Ionicons color={colors.primary} name="map-outline" size={28} />
+            <Text className="text-center" variant="label">
+              {address || "Address not published"}
+            </Text>
+            <Text className="text-center" variant="caption">
+              The exact location appears once the hostel saves an address.
+            </Text>
+          </Card>
+        )}
+
+        {groups.length > 0 ? (
+          <Card className="gap-4">
+            <Text variant="label">What&apos;s nearby</Text>
+
+            {groups.map((group) => (
+              <View className="gap-1.5" key={group.type}>
+                <View className="flex-row items-center gap-2">
+                  <Ionicons
+                    color={colors.primary}
+                    name={group.icon as keyof typeof Ionicons.glyphMap}
+                    size={15}
+                  />
+                  <Text className="flex-1" variant="label">
+                    {group.label}
+                  </Text>
+                  <Text variant="caption">{String(group.places.length)}</Text>
+                </View>
+
+                {/* Three per group, like the web. A hostel in Kathmandu can have
+                    a dozen restaurants inside 500 m and listing all of them buries
+                    the campus two groups down. */}
+                {group.places.slice(0, 3).map((place) => (
+                  <View
+                    className="flex-row items-baseline gap-2 pl-6"
+                    key={`${place.name}-${place.distance}`}
+                  >
+                    <Text className="flex-1" numberOfLines={1} variant="muted">
+                      {place.name}
+                    </Text>
+                    <Text variant="caption">{formatDistance(place.distance)}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </Card>
+        ) : null}
+      </View>
     </View>
+  );
+}
+
+/** The bar's right-hand slot. One control, which is what `centerTitle` allows. */
+function ShareButton({ onPress }: { onPress: () => void }) {
+  const { colors } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel="Share this hostel"
+      accessibilityRole="button"
+      hitSlop={12}
+      onPress={onPress}
+    >
+      <Ionicons color={colors.foreground} name="share-social-outline" size={22} />
+    </Pressable>
   );
 }

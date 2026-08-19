@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 
@@ -72,7 +72,31 @@ const THEME_OPTIONS: { hint: string; label: string; value: ThemePreference }[] =
   { hint: "Follow your phone", label: "System", value: "system" },
 ];
 
+/**
+ * Which slice of this screen to draw.
+ *
+ * The Profile tab lists "Notifications" and "Privacy & your data" as two rows
+ * with two different subtitles, and both used to push plain `/settings` — the
+ * same screen, scrolled to the top, with the thing you tapped somewhere below the
+ * fold. Two rows that go to one place is a menu that lies about how many
+ * destinations it has, and on the privacy row specifically it means someone
+ * looking for "delete my account" lands on a theme picker.
+ *
+ * A route parameter rather than three route files, because the three views share
+ * every hook and every child component; splitting them would be three screens
+ * fetching the same deletion status to render one card each.
+ *
+ * An unknown value falls through to the whole screen. `/settings` with no
+ * parameter is still the complete settings screen, which is what a role's More
+ * tab links to and what a push deep link may land on.
+ */
+const SETTINGS_TITLES: Record<string, string> = {
+  notifications: "Notifications",
+  privacy: "Privacy & your data",
+};
+
 export default function SettingsScreen() {
+  const { section } = useLocalSearchParams<{ section?: string }>();
   const dispatch = useAppDispatch();
   const preference = useAppSelector((state) => state.ui.themePreference);
   const { colors } = useAppTheme();
@@ -95,14 +119,27 @@ export default function SettingsScreen() {
     router.push("/legal/privacy");
   }, []);
 
+  const showAll = !section || !(section in SETTINGS_TITLES);
+  const showNotifications = showAll || section === "notifications";
+  const showPrivacy = showAll || section === "privacy";
+
   return (
     <Screen
-      header={<AppBar showBack title="Settings" />}
-      onRefresh={deletion.refresh}
-      refreshing={deletion.refreshing}
+      header={
+        <AppBar showBack title={(section && SETTINGS_TITLES[section]) || "Settings"} />
+      }
+      /*
+        The deletion status is only fetched for the views that draw it. Pulling to
+        refresh a Notifications-only screen would otherwise re-request the account
+        deletion state, which is neither on screen nor anything the gesture was
+        about.
+      */
+      onRefresh={showPrivacy ? deletion.refresh : undefined}
+      refreshing={showPrivacy && deletion.refreshing}
       scroll
     >
       <View className="gap-5 pt-1">
+        {showAll ? (
         <View>
           <SectionHeader subtitle="Stored on this phone only" title="Appearance" />
           <Card>
@@ -129,34 +166,39 @@ export default function SettingsScreen() {
             })}
           </Card>
         </View>
+        ) : null}
 
-        <NotificationSettings />
+        {showNotifications ? <NotificationSettings /> : null}
 
-        <View>
-          <SectionHeader
-            subtitle="Control what we keep about you"
-            title="Privacy & your data"
-          />
-          <Card>
-            <ListRow
-              icon="document-text-outline"
-              onPress={openPrivacyPolicy}
-              subtitle="What we collect, why, and for how long"
-              title="Privacy policy"
+        {showPrivacy ? (
+          <View>
+            <SectionHeader
+              subtitle="Control what we keep about you"
+              title="Privacy & your data"
             />
-          </Card>
-        </View>
+            <Card>
+              <ListRow
+                icon="document-text-outline"
+                onPress={openPrivacyPolicy}
+                subtitle="What we collect, why, and for how long"
+                title="Privacy policy"
+              />
+            </Card>
+          </View>
+        ) : null}
 
-        {deletion.loading ? (
-          <LoadingState />
-        ) : deletion.error || !deletion.data ? (
-          <ErrorState
-            message={deletion.error ?? "Your account settings could not be loaded."}
-            onRetry={deletion.reload}
-          />
-        ) : (
-          <DeletionPanel onChanged={deletion.refresh} status={deletion.data} />
-        )}
+        {showPrivacy ? (
+          deletion.loading ? (
+            <LoadingState />
+          ) : deletion.error || !deletion.data ? (
+            <ErrorState
+              message={deletion.error ?? "Your account settings could not be loaded."}
+              onRetry={deletion.reload}
+            />
+          ) : (
+            <DeletionPanel onChanged={deletion.refresh} status={deletion.data} />
+          )
+        ) : null}
       </View>
     </Screen>
   );
