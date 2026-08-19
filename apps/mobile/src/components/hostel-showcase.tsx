@@ -12,14 +12,13 @@ import {
   View,
 } from "react-native";
 
-import { facilityIcon, SaveButton } from "@/components/hostel-card";
+import { SaveButton, TYPE_TAG_SIZE } from "@/components/hostel-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { API_BASE_URL } from "@/lib/api";
 import { coverPhoto, locationLabel, priceRange, ratingDisplay } from "@/lib/hostel-display";
 import { absoluteMediaUrl } from "@/lib/media";
-import { TYPE_TAG_SIZE } from "@/components/hostel-card";
 import { HOSTEL_TYPE_LABELS, type PublicHostel } from "@/lib/public-api";
 
 /**
@@ -89,14 +88,56 @@ const PAGE_INSET = 40;
  * a point off both type sizes are what fit the whole thing on one line; the row
  * still wraps rather than truncates if a longer range ever does not.
  *
- * The height is what the contents need and no more: name, place, rating, price
- * and facilities are ~100dp stacked once they come off the variant table, the
- * View Details bar is 36, and the rest is padding. It came down with the type
+ * The height is what the contents need and no more: name, place, rating, price,
+ * the rule and facilities are ~110dp stacked once they come off the variant
+ * table, the View Details bar is 36, and the rest is padding. The eight points
+ * it grew are the rule above the facilities row and the gap over it — the
+ * column is `justify-between`, so leaving the height alone would have paid for
+ * the rule out of the space under the facilities instead. It came down with the type
  * rather than by squeezing: the numbers are what the mockup's short, wide card
  * costs, and cutting further starts clipping the bar at large system font sizes.
  */
+/**
+ * The card's type scale, in points — and every size here is a `fontSize` rather
+ * than a `text-sm` / `text-xs` / `text-[9px]` class, which is the whole reason
+ * this table exists.
+ *
+ * `Text` glues its variant's classes to the caller's with a plain template
+ * string (`ui/text.tsx`) — no `tailwind-merge`. So a `text-xs` passed in was
+ * racing the default `body` variant's `text-base` for the same property, and
+ * NativeWind settles that by stylesheet order, not by which class was written
+ * last. `text-base` won every time: the name, the chip and the price had all
+ * been rendering at 16 regardless of what the class said, and an arbitrary
+ * `text-[9px]` compiles to nothing at all when that size appears nowhere else
+ * in the app. The column read as one flat block of 16px with a 9px facility row
+ * under it — the "cramped at the top, tiny at the bottom" shape.
+ *
+ * A measured dimension goes in `style`, where it cannot silently fail to exist.
+ * `TYPE_TAG_SIZE` above and the same note in `hostel-card.tsx` are this rule
+ * arrived at twice already.
+ */
+const TYPE_SCALE = {
+  /** The soft "View Details" bar. */
+  cta: 13,
+  /** Rating / vacancy chips, and the `/month` unit. */
+  meta: 10,
+  name: 15,
+  /** Address and campus distance. */
+  place: 11,
+  /*
+   * Two points under the name, and both of them measured rather than chosen.
+   * The text column is ~159dp once the 44% photo and the padding come off a
+   * 360dp handset, and `NPR 10,000 – 18,000` in bold is ~127dp of that at 14 —
+   * which leaves 28 for a `/month` that needs 34. So the unit wrapped to a line
+   * of its own, the exact shape the note on the price row says it must never
+   * have, and the extra line then pushed the facilities out of the stack
+   * entirely. At 13 the number is ~118dp and the pair fits with room to spare.
+   */
+  price: 13,
+} as const;
+
 const IMAGE_RATIO = 0.44;
-const CARD_HEIGHT = 192;
+const CARD_HEIGHT = 158;
 
 export type HostelShowcaseProps = {
   hostels: PublicHostel[];
@@ -238,16 +279,6 @@ function ShowcaseCard({
   const rating = ratingDisplay(hostel.ratingSummary);
   const imageWidth = Math.round(width * IMAGE_RATIO);
 
-  /*
-   * Three, which is what the mockup lists — `facilities` is a free list a hostel
-   * admin fills in and eight of them is a real payload. They are drawn at 10px
-   * with a tight gap so three short labels ("Wi-Fi · Food · Laundry") hold one
-   * line, and the row is allowed to wrap onto a second rather than truncate: a
-   * long one ("Attached bathroom") is still readable wrapped, and the card has
-   * the height for two lines with the View Details bar pinned to the bottom.
-   */
-  const facilities = hostel.facilities.slice(0, 3);
-
   return (
     <Pressable
       accessibilityLabel={`${hostel.name}, ${locationLabel(hostel.location)}`}
@@ -304,26 +335,43 @@ function ShowcaseCard({
         </View>
       </View>
 
-      <View className="flex-1 justify-between p-2">
-        <View className="gap-1">
+      <View className="flex-1 p-2.5">
+        {/*
+          `flex-1` on the text stack, and it is load-bearing rather than tidying.
+          Without it the stack sizes to its contents and the View Details bar
+          below is simply pushed past the card's fixed height — which is what
+          happened the moment a listing had one more row than its neighbour: the
+          bar rendered on one card in the carousel and was clipped away on the
+          next. With it the stack is capped at what is left after the bar has
+          taken its 36, so the bar is always drawn and it is the text that gives
+          way. Same protection at large system font sizes, where every row here
+          grows and the height cannot.
+        */}
+        <View className="flex-1 gap-1.5">
           {/*
-            The whole column is the `<Text>` variant table — `label` for the
-            name, `caption` for the place and the unit, `text-xs` for the score
-            — rather than a size per line. It shipped a size larger throughout,
-            which is what pushed the price onto two lines and the card to 268dp
-            tall: a 14dp name and a 14dp price hold everything the mockup shows
-            in a column 174dp wide. The two 10px facility labels below are the
-            one exception, and they are the reason there is a comment here: the
-            table has nothing under `caption`, and a facility row at 12 wraps to
-            three lines on a long label.
+            Sizes come off `TYPE_SCALE`, not the `<Text>` variant table — see the
+            note on that constant for why the table could not be used here. The
+            ranking it encodes is the point: the name leads, the price matches it
+            because those are the two things being compared across cards, the
+            address and campus distance sit a step down, and the facilities are
+            the quietest line on the card rather than the same size as everything
+            above them.
           */}
-          <Text className="font-bold" numberOfLines={1} variant="label">
+          <Text
+            className="text-foreground"
+            numberOfLines={1}
+            style={{ fontSize: TYPE_SCALE.name, fontWeight: "700" }}
+          >
             {hostel.name}
           </Text>
 
           <View className="flex-row items-center gap-1">
-            <Ionicons color={colors.mutedForeground} name="location-outline" size={13} />
-            <Text className="flex-1" numberOfLines={1} variant="caption">
+            <Ionicons color={colors.mutedForeground} name="location-outline" size={11} />
+            <Text
+              className="flex-1"
+              numberOfLines={1}
+              style={{ color: colors.mutedForeground, fontSize: TYPE_SCALE.place }}
+            >
               {locationLabel(hostel.location) || "Location not published"}
             </Text>
           </View>
@@ -338,6 +386,7 @@ function ShowcaseCard({
             as a warning badge rather than a score. Painted from `colors` rather
             than `bg-brand-soft` for the reason every measured value here is
             inline — one token, one place it can fail.
+
           */}
           <View className="flex-row">
             <View
@@ -346,12 +395,26 @@ function ShowcaseCard({
             >
               {rating.kind === "rated" ? (
                 <>
-                  <Ionicons color={colors.primary} name="star" size={12} />
-                  <Text className="text-xs font-bold">{rating.value}</Text>
-                  <Text variant="caption">{`(${rating.count})`}</Text>
+                  <Ionicons color={colors.primary} name="star" size={10} />
+                  <Text style={{ fontSize: TYPE_SCALE.meta, fontWeight: "700" }}>
+                    {rating.value}
+                  </Text>
+                  <Text
+                    style={{ color: colors.mutedForeground, fontSize: TYPE_SCALE.meta }}
+                  >
+                    {`(${rating.count})`}
+                  </Text>
                 </>
               ) : (
-                <Text className="text-xs font-semibold">New</Text>
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontSize: TYPE_SCALE.meta,
+                    fontWeight: "600",
+                  }}
+                >
+                  New
+                </Text>
               )}
             </View>
           </View>
@@ -363,29 +426,21 @@ function ShowcaseCard({
             the column is ever too narrow, `/month` drops to the next line and
             the number stays whole.
           */}
-          <View className="flex-row flex-wrap items-baseline gap-1">
-            <Text className="text-sm font-bold text-primary">
+          <View className="flex-row flex-wrap items-baseline gap-0.5">
+            <Text
+              style={{
+                color: colors.primary,
+                fontSize: TYPE_SCALE.price,
+                fontWeight: "700",
+              }}
+            >
               {priceRange(hostel.pricing)}
             </Text>
-            <Text variant="caption">/month</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: TYPE_SCALE.meta }}>
+              /month
+            </Text>
           </View>
 
-          {facilities.length > 0 ? (
-            <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
-              {facilities.map((facility) => (
-                <View className="flex-row items-center gap-1" key={facility}>
-                  <Ionicons
-                    color={colors.mutedForeground}
-                    name={facilityIcon(facility)}
-                    size={11}
-                  />
-                  <Text className="text-[10px] text-muted-foreground" numberOfLines={1}>
-                    {facility}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
         </View>
 
         {/*
@@ -396,7 +451,15 @@ function ShowcaseCard({
           soft brand bar — an affordance, not a competing control.
         */}
         <View className="mt-1.5 h-9 flex-row items-center justify-center gap-1.5 rounded-xl bg-brand-soft">
-          <Text className="text-sm font-bold text-primary">View Details</Text>
+          <Text
+            style={{
+              color: colors.primary,
+              fontSize: TYPE_SCALE.cta,
+              fontWeight: "700",
+            }}
+          >
+            View Details
+          </Text>
           <Ionicons color={colors.primary} name="arrow-forward" size={14} />
         </View>
       </View>

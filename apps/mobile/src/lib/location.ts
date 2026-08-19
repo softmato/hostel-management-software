@@ -109,7 +109,31 @@ export async function requestDeviceLocation(): Promise<LocationOutcome> {
   let permission: Location.LocationPermissionResponse;
 
   try {
-    permission = await Location.requestForegroundPermissionsAsync();
+    /*
+     * Read the grant before asking for it, and ask only when the answer is not
+     * already in hand. `requestForegroundPermissionsAsync` looks like a no-op on
+     * an install that has said yes, and it is not: Expo's Android permissions
+     * service hands every call straight to `Activity.requestPermissions`, with
+     * no check for a permission that is already held, and Android answers that
+     * by starting `GrantPermissionsActivity` — which finishes immediately, having
+     * put another activity in front of ours and taken the foreground away for a
+     * few hundred milliseconds.
+     *
+     * That is not free. The screens that sort by distance re-read on every focus
+     * (`useNearby({ auto: true })` in `public-home` and `map`), so the old code
+     * bounced the foreground once per visit to either screen, and every bounce is
+     * a window in which React Native's current activity is unavailable. Anything
+     * Fabric preallocates in that window is built without an activity, and
+     * `expo-image`'s view wants one in its constructor: it throws
+     * `MissingActivity`, expo-modules-core logs it and substitutes a permanent
+     * `ErrorGroupView`, and that `<Image>` stays blank for as long as it is
+     * mounted. Not asking a question we know the answer to closes the window.
+     */
+    permission = await Location.getForegroundPermissionsAsync();
+
+    if (!permission.granted && permission.canAskAgain) {
+      permission = await Location.requestForegroundPermissionsAsync();
+    }
   } catch {
     return { kind: "unavailable" };
   }
