@@ -12,7 +12,12 @@ import {
   generateFileKey,
   getR2Client,
 } from "@/lib/r2";
-import { inspectImage, isInspectableImage } from "@/lib/uploads/image-integrity";
+import {
+  IMAGE_INSPECTION_UNAVAILABLE,
+  type ImageInsight,
+  inspectImage,
+  isInspectableImage,
+} from "@/lib/uploads/image-integrity";
 import { contentTypeMismatch } from "@/lib/uploads/sniff";
 import { hashBytes } from "@/lib/uploads/verify";
 import { computePerceptualHash, systemDocumentKind } from "@/modules/finance/evidence";
@@ -74,17 +79,24 @@ export async function POST(request: NextRequest) {
       return errorResponse(mismatch, "UPLOAD_CONTENT_MISMATCH", 422);
     }
 
-    let imageInsight: Awaited<ReturnType<typeof inspectImage>> = null;
+    let imageInsight: ImageInsight | null = null;
 
     if (isInspectableImage(mimeType)) {
-      imageInsight = await inspectImage(buffer);
+      const inspection = await inspectImage(buffer);
 
-      if (!imageInsight) {
-        return errorResponse(
-          "This image could not be opened — it may be damaged or incomplete. Please upload it again.",
-          "UPLOAD_IMAGE_UNDECODABLE",
-          422,
-        );
+      // A deployment with no `sharp` binary inspects nothing, and that must not
+      // read as "damaged file" to the person uploading — same call as in the
+      // presigned route's completion step.
+      if (inspection !== IMAGE_INSPECTION_UNAVAILABLE) {
+        if (!inspection) {
+          return errorResponse(
+            "This image could not be opened — it may be damaged or incomplete. Please upload it again.",
+            "UPLOAD_IMAGE_UNDECODABLE",
+            422,
+          );
+        }
+
+        imageInsight = inspection;
       }
     }
 

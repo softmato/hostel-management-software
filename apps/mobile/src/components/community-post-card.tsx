@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { Alert, Linking, Pressable, Share, View } from "react-native";
 
 import { CommentThread } from "@/components/community-comment-thread";
+import { ReactionBar } from "@/components/community-reaction-bar";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,17 +23,19 @@ import {
   getPostComments,
   type CommunityComment,
   reactToPost,
+  type ReactionTally,
   reportPost,
   type ReactionType,
 } from "@/lib/community-api";
 import {
   avatarInitial,
   avatarTone,
+  commentCountLabel,
   feedTime,
   MAX_COMMENT_BODY,
   MAX_REPORT_REASON,
   nextReaction,
-  REACTIONS,
+  reactionTally,
   reportReasonError,
   spaceBadge,
   usableAvatarUrl,
@@ -58,10 +61,9 @@ import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
  * emoji at this size fit a 320dp row, and shipping four of six values the API
  * accepts is a narrowing that tends to become permanent.
  *
- * The total sits **outside** the row rather than inside the active pill.
- * `reactionCount` is one per user across every type, so printing it beside a
- * single emoji — as the web does — reads as "12 likes" when it means "12
- * reactions".
+ * The row itself is `<ReactionBar>`, which draws each emoji with **its own**
+ * count from `reactionCounts` and animates the one that was tapped. The card's
+ * job is the optimistic bookkeeping behind it, below.
  *
  * ## Video is opened, not played inline
  *
@@ -94,9 +96,18 @@ export function CommunityPostCard({
    * Reaction state is echoed locally so the pill responds to the tap. The parent's
    * refetch reconciles; without this the row is dead for a whole round trip on a
    * connection where that is half a second.
+   *
+   * The per-type tally is echoed for the same reason and is the one people watch:
+   * the number sitting beside the emoji they just pressed. `?? {}` covers a
+   * payload from a server that predates the breakdown — the row then draws bare
+   * emoji rather than crashing on an undefined index.
+   *
+   * `post.reactionCount`, the total, is **not** mirrored: the tray prints the
+   * six numbers it is made of, so echoing their sum would be a seventh piece of
+   * state kept in step with the other six for nothing to read.
    */
   const [reaction, setReaction] = useState<ReactionType | null>(post.viewerReaction);
-  const [reactionCount, setReactionCount] = useState(post.reactionCount);
+  const [counts, setCounts] = useState<ReactionTally>(post.reactionCounts ?? {});
 
   const requireAccount = useCallback(() => {
     toastInfo("Account needed", "Sign in to join the conversation.");
@@ -127,21 +138,20 @@ export function CommunityPostCard({
         return;
       }
 
-      const previous = { count: reactionCount, reaction };
-      const next = nextReaction(reaction, type);
+      const previous = { counts, reaction };
 
-      setReaction(next.reaction);
-      setReactionCount(reactionCount + next.countDelta);
+      setReaction(nextReaction(reaction, type).reaction);
+      setCounts(reactionTally(counts, reaction, type));
 
       try {
         await reactToPost(post.id, type);
       } catch (caught) {
         setReaction(previous.reaction);
-        setReactionCount(previous.count);
+        setCounts(previous.counts);
         toastError("Could not react", readApiError(caught));
       }
     },
-    [canPost, post.id, reaction, reactionCount, requireAccount],
+    [canPost, counts, post.id, reaction, requireAccount],
   );
 
   const comment = useCallback(async () => {
@@ -217,15 +227,28 @@ export function CommunityPostCard({
         )}
 
         <View className="flex-1">
-          <Text numberOfLines={1} variant="label">
+          <Text
+            numberOfLines={1}
+            style={{ fontSize: 15, fontWeight: "700" }}
+          >
             {post.authorName}
           </Text>
+
+          {/*
+            One grey line — "Public · 4 Aug" — rather than a pill for the space
+            beside the time. The space is context, not status: at pill weight it
+            competed with the author's own name for the eye, and on a public feed
+            it says "Public" on nearly every card, which is a lot of chrome to
+            repeat twenty times down a scroll. `numberOfLines` keeps a long
+            hostel name from pushing the time onto a second row.
+
+            Announcement stays a pill. That one *is* status, it is rare, and it
+            is the only thing in this header worth interrupting a scan for.
+          */}
           <View className="mt-0.5 flex-row flex-wrap items-center gap-1.5">
-            <Badge
-              label={spaceBadge(post)}
-              tone={post.spaceType === "PUBLIC" ? "neutral" : "success"}
-            />
-            <Text variant="caption">{feedTime(post.createdAt)}</Text>
+            <Text numberOfLines={1} variant="caption">
+              {spaceBadge(post)} · {feedTime(post.createdAt)}
+            </Text>
             {post.isAnnouncement ? <Badge label="Announcement" tone="warning" /> : null}
           </View>
         </View>
@@ -248,54 +271,42 @@ export function CommunityPostCard({
 
       <MediaGrid media={post.media} />
 
-      <View className="flex-row items-center gap-1 border-t border-border pt-3">
-        {REACTIONS.map(({ emoji, label, type }) => {
-          const active = reaction === type;
+      <ReactionBar
+        counts={counts}
+        onReact={(type) => void react(type)}
+        viewerReaction={reaction}
+      />
 
-          return (
-            <Pressable
-              accessibilityLabel={label}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              className="h-9 w-9 items-center justify-center rounded-full active:opacity-70"
-              key={type}
-              onPress={() => void react(type)}
-              style={active ? { backgroundColor: colors.brandSoft } : undefined}
-            >
-              <Text style={{ fontSize: 17 }}>{emoji}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View className="flex-row items-center gap-4">
-        {reactionCount > 0 ? (
-          <Text variant="caption">
-            {reactionCount === 1 ? "1 reaction" : `${reactionCount} reactions`}
-          </Text>
-        ) : null}
-
-        <View className="flex-1" />
-
+      {/*
+        The tray carries the per-type numbers, so this row carries the two
+        actions and nothing else. The **total** is deliberately not printed
+        beside them: `reactionCount` is one per person across all six types, and
+        a "9 reactions" sitting under a tray whose own numbers add up to nine is
+        the same fact twice.
+      */}
+      <View className="flex-row items-center justify-between">
         <Pressable
           accessibilityRole="button"
-          className="flex-row items-center gap-1.5 active:opacity-70"
+          accessibilityState={{ expanded }}
+          className="flex-row items-center gap-1.5 py-0.5 active:opacity-70"
+          hitSlop={6}
           onPress={toggleThread}
         >
           <Ionicons
             color={colors.mutedForeground}
             name="chatbubble-outline"
-            size={15}
+            size={16}
           />
-          <Text variant="caption">{post.commentCount}</Text>
+          <Text variant="caption">{commentCountLabel(post.commentCount)}</Text>
         </Pressable>
 
         <Pressable
           accessibilityRole="button"
-          className="flex-row items-center gap-1.5 active:opacity-70"
+          className="flex-row items-center gap-1.5 py-0.5 active:opacity-70"
+          hitSlop={6}
           onPress={() => void share()}
         >
-          <Ionicons color={colors.mutedForeground} name="share-outline" size={15} />
+          <Ionicons color={colors.mutedForeground} name="arrow-redo-outline" size={16} />
           <Text variant="caption">Share</Text>
         </Pressable>
       </View>

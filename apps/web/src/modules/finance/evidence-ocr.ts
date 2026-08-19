@@ -1,5 +1,4 @@
-import sharp from "sharp";
-
+import { loadSharp } from "@/lib/sharp";
 import { extractReferenceCodes } from "@/modules/finance/reference-code";
 import { transactionCodeProblem } from "@/modules/finance/transaction-code";
 
@@ -147,6 +146,14 @@ async function resetWorker(worker: Worker | null) {
  * bank slip reads as nothing at all.
  */
 async function prepare(bytes: Buffer | Uint8Array): Promise<Buffer | null> {
+  const sharp = await loadSharp();
+
+  // Null is already this function's "no read" answer, and the caller treats it
+  // as an unread image rather than an error.
+  if (!sharp) {
+    return null;
+  }
+
   try {
     return await sharp(bytes)
       .rotate()

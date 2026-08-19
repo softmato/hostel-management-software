@@ -47,6 +47,13 @@ export const CARD_ASPECT = 640 / 1000;
 type CardVariant = {
   accent: string;
   backBullets: string[];
+  /**
+   * How far the header's bottom edge bows below its baseline, in the web's
+   * 640×1000 card units — `platform-id-card.ts`'s `bulge`, and the one piece of
+   * geometry that differs per card type. It is the variant's silhouette: a
+   * resident's card sags deeply, an owner's barely, a provider's is flat.
+   */
+  bulge: { back: number; front: number };
   idLabel: string;
   title: string;
 };
@@ -65,6 +72,7 @@ const CARD_VARIANTS: Record<IdCardType, CardVariant> = {
       "No hostel or resident detail is stored in the code itself — it only carries your platform ID.",
       "Report a lost card from your account menu and the ID stops resolving straight away.",
     ],
+    bulge: { back: 30, front: 44 },
     idLabel: "OWNER ID",
     title: "HOSTEL OWNER IDENTITY CARD",
   },
@@ -75,6 +83,7 @@ const CARD_VARIANTS: Record<IdCardType, CardVariant> = {
       "No personal detail is stored in the code itself — it only carries your resident ID.",
       "Turn sharing off from your account menu and the ID stops opening your details straight away.",
     ],
+    bulge: { back: 74, front: 105 },
     idLabel: "RESIDENT ID",
     title: "RESIDENT IDENTITY CARD",
   },
@@ -85,6 +94,7 @@ const CARD_VARIANTS: Record<IdCardType, CardVariant> = {
       "No job or resident detail is stored in the code itself — it only carries your platform ID.",
       "Jobs are broadcast to the provider mobile app you signed in to with this ID.",
     ],
+    bulge: { back: 0, front: 0 },
     idLabel: "PROVIDER ID",
     title: "SERVICE PROVIDER IDENTITY CARD",
   },
@@ -138,6 +148,8 @@ export const OCCUPATION_LABELS: Record<Occupation, string> = {
 export type IdCard = {
   accent: string;
   backBullets: string[];
+  /** See {@link CardVariant.bulge}. In the web's card units, not pixels. */
+  bulge: { back: number; front: number };
   fullName: string;
   idLabel: string;
   /** Preformatted — the renderer does no date maths, matching the web. */
@@ -209,6 +221,7 @@ export function buildIdCard(
   return {
     accent: variant.accent,
     backBullets: variant.backBullets,
+    bulge: variant.bulge,
     fullName: profile?.fullName ?? identity.accountName,
     idLabel: variant.idLabel,
     issuedOn: cardDate(identity.updatedAt ?? now.toISOString()) ?? "—",

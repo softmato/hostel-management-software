@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   postCreate: vi.fn(),
   postFind: vi.fn(),
   reactionFind: vi.fn(),
+  reactionAggregate: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
@@ -46,6 +47,7 @@ vi.mock("@hostel/db/models/CommunityComment", () => ({
 
 vi.mock("@hostel/db/models/CommunityReaction", () => ({
   CommunityReactionModel: {
+    aggregate: mocks.reactionAggregate,
     countDocuments: vi.fn(),
     deleteOne: vi.fn(),
     find: mocks.reactionFind,
@@ -117,6 +119,10 @@ describe("community spaces", () => {
     mocks.postFind.mockReturnValue(chainableFind([]));
     mocks.postCountDocuments.mockResolvedValue(0);
     mocks.reactionFind.mockReturnValue({ lean: vi.fn().mockResolvedValue([]) });
+    // The per-type tally `decoratePosts` groups for the reaction row. Nothing in
+    // this file asserts on it — these tests are about who can read what — so it
+    // answers "no reactions" and stays out of the way.
+    mocks.reactionAggregate.mockResolvedValue([]);
     const selectable = {
       lean: vi.fn().mockResolvedValue([]),
       select: vi.fn(() => selectable),

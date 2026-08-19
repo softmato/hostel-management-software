@@ -279,6 +279,8 @@ function serializePost(
     author?: { image?: string; name: string };
     hostelName?: string;
     isModeratorView?: boolean;
+    /** How many people chose each type. Absent types are simply not keyed. */
+    reactionCounts?: Record<string, number>;
     viewerReaction?: string;
     viewerUserId?: string;
   } = {},
@@ -300,6 +302,7 @@ function serializePost(
     isMine: Boolean(post.authorId) && options.viewerUserId === post.authorId?.toString(),
     media: postMedia(post),
     reactionCount: post.reactionCount,
+    reactionCounts: options.reactionCounts ?? {},
     reportCount: options.isModeratorView ? post.reportCount : undefined,
     spaceType: post.spaceType,
     status: post.status,
@@ -331,33 +334,62 @@ function serializeComment(
 }
 
 /**
- * Attach author names, hostel names and the viewer's own reaction to a page of
- * posts in three queries rather than three per post.
+ * Attach author names, hostel names, the per-type reaction tally and the
+ * viewer's own reaction to a page of posts in four queries rather than four per
+ * post.
  */
 async function decoratePosts(
   posts: PostRecord[],
   principal: ApiPrincipal | null,
   isModeratorView = false,
 ) {
-  const [names, hostelNames, reactions] = await Promise.all([
+  const postIds = posts.map((post) => post._id);
+
+  const [names, hostelNames, reactions, tallies] = await Promise.all([
     namesByUserId(posts.map((post) => post.authorId)),
     hostelNamesByIds(posts.map((post) => post.hostelId)),
     principal
       ? CommunityReactionModel.find({
-          postId: { $in: posts.map((post) => post._id) },
+          postId: { $in: postIds },
           userId: normalizeObjectId(principal.userId, "user id"),
         }).lean<Array<{ postId: Types.ObjectId; type: string }>>()
       : Promise.resolve([]),
+    /*
+     * The breakdown behind `reactionCount`, which is one number for all six
+     * types and therefore cannot say *which* six. Clients that draw a row of
+     * emoji need the split, and computing it here is one grouped read over
+     * `{ postId: 1, type: 1 }` — the index the reaction model already declares
+     * — rather than a query per post or a counter per type on every post row.
+     */
+    CommunityReactionModel.aggregate<{
+      _id: { postId: Types.ObjectId; type: string };
+      count: number;
+    }>([
+      { $match: { postId: { $in: postIds } } },
+      { $group: { _id: { postId: "$postId", type: "$type" }, count: { $sum: 1 } } },
+    ]),
   ]);
+
   const reactionByPostId = new Map(
     reactions.map((reaction) => [reaction.postId.toString(), reaction.type]),
   );
+
+  const countsByPostId = new Map<string, Record<string, number>>();
+
+  for (const tally of tallies) {
+    const postId = tally._id.postId.toString();
+    const counts = countsByPostId.get(postId) ?? {};
+
+    counts[tally._id.type] = tally.count;
+    countsByPostId.set(postId, counts);
+  }
 
   return posts.map((post) =>
     serializePost(post, {
       author: post.authorId ? names.get(post.authorId.toString()) : undefined,
       hostelName: post.hostelId ? hostelNames.get(post.hostelId.toString()) : undefined,
       isModeratorView,
+      reactionCounts: countsByPostId.get(post._id.toString()),
       viewerReaction: reactionByPostId.get(post._id.toString()),
       viewerUserId: principal?.userId,
     }),

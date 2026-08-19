@@ -43,6 +43,16 @@ const SECURITY_HEADERS = [
   { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
 ];
 
+/**
+ * Both spellings on purpose: npm hoists `@img/*` to the workspace root, but a
+ * platform-specific reinstall can land it beside the app instead. A glob that
+ * matches nothing is a no-op.
+ */
+const SHARP_NATIVE = [
+  "../../node_modules/@img/**/*",
+  "./node_modules/@img/**/*",
+];
+
 const nextConfig: NextConfig = {
   transpilePackages: ["@hostel/db", "@hostel/shared"],
   /**
@@ -71,6 +81,32 @@ const nextConfig: NextConfig = {
     "tesseract.js-core",
     "unpdf",
   ],
+  /**
+   * Where the dependency trace starts. Explicit because this is a workspace: the
+   * packages below are hoisted to the repo root, and an inferred root of
+   * `apps/web` would put them outside the trace and silently drop the includes.
+   */
+  outputFileTracingRoot: repoRoot,
+  /**
+   * `sharp`'s native binary, shipped by hand.
+   *
+   * The tracer follows `require`s. It cannot follow a `dlopen`, and that is the
+   * one hop that matters here: `@img/sharp-linux-x64/sharp.node` opens
+   * `libvips-cpp.so` out of the sibling `@img/sharp-libvips-linux-x64` at load
+   * time, by RPATH. Deployed without it, the function got a `sharp` it could not
+   * open — `ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3` — which is what turned
+   * every ID-photo upload into a 500 at 100%.
+   *
+   * `lib/sharp.ts` now survives the absence, so this is about keeping the
+   * feature rather than the route. Listed per route subtree rather than
+   * globally: it is ~30 MB, and only the image paths decode anything.
+   */
+  outputFileTracingIncludes: {
+    "/api/v1/files/**": SHARP_NATIVE,
+    "/api/v1/hostel-admin/finance/**": SHARP_NATIVE,
+    "/api/v1/public/files/**": SHARP_NATIVE,
+    "/api/v1/resident/finance/**": SHARP_NATIVE,
+  },
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];
   },

@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
 import {
+  IMAGE_INSPECTION_UNAVAILABLE,
   inspectImage,
   isInspectableImage,
 } from "@/lib/uploads/image-integrity";
@@ -96,22 +97,28 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (isInspectableImage(verified.mimeType)) {
       const insight = await inspectImage(verified.bytes);
 
-      if (!insight) {
-        fileAsset.isDeleted = true;
-        fileAsset.status = "DELETED";
-        fileAsset.deletedAt = new Date();
-        await fileAsset.save();
+      // …but only when something actually looked. With no decoder on this
+      // deployment the upload is still a valid upload carrying no measurement —
+      // the same state a PDF has — and rejecting it here would turn a
+      // platform-side outage into "your photo is damaged".
+      if (insight !== IMAGE_INSPECTION_UNAVAILABLE) {
+        if (!insight) {
+          fileAsset.isDeleted = true;
+          fileAsset.status = "DELETED";
+          fileAsset.deletedAt = new Date();
+          await fileAsset.save();
 
-        return errorResponse(
-          "This image could not be opened — it may be damaged or incomplete. Please upload it again.",
-          "UPLOAD_IMAGE_UNDECODABLE",
-          422,
-        );
+          return errorResponse(
+            "This image could not be opened — it may be damaged or incomplete. Please upload it again.",
+            "UPLOAD_IMAGE_UNDECODABLE",
+            422,
+          );
+        }
+
+        // Measured, not enforced: a blank image is a legal upload and an
+        // unusable payment proof, so the finance module decides.
+        fileAsset.imageInsight = insight;
       }
-
-      // Measured, not enforced: a blank image is a legal upload and an
-      // unusable payment proof, so the finance module decides.
-      fileAsset.imageInsight = insight;
     }
 
     fileAsset.contentHash = verified.contentHash;

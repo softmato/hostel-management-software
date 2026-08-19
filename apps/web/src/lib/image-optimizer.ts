@@ -1,7 +1,7 @@
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import sharp from "sharp";
 
 import { getR2Client } from "@/lib/r2";
+import { loadSharp } from "@/lib/sharp";
 
 export type VariantName = "THUMBNAIL" | "MEDIUM" | "LARGE";
 
@@ -44,6 +44,15 @@ export async function optimizeImage(
   mimeType: string,
 ): Promise<ImageVariantRecord[]> {
   if (!mimeType.startsWith("image/")) {
+    return [];
+  }
+
+  // No resizer, no variants. The original is already stored and every reader
+  // falls back to it, so this costs bandwidth rather than correctness — and it
+  // is a far better outcome than failing the upload that triggered it.
+  const sharp = await loadSharp();
+
+  if (!sharp) {
     return [];
   }
 

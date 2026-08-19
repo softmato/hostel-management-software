@@ -1,23 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   ScrollView,
+  TextInput,
   View,
 } from "react-native";
 
 import { CommunityPostCard } from "@/components/community-post-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Screen } from "@/components/ui/screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
@@ -25,12 +28,16 @@ import {
   type CommunityFeed,
   type CommunityMedia,
   type CommunityPost,
+  type CommunitySpace,
   type CommunitySpaces,
   createCommunityPost,
   getCommunityFeed,
   getCommunitySpaces,
 } from "@/lib/community-api";
 import {
+  audienceOptions,
+  avatarInitial,
+  avatarTone,
   canPublish,
   composerTarget,
   emptyFeedMessage,
@@ -38,7 +45,9 @@ import {
   MAX_POST_MEDIA,
   postVisibility,
   spaceChips,
+  usableAvatarUrl,
 } from "@/lib/community";
+import { listNotifications, type NotificationFeed } from "@/lib/notifications-api";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
 
@@ -76,9 +85,34 @@ import { uploadAsset } from "@/lib/uploads";
  * share link both reach it that way. They differ in two things only, the back
  * button and the tab bar's reserved height, so both are props rather than a
  * second copy of a 500-line feed.
+ *
+ * ## What the redesign changed, and what it could not
+ *
+ * The header, the chip row, the sort strip and the composer follow the mockup:
+ * a titled bar with the bell, one search pill with the space picker inside it,
+ * chips that end in a `+`, an underlined sort strip, and a composer that leads
+ * with the viewer's own face.
+ *
+ * Two things in the mockup are **not** here, because nothing behind them exists:
+ *
+ * - **A "For you" sort.** `communityFeedQuerySchema` is
+ *   `sort: z.enum(["new", "top"])`. A third tab would either repeat one of those
+ *   under a name that promises personalisation, or send a value the server
+ *   rejects. The strip therefore has the two sorts that are real.
+ * - **A share count.** Nothing counts shares — `Share.share` hands off to the OS
+ *   and the OS does not report back — so the share control is a label, not a
+ *   number.
  */
 
 const SEARCH_DEBOUNCE_MS = 300;
+
+/** The search pill and the button living inside it — `discovery-header`'s sizes. */
+const SEARCH_HEIGHT = 46;
+const FIELD_BUTTON = 32;
+const FIELD_GLYPH = 16;
+
+/** The composer's avatar, and the author avatar on a card. Kept in step. */
+const AVATAR = 38;
 
 export type CommunityBoardProps = {
   /** Set when this renders as a tab, so the list clears the tab bar. */
@@ -102,6 +136,7 @@ export function CommunityBoard({
   const [sort, setSort] = useState<"new" | "top">("new");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [spacePicker, setSpacePicker] = useState(false);
 
   /*
    * Page 1 goes through `useResource` like every other GET in the app — it already
@@ -189,24 +224,97 @@ export function CommunityBoard({
   const canPost = Boolean(viewer?.canPost);
   const chips = spaceChips(spaces.data);
 
+  const chooseSpace = useCallback(
+    (id: string) => {
+      setSpace(id);
+      resetTail();
+    },
+    [resetTail],
+  );
+
   const afterPost = useCallback(() => {
     resetTail();
     spaces.refresh();
     firstPage.refresh();
   }, [firstPage, resetTail, spaces]);
 
-  const appBar = <AppBar showBack={showBack} title="Community" />;
+  const appBar = (
+    <AppBar
+      actions={<NotificationBell />}
+      showBack={showBack}
+      subtitle="Connect, share and grow together"
+      title="Community"
+    />
+  );
 
   const header = (
     <View className="gap-3 pb-1">
-      <Input
-        onChangeText={setSearch}
-        placeholder="Search anything…"
-        value={search}
-      />
+      {/*
+        One pill holding the glyph, the field, the clear button and the space
+        picker — `discovery-header`'s shape, at its measurements, because the two
+        search rows in this app should not be two different controls. A bare
+        `TextInput` rather than the design system's `Input` for the same reason it
+        gives: `Input` carries its own label, border and height, all of which
+        fight a field that lives inside a pill.
+      */}
+      <View
+        className="flex-row items-center gap-2 rounded-2xl border border-border bg-card"
+        style={{ height: SEARCH_HEIGHT, paddingLeft: 12, paddingRight: 6 }}
+      >
+        <Ionicons color={colors.mutedForeground} name="search" size={FIELD_GLYPH} />
+
+        <TextInput
+          className="h-full flex-1 text-base text-foreground"
+          onChangeText={setSearch}
+          placeholder="Search in community…"
+          placeholderTextColor={colors.mutedForeground}
+          returnKeyType="search"
+          value={search}
+        />
+
+        {search ? (
+          <Pressable
+            accessibilityLabel="Clear search"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => setSearch("")}
+          >
+            <Ionicons
+              color={colors.mutedForeground}
+              name="close-circle"
+              size={FIELD_GLYPH}
+            />
+          </Pressable>
+        ) : null}
+
+        {/*
+          The mockup's slider button. It opens the space list rather than a
+          filters panel, because space is the only filter this feed has that the
+          controls below cannot already reach in one tap: sort is the strip and
+          the query is this field, but the chip row runs off the side of the
+          screen once more than three hostels have posted.
+        */}
+        <Pressable
+          accessibilityLabel="Choose a space"
+          accessibilityRole="button"
+          className="items-center justify-center rounded-xl active:opacity-80"
+          onPress={() => setSpacePicker(true)}
+          style={{
+            backgroundColor: colors.muted,
+            height: FIELD_BUTTON,
+            width: FIELD_BUTTON,
+          }}
+        >
+          <Ionicons
+            color={colors.foreground}
+            name="options-outline"
+            size={FIELD_GLYPH}
+          />
+        </Pressable>
+      </View>
 
       <ScrollView
-        contentContainerClassName="gap-2"
+        contentContainerClassName="gap-2 pr-1"
         horizontal
         showsHorizontalScrollIndicator={false}
       >
@@ -217,14 +325,12 @@ export function CommunityBoard({
             <Pressable
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
-              className={`rounded-full border px-3.5 py-2 active:opacity-70 ${
-                active ? "border-primary bg-primary" : "border-border"
+              className={`justify-center rounded-full border px-4 active:opacity-70 ${
+                active ? "border-primary bg-primary" : "border-border bg-card"
               }`}
               key={chip.id}
-              onPress={() => {
-                setSpace(chip.id);
-                resetTail();
-              }}
+              onPress={() => chooseSpace(chip.id)}
+              style={{ height: 38 }}
             >
               <Text
                 className={`text-sm font-medium ${
@@ -236,31 +342,67 @@ export function CommunityBoard({
             </Pressable>
           );
         })}
+
+        {/*
+          The `+` that closes the row. It is the same destination as the slider
+          button above — deliberately, because they answer the same question from
+          the two places somebody asks it: the button when they have not started
+          scrolling the chips, this when they have run out of them.
+        */}
+        <Pressable
+          accessibilityLabel="All spaces"
+          accessibilityRole="button"
+          className="items-center justify-center rounded-full border border-border bg-card active:opacity-70"
+          onPress={() => setSpacePicker(true)}
+          style={{ height: 38, width: 38 }}
+        >
+          <Ionicons color={colors.foreground} name="add" size={18} />
+        </Pressable>
       </ScrollView>
 
-      <View className="flex-row items-center gap-2">
-        {(["new", "top"] as const).map((option) => {
-          const active = sort === option;
+      {/*
+        An underlined strip rather than the filled pills this row used to be.
+        The chips directly above it are already filled pills for a different
+        axis, and two rows of the same control shape meant the space and the sort
+        read as one eight-item group where picking any of them did something
+        unpredictable. Underline for "which view", fill for "which room".
+      */}
+      <View className="flex-row items-center gap-5 border-b border-border">
+        {SORTS.map((option) => {
+          const active = sort === option.id;
 
           return (
             <Pressable
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
-              className="rounded-lg px-3 py-1.5 active:opacity-70"
-              key={option}
+              className="pb-2.5 pt-1 active:opacity-70"
+              key={option.id}
               onPress={() => {
-                setSort(option);
+                setSort(option.id);
                 resetTail();
               }}
-              style={{ backgroundColor: active ? colors.brandSoft : "transparent" }}
             >
               <Text
-                className={`text-sm font-semibold capitalize ${
-                  active ? "text-primary" : "text-muted-foreground"
-                }`}
+                style={{
+                  color: active ? colors.foreground : colors.mutedForeground,
+                  fontSize: 15,
+                  fontWeight: active ? "700" : "500",
+                }}
               >
-                {option}
+                {option.label}
               </Text>
+
+              {/*
+                The bar sits on the container's own bottom border, which is why
+                it is `-bottom-px` and two points tall: one point would be
+                indistinguishable from the border it covers.
+              */}
+              {active ? (
+                <View
+                  className="absolute inset-x-0 -bottom-px rounded-full"
+                  style={{ backgroundColor: colors.primary, height: 2 }}
+                />
+              ) : null}
             </Pressable>
           );
         })}
@@ -276,6 +418,16 @@ export function CommunityBoard({
         </Card>
       ) : null}
     </View>
+  );
+
+  const picker = (
+    <SpacePicker
+      chips={chips}
+      onClose={() => setSpacePicker(false)}
+      onPick={chooseSpace}
+      open={spacePicker}
+      selected={space}
+    />
   );
 
   if (firstPage.loading) {
@@ -326,7 +478,118 @@ export function CommunityBoard({
           <CommunityPostCard canPost={canPost} onChanged={afterPost} post={item} />
         )}
       />
+
+      {picker}
     </Screen>
+  );
+}
+
+/** The sort strip. Two entries, because the API's `sort` enum has two values. */
+const SORTS: { id: "new" | "top"; label: string }[] = [
+  { id: "new", label: "New" },
+  { id: "top", label: "Top" },
+];
+
+/**
+ * The bell, with a dot when something is unread.
+ *
+ * A **dot**, not the count `discovery-header` draws. The home screen's bell is
+ * the only one on that screen and has room to be specific; this one sits beside
+ * a title and a subtitle in a bar that also has to hold a back button on every
+ * pushed instance. What a reader does with the number here is the same thing
+ * they do with the dot — open the screen — so the digits buy nothing and cost
+ * the width.
+ *
+ * Signed out there is nothing to count, and `/notifications` would 401 on every
+ * mount and refocus, so the bell is **absent** rather than empty.
+ */
+function NotificationBell() {
+  const { colors } = useAppTheme();
+  const account = useAppSelector((state) => state.auth.account);
+
+  const feed = useResource<NotificationFeed>(
+    useCallback(
+      async () =>
+        account
+          ? await listNotifications("unread")
+          : { actionCount: 0, notifications: [], unreadCount: 0 },
+      [account],
+    ),
+  );
+
+  if (!account) {
+    return null;
+  }
+
+  // A failed count shows no dot, which is what "nothing unread" shows anyway.
+  const unread = feed.data?.unreadCount ?? 0;
+
+  return (
+    <Pressable
+      accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
+      accessibilityRole="button"
+      className="h-10 w-10 items-center justify-center rounded-full active:opacity-70"
+      hitSlop={6}
+      onPress={() => router.push("/notifications")}
+    >
+      <Ionicons color={colors.foreground} name="notifications-outline" size={22} />
+
+      {unread > 0 ? (
+        <View
+          className="absolute right-2 top-2 rounded-full"
+          style={{
+            backgroundColor: colors.primary,
+            // Ringed in the bar's own colour so the dot reads as sitting on top
+            // of the bell rather than as part of its outline.
+            borderColor: colors.background,
+            borderWidth: 2,
+            height: 12,
+            width: 12,
+          }}
+        />
+      ) : null}
+    </Pressable>
+  );
+}
+
+/** Every space the chip row holds, as a list that does not run off the screen. */
+function SpacePicker({
+  chips,
+  onClose,
+  onPick,
+  open,
+  selected,
+}: {
+  chips: CommunitySpace[];
+  onClose: () => void;
+  onPick: (id: string) => void;
+  open: boolean;
+  selected: string;
+}) {
+  return (
+    <Sheet onClose={onClose} open={open} title="Spaces">
+      {chips.map((chip) => (
+        <SheetRow
+          key={chip.id}
+          label={chip.name}
+          onPress={() => {
+            onPick(chip.id);
+            onClose();
+          }}
+          selected={chip.id === selected}
+          /*
+           * `postCount` is 0 on the two synthetic chips `spaceChips` prepends —
+           * they stand for "everything" and "my hostel" and count nothing — so
+           * the subtitle is only drawn where it is a real figure.
+           */
+          subtitle={
+            chip.postCount > 0
+              ? `${chip.postCount} ${chip.postCount === 1 ? "post" : "posts"}`
+              : undefined
+          }
+        />
+      ))}
+    </Sheet>
   );
 }
 
@@ -346,6 +609,30 @@ export function CommunityBoard({
  * **There is no anonymous toggle.** `communityPostCreateSchema` is
  * `{ body, visibility, media }` — no `isAnonymous` field exists on the schema or
  * the model, so the control would be a lie.
+ *
+ * ## The mockup's shape: a face, a line, and one row of controls
+ *
+ * This was a stacked form — textarea, then a row, then an audience line, then a
+ * members-only checkbox — four rows deep before the first post in the feed. The
+ * mockup collapses it: the viewer's avatar beside a single-line field, and one
+ * footer row holding Photo, the audience, and Post.
+ *
+ * The audience stopped being a checkbox in that move and became the thing it
+ * always was: a **choice of where this lands**, phrased as the destination
+ * rather than as a restriction. "Members only" ticked and unticked is the same
+ * two options as "Public" and "Green View", except the checkbox only makes sense
+ * to somebody who already knows what it would otherwise default to.
+ *
+ * A public-space author still gets no chevron. `createCommunityPost` forces
+ * `PUBLIC` for them because there is no narrower room to fall back to, so the
+ * line states where the post is going and does not pretend to ask.
+ *
+ * ## The border is brand-coloured, and only here
+ *
+ * It is the one element on the screen the mockup outlines. That is doing a job:
+ * the composer is a card in a column of cards that are otherwise all *posts*,
+ * and without it the reader's first impression of the feed is somebody else's
+ * empty post. Every other card keeps `border-border`.
  */
 function Composer({
   onPosted,
@@ -355,13 +642,16 @@ function Composer({
   spaces: CommunitySpaces | null;
 }) {
   const { colors } = useAppTheme();
+  const account = useAppSelector((state) => state.auth.account);
   const [body, setBody] = useState("");
   const [media, setMedia] = useState<{ assetId: string; uri: string }[]>([]);
   const [membersOnly, setMembersOnly] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [audienceOpen, setAudienceOpen] = useState(false);
 
   const target = composerTarget(spaces);
+  const audiences = audienceOptions(spaces);
 
   const addPhoto = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -426,17 +716,54 @@ function Composer({
   }, [body, media, membersOnly, onPosted, spaces]);
 
   const ready = canPublish(body, media.length) && !uploading;
+  const name = account?.name ?? "You";
+  const avatarUrl = usableAvatarUrl(account?.image);
+  const [tone, ink] = avatarTone(name);
+  const audience = membersOnly ? audiences.restricted : audiences.open;
 
   return (
-    <Card className="gap-3">
-      <Input
-        maxLength={MAX_POST_BODY}
-        multiline
-        onChangeText={setBody}
-        placeholder="Share something with the community…"
-        style={{ height: 76, paddingTop: 10, textAlignVertical: "top" }}
-        value={body}
-      />
+    <View className="gap-3 rounded-2xl border border-primary bg-card p-3">
+      <View className="flex-row items-start gap-2.5">
+        {avatarUrl ? (
+          <Image
+            contentFit="cover"
+            source={{ uri: avatarUrl }}
+            style={{ borderRadius: AVATAR / 2, height: AVATAR, width: AVATAR }}
+          />
+        ) : (
+          <View
+            className="items-center justify-center rounded-full"
+            style={{ backgroundColor: tone, height: AVATAR, width: AVATAR }}
+          >
+            <Text style={{ color: ink, fontSize: 15, fontWeight: "700" }}>
+              {avatarInitial(name)}
+            </Text>
+          </View>
+        )}
+
+        {/*
+          The field grows from one line to five and then scrolls, rather than
+          starting at the old fixed 76dp. Empty, the composer is a prompt and
+          should take a prompt's worth of room; typing a paragraph into a box
+          that cannot show it is the reason people post half a thought.
+        */}
+        <TextInput
+          className="flex-1 rounded-xl border border-border px-3 text-base text-foreground"
+          maxLength={MAX_POST_BODY}
+          multiline
+          onChangeText={setBody}
+          placeholder="What's on your mind?"
+          placeholderTextColor={colors.mutedForeground}
+          style={{
+            maxHeight: 132,
+            minHeight: AVATAR,
+            paddingTop: 9,
+            paddingBottom: 9,
+            textAlignVertical: "top",
+          }}
+          value={body}
+        />
+      </View>
 
       {media.length > 0 ? (
         <View className="flex-row flex-wrap gap-2">
@@ -471,33 +798,61 @@ function Composer({
         </View>
       ) : null}
 
-      <View className="flex-row items-center gap-3 border-t border-border pt-3">
+      <View className="flex-row items-center gap-3">
         {media.length < MAX_POST_MEDIA ? (
           <Pressable
             accessibilityRole="button"
             className="flex-row items-center gap-1.5 active:opacity-70"
             disabled={uploading}
+            hitSlop={6}
             onPress={() => void addPhoto()}
           >
             <Ionicons
               color={colors.mutedForeground}
               name={uploading ? "hourglass-outline" : "image-outline"}
-              size={17}
+              size={18}
             />
             <Text variant="caption">{uploading ? "Adding…" : "Photo"}</Text>
           </Pressable>
         ) : null}
 
-        <View className="flex-1" />
+        <Pressable
+          accessibilityLabel={`Posting to ${audience}`}
+          accessibilityRole={target.canChooseAudience ? "button" : "text"}
+          className="min-w-0 flex-1 flex-row items-center gap-1.5 active:opacity-70"
+          disabled={!target.canChooseAudience}
+          hitSlop={6}
+          onPress={() => setAudienceOpen(true)}
+        >
+          <Ionicons
+            color={colors.mutedForeground}
+            name={membersOnly ? "people-outline" : "globe-outline"}
+            size={16}
+          />
+          <Text
+            numberOfLines={1}
+            style={{ color: colors.primary, fontSize: 12, fontWeight: "600" }}
+          >
+            {audience}
+          </Text>
+          {target.canChooseAudience ? (
+            <Ionicons color={colors.primary} name="chevron-down" size={13} />
+          ) : null}
+        </Pressable>
 
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ busy: posting, disabled: !ready }}
-          className="h-9 flex-row items-center gap-1.5 rounded-lg px-4 active:opacity-80"
+          className="h-10 flex-row items-center gap-1.5 rounded-xl px-4 active:opacity-80"
           disabled={!ready || posting}
           onPress={() => void publish()}
           style={{ backgroundColor: ready ? colors.primary : colors.muted }}
         >
+          <Ionicons
+            color={ready ? colors.primaryForeground : colors.mutedForeground}
+            name="send"
+            size={14}
+          />
           <Text
             className="text-sm font-semibold"
             style={{ color: ready ? colors.primaryForeground : colors.mutedForeground }}
@@ -507,32 +862,34 @@ function Composer({
         </Pressable>
       </View>
 
-      <View className="flex-row items-center gap-2">
-        <Ionicons
-          color={colors.mutedForeground}
-          name={target.canChooseAudience ? "people-outline" : "globe-outline"}
-          size={14}
-        />
-        <Text variant="caption">{target.label}</Text>
-      </View>
-
       {/* Only a hostel post has an audience to narrow — a public-space author has
           no smaller room, and the service forces PUBLIC for them regardless. */}
       {target.canChooseAudience ? (
-        <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{ checked: membersOnly }}
-          className="flex-row items-center gap-2 active:opacity-70"
-          onPress={() => setMembersOnly((value) => !value)}
+        <Sheet
+          onClose={() => setAudienceOpen(false)}
+          open={audienceOpen}
+          title="Post to"
         >
-          <Ionicons
-            color={membersOnly ? colors.primary : colors.mutedForeground}
-            name={membersOnly ? "checkbox" : "square-outline"}
-            size={19}
+          <SheetRow
+            label={audiences.open}
+            onPress={() => {
+              setMembersOnly(false);
+              setAudienceOpen(false);
+            }}
+            selected={!membersOnly}
+            subtitle="Anyone can read it, signed in or not"
           />
-          <Text variant="caption">Members only</Text>
-        </Pressable>
+          <SheetRow
+            label={audiences.restricted}
+            onPress={() => {
+              setMembersOnly(true);
+              setAudienceOpen(false);
+            }}
+            selected={membersOnly}
+            subtitle="Only people in your hostel"
+          />
+        </Sheet>
       ) : null}
-    </Card>
+    </View>
   );
 }

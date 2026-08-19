@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { CommunityComment, CommunitySpaces } from "@/lib/community-api";
 import { REACTION_TYPES } from "@/lib/community-enums";
 import {
+  audienceOptions,
   avatarTone,
   canPublish,
+  commentCountLabel,
+  compactCount,
   composerTarget,
   descendantIds,
   emptyFeedMessage,
@@ -15,6 +18,7 @@ import {
   nextVote,
   postVisibility,
   REACTIONS,
+  reactionTally,
   replyCounts,
   reportReasonError,
   spaceBadge,
@@ -83,6 +87,86 @@ describe("nextReaction", () => {
    */
   it("does not move the count when swapping one reaction for another", () => {
     expect(nextReaction("LIKE", "ANGRY")).toEqual({ countDelta: 0, reaction: "ANGRY" });
+  });
+});
+
+describe("reactionTally", () => {
+  it("adds to a type nobody had chosen", () => {
+    expect(reactionTally({}, null, "LIKE")).toEqual({ LIKE: 1 });
+    expect(reactionTally({ LIKE: 4 }, null, "LIKE")).toEqual({ LIKE: 5 });
+  });
+
+  /*
+   * The case the *total* gets right by doing nothing and the breakdown does not:
+   * one key has to come down as the other goes up.
+   */
+  it("moves the count across when swapping one reaction for another", () => {
+    expect(reactionTally({ ANGRY: 2, LIKE: 4 }, "LIKE", "ANGRY")).toEqual({
+      ANGRY: 3,
+      LIKE: 3,
+    });
+  });
+
+  // Absent means nobody, in the tally and in the payload it mirrors — so the
+  // last person to un-react takes the key with them.
+  it("drops a key that reaches zero rather than leaving it at 0", () => {
+    expect(reactionTally({ LIKE: 1 }, "LIKE", "LIKE")).toEqual({});
+    expect(reactionTally({ LIKE: 1, LOVE: 2 }, "LIKE", "LOVE")).toEqual({ LOVE: 3 });
+  });
+
+  it("does not mutate the tally it was given", () => {
+    const counts = { LIKE: 1 };
+
+    reactionTally(counts, null, "LOVE");
+
+    expect(counts).toEqual({ LIKE: 1 });
+  });
+});
+
+describe("compactCount", () => {
+  it("prints small counts as they are", () => {
+    expect(compactCount(0)).toBe("0");
+    expect(compactCount(999)).toBe("999");
+  });
+
+  it("shortens thousands with one decimal, and drops it past ten thousand", () => {
+    expect(compactCount(1_000)).toBe("1k");
+    expect(compactCount(1_250)).toBe("1.2k");
+    expect(compactCount(47_800)).toBe("47k");
+  });
+
+  // `toFixed` would round this to "1000k". Truncating cannot.
+  it("does not round up into the next unit", () => {
+    expect(compactCount(999_999)).toBe("999k");
+    expect(compactCount(1_000_000)).toBe("1m");
+  });
+});
+
+describe("commentCountLabel", () => {
+  // An empty thread invites the first reply rather than reporting a zero.
+  it("asks for the first comment when there are none", () => {
+    expect(commentCountLabel(0)).toBe("Comment");
+  });
+
+  it("counts, singular where it should be", () => {
+    expect(commentCountLabel(1)).toBe("1 comment");
+    expect(commentCountLabel(4)).toBe("4 comments");
+  });
+});
+
+describe("audienceOptions", () => {
+  it("names the viewer's hostel as the narrower room", () => {
+    expect(
+      audienceOptions(
+        spaces({ hostelId: "h1", hostelName: "Green View", spaceType: "HOSTEL" }),
+      ),
+    ).toEqual({ open: "Public", restricted: "Green View only" });
+  });
+
+  // Nothing loaded yet, or a viewer with no hostel: the control is not offered
+  // in either case, so this only has to be a sentence rather than "undefined only".
+  it("falls back to a neutral name with no hostel", () => {
+    expect(audienceOptions(null).restricted).toBe("My hostel only");
   });
 });
 
@@ -227,7 +311,7 @@ describe("nextVote", () => {
 describe("spaceChips", () => {
   it("flattens the web's rail into one row, in its order", () => {
     expect(spaceChips(spaces()).map((chip) => chip.name)).toEqual([
-      "Everything",
+      "All",
       "Public",
       "Green View",
       "Blue Sky",
@@ -256,7 +340,7 @@ describe("spaceChips", () => {
     expect(chips.map((chip) => chip.id)).not.toContain("h1");
   });
 
-  it("still returns Everything with nothing loaded", () => {
+  it("still returns the All chip with nothing loaded", () => {
     expect(spaceChips(null).map((chip) => chip.id)).toEqual(["all"]);
   });
 });

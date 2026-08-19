@@ -41,6 +41,9 @@ import type { ReactionType } from "@/lib/community-enums";
 
 export { REACTION_TYPES, type ReactionType } from "@/lib/community-enums";
 
+/** The per-type reaction breakdown. Absent keys mean nobody chose that type. */
+export type ReactionTally = Partial<Record<ReactionType, number>>;
+
 export type CommunityMedia = {
   assetId: string;
   kind: "IMAGE" | "VIDEO";
@@ -61,6 +64,11 @@ export type CommunityPost = {
   media: CommunityMedia[];
   /** Total across **all** reaction types, not per type. */
   reactionCount: number;
+  /**
+   * How many people chose each type. A type nobody picked is **absent**, not
+   * zero, so read it through `reactionTally` rather than indexing it directly.
+   */
+  reactionCounts: ReactionTally;
   spaceType: "HOSTEL" | "PUBLIC";
   status: string;
   /** The viewer's own reaction, or null. One per user per post. */

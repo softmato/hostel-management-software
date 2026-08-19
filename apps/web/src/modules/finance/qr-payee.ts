@@ -24,6 +24,8 @@
  * merely fail to match, it teaches the payee check to accept the wrong account.
  */
 
+import { loadSharp } from "@/lib/sharp";
+
 /**
  * Labels a QR poster puts in front of the account holder's name.
  *
@@ -267,7 +269,10 @@ export async function readQrPayeeFromImage(
   if (hasQrPayee(first)) return first;
 
   try {
-    const sharp = (await import("sharp")).default;
+    const sharp = await loadSharp();
+
+    if (!sharp) return first;
+
     const inverted = await sharp(bytes).rotate().greyscale().negate().png().toBuffer();
 
     const second = readQrPayee(await readText(inverted, "image/png"));

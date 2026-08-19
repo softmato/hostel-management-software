@@ -231,14 +231,19 @@ function drawHeaderSweep(
   ctx.closePath();
   ctx.fill();
 
+  // The same curve, 20 lower. The control points are mirrored against the fill's
+  // because this is drawn left to right and that one right to left — copying
+  // them across unchanged made the stroke reach its full depth by a third of the
+  // way in and then run along the fill's edge, pinching against it instead of
+  // trailing it.
   ctx.strokeStyle = accent;
   ctx.lineWidth = 6;
   ctx.beginPath();
   ctx.moveTo(0, edgeY + 20);
   ctx.bezierCurveTo(
-    CARD_WIDTH * 0.72,
-    edgeY + bulge + 20,
     CARD_WIDTH * 0.28,
+    edgeY + bulge + 20,
+    CARD_WIDTH * 0.72,
     edgeY + bulge + 20,
     CARD_WIDTH,
     edgeY + 20,
@@ -498,14 +503,21 @@ function drawFront(ctx: CanvasRenderingContext2D, data: IdCardData) {
     ctx.drawImage(data.qr, qrX, qrY, qrSize, qrSize);
   }
 
+  drawFooterSweep(ctx, 946);
+
+  // Printed *on* the footer, in paper, and drawn after it.
+  //
+  // The QR block ends at 922 and the sweep's crown reaches 933, so there is no
+  // white left to caption into — which is why this line used to be painted in
+  // MUTED and then buried under the sweep on the very next call. It was invisible
+  // on the preview, the download and the emailed PNG alike. Nothing about the
+  // layout needed to move; the caption just belongs to the dark band.
   ctx.textAlign = "center";
-  ctx.fillStyle = MUTED;
+  ctx.fillStyle = PAPER;
   ctx.font = font(600, 14);
   ctx.letterSpacing = "1px";
   ctx.fillText("SCAN TO SHARE MY DETAILS", CARD_WIDTH / 2, qrY + qrSize + 42);
   ctx.letterSpacing = "0px";
-
-  drawFooterSweep(ctx, 946);
 }
 
 function drawBack(ctx: CanvasRenderingContext2D, data: IdCardData) {

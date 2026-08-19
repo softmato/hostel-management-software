@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import { loadSharp } from "@/lib/sharp";
 
 /**
  * Is this actually a usable image, and does it carry any information? (gap fixes
@@ -17,6 +17,9 @@ import sharp from "sharp";
  *
  * `sharp` is already a dependency (image variants, and the perceptual hash in
  * `modules/finance/evidence.ts`), so this adds no new install.
+ *
+ * It is loaded through {@link loadSharp}, which is allowed to fail — see the
+ * third state {@link inspectImage} can return.
  */
 
 export type ImageInsight = {
@@ -59,12 +62,35 @@ export function isInspectableImage(mimeType: string | undefined): boolean {
 }
 
 /**
+ * Returned when this deployment has no working `sharp` binary.
+ *
+ * Deliberately **not** `null`: the two are opposite verdicts. `null` says "these
+ * bytes are not a decodable image" and costs the uploader their file; this says
+ * "nobody looked", and the only correct response is to store the asset with no
+ * `imageInsight` — the same state a PDF has, which the finance module already
+ * handles as an absent signal rather than a failed check.
+ */
+export const IMAGE_INSPECTION_UNAVAILABLE = "IMAGE_INSPECTION_UNAVAILABLE";
+
+export type ImageInspection =
+  | ImageInsight
+  | null
+  | typeof IMAGE_INSPECTION_UNAVAILABLE;
+
+/**
  * Decodes the image and measures it. Returns null when the bytes cannot be
- * decoded — which the caller must treat as a rejection, not as missing data.
+ * decoded — which the caller must treat as a rejection, not as missing data —
+ * and {@link IMAGE_INSPECTION_UNAVAILABLE} when there is no decoder at all.
  */
 export async function inspectImage(
   bytes: Buffer | Uint8Array,
-): Promise<ImageInsight | null> {
+): Promise<ImageInspection> {
+  const sharp = await loadSharp();
+
+  if (!sharp) {
+    return IMAGE_INSPECTION_UNAVAILABLE;
+  }
+
   try {
     const image = sharp(bytes);
     const metadata = await image.metadata();

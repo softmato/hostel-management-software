@@ -1,5 +1,5 @@
 import { PDFDocument } from "pdf-lib";
-import sharp from "sharp";
+import { loadSharp } from "@/lib/sharp";
 import {
   RECEIPT_NUMBER_PATTERN,
   SYSTEM_DOCUMENT_FOOTER,
@@ -40,6 +40,14 @@ const HASH_HEIGHT = 8;
 export async function computePerceptualHash(
   bytes: Buffer | Uint8Array,
 ): Promise<string | null> {
+  const sharp = await loadSharp();
+
+  // Same contract as the catch below: no decoder means no similarity check, not
+  // a failed upload.
+  if (!sharp) {
+    return null;
+  }
+
   let pixels: Buffer;
 
   try {

@@ -11,6 +11,7 @@ import type {
   CommunityPost,
   CommunitySpace,
   CommunitySpaces,
+  ReactionTally,
 } from "@/lib/community-api";
 import type { ReactionType } from "@/lib/community-enums";
 
@@ -51,6 +52,88 @@ export function nextReaction(
   }
 
   return { countDelta: current ? 0 : 1, reaction: tapped };
+}
+
+/**
+ * The per-type tally after the same tap, for the counts beside each emoji.
+ *
+ * `nextReaction` moves the **total**, which is one per user and therefore does
+ * not change when somebody swaps Like for Angry. The breakdown does: that swap
+ * is a `-1` on one key and a `+1` on another, and a row that only re-read the
+ * total would keep showing the old emoji's count until the feed refetched.
+ *
+ * A key that reaches zero is deleted rather than left at `0`, so the tally means
+ * the same thing as the server's — absent is nobody, and the row can tell "no
+ * count to draw" from "a count of zero" without a special case.
+ */
+export function reactionTally(
+  counts: ReactionTally,
+  current: ReactionType | null,
+  tapped: ReactionType,
+): ReactionTally {
+  const next: ReactionTally = { ...counts };
+  const move = (type: ReactionType, delta: number) => {
+    const value = (next[type] ?? 0) + delta;
+
+    if (value > 0) {
+      next[type] = value;
+    } else {
+      delete next[type];
+    }
+  };
+
+  if (current) {
+    move(current, -1);
+  }
+
+  if (current !== tapped) {
+    move(tapped, 1);
+  }
+
+  return next;
+}
+
+/**
+ * A reaction count, short enough that six of them fit one row.
+ *
+ * The tray is six chips across a phone's width and every one of them can hold a
+ * number. At four digits apiece the row stops fitting a 320dp screen, and
+ * `justify-between` has nothing left to distribute — the last emoji is simply
+ * cut off. `k`/`m` bounds the widest chip at three characters.
+ *
+ * One decimal below ten thousand and none above it, which is where the
+ * precision stops meaning anything: the gap between 1.2k and 1.3k is a hundred
+ * people, and nobody reads the second digit of 47k.
+ */
+export function compactCount(value: number): string {
+  if (value < 1_000) {
+    return String(value);
+  }
+
+  const [divisor, suffix] = value < 1_000_000 ? [1_000, "k"] : [1_000_000, "m"];
+  const scaled = value / divisor;
+
+  // `Math.floor`, not `toFixed`: rounding 999_999 up would print "1000k".
+  return scaled < 10
+    ? `${Math.floor(scaled * 10) / 10}${suffix}`
+    : `${Math.floor(scaled)}${suffix}`;
+}
+
+/**
+ * The label on the button that opens a post's thread.
+ *
+ * An empty thread says **"Comment"**, not "0 comments". The control is the way
+ * in to writing one, and a feed of new posts each reporting that it has nothing
+ * reads as a dead room — where the same row inviting the first reply reads as an
+ * open one. Everything from one upwards is the count, singular where it should
+ * be.
+ */
+export function commentCountLabel(count: number): string {
+  if (count < 1) {
+    return "Comment";
+  }
+
+  return count === 1 ? "1 comment" : `${count} comments`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -265,13 +348,18 @@ export const MAX_REPORT_REASON = 500;
  * hostel that has posted, then trending tags. A phone has no rail, so the first
  * group and the hostels flatten into one scrollable row in the same order. "Mine"
  * is only offered when the viewer has a hostel, exactly as the rail does.
+ *
+ * The first chip is **"All"**, not the rail's "Everything": these are pills in a
+ * row that scrolls, and the widest word in it decides how many of the hostels
+ * are visible before the reader has to swipe. It is also the leading chip, so it
+ * is the one word whose length is paid for on every screen.
  */
 export function spaceChips(spaces: CommunitySpaces | null): CommunitySpace[] {
   const viewer = spaces?.viewer;
   const hostels = (spaces?.spaces ?? []).filter((space) => space.id !== "public");
 
   return [
-    { id: "all", isMine: false, name: "Everything", postCount: 0 },
+    { id: "all", isMine: false, name: "All", postCount: 0 },
     ...(spaces?.spaces ?? []).filter((space) => space.id === "public"),
     ...(viewer?.hostelId
       ? [
@@ -310,6 +398,28 @@ export function composerTarget(spaces: CommunitySpaces | null): {
   }
 
   return { canChooseAudience: false, label: "Posting to Public" };
+}
+
+/**
+ * The two destinations the composer's audience control offers, named.
+ *
+ * Phrased as places rather than as a restriction being switched on. "Members
+ * only", the checkbox this replaced, only means anything to somebody who
+ * already knows what the post would do unticked — where a pair of named rooms
+ * says it outright.
+ *
+ * `restricted` is built even for a viewer who cannot choose one. It costs a
+ * string, and a caller that had to guard every read of it would be the more
+ * fragile arrangement — `composerTarget().canChooseAudience` is the one flag
+ * that decides whether the control is offered at all.
+ */
+export function audienceOptions(spaces: CommunitySpaces | null): {
+  open: string;
+  restricted: string;
+} {
+  const hostel = spaces?.viewer?.hostelName ?? "My hostel";
+
+  return { open: "Public", restricted: `${hostel} only` };
 }
 
 export function postVisibility(
