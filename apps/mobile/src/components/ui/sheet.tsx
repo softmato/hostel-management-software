@@ -32,6 +32,38 @@ import { useSystemInsets } from "@/hooks/use-system-insets";
  * backdrop tap, and our own `dismiss()` — so `onClose` must be idempotent; every
  * caller's is, because it sets the same boolean to false.
  *
+ * ## `presented` is not bookkeeping — it is the bug fix
+ *
+ * Bridging a boolean to two imperative methods invites writing the effect as
+ * `open ? present() : dismiss()`, and that is what this was. It meant every
+ * sheet in the app called `dismiss()` once on mount, on a modal that had never
+ * been presented — and **that call silently killed the sheet for the rest of the
+ * screen's life**.
+ *
+ * The path through `@gorhom/bottom-sheet@5`, which is worth writing down because
+ * nothing about it is visible from the outside:
+ *
+ * 1. A fresh modal's internal status is `INITIAL`.
+ * 2. `dismiss()` early-exits only for `CLOSED` and `MINIMIZED`. `INITIAL` is
+ *    neither, so it falls through, sets the status to `DISMISSING` and calls
+ *    `forceClose()` on a sheet ref that is still `null` — a no-op.
+ * 3. Nothing ever clears `DISMISSING`: the status only advances to `DISMISSED`
+ *    from the sheet's own `onClose`, and there is no sheet to fire it.
+ * 4. `present()` then mounts the portal — and the portal's own render callback
+ *    begins `if (status === DISMISSING) return`.
+ *
+ * So the tap ran, the state flipped, the modal "mounted", and **nothing was
+ * drawn**: no sheet, no backdrop, not even a dimmed screen. Every caller looked
+ * like a dead button — the ID card prompt in the discovery header, every
+ * `<Select>`, the complaint and community sheets.
+ *
+ * The fix is to make the imperative calls match reality rather than the prop:
+ * present only when it is not already up, dismiss only when it is. The ref is
+ * cleared in `onDismiss` too, because a drag or a backdrop tap closes the sheet
+ * *inside* gorhom and then tells us — without that, the `open → false` this
+ * causes would send a second `dismiss()` into a modal that had just reset itself
+ * to `INITIAL`, poisoning it exactly as the mount call did.
+ *
  * ## Insets
  *
  * The sheet is the bottom-most thing on screen while it is open, so it is the
@@ -67,13 +99,34 @@ export function Sheet({ children, footer, onClose, open, title }: SheetProps) {
   const insets = useSystemInsets();
   const ref = useRef<BottomSheetModal>(null);
 
+  /** Whether the sheet is up *in gorhom* — not what the prop currently says. */
+  const presented = useRef(false);
+
   useEffect(() => {
     if (open) {
-      ref.current?.present();
-    } else {
+      if (!presented.current) {
+        presented.current = true;
+        ref.current?.present();
+      }
+
+      return;
+    }
+
+    if (presented.current) {
+      presented.current = false;
       ref.current?.dismiss();
     }
   }, [open]);
+
+  /*
+   * Every close funnels through here — the drag, the backdrop, and our own
+   * `dismiss()` above — so this is the one place that can say the sheet is
+   * really down before `onClose` flips the caller's boolean.
+   */
+  const handleDismiss = useCallback(() => {
+    presented.current = false;
+    onClose();
+  }, [onClose]);
 
   return (
     <BottomSheetModal
@@ -99,7 +152,7 @@ export function Sheet({ children, footer, onClose, open, title }: SheetProps) {
       keyboardBlurBehavior="none"
       enablePanDownToClose
       handleIndicatorStyle={{ backgroundColor: colors.border }}
-      onDismiss={onClose}
+      onDismiss={handleDismiss}
       ref={ref}
       // Dynamic sizing measures the content and caps at the space above this,
       // so a long option list stops short of the status bar and scrolls inside

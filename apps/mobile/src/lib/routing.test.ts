@@ -51,6 +51,15 @@ describe("routeUrl", () => {
   });
 
   /*
+   * Without this flag the reply carries `legs[].steps: []` and navigation has
+   * no instructions to give — a Start button that opens a card saying nothing.
+   * It is asked for on every route, so the flag belongs in the shared builder.
+   */
+  it("asks for turn-by-turn steps", () => {
+    expect(routeUrl({ lat: 1, lng: 2 }, { lat: 3, lng: 4 }, "foot")).toContain("steps=true");
+  });
+
+  /*
    * The whole point of the toggle. A host that serves a car graph under the foot
    * profile answers both modes identically, which looks like the feature working
    * — so the test pins the deployment, not just the profile name.
@@ -149,5 +158,184 @@ describe("parseRoadRoute", () => {
     expect(parseRoadRoute(null)).toBeNull();
     expect(parseRoadRoute("Ok")).toBeNull();
     expect(parseRoadRoute({ routes: [{ distance: 5 }] })).toBeNull();
+  });
+});
+
+/**
+ * Three steps out of a **real** 34-step walking reply, taken 2026-08-19 from
+ * `routed-foot` for Kathmandu (85.324,27.7172 → 85.34,27.70), verbatim apart
+ * from the `intersections` and per-step `geometry` this parser does not read.
+ *
+ * These three, specifically, because they are the three shapes that break a
+ * parser written from the OSRM documentation instead of from a reply:
+ *
+ * - the `depart` step, whose `name` is Devanagari — the app is used in Nepal;
+ * - a `turn` with an **empty** `name`, which 20 of the 34 steps had. A parser
+ *   that assumes a street name produces "Turn left onto " on most of this route;
+ * - the `arrive` step, which is zero-length and still needs its location.
+ *
+ * `distance` and `duration` come back as floats and are rounded here, matching
+ * what the route-level fields already do.
+ */
+const REAL_STEPS_RESPONSE = {
+  code: "Ok",
+  routes: [
+    {
+      distance: 3736,
+      duration: 2988.4,
+      geometry: {
+        coordinates: [
+          [85.324116, 27.717524],
+          [85.324414, 27.71744],
+        ],
+        type: "LineString",
+      },
+      legs: [
+        {
+          steps: [
+            {
+              distance: 81.8,
+              duration: 65.5,
+              maneuver: {
+                bearing_after: 108,
+                bearing_before: 0,
+                location: [85.324116, 27.717524],
+                modifier: "right",
+                type: "depart",
+              },
+              mode: "walking",
+              name: "उत्तर ढोका रोड",
+            },
+            {
+              distance: 245.8,
+              duration: 196.7,
+              maneuver: {
+                bearing_after: 82,
+                bearing_before: 199,
+                location: [85.324743, 27.716914],
+                modifier: "left",
+                type: "turn",
+              },
+              mode: "walking",
+              name: "",
+            },
+            {
+              distance: 0,
+              duration: 0,
+              maneuver: {
+                bearing_after: 0,
+                bearing_before: 16,
+                location: [85.340049, 27.699987],
+                modifier: "left",
+                type: "arrive",
+              },
+              mode: "walking",
+              name: "",
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+describe("parseRoadRoute steps", () => {
+  it("reads the instructions out of a real reply", () => {
+    const route = parseRoadRoute(REAL_STEPS_RESPONSE);
+
+    expect(route?.steps).toEqual([
+      {
+        distanceMeters: 82,
+        durationSeconds: 66,
+        location: { lat: 27.717524, lng: 85.324116 },
+        maneuver: { modifier: "right", type: "depart" },
+        name: "उत्तर ढोका रोड",
+      },
+      {
+        distanceMeters: 246,
+        durationSeconds: 197,
+        location: { lat: 27.716914, lng: 85.324743 },
+        maneuver: { modifier: "left", type: "turn" },
+        name: "",
+      },
+      {
+        distanceMeters: 0,
+        durationSeconds: 0,
+        location: { lat: 27.699987, lng: 85.340049 },
+        maneuver: { modifier: "left", type: "arrive" },
+        name: "",
+      },
+    ]);
+  });
+
+  /*
+   * The same trap as the route geometry, one level down and easier to miss:
+   * `maneuver.location` is `[lng, lat]`. Read the pair in the written order and
+   * every turn lands in Tibet, which on a rotated map looks like a compass
+   * fault rather than a parsing one.
+   */
+  it("unpicks the maneuver's [lng, lat] into { lat, lng }", () => {
+    const step = parseRoadRoute(REAL_STEPS_RESPONSE)?.steps?.[0];
+
+    expect(step?.location.lat).toBeCloseTo(27.7175, 3);
+    expect(step?.location.lng).toBeCloseTo(85.3241, 3);
+  });
+
+  it("leaves steps off a reply that has none, rather than inventing an empty list", () => {
+    // The old behaviour, and still what a router ignoring `steps=true` returns.
+    // A line with no instructions is a route worth drawing; see `RoadRoute`.
+    const route = parseRoadRoute(REAL_RESPONSE);
+
+    expect(route).not.toBeNull();
+    expect(route?.steps).toBeUndefined();
+  });
+
+  it("drops a step whose maneuver location is unusable", () => {
+    const broken = {
+      ...REAL_STEPS_RESPONSE,
+      routes: [
+        {
+          ...REAL_STEPS_RESPONSE.routes[0],
+          legs: [
+            {
+              steps: [
+                { distance: 10, duration: 5, maneuver: { location: [0, 0], type: "turn" }, name: "Null Island" },
+                ...REAL_STEPS_RESPONSE.routes[0].legs[0].steps,
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(parseRoadRoute(broken)?.steps).toHaveLength(3);
+  });
+
+  it("survives a maneuver with no modifier and keeps a roundabout's exit", () => {
+    const roundabout = {
+      ...REAL_STEPS_RESPONSE,
+      routes: [
+        {
+          ...REAL_STEPS_RESPONSE.routes[0],
+          legs: [
+            {
+              steps: [
+                {
+                  distance: 30.2,
+                  duration: 24,
+                  maneuver: { exit: 2, location: [85.3, 27.7], type: "roundabout" },
+                  name: "Ring Road",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(parseRoadRoute(roundabout)?.steps?.[0].maneuver).toEqual({
+      exit: 2,
+      type: "roundabout",
+    });
   });
 });

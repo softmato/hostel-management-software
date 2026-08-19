@@ -68,6 +68,15 @@ import { HOSTEL_TYPE_LABELS, type PublicHostel } from "@/lib/public-api";
  */
 
 /**
+ * The Boys/Girls tag on the photo, in points.
+ *
+ * Exported because `HostelShowcase` draws the same pill, and the two sit one
+ * above the other on the home screen — Top Picks over Nearby — where half a
+ * point of difference between them reads as a mistake rather than a hierarchy.
+ */
+export const TYPE_TAG_SIZE = 7;
+
+/**
  * Keyed by `facilityKey`, not by the label.
  *
  * `FACILITIES` in `lib/public-api.ts` is the list the filter sheet offers, but a
@@ -250,17 +259,44 @@ export function HostelCard({
         )}
 
         {isGrid ? (
-          // Small: it is a label on a photograph, not the headline of the card,
-          // and at `px-2.5 py-1.5` it was the biggest thing on the picture.
-          <View className="absolute left-2.5 top-2.5 flex-row items-center gap-1 rounded-full bg-primary px-2 py-0.5">
+          /*
+            Small, and quiet with it: this is a label on a photograph, not the
+            headline of the card. At `px-2.5 py-1.5` and `text-[9px] semibold` it
+            was a solid brand-coloured slab reading BOYS louder than the hostel's
+            own name two lines below it — and it says the same word on most of
+            the cards in the row, so it is the last thing on the picture that
+            should be shouting.
+
+            7px `font-medium` puts it under the 8px distance badge in the
+            opposite corner, which is the right ranking: that badge is a number
+            that differs per reader, this is a category that repeats.
+
+            `uppercase` and `tracking-wide` are what make the size survivable,
+            not decoration — capitals have no descenders to lose at 7px, and the
+            letter-spacing is the difference between four small letters and a
+            smudge. Lightening the weight without them would have been
+            illegible.
+
+            The size is an inline `style`, not `text-[7px]`. That class was the
+            first version of this and it rendered *larger* than what it replaced:
+            NativeWind compiles the class list at bundle time, and 7px appears
+            nowhere else in the app, so the class resolved to nothing and the
+            label fell back to the default body size. Same trap the wordmark in
+            `discovery-header.tsx` hit, and the same answer — a measured
+            dimension goes in `style`, where it cannot silently fail to exist.
+          */
+          <View className="absolute left-2.5 top-2.5 flex-row items-center gap-1 rounded-full bg-primary px-1.5 py-0.5">
             {hostel.verificationStatus === "VERIFIED" ? (
               <Ionicons
                 color={colors.primaryForeground}
                 name="shield-checkmark"
-                size={9}
+                size={8}
               />
             ) : null}
-            <Text className="text-[9px] font-semibold uppercase tracking-wide text-primary-foreground">
+            <Text
+              className="font-medium uppercase tracking-wide text-primary-foreground"
+              style={{ fontSize: TYPE_TAG_SIZE }}
+            >
               {HOSTEL_TYPE_LABELS[hostel.hostelType]}
             </Text>
           </View>

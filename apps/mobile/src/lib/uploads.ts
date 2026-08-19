@@ -129,7 +129,24 @@ async function runUpload(
    * for them is how a codebase ends up with two file APIs.
    */
   const file = new File(asset.uri);
-  const sizeBytes = asset.fileSize || file.size;
+
+  /*
+   * Measured off the file at `asset.uri`, not read from `asset.fileSize`.
+   *
+   * The two are not the same number. `fileSize` describes the asset the picker
+   * handed back, and the ID-card portrait is picked with `allowsEditing` and
+   * `quality: 0.85` — the bytes at that uri have been cropped and re-encoded. It
+   * is also simply optional: the field is absent on several platforms and picker
+   * paths, which is why the fallback was there in the first place.
+   *
+   * This is the size the server writes onto the `FileAsset` row, and
+   * `/files/{id}/complete` re-reads the stored object and rejects it unless the
+   * real length matches exactly. Declaring anything other than what is about to
+   * be uploaded fails there — and until the signer stopped binding
+   * `content-length`, it failed a step earlier, at R2, where there is nothing to
+   * read afterwards. `file.size` cannot be wrong: it is the file being sent.
+   */
+  const sizeBytes = file.size || asset.fileSize;
 
   if (!file.exists || !sizeBytes) {
     throw new UploadError("That file could not be read, or it is empty.", "presigning");
@@ -171,9 +188,25 @@ async function runUpload(
     uploadType: UploadType.BINARY_CONTENT,
   });
 
-  if (!result || result.status < 200 || result.status >= 300) {
+  /*
+   * Two failures, two messages, because they send the reader to different
+   * places. No result at all is a transport failure and "check your connection"
+   * is the right advice. A *status* means storage answered and said no — a
+   * signature that did not match, an expired URL, a bucket that is not there —
+   * and telling someone with four bars to check their wifi is how an afternoon
+   * goes missing. The number is included because this request never touches our
+   * own infrastructure: it is the only trace of the failure that exists.
+   */
+  if (!result) {
     throw new UploadError(
       "The upload did not reach our storage. Check your connection and try again.",
+      "uploading",
+    );
+  }
+
+  if (result.status < 200 || result.status >= 300) {
+    throw new UploadError(
+      `Our storage refused this file (error ${result.status}). Please try again.`,
       "uploading",
     );
   }

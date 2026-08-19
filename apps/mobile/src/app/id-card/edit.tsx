@@ -11,6 +11,7 @@ import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
@@ -18,6 +19,8 @@ import { revalidateSession } from "@/lib/auth-session";
 import {
   draftFromProfile,
   hasIdentityErrors,
+  idCardNoun,
+  idCardTypeForAccount,
   type IdentityDraft,
   type IdentityErrors,
   type IdentityTextField,
@@ -114,8 +117,35 @@ const ID_TYPE_OPTIONS: { label: string; value: GovernmentIdType }[] = [
 
 export default function EditIdentityScreen() {
   const identity = useResource<IdentityResponse>(useCallback(() => getIdentity(), []));
+  const account = useAppSelector((state) => state.auth.account);
 
-  const header = <AppBar showBack title="Your details" />;
+  /*
+   * "Your details" was the whole title, and on the screen it sat above thirty
+   * fields that begin with a *second* heading reading "About you". Nothing at
+   * the top said which document this fills in — someone arriving from the ID
+   * card prompt could not tell whether they were editing their profile, their
+   * account or their card.
+   *
+   * Named from the cached account rather than `identity.data`, because this bar
+   * is also what the loading and error states render, and a title that appears
+   * one beat after the screen does is worse than one that is simply right from
+   * the first frame. `idCardTypeForAccount` is the same mirror the home header
+   * uses, and the server stays the authority on what is actually issued.
+   */
+  const cardNoun = idCardNoun(
+    idCardTypeForAccount({
+      isServiceProvider: account?.isServiceProvider,
+      role: account?.role ?? "PUBLIC",
+    }),
+  );
+
+  const header = (
+    <AppBar
+      showBack
+      subtitle="Your details, filled in once"
+      title={`${cardNoun.charAt(0).toUpperCase()}${cardNoun.slice(1)} ID form`}
+    />
+  );
 
   if (identity.loading) {
     return (
@@ -256,11 +286,9 @@ function IdentityForm({
         multiline={props.multiline}
         onChangeText={(value) => set(name, value)}
         placeholder={props.placeholder}
-        style={
-          props.multiline
-            ? { height: 88, paddingTop: 12, textAlignVertical: "top" }
-            : undefined
-        }
+        // The height only. `Input` supplies the top alignment and the inner
+        // padding a multiline box needs, and sizes its own border around it.
+        style={props.multiline ? { height: 88 } : undefined}
         value={draft[name]}
       />
     ),

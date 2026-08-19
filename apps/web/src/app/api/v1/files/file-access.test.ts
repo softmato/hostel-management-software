@@ -259,11 +259,17 @@ describe("POST /api/v1/files/presign", () => {
     expect(mocks.create).toHaveBeenCalledWith(
       expect.objectContaining({ accessLevel: "PRIVATE", bucket: "test-private-bucket" }),
     );
+    /*
+     * Three arguments, and the missing fourth is the point: the size is not
+     * handed to the signer. SigV4 would bind it as an exact `content-length`
+     * the client has to reproduce byte for byte, which broke every upload whose
+     * declared size differed from the bytes actually sent. It is enforced
+     * instead where the real object can be read, at `/complete`.
+     */
     expect(mocks.presignedUploadUrl).toHaveBeenCalledWith(
       "test-private-bucket",
       expect.any(String),
       expect.any(String),
-      expect.any(Number),
     );
   });
 

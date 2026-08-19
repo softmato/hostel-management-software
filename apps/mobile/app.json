@@ -14,7 +14,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "HostelHub uses the camera to scan your hostel activation QR code and to attach photos to payment claims, complaints and meals.",
-        "NSLocationWhenInUseUsageDescription": "HostelHub uses your approximate location to sort hostels by how far they are from you. Your location is never saved or shared.",
+        "NSLocationWhenInUseUsageDescription": "HostelHub uses your approximate location to sort hostels by how far they are from you, and your precise location while you are navigating to a hostel. Your location is never saved or shared.",
         "NSPhotoLibraryUsageDescription": "HostelHub needs your photo library so you can attach payment receipts and meal photos.",
         "NSFaceIDUsageDescription": "HostelHub can use Face ID to unlock the app."
       }
@@ -36,10 +36,8 @@
         "VIBRATE",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
-        "ACCESS_COARSE_LOCATION"
-      ],
-      "blockedPermissions": [
-        "android.permission.ACCESS_FINE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ],
       "intentFilters": [
         {
@@ -111,7 +109,7 @@
         {
           "isAndroidBackgroundLocationEnabled": false,
           "isIosBackgroundLocationEnabled": false,
-          "locationWhenInUsePermission": "Allow HostelHub to use your approximate location to sort hostels by distance. It is never saved or shared."
+          "locationWhenInUsePermission": "Allow HostelHub to use your approximate location to sort hostels by distance, and your precise location while you are navigating to a hostel. It is never saved or shared."
         }
       ],
       [

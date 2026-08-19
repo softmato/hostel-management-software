@@ -1,7 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 
 import { IdCardPrompt } from "@/components/id-card-prompt";
 import { Text } from "@/components/ui/text";
@@ -71,6 +81,17 @@ import { listNotifications, type NotificationFeed } from "@/lib/notifications-ap
  * under two headings that no longer mean anything. The mockup's mic is not here:
  * there is no speech recognition in this app, and a mic that does nothing is the
  * control people decide the app is broken over.
+ *
+ * ## The map button is the only way in that opens the *whole* catalogue
+ *
+ * Every other door into `/map` arrives with a hostel already chosen: the
+ * distance badge on a card pushes `?slug=…&route=1`, which opens on that hostel
+ * with directions running, and `/directions/[slug]` redirects to the same thing.
+ * There was no way to open the map as a map — pins for everything registered, an
+ * empty search field, nothing selected — which is the state somebody who wants
+ * to look at an area rather than at one listing is asking for. That is this
+ * button, and it is why it pushes `/map` bare: the screen's own default with no
+ * `slug` is exactly that view.
  */
 
 /**
@@ -80,11 +101,52 @@ import { listNotifications, type NotificationFeed } from "@/lib/notifications-ap
  * every other dimension in this app is: NativeWind resolves classes at bundle
  * time, and a size nothing else uses can silently resolve to nothing. Keeping
  * the two numbers side by side also makes the proportion explicit — the button
- * is inset 8dp top and bottom, which is what keeps the row reading as one
+ * is inset 7dp top and bottom, which is what keeps the row reading as one
  * control rather than a field with a square stuck on the end.
+ *
+ * Both came down together, from 40 in 54 with an 18dp glyph. The button at 40
+ * filled three-quarters of the row's height, which is the weight a primary
+ * action gets, and this row's primary action is typing. The field at 54 was
+ * then the tallest thing on the screen for a single line of 16dp text — a
+ * search box with more air in it than the cards below it have around their
+ * prices, pushing the first hostel down for nothing.
+ *
+ * 46 is what a one-line field needs: 16dp of text with 15dp above and below it,
+ * still a comfortable target, and eight fewer points before the content starts.
+ * The button stays at the smaller of the two sizes that survive the trim — 32dp
+ * is the floor for something you tap without aiming, and it keeps the field
+ * visibly the taller control.
  */
-const SEARCH_HEIGHT = 54;
-const FILTER_BUTTON = 40;
+const SEARCH_HEIGHT = 46;
+const FILTER_BUTTON = 32;
+
+/**
+ * The three glyphs *inside* the field — search, clear, filter.
+ *
+ * One number, because they are one row: sizing them apart is how a search icon
+ * ends up a point bigger than the clear icon two fingers away from it for no
+ * reason anybody can state. 16 sits a step under the 19 the header's round
+ * actions use, which is the ranking — the bar above is chrome you press, this
+ * row is a field you type in.
+ */
+const FIELD_GLYPH = 16;
+
+/**
+ * The map button, which lives *outside* the field.
+ *
+ * Deliberately smaller than `SEARCH_HEIGHT`: matching the field's height made it
+ * a slab with as much weight as the search box itself, which is the wrong
+ * ranking for a secondary way off this screen. It follows the field down: 40
+ * against a 46dp field keeps the gap the 44-against-54 pair had, and its glyph
+ * is 18 in 40 — near enough the filter button's 16 in 32 that the two read as
+ * the same family of control at two sizes rather than as two unrelated squares.
+ * It stays the larger of the two because it is the only control in the row that
+ * leaves the screen.
+ */
+const MAP_BUTTON = 40;
+
+/** The map button's glyph. A step up from `FIELD_GLYPH`, as the button is. */
+const MAP_GLYPH = 18;
 
 export type DiscoveryHeaderProps = {
   /** Where the filters button goes — the browse screen owns the filter sheet. */
@@ -170,11 +232,17 @@ export function DiscoveryHeader({
                     : `Create my ${cardNoun} ID card`
                 }
                 /*
+                  `id-card-outline`, not `card-outline`. The latter is Ionicons'
+                  *payment* card — a plain rounded rectangle with a magnetic
+                  stripe — which beside a bell in a hostel app reads as billing,
+                  not identity. This one draws the portrait and the lines beside
+                  it, which is the thing the button opens.
+
                   The same icon either way. A `+` here reads as "add something"
                   beside a bell, and the button means "my ID card" whether or not
                   one exists yet — which is what the label and the sheet say.
                 */
-                name="card-outline"
+                name="id-card-outline"
                 onPress={() =>
                   hasCard ? router.push("/id-card") : setPromptingIdCard(true)
                 }
@@ -190,52 +258,71 @@ export function DiscoveryHeader({
           ) : null}
         </View>
 
-        {/*
-          One field, with the filter button *inside* it rather than beside it —
-          the mockup's shape, and the reason the search row reads as a single
-          control instead of a field plus a mystery square.
-        */}
-        <View
-          className="flex-row items-center gap-2 rounded-2xl border border-border bg-card"
-          style={{ height: SEARCH_HEIGHT, paddingLeft: 14, paddingRight: 8 }}
-        >
-          <Ionicons color={colors.mutedForeground} name="search" size={18} />
-
+        <View className="flex-row items-center gap-2">
           {/*
-            A bare `TextInput`, not the design system's `Input`: that carries a
-            label, its own border and its own height, all of which fight a field
-            living inside a pill.
+            One field, with the filter button *inside* it rather than beside it —
+            the mockup's shape, and the reason the search row reads as a single
+            control instead of a field plus a mystery square.
           */}
-          <TextInput
-            className="h-full flex-1 text-base text-foreground"
-            onChangeText={onQueryChange}
-            onSubmitEditing={onSearch}
-            placeholder="Search by city, hostel or landmark"
-            placeholderTextColor={colors.mutedForeground}
-            returnKeyType="search"
-            value={query}
-          />
-
-          {query ? (
-            <Pressable
-              accessibilityLabel="Clear search"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => onQueryChange("")}
-            >
-              <Ionicons color={colors.mutedForeground} name="close-circle" size={18} />
-            </Pressable>
-          ) : null}
-
-          <Pressable
-            accessibilityLabel="Filters"
-            accessibilityRole="button"
-            className="items-center justify-center rounded-xl bg-primary active:opacity-80"
-            onPress={() => router.push(browseHref)}
-            style={{ height: FILTER_BUTTON, width: FILTER_BUTTON }}
+          <View
+            className="flex-1 flex-row items-center gap-2 rounded-2xl border border-border bg-card"
+            style={{ height: SEARCH_HEIGHT, paddingLeft: 12, paddingRight: 6 }}
           >
-            <Ionicons color={colors.primaryForeground} name="options-outline" size={18} />
-          </Pressable>
+            <Ionicons color={colors.mutedForeground} name="search" size={FIELD_GLYPH} />
+
+            {/*
+              A bare `TextInput`, not the design system's `Input`: that carries a
+              label, its own border and its own height, all of which fight a field
+              living inside a pill.
+            */}
+            <TextInput
+              className="h-full flex-1 text-base text-foreground"
+              onChangeText={onQueryChange}
+              onSubmitEditing={onSearch}
+              /*
+                Short because the row is: the field now shares it with the map
+                button as well as the filter button, and "Search by city, hostel
+                or landmark" was being cut off mid-word on a small phone — a
+                placeholder that ends in "…or land" teaches nobody anything. Two
+                of the three nouns still say the field takes more than a name.
+              */
+              placeholder="Search hostels or cities"
+              placeholderTextColor={colors.mutedForeground}
+              returnKeyType="search"
+              value={query}
+            />
+
+            {query ? (
+              <Pressable
+                accessibilityLabel="Clear search"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => onQueryChange("")}
+              >
+                <Ionicons
+                  color={colors.mutedForeground}
+                  name="close-circle"
+                  size={FIELD_GLYPH}
+                />
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              accessibilityLabel="Filters"
+              accessibilityRole="button"
+              className="items-center justify-center rounded-xl bg-primary active:opacity-80"
+              onPress={() => router.push(browseHref)}
+              style={{ height: FILTER_BUTTON, width: FILTER_BUTTON }}
+            >
+              <Ionicons
+                color={colors.primaryForeground}
+                name="options-outline"
+                size={FIELD_GLYPH}
+              />
+            </Pressable>
+          </View>
+
+          <MapButton />
         </View>
       </View>
 
@@ -292,6 +379,121 @@ function IconButton({
           </Text>
         </View>
       ) : null}
+    </Pressable>
+  );
+}
+
+
+/**
+ * The map button, and the light that moves inside it.
+ *
+ * ## Inside the button, not around it
+ *
+ * A halo around the outside was the first attempt and it was the wrong shape of
+ * signal: light bleeding out of a control reads as a *state* — selected, live,
+ * recording — and it made a 44dp button occupy 66dp of a row that has none to
+ * spare. This stays within the button's own edges: a soft band of brand colour
+ * that drifts across the face and leaves, so the thing that catches the eye is
+ * the same rectangle you are being asked to press.
+ *
+ * ## Why a gradient sweep rather than a pulse
+ *
+ * A button that brightens and dims on the spot is a status light, and this app
+ * already uses steady colour for status. Movement across the face is the
+ * vocabulary of "new here, have a look" — the same gesture as a shimmer over a
+ * skeleton, slowed down by a factor of three and tinted instead of white.
+ *
+ * ## The numbers are the brief: slow, faint, with a rest
+ *
+ * `SWEEP_MS` at 2.2s is far past the ~300ms that reads as a response to
+ * something you did and well into the range that reads as ambient.
+ * `Easing.inOut(Easing.quad)` means it never starts or stops, it only drifts.
+ * `REST_MS` is the pause between passes: without it the button flickers
+ * continuously, which is a notification. And the band's own opacity rides a sine
+ * over the sweep, so it fades up as it enters and away as it leaves rather than
+ * appearing at one edge and vanishing at the other.
+ *
+ * ## Card → brandSoft → card, and never `transparent`
+ *
+ * The band is painted between the button's own background and the soft brand
+ * tint, so its ends are invisible against the face it crosses. Fading to
+ * `"transparent"` would be the obvious way to write that and is a bug on
+ * Android, where it interpolates through **rgba(0,0,0,0)** — a band that darkens
+ * to grey before it disappears. Two opaque colours from the palette cannot do
+ * that on either platform.
+ *
+ * ## It respects "reduce motion"
+ *
+ * `useReducedMotion` is a real setting people turn on for real reasons —
+ * vestibular disorders among them — and a looping animation in the header of the
+ * first screen after launch is exactly what it is turned on to stop. With it on
+ * the band never moves and never appears; the button is still there, still
+ * labelled, still does the same thing.
+ */
+const SWEEP_MS = 2_200;
+const REST_MS = 1_400;
+
+/** The moving band, wider than the button so it enters and leaves off-face. */
+const BAND_WIDTH = Math.round(MAP_BUTTON * 1.5);
+
+function MapButton() {
+  const { colors } = useAppTheme();
+  const reducedMotion = useReducedMotion();
+  const sweep = useSharedValue(0);
+
+  useEffect(() => {
+    if (reducedMotion) {
+      return;
+    }
+
+    sweep.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: SWEEP_MS, easing: Easing.inOut(Easing.quad) }),
+        // Back to the start with no movement to watch. Invisible, because the
+        // band's opacity is already zero at both ends of the sweep.
+        withTiming(0, { duration: 0 }),
+        withTiming(0, { duration: REST_MS }),
+      ),
+      -1,
+      false,
+    );
+  }, [reducedMotion, sweep]);
+
+  const band = useAnimatedStyle(() => ({
+    // A sine over the pass: nothing at either edge, fullest in the middle.
+    opacity: Math.sin(sweep.value * Math.PI),
+    transform: [
+      { translateX: -BAND_WIDTH + sweep.value * (MAP_BUTTON + BAND_WIDTH) },
+    ],
+  }));
+
+  return (
+    <Pressable
+      accessibilityLabel="Open the map"
+      accessibilityRole="button"
+      className="items-center justify-center rounded-xl border border-border bg-card active:opacity-80"
+      onPress={() => router.push("/map")}
+      // `overflow: hidden` is what keeps the band inside the rounded corners
+      // rather than crossing the square one behind them.
+      style={{ height: MAP_BUTTON, overflow: "hidden", width: MAP_BUTTON }}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          { bottom: 0, position: "absolute", top: 0, width: BAND_WIDTH },
+          band,
+        ]}
+      >
+        <LinearGradient
+          colors={[colors.card, colors.brandSoft, colors.card]}
+          end={{ x: 1, y: 0.85 }}
+          start={{ x: 0, y: 0.15 }}
+          style={{ flex: 1 }}
+        />
+      </Animated.View>
+
+      {/* After the band in the tree, so it draws over it. */}
+      <Ionicons color={colors.foreground} name="map-outline" size={MAP_GLYPH} />
     </Pressable>
   );
 }

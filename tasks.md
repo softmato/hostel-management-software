@@ -618,6 +618,25 @@ Anything discovered while working the list above, appended here rather than fixe
       unrelated to any work here — `src/` itself is clean — but it means
       `npm run typecheck --workspace web` is red by default, which trains people to ignore
       it. Worth either fixing the layout signatures or excluding `.next` from the check.
+- ☐ **7.4 The global map: debounced search, result list, and live turn-by-turn.**
+      Its own work order at [`MAP_NAV_PLAN.md`](MAP_NAV_PLAN.md) — read that, not this line.
+      Three faults the owner reported on `/map`: search had no debounce and no result list,
+      a result could not be tapped to move the map, and Directions drew a static line with no
+      way to follow it. Sections A–E are done and ticked there: debounced search with a
+      tappable result list; fine location requested for navigation only; OSRM `steps=true`
+      with a tested `lib/navigation.ts` (heading fusion, off-route, arrival, instruction text);
+      a CSS-rotated heading-up map with counter-rotated pins and a direction arrow; and
+      `use-guidance.ts` driving a Start/NavCard/Stop flow with rationed rerouting.
+      typecheck, lint and **656 tests / 45 files** green, `expo export` bundles.
+      **Open: the two device passes (F.3, F.4)** — the search-and-tap check, and a walk
+      outside with fine location after a rebuild. The rebuild is required: `app.json` now
+      asks for `ACCESS_FINE_LOCATION` instead of blocking it.
+- ☐ **7.5 The same map on the website.**
+      Work order at [`WEB_MAP_PLAN.md`](WEB_MAP_PLAN.md) — read that, not this line. Ports §7.4's
+      map to `apps/web`: a global `/map` reachable from the header, Google-Maps-like layout
+      (floating search, side panel, controls bottom-right, bottom sheet under `md`), debounced
+      search with a clickable result list, directions, live turn-by-turn, compass, the three tile
+      styles and the pin name label. Not started.
 
 ---
 
@@ -633,3 +652,5 @@ Anything discovered while working the list above, appended here rather than fixe
 | 2026-08-18 09:25 | shared layout kit, global asset viewer, upload notifications, §5.1 resident | next: §5.2 guardian |
 | 2026-08-18 10:05 | §5.2–§5.7: guardian, cook, provider, admin, public/browse, shared sheets | §5 complete; next: §6 device pass, or §3.5/§7 |
 | 2026-08-18 10:20 | §7.3 cook food-photo GET + day-grouped grid | next: §6 device pass; §7.1/§7.2 still open |
+| 2026-08-19 08:35 | §7.4 map: `MAP_NAV_PLAN.md` A–E done (search, fine location, steps, rotation, guidance) | next: MAP_NAV_PLAN F.3/F.4 on the phone |
+| 2026-08-19 09:30 | §7.4 cont.: §G the map springing back (owner-reported), §H layer switcher + pin name label | next: still F.3/F.4 on the phone |

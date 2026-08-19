@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 
 import { HostelCard } from "@/components/hostel-card";
@@ -66,6 +66,37 @@ const BUDGET_BANDS = [
   { label: "Above NPR 10,000", maxPrice: undefined, minPrice: 10000 },
 ] as const;
 
+/** Everything a link into this screen is allowed to ask for. */
+type BrowseParams = {
+  city?: string;
+  facility?: string;
+  meals?: string;
+  q?: string;
+  type?: string;
+};
+
+/**
+ * The server-side filters a link into this screen asks for.
+ *
+ * Written once and called twice — to seed the state on mount, and to reseed it
+ * when a later navigation arrives with different params. Two copies of "which
+ * of these params is a filter, and which of them the server will even accept"
+ * is exactly the pair that drifts the first time one more filter is added.
+ *
+ * `city` and `meals` are deliberately not here: neither is a field the server
+ * filters on, so both are held as their own state and narrow the returned rows
+ * on the client — see where they are declared for why.
+ */
+function filtersFromParams(params: BrowseParams): HostelFilters {
+  return {
+    facility: params.facility,
+    q: params.q,
+    type: HOSTEL_TYPES.includes(params.type as HostelType)
+      ? (params.type as HostelType)
+      : undefined,
+  };
+}
+
 export type HostelBrowserProps = {
   /** Where the compare bar goes, with `?ids=` appended. */
   compareHref: string;
@@ -79,24 +110,15 @@ export function HostelBrowser({
   insideTabs = false,
   showBack = false,
 }: HostelBrowserProps) {
-  const params = useLocalSearchParams<{
-    city?: string;
-    facility?: string;
-    meals?: string;
-    q?: string;
-    type?: string;
-  }>();
+  const params = useLocalSearchParams<BrowseParams>();
   const { colors } = useAppTheme();
 
-  // Seeded from the deep link the home screen's shortcuts push, so tapping
-  // "Wi-Fi" or "Girls" lands on a list that is already filtered.
-  const [filters, setFilters] = useState<HostelFilters>(() => ({
-    facility: params.facility,
-    q: params.q,
-    type: HOSTEL_TYPES.includes(params.type as HostelType)
-      ? (params.type as HostelType)
-      : undefined,
-  }));
+  // Seeded from the deep link that pushed this screen — the home screen's
+  // search field, or one of its city cards — so it opens on a list that is
+  // already filtered rather than on the whole catalogue.
+  const [filters, setFilters] = useState<HostelFilters>(() =>
+    filtersFromParams(params),
+  );
   /*
    * City is **not** a `HostelFilters` field, because the server has no city
    * filter: `publicHostelListQuerySchema`'s `area` matches `location.area` only,
@@ -124,6 +146,42 @@ export function HostelBrowser({
    */
   const [view, setView] = useState<"list" | "map">("list");
   const [compare, setCompare] = useState<string[]>([]);
+
+  /*
+   * Adopt a search that arrives *after* this screen is already mounted.
+   *
+   * Seeding the state above is the whole story for the pushed copy in the
+   * signed-out stack: that screen is mounted by the push that carries the
+   * params and torn down when you go back. Inside the tabs this screen **is** a
+   * tab — mounted the first time it is focused and never unmounted again — so
+   * every later `?q=…` from the home screen's field landed on a search box that
+   * had already been initialised, and was dropped on the floor: the field
+   * showed whatever was last typed *here*, and the list showed the results for
+   * that. From the home screen that looks like the field clearing itself on
+   * submit, which is the bug this fixes.
+   *
+   * Keyed on the params rather than on focus, and that distinction is the
+   * point: tapping Search in the tab bar re-focuses this screen without
+   * changing them, and has to leave whatever is on screen exactly as it is.
+   * Only a navigation carrying *different* params reseeds — including a bare
+   * one with none at all, which is "View all" and does mean the whole
+   * catalogue.
+   */
+  const { city: cityParam, facility, meals: mealsParam, q, type } = params;
+  const incoming = JSON.stringify([cityParam, facility, mealsParam, q, type]);
+  const applied = useRef(incoming);
+
+  useEffect(() => {
+    if (applied.current === incoming) {
+      return;
+    }
+
+    applied.current = incoming;
+    setCity(cityParam ?? "");
+    setFilters(filtersFromParams({ facility, q, type }));
+    setMeals(mealsParam === "1");
+    setSearch(q ?? "");
+  }, [cityParam, facility, incoming, mealsParam, q, type]);
   const nearby = useNearby();
   const saved = useSavedHostels();
 

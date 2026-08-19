@@ -120,17 +120,45 @@ export function generateFileKey(prefix: string, fileName: string) {
   return withKeyPrefix(`${prefix}/${uniqueId}.${ext}`);
 }
 
+/**
+ * A presigned PUT for one object.
+ *
+ * ## `ContentLength` is deliberately **not** signed
+ *
+ * This used to take a `maxSizeBytes` and put it on the command, which reads like
+ * a size cap and is not one. SigV4 signs every header on the request that is not
+ * in its unsignable list, and `content-length` is not in that list — so the
+ * number went into `X-Amz-SignedHeaders` as an **exact** value the client then
+ * had to reproduce byte for byte. One byte out and R2 answers
+ * `SignatureDoesNotMatch`, on a request that never touches our infrastructure:
+ * nothing in our logs, and a client with no way to tell the failure apart from a
+ * dropped connection.
+ *
+ * That is what it did on the mobile ID-card photo. The app declared the size
+ * `expo-image-picker` reported for the picked asset and then uploaded the
+ * cropped, re-encoded file at that uri, which is a different length. The presign
+ * returned 200, the PUT died at R2, and the phone said "check your connection".
+ *
+ * Removing it costs nothing, because the size was never enforced here:
+ * `validateFileAssetMetadata` rejects an over-large declaration at presign time,
+ * and `verifyUploadedObject` re-reads the stored object at `/complete` and
+ * refuses it if the real length differs from the declared one. That check is the
+ * one that protects storage — it looks at the bytes that actually arrived — and
+ * it fails loudly, in our logs, with a message a client can act on.
+ *
+ * `ContentType` stays signed on purpose: it is the type the object is stored and
+ * served with, so binding it is worth the matching requirement. Both sides read
+ * it from one function (`lib/mime.ts` on the phone) for exactly that reason.
+ */
 export async function getPresignedUploadUrl(
   bucket: string,
   key: string,
   contentType: string,
-  maxSizeBytes?: number,
 ) {
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
     ContentType: contentType,
-    ...(maxSizeBytes ? { ContentLength: maxSizeBytes } : {}),
   });
   return getSignedUrl(getR2Client(), command, { expiresIn: 600 });
 }

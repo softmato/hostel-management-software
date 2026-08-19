@@ -25,12 +25,21 @@ import { isUsableCoordinate } from "@/lib/geo";
  * said no. What is stored is a boolean about this app's behaviour — never a
  * position; see below.
  *
- * ## Coarse, and only coarse
+ * ## Coarse everywhere except navigation
  *
- * `ACCESS_FINE_LOCATION` is in `blockedPermissions` in `app.json`, and the
- * accuracy asked for here is `Low`. Sorting hostels by rough proximity does not
- * need a street-level fix, and asking for one is both a worse dialogue and more
- * than the feature is owed.
+ * Everything that sorts or measures — the Nearby row, the distance badges, the
+ * map's "you are here" dot — takes the one `Accuracy.Low` reading above.
+ * Sorting hostels by rough proximity does not need a street-level fix, and
+ * asking for one is both a worse dialogue and more than the feature is owed.
+ *
+ * Turn-by-turn navigation is the single exception, and it is why
+ * `ACCESS_FINE_LOCATION` is now requested in `app.json` rather than blocked
+ * there. `watchNavigationPosition` at the bottom of this file runs
+ * `Accuracy.BestForNavigation` — but only while the reader has pressed Start on
+ * a route, and it is torn down when they stop or arrive. A hundred-metre fix
+ * cannot tell you which side of a junction you are on, so the feature is not
+ * worth building on one; the trade is that the higher accuracy exists for the
+ * length of a walk and not a second longer.
  *
  * ## Nothing is stored
  *
@@ -145,6 +154,124 @@ async function readPosition(): Promise<LocationOutcome> {
     // Location services switched off at the OS level lands here.
     return { kind: "unavailable" };
   }
+}
+
+/**
+ * One fix from the navigation watcher.
+ *
+ * Three fields beyond the coordinate, because guidance needs all three and
+ * asking for them twice is a second subscription:
+ *
+ * - `accuracyMeters` draws the honest circle around the arrow (§D.3). Without
+ *   it, a 30 m fix looks like a lie rather than a fix.
+ * - `speed` decides which heading to believe — see `chooseHeading` in
+ *   `lib/navigation.ts`.
+ * - `heading` is course over ground, which is steadier than the compass while
+ *   moving and meaningless while standing still.
+ *
+ * Any of the three can be `null`: not every platform reports them, and Android
+ * uses `-1` for "no idea", which is normalised away here so callers never have
+ * to know that.
+ */
+export type NavigationFix = {
+  accuracyMeters: number | null;
+  coordinates: Coordinates;
+  /** Course over ground in degrees clockwise from north, or `null`. */
+  heading: number | null;
+  /** Metres per second, or `null`. */
+  speed: number | null;
+};
+
+/**
+ * Stream fine-grained fixes for the length of one navigation session.
+ *
+ * `BestForNavigation` is the most expensive accuracy the platform offers, so
+ * the caller owns its lifetime: the returned subscription **must** be
+ * `.remove()`d when guidance stops, arrives, or the screen unmounts. A watcher
+ * left running is a GPS the reader cannot switch off.
+ *
+ * `distanceInterval: 5` with `timeInterval: 2000` is the pair that makes the
+ * arrow move smoothly without a callback per second while standing still — the
+ * platform delivers when either threshold is crossed, and five metres is about
+ * two paces of walking.
+ *
+ * Permission is the caller's problem. This throws if it has not been granted,
+ * rather than prompting: the navigation screen needs to tell the difference
+ * between refused, blocked and simply no fix, and a helper that quietly asks
+ * takes that choice away from it.
+ *
+ * Fixes with an unusable coordinate are dropped rather than passed on — `0, 0`
+ * is in the Gulf of Guinea, and one of those in the middle of a route would
+ * read as a reroute across the planet.
+ *
+ * Nothing here is stored. The fix goes to `onFix` and lives in the caller's
+ * state exactly as long as the screen does; see "Nothing is stored" above.
+ */
+export function watchNavigationPosition(
+  onFix: (fix: NavigationFix) => void,
+): Promise<Location.LocationSubscription> {
+  return Location.watchPositionAsync(
+    {
+      accuracy: Location.Accuracy.BestForNavigation,
+      distanceInterval: 5,
+      timeInterval: 2_000,
+    },
+    (position) => {
+      const coordinates = toCoordinates(position);
+
+      if (!isUsableCoordinate(coordinates)) {
+        return;
+      }
+
+      onFix({
+        accuracyMeters: nonNegativeOrNull(position.coords.accuracy),
+        coordinates,
+        heading: nonNegativeOrNull(position.coords.heading),
+        speed: nonNegativeOrNull(position.coords.speed),
+      });
+    },
+  );
+}
+
+/**
+ * Which way the phone is pointing, for as long as navigation runs.
+ *
+ * The compass is the half of the answer GPS cannot give: standing at a junction
+ * deciding which way to walk, course-over-ground is `null` and only the
+ * magnetometer knows where the reader is facing. `chooseHeading` in
+ * `lib/navigation.ts` decides which of the two to believe at any moment; this
+ * only supplies one of them.
+ *
+ * No new dependency. `expo-location` carries the compass, so `expo-sensors` is
+ * not installed and does not need to be.
+ *
+ * `trueHeading` is preferred and `magHeading` is the fallback, because true
+ * north is what the map's tiles are drawn to and magnetic north is several
+ * degrees off it — enough to point the arrow down the wrong fork. Android
+ * reports `trueHeading: -1` until it has a position to compute the declination
+ * from, which is normal for the first seconds of a session rather than a fault.
+ *
+ * Same contract as the position watcher: the caller owns the subscription and
+ * must `.remove()` it, and permission is the caller's problem.
+ */
+export function watchDeviceHeading(
+  onHeading: (degrees: number) => void,
+): Promise<Location.LocationSubscription> {
+  return Location.watchHeadingAsync(({ magHeading, trueHeading }) => {
+    const heading = trueHeading >= 0 ? trueHeading : magHeading;
+
+    if (heading >= 0) {
+      onHeading(heading);
+    }
+  });
+}
+
+/**
+ * Android reports `-1` for a value it does not have. Zero is kept: it is a real
+ * speed (standing still) and a real heading (due north).
+ */
+function nonNegativeOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && value >= 0 ? value : null;
 }
 
 function toCoordinates(position: Location.LocationObject): Coordinates {

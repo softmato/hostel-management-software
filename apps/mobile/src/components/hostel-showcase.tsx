@@ -19,6 +19,7 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { API_BASE_URL } from "@/lib/api";
 import { coverPhoto, locationLabel, priceRange, ratingDisplay } from "@/lib/hostel-display";
 import { absoluteMediaUrl } from "@/lib/media";
+import { TYPE_TAG_SIZE } from "@/components/hostel-card";
 import { HOSTEL_TYPE_LABELS, type PublicHostel } from "@/lib/public-api";
 
 /**
@@ -277,12 +278,23 @@ function ShowcaseCard({
           One pill, not two. The mockup draws a single category tag here, and the
           verified tick belongs inside it — a separate Verified chip alongside
           leaves two floating labels fighting for the same corner.
+
+          Sized to match the same pill on `HostelCard` exactly — that card's
+          `TYPE_TAG_SIZE`, `font-medium`, uppercase, in a `px-1.5` pill. The two
+          sit one above the other on this screen, Top Picks over Nearby, and half
+          a point of difference between them reads as a mistake rather than as a
+          hierarchy — which is why the size is imported rather than repeated. See
+          that card for why it is this small, and for why it is a `style` rather
+          than a `text-[…]` class: it is a label on a photograph, not a headline.
         */}
-        <View className="absolute left-2.5 top-2.5 flex-row items-center gap-1 rounded-full bg-primary px-2 py-0.5">
+        <View className="absolute left-2.5 top-2.5 flex-row items-center gap-1 rounded-full bg-primary px-1.5 py-0.5">
           {hostel.verificationStatus === "VERIFIED" ? (
-            <Ionicons color={colors.primaryForeground} name="shield-checkmark" size={9} />
+            <Ionicons color={colors.primaryForeground} name="shield-checkmark" size={8} />
           ) : null}
-          <Text className="text-[9px] font-semibold uppercase tracking-wide text-primary-foreground">
+          <Text
+            className="font-medium uppercase tracking-wide text-primary-foreground"
+            style={{ fontSize: TYPE_TAG_SIZE }}
+          >
             {HOSTEL_TYPE_LABELS[hostel.hostelType]}
           </Text>
         </View>

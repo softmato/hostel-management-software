@@ -64,12 +64,50 @@ const TIMEOUT_MS = 8_000;
 /** Below two points there is no line to draw. */
 const MIN_POINTS = 2;
 
+/**
+ * One instruction on the route: a maneuver, and the leg of road after it.
+ *
+ * `distanceMeters` is the length of *this* step — the ground covered between
+ * this maneuver and the next one — which is what "In 120 m, turn left" counts
+ * down. It is not the distance to the maneuver from where the reader is now;
+ * that is `nextStep` in `lib/navigation.ts`, and confusing the two gives a
+ * countdown that never reaches zero.
+ *
+ * `name` is the street, and it is **often empty**: 20 of the 34 steps in the
+ * captured reply in `routing.test.ts` have none, because much of Kathmandu is
+ * unnamed in OSM. Anything printing it must handle that — see `instructionFor`.
+ */
+export type RouteStep = {
+  distanceMeters: number;
+  durationSeconds: number;
+  /** Where the maneuver happens. Unpicked from OSRM's `[lng, lat]`. */
+  location: Coordinates;
+  maneuver: {
+    /** Which exit to take, roundabouts only. */
+    exit?: number;
+    /** `left`, `slight right`, `straight`… Absent on some maneuvers. */
+    modifier?: string;
+    /** `turn`, `depart`, `arrive`, `end of road`, `new name`, `continue`… */
+    type: string;
+  };
+  /** The street this step runs along. Empty when OSM has no name for it. */
+  name: string;
+};
+
 export type RoadRoute = {
   /** Metres along the road, which is always ≥ the straight-line distance. */
   distanceMeters: number;
   durationSeconds: number;
   /** In order, device first. Every point is `{ lat, lng }`, not OSRM's pairs. */
   points: Coordinates[];
+  /**
+   * Turn-by-turn instructions, when the router gave any.
+   *
+   * Optional on purpose: a route with no steps is still a line worth drawing,
+   * and the directions screen drew exactly that before navigation existed. Only
+   * guidance requires them, and it says so rather than assuming.
+   */
+  steps?: RouteStep[];
 };
 
 /**
@@ -80,11 +118,16 @@ export type RoadRoute = {
  * fail: it returns a perfectly good route between two points in the wrong
  * hemisphere. Hence a builder with a test rather than a template literal at the
  * call site.
+ *
+ * `steps=true` is asked for on every route, not only when navigating. It costs
+ * one request either way — the alternative is asking a second time the moment
+ * the reader presses Start, which is the worst moment to wait — and the parser
+ * makes them optional, so a router that ignores the flag still draws a line.
  */
 export function routeUrl(from: Coordinates, to: Coordinates, mode: RouteMode): string {
   const path = `${from.lng},${from.lat};${to.lng},${to.lat}`;
 
-  return `${ROUTERS[mode]}/${path}?overview=full&geometries=geojson`;
+  return `${ROUTERS[mode]}/${path}?overview=full&geometries=geojson&steps=true`;
 }
 
 /**
@@ -131,12 +174,77 @@ export function parseRoadRoute(payload: unknown): RoadRoute | null {
     return null;
   }
 
+  const steps = parseSteps(route.legs);
+
   return {
     distanceMeters: Math.round(distance),
     durationSeconds:
       typeof duration === "number" && Number.isFinite(duration) ? Math.round(duration) : 0,
     points,
+    ...(steps.length > 0 ? { steps } : {}),
   };
+}
+
+/**
+ * The instructions, flattened across legs.
+ *
+ * OSRM splits a route into one leg per pair of waypoints. This app only ever
+ * sends two points, so there is always exactly one leg — but flattening costs a
+ * line and means a via-point added later does not silently drop half the
+ * instructions.
+ *
+ * A step with an unreadable maneuver location is dropped rather than defaulted:
+ * every consumer measures a distance to that point, and a `0, 0` in the middle
+ * of the list would put the next turn in the Gulf of Guinea.
+ */
+function parseSteps(legs: unknown): RouteStep[] {
+  if (!Array.isArray(legs)) {
+    return [];
+  }
+
+  return legs.flatMap((leg) => {
+    const raw = isRecord(leg) && Array.isArray(leg.steps) ? leg.steps : [];
+
+    return raw.flatMap((step) => {
+      if (!isRecord(step) || !isRecord(step.maneuver)) {
+        return [];
+      }
+
+      const { maneuver } = step;
+      const pair = maneuver.location;
+
+      if (!Array.isArray(pair) || pair.length < 2) {
+        return [];
+      }
+
+      // GeoJSON order here too — `maneuver.location` is `[lng, lat]`.
+      const location = { lat: Number(pair[1]), lng: Number(pair[0]) };
+
+      if (!isUsableCoordinate(location) || typeof maneuver.type !== "string") {
+        return [];
+      }
+
+      return [
+        {
+          distanceMeters: finiteOrZero(step.distance),
+          durationSeconds: finiteOrZero(step.duration),
+          location,
+          maneuver: {
+            ...(typeof maneuver.exit === "number" ? { exit: maneuver.exit } : {}),
+            ...(typeof maneuver.modifier === "string"
+              ? { modifier: maneuver.modifier }
+              : {}),
+            type: maneuver.type,
+          },
+          name: typeof step.name === "string" ? step.name.trim() : "",
+        },
+      ];
+    });
+  });
+}
+
+function finiteOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 0;
 }
 
 /**

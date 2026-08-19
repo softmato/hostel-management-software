@@ -110,7 +110,10 @@ export async function POST(request: NextRequest) {
       ownerId: principal.userId,
     });
 
-    const presignedUrl = await getPresignedUploadUrl(bucket, key, mimeType, sizeBytes);
+    // No size handed to the signer — see `getPresignedUploadUrl`. The declared
+    // `sizeBytes` is checked above and again against the stored object at
+    // `/complete`, which is where a wrong one has to fail.
+    const presignedUrl = await getPresignedUploadUrl(bucket, key, mimeType);
 
     return successResponse(
       {
