@@ -26,11 +26,13 @@ const receiptCounterSchema = new Schema(
      *
      * One counter model rather than two collections: the mechanism — an atomic
      * `$inc` on a per-hostel row — is identical, and a second copy of it would be
-     * a second chance to get the race wrong.
+     * a second chance to get the race wrong. `STORE_ORDER` joined on that
+     * reasoning rather than by growing a fourth collection — supply orders are
+     * numbered per hostel per month, exactly like receipts.
      */
     kind: {
       type: String,
-      enum: ["RECEIPT", "REFERENCE"],
+      enum: ["RECEIPT", "REFERENCE", "STORE_ORDER"],
       default: "RECEIPT",
       required: true,
     },

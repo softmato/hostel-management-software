@@ -1,93 +1,123 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { useCallback, useState } from "react";
 import { Alert, View } from "react-native";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
+import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
-import { ListRow, RowDivider } from "@/components/ui/list-row";
+import { CardRow, ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { type AdminHostel, getAdminHostel } from "@/lib/admin-api";
-import { API_BASE_URL } from "@/lib/api";
 import { endSession } from "@/lib/auth-session";
 import { readableRole } from "@/constants/roles";
-import { toastError } from "@/lib/toast";
-import { webPortalUrl, type WebPortalKey } from "@/lib/web-portal";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
 /**
- * Where admin-lite stops and the desktop portal takes over.
+ * More — the doors that are not tabs.
  *
- * The rows below are not "coming soon" — every one of them is a screen that
- * exists and works on the web, and each is here because it wants a keyboard, a
- * wide table or a document in front of you. Opening the real thing in a browser
- * is a better answer than a cramped native re-implementation that can do two of
- * its nine columns.
+ * ## It used to be a browser
  *
- * ## The URLs are tenant-scoped
+ * This section was called *Manage on the web*: eight rows, each one
+ * `WebBrowser.openBrowserAsync` into `/{slug}/admin/...`, and a paragraph here
+ * arguing that a phone could not do "nine columns". The owner overruled it on
+ * 2026-08-21 and was right — nine columns is a desktop *layout*, not a feature
+ * list, and a row that leaves the app is not an app screen. Every one of them is
+ * now native, under `app/manage/` (tasks.md §12).
  *
- * `/{slug}/admin/...`, built by `lib/web-portal.ts`. The hostel's slug comes
- * from `GET /hostel-admin/profile`; a warden scoped to more than one hostel
- * cannot resolve one without being asked which, so the links are hidden rather
- * than pointed at a guess.
+ * `lib/web-portal.ts` survives for nothing on this screen. Before adding a link
+ * back to it, note that the argument it encodes has already been tried once.
+ *
+ * ## The rows overlap the tabs on purpose
+ *
+ * Money, Residents and Today cover the part of Finance, Residents and Operations
+ * a phone does *while walking* — verifying a claim, calling somebody who has not
+ * paid, marking a roll call, publishing a notice. These rows are the *rest* of
+ * those sections: the rates the invoices are computed from, the room inventory,
+ * the reports. The subtitles say which half you are getting.
  */
-const PORTAL_ROWS: {
+const MANAGE_ROWS: {
+  href: string;
   icon: keyof typeof Ionicons.glyphMap;
-  key: WebPortalKey;
   subtitle: string;
   title: string;
 }[] = [
   {
+    href: "/manage/finance",
     icon: "cash-outline",
-    key: "finance",
-    subtitle: "Invoices, fee schedules, billing runs and reconciliation",
+    subtitle: "Rate cards, the billing run, payment setup and reconciliation",
     title: "Finance",
   },
   {
+    href: "/(admin)/residents",
     icon: "people-outline",
-    key: "residents",
-    subtitle: "Register, move in and out, activation codes",
+    subtitle: "Register, move in and out, activation codes, guardians",
     title: "Residents",
   },
   {
+    /*
+      Added when the Store took roll call's cell in Home's shortcut row. This
+      list and Home's `ServiceGrid` are the same nine-then-ten destinations in
+      the same order — a tile added there is a row added here in the same
+      breath, or a hostel owner ends up learning two maps of one product.
+    */
+    href: "/manage/roll-call",
+    icon: "moon-outline",
+    subtitle: "Who is in tonight, who is out, and who has not been verified",
+    title: "Roll call",
+  },
+  {
+    /*
+      Today *is* the complaint queue — the section under the roll call is the
+      whole of it, replies included — so this row opens it rather than a screen
+      of its own. It moved here off Home's "Waiting for you" card; see
+      `WaitingActions` for the trade that made.
+    */
+    href: "/(admin)/today",
+    icon: "chatbox-ellipses-outline",
+    subtitle: "What residents have raised, and what is still unanswered",
+    title: "Complaints",
+  },
+  {
+    href: "/manage/rooms",
     icon: "bed-outline",
-    key: "rooms",
-    subtitle: "Room types, capacity and occupancy",
+    subtitle: "Room types, beds, vacancies and their photos",
     title: "Rooms",
   },
   {
+    href: "/manage/notices",
     icon: "megaphone-outline",
-    key: "notices",
-    subtitle: "Publish a notice to residents or guardians",
+    subtitle: "Schedule, target and expire a notice",
     title: "Notices",
   },
   {
+    href: "/manage/food",
     icon: "restaurant-outline",
-    key: "foodRoutine",
-    subtitle: "The weekly menu and the cook portal",
+    subtitle: "The weekly menu, meal times and the cook's login",
     title: "Food",
   },
   {
+    href: "/manage/maintenance",
     icon: "construct-outline",
-    key: "maintenance",
-    subtitle: "Requests, assignment and service providers",
+    subtitle: "The repair queue, its notes, and the approved providers",
     title: "Maintenance",
   },
   {
+    href: "/manage/reports",
     icon: "bar-chart-outline",
-    key: "reports",
-    subtitle: "Payments, complaints, attendance and food reports",
+    subtitle: "Collection, occupancy, complaints, roll call, food and growth",
     title: "Reports",
   },
   {
+    href: "/manage/settings",
     icon: "settings-outline",
-    key: "settings",
-    subtitle: "Hostel profile, wardens and payment setup",
+    subtitle: "Hostel profile, photos, wardens and the hostel-wide switches",
     title: "Settings",
   },
 ];
@@ -101,23 +131,6 @@ export default function AdminMoreScreen() {
     useCallback(() => getAdminHostel().catch(() => null), []),
   );
   const [signingOut, setSigningOut] = useState(false);
-
-  const slug = hostel.data?.slug ?? "";
-
-  const openPortal = useCallback(
-    async (key: WebPortalKey) => {
-      if (!slug) {
-        toastError(
-          "No hostel selected",
-          "This account covers more than one hostel, so the portal link cannot be resolved here.",
-        );
-        return;
-      }
-
-      await WebBrowser.openBrowserAsync(webPortalUrl(API_BASE_URL, slug, key));
-    },
-    [slug],
-  );
 
   const signOut = useCallback(() => {
     Alert.alert("Sign out?", "You'll need your password to get back in.", [
@@ -135,60 +148,116 @@ export default function AdminMoreScreen() {
 
   const nextTheme = preference === "dark" ? "light" : "dark";
 
+  const area = [hostel.data?.location.area, hostel.data?.location.city]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <Screen
-      header={<AppBar title="More" />}
+      header={<AppBar actions={<NotificationBell />} title="More" />}
       insideTabs
       onRefresh={hostel.refresh}
       refreshing={hostel.refreshing}
       scroll
     >
-      <View className="gap-5 pt-1">
-        <Card className="gap-1">
-          <Text variant="subtitle">{hostel.data?.name ?? account?.name ?? "Your hostel"}</Text>
-          <Text variant="caption">
-            {[account ? readableRole(account.role) : null, account?.email]
-              .filter(Boolean)
-              .join(" · ")}
-          </Text>
-          {hostel.data?.location.city ? (
-            <Text variant="caption">
-              {[hostel.data.location.area, hostel.data.location.city]
-                .filter(Boolean)
-                .join(", ")}
-            </Text>
-          ) : null}
-        </Card>
+      {/*
+        Deliberately the calmest screen in the group, and the only one with no
+        coloured object on it at all.
 
-        <View>
-          <SectionHeader
-            subtitle="Opens the full portal in your browser"
-            title="Manage on the web"
-          />
-          <Card>
-            {PORTAL_ROWS.map((row, index) => (
-              <View key={row.key}>
-                {index > 0 ? <RowDivider inset /> : null}
-                <ListRow
-                  icon={row.icon}
-                  onPress={() => void openPortal(row.key)}
-                  subtitle={row.subtitle}
-                  title={row.title}
+        Every other admin tab leads with something painted, because each of them
+        is *about* a live figure — money collected, who is accounted for, what is
+        waiting. This one is a list of doors, and a settings page that opens with
+        a saturated banner is a settings page shouting about itself. What it
+        leads with instead is the account, which is the one thing this screen
+        genuinely needs to state: half the rows below can be refused by a
+        capability, and this is what says which account is being refused.
+      */}
+      <View className="gap-5 pt-1">
+        <Card className="flex-row items-center gap-3">
+          <Avatar name={hostel.data?.name ?? account?.name} size="lg" />
+
+          <View className="flex-1 gap-1">
+            <Text numberOfLines={1} variant="subtitle">
+              {hostel.data?.name ?? account?.name ?? "Your hostel"}
+            </Text>
+
+            <Text numberOfLines={1} variant="caption">
+              {[account ? readableRole(account.role) : null, account?.email]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
+
+            {area ? (
+              <View className="flex-row items-center gap-1">
+                <Ionicons color={colors.mutedForeground} name="location-outline" size={11} />
+                <Text className="flex-1" numberOfLines={1} variant="caption">
+                  {area}
+                </Text>
+              </View>
+            ) : null}
+
+            {/*
+              Both flags, and both only when a single hostel resolved. They fail
+              differently and a reader has to be able to tell which: `DRAFT` is
+              the owner's own doing and they fix it in Settings, whereas
+              pending verification is on the platform and no amount of editing
+              moves it.
+            */}
+            {hostel.data ? (
+              <View className="flex-row flex-wrap gap-1.5 pt-0.5">
+                <Badge
+                  label={hostel.data.status === "PUBLISHED" ? "Published" : "Draft"}
+                  tone={hostel.data.status === "PUBLISHED" ? "success" : "warning"}
+                />
+                <Badge
+                  label={
+                    hostel.data.verificationStatus === "VERIFIED"
+                      ? "Verified"
+                      : "Awaiting verification"
+                  }
+                  tone={hostel.data.verificationStatus === "VERIFIED" ? "success" : "warning"}
                 />
               </View>
+            ) : null}
+          </View>
+        </Card>
+
+        {/*
+          Eight separate cards, not eight rows in one.
+
+          A bordered box around a list is a claim that the things inside it
+          belong together, and these do not: Finance, Rooms, Food and Reports
+          share nothing but a screen. Inside one card with hairlines between them
+          they read as a table to be worked down in order. As separate cards with
+          air between them they read as what they are — a shelf of doors, and you
+          want exactly one.
+
+          The tinted square in front of each is doing the real work. It is the
+          same green on all eight rather than eight different tints: the glyph
+          tells them apart, and a colour per door would be inventing eight
+          meanings the app does not otherwise have.
+        */}
+        <View>
+          <SectionHeader
+            subtitle="Everything the portal does, without leaving the app"
+            title="Manage"
+          />
+          <View className="gap-3">
+            {MANAGE_ROWS.map((row) => (
+              <CardRow
+                icon={row.icon}
+                key={row.href}
+                onPress={() => router.push(row.href)}
+                subtitle={row.subtitle}
+                title={row.title}
+              />
             ))}
-          </Card>
-          {!slug ? (
-            <Text className="px-1 pt-2" variant="caption">
-              These links need a single hostel to open. Your account covers more than
-              one, so open the portal from a browser and pick there.
-            </Text>
-          ) : null}
+          </View>
         </View>
 
         <View>
           <SectionHeader title="Discover" />
-          <Card>
+          <Card padding="px-4 py-1">
             <ListRow
               icon="search-outline"
               onPress={() => router.push("/hostels")}
@@ -207,7 +276,7 @@ export default function AdminMoreScreen() {
 
         <View>
           <SectionHeader title="App" />
-          <Card>
+          <Card padding="px-4 py-1">
             <ListRow
               icon={preference === "dark" ? "moon-outline" : "sunny-outline"}
               onPress={() => dispatch(setThemePreference(nextTheme))}
@@ -232,7 +301,7 @@ export default function AdminMoreScreen() {
           </Card>
         </View>
 
-        <Card>
+        <Card padding="px-4 py-1">
           <ListRow
             icon="log-out-outline"
             onPress={signOut}

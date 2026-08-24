@@ -32,6 +32,14 @@
     --accent-foreground: #1c1917;
     --destructive: #dc2626;
     --destructive-foreground: #ffffff;
+    /*
+      The tinted square a destructive glyph sits on. Every other tone had one —
+      `--warning-soft`, `--success-soft`, `--brand-soft` — and this one did not,
+      so the tiles that needed it were written `bg-destructive/10`, which
+      NativeWind does not compose from a CSS variable: the "Late complaints"
+      glyph shipped with no square behind it at all while its neighbours had one.
+    */
+    --destructive-soft: #fee2e2;
     --border: #e7e5e4;
     --input: #e7e5e4;
     --ring: #0a8a4b;
@@ -49,8 +57,8 @@
     /* Portal chrome. One per audience — see docs/DESIGN.md. */
     --role-platform: #0d9488;
     --role-platform-soft: #ccfbf1;
-    --role-admin: #0891b2;
-    --role-admin-soft: #ecfeff;
+    --role-admin: #0a8a4b;
+    --role-admin-soft: #e6f4ec;
     --role-resident: #16a34a;
     --role-resident-soft: #dcfce7;
     --role-guardian: #d97706;
@@ -79,6 +87,7 @@
       --accent-foreground: #fafafa;
       --destructive: #ef4444;
       --destructive-foreground: #ffffff;
+      --destructive-soft: #2b0f0f;
       --border: #292524;
       --input: #292524;
       --ring: #12a95d;
@@ -95,8 +104,8 @@
 
       --role-platform: #2dd4bf;
       --role-platform-soft: #0a2b28;
-      --role-admin: #22d3ee;
-      --role-admin-soft: #082c33;
+      --role-admin: #12a95d;
+      --role-admin-soft: #07301f;
       --role-resident: #22c55e;
       --role-resident-soft: #06240f;
       --role-guardian: #f59e0b;
@@ -126,6 +135,7 @@
     --accent-foreground: #fafafa;
     --destructive: #ef4444;
     --destructive-foreground: #ffffff;
+    --destructive-soft: #2b0f0f;
     --border: #292524;
     --input: #292524;
     --ring: #12a95d;
@@ -142,8 +152,8 @@
 
     --role-platform: #2dd4bf;
     --role-platform-soft: #0a2b28;
-    --role-admin: #22d3ee;
-    --role-admin-soft: #082c33;
+    --role-admin: #12a95d;
+    --role-admin-soft: #07301f;
     --role-resident: #22c55e;
     --role-resident-soft: #06240f;
     --role-guardian: #f59e0b;

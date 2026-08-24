@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
-import { Pressable } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
 import { useBottomChrome } from "@/components/bottom-chrome";
@@ -75,9 +75,23 @@ export function AnimatedTabBar({
     >
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
+
+        /*
+         * A `<Tabs>` navigator adopts every route file in its directory, so a
+         * group's non-tab screens — the admin action queue, reached by a push
+         * from Home — arrive here too. expo-router's `href: null` marks them by
+         * setting `tabBarItemStyle.display`, which its *default* bar honours and
+         * this one has to read for itself. Flattened rather than compared
+         * directly: the option is a `StyleProp`, so it can be an array.
+         */
+        if (StyleSheet.flatten(options.tabBarItemStyle)?.display === "none") {
+          return null;
+        }
+
         const focused = state.index === index;
         const label = typeof options.title === "string" ? options.title : route.name;
         const tint = focused ? activeColor : colors.mutedForeground;
+        const badge = typeof options.tabBarBadge === "number" ? options.tabBarBadge : 0;
 
         function onPress() {
           const event = navigation.emit({
@@ -108,7 +122,40 @@ export function AnimatedTabBar({
             key={route.key}
             onPress={onPress}
           >
-            {options.tabBarIcon?.({ color: tint, focused, size: 23 })}
+            <View>
+              {options.tabBarIcon?.({ color: tint, focused, size: 23 })}
+
+              {/*
+                Drawn here rather than left to `tabBarBadge`: that option is
+                rendered by React Navigation's own bar, and this is not it. The
+                count is capped at 9+ for the same reason the header bell caps —
+                three digits either overflow an 18px circle or shrink past
+                reading size, and nobody acts on the difference between 12 and 40
+                claims. It stays a number rather than a dot because "how many"
+                is the whole question a queue badge answers.
+              */}
+              {badge > 0 ? (
+                <View
+                  className="absolute -right-2.5 -top-1 h-[17px] min-w-[17px] items-center justify-center rounded-full px-1"
+                  style={{ backgroundColor: colors.destructive }}
+                >
+                  <Text
+                    style={{
+                      // White, not a token: the palette has no
+                      // `destructiveForeground`, and `primaryForeground` is
+                      // near-black in the dark theme — which is what a red chip
+                      // must never be. Both `destructive` values are mid-reds,
+                      // so white clears contrast in either theme.
+                      color: "#ffffff",
+                      fontSize: 10,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {badge > 9 ? "9+" : badge}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             <Text
               numberOfLines={1}
               style={{ color: tint, fontSize: 11, fontWeight: "500" }}

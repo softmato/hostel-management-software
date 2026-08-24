@@ -34,6 +34,7 @@ module.exports = {
         destructive: {
           DEFAULT: "var(--destructive)",
           foreground: "var(--destructive-foreground)",
+          soft: "var(--destructive-soft)",
         },
         border: "var(--border)",
         input: "var(--input)",

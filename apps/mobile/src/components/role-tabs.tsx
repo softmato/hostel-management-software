@@ -18,6 +18,15 @@ export type TabDef = {
    * glyph.
    */
   avatar?: boolean;
+  /**
+   * A count over the icon's corner. `0` draws nothing.
+   *
+   * Whoever passes this owns the fetch behind it. The admin group can afford one
+   * because its layout already holds the shared alerts queue; a tab bar that
+   * fetched its own counts would be a request per role per launch for a number
+   * most people glance at once.
+   */
+  badge?: number;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   name: string;
@@ -36,9 +45,21 @@ export type TabDef = {
  */
 export function RoleTabs({
   accent,
+  hidden,
   tabs,
 }: {
   accent: RoleAccentKey;
+  /**
+   * Routes that live in the group but are not tabs — reached by a push from one
+   * of them.
+   *
+   * Needed because a `<Tabs>` navigator adopts **every** file in its directory:
+   * a route left out of `tabs` would otherwise appear as an unlabelled sixth
+   * tab. `href: null` is expo-router's own way of saying "not a tab", and it
+   * keeps the bar on screen during the drill-down, which is the reason the
+   * screen stays in the group rather than moving to the root stack.
+   */
+  hidden?: readonly string[];
   tabs: readonly TabDef[];
 }) {
   const { colors } = useAppTheme();
@@ -76,9 +97,27 @@ export function RoleTabs({
                   size={size}
                 />
               ),
+            tabBarBadge: tab.badge && tab.badge > 0 ? tab.badge : undefined,
             title: tab.label,
           }}
         />
+      ))}
+
+      {/*
+        `?? []`, not `hidden?.map(...)`.
+
+        The optional-chaining form renders `undefined` as a child, and the
+        assumption that React drops those is **wrong**: `Children.forEach` maps
+        `undefined` to `null` and then invokes the callback with it anyway
+        (`mapIntoArray`: `if (null === children) invokeCallback = true`).
+        expo-router's `useFilterScreenChildren` receives that null, finds it is
+        not a `Screen`, and warns "Layout children must be of type Screen" —
+        naming whichever group did not pass `hidden`, which was `(browse)`, the
+        only one with no non-tab routes. An empty array iterates zero times and
+        the callback never fires.
+      */}
+      {(hidden ?? []).map((name) => (
+        <Tabs.Screen key={name} name={name} options={{ href: null }} />
       ))}
     </Tabs>
   );

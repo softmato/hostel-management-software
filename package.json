@@ -42,7 +42,9 @@
     "mobile:test": "npm --prefix apps/mobile run test",
     "mobile:lint": "npm --prefix apps/mobile run lint",
     "mobile:build:preview": "npm --prefix apps/mobile run build:preview",
-    "web:send:test-emails": "npm --prefix apps/web run send:test-emails --"
+    "web:send:test-emails": "npm --prefix apps/web run send:test-emails --",
+    "web:seed:store": "npm --prefix apps/web run seed:store",
+    "web:seed:store:clean": "npm --prefix apps/web run seed:store:clean"
   },
   "devDependencies": {
     "turbo": "^2.5.0"

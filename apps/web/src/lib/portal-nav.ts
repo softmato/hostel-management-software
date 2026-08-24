@@ -228,6 +228,33 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         icon: "card",
         label: "Fees & Payments",
       },
+      {
+        /*
+         * The platform's own shop, where hostels buy supplies. Under Finance
+         * rather than a section of its own because it is the second thing the
+         * platform charges for, and the person who reads the subscription
+         * revenue is the person who reads this.
+         */
+        children: [
+          {
+            description:
+              "Products, the departments they sit in, and what delivery costs.",
+            href: "/platform/store",
+            keywords: ["catalogue", "products", "inventory", "stock", "shop", "mart"],
+            label: "Catalogue",
+          },
+          {
+            description:
+              "Supply orders placed by hostels - confirm, pack, ship and mark delivered.",
+            href: "/platform/store/orders",
+            keywords: ["orders", "fulfilment", "delivery", "cod", "shipping", "packing"],
+            label: "Store Orders",
+          },
+        ],
+        href: "/platform/store",
+        icon: "tag",
+        label: "Supply Store",
+      },
     ],
     label: "Finance",
   },

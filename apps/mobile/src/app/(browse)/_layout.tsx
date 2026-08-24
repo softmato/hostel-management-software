@@ -23,7 +23,7 @@ import { RoleTabs, type TabDef } from "@/components/role-tabs";
 const TABS: readonly TabDef[] = [
   { icon: "home", label: "Home", name: "index" },
   { icon: "search", label: "Search", name: "search" },
-  { icon: "people", label: "Community", name: "community" },
+  { icon: "chatbubbles", label: "Community", name: "community" },
   { icon: "git-compare", label: "Compare", name: "compare" },
   { avatar: true, icon: "person", label: "Profile", name: "profile" },
 ];

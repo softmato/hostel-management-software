@@ -64,7 +64,20 @@ export type GuardianDashboard = {
   complaints: Array<{ id: string; status: string; title: string }>;
   food: Array<{ id: string; items: string[]; mealType: string; timing: string }>;
   guardian: { id: string; name: string; phone: string; relation: string };
-  hostel: { contact: { email: string; phone: string }; id: string; name: string } | null;
+  hostel: {
+    contact: { email: string; phone: string };
+    id: string;
+    /** The platform's own verdict. The dashboard used to badge every hostel
+     * "Verified" whether it was or not. */
+    isVerified: boolean;
+    location?: { address?: string; area?: string; city?: string };
+    name: string;
+    /** Cover photo — EXTERIOR first, else any photo, else "". */
+    photoUrl: string;
+    /** Empty unless /hostels/{slug} is actually live for this hostel, so the
+     * link is never drawn onto a 404. */
+    slug: string;
+  } | null;
   notices: Array<{
     category: string;
     content: string;

@@ -139,7 +139,7 @@ async function mintResidentId(userId: string) {
   );
 }
 
-function ageFromDateOfBirth(dateOfBirth?: string) {
+export function ageFromDateOfBirth(dateOfBirth?: string) {
   if (!dateOfBirth) {
     return null;
   }
@@ -161,7 +161,15 @@ function ageFromDateOfBirth(dateOfBirth?: string) {
   return age >= 0 && age < 130 ? age : null;
 }
 
-function readProfile(record: ProfileRecord) {
+/**
+ * The stored blob, decrypted.
+ *
+ * Exported for `resident-scan.service.ts`, which reads the same profile under a
+ * different question and must not grow a second copy of the crypto call.
+ */
+export function readProfile(record: {
+  encryptedData: string;
+}) {
   return decryptPersonalData<ResidentProfileData>(record.encryptedData);
 }
 

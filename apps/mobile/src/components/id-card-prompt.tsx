@@ -50,7 +50,7 @@ export function IdCardPrompt({
 
   return (
     <Sheet onClose={onClose} open={open}>
-      <View className="gap-5 px-5 pb-2 pt-4">
+      <View className="gap-5 pb-2 pt-2">
         <View className="items-center gap-3">
           <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
             <Ionicons color={colors.primary} name="card-outline" size={26} />

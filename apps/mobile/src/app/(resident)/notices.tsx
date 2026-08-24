@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
@@ -146,6 +147,15 @@ export default function ResidentNoticesScreen() {
 
   const header = (
     <AppBar
+      /*
+       * Reached by a push from Home now that Community holds the fifth tab slot,
+       * so it needs a way back — and an explicit destination rather than
+       * `router.back()`, because this is still a screen *inside* the tab
+       * navigator and a bottom-tab navigator's default `backBehavior` is
+       * `firstRoute`, not `history`.
+       */
+      onBack={() => router.navigate("/(resident)")}
+      showBack
       subtitle={unread > 0 ? `${unread} unread` : undefined}
       title="Notices"
     />

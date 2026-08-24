@@ -31,6 +31,8 @@
 
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
+import type { CommunityMedia } from "@/lib/community-api";
+import type { FoodRoutine } from "@/lib/resident-api";
 
 /* -------------------------------------------------------------------------- */
 /* Dashboard                                                                  */
@@ -64,9 +66,20 @@ export async function getAdminReport() {
 export type AdminHostel = {
   capacitySummary: { totalBeds?: number; totalRooms?: number; vacantBeds?: number };
   contact: { email?: string; phone?: string };
+  /** `BOYS` / `GIRLS` / `CO_LIVING` — the tag the public listing leads with. */
+  hostelType: string;
   id: string;
   location: { address?: string; area?: string; city?: string };
   name: string;
+  /**
+   * The gallery, so Home can lead with the building.
+   *
+   * Stored **relative** (`/api/v1/files/<id>/url`) and therefore unloadable as
+   * given — run it through `absoluteMediaUrl` before it reaches an `<Image>`.
+   * The server does not sort this array on the admin serializer the way it does
+   * on the public one, so the cover is picked client-side by `kind`.
+   */
+  photos: { alt: string; id?: string; kind: string; roomType: string; url: string }[];
   /** The tenant segment in `/{slug}/admin` — needed to open the web portal. */
   slug: string;
   status: string;
@@ -78,6 +91,63 @@ export async function getAdminHostel() {
     await api.get<ApiEnvelope<{ hostel: AdminHostel }>>("/hostel-admin/profile");
 
   return unwrap(response).hostel;
+}
+
+/**
+ * One month's money, rolled up — `PeriodRow` in `finance/period-summary.service`.
+ *
+ * `collected` and `due` are **amounts**; `paid`, `total` and `needsAttention`
+ * are invoice counts. Mixing the two is the mistake this comment exists to
+ * prevent: `paid` next to a currency symbol reads as a plausible figure that is
+ * out by three orders of magnitude.
+ */
+export type AdminPeriodRow = {
+  collected: number;
+  due: number;
+  needsAttention: number;
+  paid: number;
+  /** `2026-08`. */
+  period: string;
+  total: number;
+};
+
+/** `getPeriodSummary`'s payload — every month, plus lifetime figures. */
+export type AdminPeriodSummary = {
+  earliestPeriod: string;
+  /** Newest first, and gap-filled: a month with no invoices is present at zero. */
+  months: AdminPeriodRow[];
+  overall: {
+    collected: number;
+    due: number;
+    outstanding: number;
+    overdueResidents: number;
+    paid: number;
+    partial: number;
+    pendingProofs: number;
+    unpaid: number;
+  };
+};
+
+/**
+ * `GET /hostel-admin/finance/invoices/periods` — what the hostel has earned.
+ *
+ * The dashboard report answers "this month" and nothing else, which is the one
+ * question a hostel owner does *not* need an app to answer — they know what
+ * this month looks like. What they cannot get anywhere else on a phone is the
+ * shape of it: earned since opening, and the last few months side by side.
+ * This route already computed both for the portal's month picker, in one pass
+ * over the same invoices, so Home reads it rather than fetching six months of
+ * the invoice matrix and adding them up on the device.
+ *
+ * Behind `viewPayments`, so a warden without the grant gets a 403 — call it
+ * tolerantly and let the screen fall back to the report's monthly figures.
+ */
+export async function getAdminPeriodSummary() {
+  const response = await api.get<ApiEnvelope<AdminPeriodSummary>>(
+    "/hostel-admin/finance/invoices/periods",
+  );
+
+  return unwrap(response);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -249,6 +319,252 @@ export async function getAdminAlerts(): Promise<AdminAlerts> {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Money                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One resident's month, billed or not — `getInvoiceMatrix`'s row.
+ *
+ * `displayStatus` is the field to render, not `payment.status`: a resident with
+ * no invoice for the period has no payment at all, and the server says
+ * `NOT_BILLED` rather than leaving a gap for the client to interpret. Reading
+ * `payment?.status ?? "PAID"` — the obvious mistake — would report an unbilled
+ * resident as settled.
+ */
+export type AdminInvoiceRow = {
+  displayStatus: string;
+  payment: {
+    /** What the month costs. `paidAmount` is what has actually landed. */
+    dueAmount: number;
+    /** ISO — `PortalInvoice` types it as a `Date`, but this crossed JSON. */
+    dueDate?: string;
+    id: string;
+    method?: string;
+    /** `2026-08`. Renamed from `period` by the portal's own serializer. */
+    month: string;
+    paidAmount: number;
+    paidDate?: string;
+    status: string;
+  } | null;
+  resident: {
+    fullName: string;
+    id: string;
+    moveInDate: string;
+    phone?: string;
+    roomNumber?: string | null;
+    roomType?: string | null;
+  };
+};
+
+export type AdminInvoiceMatrix = {
+  month: string;
+  rows: AdminInvoiceRow[];
+  totals: {
+    /** Money. */
+    collected: number;
+    /** Money — everything billed for the period, settled or not. */
+    due: number;
+    /** The rest are row counts, not amounts. */
+    notBilled: number;
+    overdue: number;
+    paid: number;
+    partial: number;
+    unpaid: number;
+  };
+};
+
+/**
+ * `GET /hostel-admin/finance/invoices` — one row per resident for a period.
+ *
+ * **Reads never bill.** Its predecessor created an invoice for every unbilled
+ * resident as a side effect of rendering, which is why opening a screen could
+ * change what a resident owed; the current route is read-only and reports
+ * `NOT_BILLED` instead. Worth knowing here because it means this is safe to
+ * call on tab focus, which is exactly what the Money tab does.
+ *
+ * The period defaults server-side to the current month.
+ */
+export async function getAdminInvoices(period?: string) {
+  const response = await api.get<ApiEnvelope<AdminInvoiceMatrix>>(
+    "/hostel-admin/finance/invoices",
+    { params: period ? { period } : {} },
+  );
+
+  return unwrap(response);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Today                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export type AdminNightStatusRow = {
+  resident: { fullName: string; id: string; roomType?: string; status: string };
+  status: { checkedAt: string | null; note: string; source: string; status: string };
+};
+
+export type AdminNightStatus = {
+  /**
+   * Sent on every response and previously dropped on the floor.
+   *
+   * `manage/roll-call.tsx` is a *roster* screen — every resident, not a
+   * digest — and without this it had no way to know whether it was looking at
+   * the whole hostel or the first page of it. A screen that silently stops at
+   * a hundred people is the failure mode this codebase keeps re-finding: the
+   * server returned more than the hand-written type admitted.
+   */
+  pagination: {
+    hasMore: boolean;
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+  statuses: AdminNightStatusRow[];
+  summary: {
+    INSIDE_HOSTEL: number;
+    MARKED_SAFE: number;
+    NOT_VERIFIED: number;
+    OUTSIDE_HOSTEL: number;
+    SOS_TRIGGERED: number;
+    total: number;
+  };
+};
+
+/**
+ * `MAX_PAGE_SIZE` on the web side (`lib/pagination.ts`). Asking for more is a
+ * 422 from Zod, not a larger page.
+ */
+export const NIGHT_STATUS_PAGE_SIZE = 100;
+
+/**
+ * `GET /hostel-admin/night-status` — tonight's roll call.
+ *
+ * The summary counts the **whole roster**, not the page: the service builds
+ * every row, filters, and only then slices, because a resident with no status
+ * row at all is `NOT_VERIFIED` rather than absent. So a small `pageSize` here
+ * still yields a true total, which is what the tab shows.
+ *
+ * ## No `status` parameter, and there will not be one
+ *
+ * The endpoint takes `?status=`, and the summary above is computed over the
+ * filtered roster — so asking it for `NOT_VERIFIED` returns a summary claiming
+ * every resident is unverified, which is the number `AdminRollCallCard` draws
+ * its progress bar from. Segmenting is `filterRollCall`'s job, client-side,
+ * over an unfiltered fetch.
+ */
+export async function getAdminNightStatus({ page = 1 }: { page?: number } = {}) {
+  const response = await api.get<ApiEnvelope<AdminNightStatus>>(
+    "/hostel-admin/night-status",
+    { params: { page, pageSize: NIGHT_STATUS_PAGE_SIZE } },
+  );
+
+  return unwrap(response);
+}
+
+export type AdminNotice = {
+  category: string;
+  content: string;
+  createdAt?: string;
+  expiresAt?: string;
+  id: string;
+  isUrgent: boolean;
+  publishedAt?: string;
+  targetAudience: string;
+  title: string;
+};
+
+/** `GET /hostel-admin/notices` — newest first, urgent above the rest. */
+export async function listAdminNotices() {
+  const response = await api.get<ApiEnvelope<{ notices: AdminNotice[] }>>(
+    "/hostel-admin/notices",
+    { params: { pageSize: 10 } },
+  );
+
+  return unwrap(response).notices;
+}
+
+export type AdminMaintenanceRequest = {
+  category: string;
+  createdAt?: string;
+  description: string;
+  id: string;
+  location: string;
+  priority: string;
+  scheduledFor?: string;
+  status: string;
+  title: string;
+};
+
+export type AdminMaintenance = {
+  requests: AdminMaintenanceRequest[];
+  /** Counted server-side: `open` is PENDING, CONTACTED or SCHEDULED. */
+  summary: { cancelled: number; completed: number; open: number; total: number };
+};
+
+/**
+ * `GET /hostel-admin/maintenance/requests`.
+ *
+ * Unfiltered on purpose. The route's own `summary` counts what is open across
+ * everything it returned, and asking for `?status=PENDING` would give a summary
+ * that only ever said "all of them are pending" — the number the Today tab
+ * needs is how many are open out of how many exist.
+ */
+export async function getAdminMaintenance() {
+  const response = await api.get<ApiEnvelope<AdminMaintenance>>(
+    "/hostel-admin/maintenance/requests",
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * `PATCH /hostel-admin/night-status/{residentId}/override`.
+ *
+ * The reason is **required** server-side (3–1000 chars) and that is the point:
+ * this writes over what a resident said about themselves. A warden marking
+ * somebody `INSIDE_HOSTEL` from the corridor is the most phone-shaped action in
+ * the admin product, and it is also the one that most needs a record of who
+ * decided and why — the service writes an audit entry from it.
+ */
+export async function overrideNightStatus(
+  residentId: string,
+  input: { reason: string; status: string },
+) {
+  await api.patch(`/hostel-admin/night-status/${residentId}/override`, input);
+}
+
+/**
+ * `POST /hostel-admin/notices`.
+ *
+ * Title 2–160, content 2–4000, and the server defaults `category` to GENERAL,
+ * `targetAudience` to ALL and `isUrgent` to false. Mobile sends title, content
+ * and the urgent flag only: scheduling a notice for later, expiring it, or
+ * aiming it at guardians alone are all decisions someone makes at a desk with
+ * the calendar open, and each one is a field that would double the height of
+ * a compose sheet used for "water is off until 4pm".
+ */
+export async function createAdminNotice(input: {
+  content: string;
+  isUrgent: boolean;
+  title: string;
+}) {
+  await api.post("/hostel-admin/notices", input);
+}
+
+/**
+ * `GET /hostel-admin/food/routine` — the same document the resident's Food tab
+ * and the cook portal read, through the same serializer, so `FoodRoutine` is
+ * shared rather than re-declared.
+ */
+export async function getAdminFoodRoutine() {
+  const response = await api.get<ApiEnvelope<{ routine: FoodRoutine }>>(
+    "/hostel-admin/food/routine",
+  );
+
+  return unwrap(response).routine;
+}
+
+/* -------------------------------------------------------------------------- */
 /* The three decisions                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -292,6 +608,105 @@ export async function acknowledgeSos(alertId: string) {
   await api.patch(`/hostel-admin/sos-alerts/${alertId}/status`, {
     status: "ACKNOWLEDGED",
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Community moderation                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A post as a moderator sees it — `listCommunityModeration`'s `posts`.
+ *
+ * The three moderator-only fields are `undefined` rather than absent from the
+ * type because `serializePost` writes them conditionally on `isModeratorView`:
+ * every other caller of that serializer omits them, and this route is the only
+ * one in the mobile app that sets the flag.
+ *
+ * `reportCount` is the tally of open reports and is what the queue sorts on
+ * after `flaggedAt`. `flaggedReason` is the triage model's sentence, not a
+ * reporter's words — see `community-triage.ts`.
+ */
+export type AdminModeratedPost = {
+  authorName: string;
+  body: string;
+  commentCount: number;
+  createdAt?: string;
+  flaggedAt?: string;
+  flaggedReason?: string;
+  hiddenReason?: string;
+  hostelName: string | null;
+  id: string;
+  isAnnouncement: boolean;
+  /**
+   * Present on every post the serializer returns. The web panel's own type
+   * drops it and its cards therefore never show the picture — which on a
+   * *moderation* screen is the half of a reported post most likely to be the
+   * reason it was reported.
+   */
+  media: CommunityMedia[];
+  reactionCount: number;
+  reportCount?: number;
+  spaceType: "HOSTEL" | "PUBLIC";
+  status: "HIDDEN" | "VISIBLE";
+};
+
+/** `flagged` is the queue; the other two browse what is in scope. */
+export type AdminModerationFilter = "all" | "flagged" | "hidden";
+
+export type AdminModeration = {
+  posts: AdminModeratedPost[];
+  /** Counted over the whole queue, not the page. */
+  summary: { flagged: number; hidden: number; total: number };
+};
+
+/**
+ * `GET /hostel-admin/community?filter=…`.
+ *
+ * Scope is decided server-side from the principal: a hostel admin reaches their
+ * own hostel's posts and nothing else, so there is no hostel id to send. The
+ * summary counts the whole queue rather than the returned page, which is what
+ * lets the filter row carry totals the list itself cannot know.
+ */
+export async function getAdminCommunityModeration(filter: AdminModerationFilter) {
+  const response = await api.get<ApiEnvelope<AdminModeration>>("/hostel-admin/community", {
+    params: { filter },
+  });
+
+  return unwrap(response);
+}
+
+/**
+ * `PATCH /hostel-admin/community/{postId}/hide` — take a post off the feed.
+ *
+ * The reason is required (3–500) and is **not** shown to the author; it is for
+ * the audit log and for whoever picks the post up next. Hiding also actions
+ * every open report on the post, so a hidden post leaves the queue.
+ */
+export async function hideReportedPost(postId: string, reason: string) {
+  await api.patch(`/hostel-admin/community/${postId}/hide`, { reason });
+}
+
+/**
+ * `DELETE /hostel-admin/community/{postId}/hide` — the opposite verdict.
+ *
+ * One route doing two jobs, because to the service they are the same write:
+ * clear the flag, clear the hidden marks, set the post visible and dismiss its
+ * open reports. On a *flagged* post that reads as "this is fine"; on a *hidden*
+ * one it reads as "restore". The caller picks the word, the server does not
+ * care which was meant.
+ */
+export async function clearReportedPost(postId: string, reason: string) {
+  await api.delete(`/hostel-admin/community/${postId}/hide`, { data: { reason } });
+}
+
+/**
+ * `POST /hostel-admin/community` — the one thing only staff can write.
+ *
+ * An announcement is pinned above that hostel's space. Body is 1–4000; there is
+ * no title, deliberately, because the server has no field for one.
+ */
+export async function postHostelAnnouncement(body: string) {
+  await api.post("/hostel-admin/community", { body });
 }
 
 /*

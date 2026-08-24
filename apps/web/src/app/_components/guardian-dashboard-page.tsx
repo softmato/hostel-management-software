@@ -1,6 +1,16 @@
 "use client";
 
-import { Building2, CalendarDays, Phone, ReceiptText, WalletCards } from "lucide-react";
+import {
+  ArrowUpRight,
+  BedDouble,
+  Building2,
+  CalendarDays,
+  Mail,
+  MapPin,
+  Phone,
+  ReceiptText,
+  WalletCards,
+} from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -90,6 +100,15 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
   const residentName = dashboard?.resident.fullName || "Resident";
   const canViewPayments = dashboard?.permissions.canViewPayments ?? false;
   const hostelPhone = dashboard?.hostel?.contact.phone ?? "";
+  const hostelAddress =
+    [
+      dashboard?.hostel?.location?.address,
+      dashboard?.hostel?.location?.area,
+      dashboard?.hostel?.location?.city,
+    ]
+      .filter(Boolean)
+      .join(", ") || "Location not set";
+  const wardRoomType = dashboard?.resident.roomType?.replaceAll("_", " ") || "—";
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
@@ -168,6 +187,88 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
               ) : null}
             </div>
           </SectionCard>
+
+          {/* The same hostel card the resident and admin dashboards lead with.
+              It sits below the ward rather than above: a guardian opens this
+              page for their ward, and the hostel is the place that ward lives.
+              The photo is what makes it a place rather than a name. */}
+          {dashboard.hostel ? (
+            <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+              <div className="grid md:grid-cols-[minmax(0,320px)_1fr]">
+                <div className="relative h-44 md:h-full md:min-h-[208px]">
+                  {dashboard.hostel.photoUrl ? (
+                    <div
+                      aria-label={`${dashboard.hostel.name} exterior`}
+                      className="size-full bg-cover bg-center"
+                      role="img"
+                      style={{ backgroundImage: `url("${dashboard.hostel.photoUrl}")` }}
+                    />
+                  ) : (
+                    <div className="flex size-full items-center justify-center bg-role-guardian-soft">
+                      <InitialsAvatar
+                        name={dashboard.hostel.name}
+                        size="lg"
+                        tone="guardian"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col justify-center gap-3 p-5">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-xl font-bold text-foreground">
+                        {dashboard.hostel.name}
+                      </h2>
+                      <SoftBadge tone={dashboard.hostel.isVerified ? "green" : "amber"}>
+                        {dashboard.hostel.isVerified ? "Verified" : "Not verified"}
+                      </SoftBadge>
+                    </div>
+                    <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <MapPin className="size-3.5 shrink-0" />
+                      {hostelAddress}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {/* The ward's room type — the guardian's equivalent of the
+                        bed type a resident sees on their own copy of this card. */}
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/20 px-2.5 py-1.5 font-semibold capitalize text-foreground">
+                      <BedDouble className="size-3.5 text-role-guardian" />
+                      {wardRoomType}
+                    </span>
+                    {hostelPhone ? (
+                      <a
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground transition hover:bg-muted"
+                        href={`tel:${hostelPhone}`}
+                      >
+                        <Phone className="size-3.5 text-role-guardian" />
+                        {hostelPhone}
+                      </a>
+                    ) : null}
+                    {dashboard.hostel.contact.email ? (
+                      <a
+                        className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground transition hover:bg-muted"
+                        href={`mailto:${dashboard.hostel.contact.email}`}
+                      >
+                        <Mail className="size-3.5 shrink-0 text-role-guardian" />
+                        <span className="truncate">{dashboard.hostel.contact.email}</span>
+                      </a>
+                    ) : null}
+                    {dashboard.hostel.slug ? (
+                      <Link
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-role-guardian transition hover:bg-role-guardian-soft/40"
+                        href={`/hostels/${dashboard.hostel.slug}`}
+                      >
+                        View hostel page
+                        <ArrowUpRight className="size-3.5" />
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <div
             className={`grid gap-5 ${canViewPayments ? "xl:grid-cols-[1.4fr_0.9fr]" : ""}`}
@@ -291,25 +392,12 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
               </SectionCard>
               ) : null}
 
+              {/* The hostel's name, photo and badge now live in the card
+                  above, so this one is only the two things it can *do*. */}
               <SectionCard title="Contact Hostel">
-                <div className="flex items-start gap-3">
-                  <InitialsAvatar
-                    name={dashboard.hostel?.name ?? "Hostel"}
-                    size="md"
-                    tone="guardian"
-                  />
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-base font-bold text-foreground">
-                        {dashboard.hostel?.name ?? "Hostel"}
-                      </p>
-                      <SoftBadge tone="green">Verified</SoftBadge>
-                    </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Questions about fees or safety can be directed to the hostel office.
-                    </p>
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  Questions about fees or safety can be directed to the hostel office.
+                </p>
                 {hostelPhone ? (
                   <RoleButton asChild className="mt-4 w-full" tone="guardian">
                     <a href={`tel:${hostelPhone}`}>

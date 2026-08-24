@@ -28,6 +28,7 @@ export const REALTIME_TOPIC = {
   ROOMS: "rooms",
   SAFETY: "safety",
   SERVICE_PROVIDERS: "service-providers",
+  STORE: "store",
 } as const;
 
 export type RealtimeTopic = (typeof REALTIME_TOPIC)[keyof typeof REALTIME_TOPIC];

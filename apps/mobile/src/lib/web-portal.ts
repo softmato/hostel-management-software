@@ -1,6 +1,19 @@
 /**
- * Deep links into the web hostel portal, for everything the mobile admin
- * surface deliberately does not do.
+ * Deep links into the web hostel portal.
+ *
+ * ## Nothing calls this any more, and that is the point
+ *
+ * It had two callers — the More tab's *Manage on the web* section and the Money
+ * tab's "At a desk" card — and both were replaced by native screens under
+ * `app/manage/` on 2026-08-21 (tasks.md §12). The owner's rule is that the app
+ * owes the web **feature parity**, so a row that leaves the app is a missing
+ * screen rather than a design decision.
+ *
+ * It is kept, with its test, for two reasons: the tenant-scoping rule below is
+ * genuinely easy to get wrong and worth having written down, and a future link
+ * *out* to the portal (a support hand-off, say) should use this rather than
+ * rebuilding the URL. **Adding a call from an admin screen means re-arguing a
+ * decision that has already been made and reversed once.**
  *
  * ## The URLs are tenant-scoped, and that is easy to get wrong
  *

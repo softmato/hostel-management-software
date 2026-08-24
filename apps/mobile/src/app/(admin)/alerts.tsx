@@ -1,149 +1,111 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useState } from "react";
+import { router } from "expo-router";
+import { useMemo, useState } from "react";
 import { View } from "react-native";
 
+import {
+  AlertCard,
+  DeniedNotice,
+  useAdminAlerts,
+  useAlertActions,
+} from "@/components/admin-alerts";
 import { AppBar } from "@/components/ui/app-bar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, SectionHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { ListRow } from "@/components/ui/list-row";
-import { Money } from "@/components/ui/money";
+import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
-import { Sheet } from "@/components/ui/sheet";
+import { Segmented } from "@/components/ui/segmented";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
-import { useAppTheme } from "@/hooks/use-app-theme";
-import { useResource } from "@/hooks/use-resource";
-import {
-  acknowledgeSos,
-  type AdminAlerts,
-  approveClaim,
-  getAdminAlerts,
-  rejectClaim,
-  replyToComplaint,
-} from "@/lib/admin-api";
-import { openAssetViewer } from "@/lib/asset-viewer";
-import { type AlertKind, type AlertRow, buildAlertFeed } from "@/lib/admin-alerts";
-import { readApiError } from "@/lib/api-contract";
-import { formatMoney, formatRelativeDay } from "@/lib/format";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { type AlertKind, buildAlertFeed } from "@/lib/admin-alerts";
 
 /**
- * The inbox: everything that arrived without being asked for, ranked by what
- * happens if it is ignored.
+ * Everything that needs a decision — an inbox, and shaped like one.
  *
- * ## Three actions, and no fourth
+ * ## Why it survived the retab
  *
- * Approve or reject a payment claim, reply to a complaint, acknowledge an SOS.
- * Those are the decisions that are worse for waiting and that a person can make
- * from a phone with the facts already on screen. Resolving an SOS, changing a
- * complaint's status, converting an inquiry — each needs context this screen
- * does not have, so each opens the web portal from the More tab instead of
- * getting a half-informed button here.
+ * Three of the four sources also live next to their own subject: claims on
+ * Money, complaints on Today, SOS on Home. That is the right default — a
+ * decision is easier next to the money or the roster it is about than in a feed
+ * of four unrelated things.
  *
- * ## A denied source is named, not silently empty
+ * Inquiries are the exception, and came back here. A lead is not a member of the
+ * roster, so on Residents it read as a second list stacked above the directory
+ * somebody had opened to search; here it is one row in the queue of things
+ * waiting, with its call and its follow-up on the card.
  *
- * A warden's capabilities are per-flag: they may hold `viewComplaints` and not
- * `viewPayments`, in which case the claims queue 403s while everything else
- * returns. `getAdminAlerts` collects those refusals rather than swallowing
- * them — an empty inbox that is really a permissions boundary is exactly the
- * lie the guardian screens exist to avoid.
+ * What it costs is the one question the old inbox answered well: *is there
+ * anything at all?* Four tabs cannot answer that without visiting four tabs, so
+ * this screen stays, reachable from Home. It is the sweep, not the workflow.
+ *
+ * ## Filter tabs, not urgency sections
+ *
+ * The feed was one list ranked by consequence and nothing else, and that is
+ * still what `All` shows. What it could not answer is the question people
+ * actually arrive with — *what kind of thing is waiting* — and the notification
+ * literature is consistent about the fix: an inbox filters by kind and marks
+ * urgency **on the row**, rather than splitting into urgency-titled sections
+ * that leave you scrolling three headings to find the one payment claim.
+ *
+ * So: five segments, exactly Material 3's cap for a segmented control, with the
+ * count in each label so a tab says whether it is worth pressing before it is
+ * pressed. Ranking inside every segment is unchanged, and `showKind` keeps the
+ * badge on each card so a filtered view still says what it is looking at.
+ *
+ * ## Not the notification bell
+ *
+ * The bell in the other admin bars opens `/notifications`, the platform record
+ * of what was *sent* to this account. This is what is still *undecided*, which
+ * is a different list: a notification you have read is done with, whereas a
+ * payment claim stays here until somebody approves or rejects it. This screen
+ * deliberately has no bell — it would be a second inbox icon inside an inbox.
+ *
+ * ## It reads the group's shared queue
+ *
+ * No fetch of its own. `AdminAlertsProvider` in the layout holds one copy for
+ * every admin screen, so opening this from Home costs nothing and approving
+ * something here moves the badge behind it.
  */
-const ICONS: Record<AlertKind, keyof typeof Ionicons.glyphMap> = {
-  claim: "card-outline",
-  complaint: "chatbox-ellipses-outline",
-  inquiry: "mail-outline",
-  sos: "alert-circle",
-};
-
-const TONES: Record<AlertKind, "danger" | "info" | "neutral" | "warning"> = {
-  claim: "warning",
-  complaint: "warning",
-  inquiry: "info",
-  sos: "danger",
-};
-
-const LABELS: Record<AlertKind, string> = {
-  claim: "Payment claim",
-  complaint: "Overdue complaint",
-  inquiry: "Inquiry",
-  sos: "SOS",
-};
+type Segment = AlertKind | "all";
 
 export default function AdminAlertsScreen() {
-  const { colors } = useAppTheme();
-  const alerts = useResource<AdminAlerts>(useCallback(() => getAdminAlerts(), []), {
-    topics: [
-      REALTIME_TOPIC.PAYMENTS,
-      REALTIME_TOPIC.COMPLAINTS,
-      REALTIME_TOPIC.INQUIRIES,
-      REALTIME_TOPIC.SAFETY,
-    ],
-  });
+  const alerts = useAdminAlerts();
+  const actions = useAlertActions();
 
-  /** The row whose sheet is open, plus which decision it is collecting text for. */
-  const [pending, setPending] = useState<{ mode: "reject" | "reply"; row: AlertRow } | null>(
-    null,
+  const [segment, setSegment] = useState<Segment>("all");
+
+  const rows = useMemo(() => (alerts.data ? buildAlertFeed(alerts.data) : []), [alerts.data]);
+  const claimById = useMemo(
+    () => new Map((alerts.data?.claims ?? []).map((claim) => [claim.eventId, claim])),
+    [alerts.data],
   );
-  const [note, setNote] = useState("");
-  /** The id currently in flight — disables just that row, not the whole list. */
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const run = useCallback(
-    async (id: string, action: () => Promise<void>, success: string) => {
-      setBusyId(id);
-
-      try {
-        await action();
-        toastSuccess(success);
-        // The row is gone from the server's queue now; refetch rather than
-        // splicing it out locally, because approving a claim also moves the
-        // invoice and the dashboard's counters.
-        alerts.refresh();
-      } catch (caught) {
-        toastError("That didn't go through", readApiError(caught));
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [alerts],
+  /* The lead behind an inquiry row, so its card can ring and answer it here —
+     the row itself only carries a name, a phone and a date. */
+  const inquiryById = useMemo(
+    () => new Map((alerts.data?.inquiries ?? []).map((inquiry) => [inquiry.id, inquiry])),
+    [alerts.data],
   );
 
-  const submitNote = useCallback(async () => {
-    if (!pending) {
-      return;
-    }
+  const listed = useMemo(
+    () => (segment === "all" ? rows : rows.filter((row) => row.kind === segment)),
+    [rows, segment],
+  );
 
-    const { mode, row } = pending;
-    const text = note.trim();
-
-    // The server's own bounds: a rejection reason is 3–500 characters and a
-    // complaint reply 2–2000. Checked here so the sheet does not close on a
-    // round trip that was always going to 422.
-    if (mode === "reject" ? text.length < 3 : text.length < 2) {
-      toastError(
-        mode === "reject" ? "Give a reason" : "Write a reply",
-        mode === "reject"
-          ? "The resident is shown this, so it has to say something."
-          : "The resident is shown this.",
-      );
-      return;
-    }
-
-    setPending(null);
-    setNote("");
-
-    await run(
-      row.id,
-      () =>
-        mode === "reject" ? rejectClaim(row.id, text) : replyToComplaint(row.id, text),
-      mode === "reject" ? "Claim rejected" : "Reply sent",
-    );
-  }, [note, pending, run]);
-
-  const header = <AppBar title="Alerts" />;
+  /*
+   * An explicit destination rather than `router.back()`.
+   *
+   * This is a screen *inside* the tab navigator, so arriving here switches the
+   * navigator's index rather than pushing a card — and a bottom-tab navigator's
+   * default `backBehavior` is `firstRoute`, not `history`. Plain back would
+   * therefore be right by accident today (Home is the first tab) and wrong the
+   * moment the tab order changes, or would escape the group entirely if the
+   * navigator declined to handle it.
+   */
+  const header = (
+    <AppBar
+      onBack={() => router.navigate("/(admin)")}
+      showBack
+      subtitle={rows.length === 1 ? "1 thing waiting" : `${rows.length} things waiting`}
+      title="Action queue"
+    />
+  );
 
   if (alerts.loading) {
     return (
@@ -164,9 +126,6 @@ export default function AdminAlertsScreen() {
     );
   }
 
-  const rows = buildAlertFeed(alerts.data);
-  const claimById = new Map(alerts.data.claims.map((claim) => [claim.eventId, claim]));
-
   return (
     <>
       <Screen
@@ -177,199 +136,56 @@ export default function AdminAlertsScreen() {
         scroll
       >
         <View className="gap-4 pt-1">
-          {alerts.data.denied.length > 0 ? (
-            <Card className="gap-1">
-              <Text variant="label">Some of this inbox is not yours to see</Text>
-              <Text variant="muted">
-                {`Your account does not have permission for ${alerts.data.denied.join(
-                  ", ",
-                )}. Ask your hostel admin if that looks wrong.`}
-              </Text>
-            </Card>
-          ) : null}
+          <DeniedNotice denied={alerts.data.denied} />
 
-          {rows.length === 0 ? (
+          <Segmented
+            onChange={setSegment}
+            options={[
+              { count: rows.length, label: "All", value: "all" },
+              { count: alerts.counts.sos, label: "SOS", value: "sos" },
+              { count: alerts.counts.claim, label: "Money", value: "claim" },
+              { count: alerts.counts.complaint, label: "Late", value: "complaint" },
+              { count: alerts.counts.inquiry, label: "Leads", value: "inquiry" },
+            ]}
+            value={segment}
+          />
+
+          {listed.length === 0 ? (
             <Card>
               <EmptyState
-                description="No SOS alerts, payment claims, overdue complaints or new inquiries."
-                title="Nothing needs you"
+                compact
+                description={
+                  segment === "all"
+                    ? "No SOS alerts, payment claims, overdue complaints or new inquiries."
+                    : "Nothing of this kind is waiting. Try All above."
+                }
+                title={segment === "all" ? "Nothing needs you" : "Nothing here"}
               />
             </Card>
           ) : (
-            <View>
-              <SectionHeader
-                subtitle="Most urgent first, then longest waiting"
-                title={`${rows.length} waiting`}
-              />
+            <>
+              <Text className="px-1" variant="caption">
+                Most urgent first, then longest waiting
+              </Text>
 
               <View className="gap-3">
-                {rows.map((row) => {
-                  const claim = row.kind === "claim" ? claimById.get(row.id) : undefined;
-                  const busy = busyId === row.id;
-
-                  return (
-                    <Card className="gap-3" key={`${row.kind}-${row.id}`}>
-                      <ListRow
-                        icon={ICONS[row.kind]}
-                        right={<Badge label={LABELS[row.kind]} tone={TONES[row.kind]} />}
-                        subtitle={row.subtitle}
-                        title={row.title}
-                      />
-
-                      <View className="flex-row items-center justify-between gap-2 border-t border-border pt-3">
-                        <Text variant="caption">
-                          {row.at ? formatRelativeDay(row.at) : "Undated"}
-                        </Text>
-
-                        {claim ? (
-                          <View className="flex-row items-center gap-2">
-                            <Money value={claim.amount} />
-                            {/*
-                              `allGreen` is the server's own verdict across every
-                              claim check — the same rule the web's "Approve all"
-                              gate applies. Surfacing it means an admin
-                              approving from a phone is not approving blind.
-                            */}
-                            <Badge
-                              label={claim.allGreen ? "Checks pass" : "Needs a look"}
-                              tone={claim.allGreen ? "success" : "warning"}
-                            />
-                          </View>
-                        ) : null}
-                      </View>
-
-                      {row.kind === "sos" ? (
-                        <Button
-                          label="Acknowledge"
-                          loading={busy}
-                          onPress={() =>
-                            void run(row.id, () => acknowledgeSos(row.id), "Acknowledged")
-                          }
-                        />
-                      ) : null}
-
-                      {/*
-                        The receipt itself, which this screen never showed —
-                        `evidenceAssetId` has been on the payload all along.
-                        Approving a payment claim without looking at the proof is
-                        the one action on this screen that moves money, and it
-                        was the only one an admin had to take on trust. Opens in
-                        the global viewer, so it zooms: the amount on a bank
-                        screenshot is small and the whole question is whether it
-                        matches.
-                      */}
-                      {claim?.evidenceAssetId ? (
-                        <Button
-                          label="View proof"
-                          onPress={() =>
-                            openAssetViewer([
-                              {
-                                assetId: claim.evidenceAssetId ?? undefined,
-                                caption: [claim.method, claim.confirmation]
-                                  .filter(Boolean)
-                                  .join(" · "),
-                                mimeType: claim.evidenceMimeType ?? undefined,
-                                title: `Claim for ${formatMoney(claim.amount)}`,
-                              },
-                            ])
-                          }
-                          variant="secondary"
-                        />
-                      ) : null}
-
-                      {row.kind === "claim" ? (
-                        <View className="flex-row gap-2">
-                          <Button
-                            className="flex-1"
-                            label="Approve"
-                            loading={busy}
-                            onPress={() =>
-                              void run(
-                                row.id,
-                                () => approveClaim(row.id),
-                                `Verified ${formatMoney(claim?.amount)}`,
-                              )
-                            }
-                          />
-                          <Button
-                            className="flex-1"
-                            disabled={busy}
-                            label="Reject"
-                            onPress={() => {
-                              setNote("");
-                              setPending({ mode: "reject", row });
-                            }}
-                            variant="outline"
-                          />
-                        </View>
-                      ) : null}
-
-                      {row.kind === "complaint" ? (
-                        <Button
-                          disabled={busy}
-                          label="Reply"
-                          onPress={() => {
-                            setNote("");
-                            setPending({ mode: "reply", row });
-                          }}
-                          variant="outline"
-                        />
-                      ) : null}
-
-                      {row.kind === "inquiry" ? (
-                        <View className="flex-row items-center gap-2">
-                          <Ionicons
-                            color={colors.mutedForeground}
-                            name="information-circle-outline"
-                            size={16}
-                          />
-                          <Text className="flex-1" variant="caption">
-                            Follow up from the web portal — status, notes and the
-                            follow-up date live there.
-                          </Text>
-                        </View>
-                      ) : null}
-                    </Card>
-                  );
-                })}
+                {listed.map((row) => (
+                  <AlertCard
+                    actions={actions}
+                    claim={row.kind === "claim" ? claimById.get(row.id) : undefined}
+                    inquiry={row.kind === "inquiry" ? inquiryById.get(row.id) : undefined}
+                    key={`${row.kind}-${row.id}`}
+                    row={row}
+                    showKind
+                  />
+                ))}
               </View>
-            </View>
+            </>
           )}
         </View>
       </Screen>
 
-      <Sheet
-        footer={
-          <Button
-            label={pending?.mode === "reject" ? "Reject claim" : "Send reply"}
-            onPress={() => void submitNote()}
-          />
-        }
-        onClose={() => setPending(null)}
-        open={Boolean(pending)}
-        title={pending?.mode === "reject" ? "Why are you rejecting this?" : "Reply"}
-      >
-        <View className="gap-3 px-5 py-4">
-          <Text variant="muted">
-            {pending?.mode === "reject"
-              ? "The resident is shown this reason, so it should tell them what to do next."
-              : "The resident is shown this reply on their complaint."}
-          </Text>
-          <Input
-            autoFocus
-            maxLength={pending?.mode === "reject" ? 500 : 2000}
-            multiline
-            numberOfLines={4}
-            onChangeText={setNote}
-            placeholder={
-              pending?.mode === "reject"
-                ? "e.g. The screenshot shows a different amount"
-                : "e.g. A plumber is coming tomorrow morning"
-            }
-            value={note}
-          />
-        </View>
-      </Sheet>
+      {actions.sheet}
     </>
   );
 }

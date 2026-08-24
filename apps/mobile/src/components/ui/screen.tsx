@@ -47,6 +47,23 @@ const MIN_BOTTOM_PAD = 16;
 const FLOATING_CLEARANCE = 56 + 20;
 
 type ScreenProps = {
+  /**
+   * Drop the gutter between the header and the content, for a screen whose
+   * first element is artwork that has to meet the bar with no seam — the admin
+   * Home gradient, and nothing else so far.
+   *
+   * Two things normally sit above the content, and which of them this removes
+   * depends on whether there is a `header`: the standard 8dp content gutter
+   * always, and the bare `insets.top` spacer as well when there is no header.
+   * Either one leaves a strip of page background above the artwork, which does
+   * not read as spacing — it reads as a rendering fault.
+   *
+   * Without a `header`, the first element then owns the status-bar inset, which
+   * means it also owns getting it right: `useSystemInsets`, not a guess. A
+   * headerless `bleedTop` screen whose first element skips that puts its first
+   * line of text under the clock.
+   */
+  bleedTop?: boolean;
   children: ReactNode;
   className?: string;
   contentClassName?: string;
@@ -73,6 +90,7 @@ type ScreenProps = {
 };
 
 export function Screen({
+  bleedTop = false,
   children,
   className = "",
   contentClassName = "",
@@ -141,11 +159,12 @@ export function Screen({
   const contentBottomPad = reservedBottom + (floating ? FLOATING_CLEARANCE : 0);
 
   const paddingClass = padded ? "px-5" : "";
+  const topPadClass = bleedTop ? "" : "pt-2";
 
   const body = scroll ? (
     <Animated.ScrollView
       className="flex-1"
-      contentContainerClassName={`grow ${paddingClass} pt-2 ${contentClassName}`}
+      contentContainerClassName={`grow ${paddingClass} ${topPadClass} ${contentClassName}`}
       contentContainerStyle={{ paddingBottom: contentBottomPad }}
       keyboardShouldPersistTaps="handled"
       onScroll={scrollHandler}
@@ -180,7 +199,7 @@ export function Screen({
         screen reserves it itself — otherwise the first line of content renders
         under the clock.
       */}
-      {header ?? <View style={{ height: insets.top }} />}
+      {header ?? (bleedTop ? null : <View style={{ height: insets.top }} />)}
 
       {/*
         The footer is **inside** this, and that is the whole point.

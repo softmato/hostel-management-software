@@ -1,12 +1,82 @@
+import { useMemo } from "react";
+
+import { AdminAlertsProvider, useAdminAlerts } from "@/components/admin-alerts";
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
 
-const TABS: readonly TabDef[] = [
-  { icon: "stats-chart", label: "Overview", name: "index" },
-  { icon: "notifications", label: "Alerts", name: "alerts" },
-  { icon: "people", label: "Residents", name: "residents" },
-  { icon: "ellipsis-horizontal", label: "More", name: "more" },
-];
+/**
+ * The five, and why they are these five.
+ *
+ * The group shipped as `Overview / Alerts / Residents / More` — one dashboard,
+ * one inbox, one list and a drawer, which is not a map of the product. The two
+ * things an owner actually opens a phone for had no tab: **money**, buried
+ * inside the alerts feed, and **the day's operations**, which were web links on
+ * More.
+ *
+ * These mirror `apps/web/src/lib/portal-nav.ts`'s own admin groups — Dashboard,
+ * Residents, Finance, Operations, Growth & System — rather than inventing a
+ * second information architecture for the same product. Someone who knows the
+ * portal already knows where things are.
+ *
+ * ## Community sits dead centre, in every role
+ *
+ * Third of five, which is where the public bar has always had it — so the tab
+ * does not move when a resident signs in, or when the same phone is handed to a
+ * warden. It is one platform-wide conversation rather than five role-shaped
+ * copies, and putting it in a different slot per role would be the fastest way
+ * to make it feel like five different things.
+ *
+ * ## Today is a route, not a tab
+ *
+ * Community is compulsory in every signed-in role, so one of the five had to
+ * give up its slot, and the owner's call was Today. Residents keeps second
+ * place — the roster and the inquiries queue are what an admin reaches for most
+ * — and Money takes the slot Today had.
+ *
+ * Today itself is unchanged and still whole: roll call, complaints, maintenance,
+ * the menu and notices, reached from Home's "Needs attention" rows.
+ *
+ * ## Alerts is a bell now, not a tab
+ *
+ * Its four sources each moved next to their own domain (claims → Money,
+ * complaints → Today, inquiries → Residents, SOS → a banner on Home), and the
+ * catch-all became `/notifications` — the same screen every signed-in user gets,
+ * fed by `notifyAdminsOfClaim` and the SOS fan-out. The combined queue survives
+ * at `(admin)/alerts` for "show me everything that needs a decision", reached
+ * from Home and hidden from the bar.
+ */
+const HIDDEN = ["alerts", "community-reports", "today"] as const;
+
+function AdminTabs() {
+  const { counts } = useAdminAlerts();
+
+  const tabs = useMemo<readonly TabDef[]>(
+    () => [
+      { icon: "home", label: "Home", name: "index" },
+      // Badges go where the decision is: inquiries on Residents, claims on
+      // Money. SOS deliberately has none — it is a red banner on Home and a
+      // push, and a "1" on a tab is far too quiet for it. Overdue complaints
+      // lose theirs with the Today tab; Home's row still carries the count.
+      { badge: counts.inquiry, icon: "people", label: "Residents", name: "residents" },
+      { icon: "chatbubbles", label: "Community", name: "community" },
+      /*
+        `Payments`, not `Money` — the word the portal uses. `portal-nav.ts` says
+        "Payments" and "Fees & Payments" throughout and never says Money, and a
+        hostel owner who runs the browser on a laptop and the app on a phone
+        should not have to learn that the two are the same section.
+      */
+      { badge: counts.claim, icon: "card", label: "Payments", name: "money" },
+      { icon: "ellipsis-horizontal", label: "More", name: "more" },
+    ],
+    [counts.claim, counts.inquiry],
+  );
+
+  return <RoleTabs accent="ADMIN" hidden={HIDDEN} tabs={tabs} />;
+}
 
 export default function RoleLayout() {
-  return <RoleTabs accent="ADMIN" tabs={TABS} />;
+  return (
+    <AdminAlertsProvider>
+      <AdminTabs />
+    </AdminAlertsProvider>
+  );
 }

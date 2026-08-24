@@ -5,7 +5,7 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, useWindowDimensions, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -73,6 +73,14 @@ import { useSystemInsets } from "@/hooks/use-system-insets";
  */
 
 type SheetProps = {
+  /**
+   * Full-bleed body: the children run to the sheet's own edges instead of
+   * sitting inside the gutter. Only `SheetRow` lists want this — a row is meant
+   * to be edge-to-edge so its press area reaches the sides, and it carries the
+   * gutter in its own padding. Anything else — a form, a paragraph, a stack of
+   * buttons — must not set it.
+   */
+  bare?: boolean;
   children: ReactNode;
   /** Pinned under the scrolling content — an Apply button, usually. */
   footer?: ReactNode;
@@ -80,6 +88,47 @@ type SheetProps = {
   open: boolean;
   title?: string;
 };
+
+/**
+ * The sheet's gutter, in points — the same 20 the title and footer rows use as
+ * `px-5`, and the same as `SheetRow`'s own padding, so a row list and a form
+ * line up down both edges.
+ *
+ * It lives on the container rather than on each caller's wrapper `<View>`.
+ * Every caller wrote `className="gap-3 pb-2"` and two of nineteen remembered to
+ * add `px-5`, so seventeen sheets rendered their labels against the left edge
+ * and their inputs bleeding off both — the "Edit details" form on the resident
+ * record being the worst of them. A default that has to be re-typed per screen
+ * to be correct is not a default.
+ */
+const GUTTER = 20;
+
+/**
+ * The least of the window a sheet's body may occupy, as a fraction.
+ *
+ * Dynamic sizing alone measures the content and stops there, which is right for
+ * a long form and wrong for everything else: a two-line confirmation opened as a
+ * 140-point strip along the bottom edge, far enough from the thumb's reach to
+ * read as a toast that had gone wrong rather than as a surface asking a
+ * question. A floor puts every sheet at about half the screen, so they all
+ * arrive at the same height and the content grows downward from a known place —
+ * and anything taller than the floor still measures itself as before, up to the
+ * `topInset` cap.
+ */
+const MIN_BODY_FRACTION = 0.45;
+
+/**
+ * The floor for a sheet that pins a button under its body.
+ *
+ * A footer is a sibling of the scroll view, not part of what dynamic sizing
+ * measures, so it takes its height *out* of the body rather than adding to the
+ * sheet — the fee panel opened with its "Why" field half-covered by "Set this
+ * fee", which reads as a broken layout rather than as a list that scrolls. A
+ * taller floor gives the footer its room back and then some: a sheet with a
+ * button is a sheet that is asking for input, and those are the ones worth
+ * opening at two thirds rather than at a half.
+ */
+const MIN_BODY_FRACTION_WITH_FOOTER = 0.66;
 
 function renderBackdrop(props: BottomSheetBackdropProps) {
   return (
@@ -94,9 +143,12 @@ function renderBackdrop(props: BottomSheetBackdropProps) {
   );
 }
 
-export function Sheet({ children, footer, onClose, open, title }: SheetProps) {
+export function Sheet({ bare = false, children, footer, onClose, open, title }: SheetProps) {
   const { colors } = useAppTheme();
   const insets = useSystemInsets();
+  /* The floor under `MIN_BODY_FRACTION` is a fraction of *this* window, not of a
+     constant: the same app runs on a 5-inch phone and a tablet in split view. */
+  const window = useWindowDimensions();
   const ref = useRef<BottomSheetModal>(null);
 
   /** Whether the sheet is up *in gorhom* — not what the prop currently says. */
@@ -154,6 +206,23 @@ export function Sheet({ children, footer, onClose, open, title }: SheetProps) {
       handleIndicatorStyle={{ backgroundColor: colors.border }}
       onDismiss={handleDismiss}
       ref={ref}
+      /*
+       * `push`, not gorhom's default `switch` — and this is a bug fix, not a
+       * preference.
+       *
+       * A `<Select>` inside a sheet is itself a sheet, and it is rendered *in the
+       * parent sheet's own children*. Under `switch`, presenting it minimizes the
+       * parent, which fires the parent's `onDismiss` — so the caller's `open`
+       * flips to false, the parent unmounts, and the option list unmounts with it
+       * because it was living inside the subtree that just went away. Tapping
+       * "Active" on the Status sheet therefore closed the whole thing and offered
+       * nothing: no options, no sheet, back to the record.
+       *
+       * `push` mounts the new sheet on top and leaves the one underneath
+       * presented, which is also the right reading of the gesture — the option
+       * list is a step *into* the sheet, not a replacement for it.
+       */
+      stackBehavior="push"
       // Dynamic sizing measures the content and caps at the space above this,
       // so a long option list stops short of the status bar and scrolls inside
       // the sheet instead of running under the clock.
@@ -167,7 +236,16 @@ export function Sheet({ children, footer, onClose, open, title }: SheetProps) {
 
       <BottomSheetScrollView
         contentContainerStyle={{
-          paddingBottom: footer ? 8 : Math.max(insets.bottom, 16),
+          minHeight:
+            window.height *
+            (footer ? MIN_BODY_FRACTION_WITH_FOOTER : MIN_BODY_FRACTION),
+          // 16, not 8: the last field ends clear of the footer's hairline rather
+          // than against it once a long form does scroll.
+          paddingBottom: footer ? 16 : Math.max(insets.bottom, 16),
+          paddingHorizontal: bare ? 0 : GUTTER,
+          // A title draws its own hairline; without one the content would
+          // otherwise start against the drag handle.
+          paddingTop: bare ? 0 : title ? 12 : 4,
         }}
       >
         {children}

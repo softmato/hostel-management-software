@@ -436,6 +436,10 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
         contact?: { email?: string; phone?: string };
         name: string;
         location?: Record<string, unknown>;
+        photos?: Array<{ kind?: string; url?: string }>;
+        slug?: string;
+        status?: string;
+        verificationStatus?: string;
       } | null>(),
       permission.canViewPayments
         ? listResidentInvoices(
@@ -529,8 +533,25 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
               phone: hostel.contact?.phone ?? "",
             },
             id: hostel._id.toString(),
+            // Reported, not assumed: the dashboard used to draw a "Verified"
+            // badge on every hostel it rendered.
+            isVerified: hostel.verificationStatus === "VERIFIED",
             location: hostel.location ?? {},
             name: hostel.name,
+            // The building, not a bedroom — the same cover the resident
+            // dashboard and the public listing lead with. Any photo beats none.
+            photoUrl:
+              ((hostel.photos ?? []).find(
+                (photo) => photo.kind === "EXTERIOR" && photo.url,
+              ) ?? (hostel.photos ?? [])[0])?.url ?? "",
+            // Only when there is actually a page to open: /hostels/{slug} serves
+            // published + verified listings and 404s on everything else.
+            slug:
+              hostel.status === "PUBLISHED" &&
+              hostel.verificationStatus === "VERIFIED" &&
+              hostel.slug
+                ? hostel.slug
+                : "",
           }
         : null,
       notices: notices.map((notice) => ({

@@ -112,3 +112,34 @@ export function SkeletonCard({ rows = 3 }: { rows?: number }) {
     </View>
   );
 }
+
+/**
+ * The placeholder for a stack of `CardRow`s — the shape the admin lists load
+ * into now that a menu of destinations is separate cards rather than one card of
+ * rows.
+ *
+ * Distinct from `SkeletonCard` in the thing that actually matters about a
+ * skeleton: **the gaps**. `SkeletonCard` draws one bordered box with rows inside
+ * it, so its placeholder is continuous; this draws N boxes with 12 points of
+ * page showing between them. Use the one that matches what will replace it, or
+ * the page jumps on load — which is the whole reason to prefer a skeleton over a
+ * spinner in the first place.
+ */
+export function SkeletonRows({ rows = 5 }: { rows?: number }) {
+  return (
+    <View className="gap-3">
+      {Array.from({ length: rows }, (_, index) => (
+        <View
+          className="flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3"
+          key={index}
+        >
+          <Skeleton height={40} radius={12} width={40} />
+          <View className="flex-1 gap-1.5">
+            <Skeleton height={13} width="60%" />
+            <Skeleton height={10} width="85%" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}

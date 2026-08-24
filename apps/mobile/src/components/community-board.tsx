@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -115,6 +115,16 @@ const FIELD_GLYPH = 16;
 const AVATAR = 38;
 
 export type CommunityBoardProps = {
+  /**
+   * Rendered in the bar ahead of the bell.
+   *
+   * One board serves every role, and one role has something extra to do with
+   * it: staff moderate. Rather than branching this component on who is signed
+   * in — which would put an admin-only import into the screen residents and the
+   * signed-out public both load — the group that owns the power passes the
+   * control in.
+   */
+  actions?: ReactNode;
   /** Set when this renders as a tab, so the list clears the tab bar. */
   insideTabs?: boolean;
   /** A pushed screen keeps its back button; a tab is a destination and has none. */
@@ -122,6 +132,7 @@ export type CommunityBoardProps = {
 };
 
 export function CommunityBoard({
+  actions,
   insideTabs = false,
   showBack = false,
 }: CommunityBoardProps) {
@@ -240,7 +251,16 @@ export function CommunityBoard({
 
   const appBar = (
     <AppBar
-      actions={<NotificationBell />}
+      actions={
+        actions ? (
+          <View className="flex-row items-center gap-2">
+            {actions}
+            <NotificationBell />
+          </View>
+        ) : (
+          <NotificationBell />
+        )
+      }
       showBack={showBack}
       subtitle="Connect, share and grow together"
       title="Community"
@@ -567,7 +587,7 @@ function SpacePicker({
   selected: string;
 }) {
   return (
-    <Sheet onClose={onClose} open={open} title="Spaces">
+    <Sheet bare onClose={onClose} open={open} title="Spaces">
       {chips.map((chip) => (
         <SheetRow
           key={chip.id}
@@ -866,6 +886,7 @@ function Composer({
           no smaller room, and the service forces PUBLIC for them regardless. */}
       {target.canChooseAudience ? (
         <Sheet
+          bare
           onClose={() => setAudienceOpen(false)}
           open={audienceOpen}
           title="Post to"

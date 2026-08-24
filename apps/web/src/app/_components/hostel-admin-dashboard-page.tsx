@@ -2,10 +2,14 @@
 
 import {
   AlertTriangle,
+  ArrowUpRight,
   BedDouble,
   ClipboardList,
   Eye,
+  Mail,
+  MapPin,
   Moon,
+  Phone,
   Users,
   Utensils,
   WalletCards,
@@ -22,6 +26,7 @@ import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 import { Hostel, Message, ReportRecord } from "./core-portal-shared";
 import {
+  InitialsAvatar,
   MetricCard,
   PortalPageHeader,
   SectionCard,
@@ -31,6 +36,18 @@ import {
 function num(value: unknown) {
   return typeof value === "number" ? value : 0;
 }
+
+/** "PENDING_REVIEW" -> "Pending review". */
+function statusLabel(value: string) {
+  const words = value.replaceAll("_", " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+const hostelTypeLabels: Record<string, string> = {
+  BOYS: "Boys hostel",
+  CO_LIVING: "Co-living",
+  GIRLS: "Girls hostel",
+};
 
 /** Mirrors `StatementNudge` in `finance/statements/statement-nudge.ts`. */
 type StatementNudge = {
@@ -106,8 +123,8 @@ export const HostelAdminDashboardPageContent = memo(
       { errorMessage: "Could not load dashboard." },
     );
 
-    // Same cache entry the Profile / Rooms screens already fill — this only needs
-    // the slug and whether the listing is actually live.
+    // Same cache entry the Profile / Rooms screens already fill — this feeds
+    // the hostel card below and the public-page link.
     const profileResource = usePortalResource<{ hostel: Hostel }>(
       hostelAdminEndpoints.profile,
       { errorMessage: "Could not load hostel profile." },
@@ -128,6 +145,16 @@ export const HostelAdminDashboardPageContent = memo(
       hostel.slug
         ? `/hostels/${hostel.slug}`
         : "";
+
+    // The building, not a bedroom — the same cover the resident dashboard and
+    // the public listing lead with. Any photo beats none.
+    const photos = hostel?.photos ?? [];
+    const coverPhotoUrl =
+      (photos.find((photo) => photo.kind === "EXTERIOR" && photo.url) ?? photos[0])?.url ?? "";
+    const addressLine =
+      [hostel?.location?.address, hostel?.location?.area, hostel?.location?.city]
+        .filter(Boolean)
+        .join(", ") || "Location not set";
 
     const nightSummary =
       report?.nightStatusSummary && typeof report.nightStatusSummary === "object"
@@ -238,6 +265,100 @@ export const HostelAdminDashboardPageContent = memo(
             </span>
             <span className="font-semibold underline">Reconcile now</span>
           </Link>
+        ) : null}
+
+        {/* The hostel leads the page: every metric below is *about* this
+            building, and the exterior photo is what makes an owner recognise
+            which of their hostels this workspace is. */}
+        {profileResource.state === "loading" ? (
+          <Skeleton className="h-44 rounded-2xl md:h-52" />
+        ) : null}
+        {hostel ? (
+          <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <div className="grid md:grid-cols-[minmax(0,320px)_1fr]">
+              <div className="relative h-44 md:h-full md:min-h-[208px]">
+                {coverPhotoUrl ? (
+                  <div
+                    aria-label={`${hostel.name} exterior`}
+                    className="size-full bg-cover bg-center"
+                    role="img"
+                    style={{ backgroundImage: `url("${coverPhotoUrl}")` }}
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center bg-role-admin-soft">
+                    <InitialsAvatar name={hostel.name} size="lg" tone="admin" />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col justify-center gap-3 p-5">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-xl font-bold text-foreground">{hostel.name}</h2>
+                    {/* Unlike the resident's copy of this card, the badges here
+                        report the real state — the owner is the one who has to
+                        act on a listing that is still unverified or a draft. */}
+                    <SoftBadge tone={hostel.verificationStatus === "VERIFIED" ? "green" : "amber"}>
+                      {statusLabel(hostel.verificationStatus)}
+                    </SoftBadge>
+                    {hostel.status === "PUBLISHED" ? null : (
+                      <SoftBadge tone="slate">{statusLabel(hostel.status)}</SoftBadge>
+                    )}
+                  </div>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <MapPin className="size-3.5 shrink-0" />
+                    {addressLine}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/20 px-2.5 py-1.5 font-semibold text-foreground">
+                    <BedDouble className="size-3.5 text-role-admin" />
+                    {hostelTypeLabels[hostel.hostelType] ?? statusLabel(hostel.hostelType)}
+                  </span>
+                  {hostel.contact?.phone ? (
+                    <a
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground transition hover:bg-muted"
+                      href={`tel:${hostel.contact.phone}`}
+                    >
+                      <Phone className="size-3.5 text-role-admin" />
+                      {hostel.contact.phone}
+                    </a>
+                  ) : null}
+                  {hostel.contact?.email ? (
+                    <a
+                      className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground transition hover:bg-muted"
+                      href={`mailto:${hostel.contact.email}`}
+                    >
+                      <Mail className="size-3.5 shrink-0 text-role-admin" />
+                      <span className="truncate">{hostel.contact.email}</span>
+                    </a>
+                  ) : null}
+                  {publicHref ? (
+                    <a
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-role-admin transition hover:bg-role-admin-soft/40"
+                      href={publicHref}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      View hostel page
+                      <ArrowUpRight className="size-3.5" />
+                    </a>
+                  ) : (
+                    // Nothing to preview until the listing is published, so
+                    // point at the screen that gets it there instead.
+                    <Link
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-role-admin transition hover:bg-role-admin-soft/40"
+                      href={workspaceHref("/hostel-admin/profile")}
+                    >
+                      Manage listing
+                      <ArrowUpRight className="size-3.5" />
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
         ) : null}
 
         {!loading ? (

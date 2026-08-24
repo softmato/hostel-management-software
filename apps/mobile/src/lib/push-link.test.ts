@@ -6,6 +6,10 @@ describe("resolvePushPath", () => {
   it("passes through a route that exists", () => {
     expect(resolvePushPath("/(resident)/payments")).toBe("/(resident)/payments");
     expect(resolvePushPath("/(admin)/alerts")).toBe("/(admin)/alerts");
+    // The tabs the retab added. A push about money has somewhere to land that
+    // can act on it.
+    expect(resolvePushPath("/(admin)/money")).toBe("/(admin)/money");
+    expect(resolvePushPath("/(admin)/today")).toBe("/(admin)/today");
     expect(resolvePushPath("/notifications")).toBe("/notifications");
   });
 

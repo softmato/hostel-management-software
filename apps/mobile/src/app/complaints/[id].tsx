@@ -331,7 +331,7 @@ function ConfirmSheet({
       open={open}
       title="Confirm it is fixed"
     >
-      <View className="gap-3 px-5 pt-3">
+      <View className="gap-3">
         <Text variant="muted">
           This tells your hostel the fix worked. If it did not, leave this and say
           so — they can re-open it.

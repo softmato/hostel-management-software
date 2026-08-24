@@ -1,3 +1,43 @@
+## Mobile app work — READ THE DESIGN REFERENCES FIRST
+
+Before creating or changing **any** screen, page, or component in `apps/mobile/`,
+read these — every time, before writing code, not after:
+
+1. `ui_inspiration_folder/app_recordings/NOTES.md` — the interaction vocabulary,
+   with the frames it describes sitting beside it. Extracted from recordings of
+   the Nepali fintech apps our users already use (EBL Touch 24, eSewa).
+2. `ui_inspiration_folder/hostelhub_master_ui_screens/` — the per-portal screen
+   mockups.
+3. `docs/DESIGN.md` — the token and layout rules that are binding.
+4. `apps/mobile/src/app/ui-preview.tsx` — the live gallery of what the admin
+   surface currently looks like in code.
+
+### The palette is not negotiable
+The app is **black, white and green**: `--foreground` on `--background`, with
+`--brand` / `--primary` (`#0a8a4b` light, `#12a95d` dark) as the only accent, plus
+`--warning` / `--destructive` / `--success` where they carry meaning.
+
+**Take layout, icons, assets and flow from the references. Never take colour.**
+EBL's red, eSewa's dark ground and eSewa's lighter lime green are all out. Never
+copy a literal hex out of a reference image.
+
+### The rules those references encode
+- A menu of destinations is an **icon-tile grid or tinted icon rows** — never
+  full-width rows of sentences.
+- Accent headers are painted **blocks with rounded bottom corners**, often with
+  something straddling the bottom edge.
+- Lists group by date, with the heading **outside** the card.
+- Row overflow opens a **bottom sheet**, not an anchored menu.
+- Loading is **skeletons**, not spinners.
+
+### Reuse before inventing
+Check `apps/mobile/src/components/ui/` first. `Card`, `DataCard`, `CardRow`,
+`ListRow`, `InfoTile`, `Grid`, `Segmented`, `Sheet`, `Meter`, `Skeleton` and
+`AppBar` already cover most of what these references show. Adding a near-duplicate
+of an existing primitive is the mistake this codebase keeps warning about — if a
+component's own doc comment argues against what you are about to do, read it
+before overriding it.
+
 ## graphify - READ THIS FIRST then docs folder PHASES.md
 
 This project uses a Graphify knowledge graph at `graphify-out/`. Treat that folder as the canonical fast-context map for the codebase.

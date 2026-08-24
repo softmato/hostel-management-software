@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import Animated, {
   Easing,
@@ -14,14 +14,14 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { IdCardPrompt } from "@/components/id-card-prompt";
+import { NotificationBell } from "@/components/notification-bell";
+import { IconButton } from "@/components/ui/icon-button";
 import { Text } from "@/components/ui/text";
 import { APP_NAME, APP_NAME_PARTS } from "@/constants/branding";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useResource } from "@/hooks/use-resource";
 import { useSystemInsets } from "@/hooks/use-system-insets";
 import { idCardNoun, idCardTypeForAccount } from "@/lib/id-card";
-import { listNotifications, type NotificationFeed } from "@/lib/notifications-api";
 
 /**
  * The home screen's top bar: who you are, the bell, and the search field.
@@ -168,25 +168,6 @@ export function DiscoveryHeader({
   const [promptingIdCard, setPromptingIdCard] = useState(false);
 
   /*
-   * No account, no request. `useResource` fetches on mount and on every refocus,
-   * so a signed-out visitor would otherwise send a 401 to `/notifications` each
-   * time they came back to the home tab.
-   */
-  const feed = useResource<NotificationFeed>(
-    useCallback(
-      async () =>
-        account
-          ? await listNotifications("unread")
-          : { actionCount: 0, notifications: [], unreadCount: 0 },
-      [account],
-    ),
-  );
-
-  // A failed count is not worth reporting on a home screen: the bell simply
-  // shows no badge, which is what it shows when there is nothing unread anyway.
-  const unread = feed.data?.unreadCount ?? 0;
-
-  /*
    * Decided from the cached account, not from `/users/resident-identity` — the
    * web header does the same (`user.userResidentId`), and for the same reason:
    * the button has to know which of the two things it does *before* it is
@@ -248,12 +229,7 @@ export function DiscoveryHeader({
                 }
               />
 
-              <IconButton
-                badge={unread}
-                label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
-                name="notifications-outline"
-                onPress={() => router.push("/notifications")}
-              />
+              <NotificationBell />
             </>
           ) : null}
         </View>
@@ -341,48 +317,6 @@ export function DiscoveryHeader({
     </View>
   );
 }
-
-/**
- * A circled icon action, with an optional count over its corner.
- *
- * Capped at `9+`: the badge is 18px across, and a three-digit count either
- * overflows the circle or shrinks the digits past reading size. Nobody acts on
- * the difference between 47 and 112 unread.
- */
-function IconButton({
-  badge = 0,
-  label,
-  name,
-  onPress,
-}: {
-  badge?: number;
-  label: string;
-  name: keyof typeof Ionicons.glyphMap;
-  onPress: () => void;
-}) {
-  const { colors } = useAppTheme();
-
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      className="h-10 w-10 items-center justify-center rounded-full border border-border active:opacity-70"
-      hitSlop={6}
-      onPress={onPress}
-    >
-      <Ionicons color={colors.foreground} name={name} size={19} />
-
-      {badge > 0 ? (
-        <View className="absolute -right-0.5 -top-0.5 h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1">
-          <Text className="text-[10px] font-bold text-primary-foreground">
-            {badge > 9 ? "9+" : badge}
-          </Text>
-        </View>
-      ) : null}
-    </Pressable>
-  );
-}
-
 
 /**
  * The map button, and the light that moves inside it.

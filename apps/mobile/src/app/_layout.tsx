@@ -213,8 +213,34 @@ function RootShell() {
       */}
       <StatusBar style={isDark ? "light" : "dark"} />
 
+      {/*
+        Screens fade up in place rather than sliding in from the edge.
+
+        Every detail view here used to be `slide_from_right`, which is the
+        platform default and reads as *travel*: the screen you tapped from is
+        pushed sideways and the new one arrives from off-canvas. On a product
+        that is mostly a grid of icon tiles opening the thing under your thumb,
+        that made a two-tap round trip feel like a journey.
+
+        `fade` is the popup reading of the same push: tap, and the destination
+        resolves where you already are. It stays a real push — the back gesture,
+        the stack and the tab bar underneath are all unchanged — so nothing here
+        is a modal presentation, only a different way of arriving.
+
+        `animationDuration` is set once, on the default, because a crossfade
+        that runs for the length of a slide reads as lag rather than as motion:
+        the whole screen is mid-opacity for the middle of it, which is the one
+        frame a slide never shows. 180ms is inside the Doherty budget and long
+        enough not to strobe.
+
+        The four `slide_from_bottom` screens below keep their animation on
+        purpose — those are the "fill this in and finish" forms, and rising from
+        the bottom edge is what tells you the thing is dismissible.
+      */}
       <Stack
         screenOptions={{
+          animation: "fade",
+          animationDuration: 180,
           contentStyle: { backgroundColor: colors.background },
           headerShown: false,
         }}
@@ -225,85 +251,81 @@ function RootShell() {
           to a role dashboard — signed in or not. There is no separate signed-out
           group; see `constants/roles.ts` for what that replaced.
         */}
-        <Stack.Screen name="(browse)" options={{ animation: "fade" }} />
-        <Stack.Screen name="(auth)" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="(resident)" options={{ animation: "fade" }} />
-        <Stack.Screen name="(guardian)" options={{ animation: "fade" }} />
-        <Stack.Screen name="(cook)" options={{ animation: "fade" }} />
-        <Stack.Screen name="(provider)" options={{ animation: "fade" }} />
-        <Stack.Screen name="(admin)" options={{ animation: "fade" }} />
-        <Stack.Screen name="activate" options={{ animation: "fade" }} />
+        <Stack.Screen name="(browse)" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(resident)" />
+        <Stack.Screen name="(guardian)" />
+        <Stack.Screen name="(cook)" />
+        <Stack.Screen name="(provider)" />
+        <Stack.Screen name="(admin)" />
+        {/*
+          The supply store, entered from the shortcut on admin Home.
+
+          Its own group with its own tab bar rather than four screens pushed onto
+          the admin stack: a shop is a place you move around inside, and pushing
+          would have meant no way to reach Orders without going through the shop
+          first. The back arrow on its header leaves the group entirely, which is
+          why it sits here on the root stack beside `(admin)` rather than under
+          it.
+        */}
+        <Stack.Screen name="(store)" />
+        <Stack.Screen name="activate" />
         {/*
           Detail screens live at the root, not inside a role's tab group: a
           folder nested under a `<Tabs>` layout becomes another tab. Pushed
-          from the root stack, the invoice slides in over the tab bar the way a
+          from the root stack, the invoice fades in over the tab bar the way a
           detail view should.
         */}
-        <Stack.Screen name="invoice/[id]/index" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="invoice/[id]/pay" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="invoice/[id]/claim" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen
-          name="checkout/[reference]"
-          options={{ animation: "slide_from_right" }}
-        />
+        <Stack.Screen name="invoice/[id]/index" />
+        <Stack.Screen name="invoice/[id]/pay" />
+        <Stack.Screen name="invoice/[id]/claim" />
+        <Stack.Screen name="checkout/[reference]" />
         {/*
           Discovery detail screens, also at the root: they are reachable from
           the signed-out public stack *and* from a resident's More tab, so they
           cannot live inside either group.
         */}
-        <Stack.Screen name="hostel/[slug]/index" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="hostel/[slug]/inquiry" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="hostel/[slug]/index" />
+        <Stack.Screen name="hostel/[slug]/inquiry" />
         {/* The map, opened by the distance badge on any card that has one. */}
-        <Stack.Screen name="map" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="directions/[slug]" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="compare" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="map" />
+        <Stack.Screen name="directions/[slug]" />
+        <Stack.Screen name="compare" />
         {/* Browse with a back button, for the roles whose More tab links to it. */}
-        <Stack.Screen name="hostels" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="hostels" />
         {/*
           The shortlist, on its own. At the root rather than inside `(browse)`
           because the Profile tab is where it is reached from, and a fifth tab
           for a list that is empty on a fresh install is a tab bar that spends a
           slot on nothing.
         */}
-        <Stack.Screen name="saved" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="saved" />
         {/*
           The website's header and footer, natively (see `(browse)/profile.tsx`).
           At the root because they are reachable from the Profile tab *and* from
           a role's More tab, so they cannot live inside either group — and
-          because a legal document sliding over the tab bar is a detail view.
+          because a legal document opening over the tab bar is a detail view.
         */}
-        <Stack.Screen name="about" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="contact" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="pricing" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="offer-program" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen
-          name="register-hostel/index"
-          options={{ animation: "slide_from_right" }}
-        />
-        <Stack.Screen
-          name="service-providers/index"
-          options={{ animation: "slide_from_right" }}
-        />
+        <Stack.Screen name="about" />
+        <Stack.Screen name="contact" />
+        <Stack.Screen name="pricing" />
+        <Stack.Screen name="offer-program" />
+        <Stack.Screen name="register-hostel/index" />
+        <Stack.Screen name="service-providers/index" />
         {/*
           The two application wizards. They used to be `WebBrowser.openBrowserAsync`
           calls — see `lib/web-portal.ts`, whose `WEB_PUBLIC_PATHS` no longer has
           anything in it. Both are long forms someone works through in one sitting,
-          so they slide in from the right like any other detail screen and keep the
+          so they fade in like any other detail screen and keep the
           back gesture that a browser tab took away.
         */}
-        <Stack.Screen
-          name="register-hostel/apply"
-          options={{ animation: "slide_from_right" }}
-        />
-        <Stack.Screen
-          name="service-providers/apply"
-          options={{ animation: "slide_from_right" }}
-        />
-        <Stack.Screen name="legal/terms" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="legal/privacy" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="register-hostel/apply" />
+        <Stack.Screen name="service-providers/apply" />
+        <Stack.Screen name="legal/terms" />
+        <Stack.Screen name="legal/privacy" />
         {/*
           The SOS floating button's tap destination. At the root rather than in
-          `(resident)/`, so pushing it slides over the tab bar — and so the
+          `(resident)/`, so pushing it opens over the tab bar — and so the
           button that opens it, which lives in the resident layout, is not
           rendering a screen inside itself.
         */}
@@ -313,46 +335,98 @@ function RootShell() {
           the same reason invoices are — and because a complaint push arrives for
           a resident whose complaint may be open on any tab.
         */}
-        <Stack.Screen name="complaints/index" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="complaints/index" />
         <Stack.Screen name="complaints/new" options={{ animation: "slide_from_bottom" }} />
-        <Stack.Screen name="complaints/[id]" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="complaints/[id]" />
         {/* Reached from More and from the dashboard's night-status card. */}
-        <Stack.Screen name="night-status" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="night-status" />
         {/*
           A provider's job detail. At the root for the same reason an invoice is:
-          it slides over the tab bar rather than becoming a fourth tab.
+          it opens over the tab bar rather than becoming a fourth tab.
         */}
-        <Stack.Screen name="job/[id]" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="profile" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="id-card/index" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="job/[id]" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="id-card/index" />
         {/*
           Bottom, not right: this is a form you open, fill and finish — the same
           shape as `complaints/new` — and on the web it is literally a modal. The
-          card it belongs to slides from the right like every other destination.
+          card it belongs to fades in like every other destination.
         */}
         <Stack.Screen name="id-card/edit" options={{ animation: "slide_from_bottom" }} />
-        <Stack.Screen name="referrals" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="review" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="referrals" />
+        <Stack.Screen name="review" />
         {/*
           Community is readable signed out, so it sits on the root stack next to
           the public group rather than inside any role's tabs — and
           `community/[postId]` is a push and share-link target.
         */}
-        <Stack.Screen name="community/index" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="community/[postId]" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="community/index" />
+        <Stack.Screen name="community/[postId]" />
+        {/*
+          The admin management screens (tasks.md §12). At the root rather than
+          inside `(admin)`, because that group's file names *are* its tab bar —
+          a file added there becomes a tab or has to be named in `HIDDEN`. These
+          are detail views reached from More, from Settings and from the roster,
+          and they open over the tab bar like every other one.
+        */}
+        <Stack.Screen name="manage/rooms" />
+        <Stack.Screen name="manage/notices" />
+        <Stack.Screen name="manage/roll-call" />
+        <Stack.Screen name="manage/food" />
+        <Stack.Screen name="manage/maintenance" />
+        <Stack.Screen name="manage/reports" />
+        <Stack.Screen name="manage/settings" />
+        <Stack.Screen name="manage/wardens" />
+        <Stack.Screen name="manage/referrals" />
+        <Stack.Screen name="manage/finance" />
+        <Stack.Screen name="manage/statements" />
+        <Stack.Screen name="manage/resident/[id]" />
+        {/* Bottom, like every other "fill this in and finish" form in the app. */}
+        <Stack.Screen
+          name="manage/resident/new"
+          options={{ animation: "slide_from_bottom" }}
+        />
+        {/*
+          The card scanner, and the dossier it opens.
+
+          The scanner rises from the bottom for the same reason `sos` and
+          `complaints/new` do: it is a thing you open, use once and throw away,
+          not a place you navigate to. Its chevron points down to say so.
+
+          The dossier it pushes fades like every other detail view — it is a
+          destination, and it has to survive a back gesture landing on a live
+          camera rather than on a second copy of itself.
+        */}
+        <Stack.Screen name="manage/scan/index" options={{ animation: "slide_from_bottom" }} />
+        <Stack.Screen name="manage/scan/[residentId]" />
+        {/*
+          The store's detail screens, at the root rather than inside `(store)` —
+          the same rule the `manage/*` block above follows. A file added to a
+          `<Tabs>` directory becomes a tab or has to be named in `HIDDEN`, and
+          all three of these open *over* the store's tab bar the way a detail
+          view should.
+
+          The product screen is also the one screen in the app that bleeds its
+          artwork to the top of the display, which a screen inside a tab group
+          could not do without drawing under a bar it has no use for.
+        */}
+        <Stack.Screen name="store/product/[id]" />
+        <Stack.Screen name="store/order/[id]" />
+        {/* A form you open, fill and finish — bottom, like every other one. */}
+        <Stack.Screen name="store/checkout" options={{ animation: "slide_from_bottom" }} />
+        <Stack.Screen name="settings" />
         {/*
           The bell's destination. At the root because `GET /notifications` is
           scoped to the caller's own user id with no role branch — one screen
           serves every audience, so it cannot live inside any one tab group.
         */}
-        <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="notifications" />
         {/*
           The referral deep link. The file name is the handler — expo-router
           resolves `hostelhub://ref/<code>` here on a cold start and while the
           app is already running, so there is no cold-start case to forget.
         */}
-        <Stack.Screen name="ref/[code]" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="ref/[code]" />
         {/*
           The guardian invitation deep link. The file name matches the path in
           the email — `guardian-invite.service.ts` builds
@@ -360,7 +434,7 @@ function RootShell() {
           the day verified app links are configured, and
           `hostelhub://guardian-invite?token=…` already does.
         */}
-        <Stack.Screen name="guardian-invite" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="guardian-invite" />
       </Stack>
 
       {/*

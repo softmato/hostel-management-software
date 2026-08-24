@@ -85,11 +85,11 @@ export function Grid({
 }
 
 const TILE_TONES = {
-  brand: { icon: "text-primary", surface: "bg-brand-soft" },
-  danger: { icon: "text-destructive", surface: "bg-destructive/10" },
-  neutral: { icon: "text-muted-foreground", surface: "bg-muted" },
-  success: { icon: "text-success", surface: "bg-success-soft" },
-  warning: { icon: "text-warning", surface: "bg-warning-soft" },
+  brand: { badge: "bg-primary", icon: "text-primary", surface: "bg-brand-soft" },
+  danger: { badge: "bg-destructive", icon: "text-destructive", surface: "bg-destructive-soft" },
+  neutral: { badge: "bg-muted-foreground", icon: "text-muted-foreground", surface: "bg-muted" },
+  success: { badge: "bg-success", icon: "text-success", surface: "bg-success-soft" },
+  warning: { badge: "bg-warning", icon: "text-warning", surface: "bg-warning-soft" },
 } as const;
 
 export type TileTone = keyof typeof TILE_TONES;
@@ -110,14 +110,30 @@ const TONE_COLOR: Record<TileTone, "destructive" | "mutedForeground" | "primary"
  * truncate, because `<Grid>` has already guaranteed the cell is wide enough for
  * the text at this screen size, and a wrapped second line is readable where an
  * ellipsis is not.
+ *
+ * ## The corner count
+ *
+ * `badge` turns the tile from a door into a **queue**: how many things are
+ * behind it, before it is opened. It sits in the corner rather than under the
+ * label because the label already owns that line, and a number in a tile's
+ * corner is the one place a phone user has been trained by every app on their
+ * home screen to look for "how many".
+ *
+ * A zero badge goes grey whatever the tone. A grid of coloured pills reading `0`
+ * is a screen shouting about nothing, and it teaches people to ignore the colour
+ * on the day one of them is not zero — the same rule `AttentionRow` holds, kept
+ * in step deliberately.
  */
 export function InfoTile({
+  badge,
   caption,
   icon,
   label,
   onPress,
   tone = "brand",
 }: {
+  /** A count in the corner. Omit entirely for a tile that is not a queue. */
+  badge?: number;
   caption?: string;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -126,19 +142,52 @@ export function InfoTile({
 }) {
   const { colors } = useAppTheme();
   const palette = TILE_TONES[tone];
+  const quiet = badge === 0;
 
   const body = (
     <View className="min-h-[92px] flex-1 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-2 py-3">
-      <View className={`h-10 w-10 items-center justify-center rounded-xl ${palette.surface}`}>
-        <Ionicons color={colors[TONE_COLOR[tone]]} name={icon} size={19} />
+      {/*
+        The glyph is `QuickAction`'s, to the point: a 48-point tinted square with
+        `rounded-2xl` corners and a 21-point icon in it, under an 11-point
+        medium label. Those two rows sit one above the other on admin Home — the
+        shortcuts straddling the card, the queues under "Waiting for you" — and
+        at 40/19/12 against 48/21/11 they were near-identical without being the
+        same, which reads as sloppiness rather than as a distinction.
+
+        The tile keeps the parts the shortcut row does not have: the border and
+        card fill that make it an enclosed cell, and the corner count.
+      */}
+      <View className={`h-12 w-12 items-center justify-center rounded-2xl ${palette.surface}`}>
+        <Ionicons color={colors[TONE_COLOR[tone]]} name={icon} size={21} />
       </View>
 
       <View className="items-center gap-0.5">
-        <Text className="text-center text-xs font-semibold text-foreground">{label}</Text>
+        <Text
+          className="text-center font-medium text-foreground"
+          style={{ fontSize: 11 }}
+        >
+          {label}
+        </Text>
         {caption ? (
           <Text className="text-center text-[11px] text-muted-foreground">{caption}</Text>
         ) : null}
       </View>
+
+      {badge === undefined ? null : (
+        <View
+          className={`absolute right-1.5 top-1.5 h-5 items-center justify-center rounded-full px-1.5 ${
+            quiet ? "bg-muted" : palette.badge
+          }`}
+          // A style rather than `min-w-[20px]` — see the note in `<CardRow>`.
+          style={{ minWidth: 20 }}
+        >
+          <Text
+            className={`text-[11px] font-bold ${quiet ? "text-muted-foreground" : "text-white"}`}
+          >
+            {badge}
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -148,7 +197,11 @@ export function InfoTile({
 
   return (
     <Pressable
-      accessibilityLabel={caption ? `${label}, ${caption}` : label}
+      accessibilityLabel={
+        [label, caption, badge === undefined ? null : `${badge} waiting`]
+          .filter(Boolean)
+          .join(", ")
+      }
       accessibilityRole="button"
       className="flex-1 active:opacity-70"
       onPress={() => {

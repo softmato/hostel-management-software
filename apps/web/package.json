@@ -31,6 +31,8 @@
     "deploy:check": "next build",
     "seed:community": "node scripts/seed-community-posts.mjs",
     "seed:community:clean": "node scripts/seed-community-posts.mjs --clean",
+    "seed:store": "node scripts/seed-store-catalogue.mjs",
+    "seed:store:clean": "node scripts/seed-store-catalogue.mjs --clean",
     "rotate:finance-key": "node scripts/rotate-finance-master-key.mjs",
     "send:test-emails": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/send-test-emails.ts"
   },

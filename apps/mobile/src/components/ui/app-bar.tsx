@@ -10,7 +10,17 @@ import { useSystemInsets } from "@/hooks/use-system-insets";
 type AppBarProps = {
   /** Right-hand slot: a bell, a filter, an avatar. */
   actions?: ReactNode;
-  /** Paint the bar in the brand/role colour instead of the page background. */
+  /**
+   * Paint the bar in the brand colour instead of the page background, and round
+   * its bottom corners.
+   *
+   * The two go together deliberately — see `HEADER_RADIUS`. This is the chrome
+   * for a **pushed** screen: something you opened from somewhere else, that has
+   * a back arrow, and whose title names one subject. The tab screens keep the
+   * plain bar, because five tabs whose top two hundred points are identical stop
+   * saying where you are (`admin-shared.tsx` has the long version of that
+   * argument, and it was learnt on a device).
+   */
   accent?: boolean;
   /**
    * Centre the title between fixed-width side slots, instead of letting it start
@@ -43,6 +53,20 @@ type AppBarProps = {
 const SIDE_SLOT = 40;
 
 /**
+ * The bottom corner radius on an accented bar, in points.
+ *
+ * An accented bar is a painted **block**, not a strip: the colour ends in a
+ * curve and the page begins under it. Every app in
+ * `ui_inspiration_folder/app_recordings/` that our users already use does this,
+ * and the flat-bottomed version reads as a browser chrome by comparison.
+ *
+ * Only when `accent` is set. A bar painted `background` has nothing to round —
+ * the curve would cut a notch of window colour out of a page the same colour,
+ * which is invisible at best and a rendering fault at worst.
+ */
+const HEADER_RADIUS = 20;
+
+/**
  * The top bar, and the only thing allowed to touch the status bar.
  *
  * Android is edge-to-edge from RN 0.86 onwards — there is no opt-out — so the
@@ -66,8 +90,23 @@ export function AppBar({
   const insets = useSystemInsets();
   const { colors } = useAppTheme();
 
-  const titleTone = accent ? "text-primary-foreground" : "text-foreground";
-  const subtitleTone = accent ? "text-primary-foreground/75" : "text-muted-foreground";
+  /*
+   * Resolved colours, not `text-*` classes — and this is a fixed bug, not a
+   * preference.
+   *
+   * `<Text variant="subtitle">` already carries `text-foreground`, and
+   * `variant="caption"` carries `text-muted-foreground`. Adding
+   * `text-primary-foreground` through `className` does not replace either of
+   * them: both rules reach the compiled stylesheet and which one wins is decided
+   * by generation order, not by where it sat in the string. The title happened
+   * to win that race and the subtitle lost it, so an accented bar rendered its
+   * subtitle in grey on green — "Rates, billing and payment setup" was very
+   * nearly invisible.
+   *
+   * A value in the `style` prop cannot lose that race. Same reasoning as
+   * `background` below, and the same trap `<Card>`'s `padding` prop documents.
+   */
+  const ink = accent ? colors.primaryForeground : colors.foreground;
 
   /*
    * An explicit colour, not a `bg-*` class.
@@ -87,27 +126,34 @@ export function AppBar({
       hitSlop={12}
       onPress={onBack ?? (() => router.back())}
     >
-      <Ionicons
-        color={accent ? colors.primaryForeground : colors.foreground}
-        name="chevron-back"
-        size={26}
-      />
+      <Ionicons color={ink} name="chevron-back" size={26} />
     </Pressable>
   ) : null;
 
   const heading = (
     <>
       <Text
-        className={`${titleTone} ${centerTitle ? "text-center" : ""}`}
+        className={centerTitle ? "text-center" : ""}
         numberOfLines={1}
+        style={{ color: ink }}
         variant="subtitle"
       >
         {title}
       </Text>
       {subtitle ? (
         <Text
-          className={`${subtitleTone} ${centerTitle ? "text-center" : ""}`}
+          className={centerTitle ? "text-center" : ""}
           numberOfLines={1}
+          /*
+           * The title's colour at 80%, rather than a second colour.
+           *
+           * `opacity` rather than an `rgba()` literal because `ink` is
+           * scheme-dependent — white on the light bar, near-black on the dark
+           * one — so a hard-coded `rgba(255,255,255,0.8)` would be white text on
+           * a light-green bar in dark mode. Fading whatever the title already is
+           * keeps the pair correct in both schemes and needs no second token.
+           */
+          style={{ color: ink, opacity: 0.8 }}
           variant="caption"
         >
           {subtitle}
@@ -116,9 +162,22 @@ export function AppBar({
     </>
   );
 
+  /*
+   * Written as a style rather than a `rounded-b-[20px]` class: NativeWind
+   * compiles its class list from a build-time scan, so an arbitrary value that
+   * appears nowhere else resolves to nothing until the bundler rebuilds — the
+   * corners would simply be square, silently. Same rule the hero follows.
+   */
+  const paint = {
+    backgroundColor: background,
+    borderBottomLeftRadius: accent ? HEADER_RADIUS : 0,
+    borderBottomRightRadius: accent ? HEADER_RADIUS : 0,
+    paddingTop: insets.top,
+  };
+
   if (centerTitle) {
     return (
-      <View style={{ backgroundColor: background, paddingTop: insets.top }}>
+      <View style={paint}>
         {/*
           Three columns with the outer two pinned to the same width, rather than
           an absolutely-positioned title over the row.
@@ -147,7 +206,7 @@ export function AppBar({
   }
 
   return (
-    <View style={{ backgroundColor: background, paddingTop: insets.top }}>
+    <View style={paint}>
       <View className="min-h-14 flex-row items-center gap-3 px-4 pb-2 pt-1">
         {back}
 

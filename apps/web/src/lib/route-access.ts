@@ -35,6 +35,12 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     roles: [Role.SUPERADMIN],
   },
   {
+    // Same rule: what the platform sells, at what price, and who has been
+    // charged for it is commercial, not content to be moderated.
+    prefix: "/platform/store",
+    roles: [Role.SUPERADMIN],
+  },
+  {
     prefix: "/platform",
     roles: [Role.SUPERADMIN, Role.PLATFORM_MODERATOR],
   },

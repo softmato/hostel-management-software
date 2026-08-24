@@ -66,6 +66,7 @@ export const REALTIME_TOPIC = {
   ROOMS: "rooms",
   SAFETY: "safety",
   SERVICE_PROVIDERS: "service-providers",
+  STORE: "store",
 } as const;
 
 export type RealtimeTopic = (typeof REALTIME_TOPIC)[keyof typeof REALTIME_TOPIC];
@@ -152,6 +153,24 @@ export const TOPIC_ENDPOINTS: Record<RealtimeTopic, string[]> = {
     "/api/v1/hostel-admin/service-providers*",
     "/api/v1/service-provider*",
   ],
+  /*
+   * One topic for the whole supply store, buyer and seller side.
+   *
+   * Splitting it into catalogue/cart/orders was the first instinct and would
+   * have been wrong: a placed order moves stock, which moves the shop list, the
+   * cart that is quoting from it and both order queues at once. Three topics
+   * would mean every publisher naming all three, which is one topic with extra
+   * steps and three chances to forget one.
+   *
+   * The cart is deliberately absent from this list. It is per-hostel and only
+   * ever changed by the person looking at it, so invalidating it on a
+   * platform-wide catalogue edit would be a request per hostel for nothing.
+   */
+  [REALTIME_TOPIC.STORE]: [
+    "/api/v1/store/products*",
+    "/api/v1/store/orders*",
+    "/api/v1/platform/store*",
+  ],
 };
 
 /**
@@ -185,6 +204,7 @@ export const CATEGORY_TOPICS: Record<string, RealtimeTopic[]> = {
   ROOM: [REALTIME_TOPIC.ROOMS],
   SERVICE_PROVIDER: [REALTIME_TOPIC.SERVICE_PROVIDERS],
   SOS: [REALTIME_TOPIC.SAFETY],
+  STORE_ORDER: [REALTIME_TOPIC.STORE],
   URGENT: [REALTIME_TOPIC.SAFETY],
 };
 

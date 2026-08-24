@@ -103,7 +103,7 @@ export function Select<T extends string>({
         <Text variant="caption">{hint}</Text>
       ) : null}
 
-      <Sheet onClose={() => setOpen(false)} open={open} title={sheetTitle ?? label}>
+      <Sheet bare onClose={() => setOpen(false)} open={open} title={sheetTitle ?? label}>
         {options.map((option) => (
           <SheetRow
             key={option.value}

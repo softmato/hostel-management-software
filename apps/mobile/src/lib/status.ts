@@ -38,6 +38,12 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   INQUIRY_CREATED: "info",
   JOINED: "success",
   MOVED_OUT: "neutral",
+  /**
+   * Not an absence — a resident nobody has billed for the month. Amber rather
+   * than neutral because it is a *bigger* collection problem than a late
+   * payment: nothing is chasing it, and nothing will.
+   */
+  NOT_BILLED: "warning",
   OPEN: "warning",
   OVERDUE: "danger",
   PAID: "success",

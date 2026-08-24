@@ -364,7 +364,7 @@ export function CommunityPostCard({
         </View>
       ) : null}
 
-      <Sheet onClose={() => setMenuOpen(false)} open={menuOpen} title="Post">
+      <Sheet bare onClose={() => setMenuOpen(false)} open={menuOpen} title="Post">
         {standalone ? null : (
           <SheetRow
             label="Open post"
@@ -554,7 +554,7 @@ function ReportSheet({
       open={open}
       title="Report this post"
     >
-      <View className="gap-2 px-5 pt-3">
+      <View className="gap-2">
         <Text variant="muted">
           Tell a moderator what is wrong with it. Reports are not shown to the
           author.

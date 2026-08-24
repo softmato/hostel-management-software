@@ -1,0 +1,1823 @@
+/**
+ * The half of hostel admin that used to be a browser hand-off.
+ *
+ * `admin-api.ts` opens with a paragraph explaining that the app is "deliberately
+ * reduced" and that fee schedules, room configuration and warden management are
+ * a desktop's job. That argument was overruled on 2026-08-21 (tasks.md §12): the
+ * app owes the web **feature parity**, and a row that opens `WebBrowser` is not
+ * an app screen. This module is the API surface those screens needed, kept apart
+ * from `admin-api.ts` only because that file is already long — nothing here is a
+ * different *kind* of call.
+ *
+ * ## Two rules carried over from `admin-api.ts`, because they still hold
+ *
+ * 1. **Shapes are read off the services**, never off the portal's hand-written
+ *    types. The web components routinely declare a narrower type than the
+ *    serializer returns — `serializePost` returning `media` that the moderation
+ *    panel's type drops is the case §11.1 hit — so a field missing from a web
+ *    page is not evidence the server does not send it.
+ * 2. **A 403 is not a bug.** Every route below runs through
+ *    `requireHostelCapability` with a *named* flag (`editHostelProfile`,
+ *    `manageNotices`, `manageFood`, `manageMaintenance`, `registerResidents`,
+ *    `manageFinance`, `viewReports`, `manageWardens`), so a warden can be
+ *    allowed one screen and refused its neighbour. Screens load their sources
+ *    independently and say "not yours" rather than rendering empty.
+ */
+
+import { api } from "@/lib/api";
+import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
+import type { MealType, RoutineDay } from "@/lib/food-week";
+
+/* -------------------------------------------------------------------------- */
+/* Hostel profile — Rooms and Settings both read it                           */
+/* -------------------------------------------------------------------------- */
+
+/** One row of `roomConfigurations`. Rooms are counts per type, not records. */
+export type RoomConfiguration = {
+  bedsPerRoom: number;
+  /** `Included` | `Not Included` | `Optional` — the server enum, verbatim. */
+  mealInclusion: string;
+  monthlyRent?: number;
+  rooms: number;
+  roomType: string;
+  vacantBeds: number;
+};
+
+export type HostelPhoto = {
+  alt: string;
+  fileAssetId?: string;
+  id?: string;
+  /** `EXTERIOR` | `INTERIOR` | `ROOM`. */
+  kind: string;
+  /** Set on ROOM photos only — which room type the shot belongs to. */
+  roomType: string;
+  url: string;
+};
+
+/**
+ * `serializeHostel` in full, as opposed to `AdminHostel` in `admin-api.ts`,
+ * which is deliberately the subset Home draws.
+ *
+ * Both come from `GET /hostel-admin/profile`. Keeping two types for one payload
+ * is the lesser evil: Home would otherwise carry twenty fields it never reads,
+ * and the editing screens genuinely need all of them.
+ */
+export type ManagedHostel = {
+  capacitySummary: { totalBeds?: number; totalRooms?: number; vacantBeds?: number };
+  contact: { email?: string; phone?: string };
+  description: string;
+  facilities: string[];
+  food: { hasNonVeg?: boolean; hasVeg?: boolean; mealsPerDay?: number; notes?: string };
+  hostelType: string;
+  id: string;
+  location: {
+    address?: string;
+    area?: string;
+    city?: string;
+    lat?: number;
+    lng?: number;
+    locationSource?: string;
+    province?: string;
+  };
+  name: string;
+  /**
+   * How many times the hostel has renamed itself since approval. The limit is
+   * server-side and a rename past it is a 403 with `NAME_CHANGE_LIMIT_REACHED`,
+   * not a validation error — which is why Settings shows the count rather than
+   * letting someone find out by typing.
+   */
+  nameChangeCount: number;
+  photos: HostelPhoto[];
+  pricing: {
+    admissionFee?: number;
+    currency?: string;
+    monthlyRentMax?: number;
+    monthlyRentMin?: number;
+  };
+  roomConfigurations: RoomConfiguration[];
+  roomTypes: string[];
+  rules: string[];
+  slug: string;
+  status: string;
+  totalFloors: number;
+  verificationStatus: string;
+};
+
+export async function getManagedHostel() {
+  const response =
+    await api.get<ApiEnvelope<{ hostel: ManagedHostel }>>("/hostel-admin/profile");
+
+  return unwrap(response).hostel;
+}
+
+/**
+ * `PATCH /hostel-admin/profile`. Every key is optional and only what is sent is
+ * written, so a screen patches its own fields and never has to round-trip the
+ * ones it does not show.
+ *
+ * **`roomConfigurations` is all-or-nothing.** The service replaces the array
+ * wholesale, recomputes `capacitySummary` from it, and drops any ROOM photo
+ * whose room type is no longer in the list. Sending one edited row would delete
+ * every other room type and its photographs, so the Rooms screen always sends
+ * the whole array.
+ */
+export async function updateManagedHostel(input: {
+  capacitySummary?: { totalBeds?: number; totalRooms?: number; vacantBeds?: number };
+  contact?: { email?: string; phone?: string };
+  description?: string;
+  facilities?: string[];
+  food?: { hasNonVeg?: boolean; hasVeg?: boolean; mealsPerDay?: number; notes?: string };
+  hostelType?: string;
+  location?: {
+    address?: string;
+    area?: string;
+    city?: string;
+    lat?: number;
+    lng?: number;
+    province?: string;
+  };
+  name?: string;
+  pricing?: {
+    admissionFee?: number;
+    currency?: string;
+    monthlyRentMax?: number;
+    monthlyRentMin?: number;
+  };
+  roomConfigurations?: RoomConfiguration[];
+  rules?: string[];
+  totalFloors?: number;
+}) {
+  const response = await api.patch<ApiEnvelope<{ hostel: ManagedHostel }>>(
+    "/hostel-admin/profile",
+    input,
+  );
+
+  return unwrap(response).hostel;
+}
+
+/**
+ * `POST /hostel-admin/profile/photos`.
+ *
+ * `url` is stored **relative** — `/api/v1/files/{assetId}/url` — exactly as the
+ * web sends it, so the same record resolves against whichever origin is reading
+ * it. Run it through `absoluteMediaUrl` before it reaches an `<Image>`.
+ *
+ * The asset itself must be uploaded `PUBLIC`: these photographs are the public
+ * listing's gallery, read by visitors who have no session at all.
+ */
+export async function addHostelPhoto(input: {
+  alt?: string;
+  fileAssetId: string;
+  kind: "EXTERIOR" | "INTERIOR" | "ROOM";
+  roomType?: string;
+}) {
+  await api.post("/hostel-admin/profile/photos", {
+    ...input,
+    url: `/api/v1/files/${input.fileAssetId}/url`,
+  });
+}
+
+export async function deleteHostelPhoto(photoId: string) {
+  await api.delete(`/hostel-admin/profile/photos/${photoId}`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Notices                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const NOTICE_CATEGORIES = [
+  "GENERAL",
+  "URGENT",
+  "EVENT",
+  "RULE",
+  "MAINTENANCE",
+  "PAYMENT",
+  "FOOD",
+] as const;
+
+export type NoticeCategory = (typeof NOTICE_CATEGORIES)[number];
+
+export const NOTICE_AUDIENCES = ["ALL", "RESIDENTS", "GUARDIANS"] as const;
+
+export type NoticeAudience = (typeof NOTICE_AUDIENCES)[number];
+
+export type ManagedNotice = {
+  category: string;
+  content: string;
+  createdAt?: string;
+  expiresAt?: string;
+  id: string;
+  isUrgent: boolean;
+  publishedAt?: string;
+  targetAudience: string;
+  title: string;
+  updatedAt?: string;
+};
+
+/**
+ * `GET /hostel-admin/notices`.
+ *
+ * `admin-api.ts` has `listAdminNotices()`, which asks for ten and takes no
+ * filter — that is Today's "what did we tell people lately" strip. This one is
+ * the management list: a category filter and a real page size.
+ */
+export async function listManagedNotices(query: { category?: string; pageSize?: number } = {}) {
+  const response = await api.get<ApiEnvelope<{ notices: ManagedNotice[] }>>(
+    "/hostel-admin/notices",
+    { params: { category: query.category || undefined, pageSize: query.pageSize ?? 50 } },
+  );
+
+  return unwrap(response).notices;
+}
+
+export type NoticeInput = {
+  category: NoticeCategory;
+  content: string;
+  /** ISO. Omitted means "never expires". */
+  expiresAt?: string;
+  isUrgent: boolean;
+  /** ISO. In the future means the notice is scheduled, not live. */
+  publishedAt?: string;
+  targetAudience: NoticeAudience;
+  title: string;
+};
+
+export async function createManagedNotice(input: NoticeInput) {
+  await api.post("/hostel-admin/notices", input);
+}
+
+/**
+ * `PATCH /hostel-admin/notices/{id}` — partial, so this is also how a notice is
+ * expired: send `expiresAt` in the past. There is no DELETE route, and that is
+ * deliberate on the server's side — a notice residents have already read should
+ * stop applying, not stop having existed.
+ */
+export async function updateManagedNotice(id: string, input: Partial<NoticeInput>) {
+  await api.patch(`/hostel-admin/notices/${id}`, input);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Food routine                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `PUT /hostel-admin/food/routine` — **one document, one replace.**
+ *
+ * There are no per-cell writes: the payload is the whole week, so the editor
+ * holds a draft and saves it in full. A meal with no items is simply absent
+ * from `meals` rather than sent empty (the server rejects an empty `items`).
+ *
+ * `timings` is per meal type, not per day — "Breakfast is at 7:30" is a fact
+ * about the hostel, and the resident's Food tab reads it off the same record.
+ */
+export async function saveFoodRoutine(input: {
+  meals: { dayOfWeek: RoutineDay; items: string[]; mealType: MealType; note?: string }[];
+  monthEndSpecial?: { items: string[]; note?: string };
+  timings: Partial<Record<MealType, string>>;
+}) {
+  await api.put("/hostel-admin/food/routine", input);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Maintenance                                                                */
+/* -------------------------------------------------------------------------- */
+
+export const MAINTENANCE_CATEGORIES = [
+  "PLUMBING",
+  "ELECTRICAL",
+  "INTERNET",
+  "CLEANING",
+  "CARPENTRY",
+  "PAINTING",
+  "WATER",
+  "APPLIANCE",
+  "ROOM_REPAIR",
+  "HEALTH",
+  "OTHER",
+] as const;
+
+export type MaintenanceCategory = (typeof MAINTENANCE_CATEGORIES)[number];
+
+export const MAINTENANCE_STATUSES = [
+  "PENDING",
+  "CONTACTED",
+  "SCHEDULED",
+  "COMPLETED",
+  "CANCELLED",
+] as const;
+
+export type MaintenanceStatus = (typeof MAINTENANCE_STATUSES)[number];
+
+export const MAINTENANCE_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
+
+export type MaintenancePriority = (typeof MAINTENANCE_PRIORITIES)[number];
+
+export type MaintenanceComment = {
+  authorId: string;
+  createdAt?: string;
+  id: string;
+  message: string;
+  /** `INTERNAL` never reaches the provider; `PROVIDER_NOTE` is meant for them. */
+  visibility: string;
+};
+
+export type MaintenanceHistoryEntry = {
+  action: string;
+  costNote: string;
+  createdAt?: string;
+  id: string;
+  nextStatus?: string;
+  note: string;
+  previousStatus?: string;
+};
+
+/**
+ * The full request, as opposed to `AdminMaintenanceRequest` in `admin-api.ts`
+ * — which is the row Today draws and stops at nine fields.
+ *
+ * The list route already returns `comments` and `history` per request, so the
+ * detail sheet needs no second call. That is worth knowing before adding one.
+ */
+export type ManagedMaintenanceRequest = {
+  category: string;
+  comments: MaintenanceComment[];
+  completedAt?: string;
+  costNote: string;
+  createdAt?: string;
+  description: string;
+  history: MaintenanceHistoryEntry[];
+  id: string;
+  location: string;
+  priority: string;
+  providerId?: string;
+  remarks: string;
+  requestedBy: string;
+  scheduledFor?: string;
+  status: string;
+  title: string;
+  updatedAt?: string;
+};
+
+export type ManagedMaintenance = {
+  requests: ManagedMaintenanceRequest[];
+  summary: { cancelled: number; completed: number; open: number; total: number };
+};
+
+export async function listManagedMaintenance(
+  query: { category?: string; providerId?: string; status?: string } = {},
+) {
+  const response = await api.get<ApiEnvelope<ManagedMaintenance>>(
+    "/hostel-admin/maintenance/requests",
+    {
+      params: {
+        category: query.category || undefined,
+        providerId: query.providerId || undefined,
+        status: query.status || undefined,
+      },
+    },
+  );
+
+  return unwrap(response);
+}
+
+export async function createMaintenanceRequest(input: {
+  category: MaintenanceCategory;
+  description?: string;
+  location?: string;
+  priority: MaintenancePriority;
+  providerId?: string;
+  scheduledFor?: string;
+  title: string;
+}) {
+  await api.post("/hostel-admin/maintenance/requests", input);
+}
+
+/**
+ * `PATCH /hostel-admin/maintenance/requests/{id}/status`.
+ *
+ * `note` and `costNote` ride along with the status change rather than being a
+ * separate write, and the service records both on the history entry — so "why
+ * was this cancelled" has an answer without reading the comment thread.
+ */
+export async function updateMaintenanceStatus(
+  id: string,
+  input: {
+    costNote?: string;
+    note?: string;
+    scheduledFor?: string;
+    status: MaintenanceStatus;
+  },
+) {
+  await api.patch(`/hostel-admin/maintenance/requests/${id}/status`, input);
+}
+
+export async function commentOnMaintenance(
+  id: string,
+  input: { message: string; visibility: "INTERNAL" | "PROVIDER_NOTE" },
+) {
+  await api.post(`/hostel-admin/maintenance/requests/${id}/comment`, input);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Service providers                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * An approved provider, with the phone number.
+ *
+ * That number is the reason this route is hostel-admin-only: the public
+ * directory serializer drops it on purpose (PHASES.md §5.1), so a provider is
+ * not cold-called by everyone who browses the site.
+ */
+export type ManagedProvider = {
+  area: string;
+  availability: string;
+  categories: string[];
+  category: string;
+  city: string;
+  description: string;
+  email: string;
+  experience: string;
+  fullName: string;
+  id: string;
+  phone: string;
+  photoAssetId?: string;
+  ratingSummary: { averageRating: number; totalReviews: number };
+};
+
+export async function listManagedProviders(query: { category?: string; q?: string } = {}) {
+  const response = await api.get<ApiEnvelope<{ providers: ManagedProvider[] }>>(
+    "/hostel-admin/service-providers",
+    {
+      params: {
+        category: query.category || undefined,
+        pageSize: 50,
+        q: query.q || undefined,
+      },
+    },
+  );
+
+  return unwrap(response).providers;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cook portal                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `serializeSettings` in `cook.service` — the cook's *login*, never a password.
+ *
+ * `initialPasswordPending` is true only while the emailed hand-off password is
+ * still unused. After the cook sets their own, nothing but its bcrypt hash
+ * exists: the hostel admin cannot read it back, and "recovery" means issuing a
+ * new credential. The screen has to say that, because the obvious assumption —
+ * that whoever created the account can look the password up — is wrong here.
+ */
+export type CookPortalSettings = {
+  cookEmail: string;
+  cookName: string;
+  cookPortalEnabled: boolean;
+  cookUserId?: string;
+  credentialIssuedAt?: string;
+  initialPasswordPending: boolean;
+};
+
+export async function getCookPortal() {
+  const response = await api.get<ApiEnvelope<{ settings: CookPortalSettings }>>(
+    "/hostel-admin/cook-portal",
+  );
+
+  return unwrap(response).settings;
+}
+
+/**
+ * `PATCH /hostel-admin/cook-portal`.
+ *
+ * Enabling creates or reactivates the cook's user account and emails it a
+ * one-time password; disabling **suspends** that account rather than deleting
+ * it, so the same login comes back if the portal is switched on again.
+ */
+export async function updateCookPortal(input: { cookName?: string; enabled: boolean }) {
+  const response = await api.patch<ApiEnvelope<{ settings: CookPortalSettings }>>(
+    "/hostel-admin/cook-portal",
+    input,
+  );
+
+  return unwrap(response).settings;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Reports                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** `{ PENDING: 4, PAID: 12 }` — the shape every breakdown in the overview uses. */
+export type CountMap = Record<string, number>;
+
+export type MonthlyPoint = { collected: number; due: number; month: string };
+
+/**
+ * `GET /hostel-admin/reports/overview` — every service in the hostel in one
+ * payload.
+ *
+ * The portal's Reports page is this one call plus the two analytics panels, so
+ * the six other `reports/*` routes are not gaps: `reports/payments`,
+ * `reports/complaints` and the rest are narrower cuts of the same figures, used
+ * by other screens. Adding calls to them here would be four more requests for
+ * numbers already in hand.
+ */
+export type ReportsOverview = {
+  complaints: {
+    averageResolutionDays: number | null;
+    byCategory: CountMap;
+    byStatus: CountMap;
+    open: number;
+    resolved: number;
+    slaBreached: number;
+    total: number;
+  };
+  food: { averageRating: number | null; feedbackCount: number };
+  generatedAt: string;
+  inquiries: { byStatus: CountMap; conversionRate: number; converted: number; total: number };
+  maintenance: {
+    byCategory: CountMap;
+    byStatus: CountMap;
+    completed: number;
+    open: number;
+    total: number;
+  };
+  /** Billing periods with records, oldest first. */
+  months: string[];
+  nightStatus: CountMap;
+  occupancy: {
+    byStatus: CountMap;
+    occupancyRate: number;
+    occupiedBeds: number;
+    residents: number;
+    totalBeds: number;
+    vacantBeds: number;
+  };
+  payments: {
+    byMethod: CountMap;
+    byStatus: CountMap;
+    collectionRate: number;
+    monthly: MonthlyPoint[];
+    outstanding: number;
+    pendingProofs: number;
+    recent: {
+      dueAmount: number;
+      dueDate: string | null;
+      id: string;
+      method: string;
+      month: string;
+      paidAmount: number;
+      paidDate: string | null;
+      residentName: string;
+      roomType: string;
+      status: string;
+    }[];
+    selectedMonth: {
+      collectionRate: number;
+      month: string;
+      outstanding: number;
+      totalDue: number;
+      totalPaid: number;
+    };
+    totalDue: number;
+    totalPaid: number;
+  };
+  referrals: {
+    byStatus: CountMap;
+    joined: number;
+    rewardApprovedAmount: number;
+    rewardPaidAmount: number;
+    rewardTotalAmount: number;
+    total: number;
+  };
+  visibility: {
+    publicViewsLast30Days: number;
+    totalPublicViews: number;
+    uniquePublicVisitors: number;
+  };
+};
+
+export async function getReportsOverview(month?: string) {
+  const response = await api.get<ApiEnvelope<{ overview: ReportsOverview }>>(
+    "/hostel-admin/reports/overview",
+    { params: { month: month || undefined } },
+  );
+
+  return unwrap(response).overview;
+}
+
+/**
+ * `GET /hostel-admin/reports/attendance`.
+ *
+ * Built from **zone rows only** — a ping's coordinates are discarded the moment
+ * it lands, which is the privacy invariant `location-tracking` tests enforce. So
+ * this can say a resident was outside on eleven nights and can never say where.
+ */
+export type AttendanceAnalytics = {
+  frequentlyAbsent: {
+    attendanceRate: number;
+    name: string;
+    outside: number;
+    residentId: string;
+    roomType: string;
+    total: number;
+    unknown: number;
+  }[];
+  summary: {
+    averageAttendanceRate: number;
+    pings: number;
+    residentsTracked: number;
+    windowDays: number;
+    zones: { inside: number; nearby: number; outside: number; unknown: number };
+  };
+};
+
+export async function getAttendanceAnalytics(days?: number) {
+  const response = await api.get<ApiEnvelope<AttendanceAnalytics>>(
+    "/hostel-admin/reports/attendance",
+    { params: { days } },
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * `GET /hostel-admin/reports/food` — how late the kitchen actually is.
+ *
+ * Times are **minutes since midnight**, not clock strings, and delays are signed:
+ * negative means the meal went out early.
+ */
+export type FoodAnalytics = {
+  byDevice: { announcements: number; device: string; lastAnnouncedAt: string }[];
+  byMeal: {
+    announcements: number;
+    averageDelayMinutes: number | null;
+    averageReadyMinutes: number | null;
+    lateCount: number;
+    mealType: string;
+    notified: number;
+    onTimeCount: number;
+    scheduledTiming: string | null;
+  }[];
+  summary: {
+    averageDelayMinutes: number | null;
+    lateAnnouncements: number;
+    onTimeAnnouncements: number;
+    totalAnnouncements: number;
+    windowDays: number;
+  };
+};
+
+export async function getFoodAnalytics(days?: number) {
+  const response = await api.get<ApiEnvelope<FoodAnalytics>>("/hostel-admin/reports/food", {
+    params: { days },
+  });
+
+  return unwrap(response);
+}
+
+/** The four CSVs the portal offers. Aggregates — no phone numbers, no addresses. */
+export const REPORT_EXPORTS = [
+  { label: "Residents", report: "residents" },
+  { label: "Collection", report: "payments" },
+  { label: "Complaints", report: "complaints" },
+  { label: "Occupancy", report: "occupancy" },
+] as const;
+
+export type ReportExport = (typeof REPORT_EXPORTS)[number]["report"];
+
+/* -------------------------------------------------------------------------- */
+/* Wardens                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The per-member capability list, verbatim from `warden.validation.ts`.
+ *
+ * **Order matters here** — it is the order the permission sheet renders, and it
+ * is grouped by what the capability lets someone *do to the hostel*, not
+ * alphabetically. The three payment powers in the middle were split out of a
+ * single `verifyPayments` flag precisely because granting them together let a
+ * new warden rewrite any payment amount on their first day.
+ */
+export const WARDEN_PERMISSIONS = [
+  "registerResidents",
+  "editHostelProfile",
+  "manageRooms",
+  "viewPayments",
+  "approvePayments",
+  "recordCash",
+  "reversePayments",
+  "manageFeeSchedule",
+  "managePaymentProfile",
+  "manageFood",
+  "manageNotices",
+  "viewComplaints",
+  "updateComplaints",
+  "viewNightStatus",
+  "updateNightStatus",
+  "manageMaintenance",
+] as const;
+
+export type WardenPermission = (typeof WARDEN_PERMISSIONS)[number];
+
+/** What a new warden gets — mirrors the server's `DEFAULT_WARDEN_PERMISSIONS`. */
+export const DEFAULT_WARDEN_PERMISSIONS: WardenPermission[] = [
+  "registerResidents",
+  "viewPayments",
+  "approvePayments",
+  "recordCash",
+  "manageFood",
+  "manageNotices",
+  "viewComplaints",
+  "updateComplaints",
+  "viewNightStatus",
+  "updateNightStatus",
+  "manageMaintenance",
+];
+
+export type ManagedWarden = {
+  createdAt?: string;
+  email: string;
+  id: string;
+  name: string;
+  /**
+   * May contain `verifyPayments`, a **retired** key still stored on rows the
+   * migration has not reached. It is accepted on input for one release and has
+   * to round-trip rather than being silently dropped by an edit form.
+   */
+  permissions: string[];
+  phone: string;
+  status: string;
+  userId: string;
+};
+
+/** Admin-only: every warden route is `requireHostelAdminPrincipal`, not staff. */
+export async function listWardens() {
+  const response = await api.get<ApiEnvelope<{ wardens: ManagedWarden[] }>>(
+    "/hostel-admin/wardens",
+    { params: { pageSize: 50 } },
+  );
+
+  return unwrap(response).wardens;
+}
+
+/**
+ * `POST /hostel-admin/wardens`.
+ *
+ * The account is created INVITED and the person signs in with the credentials
+ * the server emails them. An address that already has an account is *linked* to
+ * this hostel rather than rejected, which is how one person wardens two
+ * buildings.
+ */
+export async function createWarden(input: {
+  email: string;
+  name: string;
+  permissions?: WardenPermission[];
+  phone?: string;
+}) {
+  await api.post("/hostel-admin/wardens", input);
+}
+
+export async function updateWarden(
+  id: string,
+  input: { permissions?: string[]; status?: "ACTIVE" | "SUSPENDED" },
+) {
+  await api.patch(`/hostel-admin/wardens/${id}`, input);
+}
+
+/** Deactivates the membership. The user account itself survives. */
+export async function removeWarden(id: string) {
+  await api.delete(`/hostel-admin/wardens/${id}`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Hostel-level switches                                                      */
+/* -------------------------------------------------------------------------- */
+
+export type CommunitySettings = { enabled: boolean; profanityFilterEnabled: boolean };
+
+export async function getCommunitySettings() {
+  const response = await api.get<ApiEnvelope<{ settings: CommunitySettings }>>(
+    "/hostel-admin/settings/community",
+  );
+
+  return unwrap(response).settings;
+}
+
+export async function updateCommunitySettings(input: Partial<CommunitySettings>) {
+  const response = await api.patch<ApiEnvelope<{ settings: CommunitySettings }>>(
+    "/hostel-admin/settings/community",
+    input,
+  );
+
+  return unwrap(response).settings;
+}
+
+/**
+ * The geofence and the retention window.
+ *
+ * `nearbyZoneRadiusMeters` **must** exceed `insideZoneRadiusMeters` — the server
+ * refuses the save with INVALID_GEOFENCE otherwise — and `pingTimes` are `HH:mm`
+ * strings, at most six of them.
+ */
+export type AttendanceSettings = {
+  absenceAlertDays: number;
+  enabled: boolean;
+  insideZoneRadiusMeters: number;
+  nearbyZoneRadiusMeters: number;
+  pingTimes: string[];
+  retentionDays: number;
+};
+
+export async function getAttendanceSettings() {
+  const response = await api.get<ApiEnvelope<{ settings: AttendanceSettings }>>(
+    "/hostel-admin/attendance/settings",
+  );
+
+  return unwrap(response).settings;
+}
+
+export async function updateAttendanceSettings(input: Partial<AttendanceSettings>) {
+  const response = await api.patch<ApiEnvelope<{ settings: AttendanceSettings }>>(
+    "/hostel-admin/attendance/settings",
+    input,
+  );
+
+  return unwrap(response).settings;
+}
+
+/**
+ * `POST /hostel-admin/profile/change-request`.
+ *
+ * Three fields cannot be edited directly once a hostel is approved — its name
+ * past the rename limit, the owner's name and the owner's account email — and go
+ * to the platform team instead.
+ */
+export async function requestHostelChange(input: {
+  changeType: "HOSTEL_NAME" | "OWNER_NAME" | "OWNER_EMAIL";
+  reason?: string;
+  requestedValue: string;
+}) {
+  await api.post("/hostel-admin/profile/change-request", input);
+}
+
+/**
+ * `GET /hostel-admin/profile/geocode`.
+ *
+ * Both directions: `q` takes a place name, a pasted Google Maps or OSM link, or
+ * a raw `lat,lng`; `lat` and `lng` answer with the address that pin sits on. It
+ * is server-side because the map key must not ship in a client, and because
+ * following a `maps.app.goo.gl` redirect is impossible from a browser.
+ */
+export type GeocodeHit = {
+  address?: string;
+  area?: string;
+  city?: string;
+  displayName?: string;
+  lat: number;
+  lng: number;
+  province?: string;
+};
+
+export async function geocodeHostelLocation(query: string) {
+  const response = await api.get<ApiEnvelope<{ results: GeocodeHit[] }>>(
+    "/hostel-admin/profile/geocode",
+    { params: { limit: 6, q: query } },
+  );
+
+  return unwrap(response).results;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Referrals                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export type ReferralReward = {
+  amount: number;
+  id: string;
+  notes: string;
+  rewardType: string;
+  status: string;
+};
+
+export type ManagedReferral = {
+  confirmedAt?: string;
+  converted: boolean;
+  createdAt?: string;
+  email: string;
+  id: string;
+  message: string;
+  name: string;
+  phone: string;
+  referrerName: string;
+  referrerPhone: string;
+  reward: ReferralReward | null;
+  status: string;
+};
+
+export type ReferralsPayload = {
+  referrals: ManagedReferral[];
+  /**
+   * Describes **every** referral in scope, not the page and not the current
+   * status filter — the service says so explicitly, because deriving it from the
+   * returned rows would collapse the breakdown to one bucket the moment somebody
+   * filtered by status.
+   */
+  summary: {
+    byStatus: CountMap;
+    converted: number;
+    joined: number;
+    pendingConfirmation: number;
+    rewardApprovedAmount: number;
+    rewardPaidAmount: number;
+    rewardPendingAmount: number;
+    total: number;
+  };
+  topReferrers: {
+    code: string;
+    id: string;
+    joinedCount: number;
+    name: string;
+    rewardCount: number;
+    roomType: string;
+  }[];
+};
+
+export async function listReferrals(status?: string) {
+  const response = await api.get<ApiEnvelope<ReferralsPayload>>("/hostel-admin/referrals", {
+    params: { pageSize: 50, status: status || undefined },
+  });
+
+  return unwrap(response);
+}
+
+/** Marks the referred person as having actually moved in, and opens a reward. */
+export async function confirmReferral(
+  id: string,
+  input: { rewardAmount: number; rewardNotes?: string; rewardType?: string },
+) {
+  await api.patch(`/hostel-admin/referrals/${id}/confirm`, input);
+}
+
+/**
+ * Records the payout decision. Marking a reward PAID also moves the referral
+ * itself to REWARDED, so the two can never disagree — and a referral still at
+ * INQUIRY_CREATED is refused, because there is nothing to reward yet.
+ */
+export async function updateReferralReward(
+  id: string,
+  input: {
+    amount?: number;
+    notes?: string;
+    rewardType?: string;
+    status: "PENDING" | "APPROVED" | "PAID" | "CANCELLED";
+  },
+) {
+  await api.patch(`/hostel-admin/referrals/${id}/reward`, input);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Residents — intake, the record, and the two ends of a stay                 */
+/* -------------------------------------------------------------------------- */
+
+export const RESIDENT_TYPES = ["STUDENT", "WORKING_PROFESSIONAL", "OTHER"] as const;
+
+export type ResidentType = (typeof RESIDENT_TYPES)[number];
+
+export const RESIDENT_STATUSES = ["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"] as const;
+
+export type ResidentStatus = (typeof RESIDENT_STATUSES)[number];
+
+/** `serializeResident` in full. `AdminResident` in `admin-api.ts` is the row. */
+export type ManagedResident = {
+  createdAt?: string;
+  depositAmount: number;
+  email: string;
+  firstName: string;
+  id: string;
+  lastName: string;
+  /** Zero is a real value — a free stay — and is not the same as "no override". */
+  monthlyFee: number;
+  moveInDate: string;
+  phone: string;
+  residentType: string;
+  roomType: string;
+  status: string;
+  /** Present once they have activated an account. Absent means they never have. */
+  userId?: string;
+};
+
+export async function getResident(id: string) {
+  const response = await api.get<ApiEnvelope<{ resident: ManagedResident }>>(
+    `/hostel-admin/residents/${id}`,
+  );
+
+  return unwrap(response).resident;
+}
+
+/**
+ * `POST /hostel-admin/residents`.
+ *
+ * Admitting somebody **takes a bed** off their room type, so a full type is
+ * refused here rather than discovered later. `referralCode` is what pays a
+ * resident for bringing a friend in — it is the only place that link is made,
+ * so an intake that forgets it cannot be corrected afterwards.
+ */
+export async function createResident(input: {
+  depositAmount?: number;
+  email?: string;
+  firstName: string;
+  lastName: string;
+  monthlyFee?: number;
+  /** ISO. */
+  moveInDate: string;
+  phone: string;
+  referralCode?: string;
+  residentType?: ResidentType;
+  roomType: string;
+  status?: ResidentStatus;
+}) {
+  const response = await api.post<ApiEnvelope<{ resident: ManagedResident }>>(
+    "/hostel-admin/residents",
+    input,
+  );
+
+  return unwrap(response).resident;
+}
+
+/**
+ * `PATCH /hostel-admin/residents/{id}`.
+ *
+ * Two edits are not what they look like: a **phone** already on the roll is a
+ * 409 rather than a duplicate row, and a **room type** change moves a unit of
+ * vacancy between types — which fails outright if the destination is full.
+ */
+export async function updateResident(
+  id: string,
+  input: {
+    depositAmount?: number;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    monthlyFee?: number;
+    moveInDate?: string;
+    phone?: string;
+    residentType?: ResidentType;
+    roomType?: string;
+  },
+) {
+  await api.patch(`/hostel-admin/residents/${id}`, input);
+}
+
+export async function setResidentStatus(id: string, status: ResidentStatus) {
+  await api.patch(`/hostel-admin/residents/${id}/status`, { status });
+}
+
+/** Soft-deletes and hands the bed back. Payments and complaints still reference them. */
+export async function deleteResident(id: string) {
+  await api.delete(`/hostel-admin/residents/${id}`);
+}
+
+/**
+ * The per-resident fee override — `PATCH /hostel-admin/residents/fees`.
+ *
+ * **`monthlyFee: null` is the interesting value.** It clears the override and
+ * hands the resident back to the hostel's fee schedule, which is the one thing
+ * a plain number cannot express. Zero is a *deliberate free stay* and survives:
+ * the charge resolver tests for null, not for falsiness.
+ *
+ * Wants `manageFeeSchedule`, which a warden does not have by default.
+ */
+export async function setResidentFee(input: {
+  monthlyFee: number | null;
+  reason?: string;
+  residentIds?: string[];
+}) {
+  await api.patch("/hostel-admin/residents/fees", input);
+}
+
+export type ResidentGuardian = {
+  email: string;
+  firstName: string;
+  id: string;
+  isPrimary: boolean;
+  lastName: string;
+  phone: string;
+  relation: string;
+};
+
+export type ResidentEmergencyContact = {
+  id: string;
+  isPrimary: boolean;
+  name: string;
+  phone: string;
+  relation: string;
+};
+
+export async function listResidentContacts(id: string) {
+  const response = await api.get<
+    ApiEnvelope<{
+      emergencyContacts: ResidentEmergencyContact[];
+      guardians: ResidentGuardian[];
+    }>
+  >(`/hostel-admin/residents/${id}/contacts`);
+
+  return unwrap(response);
+}
+
+export async function addResidentGuardian(
+  id: string,
+  input: {
+    email?: string;
+    firstName: string;
+    isPrimary?: boolean;
+    lastName: string;
+    phone: string;
+    relation: string;
+  },
+) {
+  await api.post(`/hostel-admin/residents/${id}/guardians`, input);
+}
+
+export async function addEmergencyContact(
+  id: string,
+  input: { isPrimary?: boolean; name: string; phone: string; relation: string },
+) {
+  await api.post(`/hostel-admin/residents/${id}/emergency-contacts`, input);
+}
+
+/**
+ * Issues a guardian an access code — `POST .../guardian-access`.
+ *
+ * Every flag is opt-in and defaults false: `allowComplaintStatus` is the only
+ * one this route sets, and the rest of what a guardian may see is the
+ * *resident's* decision, made on their own privacy screen. An admin issuing
+ * access is granting a login, not opening a record.
+ */
+export async function issueGuardianAccess(
+  id: string,
+  input: { allowComplaintStatus?: boolean; expiresInDays?: number; guardianId: string },
+) {
+  const response = await api.post<ApiEnvelope<{ accessCode?: string }>>(
+    `/hostel-admin/residents/${id}/guardian-access`,
+    input,
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * `POST .../activation-code` issues one; `PATCH` reissues, cancelling whatever
+ * was outstanding.
+ *
+ * **The plaintext code is returned exactly once**, in this response — only its
+ * hash is stored — so a screen that does not show it has thrown it away. Email
+ * delivery is best-effort and reports itself in `delivery`: the code is valid
+ * whether or not the mail went, which is why `sendEmail: false` plus reading it
+ * aloud is a supported way to do this.
+ */
+export type ActivationIssue = {
+  activation: { code?: string; expiresAt?: string; id: string; status: string };
+  delivery: { reason?: string; sent: boolean };
+};
+
+export async function issueActivationCode(
+  id: string,
+  input: { expiresInHours?: number; reissue?: boolean; sendEmail?: boolean },
+) {
+  const body = {
+    expiresInHours: input.expiresInHours,
+    sendEmail: input.sendEmail ?? true,
+  };
+
+  const response = input.reissue
+    ? await api.patch<ApiEnvelope<ActivationIssue>>(
+        `/hostel-admin/residents/${id}/activation-code`,
+        body,
+      )
+    : await api.post<ApiEnvelope<ActivationIssue>>(
+        `/hostel-admin/residents/${id}/activation-code`,
+        body,
+      );
+
+  return unwrap(response);
+}
+
+export type MoveInChecklist = {
+  bedCondition: string;
+  completedAt?: string;
+  depositAmount: number;
+  documentsCollected: string[];
+  id: string;
+  itemsProvided: string[];
+  roomCondition: string;
+  roomPhotoAssetIds: string[];
+  rulesAccepted: boolean;
+};
+
+export type MoveOutChecklist = {
+  completedAt?: string;
+  damageNotes: string;
+  depositRefundAmount: number;
+  depositRefundDecision: string;
+  finalReceiptAssetId: string;
+  id: string;
+  itemReturnNotes: string;
+  /** What they still owe, computed by the service rather than typed in. */
+  pendingFeeAmount: number;
+};
+
+export async function getMoveInChecklist(id: string) {
+  const response = await api.get<ApiEnvelope<{ checklist: MoveInChecklist | null }>>(
+    `/hostel-admin/residents/${id}/move-in`,
+  );
+
+  return unwrap(response).checklist;
+}
+
+export async function saveMoveInChecklist(
+  id: string,
+  input: {
+    bedCondition?: string;
+    depositAmount: number;
+    documentsCollected: string[];
+    itemsProvided: string[];
+    roomCondition?: string;
+    roomPhotoAssetIds: string[];
+    rulesAccepted: boolean;
+  },
+) {
+  await api.post(`/hostel-admin/residents/${id}/move-in`, input);
+}
+
+export async function getMoveOutChecklist(id: string) {
+  const response = await api.get<ApiEnvelope<{ checklist: MoveOutChecklist | null }>>(
+    `/hostel-admin/residents/${id}/move-out`,
+  );
+
+  return unwrap(response).checklist;
+}
+
+/**
+ * `POST .../move-out` — the record of what was returned and what was withheld.
+ *
+ * It does **not** on its own set the resident to MOVED_OUT; that is the status
+ * route, and the screen does both so the two never drift apart.
+ */
+export async function saveMoveOutChecklist(
+  id: string,
+  input: {
+    damageNotes?: string;
+    depositRefundAmount: number;
+    depositRefundDecision: "PENDING" | "APPROVED" | "PARTIAL" | "FORFEITED";
+    itemReturnNotes?: string;
+  },
+) {
+  await api.post(`/hostel-admin/residents/${id}/move-out`, input);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Inquiries                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export const INQUIRY_STATUSES = [
+  "NEW",
+  "CONTACTED",
+  "VISIT_SCHEDULED",
+  "CONVERTED",
+  "CLOSED",
+] as const;
+
+export type InquiryStatus = (typeof INQUIRY_STATUSES)[number];
+
+/**
+ * Moving a lead along — `PATCH /hostel-admin/inquiries/{id}/status`.
+ *
+ * `CONVERTED` records that this person took a bed; it does **not** create the
+ * resident. Registering them is a separate act, which is right — the inquiry is
+ * a conversation and the resident is a tenancy — but it means an inquiry marked
+ * converted with nobody registered is a real and invisible state.
+ */
+export async function setInquiryStatus(id: string, status: InquiryStatus) {
+  await api.patch(`/hostel-admin/inquiries/${id}/status`, { status });
+}
+
+/**
+ * `POST /hostel-admin/inquiries/{id}/notes`.
+ *
+ * `nextFollowUpAt` is the reason to use it over remembering: it is what turns
+ * "call them back" into something the hostel can be reminded of.
+ */
+export async function addInquiryNote(
+  id: string,
+  input: { nextFollowUpAt?: string; note: string },
+) {
+  await api.post(`/hostel-admin/inquiries/${id}/notes`, input);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Finance — rates, billing, where money goes, and reconciling it             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The pricing vocabulary, copied from `@hostel/shared/types/bed-type`.
+ *
+ * Mobile does not depend on `packages/shared` — nothing in it is wired into the
+ * Expo bundler — so the five words are restated here. **`bedType` is not
+ * `roomType`:** `roomType` is free text, is what capacity accounting matches on
+ * by string equality, and is what fifteen screens display. `bedType` is the
+ * pricing key a fee schedule and an invoice carry. A hostel can have a room type
+ * called "Boys 3-sharing" priced by the `TRIPLE_SHARING` rate.
+ */
+export const BED_TYPES = [
+  "SINGLE",
+  "DOUBLE_SHARING",
+  "TRIPLE_SHARING",
+  "FOUR_SHARING",
+  "DORMITORY",
+] as const;
+
+export type BedType = (typeof BED_TYPES)[number];
+
+export const BED_TYPE_LABELS: Record<BedType, string> = {
+  DORMITORY: "Dormitory",
+  DOUBLE_SHARING: "Double sharing",
+  FOUR_SHARING: "Four sharing",
+  SINGLE: "Single",
+  TRIPLE_SHARING: "Triple sharing",
+};
+
+export type FeeScheduleRate = { bedType: string; monthlyAmount: number };
+
+/**
+ * A rate card, with the dates it governs.
+ *
+ * `effectiveTo: null` is the open schedule — there is exactly one per hostel and
+ * a partial unique index enforces it.
+ */
+export type FeeSchedule = {
+  _id: string;
+  admissionFee?: number;
+  createdAt?: string;
+  depositAmount?: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  rates: FeeScheduleRate[];
+};
+
+export async function listFeeSchedules() {
+  const response = await api.get<ApiEnvelope<{ schedules: FeeSchedule[] }>>(
+    "/hostel-admin/finance/fee-schedules",
+  );
+
+  return unwrap(response).schedules;
+}
+
+/**
+ * `POST /hostel-admin/finance/fee-schedules`.
+ *
+ * **There is no edit and no PUT, deliberately.** Opening a schedule closes the
+ * current one the day before the new one starts; the old rates stay readable so
+ * an invoice issued from them can be explained rather than merely trusted.
+ * Editing in place would silently rewrite the basis of every invoice already
+ * issued — the behaviour of the bulk fee-setter this replaced.
+ *
+ * At least one rate is required: an empty card prices nobody, and every resident
+ * would fail the next billing run with `BED_TYPE_NOT_PRICED`. Amounts are whole
+ * rupees, checked at three separate gates.
+ */
+export async function createFeeSchedule(input: {
+  admissionFee?: number;
+  depositAmount?: number;
+  /** ISO. */
+  effectiveFrom: string;
+  rates: { bedType: BedType; monthlyAmount: number }[];
+}) {
+  await api.post("/hostel-admin/finance/fee-schedules", input);
+}
+
+export async function closeFeeSchedule(id: string, effectiveTo: string) {
+  await api.post(`/hostel-admin/finance/fee-schedules/${id}/close`, { effectiveTo });
+}
+
+/** `GET .../billing-runs?period=` — what the period looks like now. Reads never bill. */
+export type BillingPeriodSummary = {
+  invoiceCount: number;
+  notBilledResidentIds: string[];
+  period: string;
+  totalBilled: number;
+};
+
+export async function getBillingPeriod(period: string) {
+  const response = await api.get<ApiEnvelope<BillingPeriodSummary>>(
+    "/hostel-admin/finance/billing-runs",
+    { params: { period } },
+  );
+
+  return unwrap(response);
+}
+
+export type BillingRunResult = {
+  billed: {
+    amount: number;
+    creditApplied: number;
+    invoiceId: string;
+    referenceCode: string;
+    residentId: string;
+  }[];
+  failures: { errorCode: string; message: string; residentId: string }[];
+  period: string;
+  skipped: { detail?: string; reason: string; residentId: string }[];
+  totalBilled: number;
+};
+
+/**
+ * Issues a month of invoices — `POST .../billing-runs`.
+ *
+ * **No amount is sent, and that is the point.** The run this replaced took a
+ * `defaultAmount` from the request body and fell back to it whenever a resident
+ * had no fee, which is how somebody got billed a number nobody chose. Amounts
+ * come from the fee schedule and the per-resident override, and from nowhere
+ * else — so a resident with no rate *fails* into `failures` rather than being
+ * quietly billed a guess.
+ *
+ * Re-running a period is safe: already-billed residents land in `skipped`.
+ */
+export async function runBilling(input: {
+  /** ISO. Absent means the last day of the period. */
+  dueDate?: string;
+  /** `YYYY-MM`. */
+  period: string;
+  /** Absent means every billable resident. */
+  residentIds?: string[];
+}) {
+  const response = await api.post<ApiEnvelope<BillingRunResult>>(
+    "/hostel-admin/finance/billing-runs",
+    input,
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * How this hostel takes money.
+ *
+ * Read is `viewPayments`; every write is `managePaymentProfile`. They were split
+ * apart on purpose: the warden who approves payment proofs must not also be able
+ * to change the account the money is asked to go to.
+ *
+ * `payeeVerifiable` is the one field worth understanding. `usable` says
+ * residents have somewhere to send money; `payeeVerifiable` says we can
+ * recognise this hostel on the receipt that comes back. A hostel with only a
+ * static QR is perfectly usable and yet every claim it receives reads UNKNOWN on
+ * the payee — the one check a payer cannot fake is switched off, silently.
+ */
+export type PaymentProfile = {
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankName: string | null;
+  cashApprovalThreshold: number;
+  displayName: string | null;
+  enabledProviders: string[];
+  esewaId: string | null;
+  khaltiId: string | null;
+  lastStatementUploadAt: string | null;
+  payeeVerifiable: boolean;
+  paymentInstructions: string | null;
+  qrPayeeName: string | null;
+  qrPayeeNumber: string | null;
+  qrPayeeSource: "MANUAL" | "OCR" | null;
+  staticQrAssetId: string | null;
+  statementCadenceDays: number;
+  tier: string;
+  usable: boolean;
+};
+
+export async function getPaymentProfile() {
+  const response = await api.get<ApiEnvelope<{ profile: PaymentProfile }>>(
+    "/hostel-admin/finance/payment-profile",
+  );
+
+  return unwrap(response).profile;
+}
+
+export async function updatePaymentProfile(input: {
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankName?: string;
+  cashApprovalThreshold?: number;
+  displayName?: string;
+  esewaId?: string;
+  khaltiId?: string;
+  paymentInstructions?: string;
+  qrPayeeName?: string;
+  qrPayeeNumber?: string;
+  /** Null removes the QR image. */
+  staticQrAssetId?: string | null;
+  statementCadenceDays?: number;
+}) {
+  const response = await api.patch<ApiEnvelope<{ profile: PaymentProfile }>>(
+    "/hostel-admin/finance/payment-profile",
+    input,
+  );
+
+  return unwrap(response).profile;
+}
+
+export const GATEWAY_PROVIDERS = ["ESEWA", "FONEPAY", "KHALTI"] as const;
+
+export type GatewayProviderName = (typeof GATEWAY_PROVIDERS)[number];
+
+/**
+ * One provider's setup.
+ *
+ * The signing secret is **write-only in both directions** — there is no field
+ * that returns one and no code path that could. What comes back is
+ * `{ configured, fingerprint, rotatedAt }`, which is enough to say "a key is
+ * installed and it is this one" without saying what it is.
+ *
+ * `blockedReason` is why this entry cannot be switched on, in words meant for
+ * the owner — a personal wallet is stored and never payable, and the reason says
+ * so rather than the form hiding the option.
+ */
+export type GatewayConfig = {
+  accountKind: string;
+  blockedReason: string | null;
+  enabled: boolean;
+  enabledAt: string | null;
+  health: { detail: string | null; status: string } | null;
+  lastEventAt: string | null;
+  lastVerifiedAt: string | null;
+  merchantCode: string | null;
+  mode: string;
+  payable: boolean;
+  provider: string;
+  secret: { configured: boolean; fingerprint: string | null; rotatedAt: string | null };
+  webhookSecret: {
+    configured: boolean;
+    fingerprint: string | null;
+    rotatedAt: string | null;
+  };
+};
+
+/** Even the read wants `managePaymentProfile` — it lists merchant codes. */
+export async function listGateways() {
+  const response = await api.get<ApiEnvelope<{ gateways: GatewayConfig[] }>>(
+    "/hostel-admin/finance/payment-gateways",
+  );
+
+  return unwrap(response).gateways;
+}
+
+/**
+ * `PUT .../payment-gateways`.
+ *
+ * Omitting `secret` means "leave whatever is stored alone", which is what an
+ * owner editing a merchant code needs — they cannot see the key to retype it. An
+ * empty string is *rejected* rather than read as a deletion: deleting a key is
+ * the DELETE route, and a blank field is far more often a form that failed to
+ * populate.
+ */
+export async function saveGateway(input: {
+  accountKind?: "MERCHANT" | "PERSONAL";
+  enabled?: boolean;
+  merchantCode?: string;
+  mode?: "LIVE" | "SANDBOX";
+  provider: GatewayProviderName;
+  secret?: string;
+  webhookSecret?: string;
+}) {
+  const response = await api.put<ApiEnvelope<{ gateways: GatewayConfig[] }>>(
+    "/hostel-admin/finance/payment-gateways",
+    input,
+  );
+
+  return unwrap(response).gateways;
+}
+
+export async function deleteGateway(provider: GatewayProviderName) {
+  await api.delete("/hostel-admin/finance/payment-gateways", { params: { provider } });
+}
+
+/**
+ * `POST .../invoices/{id}/cash`.
+ *
+ * Compare what the deleted PATCH accepted — `paidAmount`, `paidDate`, `status`
+ * and `paymentMethod`, any of them settable to anything. Here the amount is the
+ * only number the caller supplies, and it arrives with the two facts that make
+ * it answerable months later: **who physically took the money** (frequently not
+ * the person typing) and **which paper receipt it is on**. That receipt number
+ * is also the idempotency key, which is why it cannot be blank.
+ */
+export async function recordCashPayment(
+  invoiceId: string,
+  input: {
+    amount: number;
+    cashReceiptNumber: string;
+    collectedBy: string;
+    note?: string;
+    receivedAt?: string;
+  },
+) {
+  await api.post(`/hostel-admin/finance/invoices/${invoiceId}/cash`, input);
+}
+
+/**
+ * Reverses an invoice. The reason is mandatory (3–500) and is **shown to the
+ * resident verbatim** — a reversal they cannot explain is the same support
+ * disaster as one they were never told about.
+ */
+export async function voidInvoice(invoiceId: string, reason: string) {
+  await api.post(`/hostel-admin/finance/invoices/${invoiceId}/void`, { reason });
+}
+
+export type ResidentLedger = {
+  months: {
+    dueAmount: number;
+    dueDate: string | null;
+    invoiceId: string | null;
+    paidAmount: number;
+    payments: {
+      amount: number;
+      method: string;
+      /** When the money moved per the provider — not when we heard about it. */
+      occurredAt: string;
+      receiptNumber: string | null;
+      settledAt: string | null;
+      transactionCode: string | null;
+    }[];
+    period: string;
+    status: string;
+  }[];
+  resident: {
+    fullName: string;
+    id: string;
+    moveInDate: string | null;
+    phone: string | null;
+    roomType: string | null;
+  };
+  totals: { monthsBilled: number; monthsPaid: number; outstanding: number; paid: number };
+};
+
+/**
+ * `GET /hostel-admin/finance/residents/{id}/ledger` — one person's whole
+ * payment history, month by month from move-in to now.
+ *
+ * The envelope's `data` **is** the ledger. This used to read
+ * `unwrap(response).ledger`, which is what the neighbouring routes look like
+ * ({@link getResident} genuinely returns `{ resident }`) — but this route hands
+ * `successResponse` the ledger itself, so that read was `undefined` and every
+ * caller would have crashed on `.totals`. Nothing called it yet, which is why
+ * nothing had noticed.
+ *
+ * Needs the `viewPayments` capability, so a warden without it gets a 403 —
+ * callers that show this beside non-money facts should catch rather than fail
+ * the whole screen.
+ */
+export async function getResidentLedger(residentId: string) {
+  const response = await api.get<ApiEnvelope<ResidentLedger>>(
+    `/hostel-admin/finance/residents/${residentId}/ledger`,
+  );
+
+  return unwrap(response);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Statement reconciliation                                                   */
+/* -------------------------------------------------------------------------- */
+
+export const STATEMENT_PROVIDERS = ["ESEWA", "KHALTI", "BANK"] as const;
+
+export type StatementProvider = (typeof STATEMENT_PROVIDERS)[number];
+
+export type StatementImport = {
+  errorDetail: string | null;
+  fileName: string | null;
+  matchedCount: number;
+  orphanCount: number;
+  provider: string;
+  rowCount: number;
+  statementImportId: string;
+  status: string;
+  suggestedCount: number;
+  uploadedAt: string;
+};
+
+export async function listStatementImports() {
+  const response = await api.get<ApiEnvelope<{ imports: StatementImport[] }>>(
+    "/hostel-admin/finance/statements",
+  );
+
+  return unwrap(response).imports;
+}
+
+/**
+ * Reads an uploaded statement and runs every credit through the matching ladder.
+ *
+ * Wants `approvePayments`, not `viewPayments`: an import **auto-settles** the
+ * rows whose reference codes verify, so it moves money. The asset must be
+ * uploaded first, `kind: "STATEMENT"`, and it is checked against this hostel.
+ */
+export async function importStatement(input: {
+  assetId: string;
+  provider: StatementProvider;
+}) {
+  const response = await api.post<ApiEnvelope<StatementImport>>(
+    "/hostel-admin/finance/statements",
+    input,
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * The three buckets of one import.
+ *
+ * `matched` is a credit we could tie to an invoice. `orphans` is money that
+ * arrived with nothing naming it, each carrying suggestions.
+ * `approvedNotInStatement` is the one worth reading twice: **a claim a warden
+ * approved that no statement has ever carried.** Payee matching on a screenshot
+ * is best-effort, so the only guarantee the product can make is that the money
+ * either appears in the account or this row appears instead — and it names the
+ * approving warden as well as the resident, because a collusive approval is a
+ * fact about two people.
+ */
+export type ReconciliationView = {
+  buckets: {
+    approvedNotInStatement: {
+      amount: number;
+      approvedAt: string | null;
+      approvedByName: string | null;
+      claimEventId: string;
+      period: string | null;
+      residentId: string;
+      residentName: string;
+      transactionCode: string | null;
+      why: string;
+    }[];
+    claimedNoTransaction: {
+      amount: number;
+      bedLabel: string | null;
+      claimEventId: string;
+      period: string | null;
+      residentName?: string;
+      why?: string;
+    }[];
+    matched: {
+      amount: number;
+      claimEventId: string | null;
+      confirmsClaim: boolean;
+      eventId: string;
+      occurredAt: string;
+      period: string | null;
+      providerTxnId: string | null;
+      referenceCode: string | null;
+      residentName: string;
+      status: string;
+      why: string;
+    }[];
+    orphans: {
+      amount: number;
+      counterpartyName: string | null;
+      eventId: string;
+      occurredAt: string;
+      providerTxnId: string | null;
+      remarks: string | null;
+      suggestions: {
+        confidence: string;
+        invoiceId: string;
+        residentId: string;
+        residentName: string;
+        why: string;
+      }[];
+    }[];
+  };
+  fileName: string | null;
+  matchedTotal: number;
+  provider: string;
+  rowCount: number;
+  statementImportId: string;
+  status: string;
+  uploadedAt: string;
+};
+
+export async function getReconciliation(statementImportId: string) {
+  const response = await api.get<ApiEnvelope<ReconciliationView>>(
+    `/hostel-admin/finance/statements/${statementImportId}`,
+  );
+
+  return unwrap(response);
+}
+
+/** Settles every matched row on one import in a single act. */
+export async function approveMatchedStatement(statementImportId: string) {
+  await api.post(`/hostel-admin/finance/statements/${statementImportId}/approve-matched`, {});
+}
+
+/** Points an orphaned credit at an invoice — the only way that money is claimed. */
+export async function assignOrphanPayment(eventId: string, invoiceId: string) {
+  await api.post(`/hostel-admin/finance/events/${eventId}/assign`, { invoiceId });
+}

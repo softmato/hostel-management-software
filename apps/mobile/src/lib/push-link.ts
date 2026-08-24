@@ -52,7 +52,15 @@ const KNOWN_PATHS = new Set([
   "/(admin)",
   "/community",
   "/(admin)/alerts",
+  /*
+   * Added with the five-tab retab: a push about a payment claim should land on
+   * the tab that can approve it, not on a dashboard. `/(admin)/alerts` stays —
+   * it is still a route, just no longer a tab — because pushes already in
+   * flight from an older server build point at it.
+   */
+  "/(admin)/money",
   "/(admin)/residents",
+  "/(admin)/today",
   "/(browse)",
   "/(cook)",
   "/(guardian)",

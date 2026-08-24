@@ -58,7 +58,18 @@ export type ThemeColors = (typeof palette)[ColorScheme];
  * is. Mirrors `--role-*` in global.css and docs/DESIGN.md.
  */
 export const roleAccent = {
-  ADMIN: { light: "#0891b2", dark: "#22d3ee", soft: "role-admin-soft", token: "role-admin" },
+  /*
+   * Green, not the cyan it shipped with.
+   *
+   * The rule below still holds for every other portal — an accent says which
+   * product you are in — but the hostel admin is not "another product" to the
+   * person holding the phone: it is the same green app they browse hostels in,
+   * signed in with more powers. A cyan chrome under a green brand read as a
+   * second app, and the owner asked for the public palette here. What tells the
+   * portals apart is now the *shape* of each screen, which is where that job
+   * belonged all along — see `admin-shared.tsx`.
+   */
+  ADMIN: { light: "#0a8a4b", dark: "#12a95d", soft: "role-admin-soft", token: "role-admin" },
   COOK: { light: "#ea580c", dark: "#fb923c", soft: "role-cook-soft", token: "role-cook" },
   GUARDIAN: {
     light: "#d97706",
@@ -88,6 +99,35 @@ export const roleAccent = {
 } as const;
 
 export type RoleAccentKey = keyof typeof roleAccent;
+
+/**
+ * The hostel admin Home hero, as gradient stops.
+ *
+ * JS-only by construction — `LinearGradient` takes an array of colour *values*,
+ * not a class — so this is the one token with no `global.css` twin, and both
+ * schemes therefore have to live here or dark mode gets a light-mode header.
+ *
+ * ## It is the brand green now, top to bottom
+ *
+ * It used to run cyan → teal, and the long note that lived here was entirely
+ * about managing the hue shift that travel caused: over a hostel's photograph
+ * the building came out blue at the top and green at the bottom. Both stops are
+ * now the same hue at two depths, so there is no hue to shift and the ramp only
+ * carries light — which is what a gradient on a card should be doing anyway.
+ *
+ * The pair is deliberately shallow. `#0a8a4b` is the brand, `#046b48` is the
+ * same green with the lights down; far enough apart for the hero to read as an
+ * object with a top and a bottom, near enough that the journey is never the
+ * loudest thing on the screen.
+ *
+ * The dark pair is not this rotated darker but a genuinely deep version: white
+ * numerals have to stay the brightest thing on the card, and full-strength
+ * `#12a95d` behind them is close to competing.
+ */
+export const adminHero = {
+  dark: { from: "#0b3f2a", to: "#06301f" },
+  light: { from: "#0a8a4b", to: "#046b48" },
+} as const;
 
 /** Splash background, duplicated in app.json — Expo reads that one before JS boots. */
 export const SPLASH_BACKGROUND = { dark: "#0c0a09", light: "#ffffff" } as const;

@@ -318,6 +318,60 @@ describe("guardian dashboard privacy", () => {
     });
   });
 
+  /*
+   * The dashboard's hostel card shows a cover photo and links to the public
+   * page, so the serializer has to pick the same photo the listing leads with
+   * and hand back a slug *only* when that page actually exists.
+   */
+  it("leads the hostel card with the exterior photo and links a live listing", async () => {
+    setPermissions(null);
+    mocks.hostelFindOne.mockReturnValue(
+      leanResult({
+        _id: new Types.ObjectId(hostelId),
+        contact: { email: "office@sunrise.test", phone: "9812345678" },
+        location: { area: "Baneshwor", city: "Kathmandu" },
+        name: "Sunrise",
+        photos: [
+          { kind: "INTERIOR", url: "https://cdn.test/lobby.jpg" },
+          { kind: "EXTERIOR", url: "https://cdn.test/building.jpg" },
+        ],
+        slug: "sunrise-hostel",
+        status: "PUBLISHED",
+        verificationStatus: "VERIFIED",
+      }),
+    );
+
+    const { dashboard } = await getGuardianDashboard(guardianPrincipal);
+
+    expect(dashboard.hostel?.photoUrl).toBe("https://cdn.test/building.jpg");
+    expect(dashboard.hostel?.slug).toBe("sunrise-hostel");
+    expect(dashboard.hostel?.isVerified).toBe(true);
+  });
+
+  it("withholds the public link and the verified badge until they are earned", async () => {
+    setPermissions(null);
+    mocks.hostelFindOne.mockReturnValue(
+      leanResult({
+        _id: new Types.ObjectId(hostelId),
+        contact: { email: "office@sunrise.test", phone: "9812345678" },
+        location: {},
+        name: "Sunrise",
+        photos: [],
+        slug: "sunrise-hostel",
+        status: "APPROVED",
+        verificationStatus: "PENDING",
+      }),
+    );
+
+    const { dashboard } = await getGuardianDashboard(guardianPrincipal);
+
+    // /hostels/{slug} serves published listings only, so a slug here would draw
+    // the guardian a link straight onto a 404.
+    expect(dashboard.hostel?.slug).toBe("");
+    expect(dashboard.hostel?.isVerified).toBe(false);
+    expect(dashboard.hostel?.photoUrl).toBe("");
+  });
+
   it("only asks for notices addressed to guardians", async () => {
     setPermissions({ canViewNotices: true });
 

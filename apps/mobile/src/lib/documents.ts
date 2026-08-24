@@ -223,3 +223,58 @@ export async function downloadAndShareImage({
   // module. Same trade already taken by `shareDataUrlImage`.
   await Sharing.shareAsync(file.uri, { mimeType });
 }
+
+/**
+ * Downloads an authorised CSV and hands it to the share sheet.
+ *
+ * The report exports are `GET` routes that answer `text/csv` with a
+ * `Content-Disposition` filename, which a browser turns into a download and a
+ * phone turns into nothing at all — there is no download tray to land in. So the
+ * bytes go to the cache directory under a name we choose and the share sheet
+ * takes it from there: mail it to the accountant, drop it in Drive, open it in
+ * whatever spreadsheet app is installed.
+ *
+ * Same shape as {@link downloadAndShare}, which does this for receipt PDFs. The
+ * two are kept apart rather than parameterised on MIME type because the failure
+ * messages differ and both are read by a person mid-task.
+ */
+export async function downloadAndShareCsv({
+  fileName,
+  url,
+}: {
+  /** Without the extension. `.csv` is appended. */
+  fileName: string;
+  url: string;
+}) {
+  const tokens = await readTokens();
+
+  if (!tokens?.accessToken) {
+    throw new Error("You need to be signed in to export this.");
+  }
+
+  const folder = new Directory(Paths.cache, FOLDER);
+
+  if (!folder.exists) {
+    folder.create({ intermediates: true });
+  }
+
+  const target = new File(folder, `${safeFileName(fileName)}.csv`);
+
+  if (target.exists) {
+    target.delete();
+  }
+
+  const file = await File.downloadFileAsync(url, target, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    idempotent: true,
+  });
+
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error("Sharing isn't available on this device.");
+  }
+
+  await Sharing.shareAsync(file.uri, {
+    mimeType: "text/csv",
+    UTI: "public.comma-separated-values-text",
+  });
+}

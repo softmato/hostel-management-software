@@ -773,6 +773,8 @@ Anything discovered while working the list above, appended here rather than fixe
 | 2026-08-19 09:30 | §7.4 cont.: §G the map springing back (owner-reported), §H layer switcher + pin name label | next: still F.3/F.4 on the phone |
 | 2026-08-19 13:45 | §8.1–8.4: CTA-first info screens, both registration wizards native (+ selfie), `/saved`, sectioned settings | next: the [device] camera pass on §8.2/§8.3 |
 | 2026-08-19 14:05 | §9.1–9.3: centred title + share, Location map with grouped nearby, food routine shared with the resident tab | next: [device] pass on §8 camera and §9 map/share |
+| 2026-08-19 18:05 | §10.1–10.7: admin retabbed, Alerts → bell + hidden action queue | — |
+| 2026-08-19 18:15 | §10.8: Community third in every role; admin settles as Home/Residents/Community/Money/More | next: [device] pass on the new tab bars, §8 camera, §9 map/share |
 
 ---
 
@@ -875,3 +877,373 @@ Reported from the device against `/register-hostel`, `/service-providers`,
       can be exercised from here, and nor can a real multipart upload to
       `/public/files/upload`. The next device pass should file one provider
       application end to end and watch the portrait land on the platform review page.
+
+---
+
+## 10. Admin tabs — the five main services (owner decision 2026-08-19)
+
+The admin group shipped as `Overview / Alerts / Residents / More`, which is one
+dashboard, one inbox, one list and a drawer — not a map of the product. The two
+things an owner opens a phone for, **money** and **the day's operations**, had no
+tab at all: claims were buried inside Alerts and food, roll call and notices were
+web links on More.
+
+**The five, mirroring `portal-nav.ts`'s own admin groups** (Dashboard · Residents ·
+Finance · Operations · Growth & System):
+
+| Tab | Route | Portal group it stands for |
+|---|---|---|
+| Home | `(admin)/index` | Dashboard |
+| Residents | `(admin)/residents` | Residents |
+| Community | `(admin)/community` | — (platform-wide, every role) |
+| Money | `(admin)/money` | Finance |
+| More | `(admin)/more` | Growth & System |
+
+**Community is compulsory in every signed-in role and always third** (owner,
+2026-08-19). One platform-wide conversation, not six role-shaped copies, and the
+public bar has always had it dead centre — so the tab does not move when someone
+signs in. That cost the admin bar a slot: **Today** gave it up and is now a route
+reached from Home, and Money took Today's place. Resident gave up **Notices** the
+same way. Guardian, cook and provider had room and simply gained it.
+
+**Alerts stops being a tab.** Its four sources each move next to their own domain —
+claims to Money, complaints and maintenance to Today, inquiries to Residents, SOS
+to a banner on Home — and the catch-all becomes the **notification bell**, the same
+`/notifications` screen the public app already gives every signed-in user
+(`notifyAdminsOfClaim` and the SOS fan-out already write to it, so the feed is real,
+not aspirational). The combined queue survives as a non-tab route for "show me
+everything that needs a decision".
+
+- ☑ **10.1 One queue for the group, and badges off it.** *(2026-08-19)*
+      Not the redux slice the plan called for — a **provider**. `AdminAlertsProvider`
+      in `(admin)/_layout.tsx` holds one `getAdminAlerts()` for every admin screen, and
+      `useAdminAlerts()` hands each tab its own slice. Four screens each fetching would
+      have been sixteen requests for the same four lists, and a badge that was only
+      right on the tab you were already looking at. `TabDef.badge` feeds `tabBarBadge`,
+      but the count is **drawn by `AnimatedTabBar` itself** — `tabBarBadge` is rendered
+      by React Navigation's own bar, and this app does not use it. Same 9+ cap as the
+      header bell. Money badges claims, Residents inquiries, Today complaints; **SOS
+      deliberately has no badge** — it is a banner on Home, and a "1" on a tab is far
+      too quiet for it.
+- ☑ **10.2 The bell, on every admin screen.** *(2026-08-19)*
+      `IconButton` moved out of `discovery-header.tsx` into `components/ui/`, and the
+      new `NotificationBell` wraps it. The public home's hand-rolled bell now uses it
+      too, which **fixed it in passing**: it had no `topics`, so the unread count only
+      moved on refocus. `/notifications` was already role-agnostic
+      (`principal.userId`, no role branch) and `notifyAdminsOfClaim` plus the SOS
+      fan-out already write to it, so an admin's feed was real and simply unreachable
+      without leaving their tabs.
+- ☑ **10.3 Money tab.** *(2026-08-19)*
+      `finance/invoices` (the matrix: totals + one row per resident, billed or not) over
+      the claims queue moved out of Alerts with approve / reject / view-proof intact.
+      Row logic lives in `lib/admin-money.ts` (+9 tests) rather than in the screen: it
+      keeps `NOT_BILLED` **in** the outstanding list — the obvious "has an unpaid
+      invoice" filter hides the worst case, a resident nobody billed, which has no due
+      date and therefore nothing chasing it — clamps `amountOwed` at zero so an
+      overpayment does not render as a negative debt, and breaks sort ties on the name
+      so the list does not reshuffle under a thumb on every refresh. `NOT_BILLED` was
+      added to `lib/status.ts` as **warning**, not neutral.
+      Tapping a row calls them; there is no admin resident screen on mobile and
+      editing an invoice is a portal job.
+- ☑ **10.4 Today — built as a tab, now a route.** *(2026-08-19)*
+      Roll call, complaints, maintenance, food, notices. Two writes, both phone-shaped:
+      **override a night status** (`PATCH …/night-status/{id}/override`, reason
+      required 3–1000 and recorded against the account — it writes over what a resident
+      said about themselves) and **publish a notice** (title + message + urgent only;
+      scheduling, expiry and audience are desk decisions). The override list is not
+      `NIGHT_STATUS_OPTIONS` — that one excludes `NOT_VERIFIED` because a *resident*
+      cannot un-say something, and an admin undoing a mistaken entry is the whole point
+      of the override route. `SOS_TRIGGERED` is in neither: writing it would show an
+      active emergency with nobody alerted.
+      Each of the four sources is loaded tolerantly — `viewNightStatus`, `manageFood`,
+      `manageNotices` and `manageMaintenance` are four separate warden grants, so one
+      403 must not blank the other three sections.
+- ☑ **10.5 Residents tab gains its leads.** *(2026-08-19)*
+      Inquiries sit **above** the roster, tap-to-call. In the old feed they ranked below
+      overdue complaints — a lead that decays in hours waiting behind a queue that runs
+      in days.
+- ☑ **10.6 Home.** *(2026-08-19)*
+      Unacknowledged SOS pinned above the money with its acknowledge button in place,
+      and "Needs attention" rewired to the live queues. **This fixed two wrong numbers:**
+      `report.complaints` is `ComplaintModel.countDocuments(scoped)` — every complaint
+      the hostel has *ever* had — and `report.maintenanceRequests` is every non-deleted
+      request in any status. Both sat under a heading reading "What is open right now".
+      The rows now read `useAdminAlerts().counts`, which is the same data the badges and
+      the destination tabs show, and each row opens the tab that owns it.
+- ☑ **10.7 Retire the Alerts tab.** *(2026-08-19)*
+      `RoleTabs` learned `hidden`, which renders `href: null`. That was not enough on its
+      own: expo-router implements `href: null` as `tabBarItemStyle.display = "none"` plus
+      a null `tabBarButton`, both of which its **default** bar honours and
+      `AnimatedTabBar` had never read — so the route would have appeared as an
+      unlabelled sixth tab. The bar now skips them (flattened, since the option is a
+      `StyleProp`). `alerts.tsx` keeps its place in the group so the tab bar survives the
+      drill-down, reads the shared provider instead of fetching, and is retitled **Action
+      queue** — what is still undecided, as against the bell's record of what was sent.
+      `/(admin)/money` and `/(admin)/today` were added to the push allow-list so a
+      notification about money lands where it can be acted on.
+- ☑ **10.8 Community in every role, third slot.** *(2026-08-19)*
+      A `community.tsx` in all five signed-in groups, each `<CommunityBoard insideTabs />`
+      over the component the public tab already uses. One glyph everywhere —
+      `chatbubbles`, not `people`, which collided with Residents inside the admin bar.
+      Three screens became non-tab routes in the process (`(admin)/today`,
+      `(admin)/alerts`, `(resident)/notices`); each gained an explicit `onBack` to its
+      group's Home rather than `router.back()`, because a bottom-tab navigator's
+      default `backBehavior` is `firstRoute`, not `history`, so plain back would be
+      right only by accident of tab order. Home gained a **Today** row as that
+      screen's front door.
+
+      **Verified:** mobile typecheck clean, lint clean, **745 tests / 51 files**
+      (was 737/50), `expo export --platform android` bundles (6.5 MB).
+      **Open — [device]:** the tab bar itself. Whether the hidden route really is absent
+      from the bar, whether the badge sits right against a 23dp icon, and whether the
+      two new sheets clear the keyboard are all things an emulator screenshot answers
+      and a bundler does not.
+
+## 11. Critique pass on the admin screens *(2026-08-20)*
+
+A hierarchy / density / composition review of the five admin surfaces, run against
+the `critique-visual-hierarchy`, `critique-information-density` and
+`critique-composition` rubrics. Ordered worst first: the two that change what the
+app *can do*, then the four that change what it looks like it can do.
+
+The rule this pass works under was corrected on the day it started: the app owes
+the web **feature parity**, not a copy of its layout. Every web feature must exist
+here; how it looks is a phone problem to be solved for the phone.
+
+- ☑ **11.1 Community moderation, missing entirely.** *(2026-08-20)*
+      The admin Community tab was `<CommunityBoard insideTabs />` and nothing else — the
+      member view of a space its owner is responsible for policing — while the portal has
+      carried `community-moderation-panel.tsx` since Community shipped. Now: a badged
+      shield in the bar opening `(admin)/community-reports`, with the **Reported / Taken
+      down / All** queue, both verdicts and the staff announcement.
+      Four routes, read off the service rather than the panel's hand-written type:
+      `GET /hostel-admin/community?filter=`, `PATCH …/{id}/hide`, `DELETE …/{id}/hide`
+      and `POST /hostel-admin/community`. The last two are worth naming — **`DELETE` is
+      one endpoint doing two jobs.** It clears the flag, clears the hidden marks, sets
+      the post visible and dismisses its open reports, so on a flagged post it means
+      "this is fine" and on a hidden one it means "restore". Same write; the label is
+      computed from `status` because saying *restore* over a post that was never hidden
+      is nonsense.
+      **`serializePost` returns `media` and the web panel's type drops it**, so the portal
+      moderates reported photographs by their caption. The mobile cards render the
+      thumbnails, tappable into the existing asset viewer.
+      A reason is required both ways (3–500, server-enforced) and is checked before the
+      sheet closes. Reason text is *not* shown to the author — it is for the audit entry
+      the service writes, which is why the sheet asks instead of sending a canned string.
+      Gate is `requireHostelStaffPrincipal`, so wardens moderate too; no per-capability
+      flag is involved. `useReportedCount` is tolerant anyway and returns **null** on a
+      failed read, which hides the shield — as distinct from **0**, which shows it
+      unbadged, because "cannot reach the queue" and "the queue is empty" must not look
+      the same.
+      **Verified:** typecheck clean, lint clean, **800 tests / 53 files**,
+      `expo export --platform android` bundles (6.6 MB).
+- ☑ **11.2 Today is buried, and reachable four ways from Home.** *(2026-08-20)*
+      **Owner's call: keep the five tabs and fix what is inside them.** Today stays a
+      route — the slot question was put to the owner with three options and this was the
+      answer, so the Community decision recorded in `(admin)/_layout.tsx` stands.
+      What went is the duplication. Home had four paths to Today: the `Roll call`
+      shortcut on the fold, the `Late complaints` row, the bare `Today` row, and
+      `Tonight → Open roll call`. The last is gone; the Tonight card is chips only now,
+      which is what its own header ("Who is accounted for") already promised. Three
+      remain and each means something different — the *job*, the *queue*, the *screen* —
+      which is the distinction the fourth blurred.
+      Not every card has to be a tap target. This one is an answer, not a question.
+- ☑ **11.3 Home renders the same figure three times.** *(2026-08-20)*
+      `alerts.counts.claim` was drawn by the Payments quick-action badge, the "Payments
+      to check" row and the **Money tab badge** — and the first and third are on screen
+      simultaneously, about forty points apart. Same for `inquiry` across Residents.
+      Separately, the hero's `BannerFacts` printed "This month" and "Still to collect"
+      directly above the Money section, whose entire subject is those two numbers.
+      The rule now: **the tab bar owns counts, the hero owns the lifetime total, the
+      Money section owns the month.** Quick-action badges are gone (they are shortcuts —
+      their job is to be reachable, not to report), and `BannerFacts` with them. That
+      left `BannerFacts` with no callers, so it came out of `admin-shared.tsx`; its
+      fixed-half-width lesson is kept as a note there and the surviving instance of the
+      pattern lives on `AdminMoneyCard`.
+      `ui-preview.tsx` carries its own copy of Home and was updated in step — it is a
+      design-review screen, so a stale one is worse than none.
+- ☑ **11.4 Page views outweighs everything it sits above.** *(2026-08-20)*
+      `publicViewsLast30Days` was `text-2xl`: the second-largest number on Home behind
+      the hero's lifetime total, outweighing every queue count, the collection meter and
+      the roll call. It is the least actionable figure on the screen.
+      All three listing figures are `text-base` in one three-up row now, and the
+      live/draft state moved to the section header's `action` slot — where Money already
+      puts its Chasing/Settled badge, so the two sections finally read as siblings.
+- ☑ **11.5 "Waiting for you" mixes queues, destinations and its own superset.** *(2026-08-20)*
+      Five `AttentionRow`s in one run: three with counts, two without — and one of the
+      two, "Everything that needs a decision", is a *superset* of the three above it,
+      dressed as their fourth sibling. `AttentionRow`'s API already knew the difference
+      ("a row that is a destination rather than a queue") but nothing on screen did.
+      The three queues keep the tinted tile and the count pill. The two doors are
+      `ListRow`s below a **full-width** divider — plain grey glyph, no pill — so the card
+      reads as *what is waiting*, then *where else to go*. The `alerts` screen keeps its
+      only front door in the process, which is why that row was moved rather than cut.
+- ☑ **11.6 Money repeats the filter you are standing in, and has dead rows.** *(2026-08-20)*
+      `invoiceSegment` filters `Overdue`, `Unbilled` and `Paid` on a single
+      `displayStatus`, so a `StatusPill` on those rows printed the segment name back at
+      the reader once per row for the length of the list. It shows in **Owing** only —
+      which is the mixed one (unpaid, partial, pending proof, overdue, never billed) and
+      also the default, so the pill is present exactly where it carries information.
+      The dead rows were worse than they looked: calling is a row's only action, and
+      `ListRow` draws its chevron *in the slot `right` occupies* — which these rows always
+      pass — so a resident with no phone rendered *identically* to one with a phone and
+      silently did nothing when tapped. The subtitle now says "No phone on file".
+      Truthiness rather than `??` on that check, because an empty string arrives as often
+      as an absent key and `onPress` already treated the two the same.
+- ☑ **11.7 Today has three empty states and two paddings.** *(2026-08-20)*
+      One screen, four treatments of one idea: `Card` + `EmptyState`; the same pair with
+      the card's padding switched on the row count; and two sections explaining
+      emptiness in loose `<Text variant="muted">` prose with no title. Two of those were
+      not emptiness at all — they were **permission denials wearing an empty state's
+      clothes**, which tells a warden the hostel has no open requests when what happened
+      is that a box went unticked in Warden Management.
+      `EmptyCard` and `PermissionCard` now live in `ui/states.tsx`. The conditional
+      padding disappears rather than being parameterised: the empty branch is a
+      *different component*, so nothing has to compute an inset. Cards that draw rows
+      still pass `px-4 py-1`, which is a real need and not the thing that was wrong.
+      Food had three outcomes told in two sentences of one `<Text>` — published, nothing
+      published yet, not yours to see. They look different now.
+      `(admin)/money` took the same two components for its two empty branches.
+      **Verified across 11.2–11.7:** typecheck clean, lint clean, **800 tests / 53
+      files**, `expo export --platform android` bundles (6.6 MB).
+      **Open — [device]:** every item in this section is a *visual* judgement and none of
+      it has been seen on a handset. The full-width divider inside the "Waiting for you"
+      card, the hero with its facts row gone, and the three-up listing figures are the
+      three most worth a screenshot.
+
+## 12. "Manage on the web" becomes eight native screens *(2026-08-21)*
+
+The admin **More** tab carried a section called *Manage on the web*: eight rows,
+each one `WebBrowser.openBrowserAsync` into `/{slug}/admin/...`. The file argued
+for it — "a cramped native re-implementation that can do two of its nine columns"
+— and the owner overruled it on 2026-08-21, restating the rule from §11: **the
+app owes the web feature parity.** A row that opens a browser is not an app
+screen. Nine columns is a desktop *layout* problem, not a feature list.
+
+So each row becomes a real screen under `app/manage/`, at the root stack rather
+than inside `(admin)` — the group's file names are its tab bar, and these slide
+over it like every other detail view. `lib/manage-api.ts` holds the routes, read
+off the services and validation schemas rather than the portal's hand-written
+types.
+
+- ☑ **12.1 Rooms** *(2026-08-21)* — `manage/rooms`. Room types as counts, their
+      rents, meal inclusion, vacancies and up to ten photos each.
+      **`PATCH profile` replaces `roomConfigurations` wholesale**, recomputes
+      `capacitySummary` from what it is given, and deletes any ROOM photo whose
+      type is no longer present — so every mutation sends the *whole* array. A
+      delta would wipe the other room types and their photographs.
+      Photos upload `PUBLIC` (a private asset is readable only through the
+      authorising route, so a private gallery is one only its uploader can see)
+      and are stored with the **relative** URL the web sends.
+- ☑ **12.2 Notices** *(2026-08-21)* — `manage/notices`. Category, audience,
+      urgency, a publish date and an expiry, against Today's two-field sheet.
+      Live / scheduled / expired are **computed**, not stored — two date
+      comparisons — which is why a notice moves between them with nobody editing
+      it. There is no DELETE route and none is faked: "Expire now" writes
+      `expiresAt`, so a notice residents have read stops applying rather than
+      stops having existed. A GUARDIANS-only notice sends **no push and no
+      email** (`deliverNoticeBroadcast` skips the fan-out); the option says so,
+      because silence is otherwise indistinguishable from a bug.
+- ☑ **12.3 Food** *(2026-08-21)* — `manage/food`. The week edited a day at a
+      time, meal times, the month-end special and the cook portal.
+      One document, one `PUT`, so the screen holds a **draft** and the Save bar
+      appears only when it differs from what loaded. A meal with no items is
+      *omitted* rather than sent empty — the schema requires at least one item —
+      which is also how a meal is cleared.
+      The portal's "Special Foods" tab is not missing: it is a view of the meals
+      carrying a note, and on a phone the note is already on the card.
+      The cook's name is saved only while the portal is **on** — `updateCookPortal`
+      branches on `enabled` and its disabled path never writes `cookName`, so a
+      Save button there would report success and change nothing.
+- ☑ **12.4 Maintenance** *(2026-08-21)* — `manage/maintenance`. The queue, its
+      five statuses with a note and a cost note, the internal/provider comment
+      split, and the approved-provider directory with its phone numbers.
+      Raising one is **a sentence**: `lib/maintenance-suggest.ts` (a copy of the
+      web's `maintenance-role-suggest.ts`, kept in step deliberately) reads the
+      title, the category, the priority and the trade to call out of what the
+      admin types. 11 tests.
+      No reassign screen, because there is no reassign route:
+      `maintenanceStatusUpdateSchema` has no `providerId`. The list already
+      returns `comments` and `history` inline, so opening a request costs nothing
+      — do not add a detail fetch.
+- ☑ **12.5 Reports** *(2026-08-21)* — `manage/reports`. Money / Operations /
+      Growth over one `reports/overview` call plus the two windowed analytics
+      panels; the four CSV exports go out through the OS share sheet
+      (`downloadAndShareCsv`), since a phone has no download tray.
+      The web's bar chart is a scrolling strip of `View`s — twelve pairs of bars
+      is a layout problem, and every RN chart package brings SVG or a native
+      module to solve it. The seven-column ledger table becomes six rows; the
+      whole thing is what the export is for.
+      Attendance says **when** and never **where**: the analytics are built from
+      zone rows because each ping's coordinates are discarded as it lands.
+- ☑ **12.6 Settings** *(2026-08-21)* — `manage/settings`, `manage/wardens`,
+      `manage/referrals`. Profile, gallery, location (a search box, not a map —
+      `profile/geocode` resolves a pasted `maps.app.goo.gl` link, which a client
+      cannot follow itself), facilities, rules, pricing, the community and
+      attendance switches, and the locked-field change request.
+      Wardens carry the sixteen capability flags with the **three money powers**
+      — reverse, fee schedule, payment profile — marked and off by default; they
+      were split out of one `verifyPayments` flag that let a new warden rewrite
+      any payment on their first day. An unknown key such as the retired
+      `verifyPayments` is **kept and sent back**, because an edit form that
+      dropped it would strip a live warden's access the first time somebody
+      changed their name.
+- ☑ **12.7 Residents** *(2026-08-21)* — `manage/resident/new`,
+      `manage/resident/[id]`, plus the roster tab rewired to reach them.
+      Intake, details, status, activation codes, both checklists, guardians and
+      their logins, emergency contacts, and the fee override. Inquiries got their
+      status and follow-up note on the roster tab, where they already are.
+      Three things the screens say out loud because getting them wrong is silent:
+      a **room-type change moves a bed** and fails if the destination is full;
+      **move-out does not free the bed** — the status does, so the sheet writes
+      both; and the fee override is cleared with **`null`, not `0`**, because
+      zero is a deliberate free stay that `resolveMonthlyCharge` honours.
+      The activation code's plaintext exists **once**, in the issuing response.
+      `(admin)/residents.tsx`'s "no edit affordances" paragraph is gone: every one
+      of those actions is something a person does standing in the building.
+- ☑ **12.8 Finance** *(2026-08-21)* — `manage/finance`, `manage/statements`, plus
+      cash and void on the Money tab's rows.
+      Rate cards (never edited — a new one closes the old the day before it
+      starts, so an old invoice stays explainable), the billing run (**no amount
+      field**: an unpriced resident *fails* rather than being billed a fallback),
+      the payment profile, the three gateways with write-only secrets, and
+      statement reconciliation.
+      Reconciliation is the one worth reading: its **approved-but-never-arrived**
+      bucket is where fraud surfaces, about a week late, and it names the
+      approving warden as well as the resident. `expo-document-picker` was added
+      for the CSV/XLSX upload — the only new dependency in §12, and it is
+      **required lazily**. It is native code and `android/` is checked in, so a
+      top-level import of it throws at module load on any dev client built before
+      it existed; expo-router reports that as "Route is missing the required
+      default export" and the entire screen dies — including the reconciliation
+      work, which is plain HTTP and needs no native code at all. The require sits
+      inside the handler, and the screen says up front when this build cannot
+      open a file browser. Seen on a device 2026-08-21, fixed the same day.
+      Taking cash moved onto the phone because that is where it happens: the
+      amount is the only number the caller supplies, alongside who physically
+      took it and which paper slip it is on (also the idempotency key).
+
+**Verified across 12.1–12.8:** mobile typecheck clean, lint clean, **824 tests /
+55 files** (was 800/53), `expo export --platform android` bundles (6.9 MB, was
+6.6). `lib/web-portal.ts` now has no callers and its header says why.
+- ☑ **12.9 The `(browse)` layout warning, found on the same device run.**
+      *(2026-08-21)*
+      `Layout children must be of type Screen, all other children are ignored.
+      Update Layout Route at: "app/(browse)/_layout"` on every launch. Not from
+      §12 — `RoleTabs` grew `{hidden?.map(...)}` during §11 — but it fires only
+      for the one group that passes no `hidden`, which is `(browse)`.
+      The optional-chaining form renders `undefined` as a child, and **React does
+      not drop those the way everyone assumes**: `mapIntoArray` converts
+      `undefined` to `null` and then runs the callback anyway
+      (`if (null === children) invokeCallback = true`, verified in
+      `react.development.js`). expo-router's `useFilterScreenChildren` gets that
+      null, sees it is not a `Screen`, and warns. `?? []` iterates zero times and
+      says nothing. The reasoning is written at the call site because the naive
+      reading of it is wrong and would be re-introduced otherwise.
+
+**Open — [device]:** first run on a handset found two things, both fixed above:
+statement importing needs a rebuilt binary
+(`npx expo run:android`), and until then that one button is disabled rather than
+the screen being dead. Still unseen: the Rooms photo strip, the reconciliation
+sheet's four segments, and the resident record — the longest sheet stack in the
+app.
