@@ -96,6 +96,14 @@ type StoreSettings = {
   freeDeliveryThreshold: number;
   isOpen: boolean;
   maxOrderTotal: number;
+  deliverySchedule: {
+    cutoffCopy: string;
+    eveningArrivalText: string;
+    eveningCutoffHour: number;
+    morningArrivalText: string;
+    morningCutoffHour: number;
+    timezone: string;
+  };
 };
 
 function text(form: FormData, key: string) {
@@ -168,6 +176,7 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
 
   const productRows = useMemo(() => products.data?.products ?? [], [products.data]);
   const categoryRows = useMemo(() => categories.data?.categories ?? [], [categories.data]);
+  const config = settings.data?.config;
 
   const refresh = useCallback(() => {
     invalidate(PRODUCTS_ENDPOINT);
@@ -358,12 +367,19 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
         deliveryFee: toPaisa(number(form, "deliveryFee")),
         freeDeliveryThreshold: toPaisa(number(form, "freeDeliveryThreshold")),
         maxOrderTotal: toPaisa(number(form, "maxOrderTotal")),
+        deliverySchedule: {
+          eveningArrivalText: text(form, "eveningArrivalText"),
+          eveningCutoffHour: number(form, "eveningCutoffHour", 16),
+          morningArrivalText: text(form, "morningArrivalText"),
+          morningCutoffHour: number(form, "morningCutoffHour", 10),
+          timezone: config?.deliverySchedule.timezone ?? "Asia/Kathmandu",
+          cutoffCopy: config?.deliverySchedule.cutoffCopy ?? "",
+        },
       });
     },
-    [patchSettings],
+    [config, patchSettings],
   );
 
-  const config = settings.data?.config;
   const counts = summary.data?.summary;
 
   return (
@@ -464,6 +480,9 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      {product.images.length === 0 ? (
+                        <SoftBadge tone="amber">No photo</SoftBadge>
+                      ) : null}
                       {product.isFeatured ? (
                         <SoftBadge tone="amber">Featured</SoftBadge>
                       ) : null}
@@ -807,6 +826,7 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
                   label="Delivery estimate"
                   name="deliveryEstimate"
                 />
+                <DeliveryWindowFields schedule={config.deliverySchedule} />
                 <Input
                   defaultValue={toRupees(config.maxOrderTotal)}
                   hint="A guard against a mistyped quantity. Orders above this are refused."
@@ -847,3 +867,69 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
     </div>
   );
 });
+
+function DeliveryWindowFields({
+  schedule,
+}: {
+  schedule: StoreSettings["deliverySchedule"];
+}) {
+  const [morningCutoffHour, setMorningCutoffHour] = useState(
+    String(schedule.morningCutoffHour),
+  );
+  const [eveningCutoffHour, setEveningCutoffHour] = useState(
+    String(schedule.eveningCutoffHour),
+  );
+  const [morningArrivalText, setMorningArrivalText] = useState(
+    schedule.morningArrivalText,
+  );
+  const [eveningArrivalText, setEveningArrivalText] = useState(
+    schedule.eveningArrivalText,
+  );
+
+  const [currentNepalHour] = useState(
+    () => new Date(Date.now() + (5 * 60 + 45) * 60 * 1000).getUTCHours(),
+  );
+  const arrivesText =
+    currentNepalHour < Number(eveningCutoffHour) ? morningArrivalText : eveningArrivalText;
+
+  return (
+    <fieldset className="grid gap-3 rounded-lg border border-border p-4">
+      <legend className="px-1 text-sm font-semibold text-foreground">Delivery windows</legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input
+          label="Morning cutoff (Nepal time)"
+          max="23"
+          min="0"
+          name="morningCutoffHour"
+          onChange={(event) => setMorningCutoffHour(event.target.value)}
+          type="number"
+          value={morningCutoffHour}
+        />
+        <Input
+          label="Evening cutoff (Nepal time)"
+          max="23"
+          min="0"
+          name="eveningCutoffHour"
+          onChange={(event) => setEveningCutoffHour(event.target.value)}
+          type="number"
+          value={eveningCutoffHour}
+        />
+      </div>
+      <Input
+        label="Before evening cutoff, arrives"
+        name="morningArrivalText"
+        onChange={(event) => setMorningArrivalText(event.target.value)}
+        value={morningArrivalText}
+      />
+      <Input
+        label="After evening cutoff, arrives"
+        name="eveningArrivalText"
+        onChange={(event) => setEveningArrivalText(event.target.value)}
+        value={eveningArrivalText}
+      />
+      <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+        An order placed now arrives {arrivesText}.
+      </p>
+    </fieldset>
+  );
+}

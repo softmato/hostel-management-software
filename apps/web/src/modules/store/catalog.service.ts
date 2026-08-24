@@ -6,6 +6,7 @@ import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { StoreCategoryModel } from "@hostel/db/models/StoreCategory";
 import { StoreProductModel } from "@hostel/db/models/StoreProduct";
 import { getStoreConfig } from "@/modules/store/store-config";
+import { deliveryPromise as resolveDeliveryPromise } from "@/modules/store/delivery-window";
 import type { storeProductListQuerySchema } from "@/modules/store/store.validation";
 
 /**
@@ -269,6 +270,7 @@ export async function getStoreHome() {
     config: {
       closedMessage: config.closedMessage,
       currency: config.currency,
+      deliveryPromise: resolveDeliveryPromise(config, new Date()),
       deliveryEstimate: config.deliveryEstimate,
       deliveryFee: config.deliveryFee,
       freeDeliveryThreshold: config.freeDeliveryThreshold,

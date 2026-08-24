@@ -153,6 +153,8 @@ export default function StoreOrderScreen() {
             <Money size="inline" value={rupees(order.total)} />
           </View>
 
+          <Text variant="caption">Delivery promise: {order.deliveryPromise}</Text>
+
           {order.status === "CANCELLED" && order.cancelledReason ? (
             <Text variant="caption">{order.cancelledReason}</Text>
           ) : null}

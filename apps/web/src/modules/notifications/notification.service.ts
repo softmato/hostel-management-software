@@ -91,7 +91,8 @@ function serializeNotification(notification: NotificationRecord) {
     isRead: Boolean(notification.readAt),
     kind,
     /** True while this row is still waiting on the recipient to decide. */
-    needsAction: kind === "ACTION" && (notification.actionState ?? "PENDING") === "PENDING",
+    needsAction:
+      kind === "ACTION" && (notification.actionState ?? "PENDING") === "PENDING",
     priority: notification.priority ?? "NORMAL",
     readAt: notification.readAt?.toISOString(),
     status: notification.status,
@@ -132,7 +133,12 @@ function asRecord(document: unknown): NotificationRecord {
  * a dead Expo endpoint — is allowed to propagate. The worst case is that the
  * recipient sees the row on their next poll instead of instantly.
  */
-async function publishNewNotification(userId: string, document: unknown, category: string) {
+async function publishNewNotification(
+  userId: string,
+  document: unknown,
+  category: string,
+  imageUrl?: string,
+) {
   const record = asRecord(document);
 
   // Not awaited: an Expo round trip can take seconds, and a user is waiting on
@@ -143,6 +149,7 @@ async function publishNewNotification(userId: string, document: unknown, categor
     category,
     data: record.data,
     hostelId: record.hostelId?.toString(),
+    imageUrl,
     notificationId: record._id?.toString(),
     priority: record.priority,
     title: record.title,
@@ -171,7 +178,10 @@ export async function createInAppNotification(input: {
   createdBy?: string;
   data?: Record<string, unknown>;
   hostelId?: string;
+  imageUrl?: string;
   kind?: NotificationKind;
+  /** Let a caller pair the durable bell row with its own richer push payload. */
+  push?: boolean;
   priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   title: string;
   userId: string;
@@ -200,7 +210,14 @@ export async function createInAppNotification(input: {
     userId: input.userId,
   });
 
-  await publishNewNotification(input.userId, notification, input.category);
+  if (input.push !== false) {
+    await publishNewNotification(
+      input.userId,
+      notification,
+      input.category,
+      input.imageUrl,
+    );
+  }
 
   return notification;
 }

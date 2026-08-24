@@ -4,6 +4,7 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { assertHostelAccess } from "@/lib/tenant";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { StoreCartModel } from "@hostel/db/models/StoreCart";
 import { StoreProductModel } from "@hostel/db/models/StoreProduct";
 import {
@@ -13,6 +14,8 @@ import {
   type StoreProductRecord,
 } from "@/modules/store/catalog.service";
 import { getStoreConfig } from "@/modules/store/store-config";
+import { deliveryPromise as resolveDeliveryPromise } from "@/modules/store/delivery-window";
+import { sendPushToUsers } from "@/modules/notifications/push.service";
 import { cartTotals, clampQuantity, lineTotal } from "@/modules/store/store-pricing";
 import type {
   storeCartAddSchema,
@@ -40,6 +43,8 @@ import type {
 
 type AddInput = z.infer<typeof storeCartAddSchema>;
 type UpdateInput = z.infer<typeof storeCartItemUpdateSchema>;
+
+const recentCartPushes = new Map<string, number>();
 
 type CartItemRecord = {
   addedAt?: Date;
@@ -175,7 +180,16 @@ export async function addToCart(
     );
   }
 
-  return { ...(await readCart(hostelId)), clamped: reason === "none" ? null : reason };
+  const result = await readCart(hostelId);
+
+  void notifyCartAdded({
+    principal,
+    product,
+    quantity:
+      result.cart.items.find((item) => item.product.id === product._id.toString())?.quantity ?? 0,
+  });
+
+  return { ...result, clamped: reason === "none" ? null : reason };
 }
 
 /** Absolute quantity. `0` removes the line — see `storeCartItemUpdateSchema`. */
@@ -370,11 +384,84 @@ function publicConfig(config: Awaited<ReturnType<typeof getStoreConfig>>) {
   return {
     closedMessage: config.closedMessage,
     currency: config.currency,
+    deliveryPromise: resolveDeliveryPromise(config, new Date()),
     deliveryEstimate: config.deliveryEstimate,
     deliveryFee: config.deliveryFee,
     freeDeliveryThreshold: config.freeDeliveryThreshold,
     isOpen: config.isOpen,
   };
+}
+
+async function notifyCartAdded(input: {
+  principal: ApiPrincipal;
+  product: StoreProductRecord;
+  quantity: number;
+}) {
+  if (input.quantity <= 0) {
+    return;
+  }
+
+  const key = `${input.principal.userId}:${input.product._id.toString()}`;
+  const now = Date.now();
+  const lastSent = recentCartPushes.get(key);
+
+  if (lastSent && now - lastSent < 30_000) {
+    return;
+  }
+
+  recentCartPushes.set(key, now);
+
+  try {
+    const imageUrl = await publicStoreImageUrl(input.product.images?.[0]);
+    const price = new Intl.NumberFormat("en-NP", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    }).format(input.product.price / 100);
+
+    await sendPushToUsers([input.principal.userId], {
+      body: `${input.product.name} · NPR ${price} / ${input.product.unit ?? "piece"} · ${input.quantity} in cart`,
+      category: "STORE_CART",
+      data: { path: "/(store)/cart" },
+      ...(imageUrl ? { imageUrl } : {}),
+      title: "Added to cart",
+    });
+  } catch {
+    // A cart write must never fail because its optional push could not be built.
+  }
+}
+
+async function publicStoreImageUrl(image?: { assetId?: string; url?: string }) {
+  if (image?.url) {
+    try {
+      const url = new URL(image.url);
+
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return image.url;
+      }
+    } catch {
+      // Fall through to the asset id, if one was supplied.
+    }
+  }
+
+  if (!image?.assetId || !Types.ObjectId.isValid(image.assetId)) {
+    return undefined;
+  }
+
+  const asset = await FileAssetModel.findById(image.assetId)
+    .select("accessLevel key publicUrl")
+    .lean<{ accessLevel?: string; key?: string; publicUrl?: string } | null>();
+
+  if (asset?.accessLevel !== "PUBLIC") {
+    return undefined;
+  }
+
+  if (asset.publicUrl?.startsWith("http://") || asset.publicUrl?.startsWith("https://")) {
+    return asset.publicUrl;
+  }
+
+  const publicBase = process.env.R2_PUBLIC_URL?.replace(/\/+$/, "");
+
+  return publicBase && asset.key ? `${publicBase}/${asset.key.replace(/^\/+/, "")}` : undefined;
 }
 
 function emptyCart(config: Awaited<ReturnType<typeof getStoreConfig>>): {

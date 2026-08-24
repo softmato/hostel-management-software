@@ -16,6 +16,9 @@ import { PlatformSettingModel } from "@hostel/db/models/PlatformSetting";
  */
 export const STORE_CONFIG_KEY = "store";
 
+const DEFAULT_CUTOFF_COPY =
+  "Order by 10 AM for delivery today between 4 PM and 7 PM.\nOrder after 4 PM for delivery tomorrow morning before 7 AM.";
+
 export const storeConfigSchema = z.object({
   /**
    * A currency **code**, not a symbol. The phone maps it through the same
@@ -45,6 +48,32 @@ export const storeConfigSchema = z.object({
     .default("The supply store is closed for now. Please check back soon."),
   /** Rough promise printed under the total at checkout. Free text, not a date. */
   deliveryEstimate: z.string().trim().max(120).default("Delivered in 2–4 working days"),
+  /** Commercial delivery windows resolved on the server at checkout/order time. */
+  deliverySchedule: z
+    .object({
+      morningCutoffHour: z.number().int().min(0).max(23).default(10),
+      morningArrivalText: z
+        .string()
+        .trim()
+        .max(120)
+        .default("today between 4 PM and 7 PM"),
+      eveningCutoffHour: z.number().int().min(0).max(23).default(16),
+      eveningArrivalText: z
+        .string()
+        .trim()
+        .max(120)
+        .default("tomorrow morning before 7 AM"),
+      timezone: z.string().trim().min(1).default("Asia/Kathmandu"),
+      cutoffCopy: z.string().trim().max(300).default(DEFAULT_CUTOFF_COPY),
+    })
+    .default({
+      morningCutoffHour: 10,
+      morningArrivalText: "today between 4 PM and 7 PM",
+      eveningCutoffHour: 16,
+      eveningArrivalText: "tomorrow morning before 7 AM",
+      timezone: "Asia/Kathmandu",
+      cutoffCopy: DEFAULT_CUTOFF_COPY,
+    }),
   /** Hard ceiling on a single order, as a guard against a fat-fingered stepper. */
   maxOrderTotal: z.number().int().min(1_000_00).max(100_000_000).default(5_000_000),
 });

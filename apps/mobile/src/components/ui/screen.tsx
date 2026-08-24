@@ -1,6 +1,11 @@
 import { useFocusEffect } from "expo-router";
 import { type ReactNode, useCallback } from "react";
-import { KeyboardAvoidingView, Platform, RefreshControl, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+  View,
+} from "react-native";
 import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -136,23 +141,25 @@ export function Screen({
     return {
       opacity: 1 - progress,
       // Far enough to clear the screen edge entirely, shadow included.
-      transform: [{ translateY: progress * (FLOATING_CLEARANCE + insets.bottom) }],
+      transform: [
+        { translateY: progress * (FLOATING_CLEARANCE + insets.bottom) },
+      ],
     };
   });
 
   /*
-   * Who owns the bottom inset, in priority order: the tab bar, then a sticky
-   * footer, then the scroll content. Exactly one of them, or the gap doubles.
+   * When a screen has both a sticky footer and tabs, the footer owns the tab
+   * clearance because the tab bar floats over the footer. Otherwise the tab
+   * bar, footer, or scroll content owns the bottom edge, in that order.
    *
    * The tab bar is absolutely positioned — it floats over the content so that
    * hiding it does not reflow the list behind it — which means the content has
    * to reserve the full bar height itself, inset included.
    */
-  const reservedBottom = insideTabs
-    ? TAB_BAR_HEIGHT + insets.bottom + MIN_BOTTOM_PAD
-    : footer
-      ? MIN_BOTTOM_PAD
-      : insets.bottom + MIN_BOTTOM_PAD;
+  const tabClearance = insideTabs ? TAB_BAR_HEIGHT + insets.bottom : 0;
+  const reservedBottom = footer
+    ? MIN_BOTTOM_PAD
+    : (insideTabs ? tabClearance : insets.bottom) + MIN_BOTTOM_PAD;
 
   // A floating action does not occupy layout, so the content has to leave room
   // for it on top of whatever the bottom edge already claimed.
@@ -228,7 +235,11 @@ export function Screen({
         {footer ? (
           <View
             className="border-t border-border bg-background px-5 pt-3"
-            style={{ paddingBottom: Math.max(insets.bottom, MIN_BOTTOM_PAD) }}
+            style={{
+              paddingBottom: insideTabs
+                ? tabClearance + MIN_BOTTOM_PAD
+                : Math.max(insets.bottom, MIN_BOTTOM_PAD),
+            }}
           >
             {footer}
           </View>
@@ -257,7 +268,6 @@ export function Screen({
           {floating}
         </Animated.View>
       ) : null}
-
     </View>
   );
 }

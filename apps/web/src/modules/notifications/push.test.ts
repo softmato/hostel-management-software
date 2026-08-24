@@ -160,6 +160,26 @@ describe("sendPushToUsers", () => {
     expect(message.channelId).toBe("urgent");
     expect(message.priority).toBe("high");
   });
+
+  it("sends a cart image on the quiet cart channel", async () => {
+    tokensResolveTo(["token"]);
+    const fetchMock = expoRespondsWith([{ status: "ok" }]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendPushToUsers(["user-1"], {
+      body: "Mattress · NPR 4,500.00 / piece · 2 in cart",
+      category: "STORE_CART",
+      data: { path: "/(store)/cart" },
+      imageUrl: "https://cdn.example.com/mattress.jpg",
+      title: "Added to cart",
+    });
+
+    const [message] = JSON.parse(fetchMock.mock.calls[0][1].body);
+
+    expect(message.channelId).toBe("cart");
+    expect(message.richContent).toEqual({ image: "https://cdn.example.com/mattress.jpg" });
+    expect(message.data.path).toBe("/(store)/cart");
+  });
 });
 
 describe("deepLinkForNotification", () => {
@@ -188,6 +208,17 @@ describe("deepLinkForNotification", () => {
     expect(deepLinkForNotification({ category: "COMPLAINT" })).toBe(
       "/(resident)/more/complaints",
     );
+  });
+
+  it("routes store pushes to mobile store paths", () => {
+    expect(deepLinkForNotification({ category: "STORE_CART" })).toBe("/(store)/cart");
+    expect(
+      deepLinkForNotification({
+        actionUrl: "/platform/store/orders",
+        category: "STORE_ORDER",
+        data: { orderId: "order-1" },
+      }),
+    ).toBe("/store/order/order-1");
   });
 
   it("falls back to the notification list for an unknown category", () => {

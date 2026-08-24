@@ -160,20 +160,20 @@ export default function StoreCheckoutScreen() {
     <Screen
       footer={
         <View className="gap-3 px-5 pt-3">
-          <View className="flex-row items-center justify-between">
-            <View>
-              <Text variant="caption">Pay on delivery</Text>
-              <Money size="large" value={rupees(totals?.total ?? 0)} />
-            </View>
-
-            <Button
-              className="flex-1 ml-4"
-              label="Place order"
-              loading={placing}
-              onPress={() => void place()}
-              size="lg"
-            />
+          <View>
+            <Text variant="caption">
+              Cash on delivery · {checkout.data?.deliveryPromise?.arrivesText}
+            </Text>
+            <Money size="large" value={rupees(totals?.total ?? 0)} />
           </View>
+
+          <Button
+            className="w-full"
+            label="Place order"
+            loading={placing}
+            onPress={() => void place()}
+            size="lg"
+          />
         </View>
       }
       header={header}
@@ -182,7 +182,9 @@ export default function StoreCheckoutScreen() {
       <View className="gap-6 pb-2 pt-4">
         <View>
           <SectionHeader
-            subtitle={checkout.data?.deliveryEstimate}
+            subtitle={
+              checkout.data?.deliveryPromise?.cutoffText ?? checkout.data?.deliveryEstimate
+            }
             title="Delivery details"
           />
 

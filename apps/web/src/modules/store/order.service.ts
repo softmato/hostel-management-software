@@ -14,10 +14,22 @@ import { StoreCartModel } from "@hostel/db/models/StoreCart";
 import { StoreOrderModel } from "@hostel/db/models/StoreOrder";
 import { StoreProductModel } from "@hostel/db/models/StoreProduct";
 import { UserModel } from "@hostel/db/models/User";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
+import { sendEmail } from "@hostel/shared/email/sender";
+import { storeOrderPlacedBuyerEmail } from "@hostel/shared/email/templates/store/store-order-placed-buyer";
+import { storeOrderReceivedPlatformEmail } from "@hostel/shared/email/templates/store/store-order-received-platform";
+import { formatNpr } from "@hostel/shared/email/templates/store/items-table";
+import {
+  storeOrderStatusBuyerEmail,
+  type StoreBuyerOrderStatus,
+} from "@hostel/shared/email/templates/store/store-order-status-buyer";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { sendPushToUsers } from "@/modules/notifications/push.service";
 import { readCart, resolveStoreHostelId } from "@/modules/store/cart.service";
 import { StoreServiceError, storeObjectId } from "@/modules/store/catalog.service";
 import { getStoreConfig } from "@/modules/store/store-config";
+import { siteUrl } from "@/lib/site";
+import { deliveryPromise as resolveDeliveryPromise } from "@/modules/store/delivery-window";
 import {
   canBuyerCancelStoreOrder,
   canTransitionStoreOrder,
@@ -64,6 +76,7 @@ type OrderItemRecord = {
   name: string;
   productId: Types.ObjectId;
   quantity: number;
+  stockAfterOrder?: number | null;
   unit?: string;
   unitPrice: number;
 };
@@ -82,6 +95,7 @@ type OrderRecord = {
   };
   deliveredAt?: Date;
   deliveryFee: number;
+  deliveryPromise?: string;
   hostelId: Types.ObjectId;
   items: OrderItemRecord[];
   orderNumber: string;
@@ -94,6 +108,8 @@ type OrderRecord = {
   total: number;
   updatedAt?: Date;
 };
+
+export type StoreOrderNotificationRecord = OrderRecord;
 
 /* -------------------------------------------------------------------------- */
 /* Placing                                                                    */
@@ -108,6 +124,7 @@ export async function placeOrder(
 
   const hostelId = resolveStoreHostelId(principal, requestedHostelId);
   const config = await getStoreConfig();
+  const resolvedDeliveryPromise = resolveDeliveryPromise(config, new Date());
 
   if (!config.isOpen) {
     throw new StoreServiceError(config.closedMessage, "STORE_CLOSED", 409);
@@ -147,6 +164,7 @@ export async function placeOrder(
   }
 
   const reserved: { productId: Types.ObjectId; quantity: number }[] = [];
+  const stockAfterOrder = new Map<string, number>();
   let placed: OrderRecord | null = null;
 
   try {
@@ -155,15 +173,18 @@ export async function placeOrder(
         continue;
       }
 
-      const result = await StoreProductModel.updateOne(
+      const result = await StoreProductModel.findOneAndUpdate(
         {
           _id: storeObjectId(line.product.id, "product id"),
           stockQuantity: { $gte: line.quantity },
         },
         { $inc: { stockQuantity: -line.quantity } },
-      );
+        { new: true },
+      )
+        .select("stockQuantity")
+        .lean<{ stockQuantity: number } | null>();
 
-      if (result.modifiedCount === 0) {
+      if (!result) {
         throw new StoreServiceError(
           `${line.product.name} sold out while you were checking out.`,
           "PRODUCT_OUT_OF_STOCK",
@@ -175,6 +196,7 @@ export async function placeOrder(
         productId: storeObjectId(line.product.id, "product id"),
         quantity: line.quantity,
       });
+      stockAfterOrder.set(line.product.id, result.stockQuantity);
     }
 
     const orderNumber = await allocateOrderNumber(hostelId);
@@ -182,6 +204,7 @@ export async function placeOrder(
     placed = (await StoreOrderModel.create({
       delivery: input.delivery,
       deliveryFee: cart.totals.deliveryFee,
+      deliveryPromise: resolvedDeliveryPromise.arrivesText,
       hostelId,
       items: lines.map((line) => ({
         imageAssetId: line.product.images[0]?.assetId ?? "",
@@ -190,6 +213,9 @@ export async function placeOrder(
         name: line.product.name,
         productId: storeObjectId(line.product.id, "product id"),
         quantity: line.quantity,
+        stockAfterOrder: line.product.trackStock
+          ? (stockAfterOrder.get(line.product.id) ?? null)
+          : null,
         unit: line.product.unit,
         unitPrice: line.unitPrice,
       })),
@@ -218,7 +244,7 @@ export async function placeOrder(
   await StoreCartModel.updateOne({ hostelId }, { $set: { items: [] } });
 
   await Promise.all([
-    notifyPlatformOfOrder(placed),
+    notifyOrderPlaced(placed),
     writeAudit("STORE_ORDER_PLACED", placed, principal),
   ]);
 
@@ -322,7 +348,11 @@ export async function cancelOrder(
     note: input.reason ?? "Cancelled by the hostel",
   });
 
-  await writeAudit("STORE_ORDER_CANCELLED", updated, principal);
+  await Promise.all([
+    notifyHostelOfOrderStatus(updated),
+    notifyOrderStatusEmail(updated),
+    writeAudit("STORE_ORDER_CANCELLED", updated, principal),
+  ]);
   await publishResourceChange({
     hostelIds: [order.hostelId.toString()],
     platform: true,
@@ -410,6 +440,7 @@ export async function updateOrderStatus(
 
   await Promise.all([
     notifyHostelOfOrderStatus(updated),
+    notifyOrderStatusEmail(updated),
     writeAudit("STORE_ORDER_STATUS_CHANGED", updated, principal),
   ]);
 
@@ -553,6 +584,7 @@ function serializeOrder(order: OrderRecord) {
       phone: order.delivery.phone,
     },
     deliveryFee: order.deliveryFee,
+    deliveryPromise: order.deliveryPromise ?? "",
     hostelId: order.hostelId.toString(),
     id: order._id.toString(),
     itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
@@ -563,6 +595,7 @@ function serializeOrder(order: OrderRecord) {
       name: item.name,
       productId: item.productId.toString(),
       quantity: item.quantity,
+      stockAfterOrder: item.stockAfterOrder ?? null,
       unit: item.unit ?? "piece",
       unitPrice: item.unitPrice,
     })),
@@ -607,35 +640,211 @@ async function hostelNames(orders: readonly OrderRecord[]) {
  * is a commercial job, the same reasoning that keeps a PLATFORM_MODERATOR off
  * the sponsors screen.
  */
-async function notifyPlatformOfOrder(order: OrderRecord) {
+type OrderRecipients = {
+  buyerEmail?: string;
+  buyerId: string;
+  buyerName: string;
+  hostelName: string;
+  platformEmails: string[];
+  platformIds: string[];
+};
+
+/** Resolve every audience once so email and push cannot drift apart. */
+export async function resolveOrderRecipients(
+  order: OrderRecord,
+): Promise<OrderRecipients> {
+  const [buyer, hostel, staff] = await Promise.all([
+    UserModel.findById(order.placedBy)
+      .select("email name")
+      .lean<{ email?: string; name?: string } | null>(),
+    HostelModel.findById(order.hostelId)
+      .select("name contact.email")
+      .lean<{ contact?: { email?: string }; name: string } | null>(),
+    UserModel.find({ isDeleted: { $ne: true }, role: Role.SUPERADMIN, status: "ACTIVE" })
+      .select("_id email")
+      .lean<{ _id: Types.ObjectId; email?: string }[]>(),
+  ]);
+
+  return {
+    buyerEmail:
+      buyer?.email?.trim().toLowerCase() ?? hostel?.contact?.email?.trim().toLowerCase(),
+    buyerId: order.placedBy.toString(),
+    buyerName: buyer?.name ?? order.delivery.contactName,
+    hostelName: hostel?.name ?? "A hostel",
+    platformEmails: [
+      ...new Set(
+        staff.map((member) => member.email?.trim().toLowerCase()).filter(Boolean),
+      ),
+    ] as string[],
+    platformIds: staff.map((member) => member._id.toString()),
+  };
+}
+
+async function publicOrderImageUrl(item: OrderItemRecord) {
+  if (item.imageUrl?.startsWith("http://") || item.imageUrl?.startsWith("https://")) {
+    return item.imageUrl;
+  }
+
+  if (!item.imageAssetId) {
+    return item.imageUrl || undefined;
+  }
+
+  const asset = await FileAssetModel.findById(item.imageAssetId)
+    .select("accessLevel publicUrl")
+    .lean<{ accessLevel?: string; publicUrl?: string } | null>();
+
+  return asset?.accessLevel === "PUBLIC" && asset.publicUrl?.startsWith("http")
+    ? asset.publicUrl
+    : item.imageUrl || undefined;
+}
+
+async function orderEmailItems(order: OrderRecord) {
+  return Promise.all(
+    order.items.map(async (item) => ({
+      imageUrl: await publicOrderImageUrl(item),
+      lineTotal: item.lineTotal,
+      name: item.name,
+      quantity: item.quantity,
+      stockAfterOrder: item.stockAfterOrder,
+      unit: item.unit ?? "piece",
+      unitPrice: item.unitPrice,
+    })),
+  );
+}
+
+function orderItemCount(order: OrderRecord) {
+  return order.items.reduce((count, item) => count + item.quantity, 0);
+}
+
+/** Emails and pushes are deliberately best-effort; the order is already committed. */
+export async function notifyOrderPlaced(order: OrderRecord) {
   try {
-    const [staff, hostel] = await Promise.all([
-      UserModel.find({ isDeleted: { $ne: true }, role: Role.SUPERADMIN, status: "ACTIVE" })
-        .select("_id")
-        .lean<{ _id: Types.ObjectId }[]>(),
-      HostelModel.findById(order.hostelId).select("name").lean<{ name: string } | null>(),
+    const [recipients, items] = await Promise.all([
+      resolveOrderRecipients(order),
+      orderEmailItems(order),
     ]);
+    const createdAt = order.createdAt?.toISOString() ?? new Date().toISOString();
+    const orderUrl = `${siteUrl()}/store/order/${order._id.toString()}`;
+    const ordersUrl = `${siteUrl()}/platform/store/orders`;
 
     await Promise.all(
-      staff.map((member) =>
+      recipients.platformIds.map((userId) =>
         createInAppNotification({
-          actionUrl: "/platform/store/orders",
-          body: `${hostel?.name ?? "A hostel"} ordered ${order.items.length} ${
-            order.items.length === 1 ? "item" : "items"
-          } — ${order.orderNumber}.`,
+          body: `${orderItemCount(order)} items · ${formatNpr(order.total)} · deliver by ${order.deliveryPromise ?? "the promised window"}.`,
           category: "STORE_ORDER",
           data: { orderId: order._id.toString(), orderNumber: order.orderNumber },
           kind: "ACTION",
           priority: "NORMAL",
-          title: "New supply order",
-          userId: member._id.toString(),
+          push: false,
+          title: `New order · ${recipients.hostelName}`,
+          userId,
         }),
       ),
     );
+
+    const buyerPush = sendPushToUsers([recipients.buyerId], {
+      body: `${orderItemCount(order)} items · ${formatNpr(order.total)} · ${order.deliveryPromise ?? "the promised window"}`,
+      category: "STORE_ORDER",
+      data: { orderId: order._id.toString(), orderNumber: order.orderNumber },
+      imageUrl: items.find((item) => item.imageUrl)?.imageUrl,
+      priority: "NORMAL",
+      title: `Order placed · ${order.orderNumber}`,
+    });
+    const platformPush = sendPushToUsers(recipients.platformIds, {
+      body: `${orderItemCount(order)} items · ${formatNpr(order.total)} · deliver by ${order.deliveryPromise ?? "the promised window"}`,
+      category: "STORE_ORDER",
+      data: { orderId: order._id.toString(), orderNumber: order.orderNumber },
+      priority: "NORMAL",
+      title: `New order · ${recipients.hostelName}`,
+    });
+
+    const buyerEmail = recipients.buyerEmail
+      ? sendEmail({
+          to: recipients.buyerEmail,
+          ...storeOrderPlacedBuyerEmail({
+            address: order.delivery.addressLine,
+            contactName: order.delivery.contactName,
+            createdAt,
+            deliveryFee: order.deliveryFee,
+            deliveryPromise: order.deliveryPromise ?? "the promised window",
+            hostelName: recipients.hostelName,
+            items,
+            note: order.delivery.note,
+            orderNumber: order.orderNumber,
+            orderUrl,
+            phone: order.delivery.phone,
+            subtotal: order.subtotal,
+            total: order.total,
+          }),
+        })
+      : Promise.resolve();
+    const platformEmail = recipients.platformEmails.length
+      ? sendEmail({
+          to: recipients.platformEmails,
+          ...storeOrderReceivedPlatformEmail({
+            address: order.delivery.addressLine,
+            contactName: order.delivery.contactName,
+            deliveryFee: order.deliveryFee,
+            deliveryPromise: order.deliveryPromise ?? "the promised window",
+            hostelName: recipients.hostelName,
+            items,
+            note: order.delivery.note,
+            orderNumber: order.orderNumber,
+            ordersUrl,
+            phone: order.delivery.phone,
+            placedByName: recipients.buyerName,
+            subtotal: order.subtotal,
+            total: order.total,
+          }),
+        })
+      : Promise.resolve();
+
+    await Promise.all([buyerPush, platformPush, buyerEmail, platformEmail]);
   } catch {
-    // An order that was placed successfully must not fail because the bell did.
+    // An order that was placed successfully must not fail because notification delivery did.
   }
 }
+
+export async function notifyOrderStatusEmail(order: OrderRecord) {
+  if (!(storeOrderStatusEmailStatuses as readonly string[]).includes(order.status)) {
+    return;
+  }
+
+  const status = order.status as StoreBuyerOrderStatus;
+
+  try {
+    const [recipients, items] = await Promise.all([
+      resolveOrderRecipients(order),
+      orderEmailItems(order),
+    ]);
+
+    if (!recipients.buyerEmail) {
+      return;
+    }
+
+    const email = storeOrderStatusBuyerEmail({
+      cancelledReason: order.cancelledReason,
+      deliveryPromise: order.deliveryPromise ?? "the promised window",
+      items,
+      note: order.delivery.note,
+      orderNumber: order.orderNumber,
+      orderUrl: `${siteUrl()}/store/order/${order._id.toString()}`,
+      status,
+      total: order.total,
+    });
+
+    await sendEmail({ to: recipients.buyerEmail, ...email });
+  } catch {
+    // Status changes are durable even when Resend or a template lookup is down.
+  }
+}
+
+const storeOrderStatusEmailStatuses = [
+  "CONFIRMED",
+  "SHIPPED",
+  "DELIVERED",
+  "CANCELLED",
+] as const satisfies readonly StoreBuyerOrderStatus[];
 
 /** Tells the person who placed it that it moved. */
 async function notifyHostelOfOrderStatus(order: OrderRecord) {
@@ -701,13 +910,11 @@ export async function getCheckout(principal: ApiPrincipal, requestedHostelId?: s
       .sort({ createdAt: -1 })
       .select("delivery")
       .lean<{ delivery: OrderRecord["delivery"] } | null>(),
-    HostelModel.findById(hostelId)
-      .select("name location contact")
-      .lean<{
-        contact?: { phone?: string };
-        location?: { address?: string; area?: string; city?: string };
-        name: string;
-      } | null>(),
+    HostelModel.findById(hostelId).select("name location contact").lean<{
+      contact?: { phone?: string };
+      location?: { address?: string; area?: string; city?: string };
+      name: string;
+    } | null>(),
     UserModel.findById(principal.userId)
       .select("name phone")
       .lean<{ name?: string; phone?: string } | null>(),
@@ -725,6 +932,7 @@ export async function getCheckout(principal: ApiPrincipal, requestedHostelId?: s
       phone: previous?.delivery.phone ?? hostel?.contact?.phone ?? user?.phone ?? "",
     },
     deliveryEstimate: config.deliveryEstimate,
+    deliveryPromise: resolveDeliveryPromise(config, new Date()),
     /** One member today, sent as a list so the phone renders a picker, not an `if`. */
     paymentMethods: [
       {

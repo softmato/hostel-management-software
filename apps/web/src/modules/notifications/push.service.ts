@@ -35,6 +35,7 @@ type ExpoPushMessage = {
   body: string;
   channelId?: string;
   data: Record<string, unknown>;
+  richContent?: { image: string };
   priority: "default" | "high";
   sound: "default" | null;
   title: string;
@@ -55,6 +56,7 @@ export type PushPayload = {
   category: string;
   data?: Record<string, unknown>;
   hostelId?: string;
+  imageUrl?: string;
   notificationId?: string;
   priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   title: string;
@@ -97,8 +99,9 @@ function authHeaders(): Record<string, string> {
  *
  * `default_v2` and `food_v2` carry the app's own notification tone. The suffix
  * is not decoration: a channel's sound is frozen when Android creates it, so
- * giving those two a sound meant giving them new ids. `urgent` keeps the
- * phone's own alert sound and therefore keeps its id.
+ * giving those two a sound meant giving them new ids. `cart` is deliberately
+ * quiet, and `urgent` keeps the phone's own alert sound and therefore keeps its
+ * id.
  */
 function androidChannel(category: string, priority: PushPayload["priority"]) {
   if (category === "SOS" || category === "URGENT" || priority === "URGENT") {
@@ -107,6 +110,10 @@ function androidChannel(category: string, priority: PushPayload["priority"]) {
 
   if (category === "FOOD") {
     return "food_v2";
+  }
+
+  if (category === "STORE_CART") {
+    return "cart";
   }
 
   return "default_v2";
@@ -255,6 +262,7 @@ export async function sendPushToUsers(
     channelId: androidChannel(payload.category, payload.priority),
     data,
     priority: high ? "high" : "default",
+    ...(payload.imageUrl ? { richContent: { image: payload.imageUrl } } : {}),
     sound: "default",
     title: payload.title,
     to: token,

@@ -44,6 +44,32 @@ npm run web:dev     # http://localhost:3000
 | `npm run db:seed` | Seed/refresh the SUPERADMIN account |
 | `node --experimental-transform-types packages/db/src/migrate-roles.ts` | One-shot legacy→canonical role migration |
 
+## Store Catalogue
+
+The store seed is idempotent and upserts demo products and departments by slug.
+It stores curated Unsplash image URLs by default:
+
+```bash
+npm --prefix apps/web run seed:store
+```
+
+To add photos only to products whose `images` array is empty, use the backfill
+mode. It matches product names and tags and leaves existing artwork untouched:
+
+```bash
+npm --prefix apps/web run seed:store -- --fill-missing
+```
+
+For a deployed catalogue, `--upload` downloads each source URL once, writes the
+bytes to the configured public R2 bucket, creates a public file asset, and stores
+the resulting `assetId` instead of the remote URL. Configure `R2_ENDPOINT`,
+`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_PUBLIC`, and
+`R2_PUBLIC_URL` first:
+
+```bash
+npm --prefix apps/web run seed:store -- --upload
+```
+
 ## Documentation
 
 All product/architecture rules live in [`docs/`](docs/README.md) — read in the order listed there (`PRD.md` → `ARCHITECTURE.md` → `PHASES.md` → `RULES.md` → `MEMORY.md`). The current build phase and running project state are tracked in [`docs/MEMORY.md`](docs/MEMORY.md).

@@ -4,6 +4,7 @@ import { Image, Pressable, TextInput, View } from "react-native";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Grid } from "@/components/ui/layout";
 import { Money } from "@/components/ui/money";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
@@ -57,7 +58,8 @@ export function productImageUri(product: {
     return null;
   }
 
-  const raw = image.url || (image.assetId ? `/api/v1/files/${image.assetId}/url` : "");
+  const raw =
+    image.url || (image.assetId ? `/api/v1/files/${image.assetId}/url` : "");
 
   return raw ? absoluteMediaUrl(raw, API_BASE_URL) : null;
 }
@@ -114,17 +116,20 @@ function ProductArtwork({
  */
 export function ProductCard({
   busy = false,
+  inCart,
   onAdd,
   onPress,
   product,
 }: {
   busy?: boolean;
+  inCart?: number;
   onAdd?: () => void;
   onPress: () => void;
   product: StoreProduct;
 }) {
   const { colors } = useAppTheme();
   const discount = discountPercent(product.price, product.compareAtPrice);
+  const added = inCart !== undefined && inCart > 0;
 
   return (
     <Pressable
@@ -160,7 +165,10 @@ export function ProductCard({
         </View>
 
         <View className="gap-0.5">
-          <Text className="text-[13px] font-semibold text-foreground" numberOfLines={2}>
+          <Text
+            className="text-[13px] font-semibold text-foreground"
+            numberOfLines={2}
+          >
             {product.name}
           </Text>
           <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
@@ -180,7 +188,11 @@ export function ProductCard({
 
           {onAdd ? (
             <Pressable
-              accessibilityLabel={`Add ${product.name} to cart`}
+              accessibilityLabel={
+                added
+                  ? `Add another ${product.name} to cart`
+                  : `Add ${product.name} to cart`
+              }
               accessibilityRole="button"
               accessibilityState={{ busy, disabled: !product.inStock }}
               className={`h-9 w-9 items-center justify-center rounded-xl active:opacity-70 ${
@@ -194,8 +206,14 @@ export function ProductCard({
               }}
             >
               <Ionicons
-                color={product.inStock ? colors.primaryForeground : colors.mutedForeground}
-                name={busy ? "ellipsis-horizontal" : "add"}
+                color={
+                  product.inStock
+                    ? colors.primaryForeground
+                    : colors.mutedForeground
+                }
+                name={
+                  busy ? "ellipsis-horizontal" : added ? "checkmark" : "add"
+                }
                 size={20}
               />
             </Pressable>
@@ -217,16 +235,19 @@ export function ProductCard({
  */
 export function ProductRow({
   busy = false,
+  inCart,
   onAdd,
   onPress,
   product,
 }: {
   busy?: boolean;
+  inCart?: number;
   onAdd?: () => void;
   onPress: () => void;
   product: StoreProduct;
 }) {
   const { colors } = useAppTheme();
+  const added = inCart !== undefined && inCart > 0;
 
   return (
     <Pressable
@@ -236,32 +257,46 @@ export function ProductRow({
       onPress={onPress}
     >
       <Card className="flex-row items-center gap-3" padding="p-3">
-        <View className="h-[72px] w-[72px]">
+        <View className="h-20 w-20">
           <ProductArtwork product={product} radius={12} />
         </View>
 
         <View className="min-w-0 flex-1 gap-1">
-          <Text className="text-sm font-semibold text-foreground" numberOfLines={2}>
+          <Text
+            className="text-sm font-semibold text-foreground"
+            numberOfLines={2}
+          >
             {product.name}
           </Text>
           {product.summary ? (
-            <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+            <Text
+              className="text-[11px] text-muted-foreground"
+              numberOfLines={1}
+            >
               {product.summary}
             </Text>
           ) : null}
           <View className="flex-row items-center gap-2">
             <Money size="inline" value={rupees(product.price)} />
-            <Text className="text-[11px] text-muted-foreground">/ {product.unit}</Text>
+            <Text className="text-[11px] text-muted-foreground">
+              / {product.unit}
+            </Text>
           </View>
         </View>
 
         {onAdd ? (
           <Pressable
-            accessibilityLabel={`Add ${product.name} to cart`}
+            accessibilityLabel={
+              added
+                ? `Add another ${product.name} to cart`
+                : `Add ${product.name} to cart`
+            }
             accessibilityRole="button"
             accessibilityState={{ busy, disabled: !product.inStock }}
             className={`h-9 items-center justify-center rounded-xl border px-3 active:opacity-70 ${
-              product.inStock ? "border-primary/40 bg-brand-soft" : "border-border bg-muted"
+              product.inStock
+                ? "border-primary/40 bg-brand-soft"
+                : "border-border bg-muted"
             }`}
             disabled={!product.inStock || busy}
             onPress={() => {
@@ -274,11 +309,19 @@ export function ProductRow({
                 product.inStock ? "text-primary" : "text-muted-foreground"
               }`}
             >
-              {product.inStock ? "Add" : "Sold out"}
+              {product.inStock
+                ? added
+                  ? `In cart · ${inCart}`
+                  : "Add"
+                : "Sold out"}
             </Text>
           </Pressable>
         ) : (
-          <Ionicons color={colors.mutedForeground} name="chevron-forward" size={16} />
+          <Ionicons
+            color={colors.mutedForeground}
+            name="chevron-forward"
+            size={16}
+          />
         )}
       </Card>
     </Pressable>
@@ -308,7 +351,10 @@ export function CategoryTile({
   const uri = category.imageUrl
     ? absoluteMediaUrl(category.imageUrl, API_BASE_URL)
     : category.imageAssetId
-      ? absoluteMediaUrl(`/api/v1/files/${category.imageAssetId}/url`, API_BASE_URL)
+      ? absoluteMediaUrl(
+          `/api/v1/files/${category.imageAssetId}/url`,
+          API_BASE_URL,
+        )
       : null;
 
   return (
@@ -329,7 +375,11 @@ export function CategoryTile({
       >
         <View className="h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-brand-soft">
           {uri ? (
-            <Image className="h-full w-full" resizeMode="cover" source={{ uri }} />
+            <Image
+              className="h-full w-full"
+              resizeMode="cover"
+              source={{ uri }}
+            />
           ) : (
             <Ionicons
               color={colors.primary}
@@ -402,7 +452,11 @@ export function StoreSearchField({
           hitSlop={10}
           onPress={() => onChangeText("")}
         >
-          <Ionicons color={colors.mutedForeground} name="close-circle" size={17} />
+          <Ionicons
+            color={colors.mutedForeground}
+            name="close-circle"
+            size={17}
+          />
         </Pressable>
       ) : null}
     </View>
@@ -444,7 +498,9 @@ export function QuantityStepper({
   return (
     <View className="h-9 flex-row items-center rounded-xl border border-border bg-card">
       <Pressable
-        accessibilityLabel={atFloor && onRemove ? "Remove from cart" : "Decrease quantity"}
+        accessibilityLabel={
+          atFloor && onRemove ? "Remove from cart" : "Decrease quantity"
+        }
         accessibilityRole="button"
         className="h-full w-9 items-center justify-center active:opacity-60"
         disabled={busy || (atFloor && !onRemove)}
@@ -460,7 +516,11 @@ export function QuantityStepper({
         }}
       >
         <Ionicons
-          color={busy || (atFloor && !onRemove) ? colors.mutedForeground : colors.foreground}
+          color={
+            busy || (atFloor && !onRemove)
+              ? colors.mutedForeground
+              : colors.foreground
+          }
           name={atFloor && onRemove ? "trash-outline" : "remove"}
           size={16}
         />
@@ -503,7 +563,13 @@ export function QuantityStepper({
  * owner edits from a form, and a client that recomputed it would go stale the
  * moment they did.
  */
-export function FreeDeliveryBar({ note, progress }: { note: string; progress: number }) {
+export function FreeDeliveryBar({
+  note,
+  progress,
+}: {
+  note: string;
+  progress: number;
+}) {
   // A resolved token, never a literal. `#0a8a4b` is the light-mode brand green
   // and would stay that exact green in dark mode, where `--primary` is `#12a95d`.
   const { colors } = useAppTheme();
@@ -512,7 +578,9 @@ export function FreeDeliveryBar({ note, progress }: { note: string; progress: nu
     <View className="gap-2 rounded-2xl border border-primary/25 bg-brand-soft px-3.5 py-3">
       <View className="flex-row items-center gap-2">
         <Ionicons color={colors.primary} name="bicycle-outline" size={16} />
-        <Text className="flex-1 text-xs font-semibold text-primary">{note}</Text>
+        <Text className="flex-1 text-xs font-semibold text-primary">
+          {note}
+        </Text>
       </View>
 
       {/* Hidden at 1 — a full bar under "delivery is free" is a bar with
@@ -537,9 +605,9 @@ export function FreeDeliveryBar({ note, progress }: { note: string; progress: nu
  */
 export function ProductGridSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <View className="flex-row flex-wrap" style={{ gap: 12 }}>
+    <Grid gap={12} maxColumns={2} minCellWidth={148}>
       {Array.from({ length: count }, (_, index) => (
-        <View key={index} style={{ width: "48%" }}>
+        <View key={index}>
           <Card className="gap-2.5" padding="p-2.5">
             <Skeleton height={120} radius={IMAGE_RADIUS} />
             <Skeleton height={12} width="80%" />
@@ -547,7 +615,7 @@ export function ProductGridSkeleton({ count = 4 }: { count?: number }) {
           </Card>
         </View>
       ))}
-    </View>
+    </Grid>
   );
 }
 
@@ -611,7 +679,11 @@ export function StoreHeader({
             hitSlop={12}
             onPress={onBack}
           >
-            <Ionicons color={colors.primaryForeground} name="chevron-back" size={26} />
+            <Ionicons
+              color={colors.primaryForeground}
+              name="chevron-back"
+              size={26}
+            />
           </Pressable>
 
           <View className="flex-1">
@@ -622,7 +694,13 @@ export function StoreHeader({
               {title}
             </Text>
             {subtitle ? (
-              <Text style={{ color: colors.primaryForeground, fontSize: 11, opacity: 0.85 }}>
+              <Text
+                style={{
+                  color: colors.primaryForeground,
+                  fontSize: 11,
+                  opacity: 0.85,
+                }}
+              >
                 {subtitle}
               </Text>
             ) : null}
@@ -635,13 +713,19 @@ export function StoreHeader({
               hitSlop={12}
               onPress={onCart}
             >
-              <Ionicons color={colors.primaryForeground} name="cart-outline" size={22} />
+              <Ionicons
+                color={colors.primaryForeground}
+                name="cart-outline"
+                size={22}
+              />
               {cartCount > 0 ? (
                 <View
                   className="absolute -right-2 -top-1.5 h-4 items-center justify-center rounded-full bg-card px-1"
                   style={{ minWidth: 16 }}
                 >
-                  <Text className="text-[10px] font-bold text-primary">{cartCount}</Text>
+                  <Text className="text-[10px] font-bold text-primary">
+                    {cartCount}
+                  </Text>
                 </View>
               ) : null}
             </Pressable>

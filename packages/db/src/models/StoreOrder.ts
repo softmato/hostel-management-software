@@ -41,7 +41,11 @@ const storeOrderSchema = new Schema(
     items: [
       {
         _id: false,
-        productId: { ref: "StoreProduct", required: true, type: Schema.Types.ObjectId },
+        productId: {
+          ref: "StoreProduct",
+          required: true,
+          type: Schema.Types.ObjectId,
+        },
         name: { required: true, trim: true, type: String },
         unit: { default: "piece", trim: true, type: String },
         imageAssetId: { trim: true, type: String },
@@ -51,11 +55,14 @@ const storeOrderSchema = new Schema(
         quantity: { min: 1, required: true, type: Number },
         /** `unitPrice * quantity`, written down for the same reason `total` is. */
         lineTotal: { min: 0, required: true, type: Number },
+        /** Stock snapshot for the fulfilment email; never re-read through productId. */
+        stockAfterOrder: { min: 0, type: Number },
       },
     ],
     subtotal: { min: 0, required: true, type: Number },
     deliveryFee: { default: 0, min: 0, type: Number },
     total: { min: 0, required: true, type: Number },
+    deliveryPromise: { required: true, trim: true, type: String },
     /**
      * Where it goes. Copied off the hostel at placement and then editable on the
      * order, because the hostel's registered address and the gate the delivery
@@ -77,7 +84,14 @@ const storeOrderSchema = new Schema(
     },
     status: {
       default: "PLACED",
-      enum: ["PLACED", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED"],
+      enum: [
+        "PLACED",
+        "CONFIRMED",
+        "PACKED",
+        "SHIPPED",
+        "DELIVERED",
+        "CANCELLED",
+      ],
       type: String,
     },
     timeline: [
@@ -102,4 +116,5 @@ storeOrderSchema.index({ hostelId: 1, createdAt: -1 });
 // The platform's fulfilment queue.
 storeOrderSchema.index({ status: 1, createdAt: -1 });
 
-export const StoreOrderModel = models.StoreOrder || model("StoreOrder", storeOrderSchema);
+export const StoreOrderModel =
+  models.StoreOrder || model("StoreOrder", storeOrderSchema);

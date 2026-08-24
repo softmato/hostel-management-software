@@ -21,9 +21,9 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { useSystemInsets } from "@/hooks/use-system-insets";
 import { readApiError } from "@/lib/api-contract";
-import { addToCart, getStoreProduct } from "@/lib/store-api";
+import { addToCart, getStoreProduct, type StoreProduct } from "@/lib/store-api";
 import { discountPercent, rupees, stepperBounds } from "@/lib/store-format";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { toastError } from "@/lib/toast";
 
 /**
  * One product.
@@ -65,21 +65,16 @@ export default function StoreProductScreen() {
 
   const product = resource.data?.product;
 
-  const add = useCallback(async () => {
-    if (!product) {
-      return;
-    }
-
+  const add = useCallback(async (target: StoreProduct, requestedQuantity: number) => {
     setBusy(true);
 
     try {
-      const result = await addToCart({ productId: product.id, quantity });
+      const result = await addToCart({
+        productId: target.id,
+        quantity: requestedQuantity,
+      });
 
-      cart.bump(quantity);
-      toastSuccess(
-        "Added to cart",
-        `${quantity} × ${product.name}`,
-      );
+      cart.setCart(result);
 
       if (result.clamped) {
         toastError(
@@ -95,7 +90,7 @@ export default function StoreProductScreen() {
       setBusy(false);
       cart.refresh();
     }
-  }, [cart, product, quantity]);
+  }, [cart]);
 
   if (resource.loading) {
     return (
@@ -137,14 +132,14 @@ export default function StoreProductScreen() {
             disabled={!product.inStock}
             label={
               product.inStock
-                ? `Add to cart · NPR ${(
+                ? `${cart.lineQuantities[product.id] ? `In cart · ${cart.lineQuantities[product.id]} · ` : ""}Add · NPR ${(
                     (product.price * quantity) /
                     100
                   ).toLocaleString("en-NP")}`
                 : "Out of stock"
             }
             loading={busy}
-            onPress={() => void add()}
+            onPress={() => void add(product, quantity)}
             size="lg"
           />
         </View>
@@ -258,8 +253,10 @@ export default function StoreProductScreen() {
               showsHorizontalScrollIndicator={false}
             >
               {(resource.data?.related ?? []).map((related) => (
-                <View key={related.id} style={{ width: 158 }}>
+                <View key={related.id} style={{ width: 186 }}>
                   <ProductCard
+                    inCart={cart.lineQuantities[related.id]}
+                    onAdd={() => void add(related, 1)}
                     onPress={() => router.replace(`/store/product/${related.id}`)}
                     product={related}
                   />

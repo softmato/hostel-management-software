@@ -25,7 +25,7 @@ import {
   listStoreProducts,
   type StoreProduct,
 } from "@/lib/store-api";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { toastError } from "@/lib/toast";
 
 /**
  * The shop.
@@ -83,12 +83,10 @@ export default function StoreShopScreen() {
   const add = useCallback(
     async (product: StoreProduct) => {
       setAdding(product.id);
-      cart.bump(1);
 
       try {
         const result = await addToCart({ productId: product.id, quantity: 1 });
-
-        toastSuccess("Added to cart", product.name);
+        cart.setCart(result);
 
         if (result.clamped) {
           // The server capped it. Saying so here is the difference between a
@@ -102,7 +100,6 @@ export default function StoreShopScreen() {
           );
         }
       } catch (error) {
-        cart.bump(-1);
         toastError("Could not add to cart", readApiError(error));
       } finally {
         setAdding(null);
@@ -176,6 +173,7 @@ export default function StoreShopScreen() {
             {(results.data?.products ?? []).map((product) => (
               <ProductRow
                 busy={adding === product.id}
+                inCart={cart.lineQuantities[product.id]}
                 key={product.id}
                 onAdd={() => void add(product)}
                 onPress={() => router.push(`/store/product/${product.id}`)}
@@ -192,13 +190,16 @@ export default function StoreShopScreen() {
             every card is how the cart screen's version stops being noticed.
           */}
           {config && config.freeDeliveryThreshold > 0 ? (
-            <View className="px-5 pt-4">
+            <View className="gap-1 px-5 pt-4">
               <FreeDeliveryBar
                 note={`Free delivery over NPR ${(
                   config.freeDeliveryThreshold / 100
                 ).toLocaleString("en-NP")}`}
                 progress={1}
               />
+              <Text className="px-1" variant="caption">
+                {config.deliveryPromise.cutoffText}
+              </Text>
             </View>
           ) : null}
 
@@ -253,9 +254,10 @@ export default function StoreShopScreen() {
                 showsHorizontalScrollIndicator={false}
               >
                 {(home.data?.featured ?? []).map((product) => (
-                  <View key={product.id} style={{ width: 158 }}>
+                  <View key={product.id} style={{ width: 186 }}>
                     <ProductCard
                       busy={adding === product.id}
+                      inCart={cart.lineQuantities[product.id]}
                       onAdd={() => void add(product)}
                       onPress={() => router.push(`/store/product/${product.id}`)}
                       product={product}
@@ -281,6 +283,7 @@ export default function StoreShopScreen() {
                 {(home.data?.latest ?? []).map((product) => (
                   <ProductRow
                     busy={adding === product.id}
+                    inCart={cart.lineQuantities[product.id]}
                     key={product.id}
                     onAdd={() => void add(product)}
                     onPress={() => router.push(`/store/product/${product.id}`)}

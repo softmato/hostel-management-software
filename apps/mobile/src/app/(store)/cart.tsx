@@ -139,23 +139,29 @@ export default function StoreCartScreen() {
             scroll. A total that scrolls away is a total somebody has to hunt
             for at the exact moment they are deciding whether to commit.
           */}
-          <View className="gap-1.5">
-            <SummaryRow label="Subtotal" value={totals?.subtotal ?? 0} />
-            <SummaryRow
-              free={totals?.deliveryFee === 0}
-              label="Delivery"
-              value={totals?.deliveryFee ?? 0}
-            />
-            <View className="mt-1 flex-row items-center justify-between border-t border-border pt-2">
+          <View>
+            <View className="gap-2">
+              <SummaryRow label="Subtotal" value={totals?.subtotal ?? 0} />
+              <SummaryRow
+                free={totals?.deliveryFee === 0}
+                label="Delivery"
+                value={totals?.deliveryFee ?? 0}
+              />
+            </View>
+            <View className="mt-3 flex-row items-center justify-between border-t border-border pt-3">
               <Text variant="subtitle">Total</Text>
               <Money size="large" value={rupees(totals?.total ?? 0)} />
             </View>
           </View>
 
+          <Text variant="caption">
+            Cash on delivery · {basket?.config.deliveryPromise?.arrivesText}
+          </Text>
+
           <Button
-            label={`Checkout · ${totals?.itemCount ?? 0} ${
-              (totals?.itemCount ?? 0) === 1 ? "item" : "items"
-            }`}
+            label={`Continue to place order · NPR ${(
+              (totals?.total ?? 0) / 100
+            ).toLocaleString("en-NP")}`}
             onPress={() => router.push("/store/checkout")}
             size="lg"
           />
@@ -256,7 +262,7 @@ function CartRow({
       <Pressable
         accessibilityLabel={line.product.name}
         accessibilityRole="button"
-        className="h-[68px] w-[68px] overflow-hidden rounded-xl bg-brand-soft"
+        className="h-[76px] w-[76px] overflow-hidden rounded-xl bg-brand-soft"
         onPress={() => router.push(`/store/product/${line.product.id}`)}
       >
         {uri ? (

@@ -39,6 +39,7 @@ const CATEGORY_PATHS: Record<string, string> = {
   ROOM: "/(resident)/more/profile",
   SERVICE_PROVIDER: "/(provider)",
   SOS: "/(admin)/alerts",
+  STORE_CART: "/(store)/cart",
   URGENT: "/notifications",
 };
 
@@ -55,6 +56,7 @@ export function deepLinkForNotification(input: DeepLinkInput): string {
   // reads as a local path but resolves to another origin, so it must not reach
   // a router or a WebView.
   if (
+    input.category !== "STORE_ORDER" &&
     input.actionUrl &&
     input.actionUrl.startsWith("/") &&
     !input.actionUrl.startsWith("//")
@@ -84,6 +86,10 @@ export function deepLinkForNotification(input: DeepLinkInput): string {
     case "COMMUNITY": {
       const postId = readId(input.data, "postId");
       return postId ? `/community/${postId}` : CATEGORY_PATHS.COMMUNITY;
+    }
+    case "STORE_ORDER": {
+      const orderId = readId(input.data, "orderId");
+      return orderId ? `/store/order/${orderId}` : "/(store)/orders";
     }
     default:
       return CATEGORY_PATHS[input.category] ?? FALLBACK_PATH;

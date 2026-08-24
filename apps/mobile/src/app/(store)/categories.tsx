@@ -23,7 +23,7 @@ import {
   type StoreProduct,
   type StoreProductQuery,
 } from "@/lib/store-api";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { toastError } from "@/lib/toast";
 
 /**
  * Departments, and what is in the one you picked.
@@ -87,13 +87,11 @@ export default function StoreCategoriesScreen() {
   const add = useCallback(
     async (product: StoreProduct) => {
       setAdding(product.id);
-      cart.bump(1);
 
       try {
-        await addToCart({ productId: product.id, quantity: 1 });
-        toastSuccess("Added to cart", product.name);
+        const result = await addToCart({ productId: product.id, quantity: 1 });
+        cart.setCart(result);
       } catch (error) {
-        cart.bump(-1);
         toastError("Could not add to cart", readApiError(error));
       } finally {
         setAdding(null);
@@ -227,6 +225,7 @@ export default function StoreCategoriesScreen() {
           {(products.data?.products ?? []).map((product) => (
             <ProductRow
               busy={adding === product.id}
+              inCart={cart.lineQuantities[product.id]}
               key={product.id}
               onAdd={() => void add(product)}
               onPress={() => router.push(`/store/product/${product.id}`)}

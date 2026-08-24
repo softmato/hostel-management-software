@@ -68,9 +68,16 @@ export type StoreProduct = {
 };
 
 /** The shopper's slice of the platform's store settings. */
+export type StoreDeliveryPromise = {
+  arrivesText: string;
+  cutoffText: string;
+  placedBefore: "morning" | "evening" | "next-day";
+};
+
 export type StoreConfig = {
   closedMessage: string;
   currency: string;
+  deliveryPromise: StoreDeliveryPromise;
   deliveryEstimate: string;
   deliveryFee: number;
   freeDeliveryThreshold: number;
@@ -266,6 +273,7 @@ export type StoreCheckout = {
   cart: Cart;
   /** Pre-filled from the last order, then the hostel record. */
   delivery: StoreDelivery;
+  deliveryPromise: StoreDeliveryPromise;
   deliveryEstimate: string;
   paymentMethods: {
     available: boolean;
@@ -312,6 +320,7 @@ export type StoreOrder = {
   deliveredAt: string | null;
   delivery: StoreDelivery;
   deliveryFee: number;
+  deliveryPromise: string;
   hostelId: string;
   id: string;
   itemCount: number;

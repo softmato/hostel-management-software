@@ -1,8 +1,14 @@
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
 
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
-import { getCartCount } from "@/lib/store-api";
+import { getCart, type CartResult } from "@/lib/store-api";
 
 /**
  * One cart count for the whole store group.
@@ -31,54 +37,72 @@ import { getCartCount } from "@/lib/store-api";
 type StoreCartContextValue = {
   /** Units in the basket, not lines. `3 × mattress` is 3. */
   itemCount: number;
-  /** Optimistic local adjustment, replaced by the next fetch. */
-  bump: (delta: number) => void;
+  /** Current quantities keyed by the live product id. */
+  lineQuantities: Readonly<Record<string, number>>;
+  /** Replace the provider with the complete server response from an add. */
+  setCart: (result: CartResult) => void;
   refresh: () => void;
 };
 
 const StoreCartContext = createContext<StoreCartContextValue | null>(null);
 
 export function StoreCartProvider({ children }: { children: ReactNode }) {
-  const count = useResource(
-    useCallback(() => getCartCount().catch(() => ({ itemCount: 0, lineCount: 0 })), []),
-    { topics: [REALTIME_TOPIC.STORE] },
+  const cart = useResource(
+    useCallback(() => getCart(), []),
+    {
+      topics: [REALTIME_TOPIC.STORE],
+    },
   );
 
-  const { refresh, setData } = count;
+  const { refresh, setData } = cart;
 
-  const bump = useCallback(
-    (delta: number) => {
-      setData((current) =>
-        current
-          ? { ...current, itemCount: Math.max(current.itemCount + delta, 0) }
-          : { itemCount: Math.max(delta, 0), lineCount: delta > 0 ? 1 : 0 },
-      );
-    },
+  const setCart = useCallback(
+    (result: CartResult) => setData(() => result),
     [setData],
   );
 
-  const value = useMemo<StoreCartContextValue>(
-    () => ({ bump, itemCount: count.data?.itemCount ?? 0, refresh }),
-    [bump, count.data?.itemCount, refresh],
+  const lineQuantities = useMemo(
+    () =>
+      Object.fromEntries(
+        (cart.data?.cart.items ?? []).map((line) => [
+          line.product.id,
+          line.quantity,
+        ]),
+      ),
+    [cart.data?.cart.items],
   );
 
-  return <StoreCartContext.Provider value={value}>{children}</StoreCartContext.Provider>;
+  const value = useMemo<StoreCartContextValue>(
+    () => ({
+      itemCount: cart.data?.cart.totals.itemCount ?? 0,
+      lineQuantities,
+      refresh,
+      setCart,
+    }),
+    [cart.data?.cart.totals.itemCount, lineQuantities, refresh, setCart],
+  );
+
+  return (
+    <StoreCartContext.Provider value={value}>
+      {children}
+    </StoreCartContext.Provider>
+  );
 }
 
 /**
  * Never throws when there is no provider.
  *
- * The product screen sits on the **root stack**, not inside the store group — it
- * opens full-bleed over the tab bar, the way the second reference board draws it
- * — so it renders outside this provider and still needs to add to the cart. A
- * no-op `bump` there is correct: there is no badge on screen to keep in step.
+ * Root store detail screens get the same provider through `store/_layout.tsx`.
+ * The no-op fallback remains useful for a component rendered outside either
+ * store layout, without making cart state a global dependency for the app.
  */
 export function useStoreCart(): StoreCartContextValue {
   return (
     useContext(StoreCartContext) ?? {
-      bump: () => {},
       itemCount: 0,
+      lineQuantities: {},
       refresh: () => {},
+      setCart: () => {},
     }
   );
 }
