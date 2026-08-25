@@ -214,8 +214,23 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
   // the panel; the same id binds the claim form, so the two halves of "pay this
   // month" cannot drift onto different invoices.
   const [payingInvoiceId, setPayingInvoiceId] = useState("");
-  /** Which invoice the claim form is open for. "" keeps the form collapsed. */
-  const [claimInvoiceId, setClaimInvoiceId] = useState("");
+  /**
+   * The invoice the claim form is open for — the row itself, not its id.
+   *
+   * It was an id, resolved against `payments` on every render, with the form
+   * rendered only when `payments.find(...)` matched. That made a half-filled
+   * form the property of a background refresh: `payments` is a cached query that
+   * any realtime invalidation re-fetches, and a single response that does not
+   * carry this row unmounts the modal — with the resident's uploaded receipt and
+   * typed transaction id inside it. From where they sit the screen closes by
+   * itself, mid-upload, for no reason they can see.
+   *
+   * Holding the row means the form closes when the resident closes it and at no
+   * other time. The figures are a snapshot of the moment they opened it, which
+   * is what a form about "what you owe for July" wants anyway — an outstanding
+   * total that changes underneath a part-filled claim is its own bug.
+   */
+  const [claimInvoice, setClaimInvoice] = useState<Payment | null>(null);
   const [downloading, setDownloading] = useState(false);
   const invalidate = useInvalidateResources();
 
@@ -295,10 +310,6 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
     };
   }, [payments]);
 
-  const claimInvoice = useMemo(
-    () => payments.find((payment) => payment.id === claimInvoiceId) ?? null,
-    [claimInvoiceId, payments],
-  );
   const claimOutstanding = claimInvoice
     ? Math.max(claimInvoice.dueAmount - claimInvoice.paidAmount, 0)
     : 0;
@@ -342,8 +353,8 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
     return payments.filter((p) => p.status === statusTab);
   }, [payments, statusTab]);
 
-  const openClaimFor = useCallback((invoiceId: string) => {
-    setClaimInvoiceId(invoiceId);
+  const openClaimFor = useCallback((invoice: Payment) => {
+    setClaimInvoice(invoice);
     setPayingInvoiceId("");
   }, []);
 
@@ -374,9 +385,9 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
           credit={credit}
           onPay={() => {
             setPayingInvoiceId(stats.nextDue!.id);
-            setClaimInvoiceId("");
+            setClaimInvoice(null);
           }}
-          onSubmitProof={() => openClaimFor(stats.nextDue!.id)}
+          onSubmitProof={() => openClaimFor(stats.nextDue!)}
           payment={stats.nextDue}
           pendingClaim={pendingProofByPaymentId.get(stats.nextDue.id)}
           rejectedClaim={
@@ -418,9 +429,9 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
           key={claimInvoice.id}
           invoiceId={claimInvoice.id}
           month={claimInvoice.month}
-          onCancel={() => setClaimInvoiceId("")}
+          onCancel={() => setClaimInvoice(null)}
           onSubmitted={(note) => {
-            setClaimInvoiceId("");
+            setClaimInvoice(null);
             setActionMessage(note);
             invalidate(residentEndpoints.payments, residentEndpoints.dashboard);
           }}
@@ -608,7 +619,7 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
                             className="rounded-full border border-role-resident/40 bg-role-resident/10 px-2.5 py-1 text-[10.5px] font-semibold text-role-resident transition hover:bg-role-resident/20"
                             onClick={() => {
                               setPayingInvoiceId(payment.id);
-                              setClaimInvoiceId("");
+                              setClaimInvoice(null);
                             }}
                             type="button"
                           >

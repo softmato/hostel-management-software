@@ -69,7 +69,15 @@ export type LedgerInvoice = {
   method?: string;
   paidAmount: number;
   paidDate?: Date;
-  period: string;
+  /**
+   * `null` for a one-off — an admission fee, a fine, a deposit adjustment.
+   * `Invoice.period` is nullable by design (see the model) and this type used to
+   * claim otherwise, which is how a period-less invoice reached a `localeCompare`
+   * sort in `getPeriodSummary` and pushed a phantom month to the front of the
+   * roll-up. Consumers already wrote `invoice.period ?? …`; the type now agrees
+   * with them.
+   */
+  period: string | null;
   remarks?: string;
   residentId: string;
   status: string;
@@ -269,7 +277,7 @@ type LedgerInvoiceRow = {
   method?: string;
   paidAmount: number;
   paidDate?: Date;
-  period: string;
+  period: string | null;
   residentId: Types.ObjectId;
   status: string;
   totalAmount: number;

@@ -215,6 +215,146 @@ describe("resident management service behavior", () => {
     expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
   });
 
+  /**
+   * The defect, reported from the field: an intake hit the phone conflict above,
+   * the admin changed the number and pressed save again, and the same person was
+   * taken onto the roll twice on one mailbox. Nothing downstream survives that —
+   * `linkResidentAccount` refuses the second profile with
+   * `ACCOUNT_ALREADY_LINKED`, so the duplicate can never be given a login and
+   * shows as a resident who cannot sign in.
+   */
+  it("rejects a second resident on an email already registered at the hostel", async () => {
+    serviceMocks.residentFindOne.mockReturnValueOnce(
+      queryResult(residentRecord({ email: "asha@example.com", phone: "9811111111" })),
+    );
+
+    await expect(
+      createResident(
+        {
+          depositAmount: 5000,
+          email: "Asha@Example.com",
+          firstName: "Asha",
+          lastName: "Rai",
+          moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+          phone: "9800000000",
+          residentType: "STUDENT" as const,
+          roomType,
+          status: "PENDING",
+        },
+        staffPrincipal,
+      ),
+    ).rejects.toMatchObject({ errorCode: "RESIDENT_EMAIL_TAKEN", status: 409 });
+    expect(serviceMocks.claimBedForRoomType).not.toHaveBeenCalled();
+    expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
+  });
+
+  it("looks the email up lower-cased, the way it is stored", async () => {
+    // `Resident.email` carries `lowercase: true`. A query built from raw form
+    // input would miss `Asha@Gmail.com` against the `asha@gmail.com` on the roll
+    // and let the duplicate straight through.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+
+    await createResident(
+      {
+        depositAmount: 5000,
+        email: "  Asha@Example.COM ",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "PENDING",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.residentFindOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $or: [{ phone: "9800000000" }, { email: "asha@example.com" }],
+      }),
+    );
+  });
+
+  it("asks for the phone and the email in one query", async () => {
+    // Intake is the slowest path in the portal — the admin who reported this
+    // said so before they said anything about duplicates. A second round trip
+    // for the second field would be paid on every registration.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+
+    await createResident(
+      {
+        depositAmount: 5000,
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "PENDING",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.residentFindOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not collide two residents who simply have no email", async () => {
+    // The common case: a hostel that registers by phone alone. `$or` must not
+    // appear at all, or every second resident matches the first on a missing
+    // field.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+
+    await createResident(
+      {
+        depositAmount: 5000,
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "PENDING",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.residentFindOne).toHaveBeenCalledWith(
+      expect.not.objectContaining({ $or: expect.anything() }),
+    );
+  });
+
+  it("names the field the unique index actually rejected", async () => {
+    // Two intakes racing land on the index, not on the check above. Mapping
+    // every E11000 to the phone would tell an admin to change a number that was
+    // never the problem.
+    serviceMocks.residentCreate.mockRejectedValueOnce(
+      Object.assign(new Error("E11000"), {
+        code: 11000,
+        keyPattern: { email: 1, hostelId: 1 },
+      }),
+    );
+
+    await expect(
+      createResident(
+        {
+          depositAmount: 5000,
+          email: "asha@example.com",
+          firstName: "Asha",
+          lastName: "Rai",
+          moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+          phone: "9800000000",
+          residentType: "STUDENT" as const,
+          roomType,
+          status: "PENDING",
+        },
+        staffPrincipal,
+      ),
+    ).rejects.toMatchObject({ errorCode: "RESIDENT_EMAIL_TAKEN", status: 409 });
+    expect(serviceMocks.releaseBedForRoomType).toHaveBeenCalled();
+  });
+
   it("hands the bed back when creating the resident fails", async () => {
     serviceMocks.residentCreate.mockRejectedValueOnce(new Error("duplicate phone"));
 

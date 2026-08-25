@@ -11,7 +11,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useSyncExternalStore } from "react";
+import { memo, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
 import { formatBytes } from "@/lib/uploads/accepts";
@@ -404,10 +404,46 @@ function useIsHydrated() {
   );
 }
 
+/**
+ * Whether a modal dialog is currently on screen.
+ *
+ * The stack normally sits on the bottom edge, which is also where a dialog pins
+ * its primary action — and the two are not in the same tree, so the toast wins
+ * the hit test. On a phone that put the *upload* toast squarely over the
+ * `Submit proof` button of the modal that started the upload: the resident
+ * pressed Submit and pressed the toast instead. (What that used to cost them is
+ * why `dialog.tsx` now refuses to close on an interaction inside here.)
+ *
+ * Read from the DOM rather than from a store, because a dialog is nobody's
+ * child: `DialogContent` portals to `<body>`, this portals to `<body>`, and
+ * neither knows the other exists. The observer only has to *fire* — the query
+ * that follows searches the whole document — so a portal wrapper appearing
+ * between Radix versions cannot make it miss.
+ */
+function useModalDialogOpen() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const read = () =>
+      setOpen(Boolean(document.querySelector('[data-slot="dialog-content"]')));
+
+    read();
+
+    const observer = new MutationObserver(read);
+
+    observer.observe(document.body, { childList: true });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return open;
+}
+
 export function Toaster() {
   const toasts = useToastStore((state) => state.toasts);
   const uploads = useUploadStore((state) => state.items);
   const hydrated = useIsHydrated();
+  const dialogOpen = useModalDialogOpen();
 
   if (!hydrated || (toasts.length === 0 && uploads.length === 0)) {
     return null;
@@ -420,7 +456,19 @@ export function Toaster() {
   return createPortal(
     <div
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[2147483000] flex flex-col items-end gap-2 p-3 sm:inset-x-auto sm:right-4 sm:bottom-4 sm:left-auto sm:top-auto sm:p-0"
+      // Read by `dialog.tsx`: an interaction in here is not the user clicking
+      // away from a dialog, however far outside its tree this portal sits.
+      data-app-toaster=""
+      className={cn(
+        "pointer-events-none fixed inset-x-0 z-[2147483000] flex flex-col items-end gap-2 p-3 sm:inset-x-auto sm:right-4 sm:left-auto sm:p-0",
+        // Above the dialog rather than on its action. The top edge is the only
+        // one a dialog does not pin anything important to — the close X lives
+        // there, but Cancel, Escape and the backdrop all still close it, while a
+        // covered Submit has no second way to be pressed.
+        dialogOpen
+          ? "top-0 bottom-auto sm:top-4 sm:bottom-auto"
+          : "bottom-0 top-auto sm:bottom-4 sm:top-auto",
+      )}
     >
       <div className="flex w-full max-w-full flex-col gap-2 sm:w-[352px]">
         {toasts.map((item) => (

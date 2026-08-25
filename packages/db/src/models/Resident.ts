@@ -103,6 +103,22 @@ residentSchema.index(
   { hostelId: 1, phone: 1 },
   { partialFilterExpression: { isDeleted: false }, unique: true },
 );
+// The same rule for the mailbox, and it is the stronger of the two: `email` is
+// what `linkResidentAccount` turns into a login, and one account may hold only
+// one live resident profile. Without this the roll happily took two residents on
+// one address — which is exactly what happened when an admin hit the phone
+// conflict above, changed the number, and submitted the same person again.
+//
+// `email` is optional, so the filter requires a string as well as a live record:
+// a plain sparse index would still let two residents share `null`, and a plain
+// unique one would forbid the second resident who simply has no email.
+residentSchema.index(
+  { hostelId: 1, email: 1 },
+  {
+    partialFilterExpression: { isDeleted: false, email: { $type: "string" } },
+    unique: true,
+  },
+);
 residentSchema.index({ hostelId: 1, status: 1 });
 residentSchema.index({ hostelId: 1, roomType: 1 });
 residentSchema.index({ userId: 1, status: 1 });

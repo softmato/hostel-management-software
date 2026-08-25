@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BedDouble,
   Building2,
   Home,
   ImagePlus,
@@ -11,7 +10,6 @@ import {
   Phone,
   ShieldAlert,
   Trash2,
-  UtensilsCrossed,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -64,8 +62,6 @@ type SectionId =
   | "identity"
   | "location"
   | "contact"
-  | "rooms"
-  | "food"
   | "photos"
   | "requests";
 
@@ -78,7 +74,14 @@ type SectionDef = {
 
 /**
  * Order matters — this is the left rail, read top to bottom as "what is this
- * hostel / where is it / how do we reach it / what does it sell".
+ * hostel / where is it / how do we reach it / what does it look like".
+ *
+ * **Rooms & Pricing and Food used to sit between Contact and Photos.** Both were
+ * a second, weaker copy of a screen that already owns the data — room types and
+ * rent belong to Rooms & Beds and the fee schedule, meals to Food & Menu — and
+ * two editors for one field is how the two disagree. Facilities and house rules
+ * were the only things in either section with no other home, so they moved up
+ * into Identity rather than leaving with it.
  */
 const SECTIONS: SectionDef[] = [
   {
@@ -88,7 +91,7 @@ const SECTIONS: SectionDef[] = [
     label: "Overview",
   },
   {
-    description: "The name and building details shown on your public listing.",
+    description: "Name, building details, facilities and rules for your listing.",
     icon: Building2,
     id: "identity",
     label: "Identity",
@@ -106,18 +109,6 @@ const SECTIONS: SectionDef[] = [
     label: "Contact",
   },
   {
-    description: "Room types, facilities, house rules and monthly rent.",
-    icon: BedDouble,
-    id: "rooms",
-    label: "Rooms & Pricing",
-  },
-  {
-    description: "Meals served and dietary options.",
-    icon: UtensilsCrossed,
-    id: "food",
-    label: "Food",
-  },
-  {
     description: "Exterior and interior photos for the public gallery.",
     icon: ImagePlus,
     id: "photos",
@@ -132,13 +123,7 @@ const SECTIONS: SectionDef[] = [
 ];
 
 /** Sections whose fields belong to the single profile form and one save press. */
-const FORM_SECTIONS = new Set<SectionId>([
-  "identity",
-  "location",
-  "contact",
-  "rooms",
-  "food",
-]);
+const FORM_SECTIONS = new Set<SectionId>(["identity", "location", "contact"]);
 
 /**
  * A file the admin just picked, rendered from a local object URL so the grid
@@ -624,12 +609,6 @@ export const HostelAdminProfilePageContent = memo(
               },
               description: optionalField(form, "description"),
               facilities: csvField(form, "facilities"),
-              food: {
-                hasNonVeg: form.get("hasNonVeg") === "on",
-                hasVeg: form.get("hasVeg") === "on",
-                mealsPerDay: numberField(form, "mealsPerDay"),
-                notes: optionalField(form, "foodNotes"),
-              },
               hostelType: field(form, "hostelType"),
               location: {
                 address: optionalField(form, "address"),
@@ -647,11 +626,15 @@ export const HostelAdminProfilePageContent = memo(
                   : {}),
               },
               ...(nameLocked ? {} : { name: field(form, "name") }),
-              pricing: {
-                monthlyRentMax: numberField(form, "monthlyRentMax"),
-                monthlyRentMin: numberField(form, "monthlyRentMin"),
-              },
-              roomTypes: csvField(form, "roomTypes"),
+              /*
+                **`food`, `pricing` and `roomTypes` are deliberately not sent.**
+                Their inputs left with the Rooms & Pricing and Food sections, and
+                every key in this body is written unconditionally — so keeping
+                them here would post an empty room-type list, a blank rent range
+                and `hasVeg: false` on every save, quietly wiping fields this form
+                no longer even shows. The PATCH schema makes each one optional,
+                so omitting them leaves what the hostel already has.
+              */
               rules: csvField(form, "rules"),
               totalFloors: numberField(form, "totalFloors"),
             }),
@@ -851,6 +834,42 @@ export const HostelAdminProfilePageContent = memo(
                       />
                     </SettingsBlock>
                   </FieldGroup>
+
+                  {/*
+                    These two came off the Rooms & Pricing section when it was
+                    removed, and they are here rather than gone because neither
+                    is about rooms or about money: they are listing copy, and
+                    this form is the only place in the portal that edits them.
+                    Room types and the rent range left with that section — those
+                    are owned by Rooms & Beds and by the fee schedule.
+                  */}
+                  <FieldGroup
+                    hint="Comma separated. These drive the filters seekers use."
+                    title="What you offer"
+                  >
+                    <SettingsRow
+                      description="e.g. WiFi, Hot water, Study table"
+                      label="Facilities"
+                    >
+                      <Input
+                        defaultValue={hostel.facilities.join(", ")}
+                        label={null}
+                        name="facilities"
+                        placeholder="WiFi, Hot water, Study table"
+                      />
+                    </SettingsRow>
+                    <SettingsRow
+                      description="e.g. No smoking, Gate closes 9pm"
+                      label="House rules"
+                    >
+                      <Input
+                        defaultValue={hostel.rules.join(", ")}
+                        label={null}
+                        name="rules"
+                        placeholder="No smoking, Gate closes 9pm"
+                      />
+                    </SettingsRow>
+                  </FieldGroup>
                 </SectionBody>
 
                 <SectionBody
@@ -963,123 +982,6 @@ export const HostelAdminProfilePageContent = memo(
                         type="email"
                       />
                     </SettingsRow>
-                  </FieldGroup>
-                </SectionBody>
-
-                <SectionBody
-                  active={activeSection === "rooms"}
-                  section={sectionById.rooms}
-                >
-                  <FieldGroup
-                    hint="Comma separated. These drive the filters seekers use."
-                    title="What you offer"
-                  >
-                    <SettingsRow
-                      description="e.g. Single, Two Sharing, Four Sharing"
-                      label="Room types"
-                    >
-                      <Input
-                        defaultValue={hostel.roomTypes.join(", ")}
-                        label={null}
-                        name="roomTypes"
-                        placeholder="Single, Two Sharing, Four Sharing"
-                      />
-                    </SettingsRow>
-                    <SettingsRow
-                      description="e.g. WiFi, Hot water, Study table"
-                      label="Facilities"
-                    >
-                      <Input
-                        defaultValue={hostel.facilities.join(", ")}
-                        label={null}
-                        name="facilities"
-                        placeholder="WiFi, Hot water, Study table"
-                      />
-                    </SettingsRow>
-                    <SettingsRow
-                      description="e.g. No smoking, Gate closes 9pm"
-                      label="House rules"
-                    >
-                      <Input
-                        defaultValue={hostel.rules.join(", ")}
-                        label={null}
-                        name="rules"
-                        placeholder="No smoking, Gate closes 9pm"
-                      />
-                    </SettingsRow>
-                  </FieldGroup>
-
-                  <FieldGroup
-                    hint="The range shown on your listing card, in NPR per month."
-                    title="Monthly rent"
-                  >
-                    <SettingsRow label="Minimum rent">
-                      <Input
-                        defaultValue={hostel.pricing?.monthlyRentMin}
-                        label={null}
-                        name="monthlyRentMin"
-                        type="number"
-                      />
-                    </SettingsRow>
-                    <SettingsRow label="Maximum rent">
-                      <Input
-                        defaultValue={hostel.pricing?.monthlyRentMax}
-                        label={null}
-                        name="monthlyRentMax"
-                        type="number"
-                      />
-                    </SettingsRow>
-                  </FieldGroup>
-                </SectionBody>
-
-                <SectionBody active={activeSection === "food"} section={sectionById.food}>
-                  <FieldGroup title="Meals">
-                    <SettingsRow
-                      description="How many meals are included with the rent."
-                      label="Meals per day"
-                    >
-                      <Input
-                        defaultValue={hostel.food?.mealsPerDay}
-                        label={null}
-                        name="mealsPerDay"
-                        type="number"
-                      />
-                    </SettingsRow>
-
-                    <SettingsRow
-                      description="Seekers filter on these, so keep them accurate."
-                      label="Dietary options"
-                    >
-                      <div className="flex h-11 flex-wrap items-center gap-5 text-sm">
-                        <label className="flex items-center gap-2">
-                          <input
-                            defaultChecked={hostel.food?.hasVeg ?? true}
-                            name="hasVeg"
-                            type="checkbox"
-                          />
-                          Veg
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            defaultChecked={hostel.food?.hasNonVeg ?? true}
-                            name="hasNonVeg"
-                            type="checkbox"
-                          />
-                          Non-veg
-                        </label>
-                      </div>
-                    </SettingsRow>
-
-                    <SettingsBlock
-                      description="Anything worth knowing about the kitchen or menu."
-                      label="Food notes"
-                    >
-                      <TextArea
-                        defaultValue={hostel.food?.notes}
-                        label=""
-                        name="foodNotes"
-                      />
-                    </SettingsBlock>
                   </FieldGroup>
                 </SectionBody>
 

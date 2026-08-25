@@ -25,19 +25,30 @@ import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 import { Message } from "./core-portal-shared";
 
+/**
+ * One invoice, as `GET /finance/invoices/ledger` returns it.
+ *
+ * `month` is nullable because it genuinely is: an admission fee belongs to no
+ * period (see `Invoice.period`), and those are exactly the rows the month matrix
+ * cannot show — which is half the reason this screen exists.
+ */
 type Payment = {
   createdAt?: string;
   dueAmount: number;
-  dueDate: string;
+  dueDate?: string;
   id: string;
-  month: string;
+  month: string | null;
   paidAmount: number;
   paidDate?: string;
   paymentMethod?: string;
-  remarks: string;
+  remarks?: string;
   residentId: string;
+  residentName: string;
   status: string;
 };
+
+/** What the Period column says for an invoice that belongs to no month. */
+const ONE_OFF = "One-off";
 
 const TABS = [
   { key: "ALL", label: "All" },
@@ -65,15 +76,18 @@ export const HostelAdminTransactionsPageContent = memo(
     const [query, setQuery] = useState("");
     const [tab, setTab] = useState("ALL");
     const [methodFilter, setMethodFilter] = useState("");
+    const [monthFilter, setMonthFilter] = useState("");
     const [page, setPage] = useState(1);
 
-    const paymentsResource = usePortalResource<{ payments: Payment[] }>(
-      hostelAdminEndpoints.transactions,
-      { errorMessage: "Could not load transactions." },
-    );
+    const paymentsResource = usePortalResource<{
+      entries: Payment[];
+      truncated: boolean;
+    }>(hostelAdminEndpoints.transactions, {
+      errorMessage: "Could not load transactions.",
+    });
 
     const payments = useMemo(
-      () => paymentsResource.data?.payments ?? [],
+      () => paymentsResource.data?.entries ?? [],
       [paymentsResource.data],
     );
     const message = paymentsResource.message;
@@ -81,7 +95,11 @@ export const HostelAdminTransactionsPageContent = memo(
 
     const ledger = useMemo(
       () =>
-        payments.map((payment) => ({ ...payment, settlement: settlementOf(payment) })),
+        payments.map((payment) => ({
+          ...payment,
+          period: payment.month ?? ONE_OFF,
+          settlement: settlementOf(payment),
+        })),
       [payments],
     );
 
@@ -91,10 +109,13 @@ export const HostelAdminTransactionsPageContent = memo(
       return ledger.filter((entry) => {
         if (tab !== "ALL" && entry.settlement !== tab) return false;
         if (methodFilter && entry.paymentMethod !== methodFilter) return false;
+        if (monthFilter && entry.period !== monthFilter) return false;
         if (!term) return true;
-        return `${entry.month} ${entry.id} ${entry.remarks}`.toLowerCase().includes(term);
+        return `${entry.period} ${entry.id} ${entry.residentName} ${entry.remarks ?? ""}`
+          .toLowerCase()
+          .includes(term);
       });
-    }, [ledger, methodFilter, query, tab]);
+    }, [ledger, methodFilter, monthFilter, query, tab]);
 
     const paged = useMemo(
       () => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -192,7 +213,7 @@ export const HostelAdminTransactionsPageContent = memo(
                     setQuery(next);
                     setPage(1);
                   }}
-                  placeholder="Search by month, reference, or remark..."
+                  placeholder="Search by resident, month, or reference..."
                   value={query}
                 />
                 <div className="flex flex-wrap gap-2">
@@ -213,7 +234,12 @@ export const HostelAdminTransactionsPageContent = memo(
                   />
                   <FilterSelect
                     defaultLabel="All Months"
-                    options={Array.from(new Set(ledger.map((entry) => entry.month)))}
+                    onChange={(next) => {
+                      setMonthFilter(next);
+                      setPage(1);
+                    }}
+                    options={Array.from(new Set(ledger.map((entry) => entry.period)))}
+                    value={monthFilter}
                   />
                 </div>
               </FilterBar>
@@ -222,10 +248,11 @@ export const HostelAdminTransactionsPageContent = memo(
                 <EmptyState label="No transactions match these filters." />
               ) : (
                 <>
-                  <DataTable className="min-w-[840px]">
+                  <DataTable className="min-w-[960px]">
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
                         <Th>Reference</Th>
+                        <Th>Resident</Th>
                         <Th>Period</Th>
                         <Th>Method</Th>
                         <Th align="right">Billed</Th>
@@ -244,8 +271,11 @@ export const HostelAdminTransactionsPageContent = memo(
                               {entry.id.slice(-10).toUpperCase()}
                             </span>
                           </TableCell>
+                          <TableCell className="font-medium text-foreground">
+                            {entry.residentName || "—"}
+                          </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {entry.month}
+                            {entry.period}
                           </TableCell>
                           <TableCell>
                             <SoftBadge tone="slate">

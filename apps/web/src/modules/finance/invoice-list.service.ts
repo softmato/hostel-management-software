@@ -8,6 +8,7 @@ import {
   listResidentInvoices,
 } from "@/modules/finance/ledger-read.service";
 import type { LedgerInvoice } from "@/modules/finance/ledger-read.service";
+import { countableResidentIds } from "@/modules/finance/resident-scope";
 import { listReviewQueue } from "@/modules/finance/review.service";
 import { findCurrentResident } from "@/modules/residents/resident-access";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
@@ -45,7 +46,12 @@ export type PortalInvoice = {
   dueDate?: Date;
   id: string;
   method?: string;
-  month: string;
+  /**
+   * `YYYY-MM`, or `null` for a one-off that belongs to no month — an admission
+   * fee is the common one. See `LedgerInvoice.period`; screens render their own
+   * word for the empty case rather than being handed `""`.
+   */
+  month: string | null;
   paidAmount: number;
   paidDate?: Date;
   status: string;
@@ -444,5 +450,78 @@ export async function getInvoiceMatrix(
       partial: countOf("PARTIAL"),
       unpaid: countOf("UNPAID") + countOf("PENDING_PROOF"),
     },
+  };
+}
+
+/** One line of the hostel's transaction ledger. */
+export type HostelLedgerEntry = PortalInvoice & {
+  createdAt?: Date;
+  paymentMethod?: string;
+  remarks?: string;
+  residentId: string;
+  residentName: string;
+};
+
+export type HostelLedger = {
+  entries: HostelLedgerEntry[];
+  /** True when the ledger hit {@link LEDGER_LIMIT} and older rows were dropped. */
+  truncated: boolean;
+};
+
+/** A hostel bills ~40 residents a month; 5000 rows is roughly a decade. */
+const LEDGER_LIMIT = 5000;
+
+/**
+ * Every invoice this hostel has ever raised, newest first — the Transactions
+ * screen.
+ *
+ * ## Why this is not `getInvoiceMatrix`
+ *
+ * The Transactions screen was pointed at `GET /finance/invoices`, which is the
+ * matrix: one row **per resident** for **one month**, under the key `rows`. The
+ * screen reads `payments` and shows a lifetime ledger, so it found nothing and
+ * had been rendering an empty table with four zeroed metric cards. Two different
+ * questions — "who has not paid this month" and "what has this hostel ever
+ * billed" — were being asked of one route.
+ *
+ * ## The one-off invoices are the point
+ *
+ * An admission fee carries `period: null` and therefore appears in **no** month
+ * of the matrix. This read is where an owner can actually see it, which is why
+ * it is scoped by hostel and not by period.
+ *
+ * Scoped through `countableResidentIds` like every other hostel-facing money
+ * read, so a soft-deleted resident's invoices do not resurrect here after being
+ * excluded everywhere else.
+ */
+export async function getHostelLedger(
+  hostelId: Types.ObjectId | string,
+): Promise<HostelLedger> {
+  await connectToDatabase();
+
+  const residentIds = await countableResidentIds(hostelId);
+  const invoices = await listRecentInvoices({ hostelId, residentIds }, LEDGER_LIMIT);
+
+  const residents = await ResidentModel.find({ _id: { $in: residentIds } })
+    .select("firstName lastName")
+    .lean<{ _id: Types.ObjectId; firstName?: string; lastName?: string }[]>();
+
+  const nameById = new Map(
+    residents.map((resident) => [
+      resident._id.toString(),
+      `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim(),
+    ]),
+  );
+
+  return {
+    entries: invoices.map((invoice) => ({
+      ...toPortalInvoice(invoice),
+      createdAt: invoice.createdAt,
+      paymentMethod: invoice.method,
+      remarks: invoice.remarks,
+      residentId: invoice.residentId,
+      residentName: nameById.get(invoice.residentId) ?? "",
+    })),
+    truncated: invoices.length >= LEDGER_LIMIT,
   };
 }

@@ -2,7 +2,6 @@
 
 import {
   AlertCircle as AlertIcon,
-  ArrowRight,
   BadgeCheck,
   BedDouble,
   Bus,
@@ -18,7 +17,6 @@ import {
   Star,
   Stethoscope,
   Trees,
-  Users,
   Utensils,
   Wifi,
   Wrench,
@@ -26,17 +24,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { HostelMap } from "@/components/maps/hostel-map";
 import { MediaLightbox, type LightboxItem } from "@/components/media-lightbox";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { maybePromptForResidentProfile } from "@/components/resident-identity";
 import { browserApi } from "@/lib/browser-api";
 import { photosOfKind } from "@/lib/hostel-photos";
@@ -117,44 +108,6 @@ function formatDistance(meters: number): string {
 }
 
 /** Sunday-first, matching how the hostel admin configures the routine. */
-const ROUTINE_DAYS = [
-  "SUNDAY",
-  "MONDAY",
-  "TUESDAY",
-  "WEDNESDAY",
-  "THURSDAY",
-  "FRIDAY",
-  "SATURDAY",
-] as const;
-
-const ROUTINE_MEALS = [
-  { label: "Breakfast", type: "BREAKFAST" },
-  { label: "Lunch", type: "LUNCH" },
-  { label: "Snacks", type: "SNACKS" },
-  { label: "Dinner", type: "DINNER" },
-] as const;
-
-type RoomCard = {
-  bedsPerRoom?: number;
-  features: string[];
-  image: string;
-  mealInclusion?: string;
-  photos: string[];
-  rent: number;
-  rooms?: number;
-  seats: number;
-  slug: string;
-  type: string;
-};
-
-function roomSlug(roomType: string) {
-  return roomType.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-}
-
-function titleCaseDay(day: string) {
-  return day.charAt(0) + day.slice(1).toLowerCase();
-}
-
 function iconForFacility(label: string): LucideIcon {
   if (/wifi|wi-fi|internet/i.test(label)) return Wifi;
   if (/food|meal|mess/i.test(label)) return Utensils;
@@ -181,7 +134,6 @@ export function PublicHostelDetailPage() {
     index: number;
     items: LightboxItem[];
   } | null>(null);
-  const [openRoom, setOpenRoom] = useState<RoomCard | null>(null);
   const [reviewData, setReviewData] = useState<PublicReviewData | null>(null);
 
   useEffect(() => {
@@ -296,28 +248,10 @@ export function PublicHostelDetailPage() {
     [galleryPhotos],
   );
 
-  /**
-   * A room shows its own shots only — the shared fallback chain is fine for
-   * picking one cover image, but a "Single Room" gallery must not quietly fill
-   * up with every other room type's photos.
-   */
-  const roomPhotos = useCallback(
-    (roomType: string, fallbackIndex: number) => {
-      const own = photosOfKind(hostel?.photos, "ROOM", roomType)
-        .map((photo) => photo.url ?? "")
-        .filter(Boolean);
-
-      return own.length ? own : [images[fallbackIndex % images.length]];
-    },
-    [hostel, images],
-  );
-
   const tabs = [
     { id: "overview", label: "Overview" },
-    { id: "rooms", label: "Rooms & Pricing" },
     { id: "facilities", label: "Facilities" },
     { id: "photos", label: `Photos (${galleryPhotos.length})` },
-    { id: "food", label: "Food" },
     { id: "rules", label: "Rules" },
     { id: "reviews", label: `Reviews (${hostelSummary?.reviews ?? 0})` },
     { id: "location", label: "Location" },
@@ -407,53 +341,6 @@ export function PublicHostelDetailPage() {
       label: facility,
     }));
 
-  const baseRent = hostel.pricing?.monthlyRentMin ?? hostelSummary.price;
-  const maxRent = hostel.pricing?.monthlyRentMax ?? baseRent;
-  const roomConfigurations = hostel.roomConfigurations ?? [];
-
-  // Prefer the rent and vacancy the owner actually submitted per room type.
-  // Only hostels registered before roomConfigurations existed fall back to the
-  // old min→max interpolation, which is a guess and is often plain wrong (it
-  // assumes rent rises with array order — the reverse of typical sharing rates).
-  const rooms: RoomCard[] =
-    roomConfigurations.length > 0
-      ? roomConfigurations.map((config, index) => {
-          const photos = roomPhotos(config.roomType, index);
-
-          return {
-            bedsPerRoom: config.bedsPerRoom,
-            features: hostel.facilities.slice(0, 2),
-            image: photos[0],
-            mealInclusion: config.mealInclusion,
-            photos,
-            rent: config.monthlyRent || baseRent,
-            rooms: config.rooms,
-            seats: config.vacantBeds,
-            slug: roomSlug(config.roomType),
-            type: roomTypeLabel(config.roomType),
-          };
-        })
-      : (hostel.roomTypes.length > 0 ? hostel.roomTypes : ["Room"]).map(
-          (roomType, index, list) => {
-            const photos = roomPhotos(roomType, index);
-
-            return {
-              features: hostel.facilities.slice(0, 2),
-              image: photos[0],
-              photos,
-              rent:
-                list.length <= 1
-                  ? baseRent
-                  : Math.round(
-                      baseRent + ((maxRent - baseRent) / (list.length - 1)) * index,
-                    ),
-              seats: hostel.capacitySummary?.vacantBeds ?? hostelSummary.vacancy,
-              slug: roomSlug(roomType),
-              type: roomTypeLabel(roomType),
-            };
-          },
-        );
-
   const facilities = (
     hostel.facilities.length > 0 ? hostel.facilities : ["Published profile"]
   ).map((facility) => ({
@@ -461,56 +348,6 @@ export function PublicHostelDetailPage() {
     icon: iconForFacility(facility),
     label: facility,
   }));
-
-  // The old Food Details card is gone; these ride along as chips on the
-  // routine header, where they actually add context to the menu.
-  const foodFacts = [
-    hostel.food?.mealsPerDay ? `${hostel.food.mealsPerDay} meals a day` : null,
-    hostel.food?.hasVeg ? "Veg" : null,
-    hostel.food?.hasNonVeg ? "Non-veg" : null,
-    hostel.food?.notes,
-  ].filter((detail): detail is string => Boolean(detail));
-
-  // The weekly routine as day rows by meal column. Days with nothing set are
-  // dropped so a half-filled routine still reads cleanly.
-  const routineMeals = hostel.foodRoutine?.meals ?? [];
-  const foodRoutineRows = ROUTINE_DAYS.map((day) => ({
-    day,
-    meals: ROUTINE_MEALS.map((meal) => ({
-      ...meal,
-      menu: routineMeals.find(
-        (entry) => entry.dayOfWeek === day && entry.mealType === meal.type,
-      ),
-    })),
-  })).filter((row) => row.meals.some((meal) => meal.menu));
-
-  // Noted meals and the month end treat read the same way to a visitor, so
-  // they share one strip — only the badge tells them apart.
-  const foodSpecials = [
-    ...routineMeals
-      .filter((meal) => Boolean(meal.note))
-      .map((meal) => ({
-        id: `${meal.dayOfWeek}:${meal.mealType}`,
-        isMonthEnd: false,
-        items: meal.items,
-        label: `Every ${humanize(meal.dayOfWeek)} · ${
-          ROUTINE_MEALS.find((entry) => entry.type === meal.mealType)?.label ??
-          humanize(meal.mealType)
-        }`,
-        note: meal.note,
-      })),
-    ...(hostel.foodRoutine?.monthEndSpecial
-      ? [
-          {
-            id: "month-end",
-            isMonthEnd: true,
-            items: hostel.foodRoutine.monthEndSpecial.items,
-            label: "Last day of every month",
-            note: hostel.foodRoutine.monthEndSpecial.note,
-          },
-        ]
-      : []),
-  ];
 
   const hostelRules =
     hostel.rules.length > 0 ? hostel.rules : ["Rules are shared by the hostel team."];
@@ -753,62 +590,6 @@ export function PublicHostelDetailPage() {
         <div className="space-y-5">
           <section
             className="rounded-lg border border-border bg-surface p-4 shadow-sm md:p-5"
-            id="hostel-rooms"
-          >
-            <div className="mb-4 flex items-center justify-between gap-4">
-              <h2 className="text-xl font-extrabold text-foreground">Rooms & Pricing</h2>
-              <span className="text-xs font-bold text-muted-foreground">
-                {rooms.length} room {rooms.length === 1 ? "type" : "types"}
-              </span>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {rooms.map((room) => (
-                <article
-                  className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm"
-                  key={room.type}
-                >
-                  <div
-                    className="h-28 bg-cover bg-center"
-                    style={{ backgroundImage: `url("${room.image}")` }}
-                  />
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-sm font-extrabold text-foreground">
-                        {room.type}
-                      </h3>
-                      <span className="inline-flex items-center gap-1 text-xs font-bold text-muted-foreground">
-                        <Users className="size-3" /> {room.seats}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm font-extrabold text-foreground">
-                      {formatMoney(room.rent)}{" "}
-                      <span className="text-[11px] font-semibold text-muted-foreground">
-                        / month
-                      </span>
-                    </p>
-                    <div className="mt-3 space-y-2 text-xs font-medium text-muted-foreground">
-                      {room.features.map((feature) => (
-                        <p className="flex items-center gap-2" key={feature}>
-                          <CheckCircle2 className="size-3.5 text-brand-teal" />
-                          {feature}
-                        </p>
-                      ))}
-                    </div>
-                    <button
-                      className="mt-4 inline-flex h-9 w-full items-center justify-center gap-1 rounded-md border border-brand-teal text-xs font-bold text-brand-teal transition hover:bg-brand-teal hover:text-white"
-                      onClick={() => setOpenRoom(room)}
-                      type="button"
-                    >
-                      See Details <ArrowRight className="size-3.5" />
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section
-            className="rounded-lg border border-border bg-surface p-4 shadow-sm md:p-5"
             id="hostel-facilities"
           >
             <h2 className="mb-4 text-xl font-extrabold text-foreground">Facilities</h2>
@@ -892,116 +673,6 @@ export function PublicHostelDetailPage() {
                 ) : null}
               </>
             )}
-          </section>
-
-          {/* The routine gets the full main column; rules and reviews live in
-              the sidebar next to the photos, under the contact card. */}
-          <section className="grid gap-5" id="hostel-overview">
-            {foodRoutineRows.length > 0 ? (
-              <article
-                className="rounded-lg border border-border bg-surface p-5 shadow-sm"
-                id="hostel-food-routine"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h2 className="text-lg font-extrabold text-foreground">Food Routine</h2>
-                  {foodFacts.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {foodFacts.map((fact) => (
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-bold text-muted-foreground"
-                          key={fact}
-                        >
-                          <CheckCircle2 className="size-3.5 text-brand-teal" />
-                          {fact}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full min-w-[640px] border-collapse text-sm">
-                    <thead>
-                      <tr className="bg-muted/50 text-left">
-                        <th className="w-28 px-4 py-3 font-bold text-foreground">Day</th>
-                        {ROUTINE_MEALS.map((meal) => (
-                          <th
-                            className="px-4 py-3 font-bold text-foreground"
-                            key={meal.type}
-                          >
-                            {meal.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {foodRoutineRows.map((row) => (
-                        <tr className="border-t border-border align-top" key={row.day}>
-                          <td className="px-4 py-3 font-bold text-foreground">
-                            {titleCaseDay(row.day)}
-                          </td>
-                          {row.meals.map((meal) => (
-                            <td className="px-4 py-3" key={meal.type}>
-                              {meal.menu ? (
-                                <>
-                                  <span className="font-medium text-foreground">
-                                    {meal.menu.items.join(", ")}
-                                  </span>
-                                  <span className="mt-1 block text-xs font-medium text-muted-foreground">
-                                    {meal.menu.timing}
-                                  </span>
-                                  {meal.menu.note ? (
-                                    <span className="mt-1 block text-xs font-medium text-brand-teal">
-                                      {meal.menu.note}
-                                    </span>
-                                  ) : null}
-                                </>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {foodSpecials.length > 0 ? (
-                  <div className="mt-5">
-                    <h3 className="text-sm font-extrabold text-foreground">
-                      Special meals
-                    </h3>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {foodSpecials.map((special) => (
-                        <div
-                          className="rounded-lg border border-border bg-muted/30 p-3"
-                          key={special.id}
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-extrabold text-foreground">
-                              {special.items.join(", ")}
-                            </span>
-                            {special.isMonthEnd ? (
-                              <span className="rounded-full bg-brand-teal-soft/70 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-teal">
-                                Month end
-                              </span>
-                            ) : null}
-                          </div>
-                          <p className="mt-1 text-xs font-medium text-muted-foreground">
-                            {special.label}
-                          </p>
-                          {special.note ? (
-                            <p className="mt-1 text-xs font-medium text-brand-teal">
-                              {special.note}
-                            </p>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </article>
-            ) : null}
           </section>
 
           <section
@@ -1092,7 +763,15 @@ export function PublicHostelDetailPage() {
         </div>
 
         <aside className="space-y-5">
-          <section className="rounded-lg border border-border bg-surface p-5 shadow-sm">
+          {/*
+            The Overview tab used to scroll to a wrapper whose only child was the
+            food routine, so removing that would have left the tab pointing at an
+            empty node. This card is what "overview" actually means on this page.
+          */}
+          <section
+            className="rounded-lg border border-border bg-surface p-5 shadow-sm"
+            id="hostel-overview"
+          >
             <h2 className="text-xl font-extrabold text-foreground">Hostel Information</h2>
             <dl className="mt-4 space-y-4">
               {hostelFacts.map(([label, value]) => (
@@ -1269,109 +948,6 @@ export function PublicHostelDetailPage() {
           </section>
         </aside>
       </section>
-
-      <Sheet
-        onOpenChange={(open) => {
-          if (!open) setOpenRoom(null);
-        }}
-        open={Boolean(openRoom)}
-      >
-        <SheetContent className="w-full sm:max-w-lg" side="right">
-          {openRoom ? (
-            <>
-              <SheetHeader className="border-b border-border">
-                <SheetTitle>{openRoom.type}</SheetTitle>
-                <SheetDescription>
-                  {formatMoney(openRoom.rent)} / month · {hostelSummary.name}
-                </SheetDescription>
-              </SheetHeader>
-
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-4">
-                <div className="grid grid-cols-2 gap-2">
-                  {openRoom.photos.map((photo, index) => (
-                    <button
-                      className="aspect-4/3 overflow-hidden rounded-md border border-border bg-muted"
-                      key={`${photo}-${index}`}
-                      onClick={() =>
-                        setLightbox({
-                          index,
-                          items: openRoom.photos.map((src) => ({
-                            kind: "image" as const,
-                            src,
-                            title: openRoom.type,
-                          })),
-                        })
-                      }
-                      type="button"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        alt={`${openRoom.type} photo ${index + 1}`}
-                        className="size-full object-cover"
-                        decoding="async"
-                        loading="lazy"
-                        src={photo}
-                      />
-                    </button>
-                  ))}
-                </div>
-
-                <dl className="space-y-3 text-sm">
-                  {(
-                    [
-                      ["Monthly rent", formatMoney(openRoom.rent)],
-                      ["Vacant beds", String(openRoom.seats)],
-                      [
-                        "Beds per room",
-                        openRoom.bedsPerRoom ? String(openRoom.bedsPerRoom) : "",
-                      ],
-                      [
-                        "Rooms of this type",
-                        openRoom.rooms ? String(openRoom.rooms) : "",
-                      ],
-                      ["Meals", openRoom.mealInclusion ?? ""],
-                    ] as const
-                  )
-                    .filter(([, value]) => Boolean(value))
-                    .map(([label, value]) => (
-                      <div className="flex items-start justify-between gap-4" key={label}>
-                        <dt className="font-medium text-muted-foreground">{label}</dt>
-                        <dd className="text-right font-bold text-foreground">{value}</dd>
-                      </div>
-                    ))}
-                </dl>
-
-                {openRoom.features.length > 0 ? (
-                  <div className="space-y-2 text-sm font-medium text-muted-foreground">
-                    {openRoom.features.map((feature) => (
-                      <p className="flex items-center gap-2" key={feature}>
-                        <CheckCircle2 className="size-4 text-brand-teal" />
-                        {feature}
-                      </p>
-                    ))}
-                  </div>
-                ) : null}
-
-                {contactPhone ? (
-                  <a
-                    className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-teal text-sm font-bold text-white transition hover:brightness-105"
-                    href={`tel:${contactPhone}`}
-                  >
-                    <PhoneCall className="size-4" /> Call about this room
-                  </a>
-                ) : (
-                  <Link
-                    className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-brand-teal text-sm font-bold text-white transition hover:brightness-105"
-                    href={`/inquiry?hostel=${hostel.slug}&room=${openRoom.slug}`}
-                  >
-                    Ask about this room
-                  </Link>
-                )}
-              </div>
-            </>
-          ) : null}
-        </SheetContent>
-      </Sheet>
 
       {lightbox ? (
         <MediaLightbox

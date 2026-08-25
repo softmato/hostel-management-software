@@ -142,7 +142,18 @@ export async function getPeriodSummary(
   // time — a hostel that issues September's invoices in August, which is
   // ordinary — would sit past a ceiling pinned to today. Either way the money
   // exists and the owner has no way to reach it.
-  const periodsBilled = invoices.map((invoice) => invoice.period).sort();
+  const periodsBilled = invoices
+    // `Invoice.period` is nullable by design — an admission fee or any other
+    // one-off is not rent *for a month*, so it carries no period at all. Left in,
+    // `null` sorts to the front of a `localeCompare` descending sort (it is
+    // coerced to the string `"null"`, which every `YYYY-MM` sorts before), so
+    // `months[0]` stopped being the newest month and became a phantom row with
+    // no period and nothing collected. Every caller that reads "this month" off
+    // `months[0]` — the mobile hero above all — then read that hostel's month as
+    // zero the moment its first resident was taken in.
+    .map((invoice) => invoice.period)
+    .filter((period): period is string => typeof period === "string" && period !== "")
+    .sort();
   const earliestBilled = periodsBilled.at(0) ?? null;
   const latestBilled = periodsBilled.at(-1) ?? null;
   const current = periodOf(new Date());
@@ -179,25 +190,41 @@ export async function getPeriodSummary(
   };
 
   for (const invoice of invoices) {
-    const row = byPeriod.get(invoice.period) ?? {
-      collected: 0,
-      due: 0,
-      needsAttention: 0,
-      paid: 0,
-      period: invoice.period,
-      total: 0,
-    };
-
     const unfinished = ["UNPAID", "OVERDUE", "PENDING_PROOF", "PARTIAL"].includes(
       invoice.status,
     );
 
-    row.collected += invoice.paidAmount;
-    row.due += invoice.dueAmount;
-    row.total += 1;
-    row.paid += invoice.status === "PAID" ? 1 : 0;
-    row.needsAttention += unfinished ? 1 : 0;
-    byPeriod.set(invoice.period, row);
+    /*
+     * **The month rows only count invoices that belong to a month.**
+     *
+     * A one-off — an admission fee is the common one — is stored with
+     * `period: null` on purpose (see `Invoice.period`), and the matrix the month
+     * picker drives (`getInvoiceMatrix`) filters on `period`, so a period-less
+     * invoice can never appear in the table for any month. Rolling it into a
+     * month row here would put money in a badge that the screen underneath has
+     * no row for: the same "1 resident / 2 needing attention" contradiction the
+     * resident scope above exists to prevent, one field over.
+     *
+     * It stays in `overall` below, which is the lifetime figure and is where an
+     * admission fee genuinely belongs.
+     */
+    if (typeof invoice.period === "string" && invoice.period !== "") {
+      const row = byPeriod.get(invoice.period) ?? {
+        collected: 0,
+        due: 0,
+        needsAttention: 0,
+        paid: 0,
+        period: invoice.period,
+        total: 0,
+      };
+
+      row.collected += invoice.paidAmount;
+      row.due += invoice.dueAmount;
+      row.total += 1;
+      row.paid += invoice.status === "PAID" ? 1 : 0;
+      row.needsAttention += unfinished ? 1 : 0;
+      byPeriod.set(invoice.period, row);
+    }
 
     overall.collected += invoice.paidAmount;
     overall.due += invoice.dueAmount;

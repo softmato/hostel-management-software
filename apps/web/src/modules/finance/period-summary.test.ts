@@ -248,6 +248,21 @@ describe("the lifetime totals", () => {
     expect(overall.overdueResidents).toBe(2);
   });
 
+  it("keeps a one-off's money in the lifetime total", async () => {
+    // An admission fee is real revenue with no month attached. It must not be
+    // dropped from `overall` just because the roll-up below has nowhere to put
+    // it — the hero on the mobile app draws its headline off this figure.
+    mocks.listRecentInvoices.mockResolvedValue([
+      invoice({ dueAmount: 5000, paidAmount: 5000, period: null, status: "PAID" }),
+      invoice({ dueAmount: 10000, paidAmount: 10000, period: periodAgo(0), status: "PAID" }),
+    ]);
+
+    const { overall } = await getPeriodSummary(hostelId);
+
+    expect(overall.collected).toBe(15000);
+    expect(overall.due).toBe(15000);
+  });
+
   it("reports pending claims from the event ledger", async () => {
     mocks.eventCount.mockResolvedValue(3);
 
@@ -257,5 +272,73 @@ describe("the lifetime totals", () => {
     expect(mocks.eventCount).toHaveBeenCalledWith(
       expect.objectContaining({ source: "RESIDENT_CLAIM", status: "PENDING" }),
     );
+  });
+});
+
+/**
+ * The defect: taking in a resident raised an admission-fee invoice, which the
+ * `Invoice` schema stores with `period: null` because a joining fee is not rent
+ * *for a month*. That row then reached the roll-up, where two things went wrong
+ * at once — it became a `Map` entry keyed on `null`, and the descending sort
+ * coerced that `null` to the string `"null"`, which every `YYYY-MM` sorts before.
+ *
+ * `months[0]` therefore stopped being the newest month and became a phantom row
+ * with no period and nothing collected. Every caller that reads "this month" off
+ * the front of the list — the admin Home hero on mobile above all — showed the
+ * hostel zero from the moment its first resident was registered.
+ */
+describe("invoices that belong to no month", () => {
+  it("leaves the newest real month at the front of the roll-up", async () => {
+    mocks.listRecentInvoices.mockResolvedValue([
+      invoice({ dueAmount: 5000, paidAmount: 5000, period: null, status: "PAID" }),
+      invoice({ dueAmount: 10000, paidAmount: 10000, period: periodAgo(0), status: "PAID" }),
+    ]);
+
+    const summary = await getPeriodSummary(hostelId);
+
+    expect(summary.months[0]!.period).toBe(periodAgo(0));
+    expect(summary.months[0]!.collected).toBe(10000);
+  });
+
+  it("never emits a row without a period", async () => {
+    mocks.listRecentInvoices.mockResolvedValue([
+      invoice({ period: null, status: "UNPAID" }),
+      invoice({ period: periodAgo(1), status: "UNPAID" }),
+    ]);
+
+    const summary = await getPeriodSummary(hostelId);
+
+    expect(summary.months.every((month) => typeof month.period === "string")).toBe(true);
+    expect(summary.months).toHaveLength(3);
+  });
+
+  it("does not let one drag the month floor or ceiling anywhere", async () => {
+    // `null` sorts outside the `YYYY-MM` range in both directions depending on
+    // how it is coerced; either end would build a picker full of empty months.
+    mocks.listRecentInvoices.mockResolvedValue([invoice({ period: null })]);
+
+    const summary = await getPeriodSummary(hostelId);
+
+    expect(summary.earliestPeriod).toBe(periodAgo(2));
+    expect(summary.months.map((month) => month.period)).toEqual([
+      periodAgo(0),
+      periodAgo(1),
+      periodAgo(2),
+    ]);
+  });
+
+  it("keeps it out of the month badges", async () => {
+    // The table under the picker is `getInvoiceMatrix`, which filters on
+    // `period` — a period-less invoice can never appear in it, so counting one
+    // in a month's badge is a number with no row behind it.
+    mocks.listRecentInvoices.mockResolvedValue([
+      invoice({ period: null, status: "UNPAID" }),
+      invoice({ period: periodAgo(0), status: "UNPAID" }),
+    ]);
+
+    const summary = await getPeriodSummary(hostelId);
+
+    expect(summary.months[0]!.needsAttention).toBe(1);
+    expect(summary.months[0]!.total).toBe(1);
   });
 });

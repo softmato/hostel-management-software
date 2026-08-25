@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import type { AdminInvoiceRow } from "@/lib/admin-api";
-import { amountOwed, invoiceSegment, outstandingRows } from "@/lib/admin-money";
+import {
+  amountOwed,
+  invoiceSegment,
+  outstandingRows,
+  searchInvoiceRows,
+} from "@/lib/admin-money";
 
 function row(
   fullName: string,
   displayStatus: string,
   payment: { dueAmount: number; paidAmount: number } | null,
+  resident: { phone?: string; roomNumber?: string; roomType?: string } = {},
 ): AdminInvoiceRow {
   return {
     displayStatus,
@@ -19,7 +25,12 @@ function row(
           status: displayStatus,
         }
       : null,
-    resident: { fullName, id: `resident-${fullName}`, moveInDate: "2026-01-01" },
+    resident: {
+      fullName,
+      id: `resident-${fullName}`,
+      moveInDate: "2026-01-01",
+      ...resident,
+    },
   };
 }
 
@@ -60,7 +71,23 @@ describe("outstandingRows", () => {
     ]);
   });
 
-  it("puts the biggest hole in the month first", () => {
+  it("puts the late ones first even when they owe less", () => {
+    // The reason the Overdue segment could be retired. Sorting on the amount
+    // alone buried a resident three weeks late under everyone merely unpaid for
+    // a larger sum and not yet due — one is a phone call today, the other is a
+    // reminder next week.
+    const rows = [
+      row("Asha", "UNPAID", { dueAmount: 12000, paidAmount: 0 }),
+      row("Bimal", "OVERDUE", { dueAmount: 4000, paidAmount: 0 }),
+    ];
+
+    expect(outstandingRows(rows).map((entry) => entry.resident.fullName)).toEqual([
+      "Bimal",
+      "Asha",
+    ]);
+  });
+
+  it("puts the biggest hole in the month first within a block", () => {
     const rows = [
       row("Asha", "PARTIAL", { dueAmount: 8000, paidAmount: 7000 }),
       row("Bimal", "UNPAID", { dueAmount: 12000, paidAmount: 0 }),
@@ -108,23 +135,11 @@ describe("invoiceSegment", () => {
     row("Elina", "PARTIAL", { dueAmount: 8000, paidAmount: 3000 }),
   ];
 
-  it("defaults to everyone who owes, most owed first", () => {
+  it("defaults to everyone who owes, late first then most owed", () => {
     expect(invoiceSegment(rows, "owing").map((entry) => entry.resident.fullName)).toEqual([
       "Asha",
       "Bimal",
       "Elina",
-      "Chitra",
-    ]);
-  });
-
-  it("isolates overdue, which is a phone call", () => {
-    expect(invoiceSegment(rows, "overdue").map((entry) => entry.resident.fullName)).toEqual([
-      "Asha",
-    ]);
-  });
-
-  it("isolates unbilled, which is a billing run nobody has done", () => {
-    expect(invoiceSegment(rows, "unbilled").map((entry) => entry.resident.fullName)).toEqual([
       "Chitra",
     ]);
   });
@@ -135,14 +150,23 @@ describe("invoiceSegment", () => {
     ]);
   });
 
-  it("never puts a settled row in a segment that owes", () => {
+  it("partitions the roster — every row is in exactly one segment", () => {
+    // The property the four-segment control could not hold, and the reason it
+    // is two now: `owing` used to contain `overdue` and `unbilled`, so the
+    // counts on the control could not be added up.
+    const owing = invoiceSegment(rows, "owing");
+    const settled = invoiceSegment(rows, "settled");
+
+    expect(owing.length + settled.length).toBe(rows.length);
+    expect(owing.some((entry) => settled.includes(entry))).toBe(false);
+  });
+
+  it("never puts a settled row in the segment that owes", () => {
     // The whole tab is about money that has not arrived. A PAID row leaking
     // into `owing` would be a person somebody calls to chase a settled bill.
-    for (const segment of ["owing", "overdue", "unbilled"] as const) {
-      expect(
-        invoiceSegment(rows, segment).some((entry) => entry.displayStatus === "PAID"),
-      ).toBe(false);
-    }
+    expect(
+      invoiceSegment(rows, "owing").some((entry) => entry.displayStatus === "PAID"),
+    ).toBe(false);
   });
 
   it("does not mutate the array it was given", () => {
@@ -153,5 +177,62 @@ describe("invoiceSegment", () => {
     expect(source.map((entry) => entry.resident.fullName)).toEqual(
       rows.map((entry) => entry.resident.fullName),
     );
+  });
+});
+
+describe("searchInvoiceRows", () => {
+  const rows = [
+    row(
+      "Asha Karki",
+      "UNPAID",
+      { dueAmount: 8000, paidAmount: 0 },
+      { phone: "9801234567", roomNumber: "101", roomType: "DOUBLE_SHARING" },
+    ),
+    row(
+      "Bimal Rai",
+      "OVERDUE",
+      { dueAmount: 9000, paidAmount: 0 },
+      { phone: "9847654321", roomNumber: "204", roomType: "SINGLE" },
+    ),
+  ];
+
+  it("returns everything for an empty or whitespace query", () => {
+    // The field starts empty and must not start by hiding the list.
+    expect(searchInvoiceRows(rows, "")).toHaveLength(2);
+    expect(searchInvoiceRows(rows, "   ")).toHaveLength(2);
+  });
+
+  it("matches a name regardless of case", () => {
+    expect(searchInvoiceRows(rows, "bimal").map((entry) => entry.resident.fullName)).toEqual([
+      "Bimal Rai",
+    ]);
+  });
+
+  it("matches a room number, which is how an admin at the desk knows somebody", () => {
+    expect(searchInvoiceRows(rows, "101").map((entry) => entry.resident.fullName)).toEqual([
+      "Asha Karki",
+    ]);
+  });
+
+  it("matches a phone number", () => {
+    expect(searchInvoiceRows(rows, "98476").map((entry) => entry.resident.fullName)).toEqual([
+      "Bimal Rai",
+    ]);
+  });
+
+  it("matches a name and a number typed together", () => {
+    // The fields are joined before matching, so the needle can straddle two of
+    // them the way somebody actually types a half-remembered row.
+    expect(
+      searchInvoiceRows(rows, "karki 9801").map((entry) => entry.resident.fullName),
+    ).toEqual(["Asha Karki"]);
+  });
+
+  it("does not mutate the array it was given", () => {
+    const source = [...rows];
+
+    searchInvoiceRows(source, "asha");
+
+    expect(source).toHaveLength(2);
   });
 });

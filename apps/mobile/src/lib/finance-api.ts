@@ -62,7 +62,13 @@ export type ResidentInvoice = {
   /** Empty on migrated history, which predates the line breakdown. */
   lines: InvoiceLine[];
   method?: string;
-  month: string;
+  /**
+   * `YYYY-MM`, or `null` for an invoice that belongs to no month — an admission
+   * fee is the one every resident gets. The server has always been able to send
+   * this (`Invoice.period` is nullable) and the type used to deny it; every
+   * screen already reads it through `formatPeriod`, which renders a dash.
+   */
+  month: string | null;
   paidAmount: number;
   paidDate?: string;
   receipts: { amount: number; id: string; issuedAt: string | null; number: string }[];

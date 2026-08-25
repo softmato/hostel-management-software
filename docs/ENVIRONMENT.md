@@ -97,6 +97,7 @@ is the default and costs nothing.
 | `R2_BUCKET_PRIVATE` | **yes in production** | Public access **disabled** — no r2.dev URL, no custom domain. Payment proofs, identity documents, statements. |
 | `R2_KEY_PREFIX` | no | Folder this project owns inside buckets shared with other projects, e.g. `hostelproject`. Blank writes keys at the bucket root. |
 | `R2_PUBLIC_URL` | **yes in production** | Public base URL of `R2_BUCKET_PUBLIC` **and nothing else**. |
+| `R2_CORS_ORIGINS` | **yes in production** | Comma-separated browser origins allowed to upload straight to R2. Not read by the app — `node scripts/r2-cors.mjs --apply` writes it onto the buckets. |
 
 **Why two buckets, and why the private one must stay private.** A presigned URL
 carries the object key in its path. If private objects lived in a bucket with
@@ -417,7 +418,32 @@ succeeded.
 
 **R2 uploads failing** — the endpoint, key, secret and **both** bucket names
 must be present or the code falls back to local disk, which does not survive a
-Vercel deploy. Check CORS in Cloudflare and that both bucket names match.
+Vercel deploy. Check that both bucket names match.
+
+**Upload blocked by CORS policy: "No 'Access-Control-Allow-Origin' header"** —
+the bucket has no CORS rules for this origin. A presigned upload is sent by the
+browser *directly* to R2, so R2 answers the preflight and nothing in this app
+can supply that header. Add the origin to `R2_CORS_ORIGINS` and run:
+
+```bash
+node scripts/r2-cors.mjs --apply
+```
+
+Run it with no flag first to print what each bucket currently has. It merges
+rather than overwrites, because the buckets are shared with other projects.
+
+A Vercel *preview* deployment gets a fresh hostname on every build, so preview
+uploads cannot be covered by a literal origin. Each entry may contain one `*`,
+and every preview hostname — both the per-deploy hash form and the
+`-git-<branch>-` alias — is prefixed with the Vercel project name, so one
+wildcard entry covers them all:
+
+```
+https://hostel-management-software-web-*.vercel.app
+```
+
+That matches this project's previews and nothing else: an unrelated
+`https://some-other-project.vercel.app` still gets a `403` on the preflight.
 
 **A private document opens without signing in** — `R2_PUBLIC_URL` is pointing at
 the private bucket, or the private bucket has public access enabled. Either

@@ -302,7 +302,10 @@ export async function renderStatementForResident(scope: {
     rows: invoices.map((invoice) => ({
       dueAmount: invoice.dueAmount,
       paidAmount: invoice.paidAmount,
-      period: invoice.period,
+      // A one-off — an admission fee, a fine — has no period, and the Period
+      // column has to say something. Blank would read as a rendering fault on a
+      // document a resident hands to a landlord or an employer.
+      period: invoice.period ?? "One-off",
       status: invoice.status,
     })),
   });

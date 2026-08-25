@@ -27,6 +27,7 @@
     "backfill:fileasset-hostel": "node scripts/backfill-fileasset-hostel.mjs",
     "backfill:photo-url-origins": "node scripts/backfill-photo-url-origins.mjs",
     "repair:archived-residents": "node scripts/repair-archived-residents.mjs",
+    "check:duplicate-resident-emails": "node scripts/find-duplicate-resident-emails.mjs",
     "migrate:r2-buckets": "node scripts/migrate-r2-buckets.mjs",
     "deploy:check": "next build",
     "seed:community": "node scripts/seed-community-posts.mjs",

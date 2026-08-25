@@ -113,6 +113,11 @@ export const hostelAdminEndpoints = {
   roomTypes: "/api/v1/hostel-admin/room-types",
   serviceProviders: withFullPage("/api/v1/hostel-admin/service-providers"),
   sosAlerts: withFullPage("/api/v1/hostel-admin/sos-alerts"),
-  transactions: withFullPage("/api/v1/hostel-admin/finance/invoices"),
+  /*
+   * The ledger, not the month matrix. `/finance/invoices` answers "who has not
+   * paid this month" and keys its rows under `rows`; this one answers "what has
+   * this hostel ever billed" and is what the Transactions screen reads.
+   */
+  transactions: "/api/v1/hostel-admin/finance/invoices/ledger",
   wardens: "/api/v1/hostel-admin/wardens",
 } as const;

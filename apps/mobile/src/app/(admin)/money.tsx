@@ -35,7 +35,12 @@ import {
 import { buildAlertFeed } from "@/lib/admin-alerts";
 import { earningsTrend } from "@/lib/admin-home";
 import { recordCashPayment, voidInvoice } from "@/lib/admin-manage-api";
-import { amountOwed, type InvoiceSegment, invoiceSegment } from "@/lib/admin-money";
+import {
+  amountOwed,
+  type InvoiceSegment,
+  invoiceSegment,
+  searchInvoiceRows,
+} from "@/lib/admin-money";
 import { readApiError } from "@/lib/api-contract";
 import { formatMoney, humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -62,24 +67,54 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * - **Today** leads with the date and the roll call's progress.
  * - **More** leads with who you are signed in as, and is deliberately calm.
  *
- * ## The segmented control is the mockup's own idea
+ * ## Two segments, not four — the tabs stopped double-counting people
  *
  * `04_hostel_admin/02_payments_management.png` puts Paid / Unpaid / Partial /
- * Overdue across the top of its table, and it is the right control here for the
- * reason Material 3 gives: a small set of mutually exclusive views of one list,
- * switching instantly. Filter chips would say the wrong thing — that two could
- * be on at once — and this list has no meaningful intersection to offer.
+ * Overdue across the top of its table, and the phone took that as Owing /
+ * Overdue / Unbilled / Paid — where the first of the four **contains** the
+ * second and third. Over a roster of forty that control read `Owing 23 ·
+ * Overdue 8 · Unbilled 3 · Paid 17`: four counts that cannot be added up, in
+ * the one place a reader is entitled to assume the tabs divide the list between
+ * them. On the mockup's own wide table those are genuinely four disjoint states
+ * of one invoice; the phone had turned them into a hierarchy and drawn it flat.
+ *
+ * So the control is `Owing / Paid`, which does partition the roster, and the
+ * two subsets it lost are said in ways that do not hide anybody:
+ *
+ * - **Overdue sorts to the top** of the owing list (`outstandingRows`), so the
+ *   people to ring today are the first rows under the thumb rather than one tap
+ *   away behind a filter that hides the other twenty.
+ * - **Every owing row carries its own status pill**, which is where "unpaid vs
+ *   partial vs overdue vs never billed" belongs — on the person it describes.
+ * - **The header states both counts** as a sentence, so the two figures the old
+ *   segments carried are still on screen without pretending to be views.
  *
  * Defaulting to **Owing** rather than to everything: a screen that opens on the
  * people who have already paid has forgotten what it is for. `Paid` exists so
  * somebody can answer "did so-and-so pay" without a laptop, which is the only
  * reason a settled row is worth rendering at all.
  *
+ * ## Search, because "did so-and-so pay" is the second question
+ *
+ * A forty-row list sorted by urgency is the right answer to "who do I chase"
+ * and the wrong one to "what about room 204" — the row is somewhere in the
+ * middle, ranked by an amount the reader does not know. The field filters what
+ * is already in hand (`searchInvoiceRows`), matching name, phone and room.
+ *
+ * It appears only once the list is long enough to need it. A hostel with six
+ * residents can see all six, and a search box over six rows is a control that
+ * exists to be ignored.
+ *
  * ## Order: what needs a decision, then what is owed
  *
- * The verify queue is above the list even when it is empty. A payment claim is a
- * resident's money in limbo and their invoice still reads unpaid to them, which
- * makes it the only thing here with a clock on it.
+ * The verify queue is above the list, because a payment claim is a resident's
+ * money in limbo while their invoice still reads unpaid to them — the only
+ * thing here with a clock on it. It is **absent** when there is nothing to
+ * verify rather than drawn as an empty card: that section is empty on most days
+ * for most hostels, and a permanent "Nothing to verify" box is a heading, a
+ * sentence and a card's worth of screen sitting between the figures and the
+ * list, every single time, to report a non-event. The money card's own
+ * `N to check` pill already says when the queue is live.
  *
  * ## Why the list is not the web's matrix
  *
@@ -126,6 +161,7 @@ export default function AdminMoneyScreen() {
   );
 
   const [segment, setSegment] = useState<InvoiceSegment>("owing");
+  const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
 
   /*
@@ -144,6 +180,9 @@ export default function AdminMoneyScreen() {
       }),
     [alerts.data],
   );
+  /** Whole queues this account may not read — never folded into "nothing here". */
+  const denied = useMemo(() => alerts.data?.denied ?? [], [alerts.data]);
+
   const claimById = useMemo(
     () => new Map((alerts.data?.claims ?? []).map((claim) => [claim.eventId, claim])),
     [alerts.data],
@@ -151,19 +190,13 @@ export default function AdminMoneyScreen() {
 
   const rows = useMemo(() => money.data?.invoices.rows ?? [], [money.data]);
 
+  /*
+   * Two counts that add up to the roster. See the note at the top: the four
+   * that did not were the single most confusing thing on this screen.
+   */
   const segments = useMemo(
     () => [
       { count: invoiceSegment(rows, "owing").length, label: "Owing", value: "owing" as const },
-      {
-        count: invoiceSegment(rows, "overdue").length,
-        label: "Overdue",
-        value: "overdue" as const,
-      },
-      {
-        count: invoiceSegment(rows, "unbilled").length,
-        label: "Unbilled",
-        value: "unbilled" as const,
-      },
       {
         count: invoiceSegment(rows, "settled").length,
         label: "Paid",
@@ -173,7 +206,64 @@ export default function AdminMoneyScreen() {
     [rows],
   );
 
-  const listed = useMemo(() => invoiceSegment(rows, segment), [rows, segment]);
+  const inSegment = useMemo(() => invoiceSegment(rows, segment), [rows, segment]);
+  const listed = useMemo(() => searchInvoiceRows(inSegment, query), [inSegment, query]);
+
+  /*
+   * The field is worth its space only once the list stops fitting in the head.
+   * Measured against the whole matrix rather than the open segment, so it does
+   * not appear and disappear as the segments are switched — a control that
+   * comes and goes under the thumb is worse than one that is occasionally idle.
+   */
+  const searchable = rows.length > 8;
+
+  const totals = money.data?.invoices.totals;
+
+  /*
+   * The header's sentence — and the home of the two figures the `Overdue` and
+   * `Unbilled` segments used to carry. Stated rather than filtered: an admin who
+   * reads "8 overdue" is looking at those eight already, since they are the
+   * first rows in the list.
+   *
+   * The counts come from the server's own `totals` rather than from re-filtering
+   * `rows` here, so this line cannot drift from the figures on the card above it.
+   * They describe the month, not the visible list, which is why the search
+   * branch replaces the whole sentence instead of appending to it.
+   */
+  const listSubtitle = useMemo(() => {
+    if (query.trim()) {
+      return listed.length === 1 ? "1 match" : `${listed.length} matches`;
+    }
+
+    if (segment === "settled") {
+      return listed.length === 1
+        ? "1 person has settled this month"
+        : `${listed.length} people have settled this month`;
+    }
+
+    return [
+      listed.length === 1 ? "1 person still owes" : `${listed.length} people still owe`,
+      totals?.overdue ? `${totals.overdue} overdue` : null,
+      totals?.notBilled ? `${totals.notBilled} never billed` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }, [listed.length, query, segment, totals]);
+
+  /*
+   * Empty because the search found nobody is a different fact from empty because
+   * there is nobody — the first needs the query back and a way out of it, the
+   * second is good news on the owing list and bad news on the paid one.
+   */
+  const emptyDescription = useMemo(() => {
+    if (query.trim()) {
+      return `Nobody in this list matches ${query.trim()}. Clear the search, or try the other tab.`;
+    }
+
+    return segment === "settled"
+      ? "Nobody has settled this month yet."
+      : "Everybody has paid what they were billed this month.";
+  }, [query, segment]);
 
   /*
    * The row sheet. Two writes live here — recording cash and voiding — because
@@ -299,7 +389,6 @@ export default function AdminMoneyScreen() {
     );
   }
 
-  const { totals } = money.data.invoices;
   const visible = showAll ? listed : listed.slice(0, 8);
 
   return (
@@ -317,8 +406,8 @@ export default function AdminMoneyScreen() {
       >
         <View className="gap-6 pt-2">
           <AdminMoneyCard
-            billed={totals.due}
-            collected={totals.collected}
+            billed={money.data.invoices.totals.due}
+            collected={money.data.invoices.totals.collected}
             month={money.data.invoices.month}
             proofs={claimRows.length}
           />
@@ -342,20 +431,30 @@ export default function AdminMoneyScreen() {
             </View>
           ) : null}
 
-          <View className="px-5">
-            <SectionHeader
-              subtitle="A resident's money is in limbo until one of these is decided"
-              title="Claims to verify"
-            />
+          {/*
+            Present only when there is something to decide — see the note at the
+            top. `DeniedNotice` is outside that condition on purpose: "nothing to
+            verify" and "you are not allowed to see what needs verifying" are
+            different facts, and an account without the grant has an empty claim
+            list for a reason it needs told.
+          */}
+          {denied.length > 0 ? (
+            <View className="px-5">
+              <DeniedNotice denied={denied} />
+            </View>
+          ) : null}
 
-            <DeniedNotice denied={alerts.data?.denied ?? []} />
-
-            {claimRows.length === 0 ? (
-              <EmptyCard
-                description="Every payment a resident has claimed has been checked."
-                title="Nothing to verify"
+          {claimRows.length > 0 ? (
+            <View className="px-5">
+              <SectionHeader
+                subtitle="Their money is in limbo until one of these is decided"
+                title={
+                  claimRows.length === 1
+                    ? "1 claim to verify"
+                    : `${claimRows.length} claims to verify`
+                }
               />
-            ) : (
+
               <View className="gap-3">
                 {claimRows.map((row) => (
                   <AlertCard
@@ -366,36 +465,52 @@ export default function AdminMoneyScreen() {
                   />
                 ))}
               </View>
-            )}
-          </View>
+            </View>
+          ) : null}
 
           <View className="gap-3">
             <View className="px-5">
-              <Segmented
-                onChange={(next) => {
-                  setSegment(next);
-                  /*
-                   * "Show all" belongs to the list that was open, not to the
-                   * screen: carrying it across means switching from a 40-row
-                   * segment to a 3-row one and back leaves the first silently
-                   * expanded, with no control on screen saying so.
-                   */
-                  setShowAll(false);
-                }}
-                options={segments}
-                value={segment}
-              />
+              <SectionHeader subtitle={listSubtitle} title="This month's residents" />
+
+              <View className="gap-3">
+                <Segmented
+                  onChange={(next) => {
+                    setSegment(next);
+                    /*
+                     * "Show all" belongs to the list that was open, not to the
+                     * screen: carrying it across means switching from a 40-row
+                     * segment to a 3-row one and back leaves the first silently
+                     * expanded, with no control on screen saying so.
+                     */
+                    setShowAll(false);
+                  }}
+                  options={segments}
+                  value={segment}
+                />
+
+                {searchable ? (
+                  <Input
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    onChangeText={(next) => {
+                      setQuery(next);
+                      // Same argument as switching segments: the cap belongs to
+                      // the list that was open, and a query narrows to a new one.
+                      setShowAll(false);
+                    }}
+                    placeholder="Search name, room or phone"
+                    returnKeyType="search"
+                    value={query}
+                  />
+                ) : null}
+              </View>
             </View>
 
             <View className="px-5">
               {listed.length === 0 ? (
                 <EmptyCard
-                  description={
-                    segment === "settled"
-                      ? "Nobody has settled this month yet."
-                      : "Nothing in this list — try another tab above."
-                  }
-                  title="Nothing here"
+                  description={emptyDescription}
+                  title={query.trim() ? "No match" : "Nothing here"}
                 />
               ) : (
                 /*
@@ -446,18 +561,17 @@ export default function AdminMoneyScreen() {
                           {amountOwed(row) > 0 ? <Amount value={amountOwed(row)} /> : null}
 
                           {/*
-                            Only on the mixed list.
+                            Only on the mixed list, and now carrying the work the
+                            retired segments used to do.
 
-                            `Overdue`, `Unbilled` and `Paid` are each a single
-                            `displayStatus` by construction — `invoiceSegment`
-                            filters on exactly that field — so a pill in those
-                            three repeats the segment the reader is standing in,
-                            once per row, for the whole list. `Owing` is the one
-                            that mixes (everything not PAID: unpaid, partial,
-                            pending proof, overdue, never billed), and it is also
-                            the default, so the pill is on screen where it means
-                            something and absent where it was only ever
-                            furniture.
+                            `Paid` is a single `displayStatus` by construction,
+                            so a pill there repeats the segment the reader is
+                            standing in, once per row, for the whole list.
+                            `Owing` is the one that mixes — unpaid, partial,
+                            pending proof, overdue, never billed — which is
+                            exactly why "overdue" and "unbilled" belong here, on
+                            the person they describe, rather than as two tabs
+                            that hid everybody else to say the same thing.
                           */}
                           {segment === "owing" ? (
                             <StatusPill status={row.displayStatus} />
@@ -499,18 +613,23 @@ export default function AdminMoneyScreen() {
             </View>
           </View>
 
+          {/*
+            A row, not a paragraph and a button.
+
+            This was four lines of prose explaining what Finance is, above a
+            secondary button — roughly the shape the references say never to
+            use for a destination ("a menu of destinations is an icon-tile grid
+            or tinted icon rows, never full-width rows of sentences"). The
+            sentence was also doing the button's job: everything it listed is
+            just the label of where the row goes.
+          */}
           <View className="px-5">
-            <SectionHeader title="Set it up" />
-            <Card className="gap-3">
-              <Text variant="muted">
-                This screen is the ledger. The rate card these invoices are computed
-                from, the monthly billing run, where residents are asked to send money,
-                and the statement reconciliation all live one screen along.
-              </Text>
-              <Button
-                label="Open Finance"
+            <Card padding="px-4 py-1">
+              <ListRow
+                icon="options-outline"
                 onPress={() => router.push("/manage/finance")}
-                variant="secondary"
+                subtitle="Rate card, the monthly billing run, payment details, statements"
+                title="Finance settings"
               />
             </Card>
           </View>

@@ -11,7 +11,6 @@ import {
   View,
 } from "react-native";
 
-import { FoodRoutineWeek, MonthEndSpecial } from "@/components/food-routine";
 import { facilityIcon } from "@/components/hostel-card";
 import { HostelMap } from "@/components/hostel-map";
 import { AppBar } from "@/components/ui/app-bar";
@@ -19,14 +18,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { FactRow, Grid, StatTile } from "@/components/ui/layout";
-import { ListRow, RowDivider } from "@/components/ui/list-row";
+import { RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { API_BASE_URL } from "@/lib/api";
-import { formatMoney, humanizeEnum } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { hostelCoordinates } from "@/lib/geo";
 import { groupNearbyPlaces } from "@/lib/hostel-nearby";
 import { buildHostelShare, hostelPublicUrl } from "@/lib/hostel-share";
@@ -237,8 +236,6 @@ export default function HostelDetailScreen() {
           </View>
         ) : null}
 
-        {data.roomConfigurations.length > 0 ? <Rooms hostel={data} /> : null}
-
         {data.description ? (
           <View>
             <SectionHeader title="About" />
@@ -271,8 +268,6 @@ export default function HostelDetailScreen() {
             </Card>
           </View>
         ) : null}
-
-        <FoodBlock hostel={data} />
 
         <LocationBlock hostel={data} />
 
@@ -518,108 +513,6 @@ function PriceTiles({ hostel }: { hostel: PublicHostelDetail }) {
     <Grid gap={10} maxColumns={3} minCellWidth={116}>
       {tiles}
     </Grid>
-  );
-}
-
-function Rooms({ hostel }: { hostel: PublicHostelDetail }) {
-  return (
-    <View>
-      <SectionHeader
-        subtitle={`${hostel.roomConfigurations.length} room types`}
-        title="Rooms & pricing"
-      />
-      <Card>
-        {hostel.roomConfigurations.map((room, index) => (
-          <View key={room.id ?? room.roomType}>
-            {index > 0 ? <RowDivider /> : null}
-            <ListRow
-              icon="bed-outline"
-              subtitle={[
-                `${room.bedsPerRoom} ${room.bedsPerRoom === 1 ? "bed" : "beds"}`,
-                room.mealInclusion === "Included"
-                  ? "Meals included"
-                  : room.mealInclusion,
-                // 0 is a real answer and the one that decides a visit.
-                `${room.vacantBeds} vacant`,
-              ].join(" · ")}
-              title={humanizeEnum(room.roomType)}
-              value={formatMoney(room.monthlyRent)}
-            />
-          </View>
-        ))}
-      </Card>
-    </View>
-  );
-}
-
-/**
- * The food routine, in full.
- *
- * ## This used to withhold the thing it was describing
- *
- * It said "a weekly menu is published — you'll see the full routine once you
- * move in", on the argument that the week belongs to the resident Food tab. But
- * `/public/hostels/{slug}` **already returns `foodRoutine`** with all 28 cells
- * in it, and the website draws every one of them on this same page. So the app
- * was holding a menu it had already downloaded and telling the reader to sign a
- * tenancy agreement to see it — on the screen where they decide whether to.
- *
- * The routine is the same `<FoodRoutineWeek>` the resident tab renders, minus
- * the rating footer: a visitor has no dinner to rate yet.
- *
- * The `food` flags stay as chips above it. They are the website's "food facts"
- * strip, and they answer a different question from the menu — "is there veg
- * every day" is a filter, "what is Thursday's lunch" is a preview.
- */
-function FoodBlock({ hostel }: { hostel: PublicHostelDetail }) {
-  const { food, foodRoutine } = hostel;
-  const chips = [
-    food.mealsPerDay ? `${food.mealsPerDay} meals a day` : null,
-    food.hasVeg ? "Veg" : null,
-    food.hasNonVeg ? "Non-veg" : null,
-  ].filter((chip): chip is string => Boolean(chip));
-
-  const meals = foodRoutine?.meals ?? [];
-  const hasRoutine = meals.length > 0;
-
-  if (chips.length === 0 && !hasRoutine && !food.notes) {
-    return null;
-  }
-
-  return (
-    <View>
-      <SectionHeader
-        subtitle={hasRoutine ? "This week, as the hostel publishes it" : undefined}
-        title="Food"
-      />
-
-      <View className="gap-3">
-        {chips.length > 0 || food.notes ? (
-          <Card className="gap-3">
-            {chips.length > 0 ? (
-              <View className="flex-row flex-wrap gap-2">
-                {chips.map((chip) => (
-                  <Badge key={chip} label={chip} tone="success" />
-                ))}
-              </View>
-            ) : null}
-
-            {food.notes ? <Text variant="muted">{food.notes}</Text> : null}
-          </Card>
-        ) : null}
-
-        {hasRoutine ? (
-          <>
-            <FoodRoutineWeek meals={meals} timings={foodRoutine.timings} />
-            <MonthEndSpecial special={foodRoutine.monthEndSpecial} />
-          </>
-        ) : (
-          <Card>
-            <Text variant="caption">No weekly routine published yet.</Text>
-          </Card>
-        )}
-      </View>
-    </View>
   );
 }
 

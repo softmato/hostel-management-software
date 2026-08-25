@@ -1038,7 +1038,7 @@ This document splits the entire build into **6 sequential phases**. The AI codin
 - ☐ Environment variables configured in Vercel (production + preview)
 - ☐ Domain DNS configured (if client provides domain)
 - ☐ MongoDB production indexes verified
-- ☐ R2 bucket CORS configured for production domain
+- ☑ R2 bucket CORS configured for production domain (`scripts/r2-cors.mjs`; origins in `R2_CORS_ORIGINS`)
 - ☐ Resend domain verified and sending working
 - ☐ Vercel Cron jobs configured for payment reminders, SLA checks
 - ☐ Error monitoring set up (Sentry or similar)

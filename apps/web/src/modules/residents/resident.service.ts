@@ -397,6 +397,31 @@ function isDuplicateKeyError(error: unknown) {
   );
 }
 
+/**
+ * Which field a duplicate-key error was actually about.
+ *
+ * There are two unique indexes on a resident now, so mapping every E11000 to
+ * "phone taken" would tell an admin to change a number that was never the
+ * problem. Mongo names the offending index in `keyPattern`; when the driver
+ * gives us neither that nor `keyValue` we fall back to the phone, which is the
+ * older and far more common collision.
+ */
+function duplicateKeyField(error: unknown): "email" | "phone" {
+  const key = (error as { keyPattern?: Record<string, unknown> })?.keyPattern;
+
+  return key && "email" in key ? "email" : "phone";
+}
+
+/**
+ * The email as it is stored — `Resident.email` carries `lowercase: true`, so a
+ * query built from raw form input would miss `Asha@Gmail.com` against the
+ * `asha@gmail.com` already on the roll. Empty string and whitespace collapse to
+ * `undefined`: "no email" is not a value two residents can collide on.
+ */
+function normalizedEmail(email: string | undefined): string | undefined {
+  return email?.trim().toLowerCase() || undefined;
+}
+
 export async function createResident(
   input: ResidentCreateInput,
   principal: ApiPrincipal,
@@ -405,19 +430,40 @@ export async function createResident(
 
   const hostelId = resolveAdminHostelId(principal, input.hostelId);
 
-  // Checked before the bed is claimed so a duplicate never spends and refunds a
-  // unit of vacancy. Soft-deleted residents are excluded on purpose: removing
-  // someone has to free their phone number for a later re-registration.
+  const email = normalizedEmail(input.email);
+
+  /*
+   * Checked before the bed is claimed so a duplicate never spends and refunds a
+   * unit of vacancy. Soft-deleted residents are excluded on purpose: removing
+   * someone has to free their phone number for a later re-registration.
+   *
+   * **Email is checked here too, and it was not before.** An admin who hit the
+   * phone conflict, changed the number and submitted again registered the same
+   * person twice — same mailbox, two resident records, and `linkResidentAccount`
+   * then refusing the second one with `ACCOUNT_ALREADY_LINKED` because one
+   * account cannot hold two live resident profiles. The number was the only
+   * thing the hostel was ever asked to keep unique; the mailbox is what actually
+   * identifies the person to the product, because it is what they sign in with.
+   *
+   * One query, not two: this runs on the slowest path in the portal and a second
+   * round trip for the second field would be paid on every intake.
+   */
   const existing = await ResidentModel.findOne({
     hostelId,
     isDeleted: false,
-    phone: input.phone,
+    ...(email
+      ? { $or: [{ phone: input.phone }, { email }] }
+      : { phone: input.phone }),
   }).lean<ResidentRecord>();
 
   if (existing) {
+    const onPhone = existing.phone === input.phone;
+
     throw new ResidentServiceError(
-      `${existing.firstName} ${existing.lastName} is already registered here with the phone ${input.phone}.`,
-      "RESIDENT_PHONE_TAKEN",
+      onPhone
+        ? `${existing.firstName} ${existing.lastName} is already registered here with the phone ${input.phone}.`
+        : `${existing.firstName} ${existing.lastName} is already registered here with the email ${email}. Use a different address, or edit the resident that already exists.`,
+      onPhone ? "RESIDENT_PHONE_TAKEN" : "RESIDENT_EMAIL_TAKEN",
       409,
     );
   }
@@ -467,12 +513,16 @@ export async function createResident(
     // leaking a unit of vacancy on every failed intake.
     await releaseBedForRoomType(hostelId, input.roomType);
 
-    // Two intakes racing on the same number land here; the check above only
-    // narrows the window, the index is what actually closes it.
+    // Two intakes racing on the same number or mailbox land here; the check
+    // above only narrows the window, the index is what actually closes it.
     if (isDuplicateKeyError(error)) {
+      const field = duplicateKeyField(error);
+
       throw new ResidentServiceError(
-        `Someone is already registered here with the phone ${input.phone}.`,
-        "RESIDENT_PHONE_TAKEN",
+        field === "email"
+          ? `Someone is already registered here with the email ${email}.`
+          : `Someone is already registered here with the phone ${input.phone}.`,
+        field === "email" ? "RESIDENT_EMAIL_TAKEN" : "RESIDENT_PHONE_TAKEN",
         409,
       );
     }
@@ -607,6 +657,28 @@ export async function updateResident(
       throw new ResidentServiceError(
         `Someone is already registered here with the phone ${input.phone}.`,
         "RESIDENT_PHONE_TAKEN",
+        409,
+      );
+    }
+  }
+
+  // Same rule as intake, and for the same reason: the edit form is the other
+  // door onto the roll, and a uniqueness rule that only one door enforces is
+  // not a rule.
+  const nextEmail = normalizedEmail(input.email);
+
+  if (nextEmail && nextEmail !== normalizedEmail(resident.email)) {
+    const emailTaken = await ResidentModel.exists({
+      _id: { $ne: resident._id },
+      email: nextEmail,
+      hostelId: resident.hostelId,
+      isDeleted: false,
+    });
+
+    if (emailTaken) {
+      throw new ResidentServiceError(
+        `Someone is already registered here with the email ${nextEmail}.`,
+        "RESIDENT_EMAIL_TAKEN",
         409,
       );
     }

@@ -55,6 +55,7 @@ can return:
 
 Beyond these, each module returns its own specific codes so a client can branch
 without string-matching a message — `RESIDENT_NOT_FOUND`, `RESIDENT_PHONE_TAKEN`,
+`RESIDENT_EMAIL_TAKEN`,
 `ROOM_TYPE_FULL`, `PAYMENT_NOT_FOUND`, `FILE_TOO_LARGE`, `LAST_SUPERADMIN`, and so
 on. A specific code is always preferred over a generic one.
 

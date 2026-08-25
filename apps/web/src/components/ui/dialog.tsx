@@ -42,20 +42,27 @@ function DialogOverlay({
 }
 
 /**
- * Is this interaction happening inside the app-wide media viewer?
+ * Overlays that live outside every dialog in the DOM but belong to the app, not
+ * to whatever is behind it.
  *
- * The viewer portals to `document.body`, which puts it *outside* every dialog in
- * the DOM even when it was opened from inside one. Radix judges "outside" by the
- * tree, so clicking the viewer's own backdrop, its X, or its arrows reads to the
- * dialog underneath as the user clicking away — and it closes.
+ * Both portal to `document.body`, which puts them outside the dialog's subtree
+ * even when the dialog is what put them there. Radix judges "outside" by the
+ * tree, so an interaction with either reads to the dialog underneath as the user
+ * clicking away — and it closes.
  *
- * That is the bug behind "open the receipt from the payment modal, close the
- * receipt, and the whole payment form is gone". The resident loses a filled-in
- * form for looking at the file they just attached, which is the one thing that
- * screen invites them to do.
+ * - The **media viewer**: that is the bug behind "open the receipt from the
+ *   payment modal, close the receipt, and the whole payment form is gone". The
+ *   resident loses a filled-in form for looking at the file they just attached,
+ *   which is the one thing that screen invites them to do.
+ * - The **toaster**: it reports the progress of uploads a dialog started, so it
+ *   is at its busiest exactly while a form is half filled in. Its stack keeps
+ *   clear of a dialog's pinned action (see `toaster.tsx`), but a toast is a
+ *   moving target on a small screen and a mistimed tap must not cost the form.
  */
-function isInsideMediaViewer(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest("[data-media-lightbox]") !== null;
+const APP_OVERLAY_SELECTOR = "[data-media-lightbox], [data-app-toaster]";
+
+function isInsideAppOverlay(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(APP_OVERLAY_SELECTOR) !== null;
 }
 
 function DialogContent({
@@ -77,11 +84,11 @@ function DialogContent({
           className,
         )}
         onInteractOutside={(event) => {
-          // **Fixed here, not per dialog.** Any screen may open the viewer from
-          // inside a dialog, so a fix at the call site is one every future
-          // caller has to remember. The caller's own handler still runs for
-          // every other outside interaction.
-          if (isInsideMediaViewer(event.target)) {
+          // **Fixed here, not per dialog.** Any screen may open the viewer or
+          // raise a toast from inside a dialog, so a fix at the call site is one
+          // every future caller has to remember. The caller's own handler still
+          // runs for every other outside interaction.
+          if (isInsideAppOverlay(event.target)) {
             event.preventDefault();
             return;
           }

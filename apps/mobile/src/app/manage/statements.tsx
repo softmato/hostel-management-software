@@ -240,7 +240,7 @@ export default function ManageStatementsScreen() {
       <View className="gap-5 pt-1">
         <View>
           <SectionHeader
-            subtitle="A CSV or XLSX export. PDFs cannot be read — export the file instead."
+            subtitle="CSV or XLSX — a PDF cannot be read"
             title="Import a statement"
           />
           <Card className="gap-3">
@@ -258,13 +258,7 @@ export default function ManageStatementsScreen() {
               onPress={() => void upload()}
             />
 
-            {canPick ? (
-              <Text variant="caption">
-                Reading a statement settles the rows whose reference codes check out, so
-                it moves money — it needs the payment-approval permission, and every row
-                it touches is on the audit trail.
-              </Text>
-            ) : (
+            {canPick ? null : (
               /*
                * Said up front rather than after a tap. The file picker is native
                * and this build predates it; the rest of the screen — past
@@ -274,9 +268,7 @@ export default function ManageStatementsScreen() {
               <View className="gap-1 rounded-xl border border-warning/40 bg-warning-soft p-3">
                 <Text variant="label">Importing needs a newer build</Text>
                 <Text variant="caption">
-                  Opening the file browser is native code that was added after this
-                  app was installed. Reconciling statements already imported works
-                  here now.
+                  Statements already imported can still be reconciled here.
                 </Text>
               </View>
             )}
@@ -444,7 +436,6 @@ export default function ManageStatementsScreen() {
                       ) : null}
                       {row.referenceCode ? <Chip label={row.referenceCode} /> : null}
                     </View>
-                    <Text variant="caption">{row.why}</Text>
                   </View>
                 ))
               )
@@ -469,10 +460,7 @@ export default function ManageStatementsScreen() {
                     {row.remarks ? <Text variant="caption">{row.remarks}</Text> : null}
 
                     {row.suggestions.length === 0 ? (
-                      <Text variant="caption">
-                        Nothing here names a resident. It stays unclaimed until somebody
-                        recognises it.
-                      </Text>
+                      <Text variant="caption">No resident named.</Text>
                     ) : (
                       <>
                         <Text variant="caption">Probably:</Text>
@@ -486,7 +474,6 @@ export default function ManageStatementsScreen() {
                             />
                           ))}
                         </View>
-                        <Text variant="caption">{row.suggestions[0]?.why}</Text>
                       </>
                     )}
                   </View>
@@ -496,16 +483,9 @@ export default function ManageStatementsScreen() {
 
             {bucket === "approved" ? (
               buckets.approvedNotInStatement.length === 0 ? (
-                <Text variant="muted">
-                  Every claim your staff approved has turned up in an account. This is the
-                  bucket you want empty.
-                </Text>
+                <Text variant="muted">Every approved claim reached an account.</Text>
               ) : (
                 <>
-                  <Text variant="caption">
-                    Approved on the strength of a screenshot, and no statement has ever
-                    carried the money. Worth a conversation with both people named.
-                  </Text>
                   {buckets.approvedNotInStatement.map((row) => (
                     <View
                       className="gap-1 rounded-xl border border-destructive/40 bg-destructive/5 p-3"
@@ -530,15 +510,9 @@ export default function ManageStatementsScreen() {
 
             {bucket === "claimed" ? (
               buckets.claimedNoTransaction.length === 0 ? (
-                <Text variant="muted">
-                  Every open claim names a transaction this file could check.
-                </Text>
+                <Text variant="muted">Nothing unaccounted for.</Text>
               ) : (
                 <>
-                  <Text variant="caption">
-                    Residents say they paid, and this file has no transaction matching what
-                    they gave. Usually the wrong statement, occasionally not.
-                  </Text>
                   {buckets.claimedNoTransaction.map((row) => (
                     <View
                       className="gap-1 rounded-xl border border-border p-3"
