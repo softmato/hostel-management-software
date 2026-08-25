@@ -79,7 +79,7 @@ and the emails only render the sentence.
 
 ---
 
-## C. Add to cart — persistent button state, and a notification carrying the image (user item 1)
+## C. Add to cart — persistent button state, and a vibration instead of a notification (user item 1)
 
 ### C1 — the button must stay "added"
 
@@ -91,41 +91,57 @@ and the emails only render the sentence.
       `+` circle becomes a **filled check** (card) and the pill reads **"In cart · 2"** (row),
       both still tappable to add another. `busy` behaviour is unchanged.
 - [x] Same treatment on `apps/mobile/src/app/store/product/[id].tsx` and its related rail.
+- [x] **Corrected after testing on device.** The "added" state was a **tick**, and a tick is
+      the universal *done* mark — so tapping it to take the item back out is what everybody
+      tried, and what it actually did was add another one. There was no way to remove from
+      the shop screen at all. A product already in the basket now shows `QuantityStepper`,
+      the same control the cart uses, whose minus turns into a bin at the floor.
+      `useAddToCart()` gained `setQuantity(product, next)` (`0` removes) to drive it.
+- [x] **The tap now wins the frame.** `add` and `setQuantity` awaited the server before
+      touching state, so the control sat unchanged for the second or two the round trip
+      takes — which reads as a tap that missed. `StoreCartProvider` gained `expect` /
+      `forget`: the asked-for quantity is written into `lineQuantities` *before* the request
+      goes out and dropped when its response lands, so what replaces the guess is the
+      server's own copy. A clamp or a failure therefore corrects the number rather than
+      being papered over. The tab badge sums the merged map, so it moves in the same frame.
+- [x] **Rapid taps cannot land out of order.** `setCartQuantity` is absolute, so two taps a
+      frame apart send "2" then "3" — and a slow "2" arriving last would overwrite the 3 on
+      screen and stay there. Each call takes a ticket per product and only the newest one is
+      allowed to write. Nothing disables on `busy` any more; blocking the second tap would
+      put back the lag the optimism just removed.
+- [x] **The stepper wears the Add button's clothes.** `QuantityStepper` is the cart screen's
+      — a bordered box, which on a product tile read as a stray form field floating under a
+      price. Shop cards get `CartStepper`: same height, radius and `--primary` fill as the
+      `Add` control it replaces, full width on a tile and 104 dp on a list row, so a product
+      moving in and out of the basket never makes the card jump.
+- [x] **The busy state no longer swaps the glyph.** `name={busy ? "ellipsis-horizontal" : …}`
+      made one tap read as add → "…" → tick, three apparent states for one action. The
+      control keeps its shape and dims instead.
 
-### C2 — replace the toast with a server-sent push notification
+### C2 — no notification on add to cart. A vibration, and nothing else.
 
-**Confirmed with the owner:** both "added to cart" and "order placed" notifications are sent
-**by the server as push**, not posted locally by the phone. Everything below follows from
-that; do not substitute a local `scheduleNotificationAsync` for either one.
+**Decided after the first pass, and it reverses what this section used to say.**
+Adding to a basket gets a **haptic** and the button state above — no toast, no local
+notification, and no server push. A hostel admin restocking taps `+` a dozen times in a
+row; a banner per tap is a queue of dismissals for something already visible in the button
+and the cart badge. Notifications are reserved for orders (§H).
 
-The success toast (`toastSuccess("Added to cart", …)`) goes. Two facts decide the rest:
-
-- `expo-notifications@57` **local** notifications can carry an image on iOS only
-  (`content.attachments`); there is no Android image field on `NotificationContentInput`.
-- Expo **push** messages support `richContent: { image }`, which Android renders as a
-  big-picture notification.
-
-So this is sent as a push, from the server, on the add-to-cart request:
-
-- [x] **C2a** — extend `ExpoPushMessage` in `apps/web/src/modules/notifications/push.service.ts`
-      with optional `richContent?: { image: string }`, and `PushPayload.imageUrl`. Absolute
-      URLs only; resolve `assetId` → public URL before sending.
-- [x] **C2b** — new Android channel `cart` (DEFAULT importance, **no sound**, no vibration)
-      created in `apps/mobile/src/lib/push-notifications.ts` and returned by
-      `androidChannel()` for `category === "STORE_CART"`. A shop that buzzes on every tap is
-      why people mute an app — and muting takes the SOS channel with it.
-- [x] **C2c** — in `apps/web/src/modules/store/cart.service.ts` `addItem`, after the write,
-      fire-and-forget `sendPushToUsers([principal.userId], …)` — **not**
-      `createInAppNotification`: this must not write a bell row, because adding to a basket
-      is not something to catch up on later. Title `Added to cart`, body
-      `<name> · NPR <price> / <unit> · <n> in cart`, image = the first product image,
-      `data.path = "/(store)/cart"`. Suppress if the same product was pushed within 30 s, so
-      four taps of the stepper do not post four notifications.
-- [x] **C2d** — map `STORE_CART` and `STORE_ORDER` in `push-routing.ts` (`/(store)/cart` and
-      `/store/order/<id>`). Today `STORE_ORDER` only works because the caller passes an
-      `actionUrl`, and the superadmin one passes a **web** path (`/platform/store/orders`)
-      that the mobile router cannot resolve — fix that in the same pass.
-- [x] **C2e** — keep `toastError` on the clamp and failure paths. Only the success toast goes.
+- [x] **C2a** — `useAddToCart()` in `apps/mobile/src/components/store/store-cart.tsx` is the
+      one add path for every screen. Success → `Haptics.notificationAsync(Success)`;
+      a clamped quantity → `Warning` **and** the toast, because a basket holding less than
+      was asked for has to say so; a failure → `Error` and the toast, because a tap that did
+      nothing looks exactly like a tap that worked.
+- [x] **C2b** — the shop, the departments screen and the product page were each carrying
+      their own copy of the add handler and had already drifted: the departments one
+      silently dropped the clamp warning. All three now call the hook.
+- [x] **C2c** — the add-to-cart push is **removed** from
+      `apps/web/src/modules/store/cart.service.ts` (`notifyCartAdded`, the 30-second dedupe
+      map and the image resolver), along with the `STORE_CART` category in `push-routing.ts`,
+      its branch in `androidChannel()`, and the `cart` Android channel in
+      `apps/mobile/src/lib/push-notifications.ts`.
+- [x] **C2d** — `richContent` / `PushPayload.imageUrl` on the push service **stays**: the
+      order-placed push uses it to carry the product picture. `STORE_ORDER` still routes to
+      `/store/order/<id>` rather than the web path the superadmin notification used to send.
 
 ---
 
@@ -373,6 +389,40 @@ thumbnail, name, `qty × unit price`, line total), inline styles only.
 - [ ] `adb` screenshot of shop, cart and checkout beside the reference frames — widths and
       spacing only, no colour drift.
 - [x] `graphify update .` once the code settles.
+
+---
+
+## K. Department drill-down (found on device)
+
+- [x] **K1** — tapping a department tile on the shop pushed `/(store)/categories?slug=…`,
+      which is a **tab switch** in response to what reads as a drill-down: the bar underneath
+      relights, the back gesture goes somewhere unexpected, and what arrives is a chooser
+      rather than the thing chosen. The shop now pushes
+      `apps/mobile/src/app/store/category/[slug].tsx` — a normal detail screen on the store
+      stack, beside `product/[id]`, from which back returns to the shop.
+- [x] **K2** — the Departments **tab** keeps its inline select-and-filter behaviour. That is
+      not a contradiction: its job is comparing shelves, where a push-and-back between every
+      department turns four glances into eight taps. The new screen serves the other job —
+      arriving with one shelf in mind. The tab's "See all" link is unchanged.
+- [x] **K4 — the Departments tab was a copy of the shop.** Same painted header, same search
+      field, a grid of tiles and then a column of `ProductRow`s: two tabs that looked alike
+      are one tab and a wasted slot in the bar. It is now **a shelf per department** — a
+      heading with the product count and a horizontal rail of `ProductCard`s, the whole
+      catalogue in one vertical scroll, nothing to select before anything can be seen. The
+      heading's "See all" drills into the same `store/category/[slug]` the shop's tiles push,
+      so there is one department screen and not two.
+- [x] **K5 — search there narrows the shelves rather than flattening them.** It filters the
+      products and drops whatever shelf comes back empty, so "bucket" answers *which
+      departments stock one*. The shop's box answers "which product" — different questions,
+      and flattening this one would rebuild the duplication K4 removed.
+- [x] **K6 — one request, not sixteen.** New `GET /store/shelves` +
+      `getStoreShelves()` in `catalog.service.ts`: a single aggregate that sorts before it
+      groups (so `$slice` means the best twelve, not twelve arbitrary ones) and counts the
+      total before slicing. A `listStoreProducts` call per category would have been a round
+      trip per tile on a screen that has to open at once.
+- [x] **K3** — the department screen takes the title, the product count and the list from the
+      one `listStoreProducts({ category })` call, which already returns the category it
+      resolved the slug to. No second lookup, so the header is never blank for a beat.
 
 ---
 

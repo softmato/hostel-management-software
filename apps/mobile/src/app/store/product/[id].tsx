@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 
-import { useStoreCart } from "@/components/store/store-cart";
+import { useAddToCart, useStoreCart } from "@/components/store/store-cart";
 import {
   ProductCard,
   QuantityStepper,
@@ -20,10 +20,8 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { useSystemInsets } from "@/hooks/use-system-insets";
-import { readApiError } from "@/lib/api-contract";
-import { addToCart, getStoreProduct, type StoreProduct } from "@/lib/store-api";
+import { getStoreProduct } from "@/lib/store-api";
 import { discountPercent, rupees, stepperBounds } from "@/lib/store-format";
-import { toastError } from "@/lib/toast";
 
 /**
  * One product.
@@ -55,42 +53,15 @@ export default function StoreProductScreen() {
   const insets = useSystemInsets();
   const { colors } = useAppTheme();
   const cart = useStoreCart();
+  const { add, addingProductId, setQuantity: setCartQuantity } = useAddToCart();
 
   const [quantity, setQuantity] = useState(1);
-  const [busy, setBusy] = useState(false);
 
   const resource = useResource(
     useCallback(() => getStoreProduct(String(id)), [id]),
   );
 
   const product = resource.data?.product;
-
-  const add = useCallback(async (target: StoreProduct, requestedQuantity: number) => {
-    setBusy(true);
-
-    try {
-      const result = await addToCart({
-        productId: target.id,
-        quantity: requestedQuantity,
-      });
-
-      cart.setCart(result);
-
-      if (result.clamped) {
-        toastError(
-          "We could not add them all",
-          result.clamped === "stock"
-            ? "There is not that much in stock."
-            : "That is over the per-order limit.",
-        );
-      }
-    } catch (error) {
-      toastError("Could not add to cart", readApiError(error));
-    } finally {
-      setBusy(false);
-      cart.refresh();
-    }
-  }, [cart]);
 
   if (resource.loading) {
     return (
@@ -121,7 +92,7 @@ export default function StoreProductScreen() {
       footer={
         <View className="flex-row items-center gap-3 px-5 pt-3">
           <QuantityStepper
-            busy={busy}
+            busy={addingProductId === product.id}
             onChange={setQuantity}
             product={product}
             quantity={quantity}
@@ -138,7 +109,7 @@ export default function StoreProductScreen() {
                   ).toLocaleString("en-NP")}`
                 : "Out of stock"
             }
-            loading={busy}
+            loading={addingProductId === product.id}
             onPress={() => void add(product, quantity)}
             size="lg"
           />
@@ -257,6 +228,7 @@ export default function StoreProductScreen() {
                   <ProductCard
                     inCart={cart.lineQuantities[related.id]}
                     onAdd={() => void add(related, 1)}
+                    onSetQuantity={(next) => void setCartQuantity(related, next)}
                     onPress={() => router.replace(`/store/product/${related.id}`)}
                     product={related}
                   />

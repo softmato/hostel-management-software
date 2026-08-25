@@ -400,20 +400,13 @@ function RootShell() {
         <Stack.Screen name="manage/scan/index" options={{ animation: "slide_from_bottom" }} />
         <Stack.Screen name="manage/scan/[residentId]" />
         {/*
-          The store's detail screens, at the root rather than inside `(store)` —
-          the same rule the `manage/*` block above follows. A file added to a
-          `<Tabs>` directory becomes a tab or has to be named in `HIDDEN`, and
-          all three of these open *over* the store's tab bar the way a detail
-          view should.
+          The `store` folder owns a nested stack for product, order and
+          checkout details. Its grandchildren are configured by
+          `store/_layout.tsx`, while the root stack only owns the folder route.
 
-          The product screen is also the one screen in the app that bleeds its
-          artwork to the top of the display, which a screen inside a tab group
-          could not do without drawing under a bar it has no use for.
+          The product screen still bleeds its artwork to the top of the display;
+          it remains outside the `(store)` tabs and above their tab bar.
         */}
-        <Stack.Screen name="store/product/[id]" />
-        <Stack.Screen name="store/order/[id]" />
-        {/* A form you open, fill and finish — bottom, like every other one. */}
-        <Stack.Screen name="store/checkout" options={{ animation: "slide_from_bottom" }} />
         <Stack.Screen name="settings" />
         {/*
           The bell's destination. At the root because `GET /notifications` is

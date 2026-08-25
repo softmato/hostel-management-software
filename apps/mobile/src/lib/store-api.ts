@@ -105,6 +105,36 @@ export async function getStoreCategories() {
   return unwrap(response).categories;
 }
 
+/**
+ * One department and the first few things on its shelf.
+ *
+ * `total` is the whole shelf; `products` is capped at what the rail draws, so
+ * the "See all" beside a heading knows whether there is anything more to see.
+ */
+export type StoreShelf = {
+  category: StoreCategory;
+  products: StoreProduct[];
+  total: number;
+};
+
+/**
+ * Every department with its first products, in one request.
+ *
+ * A `listStoreProducts` call per category would be sixteen round trips for one
+ * screen — see `getStoreShelves` on the server. `search` narrows the shelves and
+ * drops the ones left empty, which answers "which departments stock a bucket"
+ * rather than "which product is a bucket"; the shop's search box answers the
+ * second question.
+ */
+export async function getStoreShelves(search?: string) {
+  const response = await api.get<ApiEnvelope<{ shelves: StoreShelf[] }>>(
+    "/store/shelves",
+    search ? { params: { search } } : undefined,
+  );
+
+  return unwrap(response).shelves;
+}
+
 export type StoreProductPage = {
   category: StoreCategory | null;
   pagination: { hasMore: boolean; page: number; total: number; totalPages: number };

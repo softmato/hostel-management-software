@@ -154,8 +154,15 @@ export default function StoreCartScreen() {
             </View>
           </View>
 
+          {/*
+            The promise is the server's sentence, and the separator only exists
+            when there is one to separate — an older API build that does not
+            send it would otherwise leave "Cash on delivery · " trailing off.
+          */}
           <Text variant="caption">
-            Cash on delivery · {basket?.config.deliveryPromise?.arrivesText}
+            {basket?.config.deliveryPromise?.arrivesText
+              ? `Cash on delivery · ${basket.config.deliveryPromise.arrivesText}`
+              : "Cash on delivery"}
           </Text>
 
           <Button

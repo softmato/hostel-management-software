@@ -1,105 +1,82 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ScrollView, View } from "react-native";
 
-import { useStoreCart } from "@/components/store/store-cart";
+import { useAddToCart, useStoreCart } from "@/components/store/store-cart";
 import {
-  CategoryTile,
+  ProductCard,
   ProductGridSkeleton,
-  ProductRow,
   StoreHeader,
 } from "@/components/store/store-ui";
-import { Chip } from "@/components/ui/layout";
-import { SectionHeader } from "@/components/ui/card";
+import { SectionHeader, SectionLink } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
-import { readApiError } from "@/lib/api-contract";
-import {
-  addToCart,
-  getStoreCategories,
-  listStoreProducts,
-  type StoreProduct,
-  type StoreProductQuery,
-} from "@/lib/store-api";
-import { toastError } from "@/lib/toast";
+import { getStoreShelves, type StoreShelf } from "@/lib/store-api";
 
 /**
- * Departments, and what is in the one you picked.
+ * Departments, as a shelf each.
  *
- * ## One screen, not two
+ * ## What this replaced, and why
  *
- * The obvious build is a grid that pushes a "category" screen. This keeps both
- * on one surface — the tiles stay at the top and the products appear under them
- * — because the job here is *comparing shelves*: an owner buying bedding almost
- * always looks at cleaning next, and a push-and-back between every department
- * turns four glances into eight taps.
+ * It used to be a grid of category tiles that collapsed into chips once one was
+ * picked, with a flat product list under it — which made it a near-copy of the
+ * shop: same painted header, same search field, same column of `ProductRow`s.
+ * Two tabs that look the same are one tab and a wasted slot in the bar.
  *
- * The grid collapses to a single scrolling row of chips once something is
- * selected, so the products get the screen without the departments leaving it.
+ * A department store is not browsed by choosing a department and then looking;
+ * it is browsed by **walking past the shelves**. So every live department gets a
+ * heading and a horizontal rail of what is on it, and the whole catalogue is one
+ * vertical scroll. Nothing has to be selected before anything can be seen, which
+ * is the real difference from the shop — the shop shows what the platform is
+ * pushing, this shows what the platform *has*.
  *
- * ## `?slug=` is how the shop hands over
+ * The heading sits outside the rail and carries "See all", per `NOTES.md` §5.
+ * That link drills into `store/category/[slug]`, the same screen the shop's
+ * shortcut tiles push, so there is one department screen and not two.
  *
- * Tapping a tile on the shop screen lands here with the department already
- * chosen. It is read once into state rather than driven from the param on every
- * render, so tapping a second chip does not have to rewrite the URL to work.
+ * ## Search narrows the shelves, it does not flatten them
+ *
+ * Typing filters the products and drops whatever shelf comes back empty, so a
+ * search for "bucket" answers *which departments stock one*. The shop's search
+ * answers "which product is it", and the two are deliberately different
+ * questions — flattening this one into a result list would recreate exactly the
+ * duplication described above.
+ *
+ * ## One request
+ *
+ * `GET /store/shelves` returns every department with its first twelve products.
+ * A call per category would be sixteen round trips on a screen that has to open
+ * at once — the reasoning `getStoreHome` already spells out.
  */
-const SORTS: { label: string; value: NonNullable<StoreProductQuery["sort"]> }[] = [
-  { label: "Recommended", value: "recommended" },
-  { label: "Price ↑", value: "price-asc" },
-  { label: "Price ↓", value: "price-desc" },
-  { label: "Newest", value: "newest" },
-];
-
-export default function StoreCategoriesScreen() {
+export default function StoreDepartmentsScreen() {
   const params = useLocalSearchParams<{ slug?: string }>();
-  const [selected, setSelected] = useState<string | null>(params.slug ?? null);
-  const [sort, setSort] = useState<NonNullable<StoreProductQuery["sort"]>>("recommended");
   const [search, setSearch] = useState("");
-  const [adding, setAdding] = useState<string | null>(null);
   const cart = useStoreCart();
-
-  const categories = useResource(useCallback(() => getStoreCategories(), []), {
-    topics: [REALTIME_TOPIC.STORE],
-  });
+  const { add, addingProductId, setQuantity } = useAddToCart();
 
   const query = search.trim();
-  const products = useResource(
-    useCallback(
-      () =>
-        listStoreProducts({
-          ...(selected ? { category: selected } : {}),
-          pageSize: 40,
-          ...(query ? { search: query } : {}),
-          sort,
-        }),
-      [query, selected, sort],
-    ),
+  const shelves = useResource(
+    useCallback(() => getStoreShelves(query || undefined), [query]),
     { topics: [REALTIME_TOPIC.STORE] },
   );
 
-  const current = useMemo(
-    () => (categories.data ?? []).find((category) => category.slug === selected) ?? null,
-    [categories.data, selected],
-  );
+  /*
+   * A `?slug=` still arrives from anything that deep-links here — a saved link,
+   * an older build. It names a *department*, and a department has its own screen
+   * now, so this hands over rather than pre-selecting a shelf that no longer has
+   * a selected state to be in.
+   */
+  const handoff = params.slug;
 
-  const add = useCallback(
-    async (product: StoreProduct) => {
-      setAdding(product.id);
-
-      try {
-        const result = await addToCart({ productId: product.id, quantity: 1 });
-        cart.setCart(result);
-      } catch (error) {
-        toastError("Could not add to cart", readApiError(error));
-      } finally {
-        setAdding(null);
-        cart.refresh();
-      }
-    },
-    [cart],
-  );
+  useEffect(() => {
+    if (handoff) {
+      // In an effect, not in the render body: navigating while rendering fires
+      // twice under StrictMode and warns about updating another component.
+      router.replace(`/store/category/${handoff}`);
+    }
+  }, [handoff]);
 
   const header = (
     <StoreHeader
@@ -108,132 +85,126 @@ export default function StoreCategoriesScreen() {
       onCart={() => router.push("/(store)/cart")}
       onChangeSearch={setSearch}
       search={search}
-      subtitle={current ? current.name : "Everything the platform stocks"}
+      subtitle="Everything the platform stocks"
       title="Departments"
     />
   );
 
-  if (categories.error && !categories.data) {
+  if (shelves.error && !shelves.data) {
     return (
-      <Screen bleedTop header={header}>
-        <ErrorState message={categories.error} onRetry={categories.reload} />
+      <Screen bleedTop header={header} insideTabs>
+        <ErrorState message={shelves.error} onRetry={shelves.reload} />
       </Screen>
     );
   }
 
-  const rows = categories.data ?? [];
+  const rows = shelves.data ?? [];
 
   return (
     <Screen
       bleedTop
       header={header}
       insideTabs
-      onRefresh={() => {
-        categories.refresh();
-        products.refresh();
-      }}
+      onRefresh={shelves.refresh}
       padded={false}
-      refreshing={categories.refreshing}
+      refreshing={shelves.refreshing}
       scroll
     >
-      {selected === null ? (
-        <View className="px-5 pt-5">
-          <SectionHeader title="All departments" />
-
-          {categories.loading ? (
-            <ProductGridSkeleton count={4} />
-          ) : rows.length === 0 ? (
-            <EmptyCard
-              description="The platform has not set up any departments yet."
-              title="Nothing to browse"
-            />
-          ) : (
-            <View className="flex-row flex-wrap" style={{ gap: 12 }}>
-              {rows.map((category) => (
-                <View key={category.id} style={{ width: "31%" }}>
-                  <CategoryTile
-                    category={category}
-                    onPress={() => setSelected(category.slug)}
-                  />
-                </View>
-              ))}
-            </View>
-          )}
+      {shelves.loading ? (
+        <View className="gap-6 px-5 pt-6">
+          <ProductGridSkeleton count={2} />
+          <ProductGridSkeleton count={2} />
         </View>
-      ) : (
-        /*
-          The collapsed form: one horizontal row of chips with the current
-          department filled. `Chip`'s `brand` tone is the selected state the
-          filter sheet in `esewa-03` uses, and reusing it here keeps one visual
-          answer to "which of these is on".
-        */
-        <ScrollView
-          contentContainerClassName="gap-2 px-5 pt-4"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          <Chip label="All" onPress={() => setSelected(null)} tone="neutral" />
-          {rows.map((category) => (
-            <Chip
-              key={category.id}
-              label={category.name}
-              onPress={() => setSelected(category.slug)}
-              tone={category.slug === selected ? "brand" : "neutral"}
-            />
-          ))}
-        </ScrollView>
-      )}
+      ) : null}
 
-      <View className="px-5 pb-2 pt-6">
-        <SectionHeader
-          subtitle={
-            products.data ? `${products.data.pagination.total} products` : undefined
-          }
-          title={current ? current.name : "Everything"}
-        />
-
-        <ScrollView
-          className="mb-4"
-          contentContainerClassName="gap-2"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {SORTS.map((option) => (
-            <Chip
-              key={option.value}
-              label={option.label}
-              onPress={() => setSort(option.value)}
-              tone={sort === option.value ? "brand" : "neutral"}
-            />
-          ))}
-        </ScrollView>
-
-        {products.loading || products.refreshing ? <ProductGridSkeleton /> : null}
-
-        {!products.loading && products.data?.products.length === 0 ? (
+      {!shelves.loading && rows.length === 0 ? (
+        <View className="px-5 pt-6">
           <EmptyCard
             description={
               query
-                ? "Nothing in this department matched that search."
-                : "This department has nothing in it yet."
+                ? "No department has anything matching that. Try a shorter word."
+                : "The platform has not set up any departments yet."
             }
+            title={query ? "Nothing found" : "Nothing to browse"}
+          />
+        </View>
+      ) : null}
+
+      {rows.map((shelf) => (
+        <Shelf
+          addingProductId={addingProductId}
+          key={shelf.category.id}
+          lineQuantities={cart.lineQuantities}
+          onAdd={(productId) => void add({ id: productId })}
+          onSetQuantity={(productId, next) => void setQuantity({ id: productId }, next)}
+          shelf={shelf}
+        />
+      ))}
+    </Screen>
+  );
+}
+
+/**
+ * One department: a heading with the count, then a rail.
+ *
+ * `ProductCard` rather than `ProductRow` because a rail is horizontal and a row
+ * is not — and the card already handles a photograph, a price, a discount badge
+ * and the add control inside a fixed width.
+ */
+function Shelf({
+  addingProductId,
+  lineQuantities,
+  onAdd,
+  onSetQuantity,
+  shelf,
+}: {
+  addingProductId: string | null;
+  lineQuantities: Readonly<Record<string, number>>;
+  onAdd: (productId: string) => void;
+  onSetQuantity: (productId: string, next: number) => void;
+  shelf: StoreShelf;
+}) {
+  const open = () => router.push(`/store/category/${shelf.category.slug}`);
+
+  return (
+    <View className="pt-7">
+      <View className="px-5">
+        <SectionHeader
+          action={
+            shelf.total > shelf.products.length ? <SectionLink onPress={open} /> : null
+          }
+          subtitle={`${shelf.total} ${shelf.total === 1 ? "product" : "products"}`}
+          title={shelf.category.name}
+        />
+      </View>
+
+      {shelf.products.length === 0 ? (
+        <View className="px-5">
+          <EmptyCard
+            description="This department is still being stocked."
             title="Empty shelf"
           />
-        ) : null}
-
-        <View className="gap-3">
-          {(products.data?.products ?? []).map((product) => (
-            <ProductRow
-              busy={adding === product.id}
-              inCart={cart.lineQuantities[product.id]}
-              key={product.id}
-              onAdd={() => void add(product)}
-              onPress={() => router.push(`/store/product/${product.id}`)}
-              product={product}
-            />
-          ))}
         </View>
-      </View>
-    </Screen>
+      ) : (
+        <ScrollView
+          contentContainerClassName="gap-3 px-5"
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {shelf.products.map((product) => (
+            <View key={product.id} style={{ width: 158 }}>
+              <ProductCard
+                busy={addingProductId === product.id}
+                inCart={lineQuantities[product.id]}
+                onAdd={() => onAdd(product.id)}
+                onPress={() => router.push(`/store/product/${product.id}`)}
+                onSetQuantity={(next) => onSetQuantity(product.id, next)}
+                product={product}
+              />
+            </View>
+          ))}
+        </ScrollView>
+      )}
+    </View>
   );
 }

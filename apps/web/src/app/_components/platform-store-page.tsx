@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, PackageX, ShoppingBag, Tags } from "lucide-react";
+import { Boxes, PackageX, Plus, ShoppingBag, Tags } from "lucide-react";
 import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
@@ -18,9 +18,20 @@ import {
   Input,
   LoadingRows,
   Panel,
-  Select,
-  TextArea,
 } from "@/app/_components/shared-ui";
+import {
+  StoreImageInput,
+  storeImageRows,
+} from "@/app/_components/store-image-input";
+import {
+  formatPaisa,
+  slugify,
+  toPaisa,
+  toRupees,
+  type StoreCategory,
+  type StoreProduct,
+} from "@/app/_components/store-admin-shared";
+import { StoreProductForm } from "@/app/_components/store-product-form";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { Message } from "./core-portal-shared";
@@ -30,63 +41,7 @@ const CATEGORIES_ENDPOINT = "/api/v1/platform/store/categories";
 const CONFIG_ENDPOINT = "/api/v1/platform/store/config";
 const SUMMARY_ENDPOINT = "/api/v1/platform/store/summary";
 
-/**
- * Prices cross the wire in **paisa** and are typed in **rupees**.
- *
- * The conversion lives in exactly these two functions and nowhere else, which is
- * the whole reason the API took an integer in the first place — see
- * `store.validation.ts`. A second `* 100` anywhere in this file is a bug waiting
- * for a rounding case.
- */
-function toRupees(paisa: number) {
-  return paisa / 100;
-}
-
-function toPaisa(rupees: number) {
-  return Math.round(rupees * 100);
-}
-
-function formatPaisa(paisa: number) {
-  return new Intl.NumberFormat("en-NP", {
-    currency: "NPR",
-    maximumFractionDigits: 2,
-    style: "currency",
-  }).format(toRupees(paisa));
-}
-
-type StoreCategory = {
-  icon: string;
-  id: string;
-  imageUrl: string;
-  isActive: boolean;
-  name: string;
-  priority: number;
-  productCount: number;
-  slug: string;
-};
-
-type StoreProduct = {
-  categoryId: string;
-  categoryName: string;
-  categorySlug: string;
-  compareAtPrice: number | null;
-  description: string;
-  id: string;
-  images: { assetId: string; url: string }[];
-  inStock: boolean;
-  isActive: boolean;
-  isFeatured: boolean;
-  maxOrderQuantity: number;
-  minOrderQuantity: number;
-  name: string;
-  price: number;
-  slug: string;
-  stockOnHand: number;
-  summary: string;
-  tags: string[];
-  trackStock: boolean;
-  unit: string;
-};
+type Tab = "products" | "add" | "categories" | "settings";
 
 type StoreSettings = {
   closedMessage: string;
@@ -117,19 +72,6 @@ function number(form: FormData, key: string, fallback = 0) {
 }
 
 /**
- * A name typed into the form becomes a URL handle when the slug field is blank.
- * Only ever a *default* — an existing product keeps whatever slug it shipped
- * with, because the phone and any shared link filter by it.
- */
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 180);
-}
-
-/**
  * The supply store's catalogue, as the platform owner sees it.
  *
  * Superadmin only: what the platform sells and for how much is a commercial
@@ -144,10 +86,28 @@ function slugify(value: string) {
  * different day.
  */
 export const PlatformStorePageContent = memo(function PlatformStorePageContent() {
-  const [tab, setTab] = useState<"products" | "categories" | "settings">("products");
+  const [tab, setTab] = useState<Tab>("products");
   const [message, setMessage] = useState("");
   const [editingProduct, setEditingProduct] = useState<StoreProduct | null>(null);
   const [editingCategory, setEditingCategory] = useState<StoreCategory | null>(null);
+  const [categoryImage, setCategoryImage] = useState(() => storeImageRows([]));
+
+  /*
+   * Picking a category to edit and loading its tile picture are one action, so
+   * they are one function. Split across a `setState` and an effect keyed on the
+   * selection — the obvious build — the effect fires again on every background
+   * refetch of the category list and throws away an image just chosen.
+   */
+  const editCategory = useCallback((category: StoreCategory | null) => {
+    setEditingCategory(category);
+    setCategoryImage(
+      storeImageRows(
+        category?.imageUrl || category?.imageAssetId
+          ? [{ assetId: category.imageAssetId, url: category.imageUrl }]
+          : [],
+      ),
+    );
+  }, []);
   const invalidate = useInvalidateResources();
   const { confirm, confirmDialog } = useConfirm();
 
@@ -185,58 +145,6 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
   }, [invalidate]);
 
   /* ------------------------------------------------------------------ products */
-
-  const saveProduct = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      const formElement = event.currentTarget;
-      const form = new FormData(formElement);
-      const name = text(form, "name");
-      const compareAtRupees = text(form, "compareAtPrice");
-
-      const payload = {
-        categoryId: text(form, "categoryId"),
-        // `null` clears it; `undefined` on a create simply omits it.
-        compareAtPrice: compareAtRupees
-          ? toPaisa(Number(compareAtRupees))
-          : editingProduct
-            ? null
-            : undefined,
-        description: text(form, "description"),
-        images: text(form, "imageUrl") ? [{ url: text(form, "imageUrl") }] : [],
-        isFeatured: form.get("isFeatured") === "on",
-        maxOrderQuantity: number(form, "maxOrderQuantity"),
-        minOrderQuantity: Math.max(number(form, "minOrderQuantity", 1), 1),
-        name,
-        price: toPaisa(number(form, "price")),
-        priority: number(form, "priority"),
-        slug: text(form, "slug") || slugify(name),
-        stockQuantity: number(form, "stockQuantity"),
-        summary: text(form, "summary"),
-        tags: text(form, "tags")
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean),
-        trackStock: form.get("trackStock") === "on",
-        unit: text(form, "unit") || "piece",
-      };
-
-      try {
-        await browserApi(
-          editingProduct ? `${PRODUCTS_ENDPOINT}/${editingProduct.id}` : PRODUCTS_ENDPOINT,
-          { body: JSON.stringify(payload), method: editingProduct ? "PATCH" : "POST" },
-        );
-        formElement.reset();
-        setEditingProduct(null);
-        setMessage(editingProduct ? "Product updated." : "Product added.");
-        refresh();
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not save the product.");
-      }
-    },
-    [editingProduct, refresh],
-  );
 
   const toggleProduct = useCallback(
     async (product: StoreProduct) => {
@@ -289,7 +197,8 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
       const name = text(form, "name");
       const payload = {
         icon: text(form, "icon") || "cube-outline",
-        imageUrl: text(form, "imageUrl"),
+        imageAssetId: categoryImage[0]?.assetId ?? "",
+        imageUrl: categoryImage[0]?.url ?? "",
         name,
         priority: number(form, "priority"),
         slug: text(form, "slug") || slugify(name),
@@ -303,14 +212,14 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
           { body: JSON.stringify(payload), method: editingCategory ? "PATCH" : "POST" },
         );
         formElement.reset();
-        setEditingCategory(null);
+        editCategory(null);
         setMessage(editingCategory ? "Category updated." : "Category added.");
         refresh();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Could not save the category.");
       }
     },
-    [editingCategory, refresh],
+    [categoryImage, editCategory, editingCategory, refresh],
   );
 
   const removeCategory = useCallback(
@@ -415,6 +324,7 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
           onChange={(key) => setTab(key as typeof tab)}
           tabs={[
             { key: "products", label: "Products" },
+            { key: "add", label: editingProduct ? "Edit product" : "Add product" },
             { key: "categories", label: "Categories" },
             { key: "settings", label: "Delivery & fees" },
           ]}
@@ -432,8 +342,23 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
       </div>
 
       {tab === "products" ? (
-        <div className="grid gap-5 xl:grid-cols-[1fr_400px]">
-          <Panel title="Catalogue">
+        <div className="grid gap-5">
+          <Panel
+            action={
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-role-platform px-3 text-xs font-semibold text-white"
+                onClick={() => {
+                  setEditingProduct(null);
+                  setTab("add");
+                }}
+                type="button"
+              >
+                <Plus className="size-3.5" />
+                New product
+              </button>
+            }
+            title="Catalogue"
+          >
             {products.state === "loading" ? <LoadingRows /> : null}
             {products.state === "ready" && productRows.length === 0 ? (
               <EmptyState label="Nothing in the shop yet. Add a category first, then a product." />
@@ -492,13 +417,23 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
                       {product.trackStock && product.stockOnHand <= 0 ? (
                         <SoftBadge tone="rose">Out of stock</SoftBadge>
                       ) : null}
+                      {/* Visible to the one person who can fix it. A product
+                          with no photograph draws a glyph on the phone, which
+                          reads as a failed image rather than as a gap in the
+                          catalogue. */}
+                      {product.images.length === 0 ? (
+                        <SoftBadge tone="amber">No photo</SoftBadge>
+                      ) : null}
                     </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
-                      onClick={() => setEditingProduct(product)}
+                      onClick={() => {
+                        setEditingProduct(product);
+                        setTab("add");
+                      }}
                       type="button"
                     >
                       Edit
@@ -522,172 +457,33 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
               ))}
             </div>
           </Panel>
-
-          <Panel title={editingProduct ? `Edit ${editingProduct.name}` : "New product"}>
-            {categoryRows.length === 0 ? (
-              <EmptyState label="Add a category before adding products — every product needs one." />
-            ) : (
-              // Keyed on the product so switching which one is being edited
-              // remounts the fields with that product's values.
-              <BusyForm
-                className="grid gap-3"
-                key={editingProduct?.id ?? "new"}
-                onSubmit={saveProduct}
-              >
-                <Input
-                  defaultValue={editingProduct?.name}
-                  label="Name"
-                  name="name"
-                  placeholder="Cotton mattress, 3 inch"
-                  required
-                />
-                <Select
-                  defaultValue={editingProduct?.categoryId ?? categoryRows[0]?.id}
-                  label="Category"
-                  name="categoryId"
-                >
-                  {categoryRows.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  defaultValue={editingProduct?.summary}
-                  hint="The one line under the name in a list. Keep it factual."
-                  label="Summary"
-                  name="summary"
-                  placeholder="Single bed, cotton filled"
-                />
-                <TextArea
-                  defaultValue={editingProduct?.description}
-                  label="Description"
-                  name="description"
-                  placeholder="What it is, what it is made of, what it fits."
-                />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Input
-                    defaultValue={
-                      editingProduct ? toRupees(editingProduct.price) : undefined
-                    }
-                    label="Price (NPR)"
-                    min="0"
-                    name="price"
-                    required
-                    step="0.01"
-                    type="number"
-                  />
-                  <Input
-                    defaultValue={
-                      editingProduct?.compareAtPrice
-                        ? toRupees(editingProduct.compareAtPrice)
-                        : undefined
-                    }
-                    hint="Optional struck-through price. Must be above the price charged."
-                    label="Was (NPR)"
-                    min="0"
-                    name="compareAtPrice"
-                    step="0.01"
-                    type="number"
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Input
-                    defaultValue={editingProduct?.unit ?? "piece"}
-                    hint="What one unit is — piece, kg, dozen."
-                    label="Unit"
-                    name="unit"
-                  />
-                  <Input
-                    defaultValue={editingProduct?.stockOnHand ?? 0}
-                    label="Stock on hand"
-                    min="0"
-                    name="stockQuantity"
-                    type="number"
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Input
-                    defaultValue={editingProduct?.minOrderQuantity ?? 1}
-                    label="Minimum per order"
-                    min="1"
-                    name="minOrderQuantity"
-                    type="number"
-                  />
-                  <Input
-                    defaultValue={editingProduct?.maxOrderQuantity ?? 0}
-                    hint="0 means no cap."
-                    label="Maximum per order"
-                    min="0"
-                    name="maxOrderQuantity"
-                    type="number"
-                  />
-                </div>
-                <Input
-                  defaultValue={editingProduct?.images[0]?.url}
-                  hint="Shown as the thumbnail and on the product screen."
-                  label="Image URL"
-                  name="imageUrl"
-                  placeholder="https://…"
-                />
-                <Input
-                  defaultValue={editingProduct?.tags.join(", ")}
-                  hint="Comma separated. These are what the shop's search box matches."
-                  label="Search tags"
-                  name="tags"
-                  placeholder="mattress, gaddi, bed"
-                />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Input
-                    defaultValue={editingProduct?.slug}
-                    hint="Leave blank to build one from the name. Changing it breaks old links."
-                    label="Handle"
-                    name="slug"
-                  />
-                  <Input
-                    defaultValue={0}
-                    hint="Higher shows first."
-                    label="Priority"
-                    name="priority"
-                    type="number"
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 text-[12.5px] font-semibold text-foreground">
-                  <input
-                    defaultChecked={editingProduct?.trackStock ?? true}
-                    name="trackStock"
-                    type="checkbox"
-                  />
-                  Track stock — refuse orders once it runs out
-                </label>
-                <label className="flex items-center gap-2 text-[12.5px] font-semibold text-foreground">
-                  <input
-                    defaultChecked={editingProduct?.isFeatured ?? false}
-                    name="isFeatured"
-                    type="checkbox"
-                  />
-                  Feature on the shop&apos;s front screen
-                </label>
-
-                <div className="flex gap-2">
-                  <SubmitButton className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-md bg-role-platform text-sm font-semibold text-white">
-                    {editingProduct ? "Save changes" : "Add product"}
-                  </SubmitButton>
-                  {editingProduct ? (
-                    <button
-                      className="h-11 rounded-md border border-border px-4 text-sm font-semibold text-foreground"
-                      onClick={() => setEditingProduct(null)}
-                      type="button"
-                    >
-                      Cancel
-                    </button>
-                  ) : null}
-                </div>
-              </BusyForm>
-            )}
-          </Panel>
         </div>
+      ) : null}
+
+      {tab === "add" ? (
+        <StoreProductForm
+          categories={categoryRows}
+          editing={editingProduct}
+          key={editingProduct?.id ?? "new"}
+          onCancelEdit={() => {
+            setEditingProduct(null);
+            setTab("products");
+          }}
+          onCategoryCreated={refresh}
+          onSaved={(verb) => {
+            setMessage(verb === "added" ? "Product added." : "Product updated.");
+            setEditingProduct(null);
+            refresh();
+
+            if (verb === "updated") {
+              // An edit is finished business — go back to the list it was
+              // started from. A create is not: stocking a shop is a run of
+              // them, so the form stays put, cleared and ready.
+              setTab("products");
+            }
+          }}
+          setMessage={setMessage}
+        />
       ) : null}
 
       {tab === "categories" ? (
@@ -718,7 +514,7 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
                     </SoftBadge>
                     <button
                       className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
-                      onClick={() => setEditingCategory(category)}
+                      onClick={() => editCategory(category)}
                       type="button"
                     >
                       Edit
@@ -761,12 +557,13 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
                 label="Icon"
                 name="icon"
               />
-              <Input
-                defaultValue={editingCategory?.imageUrl}
-                hint="Optional photograph for the tile. The icon is used when blank."
-                label="Image URL"
-                name="imageUrl"
-                placeholder="https://…"
+              <StoreImageInput
+                hint="Optional photograph for the tile. The icon above is used when there is none."
+                label="Tile image"
+                maxImages={1}
+                onChange={setCategoryImage}
+                rows={categoryImage}
+                scope="store-category-image"
               />
               <Input
                 defaultValue={editingCategory?.priority ?? 0}
@@ -783,7 +580,7 @@ export const PlatformStorePageContent = memo(function PlatformStorePageContent()
                 {editingCategory ? (
                   <button
                     className="h-11 rounded-md border border-border px-4 text-sm font-semibold text-foreground"
-                    onClick={() => setEditingCategory(null)}
+                    onClick={() => editCategory(null)}
                     type="button"
                   >
                     Cancel

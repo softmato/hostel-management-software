@@ -102,6 +102,116 @@ function ProductArtwork({
 }
 
 /**
+ * The in-basket control on a shop card: a filled brand pill that takes the exact
+ * place the `Add` button had.
+ *
+ * ## Not `QuantityStepper`
+ *
+ * That one is the cart screen's: a bordered box on a white row, sized for a
+ * screen whose whole job is adjusting quantities. Dropped onto a product tile it
+ * read as a stray form field — an outlined widget floating under a price, with
+ * no visual tie to the button it replaced.
+ *
+ * This is the same *behaviour* wearing the `Add` button's clothes: same height,
+ * same radius, same `--primary` fill, so a product moving in and out of the
+ * basket changes what the control says and never where it sits or how big it is.
+ * Grocery references do exactly this, and it is the reason the swap does not
+ * make the card jump.
+ *
+ * ## The minus becomes a bin at the floor
+ *
+ * Stepping to zero is how everyone expects to empty a line, and a minus that
+ * simply stops responding at one is the most common complaint about this
+ * control. `onRemove` is therefore required here, unlike on `QuantityStepper`.
+ *
+ * ## Nothing here disables on `busy`
+ *
+ * The quantity shown is already optimistic — see `useAddToCart` — so a second
+ * tap has a correct number to work from, and blocking it would put back exactly
+ * the lag the optimism removed. `accessibilityState` still reports `busy`, so a
+ * screen reader is told what the eye can see.
+ */
+function CartStepper({
+  busy,
+  fullWidth = false,
+  onChange,
+  onRemove,
+  product,
+  quantity,
+}: {
+  busy: boolean;
+  /** Spans the card. Off for a list row, where the control sits beside content. */
+  fullWidth?: boolean;
+  onChange: (next: number) => void;
+  onRemove: () => void;
+  product: Pick<StoreProduct, "maxOrderQuantity" | "minOrderQuantity" | "stockQuantity">;
+  quantity: number;
+}) {
+  const { colors } = useAppTheme();
+  const bounds = stepperBounds(product);
+  const atFloor = quantity <= bounds.min;
+  const atCeiling = quantity >= bounds.max;
+
+  return (
+    <View
+      accessibilityState={{ busy }}
+      className={`h-9 flex-row items-center overflow-hidden rounded-xl bg-primary ${
+        fullWidth ? "w-full" : ""
+      }`}
+      style={fullWidth ? undefined : { width: 104 }}
+    >
+      <Pressable
+        accessibilityLabel={atFloor ? "Remove from cart" : "Decrease quantity"}
+        accessibilityRole="button"
+        className="h-full w-9 items-center justify-center active:opacity-70"
+        hitSlop={4}
+        onPress={() => {
+          void Haptics.selectionAsync();
+
+          if (atFloor) {
+            onRemove();
+            return;
+          }
+
+          onChange(quantity - 1);
+        }}
+      >
+        <Ionicons
+          color={colors.primaryForeground}
+          name={atFloor ? "trash-outline" : "remove"}
+          size={16}
+        />
+      </Pressable>
+
+      <Text
+        className="flex-1 text-center text-sm font-bold"
+        // The digits hold their own column so the pill does not shift a pixel
+        // every time the count crosses ten.
+        style={{ color: colors.primaryForeground, minWidth: 24 }}
+      >
+        {quantity}
+      </Text>
+
+      <Pressable
+        accessibilityLabel="Increase quantity"
+        accessibilityRole="button"
+        className={`h-full w-9 items-center justify-center active:opacity-70 ${
+          atCeiling ? "opacity-40" : ""
+        }`}
+        disabled={atCeiling}
+        hitSlop={4}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          onChange(quantity + 1);
+        }}
+      >
+        <Ionicons color={colors.primaryForeground} name="add" size={16} />
+      </Pressable>
+    </View>
+  );
+}
+
+/**
  * A product as a tile, for the two-up grid.
  *
  * The price sits **under** the name rather than beside it, and the add control
@@ -113,23 +223,37 @@ function ProductArtwork({
  * rail of a product screen it is absent, because a tap there should open the
  * product, and two tap targets in a 150dp tile is how people add the wrong
  * thing.
+ *
+ * ## Once it is in the basket the button becomes a stepper
+ *
+ * It used to become a **tick**, which was wrong twice over: a tick is the
+ * universal "done" mark, so tapping it to *remove* the item is what everybody
+ * tried — and what it actually did was add another one. There was also no way
+ * to take something out of the basket from this screen at all.
+ *
+ * So `onSetQuantity` replaces it with `QuantityStepper`, the same control the
+ * cart screen uses, which turns its minus into a bin at the floor. One control,
+ * one meaning, on both screens.
  */
 export function ProductCard({
   busy = false,
   inCart,
   onAdd,
   onPress,
+  onSetQuantity,
   product,
 }: {
   busy?: boolean;
   inCart?: number;
   onAdd?: () => void;
   onPress: () => void;
+  /** Absolute quantity, `0` to remove. Without it the card never shows a stepper. */
+  onSetQuantity?: (next: number) => void;
   product: StoreProduct;
 }) {
   const { colors } = useAppTheme();
   const discount = discountPercent(product.price, product.compareAtPrice);
-  const added = inCart !== undefined && inCart > 0;
+  const stepping = (inCart ?? 0) > 0 && Boolean(onSetQuantity);
 
   return (
     <Pressable
@@ -176,47 +300,65 @@ export function ProductCard({
           </Text>
         </View>
 
-        <View className="flex-row items-end justify-between gap-2">
-          <View className="flex-1">
-            <Money size="inline" value={rupees(product.price)} />
-            {product.compareAtPrice ? (
-              <Text className="text-[11px] text-muted-foreground line-through">
-                {`NPR ${((product.compareAtPrice ?? 0) / 100).toLocaleString("en-NP")}`}
-              </Text>
+        <View className="gap-2">
+          <View className="flex-row items-end justify-between gap-2">
+            <View className="flex-1">
+              <Money size="inline" value={rupees(product.price)} />
+              {product.compareAtPrice ? (
+                <Text className="text-[11px] text-muted-foreground line-through">
+                  {`NPR ${((product.compareAtPrice ?? 0) / 100).toLocaleString("en-NP")}`}
+                </Text>
+              ) : null}
+            </View>
+
+            {onAdd && !stepping ? (
+              <Pressable
+                accessibilityLabel={`Add ${product.name} to cart`}
+                accessibilityRole="button"
+                accessibilityState={{ busy, disabled: !product.inStock }}
+                /*
+                  No busy styling and no busy disable. The control swaps to the
+                  stepper on the same frame as the tap — see `useAddToCart` — so
+                  there is no in-flight moment left to draw, and dimming one
+                  would only put back the flicker this replaced.
+                */
+                className={`h-9 w-9 items-center justify-center rounded-xl active:opacity-70 ${
+                  product.inStock ? "bg-primary" : "bg-muted"
+                }`}
+                disabled={!product.inStock}
+                hitSlop={6}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onAdd();
+                }}
+              >
+                <Ionicons
+                  color={
+                    product.inStock
+                      ? colors.primaryForeground
+                      : colors.mutedForeground
+                  }
+                  name="add"
+                  size={20}
+                />
+              </Pressable>
             ) : null}
           </View>
 
-          {onAdd ? (
-            <Pressable
-              accessibilityLabel={
-                added
-                  ? `Add another ${product.name} to cart`
-                  : `Add ${product.name} to cart`
-              }
-              accessibilityRole="button"
-              accessibilityState={{ busy, disabled: !product.inStock }}
-              className={`h-9 w-9 items-center justify-center rounded-xl active:opacity-70 ${
-                product.inStock ? "bg-primary" : "bg-muted"
-              }`}
-              disabled={!product.inStock || busy}
-              hitSlop={6}
-              onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                onAdd();
-              }}
-            >
-              <Ionicons
-                color={
-                  product.inStock
-                    ? colors.primaryForeground
-                    : colors.mutedForeground
-                }
-                name={
-                  busy ? "ellipsis-horizontal" : added ? "checkmark" : "add"
-                }
-                size={20}
-              />
-            </Pressable>
+          {/*
+            Its own row rather than beside the price: a 104dp stepper and a
+            "NPR 12,450" both fit on one line right up until they do not, and
+            what gives way first is the price.
+          */}
+          {stepping ? (
+            <CartStepper
+              busy={busy}
+              fullWidth
+              onChange={(next) => onSetQuantity?.(next)}
+              onRemove={() => onSetQuantity?.(0)}
+              product={product}
+              quantity={inCart ?? 0}
+            />
           ) : null}
         </View>
       </Card>
@@ -238,16 +380,19 @@ export function ProductRow({
   inCart,
   onAdd,
   onPress,
+  onSetQuantity,
   product,
 }: {
   busy?: boolean;
   inCart?: number;
   onAdd?: () => void;
   onPress: () => void;
+  /** Absolute quantity, `0` to remove — see `ProductCard`. */
+  onSetQuantity?: (next: number) => void;
   product: StoreProduct;
 }) {
   const { colors } = useAppTheme();
-  const added = inCart !== undefined && inCart > 0;
+  const stepping = (inCart ?? 0) > 0 && Boolean(onSetQuantity);
 
   return (
     <Pressable
@@ -284,13 +429,17 @@ export function ProductRow({
           </View>
         </View>
 
-        {onAdd ? (
+        {stepping ? (
+          <CartStepper
+            busy={busy}
+            onChange={(next) => onSetQuantity?.(next)}
+            onRemove={() => onSetQuantity?.(0)}
+            product={product}
+            quantity={inCart ?? 0}
+          />
+        ) : onAdd ? (
           <Pressable
-            accessibilityLabel={
-              added
-                ? `Add another ${product.name} to cart`
-                : `Add ${product.name} to cart`
-            }
+            accessibilityLabel={`Add ${product.name} to cart`}
             accessibilityRole="button"
             accessibilityState={{ busy, disabled: !product.inStock }}
             className={`h-9 items-center justify-center rounded-xl border px-3 active:opacity-70 ${
@@ -298,7 +447,7 @@ export function ProductRow({
                 ? "border-primary/40 bg-brand-soft"
                 : "border-border bg-muted"
             }`}
-            disabled={!product.inStock || busy}
+            disabled={!product.inStock}
             onPress={() => {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onAdd();
@@ -309,11 +458,7 @@ export function ProductRow({
                 product.inStock ? "text-primary" : "text-muted-foreground"
               }`}
             >
-              {product.inStock
-                ? added
-                  ? `In cart · ${inCart}`
-                  : "Add"
-                : "Sold out"}
+              {product.inStock ? "Add" : "Sold out"}
             </Text>
           </Pressable>
         ) : (
@@ -340,10 +485,17 @@ export function ProductRow({
  */
 export function CategoryTile({
   category,
+  compact = false,
   onPress,
   selected = false,
 }: {
   category: StoreCategory;
+  /**
+   * The shop screen's shortcut strip, where these are a *row of doors* above the
+   * products rather than the content of the screen. Same tile, smaller: the
+   * departments tab is where they are the subject and keep their full size.
+   */
+  compact?: boolean;
   onPress: () => void;
   selected?: boolean;
 }) {
@@ -369,11 +521,15 @@ export function CategoryTile({
       }}
     >
       <View
-        className={`min-h-[104px] items-center justify-center gap-2 rounded-2xl border px-2 py-3 ${
-          selected ? "border-primary bg-brand-soft" : "border-border bg-card"
-        }`}
+        className={`items-center justify-center rounded-2xl border px-2 ${
+          compact ? "min-h-[80px] gap-1.5 py-2" : "min-h-[104px] gap-2 py-3"
+        } ${selected ? "border-primary bg-brand-soft" : "border-border bg-card"}`}
       >
-        <View className="h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-brand-soft">
+        <View
+          className={`items-center justify-center overflow-hidden rounded-xl bg-brand-soft ${
+            compact ? "h-9 w-9" : "h-12 w-12"
+          }`}
+        >
           {uri ? (
             <Image
               className="h-full w-full"
@@ -384,7 +540,7 @@ export function CategoryTile({
             <Ionicons
               color={colors.primary}
               name={category.icon as keyof typeof Ionicons.glyphMap}
-              size={21}
+              size={compact ? 17 : 21}
             />
           )}
         </View>
@@ -393,11 +549,14 @@ export function CategoryTile({
           <Text
             className="text-center font-medium text-foreground"
             numberOfLines={2}
-            style={{ fontSize: 11 }}
+            style={{ fontSize: compact ? 10 : 11 }}
           >
             {category.name}
           </Text>
-          <Text className="text-center text-[11px] text-muted-foreground">
+          <Text
+            className="text-center text-muted-foreground"
+            style={{ fontSize: compact ? 9 : 11 }}
+          >
             {category.productCount}
           </Text>
         </View>

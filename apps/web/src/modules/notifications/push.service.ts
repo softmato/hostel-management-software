@@ -112,10 +112,6 @@ function androidChannel(category: string, priority: PushPayload["priority"]) {
     return "food_v2";
   }
 
-  if (category === "STORE_CART") {
-    return "cart";
-  }
-
   return "default_v2";
 }
 

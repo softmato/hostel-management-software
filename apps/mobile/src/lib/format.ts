@@ -110,6 +110,19 @@ export function formatMoney(value: number | null | undefined): string {
   return amount === "—" ? amount : `NPR ${amount}`;
 }
 
+/**
+ * The shape a hidden amount takes on the hostel hero.
+ *
+ * A fixed string, not the real figure with its digits swapped: `NPR 74,000`
+ * masked character for character still prints `NPR XX,XXX`, which tells anyone
+ * reading over the owner's shoulder the order of magnitude — the one thing the
+ * eye toggle exists to withhold. `—` stays `—`, because the absence of a figure
+ * is not a secret.
+ */
+export function maskMoney(value: string): string {
+  return value === "—" ? value : "NPR XXX.xx";
+}
+
 /* -------------------------------------------------------------------------- */
 /* Dates                                                                      */
 /* -------------------------------------------------------------------------- */

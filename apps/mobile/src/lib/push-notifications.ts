@@ -95,7 +95,6 @@ const SOUND = "water_drop.mp3";
  * push.service.ts`. See the note above before changing any of these.
  */
 export const PUSH_CHANNEL = {
-  CART: "cart",
   DEFAULT: "default_v2",
   FOOD: "food_v2",
   URGENT: "urgent",
@@ -206,15 +205,6 @@ async function createAndroidChannels() {
     name: "Meals",
     sound: SOUND,
     vibrationPattern: [0, 250, 250, 250],
-  });
-
-  await Notifications.setNotificationChannelAsync(PUSH_CHANNEL.CART, {
-    enableVibrate: false,
-    importance: Notifications.AndroidImportance.DEFAULT,
-    lightColor: BRAND.primary,
-    name: "Cart",
-    sound: null,
-    vibrationPattern: [],
   });
 
   /*

@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { FLOAT_SHADOW, PaintedAmount, useAdminPaint } from "@/components/admin-shared";
@@ -24,7 +25,7 @@ import {
   type TrendBar,
 } from "@/lib/admin-home";
 import { API_BASE_URL } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, maskMoney } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 
 /**
@@ -467,8 +468,28 @@ export function HostelHero({
   const photo = absoluteMediaUrl(heroPhotoUrl(hostel), API_BASE_URL);
   const code = hostelCode(hostel);
   const lifetimeKnown = earnings.lifetime !== null;
-  const amount = formatMoney(lifetimeKnown ? earnings.lifetime : earnings.thisMonth);
+  /*
+   * Hidden until asked for. The hero is the one screen an owner opens in a
+   * corridor with residents standing next to them, and what it leads with is
+   * everything the building has ever taken in — so the default is masked and
+   * the eye is the only way to it. Component state, not persisted: the next
+   * time the app is opened it is covered again, which is the behaviour every
+   * banking app this screen is modelled on has.
+   */
+  const [shown, setShown] = useState(false);
+  const real = formatMoney(lifetimeKnown ? earnings.lifetime : earnings.thisMonth);
+  const amount = shown ? real : maskMoney(real);
+  /*
+   * Sized from whichever string is actually being drawn. Sizing off the real
+   * figure would leave `NPR XXX.xx` set in the small type a seven-digit total
+   * needs, and the headline would visibly change size on every toggle.
+   */
   const size = heroAmountSize(amount);
+  const money = (value: number | null) => {
+    const formatted = formatMoney(value);
+
+    return shown ? formatted : maskMoney(formatted);
+  };
 
   return (
     <View style={{ paddingHorizontal: CARD_INSET }}>
@@ -574,7 +595,31 @@ export function HostelHero({
                 in `ebl-01` and `ebl-02` gets. `PaintedAmount` owns that ratio
                 and the Android `lineHeight` guard a figure this size needs.
               */}
-              <PaintedAmount size={size} value={amount} />
+              <View className="flex-1 flex-row items-center gap-2">
+                <PaintedAmount size={size} value={amount} />
+
+                {/*
+                  Beside the figure, not in the card's corner: it is the control
+                  *for this number*, and an owner who cannot find it reads a row
+                  of Xs as a bug.
+                */}
+                <Pressable
+                  accessibilityLabel={shown ? "Hide the amounts" : "Show the amounts"}
+                  accessibilityRole="button"
+                  className="-m-2 p-2 active:opacity-60"
+                  hitSlop={8}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setShown((current) => !current);
+                  }}
+                >
+                  <Ionicons
+                    color="rgba(255,255,255,0.9)"
+                    name={shown ? "eye-outline" : "eye-off-outline"}
+                    size={17}
+                  />
+                </Pressable>
+              </View>
 
               {/*
                 Only when there is a comparison to make. A first month, and a
@@ -622,8 +667,14 @@ export function HostelHero({
 
             <View className="flex-row items-center">
               {[
-                { label: "Since opening", value: formatMoney(earnings.lifetime) },
-                { label: "This month", value: formatMoney(earnings.thisMonth) },
+                /*
+                  Masked with the headline, by the same switch. The left half is
+                  the same lifetime total the headline draws, so covering only
+                  the big figure and printing it again in 16-point type two rows
+                  below would hide nothing at all.
+                */
+                { label: "Since opening", value: money(earnings.lifetime) },
+                { label: "This month", value: money(earnings.thisMonth) },
               ].map((fact, index) => (
                 <View className="flex-1 flex-row items-center" key={fact.label}>
                   {index > 0 ? <View className="mr-3 h-9 w-px bg-white/25" /> : null}

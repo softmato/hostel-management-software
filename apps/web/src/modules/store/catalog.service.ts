@@ -281,6 +281,94 @@ export async function getStoreHome() {
   };
 }
 
+/**
+ * Every department with the first few things on its shelf, in **one** request.
+ *
+ * The Departments screen draws a horizontal rail per category, and the obvious
+ * build — a `listStoreProducts` call per tile — is sixteen round trips on a
+ * screen that has to open at once. Same reasoning as `getStoreHome`, and the
+ * same answer: the fan-out belongs on this side of the wire.
+ *
+ * ## One aggregate, sorted before it is grouped
+ *
+ * `$sort` ahead of `$group` is what makes `$slice` mean "the best twelve" rather
+ * than "twelve arbitrary ones" — a group preserves the order it received, and
+ * nothing after it re-sorts. `total` is counted before the slice, so a rail
+ * showing twelve of forty can say so.
+ *
+ * ## Search narrows the shelves rather than replacing them
+ *
+ * A query filters the products and then drops whatever shelf came back empty,
+ * so searching "bucket" answers *which departments* stock one. That is the
+ * question this screen exists for; the shop's search box is the one that
+ * answers "which product", and the two deliberately differ.
+ */
+export async function getStoreShelves(options: { search?: string } = {}) {
+  await connectToDatabase();
+
+  const categories = await StoreCategoryModel.find({ isActive: true })
+    .sort({ priority: -1, name: 1 })
+    .lean<StoreCategoryRecord[]>();
+
+  if (categories.length === 0) {
+    return { shelves: [] };
+  }
+
+  const search = options.search?.trim();
+  const match: Record<string, unknown> = {
+    categoryId: { $in: categories.map((category) => category._id) },
+    isActive: true,
+  };
+
+  if (search) {
+    const pattern = new RegExp(escapeRegex(search), "i");
+
+    match.$or = [{ name: pattern }, { summary: pattern }, { tags: pattern }];
+  }
+
+  const grouped = await StoreProductModel.aggregate<{
+    _id: Types.ObjectId;
+    products: StoreProductRecord[];
+    total: number;
+  }>([
+    { $match: match },
+    { $sort: { priority: -1, createdAt: -1 } },
+    {
+      $group: { _id: "$categoryId", products: { $push: "$$ROOT" }, total: { $sum: 1 } },
+    },
+    { $project: { products: { $slice: ["$products", SHELF_SIZE] }, total: 1 } },
+  ]);
+
+  const byCategory = new Map(grouped.map((row) => [row._id.toString(), row] as const));
+
+  return {
+    shelves: categories
+      .map((category) => {
+        const row = byCategory.get(category._id.toString());
+
+        return {
+          category: {
+            ...serializeStoreCategory(category),
+            productCount: row?.total ?? 0,
+          },
+          products: (row?.products ?? []).map((product) =>
+            serializeStoreProduct(product, category),
+          ),
+          total: row?.total ?? 0,
+        };
+      })
+      /*
+       * An empty shelf is dropped while searching and kept otherwise. With no
+       * query it is real information — the department exists and is being
+       * stocked — but in a result set it is sixteen headings above nothing.
+       */
+      .filter((shelf) => (search ? shelf.products.length > 0 : true)),
+  };
+}
+
+/** How many products a rail carries before "See all" takes over. */
+const SHELF_SIZE = 12;
+
 /** By id or slug — the phone pushes an id, a shared link carries a slug. */
 export async function getStoreProduct(handle: string) {
   await connectToDatabase();

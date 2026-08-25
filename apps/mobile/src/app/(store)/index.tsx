@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { ScrollView, View } from "react-native";
 
-import { useStoreCart } from "@/components/store/store-cart";
+import { useAddToCart, useStoreCart } from "@/components/store/store-cart";
 import {
   CategoryTile,
   FreeDeliveryBar,
@@ -18,14 +18,10 @@ import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
-import { readApiError } from "@/lib/api-contract";
 import {
-  addToCart,
   getStoreHome,
   listStoreProducts,
-  type StoreProduct,
 } from "@/lib/store-api";
-import { toastError } from "@/lib/toast";
 
 /**
  * The shop.
@@ -58,8 +54,8 @@ import { toastError } from "@/lib/toast";
  */
 export default function StoreShopScreen() {
   const [search, setSearch] = useState("");
-  const [adding, setAdding] = useState<string | null>(null);
   const cart = useStoreCart();
+  const { add, addingProductId, setQuantity } = useAddToCart();
 
   const home = useResource(useCallback(() => getStoreHome(), []), {
     topics: [REALTIME_TOPIC.STORE],
@@ -78,35 +74,6 @@ export default function StoreShopScreen() {
         query.length === 0 ? null : listStoreProducts({ pageSize: 30, search: query }),
       [query],
     ),
-  );
-
-  const add = useCallback(
-    async (product: StoreProduct) => {
-      setAdding(product.id);
-
-      try {
-        const result = await addToCart({ productId: product.id, quantity: 1 });
-        cart.setCart(result);
-
-        if (result.clamped) {
-          // The server capped it. Saying so here is the difference between a
-          // cart that quietly holds less than was asked for and one that
-          // explains itself before checkout does.
-          toastError(
-            "We could not add them all",
-            result.clamped === "stock"
-              ? "There is not that much in stock."
-              : "That is over the per-order limit.",
-          );
-        }
-      } catch (error) {
-        toastError("Could not add to cart", readApiError(error));
-      } finally {
-        setAdding(null);
-        cart.refresh();
-      }
-    },
-    [cart],
   );
 
   const header = (
@@ -172,11 +139,12 @@ export default function StoreShopScreen() {
           <View className="gap-3">
             {(results.data?.products ?? []).map((product) => (
               <ProductRow
-                busy={adding === product.id}
+                busy={addingProductId === product.id}
                 inCart={cart.lineQuantities[product.id]}
                 key={product.id}
                 onAdd={() => void add(product)}
                 onPress={() => router.push(`/store/product/${product.id}`)}
+                onSetQuantity={(next) => void setQuantity(product, next)}
                 product={product}
               />
             ))}
@@ -219,13 +187,14 @@ export default function StoreShopScreen() {
                 title="Nothing here yet"
               />
             ) : (
-              <Grid maxColumns={4} minCellWidth={76}>
+              <Grid gap={8} maxColumns={4} minCellWidth={64}>
                 {(home.data?.categories ?? []).slice(0, 8).map((category) => (
                   <CategoryTile
                     category={category}
+                    compact
                     key={category.id}
                     onPress={() =>
-                      router.push(`/(store)/categories?slug=${category.slug}`)
+                      router.push(`/store/category/${category.slug}`)
                     }
                   />
                 ))}
@@ -256,10 +225,11 @@ export default function StoreShopScreen() {
                 {(home.data?.featured ?? []).map((product) => (
                   <View key={product.id} style={{ width: 186 }}>
                     <ProductCard
-                      busy={adding === product.id}
+                      busy={addingProductId === product.id}
                       inCart={cart.lineQuantities[product.id]}
                       onAdd={() => void add(product)}
                       onPress={() => router.push(`/store/product/${product.id}`)}
+                      onSetQuantity={(next) => void setQuantity(product, next)}
                       product={product}
                     />
                   </View>
@@ -282,11 +252,12 @@ export default function StoreShopScreen() {
               <View className="gap-3">
                 {(home.data?.latest ?? []).map((product) => (
                   <ProductRow
-                    busy={adding === product.id}
+                    busy={addingProductId === product.id}
                     inCart={cart.lineQuantities[product.id]}
                     key={product.id}
                     onAdd={() => void add(product)}
                     onPress={() => router.push(`/store/product/${product.id}`)}
+                    onSetQuantity={(next) => void setQuantity(product, next)}
                     product={product}
                   />
                 ))}

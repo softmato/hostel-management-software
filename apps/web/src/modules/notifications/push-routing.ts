@@ -39,7 +39,6 @@ const CATEGORY_PATHS: Record<string, string> = {
   ROOM: "/(resident)/more/profile",
   SERVICE_PROVIDER: "/(provider)",
   SOS: "/(admin)/alerts",
-  STORE_CART: "/(store)/cart",
   URGENT: "/notifications",
 };
 
