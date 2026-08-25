@@ -5,6 +5,8 @@ import { Role } from "@/lib/roles";
 
 const serviceMocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
+  getIntakeQuote: vi.fn(),
+  raiseAdmissionInvoice: vi.fn(),
   connectToDatabase: vi.fn(),
   emergencyContactCreate: vi.fn(),
   guardianCreate: vi.fn(),
@@ -37,6 +39,11 @@ vi.mock("@hostel/db/models/Guardian", () => ({
   GuardianModel: {
     create: serviceMocks.guardianCreate,
   },
+}));
+
+vi.mock("@/modules/residents/resident-intake.service", () => ({
+  getIntakeQuote: serviceMocks.getIntakeQuote,
+  raiseAdmissionInvoice: serviceMocks.raiseAdmissionInvoice,
 }));
 
 vi.mock("@/modules/hostels/hostel-capacity.service", () => ({
@@ -78,6 +85,23 @@ function queryResult<T>(value: T) {
   };
 }
 
+/** A hostel that levies no admission fee and prices this room type. */
+function quote(overrides: Record<string, unknown> = {}) {
+  return {
+    admissionFee: 0,
+    admissionPayable: 0,
+    bedType: "FOUR_SHARING",
+    currency: "NPR",
+    depositAmount: 0,
+    feeScheduleId: null,
+    monthlyRent: 6000,
+    referral: { applied: false, code: null, discount: 0, reason: null },
+    rentBasis: "SCHEDULE",
+    roomType,
+    ...overrides,
+  };
+}
+
 function residentRecord(overrides: Record<string, unknown> = {}) {
   return {
     _id: new Types.ObjectId(residentId),
@@ -98,6 +122,11 @@ describe("resident management service behavior", () => {
     vi.clearAllMocks();
     // Intake starts with a duplicate-phone lookup; no match is the normal case.
     serviceMocks.residentFindOne.mockReturnValue(queryResult(null));
+    serviceMocks.getIntakeQuote.mockResolvedValue(quote());
+    serviceMocks.raiseAdmissionInvoice.mockResolvedValue({
+      raised: false,
+      reason: "NO_ADMISSION_FEE",
+    });
     serviceMocks.residentCountDocuments.mockResolvedValue(0);
   });
 
@@ -122,7 +151,6 @@ describe("resident management service behavior", () => {
           firstName: "Asha",
           hostelId: otherHostelId,
           lastName: "Rai",
-          monthlyFee: 0,
           moveInDate: new Date("2030-01-01T00:00:00.000Z"),
           phone: "9800000000",
           residentType: "STUDENT" as const,
@@ -152,7 +180,6 @@ describe("resident management service behavior", () => {
           depositAmount: 5000,
           firstName: "Asha",
           lastName: "Rai",
-          monthlyFee: 0,
           moveInDate: new Date("2030-01-01T00:00:00.000Z"),
           phone: "9800000000",
           residentType: "STUDENT" as const,
@@ -174,7 +201,6 @@ describe("resident management service behavior", () => {
           depositAmount: 5000,
           firstName: "Asha",
           lastName: "Rai",
-          monthlyFee: 0,
           moveInDate: new Date("2030-01-01T00:00:00.000Z"),
           phone: "9800000000",
           residentType: "STUDENT" as const,
@@ -198,7 +224,6 @@ describe("resident management service behavior", () => {
           depositAmount: 5000,
           firstName: "Asha",
           lastName: "Rai",
-          monthlyFee: 0,
           moveInDate: new Date("2030-01-01T00:00:00.000Z"),
           phone: "9800000000",
           residentType: "STUDENT" as const,
@@ -222,7 +247,6 @@ describe("resident management service behavior", () => {
         depositAmount: 5000,
         firstName: "Asha",
         lastName: "Rai",
-        monthlyFee: 0,
         moveInDate: new Date("2030-01-01T00:00:00.000Z"),
         phone: "9800000000",
         residentType: "STUDENT" as const,

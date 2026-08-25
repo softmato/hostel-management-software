@@ -53,6 +53,21 @@ const feeScheduleSchema = new Schema(
     rates: { type: [rateSchema], default: [] },
     /** One-time charge at move-in. Optional — many hostels do not levy one. */
     admissionFee: { ...wholeRupees },
+    /**
+     * What comes off the admission fee when the new resident arrives on another
+     * resident's referral code.
+     *
+     * On the rate card rather than in settings because it is a **price**, and
+     * prices here are versioned: an intake done in March has to stay explicable
+     * in December even if the hostel has since withdrawn the offer. A flat
+     * rupee figure rather than a percentage for the same reason the rates are —
+     * the number on the receipt is the number that was configured, with no
+     * arithmetic in between to disagree about.
+     *
+     * It discounts the admission fee **only**. Rent is untouched: a referral is
+     * a one-time thank-you, not a standing rate for the referred resident.
+     */
+    referralAdmissionDiscount: { ...wholeRupees },
     /** Refundable security deposit. */
     depositAmount: { ...wholeRupees },
     createdBy: { ref: "User", type: Schema.Types.ObjectId },

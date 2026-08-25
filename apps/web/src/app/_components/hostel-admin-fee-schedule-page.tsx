@@ -44,6 +44,7 @@ type Rate = { bedType: BedType; monthlyAmount: number };
 type FeeSchedule = {
   _id: string;
   admissionFee?: number;
+  referralAdmissionDiscount?: number;
   depositAmount?: number;
   effectiveFrom: string;
   effectiveTo: string | null;
@@ -127,6 +128,9 @@ export const HostelAdminFeeSchedulePageContent = memo(
                 : undefined,
               effectiveFrom: field(form, "effectiveFrom"),
               rates,
+              referralAdmissionDiscount: field(form, "referralAdmissionDiscount")
+                ? Number(field(form, "referralAdmissionDiscount"))
+                : undefined,
             }),
             method: "POST",
           });
@@ -194,13 +198,21 @@ export const HostelAdminFeeSchedulePageContent = memo(
                     />
                   ))}
                 </div>
-                <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <Input
                     defaultValue={open?.admissionFee ?? ""}
                     hint="One-time charge at move-in. Blank if you do not levy one."
                     label="Admission fee (NPR)"
                     min="0"
                     name="admissionFee"
+                    type="number"
+                  />
+                  <Input
+                    defaultValue={open?.referralAdmissionDiscount ?? ""}
+                    hint="Comes off the admission fee when someone arrives on a resident's referral code. Never off the rent."
+                    label="Referral discount (NPR)"
+                    min="0"
+                    name="referralAdmissionDiscount"
                     type="number"
                   />
                   <Input

@@ -775,6 +775,7 @@ Anything discovered while working the list above, appended here rather than fixe
 | 2026-08-19 14:05 | §9.1–9.3: centred title + share, Location map with grouped nearby, food routine shared with the resident tab | next: [device] pass on §8 camera and §9 map/share |
 | 2026-08-19 18:05 | §10.1–10.7: admin retabbed, Alerts → bell + hidden action queue | — |
 | 2026-08-19 18:15 | §10.8: Community third in every role; admin settles as Home/Residents/Community/Money/More | next: [device] pass on the new tab bars, §8 camera, §9 map/share |
+| 2026-08-25 09:20 | resident intake rebuilt: scan-first 3 steps, server-quoted price, admission fee invoiced with referral discount | next: [device] pass on the two scanners side by side |
 
 ---
 

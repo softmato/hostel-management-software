@@ -263,6 +263,33 @@ export async function assertActiveReferralCode(code: string, hostelId: Types.Obj
   await findActiveReferralCode(code, hostelId);
 }
 
+/**
+ * The same question as {@link assertActiveReferralCode}, answered rather than
+ * thrown.
+ *
+ * The intake screen asks this while the warden is still typing, to quote what
+ * the code is worth. A 404 there is not an error — it is "keep typing" — and
+ * routing a half-entered code through the error path would flash a failure toast
+ * at every keystroke.
+ */
+export async function isActiveReferralCode(code: string, hostelId: Types.ObjectId) {
+  await connectToDatabase();
+
+  const trimmed = code.trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  return Boolean(
+    await ReferralCodeModel.exists({
+      code: trimmed.toUpperCase(),
+      hostelId,
+      status: "ACTIVE",
+    }),
+  );
+}
+
 export async function getResidentReferral(principal: ApiPrincipal) {
   await connectToDatabase();
 

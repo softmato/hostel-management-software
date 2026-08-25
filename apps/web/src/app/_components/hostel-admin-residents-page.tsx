@@ -518,11 +518,14 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
           resident: { id: string };
         }>("/api/v1/hostel-admin/residents", {
           body: JSON.stringify({
+            // No `monthlyFee`. Intake does not set a rent — the rate card does,
+            // and the field above is a read-only quote of it. Sending zero for a
+            // blank box wrote a permanent free-stay override on every resident
+            // registered here, which is what `Resident.monthlyFee` warns about.
             depositAmount: Number(field(form, "depositAmount") || 0),
             email: optionalField(form, "email"),
             firstName: field(form, "firstName"),
             lastName: field(form, "lastName"),
-            monthlyFee: Number(optionalField(form, "monthlyFee") || 0),
             moveInDate: field(form, "moveInDate"),
             phone: field(form, "phone"),
             referralCode: optionalField(form, "referralCode"),

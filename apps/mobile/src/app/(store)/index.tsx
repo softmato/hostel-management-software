@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
 
 import { useAddToCart, useStoreCart } from "@/components/store/store-cart";
 import {
-  CategoryTile,
-  FreeDeliveryBar,
+  CategoryChips,
+  FeaturedRail,
   ProductCard,
   ProductGridSkeleton,
   ProductRow,
@@ -18,33 +18,53 @@ import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
-import {
-  getStoreHome,
-  listStoreProducts,
-} from "@/lib/store-api";
+import { getStoreHome, listStoreProducts } from "@/lib/store-api";
 
 /**
  * The shop.
  *
- * ## What it is shaped like, and what was left out
+ * ## What it is shaped like
  *
- * The first reference board is a grocery app: a painted header with a search
- * field in it, a grid of category tiles, a promotional banner, and then a list
- * of products with a price and an action on each row. This screen is the first
- * three of those without the fourth-and-a-half — no promo banner, no "exchange
- * your points" strip, no countdown timer. Those are the marketing rows the
- * project already decided against on the public home, and a hostel owner
- * ordering forty mattresses is doing a job, not browsing an offer.
+ * The reference board is a three-part shop: a search field, a painted banner, a
+ * row of category pills, and then a **two-up grid of product cards** filtered by
+ * whichever pill is lit. That last part is the whole screen — everything above
+ * it is one line tall and exists to narrow it.
  *
- * What is left is the useful half of that layout: search, departments, what the
- * platform is pushing, and what is new.
+ * This is that, with the two substitutions the project's own rules force:
  *
- * ## Search takes over the screen rather than filtering in place
+ * - The banner carries a **real featured product** rather than invented offer
+ *   copy — see `FeaturedBanner`. Marketing rows are what the public home
+ *   already cut.
+ * - The header stays the painted block with the search field inside it, because
+ *   an accent header with rounded bottom corners is this app family's house
+ *   style (`NOTES.md` §1) and the reference's plain white bar is a colour
+ *   decision, which is the one thing these references do not license.
  *
- * Typing swaps the whole body for results. The alternative — filtering the
- * "New in" rail while leaving the category grid and the featured strip above it
- * — puts three unrelated lists on screen during the one moment the user is
- * looking for exactly one thing.
+ * ## What it replaced, and why
+ *
+ * The previous cut opened on a 4-up grid of department tiles, then a horizontal
+ * "Featured" rail, then a vertical list of "New in" rows — three sections, three
+ * different product presentations, and the products themselves starting below
+ * the fold under a menu. Tapping a department pushed a whole other screen.
+ *
+ * Now the departments are **pills that filter the grid in place**, so the shop
+ * is products from the first row down, and picking a department changes what is
+ * on screen instead of leaving it.
+ *
+ * ## Two requests, not one
+ *
+ * `getStoreHome` still supplies the departments and the store config — they do
+ * not change when a pill is tapped, and refetching sixteen categories to change
+ * a filter is wasted. The grid is its own `listStoreProducts` keyed on the
+ * selected slug, which is what makes the pills live: `useResource` refetches
+ * when its loader identity changes.
+ *
+ * ## Search still takes over the screen
+ *
+ * Typing swaps the whole body for results, and those stay `ProductRow` rather
+ * than becoming grid cards. That is deliberate and the component's own doc
+ * argues it: a row is read faster when the question is "is this the one I
+ * meant", and it has room for the summary line a tile has to drop.
  *
  * ## Adding never leaves the screen
  *
@@ -54,12 +74,32 @@ import {
  */
 export default function StoreShopScreen() {
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState<string | null>(null);
   const cart = useStoreCart();
   const { add, addingProductId, setQuantity } = useAddToCart();
 
   const home = useResource(useCallback(() => getStoreHome(), []), {
     topics: [REALTIME_TOPIC.STORE],
   });
+
+  /*
+   * The grid. Keyed on the selected slug so tapping a pill is a new question and
+   * `useResource` asks it — see the hook's note about loaders that close over a
+   * filter. `recommended` is the server's own default ordering, which is what an
+   * unfiltered shop front should show.
+   */
+  const shelf = useResource(
+    useCallback(
+      () =>
+        listStoreProducts({
+          ...(category ? { category } : {}),
+          pageSize: 24,
+          sort: "recommended",
+        }),
+      [category],
+    ),
+    { topics: [REALTIME_TOPIC.STORE] },
+  );
 
   /*
    * A second resource rather than a filter over the first. `useResource` refetches
@@ -97,16 +137,22 @@ export default function StoreShopScreen() {
   }
 
   const config = home.data?.config;
+  const categories = home.data?.categories ?? [];
   const searching = query.length > 0;
+  const shelfTotal = shelf.data?.pagination.total ?? 0;
+  const selected = categories.find((entry) => entry.slug === category) ?? null;
 
   return (
     <Screen
       bleedTop
       header={header}
       insideTabs
-      onRefresh={home.refresh}
+      onRefresh={() => {
+        home.refresh();
+        shelf.refresh();
+      }}
       padded={false}
-      refreshing={home.refreshing}
+      refreshing={home.refreshing || shelf.refreshing}
       scroll
     >
       {config && !config.isOpen ? (
@@ -153,105 +199,99 @@ export default function StoreShopScreen() {
       ) : (
         <>
           {/*
-            Delivery terms, at the top and once. A hostel deciding whether to
-            order today reads this before anything else, and repeating it on
-            every card is how the cart screen's version stops being noticed.
+            Delivery terms, directly under the header. A hostel deciding whether
+            to order today reads this before anything else, and it is a sentence
+            rather than the cart's progress bar because there is no basket yet to
+            measure progress against.
+
+            Stacked, not joined by a middot. Both halves are full sentences the
+            platform owner writes, and on one row the second was cut off mid-word
+            on every phone — an ellipsis in the middle of "for delivery
+            tomorrow" tells a reader strictly less than nothing.
           */}
           {config && config.freeDeliveryThreshold > 0 ? (
-            <View className="gap-1 px-5 pt-4">
-              <FreeDeliveryBar
-                note={`Free delivery over NPR ${(
+            <View className="gap-0.5 px-5 pt-3">
+              <Text className="text-[11.5px] font-semibold text-primary">
+                {`Free delivery over NPR ${(
                   config.freeDeliveryThreshold / 100
                 ).toLocaleString("en-NP")}`}
-                progress={1}
-              />
-              <Text className="px-1" variant="caption">
+              </Text>
+              <Text className="text-[8.5px] text-muted-foreground">
                 {config.deliveryPromise.cutoffText}
               </Text>
             </View>
           ) : null}
 
-          <View className="px-5 pt-6">
-            <SectionHeader
-              action={
-                <SectionLink onPress={() => router.push("/(store)/categories")} />
-              }
-              title="Shop by department"
-            />
-
-            {home.loading ? (
-              <ProductGridSkeleton count={4} />
-            ) : (home.data?.categories.length ?? 0) === 0 ? (
-              <EmptyCard
-                description="The catalogue is still being stocked. Check back shortly."
-                title="Nothing here yet"
-              />
-            ) : (
-              <Grid gap={8} maxColumns={4} minCellWidth={64}>
-                {(home.data?.categories ?? []).slice(0, 8).map((category) => (
-                  <CategoryTile
-                    category={category}
-                    compact
-                    key={category.id}
-                    onPress={() =>
-                      router.push(`/store/category/${category.slug}`)
-                    }
-                  />
-                ))}
-              </Grid>
-            )}
-          </View>
-
+          {/* The banner slot. Absent entirely when nothing is featured — an
+              empty painted block is worse than no block. */}
           {(home.data?.featured.length ?? 0) > 0 ? (
-            <View className="pt-7">
-              <View className="px-5">
-                <SectionHeader
-                  subtitle="What the platform is stocking this month"
-                  title="Featured"
-                />
-              </View>
-
-              {/*
-                A horizontal rail, not a second grid. Two stacked grids on one
-                screen read as one long grid with a heading dropped into the
-                middle of it, and the whole point of a featured strip is that it
-                is a different *kind* of list.
-              */}
-              <ScrollView
-                contentContainerClassName="gap-3 px-5"
-                horizontal
-                showsHorizontalScrollIndicator={false}
-              >
-                {(home.data?.featured ?? []).map((product) => (
-                  <View key={product.id} style={{ width: 186 }}>
-                    <ProductCard
-                      busy={addingProductId === product.id}
-                      inCart={cart.lineQuantities[product.id]}
-                      onAdd={() => void add(product)}
-                      onPress={() => router.push(`/store/product/${product.id}`)}
-                      onSetQuantity={(next) => void setQuantity(product, next)}
-                      product={product}
-                    />
-                  </View>
-                ))}
-              </ScrollView>
+            <View className="pt-4">
+              <FeaturedRail
+                onPressProduct={(product) =>
+                  router.push(`/store/product/${product.id}`)
+                }
+                products={home.data?.featured ?? []}
+              />
             </View>
           ) : null}
 
-          <View className="px-5 pb-2 pt-7">
-            <SectionHeader title="New in" />
+          <View className="pt-6">
+            <View className="px-5">
+              <SectionHeader
+                action={
+                  <SectionLink onPress={() => router.push("/(store)/categories")} />
+                }
+                title="Categories"
+              />
+            </View>
 
-            {home.loading ? (
-              <ProductGridSkeleton />
-            ) : (home.data?.latest.length ?? 0) === 0 ? (
+            {/*
+              Outside the gutter on purpose: the rail scrolls edge to edge and
+              pads itself, so the last pill runs off the screen rather than
+              stopping short of it with a 20dp margin nobody asked for.
+            */}
+            <CategoryChips
+              categories={categories}
+              onChange={setCategory}
+              value={category}
+            />
+          </View>
+
+          <View className="px-5 pb-2 pt-6">
+            <SectionHeader
+              action={
+                selected ? (
+                  <SectionLink
+                    label="Sort & filter"
+                    onPress={() => router.push(`/store/category/${selected.slug}`)}
+                  />
+                ) : undefined
+              }
+              subtitle={
+                shelf.loading
+                  ? "Loading…"
+                  : `${shelfTotal} ${shelfTotal === 1 ? "product" : "products"}`
+              }
+              title={selected?.name ?? "All products"}
+            />
+
+            {shelf.loading ? (
+              <ProductGridSkeleton count={6} />
+            ) : shelf.error && !shelf.data ? (
+              <ErrorState message={shelf.error} onRetry={shelf.reload} />
+            ) : (shelf.data?.products.length ?? 0) === 0 ? (
               <EmptyCard
-                description="No products are on sale yet."
-                title="The shelves are empty"
+                description={
+                  selected
+                    ? "This department has nothing in it yet. Try another one."
+                    : "The catalogue is still being stocked. Check back shortly."
+                }
+                title={selected ? "Empty shelf" : "The shelves are empty"}
               />
             ) : (
-              <View className="gap-3">
-                {(home.data?.latest ?? []).map((product) => (
-                  <ProductRow
+              <Grid gap={12} maxColumns={2} minCellWidth={148}>
+                {(shelf.data?.products ?? []).map((product) => (
+                  <ProductCard
                     busy={addingProductId === product.id}
                     inCart={cart.lineQuantities[product.id]}
                     key={product.id}
@@ -261,8 +301,29 @@ export default function StoreShopScreen() {
                     product={product}
                   />
                 ))}
-              </View>
+              </Grid>
             )}
+
+            {/*
+              The grid is capped at 24. Past that the department screen is the
+              right place — it has the sort chips and the whole page — so the way on
+              is a link rather than an infinite scroll that would make the tab
+              bar's other three screens unreachable by scroll position.
+            */}
+            {shelf.data?.pagination.hasMore ? (
+              <View className="items-center pt-5">
+                <SectionLink
+                  label={`See all ${shelfTotal} products`}
+                  onPress={() =>
+                    router.push(
+                      selected
+                        ? `/store/category/${selected.slug}`
+                        : "/(store)/categories",
+                    )
+                  }
+                />
+              </View>
+            ) : null}
           </View>
         </>
       )}

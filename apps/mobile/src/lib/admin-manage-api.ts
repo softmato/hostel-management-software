@@ -993,6 +993,9 @@ export type ResidentStatus = (typeof RESIDENT_STATUSES)[number];
 
 /** `serializeResident` in full. `AdminResident` in `admin-api.ts` is the row. */
 export type ManagedResident = {
+  /** What was levied at intake. Null — not zero — when none was. */
+  admissionFee: number | null;
+  admissionFeeDiscount: number;
   createdAt?: string;
   depositAmount: number;
   email: string;
@@ -1003,6 +1006,8 @@ export type ManagedResident = {
   monthlyFee: number;
   moveInDate: string;
   phone: string;
+  /** The code that brought them in. Empty when nobody referred them. */
+  referralCode: string;
   residentType: string;
   roomType: string;
   status: string;
@@ -1018,6 +1023,17 @@ export async function getResident(id: string) {
   return unwrap(response).resident;
 }
 
+/** What the server did with the money, alongside the resident it created. */
+export type ResidentIntakeResult = {
+  /** The one-off admission invoice, or why there is none. */
+  admission:
+    | { amount: number; invoiceId: string; raised: true; referenceCode: string }
+    | { raised: false; reason: string };
+  quote: IntakeQuote;
+  referral: { code: string } | null;
+  resident: ManagedResident;
+};
+
 /**
  * `POST /hostel-admin/residents`.
  *
@@ -1025,13 +1041,19 @@ export async function getResident(id: string) {
  * refused here rather than discovered later. `referralCode` is what pays a
  * resident for bringing a friend in — it is the only place that link is made,
  * so an intake that forgets it cannot be corrected afterwards.
+ *
+ * **There is no `monthlyFee`.** Intake does not set a rent: the rate card does,
+ * and {@link getIntakeQuote} is how a screen shows what that will be. The field
+ * used to be here and defaulted to zero, which `resolveMonthlyCharge` reads as a
+ * deliberate free stay — so every resident registered from this app was quietly
+ * billed nothing. A negotiated rate is an override, set on the resident's own
+ * screen where a reason is recorded with it.
  */
 export async function createResident(input: {
   depositAmount?: number;
   email?: string;
   firstName: string;
   lastName: string;
-  monthlyFee?: number;
   /** ISO. */
   moveInDate: string;
   phone: string;
@@ -1040,12 +1062,125 @@ export async function createResident(input: {
   roomType: string;
   status?: ResidentStatus;
 }) {
-  const response = await api.post<ApiEnvelope<{ resident: ManagedResident }>>(
+  const response = await api.post<ApiEnvelope<ResidentIntakeResult>>(
     "/hostel-admin/residents",
     input,
   );
 
-  return unwrap(response).resident;
+  return unwrap(response);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Intake — reading a card, and what the stay costs                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A resident's own profile, as they filled it in before their ID card was
+ * issued — `GET /hostel-admin/resident-lookup`.
+ *
+ * Sibling of `resident-scan` in `admin-scan-api.ts`, and the difference decides
+ * which one a screen wants. **Scan describes somebody**: it tolerates a missing
+ * profile, a provider's card and sharing switched off, because the warden in the
+ * corridor still needs to know who they are holding. **Lookup fills a form**, so
+ * it refuses all three — there is no half-registering somebody off a card that
+ * cannot answer for them. A 404 here means "not a resident card, or their
+ * profile is not finished", and that is the honest end of the intake.
+ *
+ * Reading a profile this way **notifies its owner** and is written to the audit
+ * log. That is deliberate and it is the reason the lookup is not used for idle
+ * curiosity: a resident is told each time a hostel opens their details.
+ */
+export type ResidentPrefill = {
+  details: {
+    age: number | null;
+    alternatePhone: string | null;
+    backupEmail: string | null;
+    bloodGroup: string;
+    budgetRange: string | null;
+    city: string | null;
+    courseOrDesignation: string | null;
+    dateOfBirth: string | null;
+    dietaryPreference: string;
+    gender: string;
+    governmentIdNumber: string | null;
+    governmentIdType: string | null;
+    institution: string | null;
+    interests: string[];
+    medicalNotes: string | null;
+    permanentAddress: string | null;
+    province: string | null;
+  };
+  emergencyContact: { isPrimary: boolean; name: string; phone: string; relation: string };
+  guardians: {
+    email?: string;
+    firstName: string;
+    isPrimary: boolean;
+    lastName: string;
+    phone: string;
+    relation: string;
+  }[];
+  resident: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    residentType: string;
+  };
+};
+
+export async function lookupResidentProfile(residentId: string) {
+  const response = await api.get<
+    ApiEnvelope<{ prefill: ResidentPrefill; residentId: string; sharedAt: string }>
+  >("/hostel-admin/resident-lookup", { params: { residentId } });
+
+  return unwrap(response);
+}
+
+/** Where {@link IntakeQuote.monthlyRent} came from. `UNPRICED` means nowhere. */
+export type RentBasis = "ROOM_CONFIGURATION" | "SCHEDULE" | "UNPRICED";
+
+/**
+ * What this intake costs, resolved by the server — `GET .../residents/intake-quote`.
+ *
+ * Every figure here is a **fact to display, not a field to edit**. The rate card
+ * it comes from sits behind `viewPayments`, which a warden does not have; this
+ * route is gated on `registerResidents` instead, so the person admitting
+ * somebody is told the price rather than asked for it.
+ */
+export type IntakeQuote = {
+  /** Before the referral discount. */
+  admissionFee: number;
+  /** Fee less discount — what is actually collected at the door. */
+  admissionPayable: number;
+  bedType: string | null;
+  currency: string;
+  depositAmount: number;
+  feeScheduleId: string | null;
+  /** Null when nothing prices this room type. Check `rentBasis`, never assume 0. */
+  monthlyRent: number | null;
+  referral: {
+    applied: boolean;
+    code: string | null;
+    discount: number;
+    /** Why a code earned nothing, ready to print under the field. */
+    reason: string | null;
+  };
+  rentBasis: RentBasis;
+  roomType: string;
+};
+
+export async function getIntakeQuote(input: {
+  /** ISO. Decides which rate card is in force. */
+  moveInDate?: string;
+  referralCode?: string;
+  roomType: string;
+}) {
+  const response = await api.get<ApiEnvelope<{ quote: IntakeQuote }>>(
+    "/hostel-admin/residents/intake-quote",
+    { params: input },
+  );
+
+  return unwrap(response).quote;
 }
 
 /**
@@ -1366,6 +1501,12 @@ export type FeeSchedule = {
   effectiveFrom: string;
   effectiveTo: string | null;
   rates: FeeScheduleRate[];
+  /**
+   * What comes off the admission fee for a resident who arrives on another
+   * resident's referral code. Never off the rent — a referral is a one-time
+   * thank-you, not a standing rate.
+   */
+  referralAdmissionDiscount?: number;
 };
 
 export async function listFeeSchedules() {
@@ -1395,6 +1536,8 @@ export async function createFeeSchedule(input: {
   /** ISO. */
   effectiveFrom: string;
   rates: { bedType: BedType; monthlyAmount: number }[];
+  /** Refused server-side if it exceeds `admissionFee`. */
+  referralAdmissionDiscount?: number;
 }) {
   await api.post("/hostel-admin/finance/fee-schedules", input);
 }

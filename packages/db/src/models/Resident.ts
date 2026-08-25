@@ -51,6 +51,29 @@ const residentSchema = new Schema(
     feeOverrideReason: { type: String, trim: true },
     feeOverrideSetBy: { ref: "User", type: Schema.Types.ObjectId },
     feeOverrideSetAt: Date,
+    /**
+     * What was actually agreed at intake, snapshotted (target §3.3, same rule
+     * as an invoice line).
+     *
+     * The rate card these came from is versioned and will be closed and
+     * replaced; re-deriving the admission fee from "the current schedule" a year
+     * later answers a different question than "what did this person pay to move
+     * in". Null means no admission fee was levied — not zero, which is a fee
+     * that was set to nothing on purpose.
+     */
+    admissionFee: { min: 0, default: null, type: Number },
+    /** What the referral code took off {@link admissionFee}, if anything. */
+    admissionFeeDiscount: { min: 0, default: 0, type: Number },
+    /**
+     * The code that brought them in, kept verbatim.
+     *
+     * `Referral` already records the link and is the row finance reports off, so
+     * this is not the source of truth for who gets rewarded. It is here because
+     * it is what the discount above was justified by, and a discount whose
+     * reason has to be reconstructed by joining three collections is a discount
+     * nobody can explain at the counter.
+     */
+    referralCode: { type: String, trim: true, uppercase: true },
     residentType: {
       type: String,
       enum: ["STUDENT", "WORKING_PROFESSIONAL", "OTHER"],

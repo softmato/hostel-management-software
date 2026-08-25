@@ -25,6 +25,10 @@ import {
   UserServiceError,
 } from "@/modules/users/user.service";
 import {
+  getIntakeQuote,
+  raiseAdmissionInvoice,
+} from "@/modules/residents/resident-intake.service";
+import {
   claimBedForRoomType,
   moveBedBetweenRoomTypes,
   releaseBedForRoomType,
@@ -49,6 +53,8 @@ type ResidentStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
 
 type ResidentRecord = {
   _id: Types.ObjectId;
+  admissionFee?: number | null;
+  admissionFeeDiscount?: number;
   createdAt?: Date;
   demoDataLabel?: string;
   depositAmount: number;
@@ -60,6 +66,7 @@ type ResidentRecord = {
   monthlyFee?: number;
   moveInDate: Date;
   phone: string;
+  referralCode?: string;
   residentType?: "STUDENT" | "WORKING_PROFESSIONAL" | "OTHER";
   roomType: string;
   status: ResidentStatus;
@@ -154,6 +161,9 @@ function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string)
 
 function serializeResident(resident: ResidentRecord) {
   return {
+    /** What was levied at intake. Null — not zero — when none was. */
+    admissionFee: resident.admissionFee ?? null,
+    admissionFeeDiscount: resident.admissionFeeDiscount ?? 0,
     createdAt: resident.createdAt?.toISOString(),
     demoDataLabel: resident.demoDataLabel ?? "",
     depositAmount: resident.depositAmount,
@@ -166,6 +176,7 @@ function serializeResident(resident: ResidentRecord) {
     monthlyFee: resident.monthlyFee ?? 0,
     moveInDate: resident.moveInDate.toISOString(),
     phone: resident.phone,
+    referralCode: resident.referralCode ?? "",
     residentType: resident.residentType ?? "STUDENT",
     roomType: resident.roomType,
     status: resident.status,
@@ -417,6 +428,19 @@ export async function createResident(
     await assertActiveReferralCode(input.referralCode, hostelId);
   }
 
+  /*
+   * The price is resolved here, not received. The screen showed the same figures
+   * before the warden pressed the button, but quoting again at the moment of
+   * writing is what makes them true: a rate card can be replaced between opening
+   * the form and submitting it, and the number that goes on the invoice has to
+   * be the one in force now rather than the one on somebody's screen.
+   */
+  const quote = await getIntakeQuote(hostelId, {
+    moveInDate: input.moveInDate,
+    referralCode: input.referralCode,
+    roomType: input.roomType,
+  });
+
   // Claim the bed before creating the resident: if the room type is full this
   // throws and no half-registered resident is left behind.
   await claimBedForRoomType(hostelId, input.roomType);
@@ -425,10 +449,17 @@ export async function createResident(
 
   try {
     resident = await ResidentModel.create({
-      ...definedUpdate(input, ["referralCode"]),
+      ...definedUpdate(input, ["depositAmount", "referralCode"]),
+      admissionFee: quote.admissionFee > 0 ? quote.admissionFee : null,
+      admissionFeeDiscount: quote.referral.discount,
       createdBy: principal.userId,
+      // What was actually collected when it was said, the rate card's figure
+      // otherwise. Not `?? 0`: a schedule that names a deposit is the answer to
+      // a form that left the box alone.
+      depositAmount: input.depositAmount ?? quote.depositAmount,
       hostelId,
       isDeleted: false,
+      referralCode: quote.referral.code ?? undefined,
       updatedBy: principal.userId,
     });
   } catch (error) {
@@ -464,6 +495,17 @@ export async function createResident(
       })
     : null;
 
+  // Last, and never fatally: the resident is registered by this point, so an
+  // admission fee that cannot be invoiced is a reason returned to the screen,
+  // not an error that tells the hostel their intake failed when it did not.
+  const admission = await raiseAdmissionInvoice({
+    dueDate: input.moveInDate,
+    hostelId,
+    principal,
+    quote,
+    residentId: resident._id,
+  });
+
   const accountLink = await linkResidentAccount(
     resident as ResidentRecord,
     hostelId,
@@ -472,6 +514,8 @@ export async function createResident(
 
   return {
     accountLink,
+    admission,
+    quote,
     referral,
     resident: serializeResident(
       (accountLink.linked

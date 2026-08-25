@@ -26,22 +26,37 @@ const rateSchema = z.object({
   monthlyAmount: wholeRupeeSchema,
 });
 
-export const feeScheduleCreateSchema = z.object({
-  admissionFee: wholeRupeeSchema.optional(),
-  depositAmount: wholeRupeeSchema.optional(),
-  effectiveFrom: z.coerce.date(),
-  hostelId: objectIdSchema.optional(),
-  // At least one rate: an empty rate card prices nobody, and would fail every
-  // resident with BED_TYPE_NOT_PRICED at the next billing run.
-  rates: z
-    .array(rateSchema)
-    .min(1, "A schedule needs at least one rate.")
-    .max(BED_TYPES.length)
-    .refine(
-      (rates) => new Set(rates.map((rate) => rate.bedType)).size === rates.length,
-      "Each bed type may appear once.",
-    ),
-});
+export const feeScheduleCreateSchema = z
+  .object({
+    admissionFee: wholeRupeeSchema.optional(),
+    depositAmount: wholeRupeeSchema.optional(),
+    effectiveFrom: z.coerce.date(),
+    hostelId: objectIdSchema.optional(),
+    /** Comes off the admission fee for a referred resident. See the model. */
+    referralAdmissionDiscount: wholeRupeeSchema.optional(),
+    // At least one rate: an empty rate card prices nobody, and would fail every
+    // resident with BED_TYPE_NOT_PRICED at the next billing run.
+    rates: z
+      .array(rateSchema)
+      .min(1, "A schedule needs at least one rate.")
+      .max(BED_TYPES.length)
+      .refine(
+        (rates) => new Set(rates.map((rate) => rate.bedType)).size === rates.length,
+        "Each bed type may appear once.",
+      ),
+  })
+  // A discount larger than the fee it comes off would make the admission
+  // invoice negative — money owed *to* somebody for moving in. Refused at the
+  // edge rather than clamped, because a hostel that typed 5000 against a 2000
+  // fee has made a mistake worth seeing.
+  .refine(
+    (input) =>
+      (input.referralAdmissionDiscount ?? 0) <= (input.admissionFee ?? 0),
+    {
+      message: "A referral discount cannot exceed the admission fee.",
+      path: ["referralAdmissionDiscount"],
+    },
+  );
 
 export const feeScheduleCloseSchema = z.object({
   effectiveTo: z.coerce.date(),

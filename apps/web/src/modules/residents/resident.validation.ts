@@ -23,13 +23,30 @@ export const residentListQuerySchema = z.object({
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).optional(),
 });
 
+/**
+ * Registering somebody does **not** set their rent.
+ *
+ * `monthlyFee` used to be here with `.default(0)`, and that default was a
+ * standing bug rather than a convenience: `Resident.monthlyFee` is an
+ * *override*, `resolveMonthlyCharge` reads zero as a deliberate free stay, and
+ * a form that submits nothing therefore registered every resident on a
+ * permanent rent of nothing — the exact failure the model documents at §5.1 A2.
+ *
+ * So the field is gone from intake. Rent comes from the rate card, and an
+ * override is a separate, deliberate act on the resident's own screen where a
+ * reason is recorded alongside it. An unexplained number cannot become the norm
+ * again if there is nowhere at the door to type one.
+ */
 export const residentCreateSchema = z.object({
   ...optionalHostelScopeSchema,
-  depositAmount: z.coerce.number().nonnegative().default(0),
+  /**
+   * What was actually taken at the door. Omitted means "whatever the rate card
+   * says" — the service fills it from the schedule rather than banking zero.
+   */
+  depositAmount: z.coerce.number().nonnegative().optional(),
   email: z.string().trim().email().optional(),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
-  monthlyFee: z.coerce.number().nonnegative().default(0),
   moveInDate: z.coerce.date(),
   phone: z.string().trim().min(7).max(24),
   /** Optional code of the resident who referred this one (PHASES.md §5.1). */

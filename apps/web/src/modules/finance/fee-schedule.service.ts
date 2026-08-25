@@ -38,6 +38,8 @@ export type FeeScheduleRecord = {
   effectiveTo?: Date | null;
   hostelId: Types.ObjectId;
   rates: FeeScheduleRate[];
+  /** Comes off `admissionFee` for a referred resident. Never off the rent. */
+  referralAdmissionDiscount?: number;
 };
 
 /** The subset of a resident this module needs. */
@@ -302,6 +304,7 @@ export async function createFeeSchedule(
     effectiveTo: null,
     hostelId,
     rates: input.rates,
+    referralAdmissionDiscount: input.referralAdmissionDiscount,
   })) as unknown as FeeScheduleRecord;
 
   // A rate card is what every future invoice is computed from, so a change to

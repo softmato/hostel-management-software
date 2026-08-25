@@ -147,6 +147,9 @@ export default function ManageFinanceScreen() {
       admissionFee: open?.admissionFee ? String(open.admissionFee) : "",
       depositAmount: open?.depositAmount ? String(open.depositAmount) : "",
       effectiveFrom: dayInputFromNow(1),
+      referralAdmissionDiscount: open?.referralAdmissionDiscount
+        ? String(open.referralAdmissionDiscount)
+        : "",
     });
     setPanel("schedule");
   }, [open]);
@@ -189,6 +192,9 @@ export default function ManageFinanceScreen() {
         depositAmount: form.depositAmount?.trim() ? Number(form.depositAmount) : undefined,
         effectiveFrom,
         rates: priced,
+        referralAdmissionDiscount: form.referralAdmissionDiscount?.trim()
+          ? Number(form.referralAdmissionDiscount)
+          : undefined,
       });
       toastSuccess("New rates open", "The previous card closed the day before they start.");
       setPanel(null);
@@ -410,6 +416,12 @@ export default function ManageFinanceScreen() {
                 ))}
                 {open.admissionFee ? (
                   <FactRow label="Admission" value={<Money value={open.admissionFee} />} />
+                ) : null}
+                {open.referralAdmissionDiscount ? (
+                  <FactRow
+                    label="Referral discount"
+                    value={<Money value={open.referralAdmissionDiscount} />}
+                  />
                 ) : null}
                 {open.depositAmount ? (
                   <FactRow label="Deposit" value={<Money value={open.depositAmount} />} />
@@ -693,6 +705,15 @@ export default function ManageFinanceScreen() {
             label="Admission fee (NPR)"
             onChangeText={(admissionFee) => setForm((prev) => ({ ...prev, admissionFee }))}
             value={form.admissionFee ?? ""}
+          />
+          <Input
+            hint="Comes off the admission fee for a resident who arrives on another resident's referral code. Never off the rent."
+            keyboardType="number-pad"
+            label="Referral discount (NPR)"
+            onChangeText={(referralAdmissionDiscount) =>
+              setForm((prev) => ({ ...prev, referralAdmissionDiscount }))
+            }
+            value={form.referralAdmissionDiscount ?? ""}
           />
           <Input
             keyboardType="number-pad"
