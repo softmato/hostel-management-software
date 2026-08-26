@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { FactRow } from "@/components/ui/layout";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { Sheet } from "@/components/ui/sheet";
+import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
@@ -343,6 +343,7 @@ export default function ManageStatementScreen() {
   const [rangesOpen, setRangesOpen] = useState(true);
   const [open, setOpen] = useState<StatementCredit | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
 
   const credits = useMemo(() => statementCredits(ledger.data), [ledger.data]);
   const visible = useMemo(() => filterCredits(credits, filter), [credits, filter]);
@@ -371,28 +372,29 @@ export default function ManageStatementScreen() {
     }
   }, [filter, hostel.data, visible]);
 
-  const exportCsv = useCallback(async () => {
+  /**
+   * Downloads the statement in the format the owner picked.
+   *
+   * The portal's own collection export, not a file built here from `visible`. A
+   * document that says "statement" has to reconcile against the books, and the
+   * server's export is the one the web hands an accountant — a second,
+   * client-side rendering of the same figures is a second thing to keep right,
+   * and the first one to be wrong.
+   *
+   * `downloadToDevice` rather than a share sheet, and no spinner of its own:
+   * progress goes to the global toaster and the notification shade. `exporting`
+   * exists only to stop a second tap.
+   */
+  const exportAs = useCallback(async (format: "csv" | "pdf") => {
     setExporting(true);
 
     try {
-      /*
-       * The portal's own collection export, not a CSV built here from `visible`.
-       * A file that says "statement" has to reconcile against the books, and the
-       * server's export is the one the web hands an accountant — a second,
-       * client-side rendering of the same figures is a second thing to keep
-       * right.
-       *
-       * `downloadToDevice`, not `downloadAndShareCsv`: this button is a download
-       * and the share sheet was the app re-opening a decision the owner had
-       * already made by pressing it. Progress goes to the global toaster, so
-       * nothing here holds a spinner — `exporting` only stops a second tap.
-       */
       await downloadToDevice({
-        extension: "csv",
+        extension: format,
         fileName: "hostel-statement",
         label: "Statement export",
-        mimeType: "text/csv",
-        url: `${API_BASE_URL}/api/v1/hostel-admin/reports/export?report=payments`,
+        mimeType: format === "pdf" ? "application/pdf" : "text/csv",
+        url: `${API_BASE_URL}/api/v1/hostel-admin/reports/export?format=${format}&report=payments`,
       });
     } catch (error) {
       toastError("Could not export", readApiError(error, "The export did not download."));
@@ -448,14 +450,14 @@ export default function ManageStatementScreen() {
             </Pressable>
 
             <Pressable
-              accessibilityLabel="Export the collection as a spreadsheet"
+              accessibilityLabel="Export this statement"
               accessibilityRole="button"
               className={`h-10 w-10 items-center justify-center rounded-full active:opacity-70 ${
                 exporting ? "opacity-50" : ""
               }`}
               disabled={exporting}
               hitSlop={4}
-              onPress={() => void exportCsv()}
+              onPress={() => setFormatOpen(true)}
             >
               <Ionicons color={colors.primaryForeground} name="document-text-outline" size={20} />
             </Pressable>
@@ -734,6 +736,46 @@ export default function ManageStatementScreen() {
           ))}
         </View>
       </Screen>
+
+      {/* --------------------------------------------------------- format */}
+      {/*
+        Asked, not assumed. The button used to produce a CSV on the way out, and
+        the two formats are for different people: a spreadsheet is what an
+        accountant reconciles against, a PDF is what a bank, a landlord or a
+        family member is handed. Guessing wrong means the owner exports twice
+        and opens the wrong one in between.
+
+        A bottom sheet of rows rather than an anchored menu — NOTES §6 — and the
+        file is generated only after the choice, so nothing is built and thrown
+        away.
+      */}
+      <Sheet
+        bare
+        onClose={() => setFormatOpen(false)}
+        open={formatOpen}
+        title="Export this statement"
+      >
+        <SheetRow
+          label="PDF"
+          onPress={() => {
+            setFormatOpen(false);
+            void exportAs("pdf");
+          }}
+          subtitle="Laid out to read, print or send on"
+          trailing={
+            <Ionicons color={colors.mutedForeground} name="document-text-outline" size={20} />
+          }
+        />
+        <SheetRow
+          label="Spreadsheet"
+          onPress={() => {
+            setFormatOpen(false);
+            void exportAs("csv");
+          }}
+          subtitle="A CSV your accountant can open in Excel"
+          trailing={<Ionicons color={colors.mutedForeground} name="grid-outline" size={20} />}
+        />
+      </Sheet>
 
       {/* --------------------------------------------------------- detail */}
       <Sheet

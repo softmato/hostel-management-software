@@ -132,8 +132,10 @@ function easProjectId(): string | undefined {
  * alert for someone staring at the screen.
  *
  * `shouldShowBanner`/`shouldShowList` are the SDK 52+ replacements for the
- * deprecated `shouldShowAlert`, which is still returned because older Expo
- * runtimes read that one and ignore the new pair.
+ * deprecated `shouldShowAlert`, which is **not** returned alongside them: the
+ * runtime warns once per notification when it sees it, which on a progress
+ * transfer is a wall of identical console noise, and both replacements were
+ * already being given the value it would have carried.
  *
  * ## The one exception: our own upload progress
  *
@@ -157,10 +159,16 @@ Notifications.setNotificationHandler({
     const isUploadProgress =
       notification.request.content.data?.type === UPLOAD_NOTIFICATION_TYPE;
 
+    /*
+     * No `shouldShowAlert`. It was the pre-SDK-52 name for the pair below and
+     * expo-notifications now warns on every single notification the app posts —
+     * which on a progress transfer is a wall of identical console noise. The two
+     * that replaced it were already being set to the same value, so dropping it
+     * changes nothing about what is shown.
+     */
     return {
       shouldPlaySound: !isUploadProgress,
       shouldSetBadge: !isUploadProgress,
-      shouldShowAlert: !isUploadProgress,
       shouldShowBanner: !isUploadProgress,
       shouldShowList: true,
     };

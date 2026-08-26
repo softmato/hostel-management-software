@@ -2,8 +2,8 @@ import type { NextRequest } from "next/server";
 
 import { requireSuperadminPrincipal } from "@/lib/api-auth";
 import { handleRouteError } from "@/lib/api-response";
-import { csvFilename, csvResponse, toCsv } from "@/lib/csv";
 import { buildPlatformReportExport } from "@/modules/reports/report-export.service";
+import { reportExportResponse } from "@/modules/reports/report-response";
 import { platformReportExportSchema } from "@/modules/reports/report.validation";
 
 export const runtime = "nodejs";
@@ -21,10 +21,7 @@ export async function GET(request: NextRequest) {
     );
     const report = await buildPlatformReportExport(input);
 
-    return csvResponse(
-      toCsv(report.columns, report.rows),
-      csvFilename(report.filenamePrefix),
-    );
+    return await reportExportResponse(report, { format: input.format });
   } catch (error) {
     return handleRouteError(error);
   }
