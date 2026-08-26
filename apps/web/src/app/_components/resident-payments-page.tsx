@@ -19,6 +19,7 @@ import { ResidentClaimForm } from "@/app/_components/resident-claim-form";
 import { ResidentPayInvoicePanel } from "@/app/_components/resident-pay-invoice-panel";
 import { dayMonthYear, daysLeftLabel, monthLabel } from "@/lib/format-month";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { downloadFile } from "@/lib/downloads/downloader";
 import { residentEndpoints } from "@/lib/resident-endpoints";
 import { cn } from "@/lib/utils";
 import { OfferProgramBanner } from "./resident-offer-program";
@@ -315,37 +316,29 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
     : 0;
 
   /**
-   * Fetched rather than linked so a failure shows in the page's own message line
-   * instead of navigating the resident to a JSON error body.
+   * Through the global downloader, which is where the fetch-blob-anchor dance
+   * this used to do by hand now lives — with a progress row in the toaster on
+   * top, because a statement PDF is generated server-side and the wait is long
+   * enough to look like nothing happened.
+   *
+   * Still not a plain link, for the original reason: an `<a href>` navigates the
+   * resident to a JSON error body when the generation fails.
    */
   const handleStatement = useCallback(async () => {
     setDownloading(true);
 
-    try {
-      const response = await fetch(residentEndpoints.statementPdf);
+    const outcome = await downloadFile({
+      fileName: "statement.pdf",
+      label: "Your statement",
+      mimeType: "application/pdf",
+      scope: "resident-payments",
+      url: residentEndpoints.statementPdf,
+    });
 
-      if (!response.ok) {
-        throw new Error("Statement could not be generated.");
-      }
-
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-
-      link.download = "statement.pdf";
-      link.href = url;
-      link.click();
-      // Revoked immediately: the click has already handed the blob to the
-      // browser's download manager, and holding the object URL leaks it for the
-      // lifetime of the document.
-      URL.revokeObjectURL(url);
-      setActionMessage("");
-    } catch (error) {
-      setActionMessage(
-        error instanceof Error ? error.message : "Statement could not be generated.",
-      );
-    } finally {
-      setDownloading(false);
-    }
+    // The toaster already reported it; this keeps the page's own line in step
+    // for anyone reading the panel rather than the corner.
+    setActionMessage(outcome.ok ? "" : outcome.error);
+    setDownloading(false);
   }, []);
 
   const filteredPayments = useMemo(() => {

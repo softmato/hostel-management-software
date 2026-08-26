@@ -148,6 +148,12 @@ function easProjectId(): string | undefined {
  */
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
+    /*
+     * Progress only. A **finished download** is deliberately not suppressed:
+     * it is one notification rather than twenty, it is the app's only report
+     * that a file now exists, and it is the one the user actually wants to see
+     * at the top of the screen. See `DOWNLOAD_CHANNEL`.
+     */
     const isUploadProgress =
       notification.request.content.data?.type === UPLOAD_NOTIFICATION_TYPE;
 

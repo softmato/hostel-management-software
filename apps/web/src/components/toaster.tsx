@@ -16,6 +16,15 @@ import { createPortal } from "react-dom";
 
 import { formatBytes } from "@/lib/uploads/accepts";
 import { cn } from "@/lib/utils";
+import {
+  canRetryDownload,
+  cancelDownload,
+  type DownloadItem,
+  downloadRate,
+  isDownloadActive,
+  retryDownload,
+  useDownloadStore,
+} from "@/stores/download-store";
 import { useToastStore, type ToastItem, type ToastTone } from "@/stores/toast-store";
 import {
   canRetryUpload,
@@ -349,6 +358,308 @@ function UploadStack() {
   );
 }
 
+/** "1.2 MB of 4.0 MB · 820 KB/s · 4s left", or just what has arrived so far. */
+function downloadCaption(item: DownloadItem) {
+  if (item.status === "saving") {
+    return "Saving to your device…";
+  }
+
+  const { bytesPerSecond, etaSeconds } = downloadRate(item);
+
+  /*
+   * A streamed export sends no `Content-Length`, so there is no "of 4.0 MB" to
+   * write and no honest ETA. Saying what has arrived is the whole truth
+   * available, and it still moves — which is the part that tells somebody the
+   * thing is working.
+   */
+  const parts = [
+    item.sizeBytes > 0
+      ? `${formatBytes(item.loadedBytes)} of ${formatBytes(item.sizeBytes)}`
+      : formatBytes(item.loadedBytes),
+  ];
+
+  if (bytesPerSecond > 0) {
+    parts.push(`${formatBytes(bytesPerSecond)}/s`);
+  }
+
+  if (etaSeconds !== null && etaSeconds > 0 && Number.isFinite(etaSeconds)) {
+    parts.push(secondsLabel(etaSeconds));
+  }
+
+  return parts.join(" · ");
+}
+
+function DownloadRowIcon({ item }: { item: DownloadItem }) {
+  if (item.status === "success") {
+    return <CheckCircle2 className="size-4 text-brand-teal" />;
+  }
+
+  if (item.status === "error") {
+    return <XCircle className="size-4 text-destructive" />;
+  }
+
+  if (item.status === "canceled") {
+    return <X className="size-4 text-muted-foreground" />;
+  }
+
+  return <Loader2 className="size-4 animate-spin text-brand-teal" />;
+}
+
+const DownloadRow = memo(function DownloadRow({ item }: { item: DownloadItem }) {
+  const dismiss = useDownloadStore((state) => state.dismiss);
+  const active = isDownloadActive(item.status);
+  const failed = item.status === "error";
+  const FileIcon = item.mimeType.startsWith("image/") ? ImageIcon : FileText;
+
+  // Successful rows clear themselves; failures stay so the retry stays reachable.
+  useEffect(() => {
+    if (item.status !== "success" && item.status !== "canceled") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => dismiss(item.id), SUCCESS_LINGER_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [dismiss, item.id, item.status]);
+
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex items-start gap-2.5">
+        <span
+          className={cn(
+            "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
+            failed
+              ? "bg-destructive/10 text-destructive"
+              : "bg-brand-teal/10 text-brand-teal",
+          )}
+        >
+          <FileIcon className="size-4" />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-foreground">
+              {item.label}
+            </p>
+            {active && item.percent !== null ? (
+              <span className="shrink-0 text-[12px] font-bold tabular-nums text-brand-teal">
+                {item.percent}%
+              </span>
+            ) : (
+              <DownloadRowIcon item={item} />
+            )}
+          </div>
+
+          {item.label !== item.fileName ? (
+            <p className="truncate text-[11px] text-muted-foreground">{item.fileName}</p>
+          ) : null}
+
+          {active ? (
+            <>
+              <div
+                aria-label={`Downloading ${item.fileName}`}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                // Omitted entirely when the size is unknown: that is what makes
+                // a progressbar indeterminate to a screen reader, and a made-up
+                // number here would be read aloud as fact.
+                aria-valuenow={item.percent ?? undefined}
+                className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+              >
+                {item.percent === null ? (
+                  /*
+                   * No length header, so no width to set. A pulsing full bar
+                   * says "working, size unknown"; a bar stuck at 0 says
+                   * "nothing is happening", which is the reading that makes
+                   * people click Export a second time.
+                   */
+                  <div className="h-full w-full animate-pulse rounded-full bg-brand-teal/50" />
+                ) : (
+                  <div
+                    className={cn(
+                      "h-full rounded-full bg-brand-teal transition-[width] duration-200 ease-out",
+                      item.status === "saving" && "animate-pulse",
+                    )}
+                    style={{ width: `${Math.max(item.percent, 3)}%` }}
+                  />
+                )}
+              </div>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                {downloadCaption(item)}
+              </p>
+            </>
+          ) : (
+            <p
+              className={cn(
+                "mt-0.5 truncate text-[11px]",
+                failed ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {item.status === "success"
+                ? `Downloaded · ${formatBytes(item.sizeBytes)}`
+                : item.status === "canceled"
+                  ? "Canceled"
+                  : (item.error ?? "Download failed")}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-0.5 flex shrink-0 items-center gap-1">
+          {active ? (
+            <button
+              aria-label={`Cancel download of ${item.fileName}`}
+              className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={() => cancelDownload(item.id)}
+              type="button"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : (
+            <>
+              {failed && canRetryDownload(item.id) ? (
+                <button
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-brand-teal transition hover:bg-brand-teal/10"
+                  onClick={() => retryDownload(item.id)}
+                  type="button"
+                >
+                  <RotateCcw className="size-3" />
+                  Retry
+                </button>
+              ) : null}
+              <button
+                aria-label="Dismiss"
+                className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                onClick={() => dismiss(item.id)}
+                type="button"
+              >
+                <X className="size-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/**
+ * The download card — deliberately the same object as `<UploadStack />`.
+ *
+ * Its own component rather than a mode of that one, for the same reason
+ * `download-store.ts` is its own store: the two share an appearance and almost
+ * nothing else. A merged stack would have to headline a batch that is half
+ * arriving and half leaving, and there is no true sentence for that.
+ *
+ * What they *do* share stays shared: `secondsLabel`, `formatBytes`,
+ * `SUCCESS_LINGER_MS` and `MAX_VISIBLE_UPLOADS` are the same values from the
+ * same file, so the two cards cannot drift in rhythm or in wording.
+ */
+function DownloadStack() {
+  const items = useDownloadStore((state) => state.items);
+  const clearFinished = useDownloadStore((state) => state.clearFinished);
+
+  const summary = useMemo(() => {
+    const activeItems = items.filter((item) => isDownloadActive(item.status));
+    const measured = items.filter((item) => item.sizeBytes > 0);
+    const totalBytes = measured.reduce((sum, item) => sum + item.sizeBytes, 0);
+    const loadedBytes = measured.reduce(
+      (sum, item) =>
+        sum +
+        (item.status === "success" ? item.sizeBytes : (item.sizeBytes * (item.percent ?? 0)) / 100),
+      0,
+    );
+
+    return {
+      activeCount: activeItems.length,
+      doneCount: items.filter((item) => item.status === "success").length,
+      failedCount: items.filter((item) => item.status === "error").length,
+      /*
+       * Null unless something in the batch declared a size. Averaging a known
+       * row with an unknown one would put a confident number on a guess, and
+       * the aggregate bar is the one place that number is read as authoritative.
+       */
+      percent:
+        totalBytes > 0 ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100)) : null,
+    };
+  }, [items]);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  const visible = items.slice(-MAX_VISIBLE_UPLOADS);
+  const hidden = items.length - visible.length;
+  const downloading = summary.activeCount > 0;
+
+  const headline = downloading
+    ? summary.activeCount === 1
+      ? "Downloading 1 file"
+      : `Downloading ${summary.activeCount} files`
+    : summary.failedCount > 0
+      ? `${summary.failedCount} download${summary.failedCount === 1 ? "" : "s"} failed`
+      : "All downloads complete";
+
+  return (
+    <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-in fade-in slide-in-from-bottom-2">
+      <div className="flex items-center gap-2 border-b border-border bg-surface-strong px-3 py-2">
+        {downloading ? (
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-teal" />
+        ) : summary.failedCount > 0 ? (
+          <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+        ) : (
+          <CheckCircle2 className="size-3.5 shrink-0 text-brand-teal" />
+        )}
+
+        <p className="min-w-0 flex-1 truncate text-[12px] font-bold text-foreground">
+          {headline}
+        </p>
+
+        {downloading ? (
+          summary.percent === null ? null : (
+            <span className="shrink-0 text-[12px] font-bold tabular-nums text-brand-teal">
+              {summary.percent}%
+            </span>
+          )
+        ) : (
+          <button
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            onClick={clearFinished}
+            type="button"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {downloading ? (
+        <div className="h-1 w-full bg-muted">
+          {summary.percent === null ? (
+            <div className="h-full w-full animate-pulse bg-brand-teal/50" />
+          ) : (
+            <div
+              className="h-full bg-brand-teal transition-[width] duration-200 ease-out"
+              style={{ width: `${Math.max(summary.percent, 2)}%` }}
+            />
+          )}
+        </div>
+      ) : null}
+
+      <div className="max-h-[42vh] divide-y divide-border overflow-y-auto">
+        {visible.map((item) => (
+          <DownloadRow item={item} key={item.id} />
+        ))}
+      </div>
+
+      {hidden > 0 ? (
+        <p className="border-t border-border px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+          +{hidden} more {hidden === 1 ? "file" : "files"} in this batch
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 const Toast = memo(function Toast({ toast: item }: { toast: ToastItem }) {
   const dismiss = useToastStore((state) => state.dismiss);
   const tone = TOAST_TONE[item.tone];
@@ -442,10 +753,14 @@ function useModalDialogOpen() {
 export function Toaster() {
   const toasts = useToastStore((state) => state.toasts);
   const uploads = useUploadStore((state) => state.items);
+  const downloads = useDownloadStore((state) => state.items);
   const hydrated = useIsHydrated();
   const dialogOpen = useModalDialogOpen();
 
-  if (!hydrated || (toasts.length === 0 && uploads.length === 0)) {
+  if (
+    !hydrated ||
+    (toasts.length === 0 && uploads.length === 0 && downloads.length === 0)
+  ) {
     return null;
   }
 
@@ -475,6 +790,13 @@ export function Toaster() {
           <Toast key={item.id} toast={item} />
         ))}
         <UploadStack />
+        {/*
+          Under the uploads, because an upload is something the user is waiting
+          on before they can carry on and a download is not — if both are live,
+          the one that blocks them should be the one nearest the top of the
+          stack rather than the one that pushed it down.
+        */}
+        <DownloadStack />
       </div>
     </div>,
     document.body,

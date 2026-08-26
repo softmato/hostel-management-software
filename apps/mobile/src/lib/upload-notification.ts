@@ -57,6 +57,39 @@ export const UPLOAD_NOTIFICATION_ID = "hostelhub-upload-progress";
 export const UPLOAD_NOTIFICATION_TYPE = "upload-progress";
 
 /**
+ * How long a transfer must have been running before the shade says anything.
+ *
+ * A 3 kB CSV is done in under a second, and posting progress for it produced
+ * exactly the complaint it was meant to prevent: the in-app toaster had already
+ * said "done" before the notification appeared, so the shade looked like it was
+ * reporting something that had not started yet. Two async hops — a permission
+ * read and `scheduleNotificationAsync` — cannot be made to land inside 200ms, so
+ * the answer is not to race them but to not enter.
+ *
+ * The shade's whole justification is "the user switched away mid-transfer", and
+ * nobody switches away inside a second. Terminal notices are never delayed: the
+ * completed file is the part worth telling someone about.
+ */
+export const PROGRESS_DELAY_MS = 1_200;
+
+/**
+ * The channel a finished **download** is posted on, and its display name.
+ *
+ * Separate from `UPLOAD_CHANNEL` because the two want opposite importance. A
+ * progress bar must never pop over the screen — LOW, silent, no heads-up — and
+ * a finished download is the one notification in this whole pipeline that
+ * *should* appear at the top, because it is the app's only report that a file
+ * now exists on the phone. That is the behaviour every browser has trained
+ * people to expect, and a completed download buried silently in the list is
+ * indistinguishable from nothing having happened.
+ */
+export const DOWNLOAD_CHANNEL = "downloads";
+export const DOWNLOAD_CHANNEL_NAME = "Finished downloads";
+
+/** Marks the notification that a tap should open a file rather than route. */
+export const DOWNLOAD_NOTIFICATION_TYPE = "download-complete";
+
+/**
  * Its own Android channel at LOW importance: silent, no vibration, no heads-up.
  * A progress bar that buzzes twenty times per file is the thing that makes
  * people disable notifications for the whole app — taking the SOS channel with
@@ -105,10 +138,19 @@ export type UploadTally = {
   label: string | null;
   /** Floored aggregate 0–100. Only meaningful while `phase` is transferring. */
   percent: number;
+  /** The saved file a finished download left behind, for the tap handler. */
+  openMimeType: string | null;
+  openPath: string | null;
+  openUri: string | null;
   /** `null` when nothing is in flight. */
   phase: UploadPhase | null;
   /** Ids already counted, so a re-emit cannot double-count a finished row. */
   seen: readonly string[];
+  /**
+   * When this batch began, so `uploadNotice` can withhold progress from one too
+   * short to need it. `0` while nothing has started.
+   */
+  since: number;
   succeeded: number;
   /** Everything this batch has held, finished or not. */
   total: number;
@@ -119,9 +161,13 @@ export const EMPTY_TALLY: UploadTally = {
   direction: null,
   failed: 0,
   label: null,
+  openMimeType: null,
+  openPath: null,
+  openUri: null,
   percent: 0,
   phase: null,
   seen: [],
+  since: 0,
   succeeded: 0,
   total: 0,
 };
@@ -155,6 +201,9 @@ export function tallyUploads(
   const seen = new Set(base.seen);
   let failed = base.failed;
   let succeeded = base.succeeded;
+  let openMimeType = base.openMimeType;
+  let openPath = base.openPath;
+  let openUri = base.openUri;
 
   for (const row of rows) {
     if (isUploadActive(row.stage) || seen.has(row.id)) {
@@ -167,8 +216,33 @@ export function tallyUploads(
       failed += 1;
     } else {
       succeeded += 1;
+
+      /*
+       * Carried onto the tally rather than read from the row later, for the
+       * same reason `label` is: `pruneUploads` drops a succeeded row after 2.5
+       * seconds and the notification outlives it by design. Without this the
+       * completion notice would lose its file the moment the toaster cleared.
+       */
+      if (row.openUri) {
+        openMimeType = row.openMimeType ?? null;
+        openPath = row.openPath ?? null;
+        openUri = row.openUri;
+      }
     }
   }
+
+  /*
+   * The batch's start is its earliest active row, held for the batch's whole
+   * life. Taking the *newest* row's start instead would restart the clock every
+   * time a second file joined, and a long transfer would never clear
+   * `PROGRESS_DELAY_MS` as long as new ones kept arriving.
+   */
+  const since =
+    active.length === 0
+      ? base.since
+      : startingFresh || base.since === 0
+        ? Math.min(...active.map((row) => row.startedAt))
+        : base.since;
 
   const finished = failed + succeeded;
   const total = Math.max(base.total, finished + active.length);
@@ -201,9 +275,13 @@ export function tallyUploads(
     direction: directionOf(active) ?? base.direction,
     failed,
     label: total === 1 ? (activeLabel ?? base.label) : null,
+    openMimeType,
+    openPath,
+    openUri,
     percent,
     phase: phaseOf(active),
     seen: [...seen],
+    since,
     succeeded,
     total,
   };
@@ -244,6 +322,14 @@ function phaseOf(active: readonly UploadRow[]): UploadPhase | null {
 
 export type UploadNotice = {
   body: string;
+  /**
+   * Which Android channel to post on. A finished download goes to the louder
+   * one so it lands at the top of the shade — see `DOWNLOAD_CHANNEL`.
+   */
+  channel: typeof DOWNLOAD_CHANNEL | typeof UPLOAD_CHANNEL;
+  /** The file to open when this notification is tapped, if there is one. */
+  openMimeType: string | null;
+  openUri: string | null;
   /**
    * Android's `sticky`: the notification cannot be swiped away while bytes are
    * moving. A transfer the user dismissed and then wonders about is exactly the
@@ -299,11 +385,22 @@ const VERBS: Record<"download" | "mixed" | "upload", {
   },
 };
 
-/** What the shade should currently say, or `null` for "post nothing". */
-export function uploadNotice(tally: UploadTally): UploadNotice | null {
+/**
+ * What the shade should currently say, or `null` for "post nothing".
+ *
+ * `now` is a parameter rather than a `Date.now()` inside, so the delay below is
+ * testable; the notifier passes the real clock.
+ */
+export function uploadNotice(tally: UploadTally, now: number = Date.now()): UploadNotice | null {
   const words = VERBS[tally.direction ?? "mixed"];
+  const quiet = { channel: UPLOAD_CHANNEL, openMimeType: null, openUri: null } as const;
 
   if (tally.active > 0) {
+    // Too short to be worth telling the shade about — see `PROGRESS_DELAY_MS`.
+    if (now - tally.since < PROGRESS_DELAY_MS) {
+      return null;
+    }
+
     const done = tally.failed + tally.succeeded;
     /*
      * A percentage is shown only while bytes are actually moving. Presigning
@@ -319,6 +416,7 @@ export function uploadNotice(tally: UploadTally): UploadNotice | null {
           : `${tally.percent}%`;
 
     return {
+      ...quiet,
       body:
         tally.total > 1 ? `${done} of ${tally.total} done · ${progress}` : progress,
       ongoing: true,
@@ -332,6 +430,7 @@ export function uploadNotice(tally: UploadTally): UploadNotice | null {
 
   if (tally.failed > 0) {
     return {
+      ...quiet,
       body: "Open the app to try again.",
       ongoing: false,
       title:
@@ -343,9 +442,23 @@ export function uploadNotice(tally: UploadTally): UploadNotice | null {
   }
 
   if (tally.succeeded > 0) {
+    /*
+     * The one notice in this pipeline that is about a **thing** rather than
+     * about a transfer: a file now exists on the phone. So it says where it
+     * went, it opens when tapped, and it goes on the louder channel — a
+     * finished download buried silently in the list is indistinguishable from
+     * nothing having happened, which was the complaint.
+     */
+    const openable = tally.direction === "download" && tally.openUri !== null;
+
     return {
-      body: `Finished ${words.active.toLowerCase()}.`,
+      body: openable
+        ? `Saved to ${tally.openPath ?? "your Downloads"} · Tap to open`
+        : `Finished ${words.active.toLowerCase()}.`,
+      channel: openable ? DOWNLOAD_CHANNEL : UPLOAD_CHANNEL,
       ongoing: false,
+      openMimeType: openable ? tally.openMimeType : null,
+      openUri: openable ? tally.openUri : null,
       title:
         tally.total === 1 && tally.label
           ? `${tally.label} ${words.done}`
@@ -373,7 +486,9 @@ export function shouldRepost(
 
   return (
     previous.body !== next.body ||
+    previous.channel !== next.channel ||
     previous.ongoing !== next.ongoing ||
+    previous.openUri !== next.openUri ||
     previous.title !== next.title ||
     previous.tone !== next.tone
   );

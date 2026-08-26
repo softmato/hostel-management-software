@@ -2,6 +2,7 @@
 
 import React from "react";
 import { BarChart3 } from "lucide-react";
+import { downloadFile } from "@/lib/downloads/downloader";
 import { platformEndpoints } from "@/lib/platform-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 import { PlatformQuestionCallPanel } from "./platform-questioncall-panel";
@@ -45,13 +46,22 @@ export const PlatformReportsPageContent = React.memo(
         {canExport ? (
           <nav aria-label="Report exports" className="flex flex-wrap gap-2">
             {EXPORTS.map((entry) => (
-              <a
+              <button
                 className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-role-platform"
-                href={`${PLATFORM_REPORT_EXPORT}?report=${entry.report}`}
                 key={entry.report}
+                onClick={() =>
+                  void downloadFile({
+                    fileName: `${entry.report}-report.csv`,
+                    label: entry.label,
+                    mimeType: "text/csv",
+                    scope: "platform-reports",
+                    url: `${PLATFORM_REPORT_EXPORT}?report=${entry.report}`,
+                  })
+                }
+                type="button"
               >
                 {entry.label}
-              </a>
+              </button>
             ))}
           </nav>
         ) : null}

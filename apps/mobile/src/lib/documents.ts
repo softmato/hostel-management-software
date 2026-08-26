@@ -19,6 +19,7 @@ import { Directory, DownloadTask, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
+import { saveSilently } from "@/lib/native-downloads";
 import { readTokens } from "@/lib/session";
 import { toastSuccess } from "@/lib/toast";
 import { finishUpload, startDownload, updateUpload } from "@/lib/upload-queue";
@@ -296,6 +297,17 @@ export async function downloadAndShareCsv({
 const DOWNLOAD_FOLDER_KEY = "hh_download_folder_uri";
 
 /**
+ * The folder this app makes inside whatever the user picked.
+ *
+ * Everything the app ever saves goes in one place, so a year of exports and
+ * receipts is not scattered through a Downloads folder that already has three
+ * hundred things in it. Created once, at grant time, and the *child* URI is what
+ * gets remembered — so this is never re-created and there is no per-download
+ * check for whether it exists.
+ */
+const APP_FOLDER = "HostelHub";
+
+/**
  * `expo-file-system/legacy`, loaded only when a file is actually being saved.
  *
  * The modern API has no Storage Access Framework, and SAF is the only way an
@@ -313,6 +325,7 @@ type LegacyFileSystem = {
   StorageAccessFramework: {
     createFileAsync: (parentUri: string, fileName: string, mimeType: string) => Promise<string>;
     getUriForDirectoryInRoot: (folderName: string) => string;
+    makeDirectoryAsync: (parentUri: string, dirName: string) => Promise<string>;
     requestDirectoryPermissionsAsync: (
       initialFileUrl?: string | null,
     ) => Promise<{ directoryUri: string; granted: boolean }>;
@@ -336,13 +349,16 @@ function loadLegacyFileSystem(): LegacyFileSystem | null {
 /**
  * The folder Android downloads go into, asking for one the first time only.
  *
- * ## Why the app asks once rather than never
+ * ## The second rung, not the first
  *
- * There is no unprompted way to write into `Download/` on a modern Android —
- * that is what scoped storage is. What there *is* is a one-time directory grant
- * that survives restarts, so the honest version of "just download it" is: pick
- * the folder once, then never be asked again. The picker opens on `Download`
- * already, so for most people it is one tap, once, ever.
+ * `lib/native-downloads.ts` writes to `MediaStore.Downloads` with no permission
+ * and no dialogue at all, and it is tried first. This is what happens when that
+ * cannot: Android 9 or older, where the Downloads collection does not exist, or
+ * an app binary built before the native module shipped.
+ *
+ * For those, scoped storage leaves exactly one unprivileged route — a directory
+ * grant the user makes once, which then survives restarts. The picker opens on
+ * `Download` already, so it is one tap, once, ever.
  *
  * Returns `null` when the user declines. Declining is a real answer, and the
  * caller falls back to the share sheet rather than failing a download whose
@@ -363,9 +379,28 @@ async function resolveDownloadFolder(saf: LegacyFileSystem["StorageAccessFramewo
     return null;
   }
 
-  await AsyncStorage.setItem(DOWNLOAD_FOLDER_KEY, permission.directoryUri);
+  /*
+   * One folder of our own inside what they granted, rather than writing loose
+   * into it. SAF has no "create if absent", and on the rare second run — a
+   * reinstall over an existing `HostelHub/` — it answers with `HostelHub (1)`
+   * rather than an error. That is why the *result* is what gets remembered:
+   * whichever folder this call produced is the folder from then on, so the
+   * duplicate is made at most once and never accumulates.
+   *
+   * A failure here is untidiness, not a broken download — some trees refuse
+   * subfolders — so it falls back to the granted folder itself.
+   */
+  let folderUri = permission.directoryUri;
 
-  return permission.directoryUri;
+  try {
+    folderUri = await saf.makeDirectoryAsync(permission.directoryUri, APP_FOLDER);
+  } catch {
+    folderUri = permission.directoryUri;
+  }
+
+  await AsyncStorage.setItem(DOWNLOAD_FOLDER_KEY, folderUri);
+
+  return folderUri;
 }
 
 /** Forgets the chosen folder, so the next download asks for one again. */
@@ -473,6 +508,46 @@ export async function downloadToDevice({
     // them. This stage reads "Saving…" on a download — see `uploadRowMessage`.
     updateUpload(id, { fraction: 1, stage: "verifying" });
 
+    /*
+     * Three rungs, best first, and every one of them ends with the file
+     * somewhere the user can get at it:
+     *
+     * 1. **MediaStore** — `Download/HostelHub/`, no permission, no dialogue,
+     *    nothing to remember. Android 10+ and a binary that has the native
+     *    module. This is what a download should feel like.
+     * 2. **Storage Access Framework** — one folder grant, once, remembered for
+     *    ever. Covers Android 9 and older, and any build made before the module
+     *    shipped.
+     * 3. **The share sheet** — iOS, where there is no Downloads folder to write
+     *    into, and the Android user who declined the grant.
+     *
+     * The ladder is walked rather than branched on a platform check, because
+     * "can this build do it" and "can this device do it" are different questions
+     * and only the rung itself knows the answer to both.
+     */
+    const saved = await saveSilently({
+      fileName: `${safe}.${extension}`,
+      mimeType,
+      sourceUri: uri,
+      subfolder: APP_FOLDER,
+    });
+
+    if (saved !== null) {
+      /*
+       * The file's handle travels with the finished row, so the completion
+       * notification can open it — the toaster is gone in 2.5 seconds and the
+       * notification is what is left. See `UploadRow.openUri`.
+       */
+      finishUpload(id, {
+        openMimeType: mimeType,
+        openPath: saved.path,
+        openUri: saved.uri,
+      });
+      toastSuccess("Downloaded", `Saved to ${saved.path}.`);
+
+      return;
+    }
+
     const saf =
       Platform.OS === "android" ? (loadLegacyFileSystem()?.StorageAccessFramework ?? null) : null;
     const destination = saf ? await resolveDownloadFolder(saf) : null;
@@ -492,7 +567,7 @@ export async function downloadToDevice({
         });
 
         finishUpload(id);
-        toastSuccess("Downloaded", `Saved as ${safe}.${extension} in your chosen folder.`);
+        toastSuccess("Downloaded", `Saved as ${safe}.${extension} in your ${APP_FOLDER} folder.`);
 
         return;
       } catch {

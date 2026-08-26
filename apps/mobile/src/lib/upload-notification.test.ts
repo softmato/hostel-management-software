@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DOWNLOAD_CHANNEL,
   EMPTY_TALLY,
   PERCENT_STEP,
+  PROGRESS_DELAY_MS,
   shouldRepost,
   tallyUploads,
   type UploadNotice,
+  UPLOAD_CHANNEL,
   uploadNotice,
   type UploadTally,
 } from "@/lib/upload-notification";
@@ -142,7 +145,10 @@ describe("uploadNotice", () => {
 
     expect(notice).toEqual({
       body: "60%",
+      channel: UPLOAD_CHANNEL,
       ongoing: true,
+      openMimeType: null,
+      openUri: null,
       title: "Uploading payment proof",
       tone: "active",
     });
@@ -299,10 +305,135 @@ describe("uploadNotice, going the other way", () => {
   });
 });
 
+describe("the finished-download notice", () => {
+  function saved(id: string) {
+    return {
+      ...row(id, "succeeded", { direction: "download", label: "Statement export" }),
+      openMimeType: "text/csv",
+      openPath: "Download/HostelHub/hostel-statement.csv",
+      openUri: "content://media/external_primary/downloads/42",
+    };
+  }
+
+  function finished() {
+    return tallyUploads(
+      tallyUploads(EMPTY_TALLY, [
+        row("a", "uploading", { direction: "download", label: "Statement export" }),
+      ]),
+      [saved("a")],
+    );
+  }
+
+  it("says where the file went and that it opens", () => {
+    const notice = uploadNotice(finished());
+
+    expect(notice?.title).toBe("Statement export downloaded");
+    expect(notice?.body).toBe(
+      "Saved to Download/HostelHub/hostel-statement.csv · Tap to open",
+    );
+  });
+
+  it("goes on the louder channel, carrying the file's handle", () => {
+    const notice = uploadNotice(finished());
+
+    expect(notice?.channel).toBe(DOWNLOAD_CHANNEL);
+    expect(notice?.openUri).toBe("content://media/external_primary/downloads/42");
+    expect(notice?.openMimeType).toBe("text/csv");
+  });
+
+  it("keeps the file after the row it came from has been pruned away", () => {
+    /*
+     * The row lingers 2.5s and the notification outlives it, so the handle has
+     * to survive on the tally — otherwise the notice loses its file the moment
+     * the toaster clears and a tap does nothing.
+     */
+    const tally = tallyUploads(finished(), []);
+
+    expect(uploadNotice(tally)?.openUri).toBe(
+      "content://media/external_primary/downloads/42",
+    );
+  });
+
+  it("stays quiet and unopenable for an upload", () => {
+    const notice = uploadNotice(
+      tallyUploads(tallyUploads(EMPTY_TALLY, [row("a", "uploading")]), [
+        row("a", "succeeded"),
+      ]),
+    );
+
+    expect(notice?.channel).toBe(UPLOAD_CHANNEL);
+    expect(notice?.openUri).toBeNull();
+    expect(notice?.body).toBe("Finished uploading.");
+  });
+
+  it("does not promise an open when the download ended in the share sheet", () => {
+    const notice = uploadNotice(
+      tallyUploads(
+        tallyUploads(EMPTY_TALLY, [row("a", "uploading", { direction: "download" })]),
+        [row("a", "succeeded", { direction: "download" })],
+      ),
+    );
+
+    expect(notice?.openUri).toBeNull();
+    expect(notice?.body).toBe("Finished downloading.");
+  });
+});
+
+describe("the progress delay", () => {
+  function startedAt(ms: number) {
+    return tallyUploads(EMPTY_TALLY, [
+      { ...row("a", "uploading", { fraction: 0.4 }), startedAt: ms },
+    ]);
+  }
+
+  it("says nothing about a transfer too short to need it", () => {
+    /*
+     * The complaint this fixes: a 3 kB export finishes before the notification
+     * lands, so the shade appeared to start reporting after the in-app toaster
+     * had already said "done".
+     */
+    expect(uploadNotice(startedAt(1_000), 1_000)).toBeNull();
+    expect(uploadNotice(startedAt(1_000), 1_000 + PROGRESS_DELAY_MS - 1)).toBeNull();
+  });
+
+  it("speaks up once the transfer is long enough to be worth reporting", () => {
+    expect(uploadNotice(startedAt(1_000), 1_000 + PROGRESS_DELAY_MS)?.body).toBe("40%");
+  });
+
+  it("never delays the terminal notice", () => {
+    const tally = tallyUploads(
+      tallyUploads(EMPTY_TALLY, [{ ...row("a", "uploading"), startedAt: 1_000 }]),
+      [{ ...row("a", "succeeded"), startedAt: 1_000 }],
+    );
+
+    expect(uploadNotice(tally, 1_050)?.tone).toBe("succeeded");
+  });
+
+  it("holds the batch's start rather than restarting on each new file", () => {
+    /*
+     * Taking the newest row's start would mean a busy queue never clears the
+     * delay, and a genuinely long upload would report nothing at all.
+     */
+    const first = tallyUploads(EMPTY_TALLY, [
+      { ...row("a", "uploading"), startedAt: 1_000 },
+    ]);
+    const second = tallyUploads(first, [
+      { ...row("a", "uploading"), startedAt: 1_000 },
+      { ...row("b", "uploading"), startedAt: 5_000 },
+    ]);
+
+    expect(second.since).toBe(1_000);
+    expect(uploadNotice(second, 1_000 + PROGRESS_DELAY_MS)).not.toBeNull();
+  });
+});
+
 describe("shouldRepost", () => {
   const active: UploadNotice = {
     body: "40%",
+    channel: UPLOAD_CHANNEL,
     ongoing: true,
+    openMimeType: null,
+    openUri: null,
     title: "Uploading payment proof",
     tone: "active",
   };
@@ -319,7 +450,10 @@ describe("shouldRepost", () => {
     expect(
       shouldRepost(active, {
         body: "Finished uploading.",
+        channel: UPLOAD_CHANNEL,
         ongoing: false,
+        openMimeType: null,
+        openUri: null,
         title: "Payment proof uploaded",
         tone: "succeeded",
       }),

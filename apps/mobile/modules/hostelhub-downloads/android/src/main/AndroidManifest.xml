@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Deliberately empty of permissions.
+
+    That is the entire point of this module: `MediaStore.Downloads` is writable
+    with none from API 29 onwards. Adding WRITE_EXTERNAL_STORAGE here would be a
+    permission the app asks for and cannot use, and it would merge into the
+    app's manifest for every user.
+  -->
+</manifest>

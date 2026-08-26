@@ -13,12 +13,14 @@ import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
 import { useAppSelector } from "@/hooks/redux";
+import { openDownloaded } from "@/lib/native-downloads";
 import { resolvePushPath } from "@/lib/push-link";
 import {
   forgetPushToken,
   registerPushToken,
   setBadgeCount,
 } from "@/lib/push-notifications";
+import { DOWNLOAD_NOTIFICATION_TYPE } from "@/lib/upload-notification";
 
 export function usePush() {
   const account = useAppSelector((state) => state.auth.account);
@@ -71,6 +73,26 @@ export function usePush() {
       const data = response.notification.request.content.data as
         | Record<string, unknown>
         | undefined;
+
+      /*
+       * A finished download opens the file rather than routing into the app.
+       *
+       * It is the only notification here that is about something outside the
+       * app, so it is the only one that does not end in `router.push` — and a
+       * "Downloaded" notice that dropped you on a dashboard instead of the file
+       * would be the same broken promise as one that does nothing at all.
+       *
+       * Falls through to routing if the open fails, which is what happens on a
+       * build with no native module or a phone with nothing that reads CSV.
+       */
+      if (data?.type === DOWNLOAD_NOTIFICATION_TYPE && typeof data.uri === "string") {
+        void openDownloaded(
+          data.uri,
+          typeof data.mimeType === "string" ? data.mimeType : "*/*",
+        );
+
+        return;
+      }
 
       /*
        * `resolvePushPath` guarantees a route that exists in this build — the

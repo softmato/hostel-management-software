@@ -5,6 +5,23 @@ import { paginationQuerySchema } from "@/lib/pagination";
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
 const textArraySchema = z.array(z.string().trim().min(1).max(80)).max(40).default([]);
+
+/**
+ * Photo locations are stored, not just rendered, so a relative `/api/v1/files/...`
+ * path is the correct value: an origin baked in here would follow the record
+ * forever, and a photo uploaded from a dev machine would send every production
+ * visitor to their own localhost. Absolute http(s) links stay valid for
+ * anything hosted elsewhere.
+ */
+const photoUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .refine(
+    (value) => value.startsWith("/") || /^https?:\/\//i.test(value),
+    "Photo URL must start with / or http(s)://",
+  );
+
 const optionalTextArraySchema = z.array(z.string().trim().min(1).max(80)).max(40);
 
 const optionalHostelScopeSchema = {
@@ -75,7 +92,7 @@ export const platformHostelCreateSchema = z.object({
       z.object({
         alt: z.string().trim().max(120).optional(),
         fileAssetId: objectIdSchema.optional(),
-        url: z.string().trim().url(),
+        url: photoUrlSchema,
       }),
     )
     .max(20)
@@ -303,7 +320,7 @@ export const hostelPhotoCreateSchema = z
     kind: z.enum(["EXTERIOR", "INTERIOR", "ROOM"]).default("INTERIOR"),
     /** Required for ROOM photos — which room type the shot belongs to. */
     roomType: z.string().trim().min(1).max(120).optional(),
-    url: z.string().trim().url(),
+    url: photoUrlSchema,
   })
   .refine((input) => input.kind !== "ROOM" || Boolean(input.roomType), {
     message: "A room photo must name the room type it belongs to.",

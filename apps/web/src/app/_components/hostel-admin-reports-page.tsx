@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { EmptyState, LoadingRows, Panel, StatusBadge } from "@/app/_components/shared-ui";
+import { downloadFile } from "@/lib/downloads/downloader";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 import {
@@ -203,15 +204,32 @@ export const HostelAdminReportsPageContent = React.memo(
         <Message value={resource.message} />
 
         {/* Aggregates only — no CSV here carries a resident's name or phone. */}
+        {/*
+          Buttons, not links. An `<a href>` to an API route gives no feedback at
+          all until the browser's own download chip appears — several silent
+          seconds on a slow query — and it *navigates* on failure, so an expired
+          session answered "download my report" with a raw JSON body rendered as
+          a page. `downloadFile` streams it with a live row in the global
+          toaster and keeps a failure on the page as a toast.
+        */}
         <nav aria-label="Report exports" className="flex flex-wrap gap-2">
           {REPORT_EXPORTS.map((entry) => (
-            <a
+            <button
               className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-role-admin"
-              href={`${HOSTEL_ADMIN_REPORT_EXPORT}?report=${entry.report}`}
               key={entry.report}
+              onClick={() =>
+                void downloadFile({
+                  fileName: `${entry.report}-report.csv`,
+                  label: entry.label,
+                  mimeType: "text/csv",
+                  scope: "hostel-admin-reports",
+                  url: `${HOSTEL_ADMIN_REPORT_EXPORT}?report=${entry.report}`,
+                })
+              }
+              type="button"
             >
               {entry.label}
-            </a>
+            </button>
           ))}
         </nav>
 

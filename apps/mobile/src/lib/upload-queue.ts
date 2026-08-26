@@ -56,6 +56,18 @@ export type UploadRow = {
   id: string;
   /** What the user was doing, e.g. "Payment proof". Not the file name. */
   label: string;
+  /**
+   * Set on a finished **download** that landed somewhere openable.
+   *
+   * Lives on the row rather than in the screen that started the transfer,
+   * because the thing that needs it — the completion notification — is built
+   * long after that screen may have been popped. Absent on uploads, and on a
+   * download that ended in the share sheet: there is nothing left to open.
+   */
+  openMimeType?: string;
+  /** Where it landed, as a person reads it — `Download/HostelHub/x.csv`. */
+  openPath?: string;
+  openUri?: string;
   stage: UploadStage;
   startedAt: number;
 };
@@ -247,7 +259,12 @@ export function updateUpload(
 
 export function finishUpload(
   id: string,
-  outcome: { error?: string } = {},
+  outcome: {
+    error?: string;
+    openMimeType?: string;
+    openPath?: string;
+    openUri?: string;
+  } = {},
   now: number = Date.now(),
 ) {
   const index = rows.findIndex((row) => row.id === id);
@@ -261,6 +278,9 @@ export function finishUpload(
     ...next[index],
     endedAt: now,
     error: outcome.error ?? null,
+    openMimeType: outcome.openMimeType,
+    openPath: outcome.openPath,
+    openUri: outcome.openUri,
     stage: outcome.error ? "failed" : "succeeded",
   };
   emit(next);

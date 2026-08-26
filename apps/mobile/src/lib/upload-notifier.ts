@@ -28,6 +28,9 @@ import { Platform } from "react-native";
 
 import { palette } from "@/constants/theme";
 import {
+  DOWNLOAD_CHANNEL,
+  DOWNLOAD_CHANNEL_NAME,
+  DOWNLOAD_NOTIFICATION_TYPE,
   EMPTY_TALLY,
   shouldRepost,
   tallyUploads,
@@ -70,6 +73,22 @@ async function ensureChannel() {
     sound: null,
     vibrationPattern: null,
   });
+
+  /*
+   * DEFAULT, unlike the progress channel above, and that difference is the
+   * whole point. A finished download is the app's only report that a file now
+   * exists on the phone; posted at LOW it lands silently in the list, which
+   * reads as nothing having happened. Still no vibration — a browser does not
+   * buzz when a CSV lands either.
+   */
+  await Notifications.setNotificationChannelAsync(DOWNLOAD_CHANNEL, {
+    importance: Notifications.AndroidImportance.DEFAULT,
+    lightColor: BRAND.primary,
+    name: DOWNLOAD_CHANNEL_NAME,
+    showBadge: false,
+    sound: null,
+    vibrationPattern: null,
+  });
 }
 
 /** Reads permission. Never asks — see the note at the top of the file. */
@@ -86,12 +105,24 @@ async function apply(notice: UploadNotice | null) {
     return;
   }
 
+  const openable = notice.openUri !== null;
+
   await Notifications.scheduleNotificationAsync({
     content: {
-      autoDismiss: true,
+      /*
+       * A finished download stays until it is tapped or swiped. Everything else
+       * is a progress readout with no life of its own once the transfer ends.
+       */
+      autoDismiss: !openable,
       body: notice.body,
       color: notice.tone === "failed" ? BRAND.destructive : BRAND.primary,
-      data: { type: UPLOAD_NOTIFICATION_TYPE },
+      data: openable
+        ? {
+            mimeType: notice.openMimeType,
+            type: DOWNLOAD_NOTIFICATION_TYPE,
+            uri: notice.openUri,
+          }
+        : { type: UPLOAD_NOTIFICATION_TYPE },
       // Silent throughout: the channel already handles Android, and iOS has no
       // channels, so the content has to say it too. `false`, not `null` — the
       // content type reads null as "unspecified" and falls back to the default
@@ -105,7 +136,7 @@ async function apply(notice: UploadNotice | null) {
        */
       sticky: notice.ongoing,
       title: notice.title,
-      ...(Platform.OS === "android" ? { channelId: UPLOAD_CHANNEL } : {}),
+      ...(Platform.OS === "android" ? { channelId: notice.channel } : {}),
     },
     identifier: UPLOAD_NOTIFICATION_ID,
     trigger: null,
@@ -132,7 +163,7 @@ function onQueueChanged() {
   // have granted it in Settings since the last upload.
   const batchStarted = previouslyIdle && tally.active > 0;
 
-  const next = uploadNotice(tally);
+  const next = uploadNotice(tally, Date.now());
 
   if (!shouldRepost(posted, next)) {
     return;
