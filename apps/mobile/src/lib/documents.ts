@@ -14,10 +14,14 @@
  * feature.
  */
 
-import { Directory, File, Paths } from "expo-file-system";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Directory, DownloadTask, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import { Platform } from "react-native";
 
 import { readTokens } from "@/lib/session";
+import { toastSuccess } from "@/lib/toast";
+import { finishUpload, startDownload, updateUpload } from "@/lib/upload-queue";
 
 /** Sub-folder so a cache sweep can be reasoned about, and names cannot collide. */
 const FOLDER = "documents";
@@ -277,4 +281,247 @@ export async function downloadAndShareCsv({
     mimeType: "text/csv",
     UTI: "public.comma-separated-values-text",
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Downloading to the device                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where Android was last told to put downloads — a SAF tree URI.
+ *
+ * AsyncStorage rather than SecureStore: it is a folder path, not a secret, and
+ * SecureStore is for the two tokens and nothing else (see `lib/session.ts`).
+ */
+const DOWNLOAD_FOLDER_KEY = "hh_download_folder_uri";
+
+/**
+ * `expo-file-system/legacy`, loaded only when a file is actually being saved.
+ *
+ * The modern API has no Storage Access Framework, and SAF is the only way an
+ * app can write into a folder the user can browse on Android 11+ — the old
+ * `WRITE_EXTERNAL_STORAGE` route has been closed since API 30. The legacy entry
+ * point is part of the **same installed native module**, so this needs no
+ * rebuild; requiring it lazily keeps a platform-specific import off the iOS path
+ * and out of module load, the same trade `manage/statements.tsx` takes for the
+ * document picker.
+ *
+ * Typed here rather than imported, because the legacy module's own types pull in
+ * the whole deprecated surface for the four functions actually used.
+ */
+type LegacyFileSystem = {
+  StorageAccessFramework: {
+    createFileAsync: (parentUri: string, fileName: string, mimeType: string) => Promise<string>;
+    getUriForDirectoryInRoot: (folderName: string) => string;
+    requestDirectoryPermissionsAsync: (
+      initialFileUrl?: string | null,
+    ) => Promise<{ directoryUri: string; granted: boolean }>;
+    writeAsStringAsync: (
+      fileUri: string,
+      contents: string,
+      options?: { encoding?: string },
+    ) => Promise<void>;
+  };
+};
+
+function loadLegacyFileSystem(): LegacyFileSystem | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("expo-file-system/legacy") as LegacyFileSystem;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The folder Android downloads go into, asking for one the first time only.
+ *
+ * ## Why the app asks once rather than never
+ *
+ * There is no unprompted way to write into `Download/` on a modern Android —
+ * that is what scoped storage is. What there *is* is a one-time directory grant
+ * that survives restarts, so the honest version of "just download it" is: pick
+ * the folder once, then never be asked again. The picker opens on `Download`
+ * already, so for most people it is one tap, once, ever.
+ *
+ * Returns `null` when the user declines. Declining is a real answer, and the
+ * caller falls back to the share sheet rather than failing a download whose
+ * bytes are already on the device.
+ */
+async function resolveDownloadFolder(saf: LegacyFileSystem["StorageAccessFramework"]) {
+  const remembered = await AsyncStorage.getItem(DOWNLOAD_FOLDER_KEY);
+
+  if (remembered) {
+    return remembered;
+  }
+
+  const permission = await saf.requestDirectoryPermissionsAsync(
+    saf.getUriForDirectoryInRoot("Download"),
+  );
+
+  if (!permission.granted) {
+    return null;
+  }
+
+  await AsyncStorage.setItem(DOWNLOAD_FOLDER_KEY, permission.directoryUri);
+
+  return permission.directoryUri;
+}
+
+/** Forgets the chosen folder, so the next download asks for one again. */
+export async function forgetDownloadFolder() {
+  await AsyncStorage.removeItem(DOWNLOAD_FOLDER_KEY);
+}
+
+/**
+ * Downloads an authorised file and **saves it to the device**, reporting into
+ * the global transfer toaster the whole way.
+ *
+ * ## Why this exists beside `downloadAndShare`
+ *
+ * That one ends at the share sheet, which is the right ending for a receipt
+ * somebody is about to send to a resident and the wrong one for an export
+ * somebody wants to *keep*. Being asked "share to…" after pressing a download
+ * button is the app re-opening a decision the user already made.
+ *
+ * So here the bytes land in a folder the user chose, and the only dialogue is
+ * the one-time folder grant.
+ *
+ * ## Progress, because a silent button is indistinguishable from a broken one
+ *
+ * Registered with `startDownload`, so `<UploadToaster />` draws it at the top of
+ * whatever screen the user is on — and keeps drawing it if they navigate away,
+ * because this is a plain module and does not care which screen started it. The
+ * caller needs no spinner and gets no progress callback.
+ *
+ * ## iOS has no Downloads folder
+ *
+ * SAF is Android-only, and iOS has no user-browsable filesystem to write into;
+ * the platform's own idea of a download is Files, reached through the share
+ * sheet. So there the transfer is still reported in the toaster and still not a
+ * silent button — it just ends in `Sharing`, which is what "download" means on
+ * that platform. Same fallback when an Android user declines the folder grant.
+ */
+export async function downloadToDevice({
+  extension,
+  fileName,
+  label,
+  mimeType,
+  url,
+}: {
+  /** Without the dot — `csv`, `pdf`. */
+  extension: string;
+  /** Without the extension. */
+  fileName: string;
+  /** What the user asked for, as the toaster says it — "Statement export". */
+  label: string;
+  mimeType: string;
+  url: string;
+}) {
+  const id = startDownload(label);
+
+  try {
+    const tokens = await readTokens();
+
+    if (!tokens?.accessToken) {
+      throw new Error("You need to be signed in to download this.");
+    }
+
+    const folder = new Directory(Paths.cache, FOLDER);
+
+    if (!folder.exists) {
+      folder.create({ intermediates: true });
+    }
+
+    const safe = safeFileName(fileName);
+    const target = new File(folder, `${safe}.${extension}`);
+
+    // Overwritten rather than appended to, same rule as every other transfer in
+    // this file: a second download of the same export must produce the same
+    // file, not a growing one.
+    if (target.exists) {
+      target.delete();
+    }
+
+    updateUpload(id, { fraction: 0, stage: "uploading" });
+
+    /*
+     * No `idempotent` flag on this one — `DownloadTask` has no such option, only
+     * the simpler `File.downloadFileAsync` does. The delete above is what makes
+     * a repeat download safe instead.
+     */
+    const task = new DownloadTask(url, target, {
+      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      onProgress: ({ bytesWritten, totalBytes }) => {
+        /*
+         * `totalBytes` is `-1` when the server sent no `Content-Length`, which
+         * a streamed CSV export does not. `null` is the queue's word for "size
+         * unknown" and parks the bar at a third rather than at zero — a bar
+         * pinned empty while bytes are visibly moving is what makes people
+         * force-quit. See `uploadRowFraction`.
+         */
+        updateUpload(id, {
+          fraction: totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : null,
+        });
+      },
+    });
+
+    const downloaded = await task.downloadAsync();
+    const uri = downloaded?.uri ?? target.uri;
+
+    // The bytes are here; what is left is putting them where the user can find
+    // them. This stage reads "Saving…" on a download — see `uploadRowMessage`.
+    updateUpload(id, { fraction: 1, stage: "verifying" });
+
+    const saf =
+      Platform.OS === "android" ? (loadLegacyFileSystem()?.StorageAccessFramework ?? null) : null;
+    const destination = saf ? await resolveDownloadFolder(saf) : null;
+
+    if (saf && destination) {
+      try {
+        const fileUri = await saf.createFileAsync(destination, safe, mimeType);
+
+        /*
+         * Base64 through JS rather than a native move, because SAF has no
+         * relocate that accepts a `file://` source. Fine for an export or a
+         * receipt — both are kilobytes — and the reason this is not the
+         * function to reach for with a video.
+         */
+        await saf.writeAsStringAsync(fileUri, await new File(uri).base64(), {
+          encoding: "base64",
+        });
+
+        finishUpload(id);
+        toastSuccess("Downloaded", `Saved as ${safe}.${extension} in your chosen folder.`);
+
+        return;
+      } catch {
+        /*
+         * The remembered grant is gone — the user cleared app data, or removed
+         * the card it pointed at. Forget it so the next attempt asks again, and
+         * hand this one to the share sheet rather than losing a file that has
+         * already been downloaded.
+         */
+        await forgetDownloadFolder();
+      }
+    }
+
+    if (!(await Sharing.isAvailableAsync())) {
+      throw new Error("There is nowhere to save this on this device.");
+    }
+
+    await Sharing.shareAsync(uri, { mimeType });
+    finishUpload(id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The download failed.";
+
+    /*
+     * The row is failed *and* the error rethrown. The toaster is the ambient
+     * report and the caller still owns the foreground one — a screen that
+     * silently continued past a failed download would leave the button looking
+     * like it worked.
+     */
+    finishUpload(id, { error: message });
+    throw error;
+  }
 }

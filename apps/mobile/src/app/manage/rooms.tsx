@@ -74,13 +74,21 @@ const SUGGESTED_TYPES = [
 ];
 
 const MEAL_OPTIONS = [
-  { description: "Rent covers the food.", label: "Included", value: "Included" },
+  {
+    description: "Rent covers the food.",
+    label: "Included",
+    value: "Included",
+  },
   {
     description: "Food is billed separately.",
     label: "Not Included",
     value: "Not Included",
   },
-  { description: "The resident chooses.", label: "Optional", value: "Optional" },
+  {
+    description: "The resident chooses.",
+    label: "Optional",
+    value: "Optional",
+  },
 ] as const;
 
 /** Mirrors `PHOTO_LIMITS.ROOM` in `hostel-profile.service` — counted per type. */
@@ -123,7 +131,9 @@ function toNumber(value: string) {
 
 export default function ManageRoomsScreen() {
   const { colors } = useAppTheme();
-  const hostel = useResource<ManagedHostel>(useCallback(() => getManagedHostel(), []));
+  const hostel = useResource<ManagedHostel>(
+    useCallback(() => getManagedHostel(), []),
+  );
 
   /** `null` = closed, `""` = adding a new type, otherwise the type being edited. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -150,7 +160,10 @@ export default function ManageRoomsScreen() {
 
         return true;
       } catch (error) {
-        toastError("Could not save", readApiError(error, "The room types did not save."));
+        toastError(
+          "Could not save",
+          readApiError(error, "The room types did not save."),
+        );
 
         return false;
       } finally {
@@ -171,7 +184,9 @@ export default function ManageRoomsScreen() {
     const rooms = toNumber(draft.rooms);
     const bedsPerRoom = toNumber(draft.bedsPerRoom);
     const capacity = rooms * bedsPerRoom;
-    const vacantBeds = draft.vacantBeds.trim() ? toNumber(draft.vacantBeds) : capacity;
+    const vacantBeds = draft.vacantBeds.trim()
+      ? toNumber(draft.vacantBeds)
+      : capacity;
 
     if (vacantBeds > capacity) {
       toastError(
@@ -183,15 +198,23 @@ export default function ManageRoomsScreen() {
 
     const isNew = editing === "";
 
-    if (isNew && configurations.some((config) => config.roomType === roomType)) {
-      toastError("Already listed", `Edit “${roomType}” instead of adding it twice.`);
+    if (
+      isNew &&
+      configurations.some((config) => config.roomType === roomType)
+    ) {
+      toastError(
+        "Already listed",
+        `Edit “${roomType}” instead of adding it twice.`,
+      );
       return;
     }
 
     const row: RoomConfiguration = {
       bedsPerRoom,
       mealInclusion: draft.mealInclusion,
-      monthlyRent: draft.monthlyRent.trim() ? toNumber(draft.monthlyRent) : undefined,
+      monthlyRent: draft.monthlyRent.trim()
+        ? toNumber(draft.monthlyRent)
+        : undefined,
       rooms,
       roomType,
       vacantBeds,
@@ -203,7 +226,10 @@ export default function ManageRoomsScreen() {
           config.roomType === editing ? { ...config, ...row } : config,
         );
 
-    const ok = await save(next, isNew ? `Added ${roomType}.` : `Updated ${roomType}.`);
+    const ok = await save(
+      next,
+      isNew ? `Added ${roomType}.` : `Updated ${roomType}.`,
+    );
 
     if (ok) {
       setEditing(null);
@@ -252,14 +278,21 @@ export default function ManageRoomsScreen() {
       const free = ROOM_PHOTO_LIMIT - used;
 
       if (free <= 0) {
-        toastError("Full", `${roomType} already holds ${ROOM_PHOTO_LIMIT} photos.`);
+        toastError(
+          "Full",
+          `${roomType} already holds ${ROOM_PHOTO_LIMIT} photos.`,
+        );
         return;
       }
 
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
-        toastError("Permission needed", "Allow photo access to add room photos.");
+        toastError(
+          "Permission needed",
+          "Allow photo access to add room photos.",
+        );
         return;
       }
 
@@ -313,24 +346,28 @@ export default function ManageRoomsScreen() {
 
   const removePhoto = useCallback(
     (photoId: string) => {
-      Alert.alert("Remove this photo?", "It disappears from the public listing.", [
-        { style: "cancel", text: "Keep it" },
-        {
-          onPress: () => {
-            void (async () => {
-              try {
-                await deleteHostelPhoto(photoId);
-                toastSuccess("Photo removed");
-                await reload();
-              } catch (error) {
-                toastError("Could not remove", readApiError(error));
-              }
-            })();
+      Alert.alert(
+        "Remove this photo?",
+        "It disappears from the public listing.",
+        [
+          { style: "cancel", text: "Keep it" },
+          {
+            onPress: () => {
+              void (async () => {
+                try {
+                  await deleteHostelPhoto(photoId);
+                  toastSuccess("Photo removed");
+                  await reload();
+                } catch (error) {
+                  toastError("Could not remove", readApiError(error));
+                }
+              })();
+            },
+            style: "destructive",
+            text: "Remove",
           },
-          style: "destructive",
-          text: "Remove",
-        },
-      ]);
+        ],
+      );
     },
     [reload],
   );
@@ -346,7 +383,10 @@ export default function ManageRoomsScreen() {
   if (hostel.error || !hostel.data) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Rooms" />}>
-        <ErrorState message={hostel.error ?? "No hostel"} onRetry={hostel.reload} />
+        <ErrorState
+          message={hostel.error ?? "No hostel"}
+          onRetry={hostel.reload}
+        />
       </Screen>
     );
   }
@@ -367,7 +407,15 @@ export default function ManageRoomsScreen() {
           }}
         />
       }
-      header={<AppBar accent centerTitle showBack subtitle={hostel.data.name} title="Rooms" />}
+      header={
+        <AppBar
+          accent
+          centerTitle
+          showBack
+          subtitle={hostel.data.name}
+          title="Rooms"
+        />
+      }
       onRefresh={hostel.refresh}
       refreshing={hostel.refreshing}
       scroll
@@ -402,9 +450,12 @@ export default function ManageRoomsScreen() {
         ) : (
           configurations.map((config) => {
             const roomPhotos = photos.filter(
-              (photo) => photo.kind === "ROOM" && photo.roomType === config.roomType,
+              (photo) =>
+                photo.kind === "ROOM" && photo.roomType === config.roomType,
             );
             const capacity = (config.rooms ?? 0) * (config.bedsPerRoom ?? 0);
+            const uploading = uploadingFor === config.roomType;
+            const full = roomPhotos.length >= ROOM_PHOTO_LIMIT;
 
             return (
               <View key={config.roomType}>
@@ -434,63 +485,98 @@ export default function ManageRoomsScreen() {
                       icon="restaurant-outline"
                       label={`Meals ${config.mealInclusion.toLowerCase()}`}
                     />
-                    <Chip
-                      icon="images-outline"
-                      label={`${roomPhotos.length}/${ROOM_PHOTO_LIMIT} photos`}
-                    />
                   </View>
 
-                  {roomPhotos.length > 0 ? (
-                    <ScrollView
-                      contentContainerClassName="gap-2"
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
+                  {/*
+                    The strip leads with the add tile instead of ending with
+                    it. On a horizontal list the tail scrolls out of sight, so
+                    an "add" placed there is one the owner has to swipe to
+                    find — and it has to be here rather than in a button under
+                    the card, because "Photos" next to "Edit" reads as somewhere
+                    to go and look, not somewhere to put a photograph.
+                  */}
+                  <ScrollView
+                    contentContainerClassName="gap-2"
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                  >
+                    <Pressable
+                      accessibilityLabel={`Add photos of ${config.roomType}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ busy: uploading, disabled: full }}
+                      className="h-[88px] w-[120px] items-center justify-center gap-1 rounded-xl border border-dashed border-border active:opacity-70"
+                      disabled={uploading || full}
+                      onPress={() =>
+                        void addPhotos(config.roomType, roomPhotos.length)
+                      }
                     >
-                      {roomPhotos.map((photo, index) => {
-                        const uri = absoluteMediaUrl(photo.url, API_BASE_URL);
-
-                        if (!uri) {
-                          return null;
+                      <Ionicons
+                        color={full ? colors.mutedForeground : colors.primary}
+                        name={
+                          uploading ? "hourglass-outline" : "camera-outline"
                         }
+                        size={20}
+                      />
+                      <Text variant="caption">
+                        {uploading ? "Adding" : full ? "Full" : "Add photos"}
+                      </Text>
+                      <Text variant="caption">
+                        {roomPhotos.length}/{ROOM_PHOTO_LIMIT}
+                      </Text>
+                    </Pressable>
 
-                        return (
-                          <View className="relative" key={photo.id ?? uri}>
+                    {roomPhotos.map((photo, index) => {
+                      const uri = absoluteMediaUrl(photo.url, API_BASE_URL);
+
+                      if (!uri) {
+                        return null;
+                      }
+
+                      return (
+                        <View className="relative" key={photo.id ?? uri}>
+                          <Pressable
+                            accessibilityLabel={`${config.roomType} photo ${index + 1}`}
+                            accessibilityRole="imagebutton"
+                            onPress={() =>
+                              openAssetViewer(
+                                roomPhotos.map((item) => ({
+                                  title: item.alt || config.roomType,
+                                  url: item.url,
+                                })),
+                                index,
+                              )
+                            }
+                          >
+                            <Image
+                              contentFit="cover"
+                              source={{ uri }}
+                              style={{
+                                borderRadius: 12,
+                                height: 88,
+                                width: 120,
+                              }}
+                            />
+                          </Pressable>
+
+                          {photo.id ? (
                             <Pressable
-                              accessibilityLabel={`${config.roomType} photo ${index + 1}`}
-                              accessibilityRole="imagebutton"
-                              onPress={() =>
-                                openAssetViewer(
-                                  roomPhotos.map((item) => ({
-                                    title: item.alt || config.roomType,
-                                    url: item.url,
-                                  })),
-                                  index,
-                                )
-                              }
+                              accessibilityLabel="Remove photo"
+                              accessibilityRole="button"
+                              className="absolute right-1 top-1 rounded-full bg-black/60 p-1"
+                              hitSlop={8}
+                              onPress={() => removePhoto(photo.id as string)}
                             >
-                              <Image
-                                contentFit="cover"
-                                source={{ uri }}
-                                style={{ borderRadius: 12, height: 88, width: 120 }}
+                              <Ionicons
+                                color="#ffffff"
+                                name="close"
+                                size={13}
                               />
                             </Pressable>
-
-                            {photo.id ? (
-                              <Pressable
-                                accessibilityLabel="Remove photo"
-                                accessibilityRole="button"
-                                className="absolute right-1 top-1 rounded-full bg-black/60 p-1"
-                                hitSlop={8}
-                                onPress={() => removePhoto(photo.id as string)}
-                              >
-                                <Ionicons color="#ffffff" name="close" size={13} />
-                              </Pressable>
-                            ) : null}
-                          </View>
-                        );
-                      })}
-                    </ScrollView>
-                  ) : null}
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
 
                   <View className="flex-row gap-2">
                     <Button
@@ -503,21 +589,17 @@ export default function ManageRoomsScreen() {
                       size="sm"
                       variant="outline"
                     />
-                    <Button
-                      className="flex-1"
-                      label="Photos"
-                      loading={uploadingFor === config.roomType}
-                      onPress={() => void addPhotos(config.roomType, roomPhotos.length)}
-                      size="sm"
-                      variant="outline"
-                    />
                     <Pressable
                       accessibilityLabel={`Remove ${config.roomType}`}
                       accessibilityRole="button"
                       className="h-9 items-center justify-center rounded-lg border border-border px-3"
                       onPress={() => remove(config.roomType)}
                     >
-                      <Ionicons color={colors.destructive} name="trash-outline" size={16} />
+                      <Ionicons
+                        color={colors.destructive}
+                        name="trash-outline"
+                        size={16}
+                      />
                     </Pressable>
                   </View>
                 </Card>
@@ -528,8 +610,8 @@ export default function ManageRoomsScreen() {
 
         <Text className="px-1" variant="caption">
           Beds and vacancies here are what the public listing shows and what the
-          dashboard counts. Admitting a resident lowers the free count on their room
-          type automatically.
+          dashboard counts. Admitting a resident lowers the free count on their
+          room type automatically.
         </Text>
       </View>
 
@@ -551,18 +633,23 @@ export default function ManageRoomsScreen() {
               <Input
                 autoCapitalize="words"
                 label="Room type"
-                onChangeText={(roomType) => setDraft((prev) => ({ ...prev, roomType }))}
+                onChangeText={(roomType) =>
+                  setDraft((prev) => ({ ...prev, roomType }))
+                }
                 placeholder="Three Sharing"
                 value={draft.roomType}
               />
               <View className="flex-row flex-wrap gap-2">
                 {SUGGESTED_TYPES.filter(
-                  (type) => !configurations.some((config) => config.roomType === type),
+                  (type) =>
+                    !configurations.some((config) => config.roomType === type),
                 ).map((type) => (
                   <Chip
                     key={type}
                     label={type}
-                    onPress={() => setDraft((prev) => ({ ...prev, roomType: type }))}
+                    onPress={() =>
+                      setDraft((prev) => ({ ...prev, roomType: type }))
+                    }
                     tone={draft.roomType === type ? "brand" : "neutral"}
                   />
                 ))}
@@ -575,7 +662,9 @@ export default function ManageRoomsScreen() {
               <Input
                 keyboardType="number-pad"
                 label="Rooms"
-                onChangeText={(rooms) => setDraft((prev) => ({ ...prev, rooms }))}
+                onChangeText={(rooms) =>
+                  setDraft((prev) => ({ ...prev, rooms }))
+                }
                 value={draft.rooms}
               />
             </View>
@@ -595,7 +684,9 @@ export default function ManageRoomsScreen() {
             hint={`Out of ${toNumber(draft.rooms) * toNumber(draft.bedsPerRoom)} bed(s). Leave blank on a new type to start fully vacant.`}
             keyboardType="number-pad"
             label="Vacant beds"
-            onChangeText={(vacantBeds) => setDraft((prev) => ({ ...prev, vacantBeds }))}
+            onChangeText={(vacantBeds) =>
+              setDraft((prev) => ({ ...prev, vacantBeds }))
+            }
             value={draft.vacantBeds}
           />
 
@@ -603,13 +694,17 @@ export default function ManageRoomsScreen() {
             hint="Shown on the public listing. Leave blank if this type is priced on request."
             keyboardType="number-pad"
             label="Monthly rent (NPR)"
-            onChangeText={(monthlyRent) => setDraft((prev) => ({ ...prev, monthlyRent }))}
+            onChangeText={(monthlyRent) =>
+              setDraft((prev) => ({ ...prev, monthlyRent }))
+            }
             value={draft.monthlyRent}
           />
 
           <Select
             label="Meals"
-            onChange={(mealInclusion) => setDraft((prev) => ({ ...prev, mealInclusion }))}
+            onChange={(mealInclusion) =>
+              setDraft((prev) => ({ ...prev, mealInclusion }))
+            }
             options={MEAL_OPTIONS}
             value={draft.mealInclusion}
           />

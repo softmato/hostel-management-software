@@ -69,54 +69,15 @@
     --role-provider-soft: #f5f3ff;
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --background: #0c0a09;
-      --foreground: #fafaf9;
-      --card: #1c1917;
-      --card-foreground: #fafaf9;
-      --popover: #1c1917;
-      --popover-foreground: #fafaf9;
-      --primary: #12a95d;
-      --primary-foreground: #04140c;
-      --secondary: #27272a;
-      --secondary-foreground: #fafafa;
-      --muted: #292524;
-      --muted-foreground: #a8a29e;
-      --accent: #27272a;
-      --accent-foreground: #fafafa;
-      --destructive: #ef4444;
-      --destructive-foreground: #ffffff;
-      --destructive-soft: #2b0f0f;
-      --border: #292524;
-      --input: #292524;
-      --ring: #12a95d;
+  /*
+    Dark lives on the `.dark` class alone — see tailwind.config.js.
 
-      --surface: #1c1917;
-      --surface-strong: #232020;
-      --warning: #f59e0b;
-      --warning-soft: #2a1f07;
-      --success: #22c55e;
-      --success-soft: #06240f;
-
-      --brand: #12a95d;
-      --brand-soft: #07301f;
-
-      --role-platform: #2dd4bf;
-      --role-platform-soft: #0a2b28;
-      --role-admin: #12a95d;
-      --role-admin-soft: #07301f;
-      --role-resident: #22c55e;
-      --role-resident-soft: #06240f;
-      --role-guardian: #f59e0b;
-      --role-guardian-soft: #2a1f07;
-      --role-cook: #fb923c;
-      --role-cook-soft: #2b1607;
-      --role-provider: #a78bfa;
-      --role-provider-soft: #1d1436;
-    }
-  }
-
+    There used to be a `@media (prefers-color-scheme: dark)` copy of this block
+    as well. On native that was harmless (NativeWind answers the media query
+    from the scheme the app set), but on web the browser answers it from the OS,
+    so a phone in dark mode painted dark variables under a user who had chosen
+    Light. One source, and it is the one the app controls.
+  */
   .dark:root,
   .dark {
     --background: #0c0a09;

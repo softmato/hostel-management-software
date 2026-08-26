@@ -14,7 +14,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
-import { downloadAndShare } from "@/lib/documents";
+import { downloadToDevice } from "@/lib/documents";
 import {
   getFinanceView,
   receiptPdfUrl,
@@ -338,9 +338,11 @@ function ClaimsCard({ claims }: { claims: ResidentClaim[] }) {
  * reversed payment must not stay downloadable, or the resident keeps a document
  * asserting a payment the ledger no longer counts.
  *
- * Tapping one downloads it with the bearer token and opens the share sheet. A
- * resident who needs proof of rent for a visa or a landlord should be one tap
- * from the PDF rather than emailing the hostel for it.
+ * Tapping one downloads it with the bearer token and **saves it to the device**.
+ * A resident who needs proof of rent for a visa or a landlord should be one tap
+ * from the PDF rather than emailing the hostel for it — and what those people
+ * ask for is a file to attach, which is a saved document rather than a share
+ * sheet that has to be re-opened later.
  */
 function ReceiptsCard({ invoice }: { invoice: ResidentInvoice }) {
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -349,8 +351,11 @@ function ReceiptsCard({ invoice }: { invoice: ResidentInvoice }) {
     setBusyId(receipt.id);
 
     try {
-      await downloadAndShare({
+      await downloadToDevice({
+        extension: "pdf",
         fileName: `receipt-${receipt.number}`,
+        label: `Receipt ${receipt.number}`,
+        mimeType: "application/pdf",
         url: receiptPdfUrl(receipt.id),
       });
     } catch (caught) {

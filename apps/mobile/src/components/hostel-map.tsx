@@ -132,7 +132,7 @@ export function HostelMap({
    *
    * So preview mode does two things: Leaflet's own drag, zoom and keyboard
    * handlers are switched off in the page, and the WebView is made
-   * `pointerEvents="none"` so no touch reaches it at all. The belt and the
+   * `pointerEvents: "none"` so no touch reaches it at all. The belt and the
    * braces are both wanted — the first stops the page reacting, the second
    * guarantees the ScrollView sees every gesture regardless of what the page
    * does. The whole thing becomes a picture with a tap target on it, and
@@ -241,10 +241,6 @@ export function HostelMap({
         javaScriptEnabled
         onMessage={onMessage}
         originWhitelist={["*"]}
-        // The gesture half of preview mode — see the prop's note. Without this
-        // the WebView still swallows the touch even with Leaflet's handlers off,
-        // and the page it sits in scrolls only from the margins.
-        pointerEvents={preview ? "none" : "auto"}
         ref={webviewRef}
         renderError={() => (
           <View className="flex-1 items-center justify-center bg-card px-6">
@@ -256,7 +252,14 @@ export function HostelMap({
         scrollEnabled={false}
         setSupportMultipleWindows={false}
         source={{ html }}
-        style={{ backgroundColor: colors.muted, flex: 1 }}
+        style={{
+          backgroundColor: colors.muted,
+          flex: 1,
+          // The gesture half of preview mode — see the prop's note. Without this
+          // the WebView still swallows the touch even with Leaflet's handlers
+          // off, and the page it sits in scrolls only from the margins.
+          pointerEvents: preview ? "none" : "auto",
+        }}
       />
 
       {preview && onPress ? (
@@ -364,8 +367,8 @@ function buildHtml(
    * NOTE: no backticks anywhere below -- this is inside a JS template literal.
    *
    * In preview mode every handler Leaflet installs is switched off at
-   * construction. The pointerEvents="none" on the WebView already stops touches
-   * reaching this page, so this is the second of the two guards described on the
+   * construction. The pointerEvents: "none" style on the WebView already stops
+   * touches reaching this page, so this is the second of the two guards on the
    * prop -- it also keeps popups from opening on a map nobody can pan back.
    */
   var map = L.map('map', {

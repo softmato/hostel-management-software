@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   daysUntil,
+  formatAgo,
   formatAmount,
   formatDate,
   formatDateBoth,
@@ -10,6 +11,8 @@ import {
   formatDueLabel,
   formatMoney,
   formatPeriod,
+  formatPeriodBoth,
+  formatPeriodBs,
   formatRelativeDay,
   formatTime,
   greetingFor,
@@ -142,5 +145,50 @@ describe("formatDateBs / formatDateBoth", () => {
   it("returns an em dash for nothing, like every other formatter here", () => {
     expect(formatDateBs(null)).toBe("—");
     expect(formatDateBoth(undefined)).toBe("—");
+  });
+});
+
+describe("formatPeriodBs", () => {
+  it("names both BS months a Gregorian month runs through", () => {
+    // August 2026 starts in Shrawan and ends in Bhadra. Naming it after either
+    // one alone is wrong for about half the days in it.
+    expect(formatPeriodBs("2026-08")).toBe("Shrawan–Bhadra 2083");
+  });
+
+  it("carries both years when the Nepali new year falls inside the period", () => {
+    // Baisakh 1 2083 is 14 April 2026, so April spans two BS years.
+    expect(formatPeriodBs("2026-04")).toBe("Chaitra 2082–Baisakh 2083");
+  });
+
+  it("is empty for a period it cannot convert, never a guess", () => {
+    expect(formatPeriodBs("not-a-period")).toBe("");
+    expect(formatPeriodBs(null)).toBe("");
+    expect(formatPeriodBs("2026-13")).toBe("");
+  });
+
+  it("drops the BS half rather than printing nothing when it is unavailable", () => {
+    expect(formatPeriodBoth("2026-08")).toBe("August 2026 · Shrawan–Bhadra 2083");
+    expect(formatPeriodBoth("not-a-period")).toBe("not-a-period");
+  });
+});
+
+describe("formatAgo", () => {
+  const now = new Date("2026-08-25T12:00:00.000Z");
+
+  it("answers in the coarsest unit that is still true", () => {
+    expect(formatAgo("2026-08-25T11:59:30.000Z", now)).toBe("just now");
+    expect(formatAgo("2026-08-25T11:59:00.000Z", now)).toBe("1 min ago");
+    expect(formatAgo("2026-08-25T11:20:00.000Z", now)).toBe("40 mins ago");
+    expect(formatAgo("2026-08-25T10:00:00.000Z", now)).toBe("2 hrs ago");
+    expect(formatAgo("2026-08-24T10:00:00.000Z", now)).toBe("1 day ago");
+    expect(formatAgo("2026-08-20T10:00:00.000Z", now)).toBe("5 days ago");
+  });
+
+  it("hands back to a date once the arithmetic stops being worth doing", () => {
+    expect(formatAgo("2026-07-25T10:00:00.000Z", now)).toBe("25 Jul 2026");
+  });
+
+  it("never reports the future for a clock a few minutes fast", () => {
+    expect(formatAgo("2026-08-25T12:02:00.000Z", now)).toBe("just now");
   });
 });

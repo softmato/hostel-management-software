@@ -49,8 +49,7 @@ export function UploadToaster() {
       className="absolute inset-x-0 gap-2 px-4"
       // Taps fall through the container to whatever is behind it; only the
       // dismiss button inside a row is interactive.
-      pointerEvents="box-none"
-      style={{ top: insets.top + 8 }}
+      style={{ pointerEvents: "box-none", top: insets.top + 8 }}
     >
       {rows.map((row) => (
         <UploadCard key={row.id} row={row} />
@@ -64,6 +63,14 @@ function UploadCard({ row }: { row: UploadRow }) {
   const failed = row.stage === "failed";
   const succeeded = row.stage === "succeeded";
   const fraction = uploadRowFraction(row);
+  /*
+   * The glyph is the only thing on this card that says *which way* the bytes
+   * are going before the sentence under it is read, and a download reported by
+   * an upward cloud is the kind of small wrongness that makes people distrust
+   * the whole readout.
+   */
+  const moving =
+    row.direction === "download" ? "cloud-download-outline" : "cloud-upload-outline";
 
   return (
     <Animated.View
@@ -83,13 +90,7 @@ function UploadCard({ row }: { row: UploadRow }) {
       <View className="flex-row items-center gap-3 px-4 py-3">
         <Ionicons
           color={failed ? colors.destructive : succeeded ? colors.success : colors.primary}
-          name={
-            failed
-              ? "alert-circle"
-              : succeeded
-                ? "checkmark-circle"
-                : "cloud-upload-outline"
-          }
+          name={failed ? "alert-circle" : succeeded ? "checkmark-circle" : moving}
           size={20}
         />
 

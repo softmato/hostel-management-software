@@ -83,7 +83,6 @@ export default function UiPreview() {
       />
 
       <QuickActions
-        onMenu={() => {}}
         onNewResident={() => {}}
         onRollCall={() => {}}
         onScan={() => {}}

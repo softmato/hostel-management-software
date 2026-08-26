@@ -18,7 +18,7 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
-import { downloadAndShare } from "@/lib/documents";
+import { downloadToDevice } from "@/lib/documents";
 import {
   getFinanceView,
   type ResidentFinanceView,
@@ -87,7 +87,15 @@ export default function ResidentPaymentsScreen() {
     setStatementBusy(true);
 
     try {
-      await downloadAndShare({ fileName: "hostel-statement", url: statementPdfUrl() });
+      // The control says "Download statement", so it downloads. Progress goes
+      // to the global toaster and the shade — see `downloadToDevice`.
+      await downloadToDevice({
+        extension: "pdf",
+        fileName: "hostel-statement",
+        label: "Statement",
+        mimeType: "application/pdf",
+        url: statementPdfUrl(),
+      });
     } catch (caught) {
       toastError("Could not open your statement", readApiError(caught));
     } finally {

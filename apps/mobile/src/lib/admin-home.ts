@@ -164,6 +164,154 @@ export function earningsTrend(
   }));
 }
 
+/**
+ * The y-axis for a trend window: a rounded ceiling and the ticks under it.
+ *
+ * The chart is a line now, and a line needs a scale in a way a set of bars did
+ * not — bars sized against each other say "this month against that one" without
+ * any axis at all, but a line drawn between two heights invites the question
+ * "how much is that", and the only honest answer is a labelled edge.
+ *
+ * ## The ceiling is rounded up, never the peak itself
+ *
+ * A peak of `74,300` scaled to the top of the plot puts the busiest month
+ * against the frame and gives the axis the label `74.3k`, which is a figure
+ * nobody chose. Rounding up to the next `1 / 2 / 2.5 / 5 × 10ⁿ` step gives
+ * `80k` in four ticks of `20k` — round numbers to read against, and headroom
+ * above the peak so the line is inside the box rather than on it.
+ *
+ * Returned **top-first**, because that is the order the gridlines are drawn in.
+ *
+ * A window that collected nothing has no scale to compute: it gets ticks of `0`
+ * and a flat line on the baseline, which is the truth. Never a divide by zero,
+ * and never a fabricated ceiling that would draw that flat line halfway up.
+ */
+export function trendAxis(
+  bars: readonly TrendBar[],
+  slices = 4,
+): { ceiling: number; ticks: number[] } {
+  const peak = Math.max(0, ...bars.map((bar) => bar.collected));
+
+  if (peak <= 0) {
+    return { ceiling: 0, ticks: Array.from({ length: slices + 1 }, () => 0) };
+  }
+
+  const raw = peak / slices;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const normalized = raw / magnitude;
+  const step = magnitude * ([1, 2, 2.5, 5].find((size) => normalized <= size) ?? 10);
+
+  return {
+    ceiling: step * slices,
+    ticks: Array.from({ length: slices + 1 }, (_, index) => step * (slices - index)),
+  };
+}
+
+/**
+ * An axis tick, short enough to live in a 40-point gutter: `0`, `20k`, `1.2m`.
+ *
+ * Not `formatAmount`. `NPR 1,200,000` down the left edge of a chart is five
+ * labels of grouped digits competing with the line they are there to measure,
+ * and at the size that gutter allows they would not be legible anyway. The
+ * exact figure for the month that matters is stated in full above the chart.
+ *
+ * One decimal at most, and dropped when it is zero — `1.2m`, but `20k` rather
+ * than `20.0k`.
+ */
+export function trendTickLabel(value: number): string {
+  const absolute = Math.abs(value);
+
+  if (absolute < 1000) {
+    return String(Math.round(value));
+  }
+
+  const [scaled, suffix] =
+    absolute < 1_000_000 ? [value / 1000, "k"] : [value / 1_000_000, "m"];
+  const rounded = Math.round(scaled * 10) / 10;
+
+  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}${suffix}`;
+}
+
+export type TrendPoint = { x: number; y: number };
+
+/**
+ * Where each month sits inside a plot of `width` × `height` points.
+ *
+ * Pure, and here rather than in the chart, for the reason `columnsThatFit` is
+ * not inside `<Grid>`: this is the arithmetic that decides whether the line is
+ * the right shape, and arithmetic in a view is arithmetic nobody can test. The
+ * chart measures its box and draws what this returns.
+ *
+ * ## Cell centres, not edge to edge
+ *
+ * Month `i` of `n` sits at `(i + ½)/n` across, so the points are the centres of
+ * `n` equal columns. Two things follow and both are the reason: the month labels
+ * underneath can be a plain row of `flex-1` cells and still line up under their
+ * own points, and the first and last points are inset by half a column instead
+ * of sitting on the frame, where the marker on the newest month would be sliced
+ * in half by it.
+ *
+ * `y` is measured **down** from the top, which is what absolute positioning
+ * takes: the tallest month is the smallest `y`. A ceiling of `0` — a window that
+ * collected nothing — puts every point on the baseline rather than dividing by
+ * it.
+ */
+export function trendPoints(
+  bars: readonly TrendBar[],
+  ceiling: number,
+  width: number,
+  height: number,
+): TrendPoint[] {
+  return bars.map((bar, index) => ({
+    x: ((index + 0.5) * width) / bars.length,
+    y:
+      ceiling > 0
+        ? height - (Math.max(0, bar.collected) / ceiling) * height
+        : height,
+  }));
+}
+
+export type TrendSegment = {
+  /** Radians, for a `rotate` transform. */
+  angle: number;
+  left: number;
+  top: number;
+  width: number;
+};
+
+/**
+ * The line between the points, as one rotated bar per gap.
+ *
+ * `react-native-svg` is not a dependency and adding it is a native rebuild for
+ * one chart, so the line is drawn out of views: each segment is a rectangle
+ * `thickness` tall and as long as the distance between its two points, turned to
+ * the angle between them.
+ *
+ * `left`/`top` place the segment by its **centre** — they are the midpoint of
+ * the pair minus half the segment's own box — because a `rotate` transform turns
+ * a view about its centre by default. Positioning it at the first point and
+ * rotating would swing the far end away from the second one, and correcting that
+ * needs `transformOrigin`, which is a newer prop than this app's floor.
+ */
+export function trendSegments(
+  points: readonly TrendPoint[],
+  thickness: number,
+): TrendSegment[] {
+  return points.slice(1).map((to, index) => {
+    const from = points[index];
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const length = Math.hypot(dx, dy);
+
+    return {
+      angle: Math.atan2(dy, dx),
+      left: from.x + dx / 2 - length / 2,
+      top: from.y + dy / 2 - thickness / 2,
+      width: length,
+    };
+  });
+}
+
 export type MonthDelta = {
   direction: "down" | "flat" | "up";
   /** Ready to render: `Up 12% on Jul`. */

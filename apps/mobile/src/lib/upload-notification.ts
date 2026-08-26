@@ -38,7 +38,12 @@
  * half that talks to `expo-notifications`.
  */
 
-import { isUploadActive, type UploadRow, uploadRowFraction } from "@/lib/upload-queue";
+import {
+  isUploadActive,
+  type TransferDirection,
+  type UploadRow,
+  uploadRowFraction,
+} from "@/lib/upload-queue";
 
 /** One identifier, so every update replaces the previous notification. */
 export const UPLOAD_NOTIFICATION_ID = "hostelhub-upload-progress";
@@ -59,6 +64,17 @@ export const UPLOAD_NOTIFICATION_TYPE = "upload-progress";
  */
 export const UPLOAD_CHANNEL = "uploads";
 
+/**
+ * What the channel is called in Android's settings.
+ *
+ * The **id** above stays `"uploads"` for ever: a channel id is the key the
+ * user's own choices (importance, sound, blocked-or-not) hang off, so changing
+ * it would silently orphan whatever they had set and create a second, default
+ * channel beside it. The display name is free to change, and it has, because
+ * the channel now carries downloads too.
+ */
+export const UPLOAD_CHANNEL_NAME = "Uploads and downloads";
+
 /** Percentage granularity. 5 caps a transfer at ~20 reposts. */
 export const PERCENT_STEP = 5;
 
@@ -75,6 +91,15 @@ export type UploadPhase = "preparing" | "transferring" | "verifying";
 export type UploadTally = {
   /** Transfers still in flight. */
   active: number;
+  /**
+   * Which way this batch is going, or `null` when the rows disagree.
+   *
+   * A mixed batch is not hypothetical — a resident can attach a payment proof
+   * and tap a receipt in the same few seconds — and it is the one case where no
+   * single verb is true. `null` makes the notice say "Transferring" rather than
+   * picking one of the two and being wrong about half the bytes.
+   */
+  direction: TransferDirection | null;
   failed: number;
   /** The single row's label, or `null` once a batch holds more than one. */
   label: string | null;
@@ -91,6 +116,7 @@ export type UploadTally = {
 
 export const EMPTY_TALLY: UploadTally = {
   active: 0,
+  direction: null,
   failed: 0,
   label: null,
   percent: 0,
@@ -172,6 +198,7 @@ export function tallyUploads(
 
   return {
     active: active.length,
+    direction: directionOf(active) ?? base.direction,
     failed,
     label: total === 1 ? (activeLabel ?? base.label) : null,
     percent,
@@ -180,6 +207,27 @@ export function tallyUploads(
     succeeded,
     total,
   };
+}
+
+/**
+ * The batch's direction, or `null` for none-in-flight or a mixed batch.
+ *
+ * Read from the **active** rows for the same reason `activeLabel` is: a row
+ * from the previous batch can still be lingering in the queue, and letting it
+ * vote would let an upload that finished three seconds ago name a download.
+ *
+ * The caller falls back to the batch's previous direction when this is `null`,
+ * so the terminal notice ("… downloaded") still knows what it is reporting
+ * after the last active row has gone.
+ */
+function directionOf(active: readonly UploadRow[]): TransferDirection | null {
+  if (active.length === 0) {
+    return null;
+  }
+
+  const [first] = active;
+
+  return active.every((row) => row.direction === first.direction) ? first.direction : null;
 }
 
 function phaseOf(active: readonly UploadRow[]): UploadPhase | null {
@@ -206,8 +254,55 @@ export type UploadNotice = {
   title: string;
 };
 
+/**
+ * The four words the notice needs, per direction.
+ *
+ * A table rather than conditionals at each of the six call sites below, because
+ * the sentences differ only in the verb and writing them out twice is how the
+ * two directions drift apart. `null` is the mixed batch — see
+ * `UploadTally.direction` — and takes the neutral verb rather than guessing.
+ */
+const VERBS: Record<"download" | "mixed" | "upload", {
+  /** Mid-transfer, title case: `Uploading payment proof`. */
+  active: string;
+  /** The settle stage's body line. */
+  settling: string;
+  /** Past participle: `payment proof uploaded`. */
+  done: string;
+  /** Bare verb for the failure line: `did not upload`. */
+  verb: string;
+}> = {
+  download: {
+    active: "Downloading",
+    done: "downloaded",
+    /*
+     * Not "Checking the file…". On a download the bytes have already arrived
+     * and what is left is writing them where the user asked, which on Android
+     * is a folder write that a large export can visibly sit in. Same
+     * correction `uploadRowMessage` makes in the toaster, so the shade and the
+     * screen never disagree about what is happening.
+     */
+    settling: "Saving…",
+    verb: "download",
+  },
+  mixed: {
+    active: "Transferring",
+    done: "transferred",
+    settling: "Finishing…",
+    verb: "transfer",
+  },
+  upload: {
+    active: "Uploading",
+    done: "uploaded",
+    settling: "Checking the file…",
+    verb: "upload",
+  },
+};
+
 /** What the shade should currently say, or `null` for "post nothing". */
 export function uploadNotice(tally: UploadTally): UploadNotice | null {
+  const words = VERBS[tally.direction ?? "mixed"];
+
   if (tally.active > 0) {
     const done = tally.failed + tally.succeeded;
     /*
@@ -220,7 +315,7 @@ export function uploadNotice(tally: UploadTally): UploadNotice | null {
       tally.phase === "preparing"
         ? "Preparing…"
         : tally.phase === "verifying"
-          ? "Checking the file…"
+          ? words.settling
           : `${tally.percent}%`;
 
     return {
@@ -229,8 +324,8 @@ export function uploadNotice(tally: UploadTally): UploadNotice | null {
       ongoing: true,
       title:
         tally.label === null
-          ? `Uploading ${tally.total} files`
-          : `Uploading ${tally.label.toLowerCase()}`,
+          ? `${words.active} ${tally.total} files`
+          : `${words.active} ${tally.label.toLowerCase()}`,
       tone: "active",
     };
   }
@@ -241,20 +336,20 @@ export function uploadNotice(tally: UploadTally): UploadNotice | null {
       ongoing: false,
       title:
         tally.total === 1 && tally.label
-          ? `${tally.label} did not upload`
-          : `${tally.failed} of ${tally.total} uploads failed`,
+          ? `${tally.label} did not ${words.verb}`
+          : `${tally.failed} of ${tally.total} ${words.verb}s failed`,
       tone: "failed",
     };
   }
 
   if (tally.succeeded > 0) {
     return {
-      body: "Finished uploading.",
+      body: `Finished ${words.active.toLowerCase()}.`,
       ongoing: false,
       title:
         tally.total === 1 && tally.label
-          ? `${tally.label} uploaded`
-          : `${tally.succeeded} files uploaded`,
+          ? `${tally.label} ${words.done}`
+          : `${tally.succeeded} files ${words.done}`,
       tone: "succeeded",
     };
   }

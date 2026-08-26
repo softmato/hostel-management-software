@@ -22,6 +22,10 @@ import {
   hostelCode,
   type MonthDelta,
   occupancyLine,
+  trendAxis,
+  trendPoints,
+  trendSegments,
+  trendTickLabel,
   type TrendBar,
 } from "@/lib/admin-home";
 import { API_BASE_URL } from "@/lib/api";
@@ -347,13 +351,13 @@ const AMOUNT_LEAD_TRIM = -9;
  * somehow. When the hostel has a photograph, the photograph does that job and
  * these would be competing with it, so they are drawn **only** when it has none.
  *
- * `pointerEvents="none"` and outside the content flow, so nothing above them
+ * `pointerEvents: "none"` and outside the content flow, so nothing above them
  * moves; clipped by the card's `overflow: hidden`, which is also what keeps them
  * inside the rounded corners.
  */
 function HeroOrnament() {
   return (
-    <View className="absolute inset-0" pointerEvents="none">
+    <View className="absolute inset-0" style={{ pointerEvents: "none" }}>
       <View
         className="absolute rounded-full bg-white/10"
         style={{ height: 190, right: -60, top: -70, width: 190 }}
@@ -869,6 +873,17 @@ export function ServiceGrid({ onOpen }: { onOpen: (href: string) => void }) {
 
   const services = [
     { href: "/manage/finance", icon: "cash-outline", label: "Finance", tone: "success" },
+    /*
+      Next to Finance, because it is the other half of the same question. Finance
+      is where the money is *configured* — the rate card, the billing run, the
+      gateways — and this is what actually came in, day by day, which is the
+      figure an owner reaches for far more often than any of the settings.
+
+      It is not `manage/statements`. That one imports a bank or wallet export and
+      reconciles it; this one is the hostel's own ledger of credits. Two screens,
+      two questions, unfortunately similar names.
+    */
+    { href: "/manage/finance/statement", icon: "receipt-outline", label: "Statement", tone: "success" },
     { href: "/(admin)/residents", icon: "people-outline", label: "Residents", tone: "admin" },
     /*
       Roll call came down from the shortcut row when the Store took its cell.
@@ -967,7 +982,7 @@ export function ServiceGrid({ onOpen }: { onOpen: (href: string) => void }) {
  * screen where they sat below a metric grid taught people to scroll past the
  * metrics every single time.
  *
- * ## Four, and the rule that decides which four
+ * ## Three, and the rule that decides which three
  *
  * `Payments` and `Residents` came off, and the reason is the one that should
  * have kept them off in the first place: **both are bottom tabs**, sitting a
@@ -976,15 +991,29 @@ export function ServiceGrid({ onOpen }: { onOpen: (href: string) => void }) {
  * twice — and the second drawing is the one without the count.
  *
  * That is the whole rule: **never a bottom tab, always something you would do
- * standing up.** Overlapping the `Manage` grid below is fine and unavoidable —
- * that grid is the full map of the product, the way `More` is, and a shortcut
- * that appears nowhere else would be a feature with one entrance.
+ * standing up.** Leading *into* a section the `Manage` grid below also maps is
+ * fine and unavoidable — that grid is the full map of the product, the way
+ * `More` is, and a shortcut that appears nowhere else would be a feature with
+ * one entrance. Repeating one of its tiles verbatim is not: see today's menu
+ * below.
  *
  * So: **the supply store**, `Add resident` with somebody in front of you
- * (`/manage/resident/new`), **scanning a resident's card** in the corridor, and
- * today's menu — the four things that happen away from a desk. Recording cash
- * would have been the fifth and cannot be here at all: that write needs an
- * invoice chosen first, so it lives on the row's sheet inside Payments.
+ * (`/manage/resident/new`) and **scanning a resident's card** in the corridor —
+ * the three things that happen away from a desk. Recording cash would have been
+ * the fourth and cannot be here at all: that write needs an invoice chosen
+ * first, so it lives on the row's sheet inside Payments.
+ *
+ * ## Today's menu came off, and the cell was not refilled
+ *
+ * It was the `Food` tile of the grid below drawn a second time a scroll higher:
+ * same icon, same destination, no count to tell the two apart. It also failed
+ * the rule on its own merits — setting a menu is picking meals and times, read
+ * and chosen sitting down, which is the reason `Post notice` moved down a card
+ * before it.
+ *
+ * Three cells rather than a fourth thing promoted to fill the hole: they are
+ * `flex-1` and simply space themselves, and this row is a list of what
+ * qualifies, not a shape with four slots that must be full.
  *
  * ## The Store took roll call's cell
  *
@@ -1038,13 +1067,11 @@ export function ServiceGrid({ onOpen }: { onOpen: (href: string) => void }) {
  * These are shortcuts: their job is to be reachable, not to report.
  */
 export function QuickActions({
-  onMenu,
   onNewResident,
   onRollCall,
   onScan,
   onStore,
 }: {
-  onMenu: () => void;
   onNewResident: () => void;
   /** The fallback for the lead cell when `onStore` is absent. */
   onRollCall: () => void;
@@ -1087,13 +1114,6 @@ export function QuickActions({
           label="Scan resident"
           onPress={onScan}
           tone="warning"
-        />
-        <QuickAction
-          glyph={colors.success}
-          icon="restaurant-outline"
-          label="Today's menu"
-          onPress={onMenu}
-          tone="success"
         />
       </ActionCard>
     </View>
@@ -1188,65 +1208,243 @@ export function WaitingActions({
 /* Earnings                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/** The plotted area, in points. Bars are sized off it rather than in percent. */
-const CHART_HEIGHT = 78;
-
-/** So a zero month is still a visible mark on the axis, not a gap. */
-const MIN_BAR = 5;
+/**
+ * The plotted area, in points — the inside of the frame, not the whole block.
+ *
+ * 176, not the 112 it was drawn at first. A line chart is read by its *slope*,
+ * and slope is the ratio of the plot's height to its width: at 112 points under
+ * a card 300 wide, a month that doubled its takings still climbed at a shallow
+ * angle, and the whole plot read as a strip of padding with a line in it. This
+ * is roughly 3:5 on a 360dp phone, which is the shape the reference chart has.
+ */
+const CHART_HEIGHT = 176;
 
 /**
- * Six months of collections, as bars.
+ * The gutter down the left. Wide enough for `250k` at 10 points and no wider —
+ * every point spent here is a point of slope lost from the plot.
+ */
+const AXIS_WIDTH = 32;
+
+/** The line's own thickness, and the frame's. */
+const LINE_WIDTH = 2;
+
+/** Gridlines drawn between the ticks — five labels, four gaps. */
+const SLICES = 4;
+
+/**
+ * The frame's border, in points. Absolutely-positioned children sit inside it,
+ * so anything measured against the *outer* height has to allow for it.
+ */
+const FRAME = 1;
+
+/**
+ * Six months of collections, as a line on a scaled grid.
  *
  * ## Why a chart at all, on a screen that is otherwise figures
  *
  * "Collected this month" is a number with no scale attached — 74,000 is good or
  * bad depending entirely on what the last five months were, and that comparison
- * is the whole question behind "how is the hostel doing". Six bars answer it
- * without being read.
+ * is the whole question behind "how is the hostel doing". Six months of shape
+ * answer it without being read.
  *
- * ## No y-axis, and no value labels
+ * ## A line, and the axis a line obliges
  *
- * Six labelled bars on a 320dp screen means a 42-point column holding
- * `NPR 74,000`, which does not fit at any size worth reading. The exact figure
- * for the month that matters is directly above the chart in large type, and the
- * caption underneath names the best month. Everything else here is shape,
- * deliberately.
+ * This was six bars with no axis and no value labels, on the argument that
+ * `NPR 74,000` will not fit in a 42-point column. That argument still holds and
+ * nothing here breaks it — the per-month figures are still absent. What changed
+ * is the mark: bars sized against each other are a comparison, while a line is
+ * a *trajectory*, which is the thing an owner is actually looking for in six
+ * months of rent. A line, though, cannot be read without knowing what its height
+ * means, so the plot gets what the bars did not need: a rounded ceiling, four
+ * gridlines under it, and short labels down the left (`0`, `20k`, `40k`). See
+ * `trendAxis` for why the ceiling is rounded and never the peak itself.
  *
- * Bars are drawn against the tallest month **in the window**, so the shape is
- * legible for a hostel collecting thirty thousand a month and for one collecting
- * three hundred. `earningsTrend` owns that arithmetic and is tested.
+ * The month that matters keeps its figure in full above the plot, where there
+ * is room for the currency code.
+ *
+ * ## Drawn out of `<View>`s, not SVG
+ *
+ * `react-native-svg` is not a dependency of this app and adding it is a native
+ * rebuild for one chart, so the line is a row of thin views rotated to the angle
+ * between each pair of points. That arithmetic is `trendPoints` and
+ * `trendSegments`, in the library and tested — this file measures the box and
+ * paints what they return.
  */
 export function EarningsTrend({ bars }: { bars: readonly TrendBar[] }) {
+  const { colors } = useAppTheme();
+
+  /*
+   * Measured, not assumed. The card this sits in is as wide as the phone minus
+   * its padding, and the segment geometry is in points — so the line cannot be
+   * laid out until the plot has been.
+   *
+   * Guarded the way `<Grid>` guards its own measurement: `onLayout` fires again
+   * on every rotation and keyboard resize, and an unconditional `setState` in
+   * that callback is a render loop on some Android devices.
+   */
+  const [plot, setPlot] = useState({ height: 0, width: 0 });
+
   if (bars.length === 0) {
     return null;
   }
 
   const best = bars.reduce((top, bar) => (bar.collected > top.collected ? bar : top));
+  const latest = bars[bars.length - 1];
+  const axis = trendAxis(bars, SLICES);
+  const measured = plot.width > 0 && plot.height > 0;
+
+  const points = trendPoints(bars, axis.ceiling, plot.width, plot.height);
+  const segments = trendSegments(points, LINE_WIDTH);
 
   return (
     <View className="gap-2.5">
-      <View className="flex-row items-end gap-2">
-        {bars.map((bar) => (
-          <View className="flex-1 items-center gap-1.5" key={bar.period}>
-            <View className="w-full justify-end" style={{ height: CHART_HEIGHT }}>
-              <View
-                className={`w-full rounded-b-md rounded-t-xl ${
-                  bar.latest ? "bg-primary" : "bg-brand-soft"
-                }`}
-                style={{ height: Math.max(MIN_BAR, Math.round(bar.fill * CHART_HEIGHT)) }}
-              />
-            </View>
+      {/*
+        The figure the plot is the context for. It is stated here rather than on
+        the line's last point because a label on the point would be the one value
+        label on a chart that has none, and would move with the data.
+      */}
+      <View className="flex-row items-baseline justify-between">
+        <Text variant="label">Collected</Text>
+        <Text className="font-semibold">{formatMoney(latest.collected)}</Text>
+      </View>
 
-            <Text
-              className={
-                bar.latest ? "font-semibold text-foreground" : "text-muted-foreground"
-              }
-              numberOfLines={1}
-              style={{ fontSize: 10 }}
-            >
-              {bar.label}
-            </Text>
+      <View className="flex-row">
+        {/*
+          The gutter and the plot both wait for the measurement — every mark in
+          either is positioned in points computed from `plot`, so drawing them
+          against a width of zero would stack five labels and five segments in
+          one corner for a frame. `<Grid>` takes the same one-frame wait, and an
+          empty frame is the honest intermediate state.
+        */}
+        <View style={{ height: CHART_HEIGHT, width: AXIS_WIDTH }}>
+          {measured
+            ? axis.ticks.map((tick, index) => (
+                <Text
+                  className="absolute right-1 text-right text-muted-foreground"
+                  key={`tick-${index}`}
+                  numberOfLines={1}
+                  /*
+                    Half a line-height above the rule it names, so the label is
+                    centred on it rather than hanging under it. `FRAME` because
+                    the rules are measured inside the plot's border and this
+                    column has none.
+                  */
+                  style={{
+                    fontSize: 10,
+                    top: FRAME + (index * plot.height) / SLICES - 7,
+                  }}
+                >
+                  {trendTickLabel(tick)}
+                </Text>
+              ))
+            : null}
+        </View>
+
+        <View
+          className="flex-1 overflow-hidden rounded-md"
+          style={{
+            borderColor: colors.border,
+            borderWidth: FRAME,
+            height: CHART_HEIGHT,
+          }}
+        >
+          <View
+            className="flex-1"
+            onLayout={(event) => {
+              const { height, width } = event.nativeEvent.layout;
+
+              setPlot((current) =>
+                Math.abs(current.width - width) > 0.5 ||
+                Math.abs(current.height - height) > 0.5
+                  ? { height, width }
+                  : current,
+              );
+            }}
+          >
+            {measured ? (
+              <>
+                {/* Rules between the ticks, and one between each month. */}
+                {axis.ticks.slice(1, -1).map((tick, index) => (
+                  <View
+                    key={`rule-${index}`}
+                    style={{
+                      backgroundColor: colors.border,
+                      height: StyleSheet.hairlineWidth,
+                      left: 0,
+                      position: "absolute",
+                      right: 0,
+                      top: ((index + 1) * plot.height) / SLICES,
+                    }}
+                  />
+                ))}
+
+                {points.slice(1).map((point, index) => (
+                  <View
+                    key={`column-${bars[index + 1].period}`}
+                    style={{
+                      backgroundColor: colors.border,
+                      bottom: 0,
+                      left: (point.x + points[index].x) / 2,
+                      position: "absolute",
+                      top: 0,
+                      width: StyleSheet.hairlineWidth,
+                    }}
+                  />
+                ))}
+
+                {segments.map((segment, index) => (
+                  <View
+                    key={`segment-${bars[index + 1].period}`}
+                    style={{
+                      backgroundColor: colors.primary,
+                      borderRadius: LINE_WIDTH / 2,
+                      height: LINE_WIDTH,
+                      left: segment.left,
+                      position: "absolute",
+                      top: segment.top,
+                      transform: [{ rotate: `${segment.angle}rad` }],
+                      width: segment.width,
+                    }}
+                  />
+                ))}
+
+                {/*
+                  One dot, on the last month. Six dots would be a scatter plot
+                  with a line through it; one says which end is now — the job the
+                  accented bar used to do.
+                */}
+                <View
+                  style={{
+                    backgroundColor: colors.primary,
+                    borderColor: colors.card,
+                    borderRadius: 5,
+                    borderWidth: 2,
+                    height: 10,
+                    left: points[points.length - 1].x - 5,
+                    position: "absolute",
+                    top: points[points.length - 1].y - 5,
+                    width: 10,
+                  }}
+                />
+              </>
+            ) : null}
           </View>
+        </View>
+      </View>
+
+      {/* The month labels, under the plot and past the gutter. */}
+      <View className="flex-row" style={{ paddingLeft: AXIS_WIDTH }}>
+        {bars.map((bar) => (
+          <Text
+            className={`flex-1 text-center ${
+              bar.latest ? "font-semibold text-foreground" : "text-muted-foreground"
+            }`}
+            key={bar.period}
+            numberOfLines={1}
+            style={{ fontSize: 11 }}
+          >
+            {bar.label}
+          </Text>
         ))}
       </View>
 

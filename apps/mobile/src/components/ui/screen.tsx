@@ -255,12 +255,12 @@ export function Screen({
            * and the shadow would have no ground to fall on.
            */
           className="absolute inset-x-0 items-center px-14"
-          pointerEvents="box-none"
           style={[
             {
               bottom:
                 (insideTabs ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) +
                 MIN_BOTTOM_PAD,
+              pointerEvents: "box-none",
             },
             floatingStyle,
           ]}

@@ -2,9 +2,14 @@ import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Linking, View } from "react-native";
 
-import { AlertCard, DeniedNotice, useAdminAlerts, useAlertActions } from "@/components/admin-alerts";
+import {
+  DeniedNotice,
+  useAdminAlerts,
+  useAlertActions,
+} from "@/components/admin-alerts";
 import { EarningsTrend } from "@/components/admin-home";
-import { AdminMoneyCard } from "@/components/admin-money-card";
+import { ClaimCard } from "@/components/claim-card";
+import { PaymentMonthStrip } from "@/components/payment-months";
 import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
 import { StatusPill } from "@/components/ui/badge";
@@ -42,7 +47,8 @@ import {
   searchInvoiceRows,
 } from "@/lib/admin-money";
 import { readApiError } from "@/lib/api-contract";
-import { formatMoney, humanizeEnum } from "@/lib/format";
+import { claimsForPeriod, paymentMonths } from "@/lib/payment-months";
+import { formatMoney, humanizeEnum, nepalPeriodKey } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -131,9 +137,9 @@ type MoneyData = {
   periods: AdminPeriodSummary | null;
 };
 
-async function loadMoney(): Promise<MoneyData> {
+async function loadMoney(period: string): Promise<MoneyData> {
   const [invoices, hostel, periods] = await Promise.all([
-    getAdminInvoices(),
+    getAdminInvoices(period),
     // A warden scoped to several hostels cannot resolve one profile, and the
     // portal link is the only thing that needs it. The figures are unaffected.
     getAdminHostel().catch(() => null),
@@ -149,9 +155,21 @@ async function loadMoney(): Promise<MoneyData> {
 }
 
 export default function AdminMoneyScreen() {
-  const money = useResource<MoneyData>(useCallback(() => loadMoney(), []), {
-    topics: [REALTIME_TOPIC.PAYMENTS, REALTIME_TOPIC.RESIDENTS],
-  });
+  /*
+   * The month on screen, and the only piece of state on this screen that is a
+   * *question* rather than a view of the answer. It is the first thing in the
+   * loader's dependency list because `useResource` refetches when the loader's
+   * identity changes — a filter that does not appear there is a filter that
+   * silently does nothing, which is the failure that hook's own notes record.
+   */
+  const [period, setPeriod] = useState(nepalPeriodKey());
+
+  const money = useResource<MoneyData>(
+    useCallback(() => loadMoney(period), [period]),
+    {
+      topics: [REALTIME_TOPIC.PAYMENTS, REALTIME_TOPIC.RESIDENTS],
+    },
+  );
   const alerts = useAdminAlerts();
   const actions = useAlertActions();
 
@@ -170,25 +188,79 @@ export default function AdminMoneyScreen() {
    * would be a second place for the claim subtitle to drift from the one on the
    * combined queue.
    */
+  /*
+   * Scoped to the month on screen, so the queue under the strip is the queue for
+   * the chip that is lit. `claimsForPeriod` also decides where a claim with no
+   * period at all goes — an admission fee is billed as a one-off and carries
+   * `period: null`, and a strict match would hide the first claim a new resident
+   * ever files from every month in the strip.
+   */
+  const monthClaims = useMemo(
+    () => claimsForPeriod(alerts.data?.claims ?? [], period),
+    [alerts.data, period],
+  );
+
   const claimRows = useMemo(
     () =>
       buildAlertFeed({
-        claims: alerts.data?.claims ?? [],
+        claims: monthClaims,
         complaints: [],
         inquiries: [],
         sos: [],
       }),
-    [alerts.data],
+    [monthClaims],
   );
   /** Whole queues this account may not read — never folded into "nothing here". */
   const denied = useMemo(() => alerts.data?.denied ?? [], [alerts.data]);
 
   const claimById = useMemo(
-    () => new Map((alerts.data?.claims ?? []).map((claim) => [claim.eventId, claim])),
-    [alerts.data],
+    () => new Map(monthClaims.map((claim) => [claim.eventId, claim])),
+    [monthClaims],
   );
 
   const rows = useMemo(() => money.data?.invoices.rows ?? [], [money.data]);
+
+  /*
+   * The strip's chips. Built from the period roll-up rather than from the month
+   * on screen, because the count on each chip is the whole point of it: an owner
+   * sweeping back through the year is looking for the months that still have
+   * somebody in them, and a strip that could only count the month it is already
+   * showing would answer that with one number.
+   *
+   * Empty without `viewPayments` — that roll-up is the read a warden can be
+   * refused — and the strip renders nothing rather than one lonely chip. The
+   * screen still works: it is showing the current month, which is what it opened
+   * on anyway.
+   */
+  const monthChips = useMemo(
+    () =>
+      paymentMonths(money.data?.periods?.months ?? [], {
+        current: nepalPeriodKey(),
+      }),
+    [money.data],
+  );
+
+  /**
+   * A room for a claim, joined from the month's invoice matrix.
+   *
+   * The claims queue knows who paid and not where they live; the matrix knows
+   * both. Joining here rather than asking the server for it keeps the review
+   * route as it is — and a claim whose resident is not in this month's matrix
+   * simply has no room line, which is the honest outcome for somebody who moved
+   * out or was never billed.
+   */
+  const roomByResident = useMemo(
+    () =>
+      new Map(
+        rows.map((row) => [
+          row.resident.id,
+          [humanizeEnum(row.resident.roomType), row.resident.roomNumber]
+            .filter((part) => Boolean(part) && part !== "—")
+            .join(" · "),
+        ]),
+      ),
+    [rows],
+  );
 
   /*
    * Two counts that add up to the roster. See the note at the top: the four
@@ -196,7 +268,11 @@ export default function AdminMoneyScreen() {
    */
   const segments = useMemo(
     () => [
-      { count: invoiceSegment(rows, "owing").length, label: "Owing", value: "owing" as const },
+      {
+        count: invoiceSegment(rows, "owing").length,
+        label: "Owing",
+        value: "owing" as const,
+      },
       {
         count: invoiceSegment(rows, "settled").length,
         label: "Paid",
@@ -206,18 +282,32 @@ export default function AdminMoneyScreen() {
     [rows],
   );
 
-  const inSegment = useMemo(() => invoiceSegment(rows, segment), [rows, segment]);
-  const listed = useMemo(() => searchInvoiceRows(inSegment, query), [inSegment, query]);
-
-  /*
-   * The field is worth its space only once the list stops fitting in the head.
-   * Measured against the whole matrix rather than the open segment, so it does
-   * not appear and disappear as the segments are switched — a control that
-   * comes and goes under the thumb is worse than one that is occasionally idle.
-   */
-  const searchable = rows.length > 8;
+  const inSegment = useMemo(
+    () => invoiceSegment(rows, segment),
+    [rows, segment],
+  );
+  const listed = useMemo(
+    () => searchInvoiceRows(inSegment, query),
+    [inSegment, query],
+  );
 
   const totals = money.data?.invoices.totals;
+
+  /*
+   * There were five tiles across the top here — `To review`, `Paid`, `Unpaid`,
+   * `Overdue`, `Collected` — in a row that scrolled sideways because three is
+   * what fits on a 360dp phone.
+   *
+   * They are gone, and nothing they said was lost with them. Every one of the
+   * five is stated somewhere it is also actionable: `To review` is the heading
+   * on the claim queue directly below ("3 claims to verify"), `Overdue` and the
+   * never-billed count are in `listSubtitle` over the list those people are
+   * already at the top of, `Paid` versus `Unpaid` is the segmented control that
+   * switches between them, and `Collected` is the figure over the trend chart.
+   * A tile that restates a heading two hundred points further down is furniture
+   * — and five of them pushed the queue, which is the screen's actual job, below
+   * the fold.
+   */
 
   /*
    * The header's sentence — and the home of the two figures the `Overdue` and
@@ -237,12 +327,14 @@ export default function AdminMoneyScreen() {
 
     if (segment === "settled") {
       return listed.length === 1
-        ? "1 person has settled this month"
-        : `${listed.length} people have settled this month`;
+        ? "1 person has settled"
+        : `${listed.length} people have settled`;
     }
 
     return [
-      listed.length === 1 ? "1 person still owes" : `${listed.length} people still owe`,
+      listed.length === 1
+        ? "1 person still owes"
+        : `${listed.length} people still owe`,
       totals?.overdue ? `${totals.overdue} overdue` : null,
       totals?.notBilled ? `${totals.notBilled} never billed` : null,
     ]
@@ -261,8 +353,8 @@ export default function AdminMoneyScreen() {
     }
 
     return segment === "settled"
-      ? "Nobody has settled this month yet."
-      : "Everybody has paid what they were billed this month.";
+      ? "Nobody in this month has settled yet."
+      : "Everybody has paid what they were billed.";
   }, [query, segment]);
 
   /*
@@ -279,7 +371,9 @@ export default function AdminMoneyScreen() {
   const openRow = useCallback((row: AdminInvoiceRow) => {
     setOpen(row);
     setCash({
-      amount: row.payment ? String(Math.max(0, row.payment.dueAmount - row.payment.paidAmount)) : "",
+      amount: row.payment
+        ? String(Math.max(0, row.payment.dueAmount - row.payment.paidAmount))
+        : "",
       cashReceiptNumber: "",
       collectedBy: "",
       note: "",
@@ -358,8 +452,16 @@ export default function AdminMoneyScreen() {
     }
   }, [money, open, voidReason]);
 
-  // "Payments", in step with the tab and with the portal — see `_layout.tsx`.
-  const header = <AppBar actions={<NotificationBell />} title="Payments" />;
+  /*
+   * "Payments", in step with the tab and with the portal — see `_layout.tsx`.
+   *
+   * `large`, so the name is set at the same 24 points Residents and Home set
+   * theirs at. Those two carry their own header components and had always been
+   * a size up; this bar was the only tab title still at bar-chrome size.
+   */
+  const header = (
+    <AppBar actions={<NotificationBell />} large title="Payments" />
+  );
 
   if (money.loading) {
     return (
@@ -382,7 +484,7 @@ export default function AdminMoneyScreen() {
     return (
       <Screen header={header} insideTabs>
         <ErrorState
-          message={money.error ?? "This month's figures could not be loaded."}
+          message={money.error ?? "The figures for that month could not be loaded."}
           onRetry={money.reload}
         />
       </Screen>
@@ -404,32 +506,65 @@ export default function AdminMoneyScreen() {
         refreshing={money.refreshing || alerts.refreshing}
         scroll
       >
-        <View className="gap-6 pt-2">
-          <AdminMoneyCard
-            billed={money.data.invoices.totals.due}
-            collected={money.data.invoices.totals.collected}
-            month={money.data.invoices.month}
-            proofs={claimRows.length}
+        <View className="gap-5 pt-2">
+          {/*
+            The month, then the figures for it, then the queue it produced.
+
+            This was a single painted collection card for the current month and
+            nothing else — which made every question that starts "what about
+            July" a trip to the browser. The strip is the picker the portal has
+            as a dropdown, drawn as chips so the counts are on their faces; see
+            `components/payment-months.tsx`.
+          */}
+          <PaymentMonthStrip
+            months={monthChips}
+            onSelect={setPeriod}
+            value={period}
           />
 
           {/*
-            The last few months, under the card for this one — it was on Home,
-            above a collection card that repeated the same month's figures, and
-            it is the one thing on this screen that answers "is this month
-            normal".
+            Search, and the way out of searching at all.
 
-            Absent, not empty. Without `viewPayments` there is no monthly roll-up
-            to plot, and an empty axis reads as "this hostel has earned nothing"
-            — the same mistake as showing 0% occupancy for a hostel that never
-            configured its rooms.
+            `Reconcile` is not a second search control: it is the answer to "I am
+            not going to check forty of these by eye". It uploads the bank or
+            wallet statement and matches it against the open invoices, which
+            settles the ones that agree without anybody approving them
+            individually — the same work this queue does one card at a time.
+
+            It sits here rather than in the queue's own header because it is
+            worth offering *before* the queue is read, and because on the day the
+            queue is empty it is still the fastest way to settle a month.
+
+            The field used to appear only over a list of more than eight, on the
+            argument that a search box over six rows is a control that exists to
+            be ignored. That gate is gone: the row now carries a control that is
+            always worth showing, and a lone button floating on the right of an
+            empty row reads as a layout accident rather than as a decision.
           */}
-          {trend.length > 0 ? (
-            <View className="px-5">
-              <Card>
-                <EarningsTrend bars={trend} />
-              </Card>
+          <View className="flex-row items-center gap-2 px-5">
+            <View className="flex-1">
+              <Input
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={(next) => {
+                  setQuery(next);
+                  // The cap belongs to the list that was open, and a query
+                  // narrows to a new one.
+                  setShowAll(false);
+                }}
+                placeholder="Search name, room or phone"
+                returnKeyType="search"
+                value={query}
+              />
             </View>
-          ) : null}
+
+            <Button
+              label="Reconcile"
+              onPress={() => router.push("/manage/statements")}
+              size="sm"
+              variant="outline"
+            />
+          </View>
 
           {/*
             Present only when there is something to decide — see the note at the
@@ -455,22 +590,42 @@ export default function AdminMoneyScreen() {
                 }
               />
 
+              {/*
+                `ClaimCard`, not the shared `AlertCard`: on this tab every card
+                is a claim, so the shape can be the decision itself — the
+                screenshot on the card, the checks that did not pass spelled out,
+                approve and reject under them. See `components/claim-card.tsx`.
+              */}
               <View className="gap-3">
-                {claimRows.map((row) => (
-                  <AlertCard
-                    actions={actions}
-                    claim={claimById.get(row.id)}
-                    key={row.id}
-                    row={row}
-                  />
-                ))}
+                {claimRows.flatMap((row) => {
+                  const claim = claimById.get(row.id);
+
+                  // The feed and the map are built from the same list one line
+                  // apart, so this cannot miss — but a card without its claim
+                  // would be a set of buttons over an empty body, and dropping
+                  // it is better than drawing that.
+                  return claim
+                    ? [
+                        <ClaimCard
+                          actions={actions}
+                          claim={claim}
+                          key={row.id}
+                          room={roomByResident.get(claim.residentId)}
+                          row={row}
+                        />,
+                      ]
+                    : [];
+                })}
               </View>
             </View>
           ) : null}
 
           <View className="gap-3">
             <View className="px-5">
-              <SectionHeader subtitle={listSubtitle} title="This month's residents" />
+              <SectionHeader
+                subtitle={listSubtitle}
+                title="Residents"
+              />
 
               <View className="gap-3">
                 <Segmented
@@ -487,22 +642,6 @@ export default function AdminMoneyScreen() {
                   options={segments}
                   value={segment}
                 />
-
-                {searchable ? (
-                  <Input
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onChangeText={(next) => {
-                      setQuery(next);
-                      // Same argument as switching segments: the cap belongs to
-                      // the list that was open, and a query narrows to a new one.
-                      setShowAll(false);
-                    }}
-                    placeholder="Search name, room or phone"
-                    returnKeyType="search"
-                    value={query}
-                  />
-                ) : null}
               </View>
             </View>
 
@@ -558,7 +697,9 @@ export default function AdminMoneyScreen() {
                          * instead.
                          */
                         <View className="shrink-0 items-end gap-1">
-                          {amountOwed(row) > 0 ? <Amount value={amountOwed(row)} /> : null}
+                          {amountOwed(row) > 0 ? (
+                            <Amount value={amountOwed(row)} />
+                          ) : null}
 
                           {/*
                             Only on the mixed list, and now carrying the work the
@@ -591,7 +732,9 @@ export default function AdminMoneyScreen() {
                          * optional and an empty string reaches here as often as
                          * an absent key.
                          */
-                        row.resident.phone ? row.resident.phone : "No phone on file",
+                        row.resident.phone
+                          ? row.resident.phone
+                          : "No phone on file",
                       ]
                         .filter(Boolean)
                         .join(" · ")}
@@ -612,6 +755,26 @@ export default function AdminMoneyScreen() {
               )}
             </View>
           </View>
+
+          {/*
+            The last few months' takings, under the month they belong to rather
+            than above it. It answers "is this month normal", which is a question
+            somebody asks *after* reading the month — and the strip at the top
+            now owns "which month", so a chart up there was two controls for one
+            job with the less precise one first.
+
+            Absent, not empty. Without `viewPayments` there is no monthly roll-up
+            to plot, and an empty axis reads as "this hostel has earned nothing"
+            — the same mistake as showing 0% occupancy for a hostel that never
+            configured its rooms.
+          */}
+          {trend.length > 0 ? (
+            <View className="px-5">
+              <Card>
+                <EarningsTrend bars={trend} />
+              </Card>
+            </View>
+          ) : null}
 
           {/*
             A row, not a paragraph and a button.
@@ -652,7 +815,10 @@ export default function AdminMoneyScreen() {
                       : "Not billed this month"}
                   </Text>
                   <Text variant="caption">
-                    {[humanizeEnum(open.resident.roomType), open.resident.roomNumber]
+                    {[
+                      humanizeEnum(open.resident.roomType),
+                      open.resident.roomNumber,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </Text>
@@ -685,7 +851,9 @@ export default function AdminMoneyScreen() {
                   <Chip
                     icon="call-outline"
                     label={open.resident.phone}
-                    onPress={() => void Linking.openURL(`tel:${open.resident.phone}`)}
+                    onPress={() =>
+                      void Linking.openURL(`tel:${open.resident.phone}`)
+                    }
                     tone="brand"
                   />
                 ) : null}
@@ -709,7 +877,9 @@ export default function AdminMoneyScreen() {
                   <Input
                     keyboardType="number-pad"
                     label="Amount (NPR)"
-                    onChangeText={(amount) => setCash((prev) => ({ ...prev, amount }))}
+                    onChangeText={(amount) =>
+                      setCash((prev) => ({ ...prev, amount }))
+                    }
                     value={cash.amount ?? ""}
                   />
                   <Input
@@ -730,7 +900,9 @@ export default function AdminMoneyScreen() {
                   />
                   <Input
                     label="Note"
-                    onChangeText={(note) => setCash((prev) => ({ ...prev, note }))}
+                    onChangeText={(note) =>
+                      setCash((prev) => ({ ...prev, note }))
+                    }
                     value={cash.note ?? ""}
                   />
                   <Button
@@ -761,8 +933,9 @@ export default function AdminMoneyScreen() {
               </>
             ) : (
               <Text variant="muted">
-                Nothing has been billed to this person for this month, so there is
-                nothing to take cash against. Run billing from the Finance screen.
+                Nothing has been billed to this person for this month, so there
+                is nothing to take cash against. Run billing from the Finance
+                screen.
               </Text>
             )}
           </View>

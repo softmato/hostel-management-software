@@ -32,6 +32,7 @@ import {
   shouldRepost,
   tallyUploads,
   UPLOAD_CHANNEL,
+  UPLOAD_CHANNEL_NAME,
   UPLOAD_NOTIFICATION_ID,
   UPLOAD_NOTIFICATION_TYPE,
   type UploadNotice,
@@ -64,7 +65,7 @@ async function ensureChannel() {
   await Notifications.setNotificationChannelAsync(UPLOAD_CHANNEL, {
     importance: Notifications.AndroidImportance.LOW,
     lightColor: BRAND.primary,
-    name: "Uploads",
+    name: UPLOAD_CHANNEL_NAME,
     showBadge: false,
     sound: null,
     vibrationPattern: null,
@@ -119,6 +120,12 @@ async function apply(notice: UploadNotice | null) {
 
 function onQueueChanged() {
   const previouslyIdle = tally.active === 0;
+  /*
+   * Every row, both directions. `uploadNotice` reads the batch's direction and
+   * picks its verb from it, so a download posts "Downloading statement export"
+   * rather than borrowing the upload wording — which is the only reason this
+   * ever needed filtering.
+   */
   tally = tallyUploads(tally, getUploadRows());
 
   // A new batch is the one moment worth re-reading permission: the user may

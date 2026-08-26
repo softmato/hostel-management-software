@@ -51,19 +51,39 @@ export function Money({
   className = "",
   owed = false,
   size = "inline",
+  tone = "default",
   value,
 }: {
   className?: string;
   /** Colour by whether anything is actually outstanding. */
   owed?: boolean;
   size?: keyof typeof SIZES;
+  /**
+   * Colour by what *kind* of money this is, for a caller that already knows the
+   * direction — the statement's rows are credits by construction, so there is
+   * nothing about the value for `owed` to decide.
+   *
+   * A separate prop rather than a third `owed` state because the two answer
+   * different questions: `owed` reads the *balance* and colours by whether any
+   * of it is left, `tone` states the *direction* and does not look at the value
+   * at all. A caller that sets both has a bug; `owed` wins, because a balance is
+   * the more specific claim.
+   *
+   * Not passed through `className`. Both `text-foreground` and `text-success`
+   * reach the compiled stylesheet, and which one wins is decided by generation
+   * order rather than by where it sat in the string — the trap `<AppBar>`'s
+   * `ink` and `<Card>`'s `padding` both document. One slot, one value.
+   */
+  tone?: "credit" | "default";
   value: number | null | undefined;
 }) {
-  const tone = owed
+  const inkClass = owed
     ? (value ?? 0) > 0
       ? "text-destructive"
       : "text-success"
-    : "text-foreground";
+    : tone === "credit"
+      ? "text-success"
+      : "text-foreground";
 
   const text = formatMoney(value);
 
@@ -75,7 +95,7 @@ export function Money({
   const prefix = text.startsWith("NPR ") ? "NPR" : null;
 
   return (
-    <Text className={`${SIZES[size]} ${tone} ${className}`}>
+    <Text className={`${SIZES[size]} ${inkClass} ${className}`}>
       {prefix ? (
         <>
           {/*

@@ -276,8 +276,7 @@ function ViewerBody({
           is not competing with a close button for attention. */}
       <Animated.View
         className="absolute inset-x-0 top-0 flex-row items-center gap-3 px-4 pb-3"
-        pointerEvents="box-none"
-        style={[{ paddingTop: insets.top + 8 }, chromeStyle]}
+        style={[{ paddingTop: insets.top + 8, pointerEvents: "box-none" }, chromeStyle]}
       >
         <Pressable
           accessibilityLabel="Close"
@@ -316,8 +315,10 @@ function ViewerBody({
       {current?.caption || current?.title ? (
         <Animated.View
           className="absolute inset-x-0 bottom-0 gap-1 px-5 pt-4"
-          pointerEvents="none"
-          style={[{ paddingBottom: insets.bottom + 20 }, chromeStyle]}
+          style={[
+            { paddingBottom: insets.bottom + 20, pointerEvents: "none" },
+            chromeStyle,
+          ]}
         >
           {current.title ? (
             <Text className="text-base font-medium text-white">{current.title}</Text>

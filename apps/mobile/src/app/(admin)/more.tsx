@@ -55,6 +55,17 @@ const MANAGE_ROWS: {
     title: "Finance",
   },
   {
+    /*
+      The tile added to Home's `ServiceGrid` in the same breath — this list and
+      that grid are one map of the product, and letting them diverge means a
+      hostel owner learning two.
+    */
+    href: "/manage/finance/statement",
+    icon: "receipt-outline",
+    subtitle: "Every payment received, day by day, searchable and exportable",
+    title: "Statement",
+  },
+  {
     href: "/(admin)/residents",
     icon: "people-outline",
     subtitle: "Register, move in and out, activation codes, guardians",

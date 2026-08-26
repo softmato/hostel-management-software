@@ -353,8 +353,7 @@ export const MapExplorer = forwardRef<MapHandle, MapExplorerProps>(function MapE
       */}
       <View
         className="absolute bottom-1 left-1 rounded px-1.5 py-0.5"
-        pointerEvents="none"
-        style={{ backgroundColor: `${colors.background}cc` }}
+        style={{ backgroundColor: `cc`, pointerEvents: "none" }}
       >
         <Text className="text-[9px]" variant="caption">
           {mapLayer(layer).attribution}

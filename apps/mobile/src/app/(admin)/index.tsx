@@ -232,7 +232,6 @@ export default function AdminHomeScreen() {
         */}
         <View className="pt-3">
           <QuickActions
-            onMenu={() => router.push("/manage/food")}
             onNewResident={() => router.push("/manage/resident/new")}
             /*
              * The camera, not a search box. Everything about this action happens

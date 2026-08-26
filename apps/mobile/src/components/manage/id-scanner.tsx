@@ -331,8 +331,7 @@ export function IdScanner({
       */}
       <View
         className="absolute inset-x-0 top-0 bg-black/35"
-        pointerEvents="none"
-        style={{ height: insets.top }}
+        style={{ height: insets.top, pointerEvents: "none" }}
       />
     </View>
   );

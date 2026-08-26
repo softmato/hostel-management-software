@@ -166,11 +166,29 @@ export type AdminInquiry = {
   status: string;
 };
 
+/**
+ * The six things the server checks before a claim is worth believing —
+ * `ClaimCheck` in `finance/review.service`.
+ *
+ * **`detail` is the field to render, and it is a whole sentence.** This type
+ * previously said `{ label, ok }`, which is not what crosses the wire: nothing
+ * read it, so a screen printing `check.label` would have rendered `undefined`
+ * under every claim. Screens pair `detail` with their own short word for the
+ * `key` rather than rephrasing it — the server wrote "Claimed 12000 against
+ * 5000 outstanding" carefully, and money evidence is the wrong place to
+ * paraphrase.
+ */
+export type AdminClaimCheck = {
+  detail: string;
+  key: "AMOUNT" | "EVIDENCE" | "INVOICE_OPEN" | "PAYEE" | "REFERENCE" | "SIMILARITY";
+  ok: boolean;
+};
+
 export type AdminClaim = {
   /** Every server-side check, green or not — the same rule `Approve all` uses. */
   allGreen: boolean;
   amount: number;
-  checks: { label: string; ok: boolean }[];
+  checks: AdminClaimCheck[];
   confirmation: string;
   eventId: string;
   evidenceAssetId: string | null;
@@ -388,6 +406,81 @@ export async function getAdminInvoices(period?: string) {
   const response = await api.get<ApiEnvelope<AdminInvoiceMatrix>>(
     "/hostel-admin/finance/invoices",
     { params: period ? { period } : {} },
+  );
+
+  return unwrap(response);
+}
+
+/**
+ * One invoice on the hostel's lifetime ledger — `HostelLedgerEntry`.
+ *
+ * A superset of {@link AdminInvoiceRow}'s `payment`, and the fields it adds are
+ * why the statement screen reads this route rather than the matrix:
+ * `residentName` (the matrix carries a whole `resident` object; this one is
+ * flattened), `paymentMethod`, `remarks` and `createdAt`.
+ *
+ * `month` is `null` for a one-off that belongs to no period — an admission fee
+ * is the common one, and it appears in **no** month of the matrix at all. That
+ * is the whole reason this route exists; see `getHostelLedger` on the server.
+ *
+ * `method` and `paymentMethod` are the same string twice: the serializer spreads
+ * `toPortalInvoice` (which names it `method`) and then adds `paymentMethod`
+ * beside it. Read either — this type says so rather than letting a caller
+ * discover it.
+ *
+ * `paymentMethod` is a **provider word run through a lookup**, so it is
+ * `undefined` — not `"OTHER"` — for a settlement whose provider is unmapped or
+ * absent. `lib/hostel-statement.ts` is what normalises that.
+ */
+export type AdminLedgerEntry = {
+  /** ISO. When the invoice was raised, not when it was paid. */
+  createdAt?: string;
+  dueAmount: number;
+  dueDate?: string;
+  id: string;
+  method?: string;
+  /** `2026-08`, or `null` for a one-off. */
+  month: string | null;
+  paidAmount: number;
+  /** ISO. Absent on an invoice nothing has been paid against. */
+  paidDate?: string;
+  paymentMethod?: string;
+  remarks?: string;
+  residentId: string;
+  /** Empty string when the resident record could not be resolved. */
+  residentName: string;
+  status: string;
+};
+
+export type AdminLedger = {
+  entries: AdminLedgerEntry[];
+  /**
+   * The server capped the read at 5000 rows and dropped older ones. Anything
+   * cumulative computed over these entries is therefore incomplete — see the
+   * running total in `lib/hostel-statement.ts`, which refuses to guess.
+   */
+  truncated: boolean;
+};
+
+/**
+ * `GET /hostel-admin/finance/invoices/ledger` — every invoice this hostel has
+ * ever raised, newest first.
+ *
+ * Not `getAdminInvoices`. That one is the **month matrix**: one row per resident
+ * for one period, which answers "who has not paid this month". This answers
+ * "what has this hostel ever taken", which is a different question and the only
+ * one a statement can be built from — a matrix has no row for an admission fee,
+ * because an admission fee has no month.
+ *
+ * Needs `viewPayments`, so a warden without the grant gets a 403 carrying the
+ * server's own wording. The statement screen renders that rather than swallowing
+ * it into an empty list, which is the mistake `PermissionCard` exists to stop.
+ *
+ * **Reads never bill.** Same rule as the matrix, so this is safe on focus.
+ */
+export async function getAdminLedger() {
+  const response = await api.get<ApiEnvelope<AdminLedger>>(
+    "/hostel-admin/finance/invoices/ledger",
   );
 
   return unwrap(response);

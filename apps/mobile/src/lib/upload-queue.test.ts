@@ -8,6 +8,7 @@ import {
   isUploadActive,
   pruneUploads,
   resetUploadQueue,
+  startDownload,
   startUpload,
   SUCCESS_LINGER_MS,
   subscribeToUploads,
@@ -20,6 +21,7 @@ import {
 
 function row(overrides: Partial<UploadRow> = {}): UploadRow {
   return {
+    direction: "upload",
     endedAt: null,
     error: null,
     fraction: 0,
@@ -52,6 +54,56 @@ describe("uploadRowMessage", () => {
       "Storage refused it.",
     );
     expect(uploadRowMessage(row({ stage: "failed" }))).toBe("Upload failed.");
+  });
+});
+
+describe("uploadRowMessage, going the other way", () => {
+  function down(overrides: Partial<UploadRow> = {}) {
+    return row({ direction: "download", ...overrides });
+  }
+
+  it("says download wherever upload would have been said", () => {
+    expect(uploadRowMessage(down({ fraction: 0.45, stage: "uploading" }))).toBe(
+      "Downloading 45%",
+    );
+    expect(uploadRowMessage(down({ fraction: null, stage: "uploading" }))).toBe(
+      "Downloading…",
+    );
+    expect(uploadRowMessage(down({ stage: "succeeded" }))).toBe("Saved to your device");
+    expect(uploadRowMessage(down({ stage: "failed" }))).toBe("Download failed.");
+  });
+
+  it("names the settling stage after the work that is actually happening", () => {
+    expect(uploadRowMessage(down({ stage: "verifying" }))).toBe("Saving…");
+    expect(uploadRowMessage(row({ stage: "verifying" }))).toBe("Checking the file…");
+  });
+
+  it("shares the stage that means the same thing in both directions", () => {
+    expect(uploadRowMessage(down({ stage: "presigning" }))).toBe("Preparing…");
+  });
+
+  it("prefers a real error message to either default", () => {
+    expect(uploadRowMessage(down({ error: "No room left.", stage: "failed" }))).toBe(
+      "No room left.",
+    );
+  });
+});
+
+describe("startDownload", () => {
+  it("registers in the same queue, marked as going the other way", () => {
+    const id = startDownload("Statement export", 10);
+    const [only] = getUploadRows();
+
+    expect(only.id).toBe(id);
+    expect(only.direction).toBe("download");
+    expect(only.stage).toBe("presigning");
+    expect(isUploadActive(only.stage)).toBe(true);
+  });
+
+  it("leaves startUpload saying upload", () => {
+    startUpload("Payment proof", 10);
+
+    expect(getUploadRows()[0].direction).toBe("upload");
   });
 });
 

@@ -361,7 +361,10 @@ function Scanner({
       {/* The aiming square. Purely a guide — the scanner reads the whole frame,
           and a viewfinder people believe is a hard boundary makes them fight to
           fit the code inside it. */}
-      <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+      <View
+        className="absolute inset-0 items-center justify-center"
+        style={{ pointerEvents: "none" }}
+      >
         <View className="h-40 w-40 rounded-2xl border-2 border-white/80" />
       </View>
 

@@ -39,6 +39,41 @@ type AppBarProps = {
   showBack?: boolean;
   subtitle?: string;
   title: string;
+  /**
+   * Size the title as a **page** heading rather than as bar chrome.
+   *
+   * `subtitle` (16pt medium) is the default and is right for a pushed screen,
+   * where the title is a label on a strip you are passing through. A tab is not
+   * that: it is a destination, and the two tabs that lead with their own header
+   * component — Residents and Home, via `AdminSearchBar` and `AdminHomeHeader` —
+   * already set their name in `variant="title"`. A tab drawn with a plain
+   * `AppBar` was the odd one out at 16 points beside them.
+   *
+   * Only ever `title`, never `display`: 30-point type in a bar that also has to
+   * hold a bell would wrap on the first long hostel name.
+   */
+  large?: boolean;
+  /**
+   * Extra painted height below the bar's content, in points, for a card that is
+   * going to be pulled up onto it.
+   *
+   * NOTES §1 — "accent headers are painted blocks with rounded bottom corners,
+   * **often with something straddling the bottom edge**" — is a house pattern,
+   * and until this prop the component that owns the painted block could not
+   * support it. The bar's content row leaves 8dp under itself; a card pulled up
+   * by anything more than that lands on the *title*, which is what the first
+   * cut of the statement screen did on a device: the back arrow, the name and
+   * both actions were behind the card.
+   *
+   * So the caller asks for the room it is about to occupy, and the bar paints
+   * it. `<AppBar accent straddle={26}/>` with a card at `marginTop: -26` puts
+   * the card exactly where the bar used to end, with the whole title row clear
+   * above it.
+   *
+   * Only meaningful with `accent`: an unpainted bar has no paint for anything
+   * to sit on, and the reserved strip would just be page-coloured emptiness.
+   */
+  straddle?: number;
 };
 
 /**
@@ -82,8 +117,10 @@ export function AppBar({
   actions,
   accent = false,
   centerTitle = false,
+  large = false,
   onBack,
   showBack = false,
+  straddle = 0,
   subtitle,
   title,
 }: AppBarProps) {
@@ -136,7 +173,7 @@ export function AppBar({
         className={centerTitle ? "text-center" : ""}
         numberOfLines={1}
         style={{ color: ink }}
-        variant="subtitle"
+        variant={large ? "title" : "subtitle"}
       >
         {title}
       </Text>
@@ -172,6 +209,12 @@ export function AppBar({
     backgroundColor: background,
     borderBottomLeftRadius: accent ? HEADER_RADIUS : 0,
     borderBottomRightRadius: accent ? HEADER_RADIUS : 0,
+    /*
+     * The room a straddling card is about to take, painted rather than left to
+     * the page. Ignored without `accent`, because there is no paint to reserve —
+     * see the prop's own note.
+     */
+    paddingBottom: accent ? straddle : 0,
     paddingTop: insets.top,
   };
 

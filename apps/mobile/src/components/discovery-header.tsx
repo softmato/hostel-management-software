@@ -412,9 +412,14 @@ function MapButton() {
       style={{ height: MAP_BUTTON, overflow: "hidden", width: MAP_BUTTON }}
     >
       <Animated.View
-        pointerEvents="none"
         style={[
-          { bottom: 0, position: "absolute", top: 0, width: BAND_WIDTH },
+          {
+            bottom: 0,
+            pointerEvents: "none",
+            position: "absolute",
+            top: 0,
+            width: BAND_WIDTH,
+          },
           band,
         ]}
       >

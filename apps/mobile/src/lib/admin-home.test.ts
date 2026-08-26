@@ -13,6 +13,10 @@ import {
   monthShortLabel,
   nightChips,
   occupancyLine,
+  trendAxis,
+  trendPoints,
+  trendSegments,
+  trendTickLabel,
 } from "@/lib/admin-home";
 
 function period(
@@ -114,6 +118,137 @@ describe("earningsTrend", () => {
 
   it("copes with fewer months than the window asks for", () => {
     expect(earningsTrend([period("2026-08", 5000)], 6)).toHaveLength(1);
+  });
+});
+
+describe("trendAxis", () => {
+  const window = (...collected: number[]) =>
+    earningsTrend(
+      collected.map((amount, index) => period(`2026-0${index + 1}`, amount)),
+      collected.length,
+    );
+
+  it("rounds the ceiling up to a round step above the peak", () => {
+    // 74,300 / 4 slices = 18,575 a slice, which rounds up to 20,000.
+    expect(trendAxis(window(74300, 10000)).ceiling).toBe(80000);
+  });
+
+  it("labels the ticks top-first, so gridlines draw in order", () => {
+    expect(trendAxis(window(74300, 10000)).ticks).toEqual([
+      80000, 60000, 40000, 20000, 0,
+    ]);
+  });
+
+  it("keeps the peak strictly inside the plot", () => {
+    for (const peak of [1, 999, 45000, 123456, 4_000_000]) {
+      expect(trendAxis(window(peak)).ceiling).toBeGreaterThanOrEqual(peak);
+    }
+  });
+
+  it("gives a window that collected nothing a flat zero axis, not NaN", () => {
+    expect(trendAxis(window(0, 0))).toEqual({
+      ceiling: 0,
+      ticks: [0, 0, 0, 0, 0],
+    });
+  });
+});
+
+describe("trendPoints", () => {
+  const bars = earningsTrend(
+    [
+      period("2026-04", 100),
+      period("2026-03", 50),
+      period("2026-02", 0),
+      period("2026-01", 100),
+    ],
+    4,
+  );
+
+  it("spaces the months at the centres of equal columns", () => {
+    // Four months across 400 points: half a column in, then one column apart.
+    expect(trendPoints(bars, 100, 400, 100).map((point) => point.x)).toEqual([
+      50, 150, 250, 350,
+    ]);
+  });
+
+  it("measures height downwards, so the biggest month has the smallest y", () => {
+    // Jan and Apr are the peak, Feb is zero, Mar is half.
+    expect(trendPoints(bars, 100, 400, 100).map((point) => point.y)).toEqual([
+      0, 100, 50, 0,
+    ]);
+  });
+
+  it("puts every month on the baseline when nothing was collected", () => {
+    const flat = earningsTrend([period("2026-02", 0), period("2026-01", 0)], 2);
+
+    expect(trendPoints(flat, 0, 400, 100).map((point) => point.y)).toEqual([
+      100, 100,
+    ]);
+  });
+});
+
+describe("trendSegments", () => {
+  it("joins the points, one segment per gap", () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 30, y: 40 },
+      { x: 60, y: 40 },
+    ];
+
+    expect(trendSegments(points, 2).map((segment) => segment.width)).toEqual([
+      50, 30,
+    ]);
+  });
+
+  it("places each segment by its centre, which is what a rotate turns about", () => {
+    // A 3-4-5 triangle: the segment is 50 long, its midpoint is (15, 20), so
+    // its box starts 25 left of that and half its thickness above it.
+    const [segment] = trendSegments(
+      [
+        { x: 0, y: 0 },
+        { x: 30, y: 40 },
+      ],
+      2,
+    );
+
+    expect(segment.left).toBe(-10);
+    expect(segment.top).toBe(19);
+  });
+
+  it("angles a rising month upwards and a falling one down", () => {
+    const [up, down] = trendSegments(
+      [
+        { x: 0, y: 20 },
+        { x: 10, y: 10 },
+        { x: 20, y: 20 },
+      ],
+      2,
+    );
+
+    // y grows downwards, so a month that collected more is a negative angle.
+    expect(up.angle).toBeLessThan(0);
+    expect(down.angle).toBeGreaterThan(0);
+  });
+
+  it("has nothing to draw for a single month", () => {
+    expect(trendSegments([{ x: 5, y: 5 }], 2)).toEqual([]);
+  });
+});
+
+describe("trendTickLabel", () => {
+  it("leaves figures under a thousand alone", () => {
+    expect(trendTickLabel(0)).toBe("0");
+    expect(trendTickLabel(750)).toBe("750");
+  });
+
+  it("shortens thousands and millions", () => {
+    expect(trendTickLabel(20000)).toBe("20k");
+    expect(trendTickLabel(250000)).toBe("250k");
+    expect(trendTickLabel(1_200_000)).toBe("1.2m");
+  });
+
+  it("drops a decimal that is zero", () => {
+    expect(trendTickLabel(2_000_000)).toBe("2m");
   });
 });
 

@@ -1,6 +1,18 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ["./src/**/*.{js,jsx,ts,tsx}"],
+  /*
+   * Class, not media.
+   *
+   * The app owns the theme: `useAppTheme` pushes the user's stored preference
+   * into NativeWind on every render. NativeWind refuses that push while dark
+   * mode is `media` ("Unable to manually set color scheme without using
+   * darkMode: class"), which on web threw out of the effect and took the whole
+   * tree down with it. Class also means the browser stops deciding: with
+   * `media`, an OS-dark phone got the dark `:root` variables even when the user
+   * had chosen Light, so the JS palette and the CSS one disagreed.
+   */
+  darkMode: "class",
   presets: [require("nativewind/preset")],
   theme: {
     extend: {

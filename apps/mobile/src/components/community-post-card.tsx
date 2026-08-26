@@ -477,7 +477,7 @@ function MediaGrid({ media }: { media: CommunityMedia[] }) {
             {isVideo ? (
               <View
                 className="absolute inset-0 items-center justify-center"
-                pointerEvents="none"
+                style={{ pointerEvents: "none" }}
               >
                 <View
                   className="h-12 w-12 items-center justify-center rounded-full"

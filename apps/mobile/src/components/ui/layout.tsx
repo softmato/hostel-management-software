@@ -85,16 +85,39 @@ export function Grid({
 }
 
 const TILE_TONES = {
-  brand: { badge: "bg-primary", icon: "text-primary", surface: "bg-brand-soft" },
-  danger: { badge: "bg-destructive", icon: "text-destructive", surface: "bg-destructive-soft" },
-  neutral: { badge: "bg-muted-foreground", icon: "text-muted-foreground", surface: "bg-muted" },
-  success: { badge: "bg-success", icon: "text-success", surface: "bg-success-soft" },
-  warning: { badge: "bg-warning", icon: "text-warning", surface: "bg-warning-soft" },
+  brand: {
+    badge: "bg-primary",
+    icon: "text-primary",
+    surface: "bg-brand-soft",
+  },
+  danger: {
+    badge: "bg-destructive",
+    icon: "text-destructive",
+    surface: "bg-destructive-soft",
+  },
+  neutral: {
+    badge: "bg-muted-foreground",
+    icon: "text-muted-foreground",
+    surface: "bg-muted",
+  },
+  success: {
+    badge: "bg-success",
+    icon: "text-success",
+    surface: "bg-success-soft",
+  },
+  warning: {
+    badge: "bg-warning",
+    icon: "text-warning",
+    surface: "bg-warning-soft",
+  },
 } as const;
 
 export type TileTone = keyof typeof TILE_TONES;
 
-const TONE_COLOR: Record<TileTone, "destructive" | "mutedForeground" | "primary" | "success" | "warning"> = {
+const TONE_COLOR: Record<
+  TileTone,
+  "destructive" | "mutedForeground" | "primary" | "success" | "warning"
+> = {
   brand: "primary",
   danger: "destructive",
   neutral: "mutedForeground",
@@ -157,7 +180,9 @@ export function InfoTile({
         The tile keeps the parts the shortcut row does not have: the border and
         card fill that make it an enclosed cell, and the corner count.
       */}
-      <View className={`h-12 w-12 items-center justify-center rounded-2xl ${palette.surface}`}>
+      <View
+        className={`h-12 w-12 items-center justify-center rounded-2xl ${palette.surface}`}
+      >
         <Ionicons color={colors[TONE_COLOR[tone]]} name={icon} size={21} />
       </View>
 
@@ -169,7 +194,9 @@ export function InfoTile({
           {label}
         </Text>
         {caption ? (
-          <Text className="text-center text-[11px] text-muted-foreground">{caption}</Text>
+          <Text className="text-center text-[11px] text-muted-foreground">
+            {caption}
+          </Text>
         ) : null}
       </View>
 
@@ -197,11 +224,13 @@ export function InfoTile({
 
   return (
     <Pressable
-      accessibilityLabel={
-        [label, caption, badge === undefined ? null : `${badge} waiting`]
-          .filter(Boolean)
-          .join(", ")
-      }
+      accessibilityLabel={[
+        label,
+        caption,
+        badge === undefined ? null : `${badge} waiting`,
+      ]
+        .filter(Boolean)
+        .join(", ")}
       accessibilityRole="button"
       className="flex-1 active:opacity-70"
       onPress={() => {
@@ -242,18 +271,37 @@ export function StatTile({
   const palette = TILE_TONES[tone];
 
   const body = (
-    <View className="flex-1 gap-2 rounded-2xl border border-border bg-card p-3">
+    <View className="flex-1 gap-1 rounded-2xl border border-border bg-card p-3">
+      {/*
+        The value shares the top row with the icon; the name gets a line of its
+        own underneath.
+
+        Three of these fit across a 360dp phone, which leaves each tile about
+        77dp of content — not enough for a name and an icon side by side. A
+        two-word label wrapped to two lines and pushed the icon out through the
+        card's right edge, and the wrap is what made the row so tall. A number
+        is short and an icon is a fixed 24dp, so they share happily, and the
+        name gets the full width. The value stays the largest thing here.
+      */}
       <View className="flex-row items-center justify-between gap-2">
-        <Text className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
+        <Text
+          className="shrink text-lg font-semibold tracking-tight text-foreground"
+          numberOfLines={1}
+        >
+          {value}
         </Text>
-        <View className={`h-7 w-7 items-center justify-center rounded-lg ${palette.surface}`}>
-          <Ionicons color={colors[TONE_COLOR[tone]]} name={icon} size={14} />
+        <View
+          className={`h-6 w-6 shrink-0 items-center justify-center rounded-lg ${palette.surface}`}
+        >
+          <Ionicons color={colors[TONE_COLOR[tone]]} name={icon} size={13} />
         </View>
       </View>
 
-      <Text className="text-lg font-semibold tracking-tight text-foreground" numberOfLines={1}>
-        {value}
+      <Text
+        className="text-[11px] font-medium text-muted-foreground"
+        numberOfLines={1}
+      >
+        {label}
       </Text>
 
       {trend ? (
@@ -309,7 +357,11 @@ export function Chip({
       }`}
     >
       {icon ? (
-        <Ionicons color={brand ? colors.primary : colors.mutedForeground} name={icon} size={13} />
+        <Ionicons
+          color={brand ? colors.primary : colors.mutedForeground}
+          name={icon}
+          size={13}
+        />
       ) : null}
       <Text
         className={`shrink text-xs font-semibold ${brand ? "text-primary" : "text-foreground"}`}
@@ -344,19 +396,15 @@ export function Chip({
  * full name does not fit in it. `<ListRow>` is the pressable, icon-led sibling;
  * this one is for dense read-only facts.
  */
-export function FactRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+export function FactRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <View className="flex-row items-start justify-between gap-4 py-2.5">
       <Text className="shrink-0 text-sm text-muted-foreground">{label}</Text>
       <View className="flex-1 items-end">
         {typeof value === "string" ? (
-          <Text className="text-right text-sm font-medium text-foreground">{value}</Text>
+          <Text className="text-right text-sm font-medium text-foreground">
+            {value}
+          </Text>
         ) : (
           value
         )}

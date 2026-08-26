@@ -26,9 +26,9 @@ import {
 } from "@/lib/admin-manage-api";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
-import { downloadAndShareCsv } from "@/lib/documents";
+import { downloadToDevice } from "@/lib/documents";
 import { formatDate, formatMoney, formatPeriod, humanizeEnum } from "@/lib/format";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { toastError } from "@/lib/toast";
 
 /**
  * Reports — the whole portal page, minus its tables.
@@ -185,11 +185,20 @@ export default function ManageReportsScreen() {
     setExporting(report);
 
     try {
-      await downloadAndShareCsv({
+      /*
+       * A download, not a share. These four are spreadsheets an owner keeps and
+       * hands to an accountant, and being asked "share to…" after pressing
+       * Export re-opens a decision they already made. `downloadToDevice` reports
+       * into the global toaster and the notification shade on its own, so
+       * `exporting` is now only here to stop a second tap.
+       */
+      await downloadToDevice({
+        extension: "csv",
         fileName: `${report}-report`,
+        label: `${humanizeEnum(report)} report`,
+        mimeType: "text/csv",
         url: `${API_BASE_URL}/api/v1/hostel-admin/reports/export?report=${report}`,
       });
-      toastSuccess("Exported", "Pick where it should go from the share sheet.");
     } catch (error) {
       toastError("Could not export", readApiError(error, "The export did not download."));
     } finally {

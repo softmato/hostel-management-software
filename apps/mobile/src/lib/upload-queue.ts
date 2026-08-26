@@ -31,7 +31,23 @@ export type UploadStage =
   | "uploading"
   | "verifying";
 
+/**
+ * Which way the bytes are going.
+ *
+ * The queue was built for uploads and the stage names still say so, because
+ * that is what almost every transfer in this app is. A download borrows the
+ * same five stages rather than getting its own set — the shape of the work is
+ * identical (prepare, move bytes, settle, done or failed) and only the *words*
+ * differ, which is exactly what `uploadRowMessage` is for.
+ *
+ * Required rather than defaulted, so every construction site says which it is.
+ * A row that silently claimed to be an upload would report "Uploading 45%" over
+ * a download, which is the one failure this field exists to prevent.
+ */
+export type TransferDirection = "download" | "upload";
+
 export type UploadRow = {
+  direction: TransferDirection;
   /** Wall-clock ms when the transfer finished, succeeded or not. */
   endedAt: number | null;
   error: string | null;
@@ -87,19 +103,31 @@ export function pruneUploads(rows: readonly UploadRow[], now: number): UploadRow
  * did not ask for and would otherwise read as a stall at 100%.
  */
 export function uploadRowMessage(row: UploadRow): string {
+  const down = row.direction === "download";
+
   switch (row.stage) {
     case "failed":
-      return row.error ?? "Upload failed.";
+      return row.error ?? (down ? "Download failed." : "Upload failed.");
     case "presigning":
       return "Preparing…";
     case "succeeded":
-      return "Uploaded";
+      return down ? "Saved to your device" : "Uploaded";
     case "verifying":
-      return "Checking the file…";
+      /*
+       * The same stage, two different waits. On an upload this is a server
+       * round trip checking the file; on a download the bytes are already here
+       * and what is left is writing them where the user asked — which on
+       * Android is a folder write that can visibly take a moment on a large
+       * export. Naming it "Checking the file…" would describe work that is not
+       * happening.
+       */
+      return down ? "Saving…" : "Checking the file…";
     case "uploading":
-      return row.fraction === null
-        ? "Uploading…"
-        : `Uploading ${Math.round(row.fraction * 100)}%`;
+      if (row.fraction === null) {
+        return down ? "Downloading…" : "Uploading…";
+      }
+
+      return `${down ? "Downloading" : "Uploading"} ${Math.round(row.fraction * 100)}%`;
   }
 }
 
@@ -159,13 +187,18 @@ export function getUploadRows(): readonly UploadRow[] {
   return rows;
 }
 
-export function startUpload(label: string, now: number = Date.now()): string {
+function startTransfer(
+  label: string,
+  direction: TransferDirection,
+  now: number,
+): string {
   sequence += 1;
   const id = `upload-${sequence}`;
 
   emit([
     ...rows,
     {
+      direction,
       endedAt: null,
       error: null,
       fraction: 0,
@@ -177,6 +210,24 @@ export function startUpload(label: string, now: number = Date.now()): string {
   ]);
 
   return id;
+}
+
+export function startUpload(label: string, now: number = Date.now()): string {
+  return startTransfer(label, "upload", now);
+}
+
+/**
+ * The same row, going the other way — a receipt PDF or a CSV export on its way
+ * to the phone.
+ *
+ * Registered in this queue rather than given its own progress UI for the reason
+ * the queue exists at all: one always-mounted toaster reports every transfer in
+ * the app, so a call site never builds its own bar. The id prefix stays
+ * `upload-` deliberately — it is a sequence number, not a claim about direction,
+ * and changing it would be a change to strings other code compares.
+ */
+export function startDownload(label: string, now: number = Date.now()): string {
+  return startTransfer(label, "download", now);
 }
 
 export function updateUpload(

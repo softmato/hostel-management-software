@@ -9,7 +9,7 @@ import {
   uploadNotice,
   type UploadTally,
 } from "@/lib/upload-notification";
-import type { UploadRow, UploadStage } from "@/lib/upload-queue";
+import type { TransferDirection, UploadRow, UploadStage } from "@/lib/upload-queue";
 
 /**
  * The two failures worth pinning:
@@ -24,9 +24,15 @@ import type { UploadRow, UploadStage } from "@/lib/upload-queue";
 function row(
   id: string,
   stage: UploadStage,
-  extra: { error?: string; fraction?: number | null; label?: string } = {},
+  extra: {
+    direction?: TransferDirection;
+    error?: string;
+    fraction?: number | null;
+    label?: string;
+  } = {},
 ): UploadRow {
   return {
+    direction: extra.direction ?? "upload",
     endedAt: stage === "failed" || stage === "succeeded" ? 1_000 : null,
     error: extra.error ?? null,
     fraction: extra.fraction ?? null,
@@ -210,6 +216,86 @@ describe("uploadNotice", () => {
 
       expect(notice?.ongoing).toBe(false);
     }
+  });
+});
+
+describe("uploadNotice, going the other way", () => {
+  function down(id: string, stage: UploadStage, extra: { fraction?: number; label?: string } = {}) {
+    return row(id, stage, { direction: "download", ...extra });
+  }
+
+  it("names the batch after the direction its rows are actually going", () => {
+    const notice = uploadNotice(
+      tallyUploads(EMPTY_TALLY, [
+        down("a", "uploading", { fraction: 0.4, label: "Statement export" }),
+      ]),
+    );
+
+    expect(notice?.title).toBe("Downloading statement export");
+    expect(notice?.body).toBe("40%");
+  });
+
+  it("calls the settling stage saving, not checking", () => {
+    expect(uploadNotice(tallyUploads(EMPTY_TALLY, [down("a", "verifying")]))?.body).toBe(
+      "Saving…",
+    );
+  });
+
+  it("reports the terminal state in the past tense of the same verb", () => {
+    const finished = uploadNotice(
+      tallyUploads(tallyUploads(EMPTY_TALLY, [down("a", "uploading", { label: "Report" })]), [
+        down("a", "succeeded", { label: "Report" }),
+      ]),
+    );
+
+    expect(finished?.title).toBe("Report downloaded");
+    expect(finished?.body).toBe("Finished downloading.");
+  });
+
+  it("says did not download when one fails", () => {
+    const failed = uploadNotice(
+      tallyUploads(tallyUploads(EMPTY_TALLY, [down("a", "uploading", { label: "Report" })]), [
+        down("a", "failed", { label: "Report" }),
+      ]),
+    );
+
+    expect(failed?.title).toBe("Report did not download");
+  });
+
+  it("keeps the direction after the last active row has gone", () => {
+    /*
+     * The terminal notice is built from the tally, not from rows that no longer
+     * exist — so the batch has to remember which way it was going or it would
+     * report a finished download in the neutral wording.
+     */
+    const tally = tallyUploads(
+      tallyUploads(EMPTY_TALLY, [down("a", "uploading")]),
+      [down("a", "succeeded")],
+    );
+
+    expect(tally.direction).toBe("download");
+  });
+
+  it("goes neutral rather than picking a side on a mixed batch", () => {
+    const notice = uploadNotice(
+      tallyUploads(EMPTY_TALLY, [
+        row("a", "uploading", { fraction: 0.5 }),
+        down("b", "uploading", { fraction: 0.5 }),
+      ]),
+    );
+
+    expect(notice?.title).toBe("Transferring 2 files");
+  });
+
+  it("leaves the upload wording exactly as it was", () => {
+    const notice = uploadNotice(
+      tallyUploads(EMPTY_TALLY, [row("a", "uploading", { fraction: 0.4 })]),
+    );
+
+    expect(notice?.title).toBe("Uploading payment proof");
+    expect(uploadNotice(tallyUploads(EMPTY_TALLY, [row("a", "verifying")]))?.body).toBe(
+      "Checking the file…",
+    );
   });
 });
 

@@ -56,8 +56,10 @@ export function SosFab() {
     <>
       <Animated.View
         className="absolute right-5"
-        pointerEvents="box-none"
-        style={[{ bottom: TAB_BAR_HEIGHT + insets.bottom + 16 }, fabStyle]}
+        style={[
+          { bottom: TAB_BAR_HEIGHT + insets.bottom + 16, pointerEvents: "box-none" },
+          fabStyle,
+        ]}
       >
         <Pressable
           accessibilityHint="Opens emergency options. Press and hold to send an alert straight away."

@@ -98,7 +98,10 @@ export function formatAmount(value: number | null | undefined): string {
   const rounded = Math.round(absolute * 100) / 100;
   const whole = Math.floor(rounded);
   const paisa = Math.round((rounded - whole) * 100);
-  const body = paisa === 0 ? group(String(whole)) : `${group(String(whole))}.${String(paisa).padStart(2, "0")}`;
+  const body =
+    paisa === 0
+      ? group(String(whole))
+      : `${group(String(whole))}.${String(paisa).padStart(2, "0")}`;
 
   return negative ? `-${body}` : body;
 }
@@ -179,6 +182,21 @@ export function nepalDayKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * The month an instant belongs to, in Nepal time — `2026-08`.
+ *
+ * The invoice period format, and the same offset as `nepalDayKey` rather than a
+ * second copy of it. A phone left on UTC is an hour and a quarter behind
+ * Kathmandu at worst, which matters for exactly two hours of the month — the
+ * two where it would put an owner on the wrong month's chip on the first of the
+ * month, the busiest rent day there is.
+ */
+export function nepalPeriodKey(date: Date = new Date()): string {
+  const { month, year } = nepalParts(date);
+
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
 /** `16 Aug 2026`. */
 export function formatDate(value: Date | string | null | undefined): string {
   const date = parseDate(value);
@@ -248,7 +266,9 @@ export function formatDateBs(value: Date | string | null | undefined): string {
  * one the bank and the phone agree on. Falls back to the Gregorian date alone
  * when the conversion is unavailable, never to a doubled or a wrong one.
  */
-export function formatDateBoth(value: Date | string | null | undefined): string {
+export function formatDateBoth(
+  value: Date | string | null | undefined,
+): string {
   const date = parseDate(value);
 
   if (!date) {
@@ -277,7 +297,9 @@ export function formatTime(value: Date | string | null | undefined): string {
 }
 
 /** `16 Aug 2026, 2:45 pm`. */
-export function formatDateTime(value: Date | string | null | undefined): string {
+export function formatDateTime(
+  value: Date | string | null | undefined,
+): string {
   const date = parseDate(value);
 
   return date ? `${formatDate(date)}, ${formatTime(date)}` : "—";
@@ -335,6 +357,132 @@ export function formatPeriod(period: string | null | undefined): string {
 }
 
 /**
+ * A period in Bikram Sambat — `Shrawan–Bhadra 2083`.
+ *
+ * ## A Gregorian month is not a Nepali month, and this says so
+ *
+ * The two calendars do not line up: BS months begin somewhere around the middle
+ * of an AD one, so `2026-08` runs from the back half of Shrawan into the front
+ * half of Bhadra. Naming it after either one alone would be wrong for roughly
+ * half the days in it — and wrong in the direction that matters, because the
+ * hostel's books are kept in BS and somebody reading "Bhadra" over a table of
+ * August invoices will reconcile it against the wrong month's ledger.
+ *
+ * So it names both ends when there are two, and one when the period genuinely
+ * sits inside a single BS month. The years collapse the same way: `Chaitra
+ * 2082–Baisakh 2083` when the New Year falls inside the period, one year
+ * otherwise.
+ *
+ * Returns `""` rather than a guess when the conversion table does not reach the
+ * period — the caller drops the BS half of the label instead of printing a date
+ * that is confidently wrong. Same rule as `formatDateBs`.
+ */
+export function formatPeriodBs(period: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(period?.trim() ?? "");
+
+  if (!match) {
+    return "";
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+
+  if (monthIndex < 0 || monthIndex > 11) {
+    return "";
+  }
+
+  try {
+    // Noon, like `formatDateBs`, so no timezone shift on the device can move
+    // either end across a day boundary. Day 0 of the next month is the last day
+    // of this one, whatever its length.
+    const first = new NepaliDate(new Date(Date.UTC(year, monthIndex, 1, 12)));
+    const last = new NepaliDate(
+      new Date(Date.UTC(year, monthIndex + 1, 0, 12)),
+    );
+
+    const fromMonth = first.format("MMMM");
+    const toMonth = last.format("MMMM");
+    const fromYear = first.format("YYYY");
+    const toYear = last.format("YYYY");
+
+    if (fromMonth === toMonth && fromYear === toYear) {
+      return `${fromMonth} ${fromYear}`;
+    }
+
+    return fromYear === toYear
+      ? `${fromMonth}–${toMonth} ${toYear}`
+      : `${fromMonth} ${fromYear}–${toMonth} ${toYear}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Both calendars for a period — `August 2026 · Shrawan–Bhadra 2083`.
+ *
+ * The month-picker counterpart of `formatDateBoth`, and AD-first for the
+ * opposite reason that one is BS-first: this label sits under a strip of
+ * Gregorian month chips, so the calendar the reader just tapped leads.
+ */
+export function formatPeriodBoth(period: string | null | undefined): string {
+  const ad = formatPeriod(period);
+  const bs = formatPeriodBs(period);
+
+  return bs ? `${ad} · ${bs}` : ad;
+}
+
+/**
+ * How long ago, in the coarsest unit that is still true — `2 hrs ago`.
+ *
+ * For a queue of payment claims rather than for a date column. "Today" is the
+ * honest answer to *when* a claim arrived and a useless answer to *how long a
+ * resident has been waiting for their money*, which is the only reason this
+ * queue is sorted the way it is. Hours are the resolution that question is
+ * asked at.
+ *
+ * Falls back to `formatDate` past a week: "23 days ago" is arithmetic the reader
+ * has to undo to get to a date, and by then the date is what they want.
+ */
+export function formatAgo(
+  value: Date | string | null | undefined,
+  now: Date = new Date(),
+): string {
+  const date = parseDate(value);
+
+  if (!date) {
+    return "—";
+  }
+
+  const seconds = Math.round((now.getTime() - date.getTime()) / 1000);
+
+  // A clock skewed a few minutes into the future is common and "in 2 minutes"
+  // on a claim that has already been submitted reads as a bug.
+  if (seconds < 60) {
+    return "just now";
+  }
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return minutes === 1 ? "1 min ago" : `${minutes} mins ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return hours === 1 ? "1 hr ago" : `${hours} hrs ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+
+  if (days <= 7) {
+    return days === 1 ? "1 day ago" : `${days} days ago`;
+  }
+
+  return formatDate(date);
+}
+
+/**
  * Days until a due date, in Nepal days — negative once it is overdue.
  *
  * Compared as whole days rather than as instants, so an invoice due "today"
@@ -356,7 +504,9 @@ export function daysUntil(
     return Date.UTC(year, month, day);
   };
 
-  return Math.round((startOfNepalDay(date) - startOfNepalDay(now)) / 86_400_000);
+  return Math.round(
+    (startOfNepalDay(date) - startOfNepalDay(now)) / 86_400_000,
+  );
 }
 
 /** `Due in 3 days` / `Due today` / `4 days overdue`. */
@@ -406,7 +556,11 @@ export function humanizeEnum(value: string | null | undefined): string {
     return "—";
   }
 
-  const words = value.trim().toLowerCase().split(/[_\s]+/).filter(Boolean);
+  const words = value
+    .trim()
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter(Boolean);
 
   if (words.length === 0) {
     return "—";

@@ -65,7 +65,7 @@ export function AdminMoneyCard({
           photograph; a card this size takes one before it stops reading as a
           card and starts reading as a pattern.
         */}
-        <View className="absolute inset-0" pointerEvents="none">
+        <View className="absolute inset-0" style={{ pointerEvents: "none" }}>
           <View
             className="absolute rounded-full bg-white/10"
             style={{ height: 150, right: -55, top: -60, width: 150 }}
