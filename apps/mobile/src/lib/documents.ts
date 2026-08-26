@@ -437,6 +437,54 @@ export async function forgetDownloadFolder() {
  * silent button — it just ends in `Sharing`, which is what "download" means on
  * that platform. Same fallback when an Android user declines the folder grant.
  */
+/**
+ * The first bytes a file of this type must start with, where there is one.
+ *
+ * Only PDF, because only PDF has both a signature worth checking and a caller
+ * that can ask for it by name. A CSV has no magic number — anything is a valid
+ * CSV — so there is nothing to verify on that side and no entry here.
+ */
+const MAGIC: Record<string, string> = {
+  pdf: "%PDF-",
+};
+
+/**
+ * Refuses a file whose contents do not match the extension it is about to be
+ * saved under.
+ *
+ * ## The bug this exists to make impossible
+ *
+ * The statement export asks the API for `?format=pdf`. A server that predates
+ * that parameter does not reject it — Zod strips unknown keys — it simply
+ * returns the CSV it has always returned. The client then wrote 162 bytes of
+ * spreadsheet into `hostel-statement.pdf`, which no PDF reader on earth will
+ * open, and the failure surfaced as "the notification does not work" three
+ * layers away from its cause.
+ *
+ * So the file is checked against its own name before it is saved anywhere. A
+ * mismatch is reported as what it actually is — the API being older than the
+ * app — rather than saved and left for the user to discover.
+ *
+ * Reads only the first bytes, not the whole file: `bytes()` on a large export
+ * would pull it through JS for the sake of five characters.
+ */
+async function assertMatchesExtension(file: File, extension: string) {
+  const magic = MAGIC[extension];
+
+  if (!magic) {
+    return;
+  }
+
+  const head = (await file.bytes()).slice(0, magic.length);
+  const text = String.fromCharCode(...head);
+
+  if (text !== magic) {
+    throw new Error(
+      `The server sent something that is not a ${extension.toUpperCase()}. It may not have been updated yet — try the other format.`,
+    );
+  }
+}
+
 export async function downloadToDevice({
   extension,
   fileName,
@@ -503,6 +551,9 @@ export async function downloadToDevice({
 
     const downloaded = await task.downloadAsync();
     const uri = downloaded?.uri ?? target.uri;
+
+    // Before anything is saved anywhere — see `assertMatchesExtension`.
+    await assertMatchesExtension(downloaded ?? target, extension);
 
     // The bytes are here; what is left is putting them where the user can find
     // them. This stage reads "Saving…" on a download — see `uploadRowMessage`.
