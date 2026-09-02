@@ -15,6 +15,7 @@ import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { paymentDueReminderEmail } from "@hostel/shared/email/templates/payment/payment-due-reminder";
+import type { ReminderStage } from "@hostel/shared/email/templates/payment/payment-due-reminder";
 import { paymentOverdueEmail } from "@hostel/shared/email/templates/payment/payment-overdue";
 
 /**
@@ -32,8 +33,9 @@ import { paymentOverdueEmail } from "@hostel/shared/email/templates/payment/paym
  *    at this stage yet", which a late run answers correctly and a double-run
  *    answers once.
  * 3. **No stop condition.** Chases continued forever. The ladder now terminates:
- *    reminder → first overdue → second overdue → four weekly chases → escalate
- *    to the owner → stop. After `STOPPED` the software never contacts the
+ *    three reminders (a week out, three days out, the due day) → first overdue
+ *    on day three → second on day seven → four weekly chases → escalate to the
+ *    owner → stop. After `STOPPED` the software never contacts the
  *    resident about this invoice again. That is the line between dunning and
  *    harassment, and it belongs in code rather than in a hostel's restraint.
  *
@@ -48,13 +50,25 @@ type DunningState = {
   stage?: DunningStage;
 };
 
+/**
+ * The rungs, in the order an invoice climbs them.
+ *
+ * `REMINDED` is the first of **three** notices before the due date, not the only
+ * one — it keeps its name so invoices already sitting on that rung when this
+ * shipped carry on from where they are rather than being re-reminded.
+ */
 export type DunningStage =
   | "CHASING"
   | "ESCALATED"
   | "NONE"
   | "OVERDUE_FIRST"
   | "OVERDUE_SECOND"
+  /** A week out, or whatever `paymentReminderDaysBefore` says. */
   | "REMINDED"
+  /** The due day itself. */
+  | "REMINDED_DUE"
+  /** Three days out. */
+  | "REMINDED_SOON"
   | "STOPPED";
 
 type InvoiceRow = {
@@ -88,6 +102,27 @@ const BATCH_SIZE = 200;
  */
 export const MAX_CHASES = 4;
 const CHASE_INTERVAL_DAYS = 7;
+
+/**
+ * The second pre-due notice. The first is the hostel's own
+ * `paymentReminderDaysBefore` (a week by default) and the third is the due day.
+ *
+ * Three notices before a bill is late, then nothing for two days, then the
+ * overdue notice on day three: a resident who has simply forgotten has been
+ * told twice with time to act, and one who has not paid by the third day late
+ * is being chased about something real rather than nagged about a date.
+ */
+const REMINDER_SOON_DAYS = 3;
+
+/**
+ * How late the first overdue notice waits, and the second.
+ *
+ * The first used to be day one, which reached residents whose transfer had
+ * cleared the day before and had not been verified yet — the most common
+ * complaint about the old job. Day three is past that.
+ */
+const OVERDUE_FIRST_DAYS = 3;
+const OVERDUE_SECOND_DAYS = 7;
 
 function startOfDay(date: Date) {
   const copy = new Date(date);
@@ -143,20 +178,48 @@ export function nextDunningAction(input: {
   }
 
   if (daysUntilDue >= 0) {
-    // Not yet overdue — due today still counts. One reminder, at any point at or
-    // inside the configured window, which is what makes a late run correct.
+    /*
+     * Three notices before the bill is late: the hostel's window (a week by
+     * default), three days out, and the due day itself.
+     *
+     * **Read from the last rung backwards**, which is what keeps a late job
+     * honest. A run that has not fired since Monday and wakes on the due date
+     * sends *one* email — "due today" — rather than working up through "due in a
+     * week" and "due in three days" on the three days after they were true. The
+     * stage still records where it got to, so the rungs it skipped never fire
+     * afterwards.
+     */
+    if (stage === "REMINDED_DUE") {
+      return null;
+    }
+
+    if (daysUntilDue <= 0) {
+      return { kind: "reminder", stage: "REMINDED_DUE" };
+    }
+
+    if (daysUntilDue <= REMINDER_SOON_DAYS && stage !== "REMINDED_SOON") {
+      return { kind: "reminder", stage: "REMINDED_SOON" };
+    }
+
+    // The configurable one, and the only rung a hostel can move. A hostel that
+    // sets a window of three days or fewer simply starts at the rung above.
     return stage === "NONE" && daysUntilDue <= input.reminderDaysBefore
       ? { kind: "reminder", stage: "REMINDED" }
       : null;
   }
 
   const daysOverdue = -daysUntilDue;
+  const beforeOverdue =
+    stage === "NONE" ||
+    stage === "REMINDED" ||
+    stage === "REMINDED_DUE" ||
+    stage === "REMINDED_SOON";
 
-  if (daysOverdue >= 1 && (stage === "NONE" || stage === "REMINDED")) {
+  if (daysOverdue >= OVERDUE_FIRST_DAYS && beforeOverdue) {
     return { kind: "overdue", stage: "OVERDUE_FIRST" };
   }
 
-  if (daysOverdue >= 3 && stage === "OVERDUE_FIRST") {
+  if (daysOverdue >= OVERDUE_SECOND_DAYS && stage === "OVERDUE_FIRST") {
     return { kind: "overdue", stage: "OVERDUE_SECOND" };
   }
 
@@ -425,15 +488,34 @@ async function deliver(input: {
     const overdue = action.kind !== "reminder";
     const daysOverdue = Math.max(0, -daysBetween(new Date(), invoice.dueDate));
 
+    /*
+     * Which of the three pre-due notices this is. The stage is the only thing
+     * that knows — `daysUntilDue` cannot be trusted for the wording, because a
+     * job that ran late climbs to the rung it should be on and would otherwise
+     * send "due in three days" on the day itself.
+     */
+    const reminderStage: ReminderStage =
+      action.stage === "REMINDED_DUE"
+        ? "TODAY"
+        : action.stage === "REMINDED_SOON"
+          ? "SOON"
+          : "WEEK";
+
     if (resident.userId) {
       await createInAppNotification({
         body: overdue
           ? `Your ${period} fee is overdue.`
-          : `Your ${period} fee is due on ${invoice.dueDate.toDateString()}.`,
+          : reminderStage === "TODAY"
+            ? `Your ${period} fee is due today.`
+            : `Your ${period} fee is due on ${invoice.dueDate.toDateString()}.`,
         category: "PAYMENT",
         data: { invoiceId: invoice._id.toString() },
         hostelId: hostelKey,
-        title: overdue ? "Payment overdue" : "Payment due soon",
+        title: overdue
+          ? "Payment overdue"
+          : reminderStage === "TODAY"
+            ? "Payment due today"
+            : "Payment due soon",
         userId: resident.userId.toString(),
       });
     }
@@ -461,6 +543,7 @@ async function deliver(input: {
           month: period,
           paymentsUrl: appUrl("/resident/payments"),
           residentName: contact.name,
+          stage: reminderStage,
         });
 
     await sendNotificationEmail({

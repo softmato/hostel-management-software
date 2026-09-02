@@ -7,16 +7,24 @@ const serviceMocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
   getIntakeQuote: vi.fn(),
   raiseAdmissionInvoice: vi.fn(),
+  runBillingCycle: vi.fn(),
   connectToDatabase: vi.fn(),
   emergencyContactCreate: vi.fn(),
   guardianCreate: vi.fn(),
   claimBedForRoomType: vi.fn(),
   releaseBedForRoomType: vi.fn(),
+  hostelFindById: vi.fn(),
+  registerOrUpgradeUserByEmail: vi.fn(),
   residentCountDocuments: vi.fn(),
   residentCreate: vi.fn(),
   residentFind: vi.fn(),
+  residentFindById: vi.fn(),
   residentFindOne: vi.fn(),
   residentFindOneAndUpdate: vi.fn(),
+  notifyRegistered: vi.fn(),
+  residentUpdateOne: vi.fn(),
+  sendEmail: vi.fn(),
+  userFindOne: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -43,7 +51,26 @@ vi.mock("@hostel/db/models/Guardian", () => ({
 
 vi.mock("@/modules/residents/resident-intake.service", () => ({
   getIntakeQuote: serviceMocks.getIntakeQuote,
+  // The real one: the intake quote's period arithmetic is what decides which
+  // month `raiseFirstMonthInvoice` bills, and mocking it away would leave the
+  // assertion below testing nothing but itself.
+  periodOfDate: (date: Date) =>
+    `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`,
   raiseAdmissionInvoice: serviceMocks.raiseAdmissionInvoice,
+}));
+
+vi.mock("@/modules/finance/billing.service", () => ({
+  runBillingCycle: serviceMocks.runBillingCycle,
+}));
+
+/*
+ * The registration's own notifications. Mocked here because what this file is
+ * asserting is the *wiring* — that an intake tells somebody, and tells them the
+ * right facts — while who each message reaches is
+ * `resident-registered-notify.test.ts`'s question.
+ */
+vi.mock("@/modules/residents/resident-registered-notify", () => ({
+  notifyResidentRegistered: serviceMocks.notifyRegistered,
 }));
 
 vi.mock("@/modules/hostels/hostel-capacity.service", () => ({
@@ -57,12 +84,62 @@ vi.mock("@hostel/db/models/Resident", () => ({
     countDocuments: serviceMocks.residentCountDocuments,
     create: serviceMocks.residentCreate,
     find: serviceMocks.residentFind,
+    findById: serviceMocks.residentFindById,
     findOne: serviceMocks.residentFindOne,
     findOneAndUpdate: serviceMocks.residentFindOneAndUpdate,
+    updateOne: serviceMocks.residentUpdateOne,
   },
 }));
 
-import { createResident, listResidents } from "@/modules/residents/resident.service";
+/*
+ * Everything `linkResidentAccount` touches. Registering somebody is also the
+ * moment their existing website account becomes a resident login, and that half
+ * of the intake had no coverage at all — which is how it came to be looking the
+ * account up by an address the resident can edit.
+ */
+vi.mock("@hostel/db/models/User", () => ({
+  UserModel: { findOne: serviceMocks.userFindOne },
+}));
+
+vi.mock("@hostel/db/models/Hostel", () => ({
+  HostelModel: { findById: serviceMocks.hostelFindById },
+}));
+
+vi.mock("@hostel/shared/email/sender", () => ({
+  sendEmail: serviceMocks.sendEmail,
+}));
+
+vi.mock("@/modules/users/user.service", () => ({
+  registerOrUpgradeUserByEmail: serviceMocks.registerOrUpgradeUserByEmail,
+  UserServiceError: class UserServiceError extends Error {
+    constructor(
+      message: string,
+      public errorCode = "USER_ERROR",
+    ) {
+      super(message);
+    }
+  },
+}));
+
+// The real normalizer would drag R2 and the personal-data crypto in behind it,
+// and the parsing is the part that matters here: the warden may paste the whole
+// scan URL, or type the id without its dashes.
+vi.mock("@/modules/users/resident-identity.service", () => ({
+  normalizeResidentId: (value: string) => {
+    const tail = value.trim().split(/[?#]/)[0]?.split("/").filter(Boolean).pop() ?? "";
+    const compact = tail.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+    return /^HH[A-Z0-9]{8}$/.test(compact)
+      ? `HH-${compact.slice(2, 6)}-${compact.slice(6, 10)}`
+      : null;
+  },
+}));
+
+import {
+  addGuardian,
+  createResident,
+  listResidents,
+} from "@/modules/residents/resident.service";
 
 const hostelId = "64f0f0f0f0f0f0f0f0f0f0f4";
 const otherHostelId = "64f0f0f0f0f0f0f0f0f0f0f5";
@@ -80,6 +157,7 @@ function queryResult<T>(value: T) {
   return {
     lean: vi.fn().mockResolvedValue(value),
     limit: vi.fn().mockReturnThis(),
+    select: vi.fn().mockReturnThis(),
     skip: vi.fn().mockReturnThis(),
     sort: vi.fn().mockReturnThis(),
   };
@@ -128,6 +206,22 @@ describe("resident management service behavior", () => {
       reason: "NO_ADMISSION_FEE",
     });
     serviceMocks.residentCountDocuments.mockResolvedValue(0);
+    // No account on the address, which is the shape of a hostel registering
+    // somebody who has never used the website: the intake still succeeds and
+    // the resident redeems an activation code instead.
+    serviceMocks.userFindOne.mockReturnValue(queryResult(null));
+    serviceMocks.hostelFindById.mockReturnValue(queryResult({ name: "Sunrise Hostel" }));
+    serviceMocks.residentUpdateOne.mockResolvedValue({ acknowledged: true });
+    serviceMocks.sendEmail.mockResolvedValue(undefined);
+    // A hostel with no rate card is the shape of an empty run: nothing billed,
+    // nothing skipped, and an intake that still succeeds.
+    serviceMocks.runBillingCycle.mockResolvedValue({
+      billed: [],
+      failures: [],
+      period: "2026-08",
+      skipped: [],
+      totalBilled: 0,
+    });
   });
 
   it("limits resident lists to the principal hostel ids", async () => {
@@ -246,6 +340,37 @@ describe("resident management service behavior", () => {
     ).rejects.toMatchObject({ errorCode: "RESIDENT_EMAIL_TAKEN", status: 409 });
     expect(serviceMocks.claimBedForRoomType).not.toHaveBeenCalled();
     expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
+  });
+
+  it("sees a resident registered before `isDeleted` existed", async () => {
+    /*
+     * The conflict query used `isDeleted: false`, and that does not match a
+     * document with no such field — so the oldest residents on a roll, the ones
+     * most likely to have already collected a duplicate, were invisible to the
+     * check that exists to stop one.
+     *
+     * The filter is Mongo's, so what is asserted is the query.
+     */
+    serviceMocks.residentFindOne.mockReturnValueOnce(queryResult(null));
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+
+    await createResident(
+      {
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE" as const,
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.residentFindOne).toHaveBeenCalledWith(
+      expect.objectContaining({ isDeleted: { $ne: true } }),
+    );
   });
 
   it("looks the email up lower-cased, the way it is stored", async () => {
@@ -421,5 +546,437 @@ describe("resident management service behavior", () => {
         hostelId: new Types.ObjectId(hostelId),
       }),
     );
+  });
+
+  it("bills the month they move into, not the month the cron next wakes in", async () => {
+    /*
+     * The gap this closes: nothing used to bill a new resident at all, so
+     * somebody admitted mid-August was first invoiced for September and August
+     * was charged to nobody. The run is restricted to this one resident and
+     * their own move-in period — proration itself is `computeInvoiceAmount`'s
+     * job and is asserted in `fee-schedule.test.ts`.
+     */
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+    serviceMocks.runBillingCycle.mockResolvedValueOnce({
+      billed: [
+        {
+          amount: 2322,
+          creditApplied: 0,
+          invoiceId: "inv-1",
+          referenceCode: "HH-0007",
+          residentId,
+        },
+      ],
+      failures: [],
+      period: "2026-08",
+      skipped: [],
+      totalBilled: 2322,
+    });
+
+    const result = await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.runBillingCycle).toHaveBeenCalledWith(
+      {
+        hostelId: new Types.ObjectId(hostelId),
+        period: "2026-08",
+        residentIds: [new Types.ObjectId(residentId)],
+      },
+      staffPrincipal,
+    );
+    expect(result.firstMonth).toEqual({
+      amount: 2322,
+      invoiceId: "inv-1",
+      period: "2026-08",
+      raised: true,
+      referenceCode: "HH-0007",
+    });
+  });
+
+  it("tells the resident and the hostel, with the figures they were quoted", async () => {
+    /*
+     * Registering somebody used to be the quietest write in the product: it
+     * spends a bed, raises invoices and starts a rent obligation, and told
+     * nobody. The resident heard about it only if they happened to already have
+     * a platform account to promote — which at a desk they usually do not.
+     */
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+    serviceMocks.runBillingCycle.mockResolvedValueOnce({
+      billed: [
+        {
+          amount: 2322,
+          creditApplied: 0,
+          invoiceId: "inv-1",
+          referenceCode: "HH-0007",
+          residentId,
+        },
+      ],
+      failures: [],
+      period: "2026-08",
+      skipped: [],
+      totalBilled: 2322,
+    });
+
+    await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.notifyRegistered).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depositAmount: 5000,
+        firstMonth: {
+          amount: 2322,
+          invoiceId: "inv-1",
+          period: "2026-08",
+          prorated: false,
+          referenceCode: "HH-0007",
+        },
+        monthlyRent: 6000,
+      }),
+    );
+  });
+
+  it("says nothing about a first month that was never invoiced", async () => {
+    // The email prints an amount owed. Passing one through for an invoice that
+    // does not exist would be a claim about money that is false.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+    serviceMocks.runBillingCycle.mockResolvedValueOnce({
+      billed: [],
+      failures: [],
+      period: "2026-08",
+      skipped: [{ reason: "NOT_YET_RESIDENT", residentId }],
+      totalBilled: 0,
+    });
+
+    await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "PENDING",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.notifyRegistered).toHaveBeenCalledWith(
+      expect.objectContaining({ firstMonth: null }),
+    );
+  });
+
+  it("reports why the first month was not billed instead of failing the intake", async () => {
+    // A pending resident is not billable, and the intake still succeeded — the
+    // resident exists and their bed is spent by the time billing is attempted.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+    serviceMocks.runBillingCycle.mockResolvedValueOnce({
+      billed: [],
+      failures: [],
+      period: "2026-08",
+      skipped: [{ reason: "NOT_YET_RESIDENT", residentId }],
+      totalBilled: 0,
+    });
+
+    const result = await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "PENDING",
+      },
+      staffPrincipal,
+    );
+
+    expect(result.resident.status).toBe("PENDING");
+    expect(result.firstMonth).toEqual({
+      period: "2026-08",
+      raised: false,
+      reason: "NOT_YET_RESIDENT",
+    });
+  });
+
+  it("does not fail the intake when the billing run throws", async () => {
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+    serviceMocks.runBillingCycle.mockRejectedValueOnce(
+      new Error("No fee schedule covers 2026-08."),
+    );
+
+    const result = await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(result.resident).toMatchObject({ firstName: "Asha" });
+    expect(result.firstMonth).toMatchObject({
+      raised: false,
+      reason: "No fee schedule covers 2026-08.",
+    });
+  });
+
+  /*
+   * Registering a scanned resident has to open their portal.
+   *
+   * The hostel holds their card up to a camera, the server resolves it to one
+   * account to build the prefill — and then the intake threw that away and
+   * re-found them by `Resident.email`, which is `primaryEmail` off their profile
+   * form rather than the address they sign in with. When those two differed the
+   * lookup found nothing, and somebody the hostel had physically just scanned
+   * was registered with their account left PUBLIC and no resident portal.
+   */
+  it("links the account the scanned card resolved to, not the email on the form", async () => {
+    const accountId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "asha.profile@example.com" }),
+    );
+    // The card's account signs in with a different address to the one on their
+    // profile — the whole case this exists for.
+    serviceMocks.userFindOne.mockReturnValueOnce(
+      queryResult({ _id: accountId, email: "asha.login@example.com" }),
+    );
+    serviceMocks.residentFindById.mockReturnValue(
+      queryResult(residentRecord({ status: "ACTIVE", userId: accountId })),
+    );
+    serviceMocks.registerOrUpgradeUserByEmail.mockResolvedValue({
+      created: false,
+      temporaryPassword: null,
+      upgraded: true,
+      user: {
+        email: "asha.login@example.com",
+        id: accountId.toString(),
+        role: Role.RESIDENT,
+      },
+    });
+
+    const result = await createResident(
+      {
+        email: "asha.profile@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+        // Lower case and undashed, the way a QR payload or a paste arrives.
+        userResidentId: "hh4k7m9xq2",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.userFindOne).toHaveBeenCalledWith({
+      isDeleted: { $ne: true },
+      userResidentId: "HH-4K7M-9XQ2",
+    });
+    // Promoted on their *sign-in* address, so the account that is upgraded is
+    // the one they actually log in to.
+    expect(serviceMocks.registerOrUpgradeUserByEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "asha.login@example.com", role: Role.RESIDENT }),
+    );
+    expect(result.accountLink).toMatchObject({ linked: true });
+  });
+
+  it("falls back to the email when nobody scanned a card", async () => {
+    const accountId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "asha@example.com" }),
+    );
+    serviceMocks.userFindOne.mockReturnValueOnce(
+      queryResult({ _id: accountId, email: "asha@example.com" }),
+    );
+    serviceMocks.residentFindById.mockReturnValue(
+      queryResult(residentRecord({ status: "ACTIVE", userId: accountId })),
+    );
+    serviceMocks.registerOrUpgradeUserByEmail.mockResolvedValue({
+      created: false,
+      temporaryPassword: null,
+      upgraded: true,
+      user: { email: "asha@example.com", id: accountId.toString(), role: Role.RESIDENT },
+    });
+
+    const result = await createResident(
+      {
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.userFindOne).toHaveBeenCalledWith({
+      email: "asha@example.com",
+      isDeleted: { $ne: true },
+    });
+    expect(result.accountLink).toMatchObject({ linked: true });
+  });
+
+  it("does not link a different account when the card's has no address", async () => {
+    // The card is the person. Falling through to the email on the form would
+    // find somebody else's account and put them in this bed.
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "someone.else@example.com" }),
+    );
+    serviceMocks.userFindOne.mockReturnValueOnce(
+      queryResult({ _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa") }),
+    );
+
+    const result = await createResident(
+      {
+        email: "someone.else@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+        userResidentId: "HH-4K7M-9XQ2",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.userFindOne).toHaveBeenCalledTimes(1);
+    expect(serviceMocks.registerOrUpgradeUserByEmail).not.toHaveBeenCalled();
+    expect(result.accountLink).toMatchObject({
+      linked: false,
+      reason: "ACCOUNT_HAS_NO_EMAIL",
+    });
+  });
+
+  it("keeps the scanned id off the resident record", async () => {
+    // It identifies the account, not the person in the bed. Written onto the
+    // document it would be a second, stale copy of an id that already lives on
+    // the user.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+
+    await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+        userResidentId: "HH-4K7M-9XQ2",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.residentCreate).toHaveBeenCalledWith(
+      expect.not.objectContaining({ userResidentId: expect.anything() }),
+    );
+  });
+});
+
+describe("attaching a guardian", () => {
+  /*
+   * Hooked to the guardian record rather than to the registration, and this is
+   * the case that forces it: a scanned intake writes the resident first and
+   * their guardian afterwards, so a registration-time send would have reached
+   * nobody in exactly the flow it was built for.
+   */
+  beforeEach(() => {
+    // This describe sits outside the one above, which owns the other reset.
+    vi.clearAllMocks();
+    serviceMocks.residentFindOne.mockReturnValue(queryResult(residentRecord()));
+    serviceMocks.guardianCreate.mockResolvedValue({
+      _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e1"),
+      email: "bimal@example.test",
+      firstName: "Bimal",
+      hostelId: new Types.ObjectId(hostelId),
+      isPrimary: true,
+      lastName: "Rai",
+      phone: "9800000001",
+      relation: "FATHER",
+      residentId: new Types.ObjectId(residentId),
+    });
+    serviceMocks.hostelFindById.mockReturnValue(
+      queryResult({ contact: { phone: "9812345678" }, name: "Rupa Hostel" }),
+    );
+  });
+
+  const guardian = {
+    email: "bimal@example.test",
+    firstName: "Bimal",
+    isPrimary: true,
+    lastName: "Rai",
+    phone: "9800000001",
+    relation: "FATHER",
+  };
+
+  it("tells the guardian their ward now lives at the hostel", async () => {
+    await addGuardian(residentId, guardian, staffPrincipal);
+
+    const [sent] = serviceMocks.sendEmail.mock.calls.at(-1)!;
+
+    expect(sent.to).toBe("bimal@example.test");
+    expect(sent.subject).toContain("Rupa Hostel");
+    expect(sent.html).toContain("Asha Rai");
+    // The hostel's own number, because this is the contact they would ring.
+    expect(sent.html).toContain("9812345678");
+  });
+
+  it("carries no money and no login", async () => {
+    // What a guardian may see is the resident's decision, made on their own
+    // privacy screen. This mail is the fact, the address and who to call.
+    await addGuardian(residentId, guardian, staffPrincipal);
+
+    const [sent] = serviceMocks.sendEmail.mock.calls.at(-1)!;
+
+    expect(sent.html).not.toMatch(/NPR|password|sign in/i);
+  });
+
+  it("sends nothing to a guardian with no email", async () => {
+    await addGuardian(residentId, { ...guardian, email: undefined }, staffPrincipal);
+
+    expect(serviceMocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the write when the mail bounces", async () => {
+    // The guardian record is already saved; reporting failure over it would
+    // have the warden type the contact in a second time.
+    serviceMocks.sendEmail.mockRejectedValueOnce(new Error("smtp is down"));
+
+    await expect(
+      addGuardian(residentId, guardian, staffPrincipal),
+    ).resolves.toMatchObject({ guardian: expect.objectContaining({ relation: "FATHER" }) });
   });
 });

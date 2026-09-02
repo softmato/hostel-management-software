@@ -1,25 +1,26 @@
 import { Pressable, ScrollView, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import { formatPeriodBoth } from "@/lib/format";
+import { useDates } from "@/hooks/use-dates";
 import type { PaymentMonth } from "@/lib/payment-months";
 
 /**
  * The month strip, and the line that names the month it selected.
  *
- * ## The chip is Gregorian, the line is both calendars
+ * ## The chip is Gregorian, the line follows the portal's calendar
  *
- * A chip has room for `Aug` and a year and nothing else, and a chip reading
- * `Shrawan–Bhadra` would be both unreadable at that width and a lie by rounding
- * — a Gregorian month runs through two Nepali ones. So the strip is AD, which
- * is what a phone's own clock and every bank statement agree on, and the full
- * both-calendar name is spelled out underneath where there is room for it:
- * `August 2026 · Shrawan–Bhadra 2083`.
+ * A chip has room for `Aug` and a year and nothing else, and a Gregorian month
+ * runs through two Nepali ones. So the strip stays AD, which is what a phone's
+ * own clock and every bank statement agree on, whatever the calendar setting
+ * says. The month is *named* underneath, where there is room for it, and that
+ * line is the one the setting moves: `August 2026`, or `Shrawan 2083` for a
+ * hostel keeping its books in Bikram Sambat — one month, the one the period
+ * mostly falls in, because two names under one lit chip read as two selections.
  *
- * That line is not decoration. The hostel's books are kept in BS and the
- * statement being reconciled against them is in AD, and the moment those two
- * are converted in somebody's head is the moment a payment lands in the wrong
- * month.
+ * That line is not decoration. It is the only place on the screen that says
+ * which of the reader's own months the chip they just tapped corresponds to, and
+ * the moment that conversion happens in somebody's head instead is the moment a
+ * payment lands in the wrong month.
  *
  * ## The count sits on the chip's shoulder
  *
@@ -38,6 +39,8 @@ export function PaymentMonthStrip({
   onSelect: (period: string) => void;
   value: string;
 }) {
+  const dates = useDates();
+
   if (months.length === 0) {
     return null;
   }
@@ -60,7 +63,7 @@ export function PaymentMonthStrip({
           return (
             <Pressable
               accessibilityLabel={[
-                formatPeriodBoth(month.period),
+                dates.period(month.period),
                 month.waiting > 0 ? `${month.waiting} waiting` : null,
               ]
                 .filter(Boolean)
@@ -104,7 +107,7 @@ export function PaymentMonthStrip({
       </ScrollView>
 
       <Text className="px-5" variant="caption">
-        {formatPeriodBoth(value)}
+        {dates.period(value)}
       </Text>
     </View>
   );

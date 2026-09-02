@@ -85,6 +85,14 @@ const KNOWN_PATHS = new Set([
  */
 const REWRITES: { prefix: string; to: string }[] = [
   /*
+   * The web portal's residents page. A "new resident registered" notification
+   * carries it as its `actionUrl` because that is what the web bell links to,
+   * and `deepLinkForNotification` prefers an `actionUrl` over the category's
+   * own path — so without this the app would send an admin who tapped it to the
+   * notification list instead of the roster they were told about.
+   */
+  { prefix: "/hostel-admin/residents", to: "/(admin)/residents" },
+  /*
    * Built in M5.4, and on the root stack for the usual reason. First in the list
    * because the generic `/(resident)/more/` rule below would otherwise swallow it
    * — the order in this array is the precedence.

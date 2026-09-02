@@ -2,7 +2,17 @@ import { Role } from "@/lib/roles";
 
 export type ProtectedRouteRule = {
   prefix: string;
-  roles: Role[];
+  /**
+   * The roles allowed through, or `null` for "any signed-in account".
+   *
+   * `null` is not laziness — it is the honest answer for a page whose audience
+   * is not a role. A service provider is a PUBLIC account with an approved
+   * `ServiceProvider` record behind it, and that approval is not in the access
+   * token, so the edge cannot check it. What the edge *can* say is that an
+   * anonymous visitor has no business on the page, which is the difference
+   * between a guarded route and an unguarded one.
+   */
+  roles: Role[] | null;
 };
 
 /**
@@ -55,6 +65,21 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
   {
     prefix: "/guardian",
     roles: [Role.GUARDIAN],
+  },
+  /*
+   * The service provider's work list — the maintenance jobs hostels have
+   * assigned to one account. It lives under `(public)` for URL reasons and was
+   * therefore guarded by nothing at all: an anonymous visitor reached it and
+   * was shown an empty page rather than a login.
+   *
+   * `null` rather than a role, because provider is not one — see the type
+   * above. The page already renders empty for a signed-in non-provider, and the
+   * API behind it authenticates on its own, so requiring an account is both
+   * what this layer can enforce and all it needs to.
+   */
+  {
+    prefix: "/jobs",
+    roles: null,
   },
 ];
 

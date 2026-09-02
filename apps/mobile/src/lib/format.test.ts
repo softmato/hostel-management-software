@@ -146,18 +146,64 @@ describe("formatDateBs / formatDateBoth", () => {
     expect(formatDateBs(null)).toBe("—");
     expect(formatDateBoth(undefined)).toBe("—");
   });
+
+  /*
+   * The two calendars on one row must never disagree about which day it is.
+   *
+   * `nepali-date-converter` reads the *device-local* getters, so the `Date`
+   * handed to it has to carry the Nepal day in its local fields. Building it at
+   * noon **UTC** — which is what this did — survives every offset up to +11 and
+   * breaks past it: a phone in Auckland or Kiritimati printed the Gregorian
+   * date correctly and the Nepali one a day ahead, on the same line.
+   *
+   * Kathmandu is included so the row that is expected to be right everywhere is
+   * visibly the same row.
+   */
+  it("agrees with the Gregorian date in every timezone a phone can be set to", () => {
+    const original = process.env.TZ;
+
+    // `finally`, because a bare restore at the end leaves the clock moved when
+    // an expectation fails — and then every later test in the file fails too,
+    // hiding the one that actually broke behind a cascade.
+    try {
+      // The extremes in both directions, plus Nepal itself. Node re-reads `TZ`
+      // on assignment, so this genuinely moves the clock rather than mocking it.
+      for (const timezone of [
+        "Etc/GMT+12",
+        "America/Anchorage",
+        "Asia/Kathmandu",
+        "Pacific/Auckland",
+        "Pacific/Kiritimati",
+      ]) {
+        process.env.TZ = timezone;
+
+        expect(formatDateBoth("2026-08-18T06:00:00.000Z")).toBe(
+          "2 Bhadra 2083 · 18 Aug 2026",
+        );
+        // And across the Nepal midnight, where the AD side moves too.
+        expect(formatDateBoth("2026-08-18T18:30:00.000Z")).toBe(
+          "3 Bhadra 2083 · 19 Aug 2026",
+        );
+        expect(formatPeriodBs("2026-09")).toBe("Bhadra 2083");
+      }
+    } finally {
+      process.env.TZ = original;
+    }
+  });
 });
 
 describe("formatPeriodBs", () => {
-  it("names both BS months a Gregorian month runs through", () => {
-    // August 2026 starts in Shrawan and ends in Bhadra. Naming it after either
-    // one alone is wrong for about half the days in it.
-    expect(formatPeriodBs("2026-08")).toBe("Shrawan–Bhadra 2083");
+  it("names the one BS month the period mostly falls in", () => {
+    // August 2026 is 16 days of Shrawan and 15 of Bhadra, so it is Shrawan's.
+    expect(formatPeriodBs("2026-08")).toBe("Shrawan 2083");
+    // September 2026 is 16 days of Bhadra and 14 of Aswin.
+    expect(formatPeriodBs("2026-09")).toBe("Bhadra 2083");
   });
 
-  it("carries both years when the Nepali new year falls inside the period", () => {
-    // Baisakh 1 2083 is 14 April 2026, so April spans two BS years.
-    expect(formatPeriodBs("2026-04")).toBe("Chaitra 2082–Baisakh 2083");
+  it("crosses the Nepali new year with the year of the winning month", () => {
+    // Baisakh 1 2083 is 14 April 2026, so April is 13 days of Chaitra 2082 and
+    // 17 of Baisakh 2083 — the new year takes it.
+    expect(formatPeriodBs("2026-04")).toBe("Baisakh 2083");
   });
 
   it("is empty for a period it cannot convert, never a guess", () => {
@@ -167,7 +213,7 @@ describe("formatPeriodBs", () => {
   });
 
   it("drops the BS half rather than printing nothing when it is unavailable", () => {
-    expect(formatPeriodBoth("2026-08")).toBe("August 2026 · Shrawan–Bhadra 2083");
+    expect(formatPeriodBoth("2026-08")).toBe("August 2026 · Shrawan 2083");
     expect(formatPeriodBoth("not-a-period")).toBe("not-a-period");
   });
 });

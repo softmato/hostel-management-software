@@ -4,6 +4,18 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { getCreditAmount } from "@/modules/finance/credit-balance.service";
 import {
+  computeInvoiceAmount,
+  getEffectiveSchedule,
+  listedRoomRates,
+  periodBounds,
+  resolveMonthlyCharge,
+} from "@/modules/finance/fee-schedule.service";
+import type {
+  FeeScheduleRecord,
+  ListedRoomRates,
+} from "@/modules/finance/fee-schedule.service";
+import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import {
   listRecentInvoices,
   listResidentInvoices,
 } from "@/modules/finance/ledger-read.service";
@@ -11,9 +23,11 @@ import type { LedgerInvoice } from "@/modules/finance/ledger-read.service";
 import { countableResidentIds } from "@/modules/finance/resident-scope";
 import { listReviewQueue } from "@/modules/finance/review.service";
 import { findCurrentResident } from "@/modules/residents/resident-access";
+import { HostelModel } from "@hostel/db/models/Hostel";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import type { BedType } from "@hostel/shared/types/bed-type";
 
 /**
  * Invoice lists for the two portals (plan item 2.8).
@@ -313,14 +327,109 @@ type ResidentRow = {
   bedType?: string;
   firstName?: string;
   lastName?: string;
+  /** Needed to price an unbilled row — see {@link NotBilled}. */
+  monthlyFee?: number | null;
   moveInDate?: Date;
+  moveOutDate?: Date | null;
   phone?: string;
   roomNumber?: string;
   roomType?: string;
 };
 
+/**
+ * What an unbilled row would cost, and why it has not been billed.
+ *
+ * `NOT_BILLED` on its own was a dead end. It is the status a warden sees the
+ * day after registering somebody, and it says neither of the two things they
+ * want: how much this person owes for the month, and whether anybody has to do
+ * something about it. "Not billed" over a resident who is plainly living there
+ * reads as a fault in the product, and the reader's only move was to open the
+ * rate card and work the proration out on paper.
+ *
+ * Both halves are answerable without writing anything. The amount is
+ * `resolveMonthlyCharge` + `computeInvoiceAmount` — the billing run's own
+ * arithmetic, not a second opinion — and the reason is the error or skip code
+ * that run would produce. **Nothing here bills.** That is the rule this function
+ * was rewritten to obey (item 2.5), and showing the figure is not the same act
+ * as owing it: an amount here is a projection, an amount on `payment` is a debt.
+ *
+ * `reason` is a code, phrased by whichever screen renders it, like every other
+ * status this module returns:
+ *
+ * - `NOT_YET_RUN` — priceable, simply not billed yet. The month's run has not
+ *   happened. This is the common one and the only one with an amount that will
+ *   become real on its own.
+ * - `FEE_SCHEDULE_MISSING` / `BED_TYPE_NOT_PRICED` — nothing prices this room
+ *   type: no rate card covers the month and the owner has listed no rent
+ *   against it. Needs a person.
+ * - `NOT_YET_RESIDENT`, `ALREADY_MOVED_OUT`, `NO_BILLABLE_DAYS`,
+ *   `ZERO_CHARGE` — the run's own skip reasons. Nothing is owed, and that is
+ *   correct rather than broken.
+ */
+export type NotBilled = {
+  /** What the run would charge, or null when nothing can price this resident. */
+  amount: number | null;
+  reason: string;
+};
+
+function priceUnbilled(
+  resident: ResidentRow,
+  schedule: FeeScheduleRecord | null,
+  listed: ListedRoomRates,
+  period: string,
+): NotBilled {
+  try {
+    const charge = resolveMonthlyCharge(
+      {
+        _id: resident._id,
+        bedType: (resident.bedType ?? null) as BedType | null,
+        monthlyFee: resident.monthlyFee,
+        moveInDate: resident.moveInDate,
+        moveOutDate: resident.moveOutDate,
+        roomType: resident.roomType,
+      },
+      schedule,
+      listed,
+    );
+
+    const invoiceAmount = computeInvoiceAmount(
+      charge.amount,
+      resident.moveInDate,
+      resident.moveOutDate,
+      period,
+    );
+
+    if (invoiceAmount.amount <= 0) {
+      // The same three-way reading `skipReasonFor` makes in the billing run.
+      // Repeated rather than imported because importing it would drag the whole
+      // write path into a read, and the mapping is three lines.
+      return {
+        amount: 0,
+        reason:
+          invoiceAmount.prorationBasis === "not yet resident"
+            ? "NOT_YET_RESIDENT"
+            : invoiceAmount.prorationBasis === "already moved out"
+              ? "ALREADY_MOVED_OUT"
+              : charge.amount === 0
+                ? "ZERO_CHARGE"
+                : "NO_BILLABLE_DAYS",
+      };
+    }
+
+    return { amount: invoiceAmount.amount, reason: "NOT_YET_RUN" };
+  } catch (error) {
+    return {
+      amount: null,
+      reason:
+        error instanceof FinanceServiceError ? error.errorCode : "FEE_SCHEDULE_MISSING",
+    };
+  }
+}
+
 export type InvoiceMatrixRow = {
   displayStatus: string;
+  /** Set only on a row with no invoice. See {@link NotBilled}. */
+  notBilled: NotBilled | null;
   payment: PortalInvoice | null;
   resident: {
     fullName: string;
@@ -359,6 +468,47 @@ export type InvoiceMatrix = {
  * **Read-only.** This is the function whose predecessor created a `Payment` row
  * for every unbilled resident as a side effect of being called, so two residents
  * could be billed differently depending on which screen an admin opened first.
+ *
+ * ## Nobody appears in a month they had not moved into yet
+ *
+ * The resident query used to be "everyone on the roster", with no reference to
+ * the period at all. A hostel that opened in July and took its first resident in
+ * August therefore showed that resident on **July**, marked `NOT_BILLED` — a red
+ * count of unbilled people for a month in which they did not live there, on the
+ * one screen whose entire job is to say who owes money. Worse, the honest fix
+ * for it looks like billing them.
+ *
+ * `moveInDate > end` is the same test `computeInvoiceAmount` already applies
+ * before it prices anybody (`"not yet resident"`), so the matrix and the billing
+ * run now agree about who a month is even about. A resident with no `moveInDate`
+ * at all is kept: an unknown start is a data gap, and hiding somebody from the
+ * screen that would reveal it is how it stays unfixed.
+ *
+ * The mirror case — a resident who moved out before the period began — is
+ * already handled below by the `MOVED_OUT` status filter, and by the rule that
+ * anybody holding an invoice for the period keeps their row whatever their
+ * status now says.
+ *
+ * ## A `PENDING` resident is not on this screen
+ *
+ * The roster query used to be `["ACTIVE", "PENDING"]`, and that put a resident
+ * who has not been admitted into the **Owing** list, permanently, marked
+ * `NOT_BILLED`. Nothing could ever clear it: `findBillableResidents` bills the
+ * admitted only, so no run — not the intake's, not the monthly cron's — would
+ * ever raise them an invoice. The row was an item on a worklist with no action
+ * behind it, and it inflated the "still owe" count on a screen whose whole job
+ * is that count.
+ *
+ * `NOT_BILLED` still means something here, and it means the thing worth seeing:
+ * an **admitted** resident nobody billed. That is a billing run that failed or
+ * a rate card that could not price them, and it needs an owner to look at it.
+ * "Not billed because they have not moved in yet" is not the same fact and does
+ * not belong in the same list; a pending resident is on the Residents tab, where
+ * their status is the actionable thing about them.
+ *
+ * They are still pulled back in by the `extraIds` lookup below if they hold an
+ * invoice for the period — an admission fee taken at booking, say. Money that
+ * exists is never hidden by a status filter.
  */
 export async function getInvoiceMatrix(
   hostelId: Types.ObjectId | string,
@@ -366,13 +516,18 @@ export async function getInvoiceMatrix(
 ): Promise<InvoiceMatrix> {
   await connectToDatabase();
 
+  const { end } = periodBounds(period);
+
   const [residents, invoices] = await Promise.all([
     ResidentModel.find({
       hostelId,
       isDeleted: { $ne: true },
-      status: { $in: ["ACTIVE", "PENDING"] },
+      $or: [{ moveInDate: { $lte: end } }, { moveInDate: null }, { moveInDate: { $exists: false } }],
+      status: "ACTIVE",
     })
-      .select("bedType firstName lastName moveInDate phone roomNumber roomType")
+      .select(
+        "bedType firstName lastName monthlyFee moveInDate moveOutDate phone roomNumber roomType",
+      )
       .lean<ResidentRow[]>(),
     InvoiceModel.find({ hostelId, period, status: { $ne: "VOID" } }).lean<
       {
@@ -385,6 +540,20 @@ export async function getInvoiceMatrix(
       }[]
     >(),
   ]);
+
+  /*
+   * The two inputs an unbilled row is priced from. Read once for the page, not
+   * once per row: the matrix is the most-opened screen in the portal and a
+   * per-resident schedule lookup would be forty round trips to say "not billed".
+   */
+  const [schedule, hostel] = await Promise.all([
+    getEffectiveSchedule(hostelId, period),
+    HostelModel.findById(hostelId)
+      .select("roomConfigurations")
+      .lean<{ roomConfigurations?: { monthlyRent?: number; roomType: string }[] } | null>(),
+  ]);
+
+  const listed = listedRoomRates(hostel?.roomConfigurations);
 
   const balances = await listRecentInvoices({ hostelId, period }, 1000);
   const balanceByInvoiceId = new Map(balances.map((row) => [row.id, row]));
@@ -410,7 +579,9 @@ export async function getInvoiceMatrix(
 
   const extras = extraIds.length
     ? await ResidentModel.find({ _id: { $in: extraIds }, isDeleted: { $ne: true } })
-        .select("bedType firstName lastName moveInDate phone roomNumber roomType")
+        .select(
+        "bedType firstName lastName monthlyFee moveInDate moveOutDate phone roomNumber roomType",
+      )
         .lean<ResidentRow[]>()
     : [];
 
@@ -419,6 +590,7 @@ export async function getInvoiceMatrix(
 
     return {
       displayStatus: invoice?.status ?? "NOT_BILLED",
+      notBilled: invoice ? null : priceUnbilled(resident, schedule, listed, period),
       payment: invoice ? toPortalInvoice(invoice) : null,
       resident: {
         fullName: `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim(),

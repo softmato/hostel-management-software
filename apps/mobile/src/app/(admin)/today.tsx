@@ -24,6 +24,7 @@ import {
   PermissionCard,
 } from "@/components/ui/states";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type AdminMaintenance,
@@ -35,7 +36,7 @@ import {
   listAdminNotices,
 } from "@/lib/admin-api";
 import { buildAlertFeed } from "@/lib/admin-alerts";
-import { formatDate, formatRelativeDay, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import type { FoodRoutine } from "@/lib/resident-api";
 
 /**
@@ -107,6 +108,7 @@ async function loadToday(): Promise<TodayData> {
  */
 
 export default function AdminTodayScreen() {
+  const dates = useDates();
   const today = useResource<TodayData>(useCallback(() => loadToday(), []), {
     topics: [
       REALTIME_TOPIC.ATTENDANCE,
@@ -147,7 +149,7 @@ export default function AdminTodayScreen() {
        */
       onBack={() => router.navigate("/(admin)")}
       showBack
-      subtitle={formatDate(new Date())}
+      subtitle={dates.date(new Date())}
       title="Today"
     />
   );
@@ -193,7 +195,7 @@ export default function AdminTodayScreen() {
           <View className="gap-3">
             {night ? (
               <>
-                <AdminRollCallCard date={formatDate(new Date())} summary={night.summary} />
+                <AdminRollCallCard date={dates.date(new Date())} summary={night.summary} />
 
                 {/*
                   The card is the digest; the roster is a screen.
@@ -289,7 +291,7 @@ export default function AdminTodayScreen() {
                         subtitle={[
                           humanizeEnum(request.category),
                           request.location,
-                          request.createdAt ? formatRelativeDay(request.createdAt) : null,
+                          request.createdAt ? dates.relativeDay(request.createdAt) : null,
                         ]
                           .filter(Boolean)
                           .join(" · ")}
@@ -352,7 +354,7 @@ export default function AdminTodayScreen() {
                     right={notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : undefined}
                     subtitle={[
                       humanizeEnum(notice.targetAudience),
-                      notice.publishedAt ? formatRelativeDay(notice.publishedAt) : null,
+                      notice.publishedAt ? dates.relativeDay(notice.publishedAt) : null,
                     ]
                       .filter(Boolean)
                       .join(" · ")}

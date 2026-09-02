@@ -17,7 +17,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findCurrentResident: vi.fn(),
+  hostelFindById: vi.fn(),
   invoiceFind: vi.fn(),
+  scheduleFindOne: vi.fn(),
   listRecentInvoices: vi.fn(),
   listResidentInvoices: vi.fn(),
   listReviewQueue: vi.fn(),
@@ -41,6 +43,21 @@ vi.mock("@/modules/finance/review.service", () => ({
 
 vi.mock("@/modules/residents/resident-access", () => ({
   findCurrentResident: mocks.findCurrentResident,
+}));
+
+/*
+ * The matrix prices its unbilled rows, so it now reads the rate card and the
+ * hostel's listed room rents. Both are mocked at the **model**, not at
+ * `fee-schedule.service`: the arithmetic that turns a rate into a projected
+ * amount is the thing worth exercising here, and stubbing the service would
+ * leave these tests asserting a mock's opinion of what a resident owes.
+ */
+vi.mock("@hostel/db/models/FeeSchedule", () => ({
+  FeeScheduleModel: { findOne: mocks.scheduleFindOne },
+}));
+
+vi.mock("@hostel/db/models/Hostel", () => ({
+  HostelModel: { findById: mocks.hostelFindById },
 }));
 
 vi.mock("@hostel/db/models/Invoice", () => ({
@@ -94,6 +111,8 @@ beforeEach(() => {
   mocks.listRecentInvoices.mockResolvedValue([ledgerInvoice]);
   mocks.listReviewQueue.mockResolvedValue([]);
   mocks.invoiceFind.mockReturnValue(lean([]));
+  mocks.hostelFindById.mockReturnValue(lean(null));
+  mocks.scheduleFindOne.mockReturnValue(lean(null));
   mocks.receiptFind.mockReturnValue(lean([]));
   mocks.residentFind.mockReturnValue(lean([]));
 });
@@ -356,6 +375,125 @@ describe("the admin matrix", () => {
 
     expect(matrix.rows[0]).toMatchObject({ displayStatus: "NOT_BILLED", payment: null });
     expect(matrix.totals.notBilled).toBe(1);
+  });
+
+  it("says what an unbilled row would cost, and that nothing has run yet", async () => {
+    /*
+     * "Not billed" on its own is a dead end for the reader: it says neither how
+     * much this resident owes for the month nor whether anybody has to act. The
+     * projection is the billing run's own arithmetic — a 17 August move-in is
+     * 15/31 of 12,000 — and it is a projection, not a debt: `payment` stays null
+     * and nothing is written.
+     */
+    mocks.scheduleFindOne.mockReturnValue(
+      lean({
+        _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0f1"),
+        effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
+        hostelId,
+        rates: [{ bedType: "DOUBLE_SHARING", monthlyAmount: 12000 }],
+      }),
+    );
+    mocks.residentFind.mockReturnValue(
+      lean([
+        {
+          _id: residentId,
+          bedType: "DOUBLE_SHARING",
+          firstName: "Asha",
+          lastName: "Rai",
+          moveInDate: new Date("2026-08-17T00:00:00.000Z"),
+          phone: "9800000000",
+        },
+      ]),
+    );
+
+    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+
+    expect(matrix.rows[0]!.notBilled).toEqual({ amount: 5806, reason: "NOT_YET_RUN" });
+    expect(matrix.rows[0]!.payment).toBeNull();
+  });
+
+  it("names the reason when nothing can price the resident at all", async () => {
+    // No rate card and no listed rent for the room type. The amount is null
+    // rather than zero — nobody knows what this costs, and a zero would read as
+    // "they owe nothing", which is a different and false claim.
+    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+
+    expect(matrix.rows[0]!.notBilled).toEqual({
+      amount: null,
+      reason: "FEE_SCHEDULE_MISSING",
+    });
+  });
+
+  it("prices an unbilled row from the hostel's listed rent when there is no card", async () => {
+    mocks.hostelFindById.mockReturnValue(
+      lean({ roomConfigurations: [{ monthlyRent: 6200, roomType: "Shared" }] }),
+    );
+    mocks.residentFind.mockReturnValue(
+      lean([
+        {
+          _id: residentId,
+          firstName: "Asha",
+          lastName: "Rai",
+          moveInDate: new Date("2026-08-01T00:00:00.000Z"),
+          roomType: "Shared",
+        },
+      ]),
+    );
+
+    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+
+    expect(matrix.rows[0]!.notBilled).toEqual({ amount: 6200, reason: "NOT_YET_RUN" });
+  });
+
+  it("carries no projection on a row that already has an invoice", async () => {
+    // `notBilled` answers "why is there no invoice". There is one.
+    mocks.invoiceFind.mockReturnValue(
+      lean([{ _id: invoiceId, period: "2026-08", residentId, status: "PARTIAL" }]),
+    );
+
+    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+
+    expect(matrix.rows[0]!.notBilled).toBeNull();
+  });
+
+  it("does not list a resident in a month they had not moved into yet", async () => {
+    /*
+     * The July-hostel / August-resident case. Before this, the query asked for
+     * the whole roster with no reference to the period, so somebody who moved in
+     * on 17 August was drawn on July's matrix as an unbilled debtor — a red
+     * count against a month they did not live there for.
+     *
+     * The filter is Mongo's, so what is asserted is the query: the period's last
+     * instant, and an explicit allowance for a resident whose start date is
+     * simply unknown.
+     */
+    await getInvoiceMatrix(hostelId, "2026-07");
+
+    expect(mocks.residentFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $or: [
+          { moveInDate: { $lte: new Date("2026-07-31T23:59:59.999Z") } },
+          { moveInDate: null },
+          { moveInDate: { $exists: false } },
+        ],
+      }),
+    );
+  });
+
+  it("does not put a resident who has not been admitted on the owing list", async () => {
+    /*
+     * `PENDING` used to be in this filter alongside `ACTIVE`, and the row it
+     * produced was unclearable: nothing bills a resident who has not been
+     * admitted, so they sat in **Owing** marked `NOT_BILLED` for ever and
+     * inflated the count the screen exists to state.
+     *
+     * The filter is Mongo's, so what is asserted is the query.
+     */
+    await getInvoiceMatrix(hostelId, "2026-08");
+
+    expect(mocks.residentFind).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ACTIVE" }),
+    );
   });
 
   it("totals under `due` and `collected`, which the metric cards read", async () => {

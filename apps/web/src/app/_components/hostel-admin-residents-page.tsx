@@ -513,7 +513,21 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
 
       try {
         const created = await browserApi<{
-          accountLink: { linked: boolean; reason?: string };
+          /** Optional for the same reason `firstMonth` is — see below. */
+          accountLink?: { linked: boolean; reason?: string };
+          /**
+           * The move-in month's rent, raised by the intake itself and pro-rated
+           * from the move-in day. `raised: false` is ordinary — a `PENDING`
+           * resident is not billable until somebody admits them, and a hostel
+           * with no rate card cannot be billed at all.
+           *
+           * Optional because this page can be newer than the API answering it,
+           * and a sentence about the invoice must not be able to report a
+           * registration that succeeded as one that failed.
+           */
+          firstMonth?:
+            | { amount: number; period: string; raised: true }
+            | { period: string; raised: false; reason: string };
           referral: { code: string } | null;
           resident: { id: string };
         }>("/api/v1/hostel-admin/residents", {
@@ -532,6 +546,11 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
             residentType: field(form, "residentType"),
             // The server decrements this room type's vacant-bed count.
             roomType: field(form, "roomType"),
+            // The ID this intake was loaded from, when it was loaded from one.
+            // It is how the server knows which account to turn into a resident
+            // login — the email on the form is their profile address, which is
+            // not necessarily the one they sign in with.
+            userResidentId: prefill ? lookupId.trim() : undefined,
           }),
           method: "POST",
         });
@@ -568,16 +587,30 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         setAddStep("identify");
         // Registering promotes their account to a resident login, so the code is
         // only worth mentioning when that automatic link did not happen.
-        const accountNote = created.accountLink.linked
+        const accountNote = created.accountLink?.linked
           ? " They can now sign in with their own email and land on their resident dashboard."
           : " Their account could not be linked automatically — generate an activation code for them.";
         const referralNote = created.referral
           ? ` Credited to referral code ${created.referral.code}.`
           : "";
+        /*
+         * Registering somebody now raises the rent for the month they move
+         * into, pro-rated from the move-in day (`raiseFirstMonthInvoice`). It is
+         * said out loud because it is a new obligation created by pressing this
+         * button — and because the case where it did *not* happen is the one an
+         * owner has to know about: a pending resident owes nothing until they
+         * are marked as living here.
+         */
+        const rentNote = !created.firstMonth
+          ? ""
+          : created.firstMonth.raised
+            ? ` ${currency(created.firstMonth.amount)} invoiced for ${created.firstMonth.period}, pro-rated from their move-in day.`
+            : " No rent is due yet — it is invoiced when they are marked as living here.";
         setMessage(
           (prefill
             ? `Resident created from ID ${lookupId.trim().toUpperCase()} — ${attachedContacts} contact record(s) added automatically.`
             : "Resident created.") +
+            rentNote +
             accountNote +
             referralNote,
         );
@@ -1166,6 +1199,27 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                         {selectedResident.email || "—"}
                       </dd>
                     </div>
+                    {/*
+                      Whether this person can actually sign in, which nothing on
+                      this screen used to say. Registering somebody is supposed
+                      to turn their existing account into a resident login; when
+                      that does not happen they are on the roll, billed, and
+                      unable to reach their own portal — and the only cure is an
+                      activation code nobody knew to issue.
+                    */}
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Account</dt>
+                      <dd
+                        className={cn(
+                          "font-medium",
+                          selectedResident.account ? "text-foreground" : "text-warning",
+                        )}
+                      >
+                        {selectedResident.account
+                          ? selectedResident.account.email || "Linked"
+                          : "No login yet"}
+                      </dd>
+                    </div>
                     <div className="flex justify-between gap-3">
                       <dt className="text-muted-foreground">Deposit</dt>
                       <dd className="font-medium text-foreground">
@@ -1242,6 +1296,14 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                   ) : null}
                 </PanelSection>
 
+                {/*
+                  Offered where it is the answer, and explained where it is not.
+                  A resident who already has a login does not need a code, and a
+                  button standing next to a linked account invites an admin to
+                  issue one and then wonder why nothing changed. A fresh code is
+                  still reachable for the real case — setting the account up
+                  again on a new phone — behind a plainer control.
+                */}
                 <PanelSection title="Activation">
                   {activationCode ? (
                     <div className="rounded-xl border border-role-admin/30 bg-role-admin-soft/50 p-4">
@@ -1251,18 +1313,48 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                       <p className="mt-2 font-mono text-2xl font-bold tracking-widest text-role-admin">
                         {activationCode}
                       </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Emailed to them if they have an address on file. It is used
+                        once, and only after they sign in to their own account.
+                      </p>
+                    </div>
+                  ) : selectedResident.account ? (
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        They sign in as{" "}
+                        <span className="font-medium text-foreground">
+                          {selectedResident.account.email || "their linked account"}
+                        </span>{" "}
+                        and land on their resident dashboard. No code is needed.
+                      </p>
+                      <Button
+                        className="w-full gap-2"
+                        onClick={() => handleGenerateActivation(activeResidentId)}
+                        type="button"
+                        variant="outline"
+                      >
+                        <QrCode className="size-4" />
+                        Issue a new code anyway
+                      </Button>
                     </div>
                   ) : (
-                    <RoleButton
-                      className="w-full"
-                      onClick={() => handleGenerateActivation(activeResidentId)}
-                      tone="admin"
-                      type="button"
-                      variant="outline"
-                    >
-                      <QrCode className="size-4" />
-                      Generate Activation Code
-                    </RoleButton>
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        This resident has no login yet. The code is how they claim
+                        one — they sign in to their own account, enter it, and their
+                        resident portal opens.
+                      </p>
+                      <RoleButton
+                        className="w-full"
+                        onClick={() => handleGenerateActivation(activeResidentId)}
+                        tone="admin"
+                        type="button"
+                        variant="outline"
+                      >
+                        <QrCode className="size-4" />
+                        Generate Activation Code
+                      </RoleButton>
+                    </div>
                   )}
                 </PanelSection>
 

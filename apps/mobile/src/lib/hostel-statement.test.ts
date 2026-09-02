@@ -289,7 +289,7 @@ describe("statementSummary", () => {
       ]),
     );
 
-    expect(statementSummary(credits, now)).toEqual({
+    expect(statementSummary(credits, "AD", now)).toEqual({
       count: 2,
       periodLabel: "August 2026",
       total: 9000,
@@ -301,7 +301,7 @@ describe("statementSummary", () => {
       ledger([entry({ paidDate: "2025-01-01T00:00:00.000Z" })]),
     );
 
-    expect(statementSummary(credits, now).total).toBe(0);
+    expect(statementSummary(credits, "AD", now).total).toBe(0);
   });
 });
 
@@ -309,19 +309,50 @@ describe("row copy", () => {
   it("names the month a credit is for", () => {
     const [credit] = statementCredits(ledger([entry()]));
 
-    expect(creditTitle(credit)).toBe("August 2026 rent from Kartik Adhikari");
+    expect(creditTitle(credit, "AD")).toBe("August 2026 rent from Kartik Adhikari");
   });
 
   it("says one-off rather than borrowing a month it has none of", () => {
     const [credit] = statementCredits(ledger([entry({ month: null })]));
 
-    expect(creditTitle(credit)).toBe("One-off charge from Kartik Adhikari");
+    expect(creditTitle(credit, "AD")).toBe("One-off charge from Kartik Adhikari");
   });
 
   it("does not start with a space when the resident could not be resolved", () => {
     const [credit] = statementCredits(ledger([entry({ residentName: "" })]));
 
-    expect(creditTitle(credit)).toBe("August 2026 rent from a resident");
+    expect(creditTitle(credit, "AD")).toBe("August 2026 rent from a resident");
+  });
+
+  /*
+   * The bug this pins: the sheet's "For" row went through `dates.period` and
+   * read `Shrawan 2083`, while the title directly above it went through
+   * `formatPeriod` and read `August 2026` — the same month, in two calendars,
+   * on the same card.
+   */
+  it("spells the month in the calendar the portal is set to", () => {
+    const [credit] = statementCredits(ledger([entry()]));
+
+    expect(creditTitle(credit, "BS")).toBe("Shrawan 2083 rent from Kartik Adhikari");
+    expect(rangeLabel(filter({ from: "2026-08-20", to: "2026-08-26" }), "BS")).toBe(
+      "4 Bhadra 2083 to 10 Bhadra 2083",
+    );
+    expect(
+      statementSummary(
+        statementCredits(ledger([entry({ paidAmount: 5000 })])),
+        "BS",
+        new Date("2026-08-26T06:00:00.000Z"),
+      ).periodLabel,
+    ).toBe("Shrawan 2083");
+  });
+
+  it("finds a row by either calendar's month name, whatever is on screen", () => {
+    // The search index is not the display. An owner reading Nepali dates types
+    // "bhadra"; one reading English types "august"; both mean this row.
+    const credits = statementCredits(ledger([entry()]));
+
+    expect(filterCredits(credits, filter({ query: "august 2026" }))).toHaveLength(1);
+    expect(filterCredits(credits, filter({ query: "shrawan" }))).toHaveLength(1);
   });
 
   it("knows a part payment from a settled one", () => {
@@ -345,13 +376,13 @@ describe("visibleTotal", () => {
 
 describe("rangeLabel", () => {
   it("names both ends, one end, or neither", () => {
-    expect(rangeLabel(filter({ from: "2026-08-20", to: "2026-08-26" }))).toBe(
+    expect(rangeLabel(filter({ from: "2026-08-20", to: "2026-08-26" }), "AD")).toBe(
       "20 Aug 2026 to 26 Aug 2026",
     );
-    expect(rangeLabel(filter({ from: "2026-08-20", to: "2026-08-20" }))).toBe("20 Aug 2026");
-    expect(rangeLabel(filter({ from: "2026-08-20" }))).toBe("20 Aug 2026 onwards");
-    expect(rangeLabel(filter({ to: "2026-08-26" }))).toBe("Up to 26 Aug 2026");
-    expect(rangeLabel(NO_FILTER)).toBe("All time");
+    expect(rangeLabel(filter({ from: "2026-08-20", to: "2026-08-20" }), "AD")).toBe("20 Aug 2026");
+    expect(rangeLabel(filter({ from: "2026-08-20" }), "AD")).toBe("20 Aug 2026 onwards");
+    expect(rangeLabel(filter({ to: "2026-08-26" }), "AD")).toBe("Up to 26 Aug 2026");
+    expect(rangeLabel(NO_FILTER, "AD")).toBe("All time");
   });
 });
 
@@ -363,6 +394,7 @@ describe("statementShareText", () => {
   it("describes the filtered view, not the lifetime figure", () => {
     expect(
       statementShareText({
+        calendar: "AD",
         credits,
         filter: filter({ from: "2026-08-20", to: "2026-08-26" }),
         hostelName: "Green View Hostel",
@@ -378,13 +410,18 @@ describe("statementShareText", () => {
 
   it("falls back to a generic first line for a warden with no single hostel", () => {
     expect(
-      statementShareText({ credits: [], filter: NO_FILTER, hostelName: "" }),
+      statementShareText({ calendar: "AD", credits: [], filter: NO_FILTER, hostelName: "" }),
     ).toBe(["Hostel statement", "All time", "0 payments · NPR 0 received"].join("\n"));
   });
 
   it("says payment, singular, when there is one", () => {
     expect(
-      statementShareText({ credits: credits.slice(0, 1), filter: NO_FILTER, hostelName: "" }),
+      statementShareText({
+        calendar: "AD",
+        credits: credits.slice(0, 1),
+        filter: NO_FILTER,
+        hostelName: "",
+      }),
     ).toContain("1 payment · ");
   });
 });

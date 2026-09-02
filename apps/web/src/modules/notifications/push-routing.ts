@@ -35,6 +35,7 @@ const CATEGORY_PATHS: Record<string, string> = {
   NOTICE: "/(resident)/notices",
   PAYMENT: "/(resident)/payments",
   PLUMBER: "/(provider)",
+  RESIDENT: "/(admin)/residents",
   REVIEW: "/(resident)/more/reviews",
   ROOM: "/(resident)/more/profile",
   SERVICE_PROVIDER: "/(provider)",

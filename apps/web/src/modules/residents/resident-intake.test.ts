@@ -163,6 +163,61 @@ describe("intake quote", () => {
     expect(result.referral.reason).toMatch(/no admission fee/i);
   });
 
+  it("prices the move-in month from the move-in day, not as a whole month", () => {
+    // 6000 a month, arriving on 20 August: twelve days of a thirty-one-day
+    // month. The figure the warden reads out at the desk has to be the one the
+    // invoice raises seconds later, which is why both come from
+    // `computeInvoiceAmount`.
+    const result = quoteIntake({
+      hostel,
+      moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+      referralCodeActive: false,
+      roomType: "Four Sharing",
+      schedule: schedule(),
+    });
+
+    expect(result.firstMonth).toEqual({
+      amount: 2323,
+      billableDays: 12,
+      daysInMonth: 31,
+      period: "2026-08",
+      prorated: true,
+    });
+  });
+
+  it("does not call a full first month pro-rated", () => {
+    // Somebody arriving on the 1st owes the whole rent, and a "pro-rated" flag
+    // that is true for them is a caption nobody can explain.
+    const result = quoteIntake({
+      hostel,
+      moveInDate: new Date("2026-08-01T00:00:00.000Z"),
+      referralCodeActive: false,
+      roomType: "Four Sharing",
+      schedule: schedule(),
+    });
+
+    expect(result.firstMonth).toMatchObject({
+      amount: 6000,
+      billableDays: 31,
+      prorated: false,
+    });
+  });
+
+  it("has no first month to quote when the room type is unpriced", () => {
+    // A confident zero would read as a free month. `null` is the same answer
+    // `monthlyRent` gives, and the screen already knows how to draw it.
+    const result = quoteIntake({
+      hostel: { pricing: {}, roomConfigurations: [] },
+      moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+      referralCodeActive: false,
+      roomType: "Nobody Priced This",
+      schedule: schedule(),
+    });
+
+    expect(result.rentBasis).toBe("UNPRICED");
+    expect(result.firstMonth).toBeNull();
+  });
+
   it("reads the move-in month in UTC, so the schedule chosen does not drift", () => {
     // 23:30 on the 31st in Kathmandu is still January in UTC — and picking
     // February here would price the intake off a rate card that has not started.

@@ -366,6 +366,76 @@ describe("a missing fee schedule", () => {
     expect(mocks.invoiceCreate).not.toHaveBeenCalled();
   });
 
+  it("bills from the room's own listed rent instead", async () => {
+    /*
+     * The defect this closes: the intake screen quoted the listed price at the
+     * door (`quoteIntake` falls back to `roomConfigurations`), and then the
+     * billing run refused the same resident because no `FeeSchedule` existed.
+     * The warden read out an amount, nobody was ever invoiced for it, and the
+     * Money tab said "Not billed" for ever with nothing owed to chase.
+     */
+    mocks.hostelFindOne.mockReturnValue(
+      lean({
+        referencePrefix: "RUP",
+        roomConfigurations: [{ monthlyRent: 12000, roomType: "DOUBLE_SHARING" }],
+      }),
+    );
+    mocks.scheduleFindOne.mockReturnValue(lean(null));
+    mocks.residentFind.mockReturnValue(lean([resident({ roomType: "DOUBLE_SHARING" })]));
+
+    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+
+    expect(result.billed).toHaveLength(1);
+    expect(result.totalBilled).toBe(12000);
+
+    // MANUAL, and no `feeScheduleId`: no rate card stands behind this line and
+    // the invoice must not claim one does.
+    const line = (mocks.invoiceCreate.mock.calls[0]![0] as { lines: { basis: string; feeScheduleId: unknown }[] })
+      .lines[0]!;
+
+    expect(line.basis).toBe("MANUAL");
+    expect(line.feeScheduleId).toBeNull();
+  });
+
+  it("prices a room type the rate card missed from its listed rent", async () => {
+    // A schedule that prices two bed types and not this resident's used to be a
+    // per-resident BED_TYPE_NOT_PRICED failure. The owner's own listed rent for
+    // that room type answers it.
+    mocks.hostelFindOne.mockReturnValue(
+      lean({
+        referencePrefix: "RUP",
+        roomConfigurations: [{ monthlyRent: 7000, roomType: "Shared" }],
+      }),
+    );
+    mocks.residentFind.mockReturnValue(
+      lean([resident({ bedType: null, roomType: "Shared" })]),
+    );
+
+    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+
+    expect(result.billed[0]!.amount).toBe(7000);
+    expect(result.failures).toHaveLength(0);
+  });
+
+  it("still refuses to let one resident's override rescue a hostel with no prices", async () => {
+    // Unchanged, and deliberately: an override is one resident's exception, not
+    // a price for the roster. Billing only the overridden residents leaves a
+    // month half-done that nobody can tell from a finished one.
+    mocks.hostelFindOne.mockReturnValue(
+      lean({ referencePrefix: "RUP", roomConfigurations: [] }),
+    );
+    mocks.scheduleFindOne.mockReturnValue(lean(null));
+    mocks.residentFind.mockReturnValue(
+      lean([resident(), resident({ _id: residentB, monthlyFee: 9000 })]),
+    );
+
+    await expect(
+      runBillingCycle({ hostelId, period: "2026-08" }, principal),
+    ).rejects.toMatchObject({ errorCode: "FEE_SCHEDULE_MISSING" });
+
+    expect(mocks.invoiceCreate).not.toHaveBeenCalled();
+  });
+
   it("stops before billing when the hostel has no reference prefix", async () => {
     mocks.hostelFindOne.mockReturnValue(lean({ referencePrefix: null }));
     mocks.allocateReferenceCode.mockRejectedValue(

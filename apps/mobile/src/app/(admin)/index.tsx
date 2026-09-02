@@ -307,7 +307,15 @@ export default function AdminHomeScreen() {
               claims={alerts.counts.claim}
               inquiries={alerts.counts.inquiry}
               onClaims={() => router.push("/(admin)/money")}
-              onInquiries={() => router.push("/(admin)/residents")}
+              /*
+                `manage/inquiries`, not the Residents tab.
+
+                It pointed at the roster, which is a list of people who already
+                live here — so the tile's red count sent you to a screen that did
+                not contain the thing it was counting, and there was nowhere to
+                clear it. See the note at the top of `manage/inquiries.tsx`.
+              */
+              onInquiries={() => router.push("/manage/inquiries")}
               /*
                 `manage/notices` opens on its list with a "Write a notice"
                 floating button, so the time-sensitive case — water off until

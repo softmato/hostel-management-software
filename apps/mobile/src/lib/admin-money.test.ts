@@ -4,7 +4,11 @@ import type { AdminInvoiceRow } from "@/lib/admin-api";
 import {
   amountOwed,
   invoiceSegment,
+  isFirstMonth,
+  isProRated,
+  notBilledReason,
   outstandingRows,
+  projectedAmount,
   searchInvoiceRows,
 } from "@/lib/admin-money";
 
@@ -12,7 +16,12 @@ function row(
   fullName: string,
   displayStatus: string,
   payment: { dueAmount: number; paidAmount: number } | null,
-  resident: { phone?: string; roomNumber?: string; roomType?: string } = {},
+  resident: {
+    moveInDate?: string;
+    phone?: string;
+    roomNumber?: string;
+    roomType?: string;
+  } = {},
 ): AdminInvoiceRow {
   return {
     displayStatus,
@@ -28,11 +37,53 @@ function row(
     resident: {
       fullName,
       id: `resident-${fullName}`,
-      moveInDate: "2026-01-01",
+      moveInDate: "2026-01-01T00:00:00.000Z",
       ...resident,
     },
   };
 }
+
+describe("the projection on an unbilled row", () => {
+  function unbilled(notBilled: AdminInvoiceRow["notBilled"]): AdminInvoiceRow {
+    return { ...row("Bimal", "NOT_BILLED", null), notBilled };
+  }
+
+  it("is what the month would cost", () => {
+    expect(projectedAmount(unbilled({ amount: 5806, reason: "NOT_YET_RUN" }))).toBe(5806);
+  });
+
+  it("is nothing when the server could not price them", () => {
+    // `null` is not zero. Nobody knows what this costs, and "would be NPR 0"
+    // claims they owe nothing, which is a different and false statement.
+    expect(
+      projectedAmount(unbilled({ amount: null, reason: "FEE_SCHEDULE_MISSING" })),
+    ).toBeNull();
+    expect(projectedAmount(unbilled({ amount: 0, reason: "ALREADY_MOVED_OUT" }))).toBeNull();
+  });
+
+  it("is nothing on an API that does not send the field", () => {
+    // A debug build talks to the deployed origin, so this build's fields can
+    // simply be absent. The row then renders as it always did.
+    expect(projectedAmount(row("Bimal", "NOT_BILLED", null))).toBeNull();
+  });
+
+  it("stays out of what is owed", () => {
+    // The outstanding total is money somebody has been invoiced for. A
+    // projection in it would inflate every figure on the screen.
+    expect(amountOwed(unbilled({ amount: 5806, reason: "NOT_YET_RUN" }))).toBe(0);
+  });
+
+  it("says why in words, and says nothing for a code it does not know", () => {
+    expect(notBilledReason(unbilled({ amount: 5806, reason: "NOT_YET_RUN" }))).toMatch(
+      /billing run/,
+    );
+    expect(
+      notBilledReason(unbilled({ amount: null, reason: "BED_TYPE_NOT_PRICED" })),
+    ).toMatch(/room type/);
+    expect(notBilledReason(unbilled({ amount: null, reason: "SOMETHING_NEW" }))).toBeNull();
+    expect(notBilledReason(row("Bimal", "NOT_BILLED", null))).toBeNull();
+  });
+});
 
 describe("amountOwed", () => {
   it("is the unpaid remainder, not the invoice total", () => {
@@ -234,5 +285,36 @@ describe("searchInvoiceRows", () => {
     searchInvoiceRows(source, "asha");
 
     expect(source).toHaveLength(2);
+  });
+});
+
+describe("the first-month note", () => {
+  const moved = (moveInDate: string) =>
+    row("Asha", "UNPAID", { dueAmount: 4200, paidAmount: 0 }, { moveInDate });
+
+  it("marks the month a resident moved in, and no other", () => {
+    // The point of the note: 4,200 next to everyone else's 8,500 is arithmetic,
+    // not a billing fault, and an owner with no way to tell will go looking.
+    expect(isFirstMonth(moved("2026-08-17T00:00:00.000Z"), "2026-08")).toBe(true);
+    expect(isFirstMonth(moved("2026-08-17T00:00:00.000Z"), "2026-09")).toBe(false);
+    expect(isFirstMonth(moved("2026-07-31T00:00:00.000Z"), "2026-08")).toBe(false);
+  });
+
+  it("does not claim a pro-rated amount for somebody admitted on the 1st", () => {
+    // Their first month is billed in full. Explaining a discount they did not
+    // get is worse than saying nothing — the figure is right and the note would
+    // say it is not.
+    const first = moved("2026-08-01T00:00:00.000Z");
+
+    expect(isFirstMonth(first, "2026-08")).toBe(true);
+    expect(isProRated(first, "2026-08")).toBe(false);
+    expect(isProRated(moved("2026-08-17T00:00:00.000Z"), "2026-08")).toBe(true);
+  });
+
+  it("says nothing at all when the move-in date is missing", () => {
+    // An unknown start is a data gap, not a first month. Guessing either way
+    // puts a claim about money on a row the server could not support.
+    expect(isFirstMonth(moved(""), "2026-08")).toBe(false);
+    expect(isProRated(moved(""), "2026-08")).toBe(false);
   });
 });

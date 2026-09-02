@@ -4,6 +4,7 @@ import type { ResidentPrefill } from "@/lib/admin-manage-api";
 import {
   backgroundFacts,
   careFacts,
+  firstMonthNote,
   identityFacts,
   intakePeople,
   rentBasisNote,
@@ -74,7 +75,7 @@ function prefill(overrides: Partial<ResidentPrefill> = {}): ResidentPrefill {
 
 describe("intake confirm rows", () => {
   it("labels the ID row by the document they actually carry", () => {
-    const rows = identityFacts(prefill());
+    const rows = identityFacts(prefill(), "AD");
 
     // Not "Government ID" — the card names itself, and a warden is looking at it.
     expect(rows).toContainEqual({ label: "Citizenship", value: "12-34-56" });
@@ -85,6 +86,7 @@ describe("intake confirm rows", () => {
       prefill({
         details: { ...prefill().details, age: null, governmentIdNumber: null },
       }),
+      "AD",
     );
 
     const labels = rows.map((row) => row.label);
@@ -151,5 +153,23 @@ describe("intake confirm rows", () => {
     expect(rentBasisNote("SCHEDULE")).toMatch(/rate card/i);
     expect(rentBasisNote("ROOM_CONFIGURATION")).toMatch(/no rate card/i);
     expect(rentBasisNote("UNPRICED")).toMatch(/nothing prices/i);
+  });
+
+  it("shows the fraction behind a part month, and never 31 of 31", () => {
+    // The numerator and denominator are the resident's answer to "why is this
+    // not the rent you quoted me", and they match the invoice line's own
+    // `prorationBasis` word for word.
+    expect(
+      firstMonthNote({ billableDays: 12, daysInMonth: 31, prorated: true }),
+    ).toMatch(/12 of 31 days/);
+
+    const full = firstMonthNote({
+      billableDays: 31,
+      daysInMonth: 31,
+      prorated: false,
+    });
+
+    expect(full).not.toMatch(/31 of 31/);
+    expect(full).toMatch(/full month/i);
   });
 });

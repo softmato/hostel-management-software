@@ -89,7 +89,9 @@ export async function proxy(request: NextRequest) {
 
     const role = payload.role as Role;
 
-    if (rule.roles.includes(role)) {
+    // `roles: null` means the route only asks that somebody is signed in, which
+    // the valid token above has already established.
+    if (!rule.roles || rule.roles.includes(role)) {
       return NextResponse.next();
     }
 
@@ -118,6 +120,9 @@ export const config = {
     "/:hostelSlug/admin/:path*",
     "/resident/:path*",
     "/guardian/:path*",
+    /* The service provider's assigned-jobs list. */
+    "/jobs/:path*",
+    "/jobs",
     /* Route aliases */
     "/signin",
     "/log-in",

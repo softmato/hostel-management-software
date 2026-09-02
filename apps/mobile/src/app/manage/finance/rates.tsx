@@ -10,6 +10,7 @@ import { Chip } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   BED_TYPE_LABELS,
@@ -21,7 +22,6 @@ import {
   listFeeSchedules,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate } from "@/lib/format";
 import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
 import { toastError, toastSuccess } from "@/lib/toast";
 
@@ -57,6 +57,7 @@ import { toastError, toastSuccess } from "@/lib/toast";
  */
 
 export default function ManageRatesScreen() {
+  const dates = useDates();
   const [busy, setBusy] = useState(false);
   const [ratesDraft, setRatesDraft] = useState<Record<string, string> | null>(null);
   const [formDraft, setFormDraft] = useState<Record<string, string> | null>(null);
@@ -223,7 +224,7 @@ export default function ManageRatesScreen() {
           accent
           centerTitle
           showBack
-          subtitle={open ? `Replaces the rates from ${formatDate(open.effectiveFrom)}` : undefined}
+          subtitle={open ? `Replaces the rates from ${dates.date(open.effectiveFrom)}` : undefined}
           title={open ? "New rates" : "Set the rates"}
         />
       }

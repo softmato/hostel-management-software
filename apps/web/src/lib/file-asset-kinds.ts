@@ -9,6 +9,16 @@
  */
 export const FILE_ASSET_KINDS = [
   "GENERIC",
+  /**
+   * A spoken description of a maintenance problem, attached to one request.
+   *
+   * Its own kind rather than `GENERIC` because it is the only asset in the
+   * product read by somebody outside the hostel — the assigned service provider
+   * — and `files/{assetId}/url` grants that access only for this kind. A
+   * `GENERIC` asset stays hostel-and-owner-only, which is the default that
+   * should never widen by accident.
+   */
+  "MAINTENANCE_NOTE",
   "PAYMENT_PROOF",
   "PAYMENT_QR",
   "STATEMENT",

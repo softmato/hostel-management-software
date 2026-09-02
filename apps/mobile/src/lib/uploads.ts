@@ -31,7 +31,18 @@ import { type ApiEnvelope, readApiError, unwrap } from "@/lib/api-contract";
 import { resolveFileName, resolveMimeType } from "@/lib/mime";
 import { finishUpload, startUpload, updateUpload } from "@/lib/upload-queue";
 
-export type FileAssetKind = "GENERIC" | "PAYMENT_PROOF" | "PAYMENT_QR" | "STATEMENT";
+export type FileAssetKind =
+  | "GENERIC"
+  /**
+   * A spoken description of a maintenance problem. Its own kind because it is
+   * the only asset in the product a **service provider** can read — the server's
+   * `files/{assetId}/url` widens access for this kind, and for nothing else, to
+   * the one provider the job was assigned to.
+   */
+  | "MAINTENANCE_NOTE"
+  | "PAYMENT_PROOF"
+  | "PAYMENT_QR"
+  | "STATEMENT";
 
 export type UploadProgress = {
   /** 0–1, or null while the size is unknown. */

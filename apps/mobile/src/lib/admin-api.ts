@@ -351,6 +351,31 @@ export async function getAdminAlerts(): Promise<AdminAlerts> {
  */
 export type AdminInvoiceRow = {
   displayStatus: string;
+  /**
+   * What this month **would** cost, and why no invoice exists — set only on a
+   * `NOT_BILLED` row.
+   *
+   * A projection, never a debt: `amountOwed` deliberately ignores it, because a
+   * hostel's outstanding total must not count money nobody has been invoiced
+   * for. It is here so the screen can answer the two questions "Not billed" left
+   * hanging — how much, and does anybody have to do something.
+   *
+   * Optional on the type because a phone can be pointed at an API older than
+   * this build (`EXPO_PUBLIC_API_URL` sends even a debug build to the deployed
+   * origin). An absent field renders as the bare status it always did.
+   */
+  notBilled?: {
+    /** Null when nothing prices this resident — see `reason`. */
+    amount: number | null;
+    /**
+     * `NOT_YET_RUN` — priceable, the month's run has not happened.
+     * `FEE_SCHEDULE_MISSING` / `BED_TYPE_NOT_PRICED` — no rate card and no
+     * listed rent covers this room type; a person has to fix it.
+     * `NOT_YET_RESIDENT` / `ALREADY_MOVED_OUT` / `NO_BILLABLE_DAYS` /
+     * `ZERO_CHARGE` — nothing is owed, and that is correct.
+     */
+    reason: string;
+  } | null;
   payment: {
     /** What the month costs. `paidAmount` is what has actually landed. */
     dueAmount: number;

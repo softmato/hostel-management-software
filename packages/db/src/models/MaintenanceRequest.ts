@@ -26,6 +26,22 @@ const maintenanceRequestSchema = new Schema(
     },
     title: { required: true, trim: true, type: String },
     description: { trim: true, type: String },
+    /**
+     * A spoken description of the problem, recorded on the phone that raised
+     * the request.
+     *
+     * Why it exists: the person who can see the leak is a warden standing in
+     * front of it, and the person who has to understand it is a plumber reading
+     * a sentence somebody typed one-handed. Thirty seconds of "it is the pipe
+     * under the sink in 204, not the tap, and it only drips when the pump runs"
+     * carries what a title never will.
+     *
+     * The asset is **PRIVATE** — it names rooms and is often recorded with
+     * residents audible in the background — so it is read through
+     * `files/{assetId}/url`, which grants the hostel, the platform, and the one
+     * provider this request is assigned to. Nothing else.
+     */
+    voiceNoteAssetId: { ref: "FileAsset", type: Schema.Types.ObjectId },
     priority: {
       default: "MEDIUM",
       enum: ["LOW", "MEDIUM", "HIGH", "URGENT"],

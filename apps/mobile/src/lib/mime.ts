@@ -13,6 +13,12 @@
  */
 
 const EXTENSION_MIME: Record<string, string> = {
+  /**
+   * What `expo-audio` writes for a maintenance voice note. AAC in an MPEG-4
+   * container, and the platform's own `audio/x-m4a` label is what the server's
+   * allowlist and byte sniffer both expect.
+   */
+  m4a: "audio/x-m4a",
   heic: "image/heic",
   heif: "image/heif",
   jpeg: "image/jpeg",
@@ -43,6 +49,17 @@ export function resolveMimeType(asset: PickedFile): string {
 }
 
 /**
+ * Whether this file is a recording rather than a picture.
+ *
+ * Used by the screens that draw a play button instead of a thumbnail. Reads the
+ * resolved type rather than the extension, so a recorder that labels its own
+ * output is believed over a guess from the path.
+ */
+export function isAudio(asset: PickedFile): boolean {
+  return resolveMimeType(asset).startsWith("audio/");
+}
+
+/**
  * A name is required by the presign route and becomes part of the storage key,
  * so an unnamed pick gets a unique one rather than a hundred files called
  * "image".
@@ -55,6 +72,7 @@ export function resolveFileName(asset: PickedFile): string {
   const mime = resolveMimeType(asset);
   const extension =
     Object.entries(EXTENSION_MIME).find(([, value]) => value === mime)?.[0] ?? "jpg";
+
 
   return `upload-${Date.now()}.${extension}`;
 }

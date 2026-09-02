@@ -12,6 +12,7 @@ import { Screen } from "@/components/ui/screen";
 import { Segmented } from "@/components/ui/segmented";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type AttendanceAnalytics,
@@ -27,7 +28,7 @@ import {
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
-import { formatDate, formatMoney, formatPeriod, humanizeEnum } from "@/lib/format";
+import { formatMoney, humanizeEnum } from "@/lib/format";
 import { toastError } from "@/lib/toast";
 
 /**
@@ -170,6 +171,7 @@ async function loadReports(month: string): Promise<ReportsData> {
 }
 
 export default function ManageReportsScreen() {
+  const dates = useDates();
   const [month, setMonth] = useState("");
   const [tab, setTab] = useState<Tab>("money");
   const [exporting, setExporting] = useState<ReportExport | "">("");
@@ -238,7 +240,7 @@ export default function ManageReportsScreen() {
           accent
           centerTitle
           showBack
-          subtitle={`As of ${formatDate(overview.generatedAt)}`}
+          subtitle={`As of ${dates.date(overview.generatedAt)}`}
           title="Reports"
         />
       }
@@ -324,7 +326,7 @@ export default function ManageReportsScreen() {
               <SectionHeader
                 action={
                   months.length > 0 ? (
-                    <Text variant="caption">{formatPeriod(selected.month)}</Text>
+                    <Text variant="caption">{dates.period(selected.month)}</Text>
                   ) : undefined
                 }
                 subtitle="Billed against collected, month by month"
@@ -375,7 +377,7 @@ export default function ManageReportsScreen() {
                   {months.map((option) => (
                     <Chip
                       key={option}
-                      label={formatPeriod(option)}
+                      label={dates.period(option)}
                       onPress={() => setMonth(option)}
                       tone={month === option ? "brand" : "neutral"}
                     />
@@ -426,7 +428,7 @@ export default function ManageReportsScreen() {
                           {row.residentName}
                         </Text>
                         <Text variant="caption">
-                          {`${formatPeriod(row.month)} · ${row.roomType || "—"}${row.method ? ` · ${humanizeEnum(row.method)}` : ""}`}
+                          {`${dates.period(row.month)} · ${row.roomType || "—"}${row.method ? ` · ${humanizeEnum(row.method)}` : ""}`}
                         </Text>
                       </View>
                       <View className="items-end">

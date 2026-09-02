@@ -27,6 +27,17 @@ describe("statusTone", () => {
     expect(statusTone("NOT_BILLED")).toBe("warning");
   });
 
+  it("keeps an unanswered lead amber and a converted one green", () => {
+    // The whole inquiry ladder is mapped rather than left to the neutral
+    // fallback: `NEW` is what the red count on admin Home is counting, and a
+    // grey pill on the one row that needs somebody is the opposite of a badge.
+    expect(statusTone("NEW")).toBe("warning");
+    expect(statusTone("CONTACTED")).toBe("info");
+    expect(statusTone("VISIT_SCHEDULED")).toBe("info");
+    expect(statusTone("CONVERTED")).toBe("success");
+    expect(statusTone("CLOSED")).toBe("neutral");
+  });
+
   it("falls back to neutral for an enum nobody mapped", () => {
     expect(statusTone("SOME_NEW_SERVER_STATUS")).toBe("neutral");
     expect(statusTone(null)).toBe("neutral");

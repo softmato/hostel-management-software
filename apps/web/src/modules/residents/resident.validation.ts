@@ -53,7 +53,39 @@ export const residentCreateSchema = z.object({
   referralCode: z.string().trim().min(4).max(32).optional(),
   residentType: residentTypeSchema.default("STUDENT"),
   roomType: z.string().trim().min(1).max(80),
-  status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).default("PENDING"),
+  /**
+   * Registering somebody admits them, unless the caller says otherwise.
+   *
+   * This defaulted to `PENDING`, and a `PENDING` resident is not billed —
+   * `findBillableResidents` bills the admitted only. So a hostel that registered
+   * a resident through the web portal, which sends no status, got somebody who
+   * sat on the Payments tab reading **Not billed** for ever: the intake raised
+   * no first-month rent, and the monthly cron skipped them too. Nothing chased
+   * it, because nothing was owed.
+   *
+   * `ACTIVE` is what registering a resident means in this product — the mobile
+   * intake already sent it, so the two front doors disagreed. `PENDING` is still
+   * a value a caller may pass on purpose, for the pre-booking that has not
+   * arrived yet; marking that resident active later bills their move-in month
+   * through the same path.
+   */
+  status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]).default("ACTIVE"),
+  /**
+   * The platform resident ID the hostel scanned to open this intake — the
+   * `HH-4K7M-9XQ2` off their card, or the scan URL it encodes.
+   *
+   * This is how a scanned registration knows *which account* it is registering.
+   * Without it the server could only re-find the person by their email address,
+   * and the address it had was `primaryEmail` off their profile form — a field
+   * the resident types and may edit, not the one they sign in with. So a
+   * resident whose profile email drifted from their login was registered
+   * successfully and never linked: their account stayed PUBLIC, and the resident
+   * portal never appeared for somebody the hostel had literally just scanned.
+   *
+   * Optional, because the manual path has no card to read. That path still falls
+   * back to matching on email.
+   */
+  userResidentId: z.string().trim().min(1).max(200).optional(),
 });
 
 export const residentUpdateSchema = z.object({

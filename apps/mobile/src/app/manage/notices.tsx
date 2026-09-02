@@ -1,5 +1,6 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
@@ -14,8 +15,9 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { Toggle } from "@/components/ui/toggle";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   createManagedNotice,
@@ -27,7 +29,7 @@ import {
   updateManagedNotice,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDateTime, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import {
   dayInputFromNow,
   endOfDayIso,
@@ -57,6 +59,19 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * not gone out yet; `expiresAt` in the past means it no longer applies. The
  * segments below are those two comparisons and nothing else, which is why a
  * notice can move between them without anybody editing it.
+ *
+ * ## The compose sheet is three fields and a drawer
+ *
+ * A notice is a title, a body and how loud it is. Everything else — category,
+ * audience, when it goes out, when it stops applying — has a working default
+ * that is right for almost every notice anybody writes, and putting all seven
+ * on one sheet turned *water is off until 4pm* into a form. The people using
+ * this run hostels; they are not filling in a ticket.
+ *
+ * So four of the seven moved behind `More options`, shut by default, with a
+ * summary line on the closed row saying what those four currently are. Hidden
+ * and *silent* are different things: somebody who scheduled a notice for
+ * Tuesday last time must be able to see that from the outside of the drawer.
  *
  * ## There is no delete, on purpose
  *
@@ -137,13 +152,44 @@ function draftFrom(notice: ManagedNotice): Draft {
   };
 }
 
+/**
+ * The line on the closed `More options` row.
+ *
+ * Four values in the order they are asked about, and each one says its
+ * *default* in plain words rather than being left out — `Now` and `No expiry`
+ * are facts about the notice, and a summary that listed only the non-default
+ * ones would change length as it was edited and read as a list of problems.
+ */
+function draftSummary(draft: Draft): string {
+  return [
+    humanizeEnum(draft.category),
+    AUDIENCE_OPTIONS.find((option) => option.value === draft.targetAudience)?.label ??
+      "Everyone",
+    draft.publishOn ? `From ${draft.publishOn}` : "Now",
+    draft.expiresOn ? `Until ${draft.expiresOn}` : "No expiry",
+  ].join(" · ");
+}
+
+/** Whether any of the four differs from what a blank notice would carry. */
+function hasExtraOptions(draft: Draft): boolean {
+  return (
+    draft.category !== BLANK_DRAFT.category ||
+    draft.targetAudience !== BLANK_DRAFT.targetAudience ||
+    draft.publishOn !== "" ||
+    draft.expiresOn !== ""
+  );
+}
+
 export default function ManageNoticesScreen() {
+  const { colors } = useAppTheme();
+  const dates = useDates();
   const [category, setCategory] = useState<string>("");
   const [state, setState] = useState<NoticeState>("all");
   const [editing, setEditing] = useState<ManagedNotice | null>(null);
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState<Draft>(BLANK_DRAFT);
   const [saving, setSaving] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   const notices = useResource<ManagedNotice[]>(
     useCallback(() => listManagedNotices({ category }), [category]),
@@ -258,13 +304,23 @@ export default function ManageNoticesScreen() {
     [reload],
   );
 
+  /*
+   * The drawer opens with the notice when one of the four is not at its
+   * default. Editing a notice scheduled for Tuesday and being shown a shut
+   * `More options` row would be the sheet hiding the thing the person opened it
+   * to change; a plain new notice still starts shut, which is the whole point.
+   */
   const open = useCallback((notice: ManagedNotice) => {
-    setDraft(draftFrom(notice));
+    const next = draftFrom(notice);
+
+    setDraft(next);
+    setShowMore(hasExtraOptions(next));
     setEditing(notice);
   }, []);
 
   const compose = useCallback(() => {
     setDraft(BLANK_DRAFT);
+    setShowMore(false);
     setEditing(null);
     setComposing(true);
   }, []);
@@ -372,10 +428,10 @@ export default function ManageNoticesScreen() {
 
               <Text variant="caption">
                 {current === "scheduled"
-                  ? `Goes out ${formatDateTime(notice.publishedAt)}`
-                  : `Posted ${formatDateTime(notice.publishedAt ?? notice.createdAt)}`}
+                  ? `Goes out ${dates.dateTime(notice.publishedAt)}`
+                  : `Posted ${dates.dateTime(notice.publishedAt ?? notice.createdAt)}`}
                 {notice.expiresAt
-                  ? ` · ${current === "expired" ? "Expired" : "Expires"} ${formatDateTime(notice.expiresAt)}`
+                  ? ` · ${current === "expired" ? "Expired" : "Expires"} ${dates.dateTime(notice.expiresAt)}`
                   : " · No expiry"}
               </Text>
 
@@ -413,11 +469,12 @@ export default function ManageNoticesScreen() {
         onClose={() => {
           setComposing(false);
           setEditing(null);
+          setShowMore(false);
         }}
         open={composing || editing !== null}
         title={editing ? "Edit notice" : "New notice"}
       >
-        <View className="gap-3 pb-2">
+        <View className="gap-4 pb-2">
           <Input
             label="Title"
             onChangeText={(title) => setDraft((prev) => ({ ...prev, title }))}
@@ -434,80 +491,143 @@ export default function ManageNoticesScreen() {
             value={draft.content}
           />
 
-          <Select
-            label="Category"
-            onChange={(value) => setDraft((prev) => ({ ...prev, category: value }))}
-            options={CATEGORY_OPTIONS}
-            value={draft.category}
-          />
+          {/*
+            Two words, not a switch with a paragraph under it.
 
-          <Select
-            label="Who sees it"
-            onChange={(value) => setDraft((prev) => ({ ...prev, targetAudience: value }))}
-            options={AUDIENCE_OPTIONS}
-            value={draft.targetAudience}
-          />
-
-          <View className="flex-row items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5">
-            <View className="flex-1">
-              <Text variant="label">Mark urgent</Text>
-              <Text variant="caption">
-                Pins it to the top of the notice board and colours it red.
-              </Text>
-            </View>
-            <Toggle
-              accessibilityLabel="Mark this notice urgent"
-              onChange={(isUrgent) => setDraft((prev) => ({ ...prev, isUrgent }))}
-              value={draft.isUrgent}
+            Urgency is the third thing a notice has, so it stays on the sheet
+            rather than going in the drawer — but it was a label, a sentence of
+            explanation and a toggle: three lines to answer a two-state
+            question. The segments carry the answer on their faces, and what
+            "urgent" does is said once underneath instead of once per state.
+          */}
+          <View className="gap-1.5">
+            <Text variant="label">How loud</Text>
+            <Segmented
+              onChange={(value) =>
+                setDraft((prev) => ({ ...prev, isUrgent: value === "urgent" }))
+              }
+              options={[
+                { label: "Normal", value: "normal" },
+                { label: "Urgent", value: "urgent" },
+              ]}
+              value={draft.isUrgent ? "urgent" : "normal"}
             />
+            <Text variant="caption">
+              {draft.isUrgent
+                ? "Pinned to the top of the notice board and coloured red."
+                : "Sits in date order on the notice board."}
+            </Text>
           </View>
 
-          <View className="gap-2">
-            <Input
-              hint="Leave blank to publish immediately."
-              keyboardType="numbers-and-punctuation"
-              label="Publish on"
-              onChangeText={(publishOn) => setDraft((prev) => ({ ...prev, publishOn }))}
-              placeholder="YYYY-MM-DD"
-              value={draft.publishOn}
-            />
-            <View className="flex-row flex-wrap gap-2">
-              <Chip label="Now" onPress={() => setDraft((prev) => ({ ...prev, publishOn: "" }))} />
-              <Chip
-                label="Tomorrow"
-                onPress={() => setDraft((prev) => ({ ...prev, publishOn: dayInputFromNow(1) }))}
+          {/*
+            The other four, shut. See the note at the top of the file for why —
+            and note the summary on the closed row, which is what keeps a notice
+            scheduled for Tuesday from looking like one going out now.
+          */}
+          <View className="overflow-hidden rounded-xl border border-border">
+            <Pressable
+              accessibilityLabel="More notice options"
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showMore }}
+              className="flex-row items-center gap-3 px-3 py-2.5 active:opacity-70"
+              onPress={() => setShowMore((value) => !value)}
+            >
+              <View className="flex-1">
+                <Text variant="label">More options</Text>
+                <Text numberOfLines={1} variant="caption">
+                  {draftSummary(draft)}
+                </Text>
+              </View>
+              <Ionicons
+                color={colors.mutedForeground}
+                name={showMore ? "chevron-up" : "chevron-down"}
+                size={18}
               />
-              <Chip
-                label="In a week"
-                onPress={() => setDraft((prev) => ({ ...prev, publishOn: dayInputFromNow(7) }))}
-              />
-            </View>
-          </View>
+            </Pressable>
 
-          <View className="gap-2">
-            <Input
-              hint="The last day it applies. Leave blank and it stays up until you expire it."
-              keyboardType="numbers-and-punctuation"
-              label="Expires on"
-              onChangeText={(expiresOn) => setDraft((prev) => ({ ...prev, expiresOn }))}
-              placeholder="YYYY-MM-DD"
-              value={draft.expiresOn}
-            />
-            <View className="flex-row flex-wrap gap-2">
-              <Chip label="Never" onPress={() => setDraft((prev) => ({ ...prev, expiresOn: "" }))} />
-              <Chip
-                label="In 3 days"
-                onPress={() => setDraft((prev) => ({ ...prev, expiresOn: dayInputFromNow(3) }))}
-              />
-              <Chip
-                label="In a week"
-                onPress={() => setDraft((prev) => ({ ...prev, expiresOn: dayInputFromNow(7) }))}
-              />
-              <Chip
-                label="In a month"
-                onPress={() => setDraft((prev) => ({ ...prev, expiresOn: dayInputFromNow(30) }))}
-              />
-            </View>
+            {showMore ? (
+              <View className="gap-3 border-t border-border px-3 py-3">
+                <Select
+                  label="Category"
+                  onChange={(value) => setDraft((prev) => ({ ...prev, category: value }))}
+                  options={CATEGORY_OPTIONS}
+                  value={draft.category}
+                />
+
+                <Select
+                  label="Who sees it"
+                  onChange={(value) =>
+                    setDraft((prev) => ({ ...prev, targetAudience: value }))
+                  }
+                  options={AUDIENCE_OPTIONS}
+                  value={draft.targetAudience}
+                />
+
+                <View className="gap-2">
+                  <Input
+                    hint="Leave blank to publish immediately."
+                    keyboardType="numbers-and-punctuation"
+                    label="Publish on"
+                    onChangeText={(publishOn) => setDraft((prev) => ({ ...prev, publishOn }))}
+                    placeholder="YYYY-MM-DD"
+                    value={draft.publishOn}
+                  />
+                  <View className="flex-row flex-wrap gap-2">
+                    <Chip
+                      label="Now"
+                      onPress={() => setDraft((prev) => ({ ...prev, publishOn: "" }))}
+                    />
+                    <Chip
+                      label="Tomorrow"
+                      onPress={() =>
+                        setDraft((prev) => ({ ...prev, publishOn: dayInputFromNow(1) }))
+                      }
+                    />
+                    <Chip
+                      label="In a week"
+                      onPress={() =>
+                        setDraft((prev) => ({ ...prev, publishOn: dayInputFromNow(7) }))
+                      }
+                    />
+                  </View>
+                </View>
+
+                <View className="gap-2">
+                  <Input
+                    hint="The last day it applies. Leave blank and it stays up until you expire it."
+                    keyboardType="numbers-and-punctuation"
+                    label="Expires on"
+                    onChangeText={(expiresOn) => setDraft((prev) => ({ ...prev, expiresOn }))}
+                    placeholder="YYYY-MM-DD"
+                    value={draft.expiresOn}
+                  />
+                  <View className="flex-row flex-wrap gap-2">
+                    <Chip
+                      label="Never"
+                      onPress={() => setDraft((prev) => ({ ...prev, expiresOn: "" }))}
+                    />
+                    <Chip
+                      label="In 3 days"
+                      onPress={() =>
+                        setDraft((prev) => ({ ...prev, expiresOn: dayInputFromNow(3) }))
+                      }
+                    />
+                    <Chip
+                      label="In a week"
+                      onPress={() =>
+                        setDraft((prev) => ({ ...prev, expiresOn: dayInputFromNow(7) }))
+                      }
+                    />
+                    <Chip
+                      label="In a month"
+                      onPress={() =>
+                        setDraft((prev) => ({ ...prev, expiresOn: dayInputFromNow(30) }))
+                      }
+                    />
+                  </View>
+                </View>
+              </View>
+            ) : null}
           </View>
         </View>
       </Sheet>

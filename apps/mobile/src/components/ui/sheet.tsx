@@ -183,6 +183,30 @@ export function Sheet({ bare = false, children, footer, onClose, open, title }: 
   return (
     <BottomSheetModal
       /*
+       * The sheet only drags on a *vertical* finger, and gives up on a
+       * horizontal one.
+       *
+       * gorhom wraps its content in an unconstrained `Gesture.Pan()`, which
+       * activates on movement in any direction. It declares itself simultaneous
+       * only with scrollables it created (`BottomSheetScrollView` and friends
+       * register a native gesture with it), so **any other nested scroller is
+       * silently dead**: the pan claims the touch and the child never sees it.
+       *
+       * That is what made the service deck on `manage/maintenance` render
+       * perfectly and refuse to move — a horizontal `ScrollView` inside a sheet,
+       * with the sheet eating every swipe.
+       *
+       * `activeOffsetY` makes the sheet wait for 8px of vertical intent before
+       * it starts dragging; `failOffsetX` makes it stand down entirely once the
+       * finger has travelled 12px sideways. Asymmetric on purpose: giving up is
+       * cheaper to get wrong than taking over, because a sheet that failed to
+       * drag can be dragged again, and a sheet that stole a swipe has already
+       * ruined the gesture. Vertical drag-to-dismiss and the handle are
+       * unaffected.
+       */
+      activeOffsetY={[-8, 8]}
+      failOffsetX={[-12, 12]}
+      /*
        * Android's window resizes with the keyboard now
        * (`softwareKeyboardLayoutMode: "resize"` in app.json), so the sheet is told
        * to expect that rather than to pan itself — `adjustPan` was what made a

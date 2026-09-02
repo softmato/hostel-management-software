@@ -13,6 +13,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { ErrorState, LoadingState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { getAdminFoodRoutine } from "@/lib/admin-api";
 import {
@@ -22,7 +23,7 @@ import {
   updateCookPortal,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { MEAL_TYPES, type MealType, ROUTINE_DAYS, type RoutineDay, todayInNepal } from "@/lib/food-week";
 import type { FoodRoutine } from "@/lib/resident-api";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -120,6 +121,7 @@ async function loadFood(): Promise<FoodData> {
 }
 
 export default function ManageFoodScreen() {
+  const dates = useDates();
   const food = useResource<FoodData>(useCallback(() => loadFood(), []));
 
   const [day, setDay] = useState<RoutineDay>(() => todayInNepal());
@@ -406,7 +408,7 @@ export default function ManageFoodScreen() {
                   {cook.credentialIssuedAt ? (
                     <FactRow
                       label="Issued"
-                      value={formatDate(cook.credentialIssuedAt)}
+                      value={dates.date(cook.credentialIssuedAt)}
                     />
                   ) : null}
                   <FactRow

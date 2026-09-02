@@ -1,5 +1,6 @@
 import type { ResidentPrefill } from "@/lib/admin-manage-api";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { type CalendarSystem, formatDateIn } from "@/lib/calendar";
+import { humanizeEnum } from "@/lib/format";
 
 /**
  * Turning a scanned profile into the rows the confirm step reads out.
@@ -55,13 +56,25 @@ export function residentFullName(prefill: ResidentPrefill) {
  * gender), then the number that reaches them. The government ID is last because
  * it is the row nobody reads aloud and everybody needs later.
  */
-export function identityFacts(prefill: ResidentPrefill): IntakeFact[] {
+export function identityFacts(
+  prefill: ResidentPrefill,
+  /*
+   * The warden's calendar. This is an admin screen and the date of birth is the
+   * one date on it — printed in Gregorian while every other date the warden had
+   * seen that minute was in Bikram Sambat, it reads as a different person's
+   * record. Required rather than defaulted, so a new call site cannot forget it.
+   */
+  calendar: CalendarSystem,
+): IntakeFact[] {
   const { details, resident } = prefill;
 
   return facts([
     ["Full name", residentFullName(prefill)],
     ["Age", details.age ? `${details.age} years` : null],
-    ["Date of birth", details.dateOfBirth ? formatDate(details.dateOfBirth) : null],
+    [
+      "Date of birth",
+      details.dateOfBirth ? formatDateIn(calendar, details.dateOfBirth) : null,
+    ],
     ["Gender", details.gender ? humanizeEnum(details.gender) : null],
     ["Phone", resident.phone],
     ["Alternate phone", details.alternatePhone],
@@ -184,4 +197,28 @@ export function rentBasisNote(
   }
 
   return "Nothing prices this room type yet. Set a rate card before the first bill.";
+}
+
+/**
+ * The sentence under the first month's figure.
+ *
+ * ## Why the arithmetic is spelled out and not just the total
+ *
+ * "NPR 2,323" beside "Monthly rent NPR 6,000" is a number a resident will
+ * dispute at the desk, and the person admitting them has to be able to answer
+ * without opening a calculator. `12 of 31 days` is the whole explanation, and it
+ * is the same fraction printed on the invoice line the server raises
+ * (`prorationBasis`), so the two documents agree word for word.
+ *
+ * A full first month gets a different sentence rather than the same one reading
+ * `31 of 31 days`, which is arithmetic nobody needed to see.
+ */
+export function firstMonthNote(charge: {
+  billableDays: number;
+  daysInMonth: number;
+  prorated: boolean;
+}): string {
+  return charge.prorated
+    ? `${charge.billableDays} of ${charge.daysInMonth} days — billed when you register them. Full rent from the month after.`
+    : "A full month, because they arrive on the 1st. Billed when you register them.";
 }

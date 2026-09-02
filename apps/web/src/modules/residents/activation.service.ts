@@ -7,7 +7,9 @@ import { hashToken } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
+import { type HostelPhoto, resolveHostelPhotoUrls } from "@/lib/hostel-photos";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
+import { HostelModel } from "@hostel/db/models/Hostel";
 import { QRActivationModel } from "@hostel/db/models/QRActivation";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
@@ -51,6 +53,13 @@ type QRActivationRecord = {
   status: ActivationStatus;
   usedAt?: Date;
   usedBy?: Types.ObjectId;
+};
+
+type HostelTargetRecord = {
+  location?: { area?: string; city?: string };
+  name: string;
+  photos?: HostelPhoto[];
+  verificationStatus?: string;
 };
 
 type UserRecord = {
@@ -499,5 +508,55 @@ export async function getActivationStatus(
     activation: activation ? serializeActivation(activation) : null,
     isActivated: Boolean(linkedResident),
     resident: linkedResident ? serializeResidentSummary(linkedResident) : null,
+    target: activation ? await describeActivationTarget(activation) : null,
+  };
+}
+
+export type ActivationTarget = {
+  area: string;
+  city: string;
+  hostelName: string;
+  photoUrl: string | null;
+  roomType: string;
+  verified: boolean;
+};
+
+/**
+ * What the code is *for* — the hostel and the bed on the other side of it.
+ *
+ * Somebody typing a code they were handed has no way to check they are about to
+ * attach their account to the right hostel, and "Activate" is not an action you
+ * want taken on faith. So the screen shows the destination before the button is
+ * pressed, and this is where that comes from.
+ *
+ * Deliberately **nothing about the resident**: not their name, phone or email.
+ * The person redeeming is supposed to be them, but the code is a bearer secret
+ * and a screen that printed somebody's details on receipt of one would make a
+ * stray code a small data leak. The hostel and the room type are what the
+ * redeemer needs in order to recognise their own activation, and no more.
+ */
+async function describeActivationTarget(
+  activation: QRActivationRecord,
+): Promise<ActivationTarget | null> {
+  const [hostel, resident] = await Promise.all([
+    HostelModel.findById(activation.hostelId)
+      .select("location name photos verificationStatus")
+      .lean<HostelTargetRecord | null>(),
+    ResidentModel.findById(activation.residentId)
+      .select("roomType")
+      .lean<{ roomType?: string } | null>(),
+  ]);
+
+  if (!hostel) {
+    return null;
+  }
+
+  return {
+    area: hostel.location?.area ?? "",
+    city: hostel.location?.city ?? "",
+    hostelName: hostel.name,
+    photoUrl: resolveHostelPhotoUrls(hostel.photos, "EXTERIOR")[0] ?? null,
+    roomType: resident?.roomType ?? "",
+    verified: hostel.verificationStatus === "VERIFIED",
   };
 }

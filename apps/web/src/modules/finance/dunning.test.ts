@@ -72,40 +72,75 @@ function ladder(overrides: Partial<Parameters<typeof nextDunningAction>[0]> = {}
     chaseCount: 0,
     daysSinceLastNotice: null,
     daysUntilDue: 3,
-    reminderDaysBefore: 3,
+    reminderDaysBefore: 7,
     stage: "NONE",
     ...overrides,
   });
 }
 
 describe("the ladder", () => {
-  it("reminds once, inside the configured window", () => {
-    expect(ladder({ daysUntilDue: 3 })?.kind).toBe("reminder");
-    expect(ladder({ daysUntilDue: 4 })).toBeNull();
-  });
-
-  it("does not remind twice", () => {
-    expect(ladder({ daysUntilDue: 2, stage: "REMINDED" })).toBeNull();
-  });
-
-  it("still reminds a resident the job reached late", () => {
-    // The defect this replaces: `daysUntilDue === 3` meant a run that missed
-    // Tuesday skipped that resident permanently and silently. Every threshold
-    // is `>=` now, so a late run still finds the rung unclimbed.
-    expect(ladder({ daysUntilDue: 1 })?.kind).toBe("reminder");
-    expect(ladder({ daysUntilDue: 0 })?.kind).toBe("reminder");
-  });
-
-  it("climbs to the first overdue notice even if the reminder never went out", () => {
-    expect(ladder({ daysUntilDue: -1, stage: "NONE" })).toEqual({
-      kind: "overdue",
-      stage: "OVERDUE_FIRST",
+  it("reminds three times before the bill is late", () => {
+    // A week out, three days out, and the due day itself — the run-up a
+    // resident can actually act on, since the money has to be moved.
+    expect(ladder({ daysUntilDue: 7 })).toEqual({
+      kind: "reminder",
+      stage: "REMINDED",
+    });
+    expect(ladder({ daysUntilDue: 3, stage: "REMINDED" })).toEqual({
+      kind: "reminder",
+      stage: "REMINDED_SOON",
+    });
+    expect(ladder({ daysUntilDue: 0, stage: "REMINDED_SOON" })).toEqual({
+      kind: "reminder",
+      stage: "REMINDED_DUE",
     });
   });
 
-  it("sends the second overdue notice from day three", () => {
-    expect(ladder({ daysUntilDue: -2, stage: "OVERDUE_FIRST" })).toBeNull();
-    expect(ladder({ daysUntilDue: -3, stage: "OVERDUE_FIRST" })?.stage).toBe(
+  it("says nothing before the hostel's own window opens", () => {
+    expect(ladder({ daysUntilDue: 8 })).toBeNull();
+  });
+
+  it("does not repeat a rung it has already climbed", () => {
+    expect(ladder({ daysUntilDue: 5, stage: "REMINDED" })).toBeNull();
+    expect(ladder({ daysUntilDue: 2, stage: "REMINDED_SOON" })).toBeNull();
+    expect(ladder({ daysUntilDue: 0, stage: "REMINDED_DUE" })).toBeNull();
+  });
+
+  it("sends one email, not three, when the job reached the resident late", () => {
+    /*
+     * The defect this replaces: `daysUntilDue === 3` meant a run that missed
+     * Tuesday skipped that resident permanently and silently. Every threshold
+     * is `>=`, so a late run still finds a rung unclimbed — but it climbs to
+     * the rung that is true *today* rather than walking up through the two that
+     * stopped being true, which would send "due in a week" the morning the rent
+     * is due.
+     */
+    expect(ladder({ daysUntilDue: 0, stage: "NONE" })).toEqual({
+      kind: "reminder",
+      stage: "REMINDED_DUE",
+    });
+    expect(ladder({ daysUntilDue: 1, stage: "NONE" })?.stage).toBe("REMINDED_SOON");
+  });
+
+  it("leaves the first two days late alone", () => {
+    // A transfer that cleared yesterday and has not been verified yet is the
+    // most common thing behind an invoice one day overdue.
+    expect(ladder({ daysUntilDue: -1, stage: "REMINDED_DUE" })).toBeNull();
+    expect(ladder({ daysUntilDue: -2, stage: "REMINDED_DUE" })).toBeNull();
+  });
+
+  it("sends the first overdue notice on day three, from any reminder rung", () => {
+    for (const stage of ["NONE", "REMINDED", "REMINDED_SOON", "REMINDED_DUE"] as const) {
+      expect(ladder({ daysUntilDue: -3, stage })).toEqual({
+        kind: "overdue",
+        stage: "OVERDUE_FIRST",
+      });
+    }
+  });
+
+  it("sends the second overdue notice a week late", () => {
+    expect(ladder({ daysUntilDue: -6, stage: "OVERDUE_FIRST" })).toBeNull();
+    expect(ladder({ daysUntilDue: -7, stage: "OVERDUE_FIRST" })?.stage).toBe(
       "OVERDUE_SECOND",
     );
   });
@@ -145,6 +180,8 @@ describe("the ladder", () => {
     const stages: DunningStage[] = [
       "NONE",
       "REMINDED",
+      "REMINDED_SOON",
+      "REMINDED_DUE",
       "OVERDUE_FIRST",
       "OVERDUE_SECOND",
       "CHASING",
@@ -161,7 +198,7 @@ describe("the ladder", () => {
           chaseCount,
           daysSinceLastNotice: 30,
           daysUntilDue: -365,
-          reminderDaysBefore: 3,
+          reminderDaysBefore: 7,
           stage,
         });
 
@@ -273,7 +310,8 @@ describe("running the job", () => {
       (call) => call[1]?.$set?.["dunning.stage"],
     );
 
-    expect(staged?.[1].$set["dunning.stage"]).toBe("REMINDED");
+    // Two days out, so the run-up's second rung rather than its first.
+    expect(staged?.[1].$set["dunning.stage"]).toBe("REMINDED_SOON");
     expect(staged?.[1].$set["dunning.lastNotifiedAt"]).toEqual(NOW);
   });
 

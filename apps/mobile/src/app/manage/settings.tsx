@@ -18,6 +18,8 @@ import { Sheet } from "@/components/ui/sheet";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
+import { useAppDispatch, useAppSelector } from "@/hooks/redux";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import {
   addHostelPhoto,
@@ -36,12 +38,17 @@ import {
   updateManagedHostel,
 } from "@/lib/admin-manage-api";
 import { API_BASE_URL } from "@/lib/api";
+import { calendarExample, CALENDAR_LABELS } from "@/lib/calendar";
 import { readApiError } from "@/lib/api-contract";
 import { openAssetViewer } from "@/lib/asset-viewer";
 import { formatMoney, humanizeEnum } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
+import {
+  type CalendarPreference,
+  setCalendarPreference,
+} from "@/store/slices/uiSlice";
 
 /**
  * Settings — the hostel itself, and the switches that change how it behaves.
@@ -91,6 +98,35 @@ const CHANGE_TYPES = [
   },
 ] as const;
 
+/**
+ * The two calendars, and the half of the sentence under each that is fixed.
+ *
+ * Only the naming half lives here. The example beside it is today written in
+ * that calendar, so it is built at render by `calendarExample` rather than
+ * frozen into a module constant that would still read `18 Aug 2026` in
+ * September.
+ *
+ * Ordered AD first because it is the default, not because it is preferred — the
+ * list must not reorder itself around the current choice, or the row under the
+ * thumb changes meaning between visits.
+ */
+const CALENDAR_OPTIONS = [
+  {
+    label: CALENDAR_LABELS.AD,
+    system: "Gregorian",
+    value: "AD",
+  },
+  {
+    label: CALENDAR_LABELS.BS,
+    system: "Bikram Sambat",
+    value: "BS",
+  },
+] as const satisfies readonly {
+  label: string;
+  system: string;
+  value: CalendarPreference;
+}[];
+
 /** Mirrors `PHOTO_LIMITS` for the two gallery kinds in `hostel-profile.service`. */
 const GALLERY_LIMIT = 20;
 
@@ -129,6 +165,10 @@ function toNumber(value: string) {
 
 export default function ManageSettingsScreen() {
   const settings = useResource<SettingsData>(useCallback(() => loadSettings(), []));
+
+  const dispatch = useAppDispatch();
+  const { colors } = useAppTheme();
+  const calendar = useAppSelector((state) => state.ui.calendarPreference);
 
   const [panel, setPanel] = useState<Panel>(null);
   const [saving, setSaving] = useState(false);
@@ -673,6 +713,51 @@ export default function ManageSettingsScreen() {
                 </View>
               </>
             )}
+          </Card>
+        </View>
+
+        <View>
+          {/*
+            A display preference, and the only one on this screen that is not
+            hostel configuration — which is exactly what the subtitle says.
+
+            It sits here rather than in the app-wide Settings screen because the
+            person it is for is the owner keeping the hostel's books, and this is
+            the screen they are already in when they think about how the hostel
+            writes things down. Everything it changes — every date on every admin
+            screen — is one tap away from here.
+
+            Radio rows rather than a `<Segmented>`: two options that each need a
+            worked example under them do not fit inside a segment, and the
+            example is the whole point. Same shape as the theme picker in
+            `app/settings.tsx`, deliberately.
+          */}
+          <SectionHeader
+            subtitle="Stored on this phone only"
+            title="Dates"
+          />
+          <Card>
+            {CALENDAR_OPTIONS.map((option, index) => {
+              const active = option.value === calendar;
+
+              return (
+                <View key={option.value}>
+                  {index > 0 ? <RowDivider /> : null}
+                  <ListRow
+                    onPress={() => dispatch(setCalendarPreference(option.value))}
+                    right={
+                      <Ionicons
+                        color={active ? colors.primary : colors.border}
+                        name={active ? "radio-button-on" : "radio-button-off"}
+                        size={20}
+                      />
+                    }
+                    subtitle={`${option.system} — ${calendarExample(option.value)}`}
+                    title={option.label}
+                  />
+                </View>
+              );
+            })}
           </Card>
         </View>
 

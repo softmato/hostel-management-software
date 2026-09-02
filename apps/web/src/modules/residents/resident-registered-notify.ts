@@ -1,0 +1,252 @@
+import type { Types } from "mongoose";
+
+import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { periodBounds } from "@/modules/finance/fee-schedule.service";
+import {
+  appUrl,
+  getHostelName,
+  resolveHostelAdminContacts,
+  resolveResidentContact,
+  sendNotificationEmail,
+} from "@/modules/residents/resident-notify";
+import { residentRegisteredEmail } from "@hostel/shared/email/templates/resident/resident-registered";
+
+/**
+ * Everybody who should hear that a hostel just took a resident on.
+ *
+ * ## Why this module exists at all
+ *
+ * Registering somebody was, until this, the quietest write in the product. It
+ * spends a bed, raises up to two invoices, promotes an account and starts a
+ * rent obligation — and it told nobody. The resident learned about it if and
+ * only if the intake happened to find an existing platform account to promote
+ * (`residentLinkedEmail`), which is the minority case at a desk; the owner
+ * learned about it by opening a screen; and nothing reached a phone at all.
+ *
+ * ## Push comes free, and that is the point of routing it through here
+ *
+ * `createInAppNotification` fans every row out to the recipient's socket and
+ * their devices (`publishNewNotification`). So the durable bell row and the push
+ * are one call, and there is no way for a caller to write one without the other
+ * — which is exactly the drift that adding a `dispatchPush` at each call site
+ * would guarantee.
+ *
+ * ## Nothing here may fail a registration
+ *
+ * Same rule the invoices already hold (`raiseFirstMonthInvoice`): by the time
+ * this runs the resident exists, their bed is spent and their money is on the
+ * ledger. A notification that throws would report "could not register" over a
+ * registration that succeeded, and the warden would register them again — which
+ * is how the duplicate-refusal path gets exercised by accident. Every failure in
+ * here is logged and swallowed.
+ */
+export async function notifyResidentRegistered(input: {
+  admissionFee: number | null;
+  /** Resolved by the intake, when it managed to link an account. */
+  residentUserId?: string | null;
+  depositAmount: number | null;
+  firstMonth: {
+    amount: number;
+    invoiceId: string;
+    period: string;
+    prorated: boolean;
+    referenceCode?: string | null;
+  } | null;
+  hostelId: Types.ObjectId | string;
+  monthlyRent: number | null;
+  resident: {
+    _id: Types.ObjectId;
+    email?: string;
+    firstName: string;
+    lastName: string;
+    moveInDate: Date;
+    roomNumber?: string | null;
+    roomType: string;
+    userId?: Types.ObjectId;
+  };
+}): Promise<void> {
+  try {
+    const hostelName = await getHostelName(input.hostelId);
+    const residentName =
+      `${input.resident.firstName} ${input.resident.lastName}`.trim();
+    const room = [input.resident.roomType.replaceAll("_", " "), input.resident.roomNumber]
+      .filter(Boolean)
+      .join(" · ");
+
+    await Promise.all([
+      notifyTheResident({ ...input, hostelName }),
+      notifyTheHostel({ ...input, hostelName, residentName, room }),
+      emailTheResident({ ...input, hostelName }),
+    ]);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "resident_registered_notification_failed",
+        level: "warn",
+        message: error instanceof Error ? error.message : "Unknown notification error",
+        residentId: input.resident._id.toString(),
+      }),
+    );
+  }
+}
+
+/**
+ * The resident's own phone.
+ *
+ * Only reachable when an account was linked — a resident registered at the desk
+ * with no platform account has no device token, and there is nothing to push
+ * to. That case is covered by the email below, which is the whole reason the
+ * email is not conditional on the link.
+ *
+ * The category decides where a tap lands, so it follows what actually happened:
+ * a resident who has been invoiced is sent to that invoice, and one who has not
+ * is sent to their profile rather than to a payments screen with nothing on it.
+ */
+async function notifyTheResident(input: {
+  firstMonth: { amount: number; invoiceId: string; period: string } | null;
+  hostelId: Types.ObjectId | string;
+  hostelName: string;
+  residentUserId?: string | null;
+}) {
+  const userId = input.residentUserId;
+
+  if (!userId) {
+    return;
+  }
+
+  await createInAppNotification({
+    body: input.firstMonth
+      ? `You are registered at ${input.hostelName}. Your rent for ${input.firstMonth.period} is NPR ${input.firstMonth.amount.toLocaleString("en-US")}.`
+      : `You are registered at ${input.hostelName}.`,
+    category: input.firstMonth ? "PAYMENT" : "ACCOUNT",
+    data: input.firstMonth ? { invoiceId: input.firstMonth.invoiceId } : undefined,
+    hostelId: input.hostelId.toString(),
+    priority: "NORMAL",
+    title: "You are registered",
+    userId,
+  });
+}
+
+/**
+ * The owner and the hostel's admins, including whoever performed the intake.
+ *
+ * The actor is deliberately **not** excluded. A warden registering somebody at
+ * the desk sees a toast that is gone in four seconds; the bell row is the
+ * durable record that it happened, and on a shared front desk the owner's copy
+ * of it is the only way they ever see an intake they did not do.
+ *
+ * `actionUrl` is the web portal's path — it is what the bell links to there —
+ * and the app maps it to its own residents tab (`lib/push-link.ts`), which is
+ * that file's entire job.
+ */
+async function notifyTheHostel(input: {
+  hostelId: Types.ObjectId | string;
+  resident: { _id: Types.ObjectId; moveInDate: Date };
+  residentName: string;
+  room: string;
+}) {
+  const admins = await resolveHostelAdminContacts(input.hostelId);
+
+  await Promise.all(
+    admins.map(async (admin) => {
+      if (!admin.userId) {
+        return;
+      }
+
+      await createInAppNotification({
+        actionUrl: "/hostel-admin/residents",
+        body: `${input.residentName} — ${input.room || "no room recorded"}, moving in ${input.resident.moveInDate.toDateString()}.`,
+        category: "RESIDENT",
+        data: { residentId: input.resident._id.toString() },
+        hostelId: input.hostelId.toString(),
+        title: "New resident registered",
+        userId: admin.userId,
+      });
+    }),
+  );
+}
+
+/**
+ * The confirmation of what was agreed, to whatever address we have.
+ *
+ * Sent whether or not an account was linked, which is the gap this closes:
+ * `residentLinkedEmail` only ever reached the minority of residents who already
+ * had a platform account, so the ones registered at a desk — the ones who just
+ * handed over a deposit — got nothing at all.
+ *
+ * `resolveResidentContact` prefers the address on the resident record and falls
+ * back to the linked account's, and returns null for a phone-only registration,
+ * which is a real intake rather than a failure.
+ */
+async function emailTheResident(input: {
+  admissionFee: number | null;
+  depositAmount: number | null;
+  firstMonth: {
+    amount: number;
+    period: string;
+    prorated: boolean;
+    referenceCode?: string | null;
+  } | null;
+  hostelName: string;
+  monthlyRent: number | null;
+  resident: {
+    _id: Types.ObjectId;
+    email?: string;
+    firstName: string;
+    lastName: string;
+    moveInDate: Date;
+    roomNumber?: string | null;
+    roomType: string;
+    userId?: Types.ObjectId;
+  };
+  residentUserId?: string | null;
+}) {
+  const contact = await resolveResidentContact(input.resident);
+
+  if (!contact) {
+    return;
+  }
+
+  const email = residentRegisteredEmail({
+    admissionFee: input.admissionFee,
+    dashboardUrl: residentDashboardUrl(),
+    depositAmount: input.depositAmount,
+    firstMonth: input.firstMonth
+      ? {
+          amount: input.firstMonth.amount,
+          // The billing run dates a month's invoice to the last day of that
+          // month, so this is derived rather than passed — one answer to "when
+          // is it due", in the module that decides it.
+          dueDate: periodBounds(input.firstMonth.period).end,
+          period: input.firstMonth.period,
+          prorated: input.firstMonth.prorated,
+          referenceCode: input.firstMonth.referenceCode,
+        }
+      : null,
+    hostelName: input.hostelName,
+    monthlyRent: input.monthlyRent,
+    moveInDate: input.resident.moveInDate,
+    residentName: input.resident.firstName,
+    roomNumber: input.resident.roomNumber,
+    roomType: input.resident.roomType,
+    signIn: input.residentUserId ? "EXISTING_ACCOUNT" : "ACTIVATION_CODE",
+  });
+
+  await sendNotificationEmail({
+    action: "resident_registered",
+    html: email.html,
+    subject: email.subject,
+    to: contact.email,
+  });
+}
+
+/**
+ * The resident portal's own front door.
+ *
+ * `appUrl` is the shared origin helper every other notification module already
+ * uses, so this is the same URL `residentLinkedEmail` sends — one origin, read
+ * from one place.
+ */
+function residentDashboardUrl() {
+  return appUrl("/resident/dashboard");
+}

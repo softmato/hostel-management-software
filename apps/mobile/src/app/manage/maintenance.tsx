@@ -1,12 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
-import { Linking, ScrollView, View } from "react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from "react-native-reanimated";
 
+import { Image } from "expo-image";
+
+import { ServiceCarousel, type ServiceCard } from "@/components/service-carousel";
+import { VoiceNotePlayer } from "@/components/voice-note-player";
+import { VoiceNoteRecorder, type VoiceNote } from "@/components/voice-note-recorder";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge, StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { FloatingButton } from "@/components/ui/floating-button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
@@ -17,35 +28,57 @@ import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
+  assignMaintenanceProvider,
   commentOnMaintenance,
   createMaintenanceRequest,
+  getMaintenanceSettings,
   listManagedMaintenance,
   listManagedProviders,
   MAINTENANCE_CATEGORIES,
   type MaintenanceCategory,
+  type MaintenanceCharge,
   type MaintenancePriority,
   type MaintenanceStatus,
   type ManagedMaintenance,
   type ManagedMaintenanceRequest,
   type ManagedProvider,
+  updateMaintenanceSettings,
   updateMaintenanceStatus,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, formatDateTime, humanizeEnum } from "@/lib/format";
+import { formatMoney, humanizeEnum } from "@/lib/format";
+import {
+  chargeNote,
+  minimumChargeFor,
+  searchServices,
+  titleForRequest,
+} from "@/lib/maintenance-services";
 import {
   categoryForRole,
   providerRoleLabel,
   suggestPriority,
   suggestProviderRoles,
-  titleFromProblem,
 } from "@/lib/maintenance-suggest";
 import { dayInputFromNow, startOfDayIso, toDayInput } from "@/lib/manage-dates";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { tradeArtUri } from "@/lib/trade-art";
+import { uploadAsset } from "@/lib/uploads";
+import { formatDuration } from "@/lib/voice-note";
 
 /**
  * Maintenance — the queue, plus the directory of people who fix things.
+ *
+ * ## The trade is a deck of cards, not a dropdown
+ *
+ * `CATEGORY_OPTIONS` used to be a `<Select>` of eleven shouted enum names with
+ * no price anywhere on the sheet, so the first time a hostel saw a figure was on
+ * the invoice. It is now a searchable carousel where every card carries what
+ * that call-out costs, and `Raise it` opens a confirmation of the charge before
+ * anything is written. See `components/service-carousel.tsx` for why a carousel
+ * is right here and wrong everywhere else in the app.
  *
  * ## Raising a request is one sentence, not a form
  *
@@ -93,11 +126,6 @@ const PRIORITY_OPTIONS: { description: string; label: string; value: Maintenance
   { description: "Today. Somebody could be hurt.", label: "Urgent", value: "URGENT" },
 ];
 
-const CATEGORY_OPTIONS = MAINTENANCE_CATEGORIES.map((value) => ({
-  label: humanizeEnum(value),
-  value,
-}));
-
 const STATUS_OPTIONS: { description: string; label: string; value: MaintenanceStatus }[] = [
   { description: "Nobody has been called yet.", label: "Pending", value: "PENDING" },
   { description: "You have spoken to somebody.", label: "Contacted", value: "CONTACTED" },
@@ -113,40 +141,89 @@ const PRIORITY_TONE: Record<string, "danger" | "info" | "neutral" | "warning"> =
   URGENT: "danger",
 };
 
+/**
+ * What the raise sheet is holding.
+ *
+ * `location` and `providerId` were fields here until 2026-09-02. The room number
+ * is the first thing anybody says into the recording, so a box asking for it
+ * again was the sheet not trusting its own headline feature; and the provider is
+ * now chosen on the request itself, once it exists. See the notes in the sheet.
+ */
 type NewDraft = {
   category: MaintenanceCategory | null;
-  location: string;
   priority: MaintenancePriority | null;
   problem: string;
-  providerId: string;
 };
 
 const BLANK_NEW: NewDraft = {
   category: null,
-  location: "",
   priority: null,
   problem: "",
-  providerId: "",
 };
 
 type MaintenanceData = {
+  /** The owner's agreed call-out floors. Empty until somebody sets them. */
+  charges: MaintenanceCharge[];
   maintenance: ManagedMaintenance | null;
   providers: ManagedProvider[];
 };
 
 async function loadMaintenance(status: string): Promise<MaintenanceData> {
-  const [maintenance, providers] = await Promise.all([
+  const [maintenance, providers, charges] = await Promise.all([
     listManagedMaintenance(status ? { status } : {}).catch(() => null),
     listManagedProviders().catch(() => [] as ManagedProvider[]),
+    /*
+     * Tolerant, and empty rather than absent on failure. The charges are a
+     * convenience on the confirm step; a hostel that has set none is the normal
+     * first state, so "could not read them" and "there are none" already look
+     * the same to every reader and there is nothing to distinguish.
+     */
+    getMaintenanceSettings().catch(() => [] as MaintenanceCharge[]),
   ]);
 
-  return { maintenance, providers };
+  return { charges, maintenance, providers };
 }
 
 export default function ManageMaintenanceScreen() {
+  const dates = useDates();
   const { colors } = useAppTheme();
   const [filter, setFilter] = useState<Filter>("all");
   const [raising, setRaising] = useState(false);
+  /** Narrows the deck of trades. Its own state — it is not part of the request. */
+  const [serviceQuery, setServiceQuery] = useState("");
+  /** The confirmation of the charge, between `Raise it` and the POST. */
+  const [confirming, setConfirming] = useState(false);
+  const [chargesOpen, setChargesOpen] = useState(false);
+  /**
+   * The charge editor's working copy, keyed by category and held as **text**.
+   *
+   * Text rather than numbers because a half-typed amount is a real state: a
+   * field parsed to a number on every keystroke cannot hold `""` while somebody
+   * clears it, so the box refills itself with `0` under the cursor. Parsing
+   * happens once, on save.
+   */
+  const [chargeDraft, setChargeDraft] = useState<Record<string, string>>({});
+  /**
+   * The recording in hand, still on this phone.
+   *
+   * It is uploaded on the confirm step, not while it is being made — recording
+   * straight to storage would leave an orphan behind every re-record and every
+   * abandoned sheet, and nothing sweeps those up.
+   */
+  const [voiceNote, setVoiceNote] = useState<VoiceNote | null>(null);
+  /**
+   * Which half of the problem block is open — and audio is the default.
+   *
+   * The owner's call (2026-09-02): *"first priority goes to the audio clip"*,
+   * with the typed box hidden behind a button that becomes the field when it is
+   * pressed, and the recorder collapsing to a *Speak the problem* button in
+   * return. Two controls that are each other's undo, so only ever one of them is
+   * a box on screen.
+   *
+   * It is a mode, not two independent fields, because the request has one
+   * description and offering both at once is offering to write it twice.
+   */
+  const [problemMode, setProblemMode] = useState<"speak" | "type">("speak");
   const [draft, setDraft] = useState<NewDraft>(BLANK_NEW);
   const [open, setOpen] = useState<ManagedMaintenanceRequest | null>(null);
   const [statusDraft, setStatusDraft] = useState<MaintenanceStatus>("CONTACTED");
@@ -194,55 +271,197 @@ export default function ManageMaintenanceScreen() {
     [filter, requests],
   );
 
+  const charges = useMemo(() => data.data?.charges ?? [], [data.data]);
+
   const suggestions = useMemo(() => suggestProviderRoles(draft.problem), [draft.problem]);
   const suggestedCategory = draft.category ?? (suggestions[0] ? suggestions[0].category : null);
   const suggestedPriority = draft.priority ?? (draft.problem ? suggestPriority(draft.problem) : null);
 
-  /** Providers whose trade matches the category the request is heading for. */
-  const matchingProviders = useMemo(() => {
-    if (!suggestedCategory) {
-      return providers;
+  /** The deck: every trade, or the ones matching what was typed above it. */
+  const serviceCards = useMemo<ServiceCard[]>(
+    () =>
+      searchServices(MAINTENANCE_CATEGORIES, serviceQuery).map((category) => ({
+        id: category,
+        label: humanizeEnum(category),
+        note: chargeNote(minimumChargeFor(charges, category)),
+      })),
+    [charges, serviceQuery],
+  );
+
+  /**
+   * Providers who could take the request currently open, matched on its trade.
+   *
+   * Separate from `matchingProviders`, which follows the *draft* on the raise
+   * sheet: the two are looking at different requests, and sharing one memo would
+   * have offered a plumber for whichever job the sheet happened to be composing.
+   */
+  const assignableProviders = useMemo(() => {
+    if (!open) {
+      return [];
     }
 
     return providers.filter(
       (provider) =>
-        categoryForRole(provider.category) === suggestedCategory ||
-        provider.categories.some((role) => categoryForRole(role) === suggestedCategory),
+        categoryForRole(provider.category) === open.category ||
+        provider.categories.some((role) => categoryForRole(role) === open.category),
     );
-  }, [providers, suggestedCategory]);
+  }, [open, providers]);
 
   const { reload } = data;
+
+  /** What the confirm step is about to commit the hostel to, or null. */
+  const quotedCharge = minimumChargeFor(charges, suggestedCategory);
+
+  /*
+   * `Raise it` validates and opens the confirmation. Nothing is written here.
+   *
+   * The validation lives on this side rather than inside the confirmation so a
+   * missing problem sentence is caught on the sheet that has the field in it —
+   * being told to write more on a screen with nowhere to write is the shape of
+   * error message people close the app over.
+   */
+  const askToRaise = useCallback(() => {
+    /*
+     * Either a recording or a sentence — not neither, and not both required.
+     *
+     * The old check demanded typed words, which since the sheet started
+     * defaulting to audio would have refused the exact request it is now
+     * designed for. What it must still refuse is an empty one: a request with no
+     * description in either form is a row saying "Plumbing job" and nothing
+     * else, and the person who has to act on it has no way to ask.
+     */
+    if (!voiceNote && draft.problem.trim().length < 2) {
+      toastError(
+        "Describe the problem",
+        "Record a few seconds, or type it instead.",
+      );
+      return;
+    }
+
+    setConfirming(true);
+  }, [draft.problem, voiceNote]);
 
   const raise = useCallback(async () => {
     const problem = draft.problem.trim();
 
-    if (problem.length < 2) {
-      toastError("Describe the problem", "One sentence is enough.");
+    if (!voiceNote && problem.length < 2) {
+      toastError("Describe the problem", "Record a few seconds, or type it instead.");
       return;
     }
 
     setBusy(true);
 
     try {
+      /*
+       * The bytes go up before the request exists, because the request carries
+       * the asset id and there is no route that attaches one afterwards.
+       *
+       * A failed upload **stops the raise** rather than quietly raising the job
+       * without the recording: somebody who just spent thirty seconds describing
+       * a leak has to be told it did not go, not discover it when the plumber
+       * rings to ask what the problem is. Progress is the global toaster's job —
+       * `uploadAsset` registers itself, and this screen draws no bar of its own.
+       */
+      const voiceNoteAssetId = voiceNote
+        ? await uploadAsset(
+            {
+              fileName: `voice-note-${Date.now()}.m4a`,
+              fileSize: undefined,
+              mimeType: "audio/x-m4a",
+              uri: voiceNote.uri,
+            },
+            {
+              // Explicit, though it is also the default: this recording names
+              // rooms and often has residents audible behind it, so it must land
+              // in the bucket with no public base URL.
+              accessLevel: "PRIVATE",
+              kind: "MAINTENANCE_NOTE",
+              label: "Voice note",
+            },
+          )
+        : undefined;
+
       await createMaintenanceRequest({
         category: suggestedCategory ?? "OTHER",
-        description: problem,
-        location: draft.location.trim() || undefined,
+        description: problem || undefined,
         priority: suggestedPriority ?? "MEDIUM",
-        providerId: draft.providerId || undefined,
-        title: titleFromProblem(problem),
+        title: titleForRequest(problem, suggestedCategory),
+        voiceNoteAssetId,
       });
 
-      toastSuccess("Request raised", "It is in the queue and on the Today tab.");
+      toastSuccess(
+        "Request raised",
+        voiceNote
+          ? "Your voice note went with it. It is in the queue and on the Today tab."
+          : "It is in the queue and on the Today tab.",
+      );
+      setConfirming(false);
       setRaising(false);
       setDraft(BLANK_NEW);
+      setServiceQuery("");
+      setVoiceNote(null);
+      setProblemMode("speak");
       await reload();
     } catch (error) {
       toastError("Could not raise it", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [draft, reload, suggestedCategory, suggestedPriority]);
+  }, [draft, reload, suggestedCategory, suggestedPriority, voiceNote]);
+
+  const openCharges = useCallback(() => {
+    setChargeDraft(
+      Object.fromEntries(charges.map((charge) => [charge.category, String(charge.amount)])),
+    );
+    setChargesOpen(true);
+  }, [charges]);
+
+  const saveCharges = useCallback(async () => {
+    /*
+     * A blank box means "no agreed rate", and is how one is removed — there is
+     * no delete route, and the server takes the whole list every time. A typed
+     * `0` is kept and is a different statement: some hostels employ their own
+     * handyman and want the card to say the call-out is free.
+     */
+    const rows = MAINTENANCE_CATEGORIES.flatMap((category) => {
+      const raw = (chargeDraft[category] ?? "").trim();
+
+      if (!raw) {
+        return [];
+      }
+
+      const amount = Number(raw);
+
+      if (!Number.isInteger(amount) || amount < 0) {
+        return [{ amount: Number.NaN, category }];
+      }
+
+      return [{ amount, category }];
+    });
+
+    const bad = rows.find((row) => Number.isNaN(row.amount));
+
+    if (bad) {
+      toastError(
+        `Check the ${humanizeEnum(bad.category).toLowerCase()} charge`,
+        "Whole rupees, and no minus sign.",
+      );
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      await updateMaintenanceSettings(rows as MaintenanceCharge[]);
+      toastSuccess("Charges saved", "They show on the confirm step when you raise a job.");
+      setChargesOpen(false);
+      await reload();
+    } catch (error) {
+      toastError("Could not save", readApiError(error, "Only the hostel owner may set these."));
+    } finally {
+      setBusy(false);
+    }
+  }, [chargeDraft, reload]);
 
   const applyStatus = useCallback(async () => {
     if (!open) {
@@ -279,6 +498,34 @@ export default function ManageMaintenanceScreen() {
       setBusy(false);
     }
   }, [costNote, open, reload, scheduledOn, statusDraft, statusNote]);
+
+  const assignProvider = useCallback(
+    async (providerId: string) => {
+      if (!open) {
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        await assignMaintenanceProvider(open.id, providerId);
+        toastSuccess(
+          "Assigned",
+          "It is in their job list now, with the voice note if you recorded one.",
+        );
+        setOpen(null);
+        await reload();
+      } catch (error) {
+        toastError(
+          "Could not assign",
+          readApiError(error, "Somebody may already be on this job."),
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [open, reload],
+  );
 
   const addComment = useCallback(async () => {
     if (!open || comment.trim().length === 0) {
@@ -339,12 +586,26 @@ export default function ManageMaintenanceScreen() {
         <AppBar
           accent
           actions={
-            <Button
-              label="Providers"
-              onPress={() => setProvidersOpen(true)}
-              size="sm"
-              variant="ghost"
-            />
+            <View className="flex-row items-center">
+              {/*
+                The charge editor is a glyph and the directory is a word, because
+                one of them is opened once a year and the other is opened
+                whenever somebody needs a number. Two ghost buttons side by side
+                would have made the bar a sentence.
+              */}
+              <IconButton
+                label="Call-out charges"
+                name="pricetag-outline"
+                onPress={openCharges}
+                tone="onAccent"
+              />
+              <Button
+                label="Providers"
+                onPress={() => setProvidersOpen(true)}
+                size="sm"
+                variant="ghost"
+              />
+            </View>
           }
           centerTitle
           showBack
@@ -432,9 +693,9 @@ export default function ManageMaintenanceScreen() {
               ) : null}
 
               <Text variant="caption">
-                Raised {formatDate(request.createdAt)}
-                {request.scheduledFor ? ` · Booked for ${formatDate(request.scheduledFor)}` : ""}
-                {request.completedAt ? ` · Done ${formatDate(request.completedAt)}` : ""}
+                Raised {dates.date(request.createdAt)}
+                {request.scheduledFor ? ` · Booked for ${dates.date(request.scheduledFor)}` : ""}
+                {request.completedAt ? ` · Done ${dates.date(request.completedAt)}` : ""}
               </Text>
 
               <Button
@@ -452,21 +713,132 @@ export default function ManageMaintenanceScreen() {
       {/* Raise                                                              */}
       {/* ------------------------------------------------------------------ */}
       <Sheet
-        footer={<Button label="Raise it" loading={busy} onPress={() => void raise()} />}
+        /*
+          `Raise it` opens the confirmation rather than posting.
+
+          The sketch is explicit that the charge is agreed *before* the request
+          exists, and it is the right call for a reason the sketch does not have
+          to state: a maintenance request commits the hostel to money, and this
+          is the last screen before it does. `askToRaise` only validates and
+          opens; `raise` is what writes.
+        */
+        footer={<Button label="Raise it" loading={busy} onPress={askToRaise} />}
         onClose={() => setRaising(false)}
         open={raising}
         title="What needs fixing?"
       >
         <View className="gap-3 pb-2">
+          {/*
+            The deck of trades, and the field that narrows it.
+
+            Owner's sketch, 2026-09-02: a search box over a row of swipeable
+            cards, one card per service, each carrying what that call-out costs
+            — then Raise, then a confirmation of the charge before anything is
+            committed. What it replaces is a `<Select>` of eleven shouted enum
+            names with the price nowhere on the screen, so the first time
+            anybody saw a figure was on the invoice.
+
+            The search field is `<Input>` rather than a bare `TextInput`: this
+            one is inside a sheet's own gutter with a label above it, which is
+            precisely the case `<Input>` is for and the statement header's bare
+            field is not.
+          */}
           <Input
-            hint="Plain language. We read it and fill in the rest."
-            label="The problem"
-            multiline
-            onChangeText={(problem) => setDraft((prev) => ({ ...prev, problem }))}
-            placeholder="The tap in room 204 has been leaking since Tuesday"
-            style={{ height: 96 }}
-            value={draft.problem}
+            hint="Or swipe through them."
+            label="What kind of job"
+            onChangeText={setServiceQuery}
+            placeholder="Plumbing, wiring, internet…"
+            value={serviceQuery}
           />
+
+          {serviceCards.length === 0 ? (
+            <Text variant="muted">
+              No trade matches that word. Clear the box to see all of them.
+            </Text>
+          ) : (
+            <ServiceCarousel
+              cards={serviceCards}
+              onSelect={(category) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  category: category as MaintenanceCategory,
+                }))
+              }
+              selectedId={suggestedCategory}
+            />
+          )}
+
+          {/*
+            The problem, said once — spoken by default.
+
+            Owner's call, 2026-09-02: audio takes first priority, the typed box
+            hides behind a button, and pressing that button turns it *into* the
+            field while the recorder collapses to a button in its place. So the
+            two are one control with two faces, and the sheet is never asking for
+            the same sentence twice.
+
+            `LinearTransition` on the container is what makes the swap read as
+            one thing growing and another shrinking rather than as a re-render:
+            the height change is animated on the UI thread, and the two halves
+            cross-fade through `entering` / `exiting`. Reanimated is already
+            here for the deck above.
+          */}
+          <Animated.View className="gap-2" layout={LinearTransition.duration(220)}>
+            {problemMode === "speak" ? (
+              <Animated.View
+                entering={FadeIn.duration(160)}
+                exiting={FadeOut.duration(120)}
+                key="speak"
+              >
+                <VoiceNoteRecorder
+                  disabled={busy}
+                  note={voiceNote}
+                  onChange={setVoiceNote}
+                />
+
+                <Pressable
+                  accessibilityLabel="Type the problem instead"
+                  accessibilityRole="button"
+                  className="mt-2 flex-row items-center justify-center gap-2 rounded-2xl border border-border py-3 active:opacity-70"
+                  onPress={() => setProblemMode("type")}
+                >
+                  <Ionicons color={colors.mutedForeground} name="create-outline" size={16} />
+                  <Text className="text-sm font-semibold text-muted-foreground">
+                    Type it instead
+                  </Text>
+                </Pressable>
+              </Animated.View>
+            ) : (
+              <Animated.View
+                entering={FadeIn.duration(160)}
+                exiting={FadeOut.duration(120)}
+                key="type"
+              >
+                <Input
+                  autoFocus
+                  hint="Plain language. We read it and fill the rest in."
+                  label="The problem"
+                  multiline
+                  onChangeText={(problem) => setDraft((prev) => ({ ...prev, problem }))}
+                  placeholder="The tap in room 204 has been leaking since Tuesday"
+                  style={{ height: 96 }}
+                  value={draft.problem}
+                />
+
+                <Pressable
+                  accessibilityLabel="Speak the problem instead"
+                  accessibilityRole="button"
+                  className="mt-2 flex-row items-center justify-center gap-2 rounded-2xl border border-primary bg-brand-soft py-3 active:opacity-70"
+                  onPress={() => setProblemMode("speak")}
+                >
+                  <Ionicons color={colors.primary} name="mic" size={16} />
+                  <Text className="text-sm font-semibold text-primary">
+                    Speak the problem
+                  </Text>
+                </Pressable>
+              </Animated.View>
+            )}
+          </Animated.View>
 
           {suggestions.length > 0 ? (
             <View className="gap-2 rounded-xl border border-primary/30 bg-brand-soft p-3">
@@ -491,63 +863,218 @@ export default function ManageMaintenanceScreen() {
             </View>
           ) : null}
 
-          <Select
-            hint="Read from what you typed. Change it if we guessed wrong."
-            label="Category"
-            onChange={(category) => setDraft((prev) => ({ ...prev, category }))}
-            options={CATEGORY_OPTIONS}
-            placeholder="Pick one"
-            value={suggestedCategory}
-          />
+          {/*
+            Four buttons, not a dropdown.
 
-          <Select
-            hint="Urgency words in the problem text move this on their own."
-            label="Priority"
-            onChange={(priority) => setDraft((prev) => ({ ...prev, priority }))}
-            options={PRIORITY_OPTIONS}
-            placeholder="Pick one"
-            value={suggestedPriority}
-          />
+            A `<Select>` hid the whole scale behind one line of text, so choosing
+            "how bad is this" meant opening a sheet inside a sheet to see what
+            the options even were. Four is comfortably inside a phone's width and
+            the answer is a single tap on something already visible — and the
+            four together *are* the scale, which is the part a dropdown cannot
+            show.
 
-          <Input
-            hint="Free text — there are no room records to pick from."
-            label="Where"
-            onChangeText={(location) => setDraft((prev) => ({ ...prev, location }))}
-            placeholder="Room 204"
-            value={draft.location}
-          />
-
+            Urgency words in the typed problem still move it on their own; a tap
+            is an override, and `suggestedPriority` reads the draft first.
+          */}
           <View className="gap-2">
-            <Text variant="label">Assign a provider</Text>
-            <Text variant="caption">
-              Optional, and it cannot be changed later — the server has no reassign
-              route, so a request sent to the wrong person is cancelled and raised
-              again.
-            </Text>
-            {matchingProviders.length === 0 ? (
-              <Text variant="muted">
-                No approved provider matches this trade yet. Raise it unassigned and
-                call somebody yourself.
-              </Text>
-            ) : (
-              <View className="flex-row flex-wrap gap-2">
-                <Chip
-                  label="Nobody yet"
-                  onPress={() => setDraft((prev) => ({ ...prev, providerId: "" }))}
-                  tone={draft.providerId === "" ? "brand" : "neutral"}
-                />
-                {matchingProviders.map((provider) => (
-                  <Chip
-                    key={provider.id}
-                    label={`${provider.fullName} · ${provider.area}`}
+            <Text variant="label">How urgent</Text>
+            <View className="flex-row gap-2">
+              {PRIORITY_OPTIONS.map((option) => {
+                const active = suggestedPriority === option.value;
+
+                return (
+                  <Pressable
+                    accessibilityLabel={`${option.label}. ${option.description}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    className={`flex-1 items-center rounded-2xl border py-2.5 active:opacity-70 ${
+                      active ? "border-primary bg-brand-soft" : "border-border bg-card"
+                    }`}
+                    key={option.value}
                     onPress={() =>
-                      setDraft((prev) => ({ ...prev, providerId: provider.id }))
+                      setDraft((prev) => ({ ...prev, priority: option.value }))
                     }
-                    tone={draft.providerId === provider.id ? "brand" : "neutral"}
-                  />
-                ))}
-              </View>
+                  >
+                    <Text
+                      className={`text-xs font-bold ${
+                        active ? "text-primary" : "text-foreground"
+                      }`}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text variant="caption">
+              {PRIORITY_OPTIONS.find((option) => option.value === suggestedPriority)
+                ?.description ?? "Pick one."}
+            </Text>
+          </View>
+
+          {/*
+            No "Where" field and no provider picker here, both removed on
+            2026-09-02.
+
+            **Where** was free text somebody had to type twice — the room number
+            is the first thing anybody says out loud in the recording, and asking
+            for it again in a box was the sheet not trusting its own headline
+            feature. The recorder's own hint asks for it.
+
+            **The provider** moved to the request itself, where `Open` now has an
+            "Assign" row. Choosing a contractor at the moment of raising a job is
+            a decision about somebody's availability that a warden reporting a
+            leak has no way to make, and it made the raise sheet twice as long
+            for a field most requests left blank.
+          */}
+        </View>
+      </Sheet>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Call-out charges                                                   */}
+      {/* ------------------------------------------------------------------ */}
+      {/*
+        The owner's side of the confirm step.
+
+        Eleven boxes, one per trade, and a blank one means "no agreed rate" — the
+        state the confirm sheet renders as *No agreed call-out charge* rather
+        than as free. The list is short and fixed, so it is a plain stack rather
+        than an add-a-row builder: there is no twelfth trade to invent, and a
+        builder would make removing a rate a different gesture from leaving one
+        unset when they are the same statement.
+
+        A warden gets a 403 from the save. The route is readable by staff and
+        writable by the owner on purpose — see the route's own note — and the
+        error message says so rather than reading as a network failure.
+      */}
+      <Sheet
+        footer={
+          <Button label="Save charges" loading={busy} onPress={() => void saveCharges()} />
+        }
+        onClose={() => setChargesOpen(false)}
+        open={chargesOpen}
+        title="Call-out charges"
+      >
+        <View className="gap-3 pb-2">
+          <Text variant="caption">
+            The minimum you have agreed with each trade. It is shown before a
+            request is raised, and nowhere else — it never reaches an invoice.
+            Leave a box empty if you have not agreed one.
+          </Text>
+
+          {MAINTENANCE_CATEGORIES.map((category) => (
+            <Input
+              key={category}
+              keyboardType="number-pad"
+              label={humanizeEnum(category)}
+              onChangeText={(value) =>
+                setChargeDraft((prev) => ({ ...prev, [category]: value }))
+              }
+              placeholder="Not agreed"
+              value={chargeDraft[category] ?? ""}
+            />
+          ))}
+        </View>
+      </Sheet>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Confirm the charge                                                 */}
+      {/* ------------------------------------------------------------------ */}
+      {/*
+        The last screen before the hostel owes somebody money.
+
+        Owner's sketch: after Raise, a confirmation showing the default minimum
+        charge for that service, which the person either accepts or declines.
+        Two things it deliberately does **not** do:
+
+        - It does not send the figure to the server. `minimumCharges` is the
+          hostel's own agreement with its trades, not a price the platform sets
+          and not a line on an invoice; what the job actually costs is recorded
+          on the request as a cost note when somebody knows it. Posting a quote
+          here would be inventing a number nobody has agreed to yet.
+        - It does not block a hostel that has priced nothing. The unpriced case
+          is the normal first state, and refusing to raise a request until the
+          owner has filled in a rate card for eleven trades would make an
+          emergency plumber wait on an admin screen.
+
+        `Decline` goes back to the sheet with the draft intact, rather than
+        throwing the request away — declining a *charge* is not abandoning the
+        job, it is going back to pick a different trade or a different provider.
+      */}
+      <Sheet
+        footer={
+          <View className="flex-row gap-2">
+            <Button
+              className="flex-1"
+              disabled={busy}
+              label="Decline"
+              onPress={() => setConfirming(false)}
+              variant="outline"
+            />
+            <Button
+              className="flex-1"
+              label="Accept and raise"
+              loading={busy}
+              onPress={() => void raise()}
+            />
+          </View>
+        }
+        onClose={() => setConfirming(false)}
+        open={confirming}
+        title="What this will cost"
+      >
+        <View className="gap-4 pb-2">
+          <View className="items-center gap-2 rounded-3xl border border-border bg-card px-4 py-6">
+            {/* The same drawing as the deck card they picked, so the confirm
+                step is visibly about that card and not a generic dialog. */}
+            <Image
+              accessibilityIgnoresInvertColors
+              contentFit="contain"
+              source={{ uri: tradeArtUri(suggestedCategory ?? "OTHER") }}
+              style={{ height: 72, width: 72 }}
+              transition={0}
+            />
+
+            <Text variant="subtitle">{humanizeEnum(suggestedCategory ?? "OTHER")}</Text>
+
+            {quotedCharge === null ? (
+              <>
+                <Text className="text-center" variant="muted">
+                  No call-out charge has been agreed for this trade.
+                </Text>
+                <Text className="text-center" variant="caption">
+                  Set one on this screen&apos;s Charges sheet and it will show here
+                  next time.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text className="text-2xl font-bold text-foreground">
+                  {formatMoney(quotedCharge)}
+                </Text>
+                <Text className="text-center" variant="caption">
+                  The minimum this hostel has agreed for a call-out. The real cost
+                  depends on the job and is recorded when it is known.
+                </Text>
+              </>
             )}
+          </View>
+
+          <View className="gap-1 rounded-xl border border-border px-3 py-2.5">
+            <Text variant="label">
+              {titleForRequest(draft.problem, suggestedCategory)}
+            </Text>
+            {voiceNote ? (
+              <View className="flex-row items-center gap-1.5 pb-0.5">
+                <Ionicons color={colors.primary} name="mic" size={12} />
+                <Text className="text-xs font-semibold text-primary">
+                  {`Voice note · ${formatDuration(voiceNote.durationMs)}`}
+                </Text>
+              </View>
+            ) : null}
+            <Text variant="caption">
+              {`${humanizeEnum(suggestedPriority ?? "MEDIUM")} priority · assign somebody after it is raised`}
+            </Text>
           </View>
         </View>
       </Sheet>
@@ -575,10 +1102,63 @@ export default function ManageMaintenanceScreen() {
                 <Chip icon="construct-outline" label={humanizeEnum(open.category)} />
               </View>
               {open.description ? <Text variant="muted">{open.description}</Text> : null}
+              {/* Under the typed description, because it is the same statement
+                  said properly. Absent when the job was raised without one. */}
+              {open.voiceNoteAssetId ? (
+                <VoiceNotePlayer assetId={open.voiceNoteAssetId} />
+              ) : null}
               {open.costNote ? (
                 <Text variant="caption">{`Cost note: ${open.costNote}`}</Text>
               ) : null}
             </View>
+
+            {/*
+              Assigning, which used to happen on the raise sheet.
+
+              It moved here on 2026-09-02 because choosing a contractor is a
+              decision about somebody's availability, and the person reporting a
+              leak is not the person who can make it. It is also the step that
+              makes the recording worth having: an unassigned request appears in
+              no provider's job list, so nothing plays it.
+
+              Once only — the server refuses a second assignment — so a request
+              that already has somebody shows who, and no way to change it.
+            */}
+            {open.status !== "CANCELLED" && open.status !== "COMPLETED" ? (
+              <View className="gap-2 border-t border-border pt-3">
+                <Text variant="label">Who is coming</Text>
+
+                {providerFor(open.providerId) ? (
+                  <View className="flex-row flex-wrap gap-2">
+                    <Chip
+                      icon="person-outline"
+                      label={providerFor(open.providerId)?.fullName ?? "Assigned"}
+                      tone="brand"
+                    />
+                    <Text variant="caption">
+                      Already assigned. Cancel and raise a new request to change
+                      who is coming.
+                    </Text>
+                  </View>
+                ) : assignableProviders.length === 0 ? (
+                  <Text variant="muted">
+                    No approved provider matches this trade yet. Call somebody
+                    yourself and mark it contacted below.
+                  </Text>
+                ) : (
+                  <View className="flex-row flex-wrap gap-2">
+                    {assignableProviders.map((provider) => (
+                      <Chip
+                        icon="person-add-outline"
+                        key={provider.id}
+                        label={`${provider.fullName} · ${provider.area}`}
+                        onPress={() => void assignProvider(provider.id)}
+                      />
+                    ))}
+                  </View>
+                )}
+              </View>
+            ) : null}
 
             <View className="gap-2 border-t border-border pt-3">
               <Text variant="label">Move it on</Text>
@@ -642,7 +1222,7 @@ export default function ManageMaintenanceScreen() {
                       label={entry.visibility === "INTERNAL" ? "Internal" : "For the provider"}
                       tone={entry.visibility === "INTERNAL" ? "neutral" : "info"}
                     />
-                    <Text variant="caption">{formatDateTime(entry.createdAt)}</Text>
+                    <Text variant="caption">{dates.dateTime(entry.createdAt)}</Text>
                   </View>
                   <Text>{entry.message}</Text>
                 </View>
@@ -650,7 +1230,7 @@ export default function ManageMaintenanceScreen() {
 
               {open.history.map((entry) => (
                 <Text key={entry.id} variant="caption">
-                  {`${formatDateTime(entry.createdAt)} — ${humanizeEnum(entry.previousStatus)} → ${humanizeEnum(entry.nextStatus)}${entry.note ? `: ${entry.note}` : ""}`}
+                  {`${dates.dateTime(entry.createdAt)} — ${humanizeEnum(entry.previousStatus)} → ${humanizeEnum(entry.nextStatus)}${entry.note ? `: ${entry.note}` : ""}`}
                 </Text>
               ))}
 

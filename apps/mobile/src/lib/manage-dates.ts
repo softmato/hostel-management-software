@@ -24,8 +24,7 @@
  * for "from this day", {@link endOfDayIso} for "until this day, inclusive".
  */
 
-/** Nepal is UTC+5:45 year-round — no daylight saving. */
-const NEPAL_OFFSET_MINUTES = 5 * 60 + 45;
+import { NEPAL_OFFSET_MINUTES } from "@/lib/format";
 
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 

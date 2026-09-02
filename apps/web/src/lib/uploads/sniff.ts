@@ -46,9 +46,20 @@ type Family =
  * to `.xls` is what wallets hand out often enough that refusing it would send
  * owners back to re-saving statements by hand, and `statements/parsers/source.ts`
  * reads the real format from the magic bytes anyway.
+ *
+ * The four `audio/*` labels are one container between them. An `.m4a` from
+ * `expo-audio` is AAC inside MPEG-4 — the same `ftyp` box an `.mp4` has — and
+ * which of `audio/mp4`, `audio/m4a`, `audio/x-m4a` or `audio/aac` it arrives
+ * labelled as depends on the platform doing the labelling, not on the bytes.
+ * Same reasoning as `.mov` and `.mp4` above.
  */
 const ALLOWED_FAMILIES: Record<string, Family[]> = {
   "application/pdf": ["PDF"],
+  "audio/aac": ["ISO_MEDIA"],
+  "audio/m4a": ["ISO_MEDIA"],
+  "audio/mp4": ["ISO_MEDIA"],
+  "audio/webm": ["MATROSKA"],
+  "audio/x-m4a": ["ISO_MEDIA"],
   "application/vnd.ms-excel": ["OLE", "ZIP"],
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ["ZIP"],
   "image/jpeg": ["IMAGE_JPEG"],

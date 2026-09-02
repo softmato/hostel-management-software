@@ -18,14 +18,27 @@
  * The API layer is unaffected either way — every route handler authenticates
  * its own request — so the blast radius of the flag is the rendered shell
  * rather than the data. That is the reason this is a guard and not an incident.
+ *
+ * ## It is opt-in, and `development` is not the opt-in
+ *
+ * This used to return `true` for `NODE_ENV === "development"` as well, which
+ * meant the guard was off in *every* local run rather than in the preview runs
+ * it was written for. Signed out entirely, `localhost:3000/platform/dashboard`
+ * rendered the superadmin portal — and so did `/hostel-admin`, `/resident` and
+ * `/guardian`. Two things follow from that, and both are bad. Nobody developing
+ * against the app ever exercised the redirect they ship to users, so a
+ * regression in it is invisible until production. And the local build behaves
+ * unlike the deployed one precisely where "who is allowed in" is decided, which
+ * is the last place a difference should live.
+ *
+ * So the flag is now the only way in. A designer who wants the old behaviour
+ * sets `NEXT_PUBLIC_UI_PREVIEW=true`; everybody else develops against the same
+ * rules production enforces.
  */
 export function isAuthBypassEnabled(): boolean {
   if (process.env.NODE_ENV === "production") {
     return false;
   }
 
-  return (
-    process.env.NODE_ENV === "development" ||
-    process.env.NEXT_PUBLIC_UI_PREVIEW === "true"
-  );
+  return process.env.NEXT_PUBLIC_UI_PREVIEW === "true";
 }

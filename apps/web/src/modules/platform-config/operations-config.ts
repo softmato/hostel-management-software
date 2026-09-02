@@ -29,7 +29,16 @@ export const operationsConfigSchema = z.object({
   foodReadyCooldownMinutes: z.number().int().min(0).max(1440).default(120),
   /** Response window a complaint is measured against (PHASES.md §4.1). */
   complaintSlaHours: z.number().int().min(1).max(720).default(72),
-  paymentReminderDaysBefore: z.number().int().min(0).max(30).default(3),
+  /**
+   * How far ahead the **first** rent reminder goes out.
+   *
+   * A week, because that is how far ahead somebody can actually act on it — the
+   * money has to be moved, and a resident paid monthly may need the notice
+   * before their own pay lands. It is only the first of three: the ladder in
+   * `dunning.service` fixes the other two at three days out and the due day
+   * itself, so lowering this shortens the run-up rather than removing notices.
+   */
+  paymentReminderDaysBefore: z.number().int().min(0).max(30).default(7),
   sendComplaintEmails: z.boolean().default(true),
   qrActivationExpiryDays: z.number().int().min(1).max(60).default(7),
   receiptNumberPrefix: z.string().trim().min(1).max(10).default("RCP"),

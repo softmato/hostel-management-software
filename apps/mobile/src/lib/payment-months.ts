@@ -32,22 +32,7 @@
  */
 
 import type { AdminPeriodRow } from "@/lib/admin-api";
-import { nepalPeriodKey } from "@/lib/format";
-
-const MONTHS_SHORT = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
+import { MONTHS_SHORT, nepalPeriodKey, periodParts } from "@/lib/format";
 
 export type PaymentMonth = {
   /** True for the month the phone is standing in — the chip that says "now". */
@@ -76,28 +61,23 @@ export function paymentMonths(
   const now = current ?? nepalPeriodKey();
 
   return months.slice(0, limit).flatMap((row) => {
-    const match = /^(\d{4})-(\d{2})$/.exec(row.period ?? "");
-
-    // A row whose period the client cannot parse is dropped rather than drawn
-    // as a chip labelled "—": it would be a tap target that fetches a month
+    // `periodParts` is `format.ts`'s parser rather than a third copy of the
+    // `YYYY-MM` regex. A row whose period it cannot read is dropped rather than
+    // drawn as a chip labelled "—": that would be a tap target fetching a month
     // nobody can name.
-    if (!match) {
-      return [];
-    }
+    const parts = periodParts(row.period);
 
-    const monthIndex = Number(match[2]) - 1;
-
-    if (monthIndex < 0 || monthIndex > 11) {
+    if (!parts) {
       return [];
     }
 
     return [
       {
         isCurrent: row.period === now,
-        label: MONTHS_SHORT[monthIndex],
+        label: MONTHS_SHORT[parts.monthIndex],
         period: row.period,
         waiting: Math.max(0, row.needsAttention ?? 0),
-        year: match[1],
+        year: String(parts.year),
       },
     ];
   });

@@ -83,6 +83,54 @@ describe("route access", () => {
     expect(isAllowedNextPath(Role.RESIDENT, "/guardian/dashboard")).toBe(false);
   });
 
+  it("guards the provider job list as signed-in-only", () => {
+    // Provider is not a role — it is a PUBLIC account with an approved
+    // ServiceProvider record, which the access token does not carry. `null` is
+    // the strongest thing the edge can say, and it is the difference between a
+    // guarded route and the nothing that was there before.
+    expect(protectedRouteRuleForPath("/jobs")?.roles).toBeNull();
+    expect(protectedRouteRuleForPath("/jobs/42")?.roles).toBeNull();
+    // Same-prefix public paths are unaffected.
+    expect(protectedRouteRuleForPath("/jobseekers")).toBeUndefined();
+  });
+
+  it("gives every role a portal it may enter and portals it may not", () => {
+    /*
+     * The table read as a whole, because the failure this catches is a role
+     * nobody wrote a rule for. A COOK has no web portal — they work from the
+     * app — so every guarded prefix must turn them away rather than fall
+     * through, and the same holds for PUBLIC.
+     */
+    const portals = [
+      "/platform/dashboard",
+      "/hostel-admin/dashboard",
+      "/resident/dashboard",
+      "/guardian/dashboard",
+    ];
+
+    const allowed: Partial<Record<Role, string[]>> = {
+      [Role.SUPERADMIN]: ["/platform/dashboard"],
+      [Role.PLATFORM_MODERATOR]: ["/platform/dashboard"],
+      [Role.HOSTEL_ADMIN]: ["/hostel-admin/dashboard"],
+      [Role.WARDEN]: ["/hostel-admin/dashboard"],
+      [Role.COOK]: [],
+      [Role.RESIDENT]: ["/resident/dashboard"],
+      [Role.GUARDIAN]: ["/guardian/dashboard"],
+      [Role.PUBLIC]: [],
+    };
+
+    for (const role of Object.values(Role)) {
+      for (const portal of portals) {
+        const rule = protectedRouteRuleForPath(portal);
+
+        expect(rule).toBeDefined();
+        expect(rule?.roles?.includes(role) ?? false).toBe(
+          (allowed[role] ?? []).includes(portal),
+        );
+      }
+    }
+  });
+
   it("falls back to the role landing page for unsafe or cross-role next paths", () => {
     expect(isSafeLocalPath("/resident/dashboard")).toBe(true);
     expect(isSafeLocalPath("//evil.example/login")).toBe(false);

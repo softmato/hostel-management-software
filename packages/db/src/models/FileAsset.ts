@@ -33,6 +33,25 @@ const fileAssetSchema = new Schema(
       enum: ["PUBLIC", "PRIVATE", "PROTECTED"],
       default: "PRIVATE",
     },
+    /**
+     * What the file is *for*, as opposed to what format it is in — mirrors
+     * `FILE_ASSET_KINDS` in `apps/web/src/lib/file-asset-kinds.ts`.
+     *
+     * The presign route has always accepted this and, until now, only used it to
+     * refuse an untenanted financial upload before creating the row. It was
+     * never stored, so nothing downstream could ask what an asset was for — and
+     * `files/{assetId}/url`, which decides who may read the bytes, is exactly
+     * the place that has to ask: `MAINTENANCE_NOTE` is the one kind readable by
+     * somebody outside the hostel.
+     *
+     * No default. A row written before this existed has no kind, which reads as
+     * `GENERIC` everywhere — the narrowest possible answer, and the right one
+     * for an asset whose purpose nobody recorded.
+     */
+    kind: {
+      enum: ["GENERIC", "MAINTENANCE_NOTE", "PAYMENT_PROOF", "PAYMENT_QR", "STATEMENT"],
+      type: String,
+    },
     publicUrl: String,
     /**
      * Set once the bytes are confirmed to exist in storage and to match what

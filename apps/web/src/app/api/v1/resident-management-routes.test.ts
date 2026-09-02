@@ -81,9 +81,13 @@ describe("resident management routes", () => {
     routeMocks.requireHostelCapability.mockResolvedValue(staffPrincipal);
   });
 
-  it("creates residents through the hostel-admin route", async () => {
+  it("creates residents through the hostel-admin route, admitted by default", async () => {
+    // The portal's form sends no status, and the resident it registers has to
+    // come out billable. Defaulting to `PENDING` gave a row that read
+    // "Not billed" on the Payments tab for ever, because nothing bills a
+    // resident who was never admitted.
     routeMocks.createResident.mockResolvedValue({
-      resident: { id: "resident-1", status: "PENDING" },
+      resident: { id: "resident-1", status: "ACTIVE" },
     });
 
     const response = await residentsRoute.POST(
@@ -99,12 +103,12 @@ describe("resident management routes", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(201);
-    expect(payload.data.resident.status).toBe("PENDING");
+    expect(payload.data.resident.status).toBe("ACTIVE");
     expect(routeMocks.createResident).toHaveBeenCalledWith(
       expect.objectContaining({
         firstName: "Asha",
         moveInDate: expect.any(Date),
-        status: "PENDING",
+        status: "ACTIVE",
       }),
       staffPrincipal,
     );

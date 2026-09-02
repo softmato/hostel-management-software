@@ -8,6 +8,7 @@ import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   BED_TYPE_LABELS,
@@ -15,7 +16,7 @@ import {
   type FeeSchedule,
   listFeeSchedules,
 } from "@/lib/admin-manage-api";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 
 /**
  * Past schedules — every set of rates that has stopped, newest first.
@@ -31,6 +32,7 @@ import { formatDate, humanizeEnum } from "@/lib/format";
  */
 
 export default function ManageRateHistoryScreen() {
+  const dates = useDates();
   const schedules = useResource<FeeSchedule[]>(
     useCallback(() => listFeeSchedules(), []),
   );
@@ -78,7 +80,7 @@ export default function ManageRateHistoryScreen() {
           {past.map((schedule) => (
             <View className="gap-2" key={schedule._id}>
               <Text variant="subtitle">
-                {`${formatDate(schedule.effectiveFrom)} – ${formatDate(schedule.effectiveTo)}`}
+                {`${dates.date(schedule.effectiveFrom)} – ${dates.date(schedule.effectiveTo)}`}
               </Text>
 
               <Card className="gap-1">

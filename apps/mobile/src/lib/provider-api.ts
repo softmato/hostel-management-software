@@ -89,6 +89,15 @@ export type ProviderJob = {
   scheduledFor: string | null;
   status: "CANCELLED" | "COMPLETED" | "CONTACTED" | "PENDING" | "SCHEDULED";
   title: string;
+  /**
+   * The hostel describing the problem out loud, when they recorded one.
+   *
+   * A **PRIVATE** asset, and the only one in the product a provider can read:
+   * the server's `files/{assetId}/url` widens access for `MAINTENANCE_NOTE`
+   * assets to the one provider the job is assigned to, and to nobody else.
+   * `<VoiceNotePlayer>` handles the token and the presigned redirect.
+   */
+  voiceNoteAssetId: string | null;
 };
 
 export async function listProviderJobs() {

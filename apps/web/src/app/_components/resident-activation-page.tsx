@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Bell,
   Check,
   CheckCircle2,
   KeyRound,
@@ -11,21 +10,254 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { memo, useCallback, useState, type FormEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 
 import { BusyForm, SubmitButton } from "@/app/_components/busy-form";
 import { browserApi } from "@/lib/browser-api";
+import { checkAuthWithRefresh } from "@/lib/auth-check";
+import { useSessionStore, type SessionUser } from "@/stores/session-store";
 import { Message } from "./resident-shared";
 import { SiteName } from "@/components/site-config-provider";
+
+/**
+ * Where a resident turns the code their hostel issued into a working portal.
+ *
+ * ## Everything on this screen is answered by the code
+ *
+ * It used to be a mockup wearing a working form: a real input and a real submit
+ * button, surrounded by a hostel that did not exist, a resident who was not you,
+ * and a QR scanner that scanned nothing. That is worse than an empty screen —
+ * somebody about to attach their account to a hostel bed was being shown
+ * confident details about a *different* hostel, and the only honest thing on the
+ * page was the box they typed into.
+ *
+ * So the card is now driven by {@link lookupActivation}: type the code, and the
+ * server says which hostel and which room type it opens, before the button is
+ * pressed. Nothing about the resident comes back with it — the code is a bearer
+ * secret, and a screen that printed somebody's name on receipt of one would turn
+ * a mislaid code into a small data leak. Recognising your own hostel is enough.
+ *
+ * ## The QR is a link, not a camera
+ *
+ * The activation email carries a QR that encodes this page's own URL with the
+ * code already in it (`activationUrl`). Scanning it with the phone's ordinary
+ * camera lands here with the field filled in, which is why there is no scanner
+ * in the page: there was never anything for one to do that the camera the
+ * resident is already holding does not do better.
+ */
+
+type ActivationTarget = {
+  area: string;
+  city: string;
+  hostelName: string;
+  photoUrl: string | null;
+  roomType: string;
+  verified: boolean;
+};
+
+type ActivationStatusResponse = {
+  activation: {
+    expiresAt: string;
+    status: "PENDING" | "USED" | "EXPIRED" | "CANCELLED";
+  } | null;
+  isActivated: boolean;
+  target: ActivationTarget | null;
+};
+
+type MeResponse =
+  | { data: { user: SessionUser }; success: true }
+  | { message: string; success: false };
+
+/** What the right-hand column is saying about the code in the box. */
+type CodeState =
+  | "empty"
+  | "expired"
+  | "checking"
+  | "ready"
+  | "unknown"
+  | "unusable"
+  | "used";
+
+const STATE_COPY: Record<Exclude<CodeState, "empty">, { note: string; title: string }> = {
+  checking: { note: "Looking this code up with your hostel.", title: "Checking" },
+  expired: {
+    note: "This code has passed its expiry date. Ask your hostel for a new one.",
+    title: "Expired",
+  },
+  ready: {
+    note: "This code is valid and ready to link to your account.",
+    title: "Ready",
+  },
+  unknown: {
+    note: "No code matches what you have typed. Check it against the one your hostel sent.",
+    title: "Not recognised",
+  },
+  unusable: {
+    note: "This code was cancelled — issuing a new one cancels the old. Use the most recent code your hostel sent.",
+    title: "Cancelled",
+  },
+  used: {
+    note: "This code has already been redeemed. If that was not you, ask your hostel for a new one.",
+    title: "Already used",
+  },
+};
+
+const DOT_COLOR: Record<Exclude<CodeState, "empty">, string> = {
+  checking: "bg-slate-300",
+  expired: "bg-red-500",
+  ready: "bg-emerald-500",
+  unknown: "bg-slate-300",
+  unusable: "bg-red-500",
+  used: "bg-slate-400",
+};
+
+function initialsOf(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 0) {
+    return "?";
+  }
+
+  return `${parts[0]?.[0] ?? ""}${parts.length > 1 ? (parts.at(-1)?.[0] ?? "") : ""}`.toUpperCase();
+}
+
+function placeOf(target: ActivationTarget) {
+  return [target.area, target.city].filter(Boolean).join(", ");
+}
 
 export const ResidentActivationPageContent = memo(
   function ResidentActivationPageContent() {
     const searchParams = useSearchParams();
     const [message, setMessage] = useState("");
     const [activated, setActivated] = useState(false);
-    // Prefilled when the resident followed the link in their activation email.
+    /*
+     * The hostel and room they ended up linked to, kept separately from
+     * `activated` — the lookup can legitimately have come back without a target
+     * (a hostel record that could not be read), and a null there must not be
+     * able to swallow the success panel of an activation that worked.
+     */
+    const [activatedTarget, setActivatedTarget] = useState<ActivationTarget | null>(null);
+    // Prefilled when the resident followed the link in their activation email,
+    // or scanned its QR with their phone camera.
     const [code, setCode] = useState(() => searchParams.get("code")?.trim() ?? "");
     const [activeTab, setActiveTab] = useState<"code" | "qr">("code");
+    const [lookup, setLookup] = useState<ActivationStatusResponse | null>(null);
+    const [checking, setChecking] = useState(false);
+
+    const user = useSessionStore((state) => state.user);
+    const setUser = useSessionStore((state) => state.setUser);
+    const sessionChecked = useSessionStore((state) => state.status === "resolved");
+
+    useEffect(() => {
+      let cancelled = false;
+
+      void (async () => {
+        try {
+          const response = await checkAuthWithRefresh();
+          const payload = (await response.json().catch(() => null)) as MeResponse | null;
+
+          if (!cancelled) {
+            setUser(response.ok && payload?.success ? payload.data.user : null);
+          }
+        } catch {
+          if (!cancelled) {
+            setUser(null);
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [setUser]);
+
+    /*
+     * Looked up as they type, debounced, and only once the code is long enough
+     * to be one — the schema's own floor is six characters. Redeeming is
+     * single-use and irreversible, so the destination has to be on screen
+     * *before* the button rather than confirmed after it.
+     */
+    const trimmedCode = code.trim();
+
+    useEffect(() => {
+      if (trimmedCode.length < 6) {
+        setLookup(null);
+        setChecking(false);
+        return;
+      }
+
+      let cancelled = false;
+      setChecking(true);
+
+      const timer = window.setTimeout(() => {
+        void (async () => {
+          try {
+            const result = await browserApi<ActivationStatusResponse>(
+              `/api/v1/resident/activation-status?code=${encodeURIComponent(trimmedCode)}`,
+            );
+
+            if (!cancelled) {
+              setLookup(result);
+            }
+          } catch {
+            // A failed lookup is not a failed activation — the code may still
+            // be perfectly good. The card simply says nothing.
+            if (!cancelled) {
+              setLookup(null);
+            }
+          } finally {
+            if (!cancelled) {
+              setChecking(false);
+            }
+          }
+        })();
+      }, 400);
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
+    }, [trimmedCode]);
+
+    const codeState = useMemo<CodeState>(() => {
+      if (trimmedCode.length < 6) {
+        return "empty";
+      }
+
+      if (checking) {
+        return "checking";
+      }
+
+      if (!lookup?.activation) {
+        return "unknown";
+      }
+
+      if (lookup.activation.status === "USED") {
+        return "used";
+      }
+
+      if (lookup.activation.status === "CANCELLED") {
+        return "unusable";
+      }
+
+      if (
+        lookup.activation.status === "EXPIRED" ||
+        new Date(lookup.activation.expiresAt) <= new Date()
+      ) {
+        return "expired";
+      }
+
+      return "ready";
+    }, [checking, lookup, trimmedCode]);
+
+    const target = lookup?.target ?? null;
 
     const handleActivate = useCallback(
       async (event: FormEvent<HTMLFormElement>) => {
@@ -35,19 +267,20 @@ export const ResidentActivationPageContent = memo(
         try {
           await browserApi("/api/v1/resident/activate", {
             body: JSON.stringify({
-              code: code.trim(),
+              code: trimmedCode,
               deviceInfo: { source: "web" },
               sessionInfo: { activatedAt: new Date().toISOString() },
             }),
             method: "POST",
           });
+          setActivatedTarget(target);
           setActivated(true);
           setMessage("Resident access activated successfully.");
         } catch (error) {
           setMessage(error instanceof Error ? error.message : "Activation failed.");
         }
       },
-      [code],
+      [target, trimmedCode],
     );
 
     return (
@@ -72,53 +305,57 @@ export const ResidentActivationPageContent = memo(
                 </svg>
               </div>
               <span className="font-heading text-2xl font-extrabold text-[#0F172A] tracking-tight">
-                Hostel<span className="text-[#0A8A4B]">Hub</span>
+                <SiteName />
               </span>
             </div>
 
-            {/* Navigation Links */}
+            {/*
+              Only offered once they can actually open them. Before activation
+              this account is PUBLIC, and /resident/* turns it away at the door.
+            */}
             <nav className="hidden md:flex items-center gap-6 h-full text-sm font-semibold text-slate-500">
-              <Link
-                href="/resident/dashboard"
-                className="hover:text-[#0A8A4B] transition flex items-center h-full"
-              >
-                Dashboard
-              </Link>
-              <Link
-                href="/resident/profile"
-                className="hover:text-[#0A8A4B] transition flex items-center h-full"
-              >
-                My Profile
-              </Link>
+              {lookup?.isActivated || activated ? (
+                <>
+                  <Link
+                    href="/resident/dashboard"
+                    className="hover:text-[#0A8A4B] transition flex items-center h-full"
+                  >
+                    Dashboard
+                  </Link>
+                  <Link
+                    href="/resident/profile"
+                    className="hover:text-[#0A8A4B] transition flex items-center h-full"
+                  >
+                    My Profile
+                  </Link>
+                </>
+              ) : null}
               <span className="text-[#0A8A4B] border-b-2 border-[#0A8A4B] h-full flex items-center px-1 font-bold">
                 Activate Access
               </span>
             </nav>
 
-            {/* Notifications and Profile */}
-            <div className="flex items-center gap-4">
-              <button
-                className="relative p-2 text-slate-400 hover:text-slate-600 transition"
-                aria-label="Notifications"
-              >
-                <Bell className="size-5" />
-                <span className="absolute top-1 right-1 size-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                  2
-                </span>
-              </button>
-
+            {/* Who is signed in — the account this code will be attached to. */}
+            {user ? (
               <div className="flex items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-full bg-[#EAF6F3] text-[#0A8A4B] font-bold text-sm">
-                  ST
+                  {initialsOf(user.name)}
                 </div>
                 <div className="hidden sm:block text-left">
                   <p className="text-xs font-bold text-[#0F172A] leading-tight">
-                    Suman Thapa
+                    {user.name}
                   </p>
-                  <p className="text-[10px] text-slate-400">sumanthapa@gmail.com</p>
+                  <p className="text-[10px] text-slate-400">{user.email ?? ""}</p>
                 </div>
               </div>
-            </div>
+            ) : sessionChecked ? (
+              <Link
+                className="text-xs font-bold text-[#0A8A4B] hover:underline"
+                href="/login?next=/resident-activation"
+              >
+                Sign in
+              </Link>
+            ) : null}
           </div>
         </header>
 
@@ -130,8 +367,7 @@ export const ResidentActivationPageContent = memo(
               Resident Activation
             </h1>
             <p className="text-sm text-slate-450 mt-1 max-w-3xl">
-              Enter the code generated by your hostel admin to link your account to your
-              hostel bed.
+              Enter the code your hostel gave you to link this account to your bed.
             </p>
           </div>
 
@@ -159,8 +395,13 @@ export const ResidentActivationPageContent = memo(
                       Activation complete
                     </h3>
                     <p className="text-sm text-slate-450 max-w-md mx-auto leading-relaxed">
-                      Your resident access is now fully activated. You are successfully
-                      linked to Room 101, Bed 101-A at Green View Hostel.
+                      {activatedTarget
+                        ? `Your resident access is now active${
+                            activatedTarget.roomType
+                              ? ` for ${activatedTarget.roomType}`
+                              : ""
+                          } at ${activatedTarget.hostelName}.`
+                        : "Your resident access is now active."}
                     </p>
                   </div>
                   <Link
@@ -192,7 +433,7 @@ export const ResidentActivationPageContent = memo(
                           : "border-transparent text-slate-400 hover:text-slate-600"
                       }`}
                     >
-                      Scan QR Code
+                      Use the QR
                     </button>
                   </div>
 
@@ -201,17 +442,20 @@ export const ResidentActivationPageContent = memo(
                       <span className="flex size-14 mx-auto items-center justify-center rounded-full bg-[#0A8A4B]/10 text-[#0A8A4B]">
                         <QrCode className="size-8" />
                       </span>
-                      <h3 className="text-sm font-bold text-[#0F172A]">QR Activation</h3>
-                      <p className="text-xs text-slate-450 max-w-[285px] mx-auto leading-relaxed">
-                        Please use the camera scan box on the right of this page, or align
-                        your device QR code to complete scanning automatically.
+                      <h3 className="text-sm font-bold text-[#0F172A]">
+                        Scan it with your phone
+                      </h3>
+                      <p className="text-xs text-slate-450 max-w-[320px] mx-auto leading-relaxed">
+                        The QR in your activation email is a link to this page with the
+                        code already filled in. Point your phone&apos;s ordinary camera at
+                        it and open the link — no separate scanner needed.
                       </p>
                       <button
                         onClick={() => setActiveTab("code")}
                         className="text-xs font-bold text-[#0A8A4B] hover:underline"
                         type="button"
                       >
-                        Use manual activation code instead
+                        Type the code instead
                       </button>
                     </div>
                   ) : (
@@ -239,104 +483,114 @@ export const ResidentActivationPageContent = memo(
                         </div>
                       </div>
 
-                      {/* Preview linked hostel details card */}
+                      {/* What the code opens — read back from the server. */}
                       <div className="space-y-2">
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
                           This code will give you access to:
                         </label>
-                        <div className="flex flex-col sm:flex-row gap-4 p-4 rounded-2xl border border-slate-100 bg-slate-50/50">
-                          <div
-                            className="w-full sm:w-28 h-20 rounded-xl bg-cover bg-center border border-slate-100 shrink-0"
-                            style={{
-                              backgroundImage:
-                                'url("https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=300&q=80")',
-                            }}
-                          />
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1.5">
-                              <h4 className="text-sm font-bold text-[#0F172A]">
-                                Green View Hostel
-                              </h4>
-                              <span className="flex items-center justify-center size-3.5 bg-[#0A8A4B] text-white rounded-full">
-                                <Check className="size-2.5 stroke-[3]" />
-                              </span>
-                              <span className="text-[10px] font-semibold text-[#0A8A4B]">
-                                Verified
-                              </span>
-                            </div>
+                        {target ? (
+                          <div className="flex flex-col sm:flex-row gap-4 p-4 rounded-2xl border border-slate-100 bg-slate-50/50">
+                            {target.photoUrl ? (
+                              <div
+                                className="w-full sm:w-28 h-20 rounded-xl bg-cover bg-center border border-slate-100 shrink-0"
+                                style={{ backgroundImage: `url("${target.photoUrl}")` }}
+                              />
+                            ) : null}
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                <h4 className="text-sm font-bold text-[#0F172A]">
+                                  {target.hostelName}
+                                </h4>
+                                {target.verified ? (
+                                  <>
+                                    <span className="flex items-center justify-center size-3.5 bg-[#0A8A4B] text-white rounded-full">
+                                      <Check className="size-2.5 stroke-[3]" />
+                                    </span>
+                                    <span className="text-[10px] font-semibold text-[#0A8A4B]">
+                                      Verified
+                                    </span>
+                                  </>
+                                ) : null}
+                              </div>
 
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100/50">
-                                Available
-                              </span>
-                              <span className="text-[11px] text-slate-400 flex items-center gap-0.5">
-                                <MapPin className="size-3" /> New Baneshwor, Kathmandu
-                              </span>
-                            </div>
+                              {placeOf(target) ? (
+                                <span className="text-[11px] text-slate-400 flex items-center gap-0.5">
+                                  <MapPin className="size-3" /> {placeOf(target)}
+                                </span>
+                              ) : null}
 
-                            <p className="text-[11px] text-slate-500 font-medium">
-                              Access Type:{" "}
-                              <span className="font-bold text-[#0F172A]">
-                                Resident Access (Standard Room)
-                              </span>
-                            </p>
-                            <p className="text-[11px] text-slate-500 font-medium">
-                              Valid for:{" "}
-                              <span className="font-bold text-[#0F172A]">
-                                Academic Year 2026-2027
-                              </span>
-                            </p>
+                              {target.roomType ? (
+                                <p className="text-[11px] text-slate-500 font-medium">
+                                  Room type:{" "}
+                                  <span className="font-bold text-[#0F172A]">
+                                    {target.roomType}
+                                  </span>
+                                </p>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          <p className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 text-[11px] text-slate-450 leading-relaxed">
+                            {codeState === "empty"
+                              ? "Enter your code and the hostel it belongs to will appear here, so you can check it before activating."
+                              : codeState === "checking"
+                                ? "Checking that code…"
+                                : "No hostel matches that code yet."}
+                          </p>
+                        )}
                       </div>
 
-                      {/* Linked resident details */}
+                      {/* The account this code is about to be attached to. */}
                       <div className="space-y-2">
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
-                          You (Linked Resident)
+                          Linking to this account
                         </label>
-                        <div className="flex items-center gap-4 p-4 rounded-2xl border border-slate-100 bg-slate-50/50">
-                          <div className="flex size-12 items-center justify-center rounded-full bg-[#EAF6F3] text-[#0A8A4B] font-bold text-base shrink-0">
-                            ST
-                          </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5 flex-1 min-w-0">
-                            <div>
-                              <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
-                                Full Name
-                              </span>
-                              <span className="text-xs font-bold text-[#0F172A] block truncate">
-                                Suman Thapa
-                              </span>
+                        {user ? (
+                          <div className="flex items-center gap-4 p-4 rounded-2xl border border-slate-100 bg-slate-50/50">
+                            <div className="flex size-12 items-center justify-center rounded-full bg-[#EAF6F3] text-[#0A8A4B] font-bold text-base shrink-0">
+                              {initialsOf(user.name)}
                             </div>
-                            <div>
-                              <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
-                                Email
-                              </span>
-                              <span className="text-xs font-bold text-[#0F172A] block truncate">
-                                sumanthapa@gmail.com
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
-                                Phone
-                              </span>
-                              <span className="text-xs font-bold text-[#0F172A] block truncate">
-                                +977 9801234567
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
-                                Bed Type
-                              </span>
-                              <span className="text-xs font-bold text-[#0F172A] block truncate">
-                                Double Sharing
-                              </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 flex-1 min-w-0">
+                              <div>
+                                <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
+                                  Full Name
+                                </span>
+                                <span className="text-xs font-bold text-[#0F172A] block truncate">
+                                  {user.name}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
+                                  Email
+                                </span>
+                                <span className="text-xs font-bold text-[#0F172A] block truncate">
+                                  {user.email ?? "—"}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          <p className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 text-[11px] text-slate-450 leading-relaxed">
+                            {sessionChecked ? (
+                              <>
+                                A code is attached to the account you are signed in
+                                with.{" "}
+                                <Link
+                                  className="font-bold text-[#0A8A4B] hover:underline"
+                                  href="/login?next=/resident-activation"
+                                >
+                                  Sign in first
+                                </Link>
+                                , then come back to this page.
+                              </>
+                            ) : (
+                              "Checking which account you are signed in with…"
+                            )}
+                          </p>
+                        )}
                       </div>
 
-                      <SubmitButton className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0A8A4B] text-sm font-bold text-white transition hover:brightness-105 active:scale-[0.99] shadow-md shadow-[#0A8A4B]/10">
+                      <SubmitButton className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0A8A4B] text-sm font-bold text-white transition hover:brightness-105 active:scale-[0.99] shadow-md shadow-[#0A8A4B]/10 disabled:cursor-not-allowed disabled:opacity-50">
                         Activate Access
                       </SubmitButton>
                     </BusyForm>
@@ -345,62 +599,55 @@ export const ResidentActivationPageContent = memo(
               )}
             </div>
 
-            {/* Right Column: QR Scanner & Help Status */}
-            <div className="p-6 md:p-8 bg-[#EAF6F3]/30 flex flex-col justify-between space-y-6">
-              {/* Scan QR Box */}
+            {/* Right Column: code status and the rules */}
+            {/*
+              Stacked from the top rather than spread: with the fake scanner
+              gone this column is short, and `justify-between` pushed the two
+              real blocks to opposite ends of a mostly empty panel.
+            */}
+            <div className="p-6 md:p-8 bg-[#EAF6F3]/30 flex flex-col gap-6">
+              {/*
+                The status of the code in the box, not a legend of the states a
+                code can be in. The old panel listed all three at once, which
+                told a resident holding a dead code exactly nothing.
+              */}
               <div className="space-y-3">
-                <h3 className="text-sm font-bold text-[#0F172A]">Scan QR Code</h3>
-                <div className="relative flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-2xl bg-white select-none">
-                  <div className="relative flex size-28 items-center justify-center border-2 border-[#0A8A4B] rounded-2xl overflow-hidden bg-slate-50">
-                    <QrCode className="size-16 text-[#0A8A4B]/40" />
-                    {/* Scanner laser bar animation */}
-                    <div className="absolute left-0 top-0 w-full h-[2px] bg-[#0A8A4B] shadow-md shadow-[#0A8A4B]/50 animate-bounce" />
-                  </div>
-                  <p className="text-[11px] font-bold text-[#0f172a] mt-3">
-                    Scan activation QR
+                <h3 className="text-sm font-bold text-[#0F172A]">Activation code</h3>
+                {codeState === "empty" ? (
+                  <p className="text-[11px] text-slate-450 leading-relaxed">
+                    Your hostel issues the code and emails it to you. Codes are valid for
+                    a limited time and can be used once.
                   </p>
-                  <p className="text-[10px] text-slate-400 text-center mt-1 leading-normal max-w-[200px]">
-                    Position the QR code within the frame to scan automatically.
+                ) : (
+                  <div className="flex items-start gap-2.5 rounded-2xl border border-slate-100 bg-white p-3">
+                    <span
+                      className={`size-2 rounded-full mt-1.5 shrink-0 ${DOT_COLOR[codeState]}`}
+                    />
+                    <div>
+                      <h4 className="text-[11px] font-bold text-[#0F172A]">
+                        {STATE_COPY[codeState].title}
+                      </h4>
+                      <p className="text-[10px] text-slate-450 leading-relaxed">
+                        {STATE_COPY[codeState].note}
+                      </p>
+                      {codeState === "ready" && lookup?.activation ? (
+                        <p className="text-[10px] text-slate-450 leading-relaxed mt-1">
+                          {`Valid until ${new Date(
+                            lookup.activation.expiresAt,
+                          ).toLocaleDateString()}.`}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                {lookup?.isActivated && !activated ? (
+                  <p className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3 text-[10px] text-amber-800 leading-relaxed">
+                    This account is already linked to a resident profile. One account
+                    holds one live profile at a time, so activating a second one will be
+                    refused — ask your hostel if this is unexpected.
                   </p>
-                </div>
-              </div>
-
-              {/* Code status info */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-bold text-[#0F172A]">
-                  Activation Code Status
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex items-start gap-2.5">
-                    <span className="size-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                    <div>
-                      <h4 className="text-[11px] font-bold text-[#0F172A]">Available</h4>
-                      <p className="text-[10px] text-slate-450 leading-relaxed">
-                        The code is ready to be linked to your account.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2.5">
-                    <span className="size-2 rounded-full bg-slate-450 mt-1.5 shrink-0" />
-                    <div>
-                      <h4 className="text-[11px] font-bold text-[#0F172A]">Used</h4>
-                      <p className="text-[10px] text-slate-450 leading-relaxed">
-                        This code has already been linked to a resident account.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2.5">
-                    <span className="size-2 rounded-full bg-red-500 mt-1.5 shrink-0" />
-                    <div>
-                      <h4 className="text-[11px] font-bold text-[#0F172A]">Expired</h4>
-                      <p className="text-[10px] text-slate-450 leading-relaxed">
-                        The code validity has expired. Request a new code from admin.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                ) : null}
               </div>
 
               {/* Privacy & Security rules */}
@@ -414,7 +661,7 @@ export const ResidentActivationPageContent = memo(
                   </h4>
                   <ul className="list-disc pl-3 text-[10px] text-slate-450 mt-1 leading-relaxed space-y-1">
                     <li>Activation codes are unique and can only be used once.</li>
-                    <li>Once linked, your account will be tied to your room and bed.</li>
+                    <li>Issuing a new code cancels any code still outstanding.</li>
                     <li>Only hostel admins can revoke or change your bed assignment.</li>
                   </ul>
                 </div>
@@ -425,7 +672,9 @@ export const ResidentActivationPageContent = memo(
 
         {/* Footer */}
         <footer className="text-center text-[10px] text-slate-400 font-semibold border-t border-slate-100 py-4 flex items-center justify-center gap-3 bg-white mt-8 select-none">
-          <span>&copy; 2026 <SiteName /> Platform. All rights reserved.</span>
+          <span>
+            &copy; 2026 <SiteName /> Platform. All rights reserved.
+          </span>
           <span className="text-slate-200">|</span>
           <span className="flex items-center gap-1">
             Made with <span className="text-red-500">❤️</span> in Nepal 🇳🇵

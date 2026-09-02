@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
-import { isFinancialAssetKind } from "@/lib/file-asset-kinds";
+import { isFileAssetKind, isFinancialAssetKind } from "@/lib/file-asset-kinds";
 import { validateFileAssetMetadata } from "@/lib/file-assets";
 import { Role } from "@/lib/roles";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
@@ -102,6 +102,18 @@ export async function POST(request: NextRequest) {
       key,
       fileName,
       hostelId: hostelId ?? undefined,
+      /*
+       * Stored, not just checked. The kind decides who may read the bytes back
+       * — `files/{assetId}/url` widens a `MAINTENANCE_NOTE` to the provider the
+       * job was assigned to and nothing else — and until this line it was
+       * inspected here and then thrown away, so no reader could ask.
+       *
+       * An unrecognised kind is dropped rather than refused: the allowlist is a
+       * server concern and a client sending a kind this build has not heard of
+       * gets the narrowest treatment, which is exactly what an absent kind
+       * already means.
+       */
+      kind: isFileAssetKind(kind) ? kind : undefined,
       mimeType,
       sizeBytes,
       accessLevel: resolvedAccessLevel,

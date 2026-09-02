@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   approveMatchedStatement,
@@ -25,7 +26,7 @@ import {
   type StatementProvider,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, formatDateTime, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
 
@@ -116,6 +117,7 @@ function pickerAvailable() {
 }
 
 export default function ManageStatementsScreen() {
+  const dates = useDates();
   const imports = useResource<StatementImport[]>(
     useCallback(() => listStatementImports(), []),
   );
@@ -300,7 +302,7 @@ export default function ManageStatementsScreen() {
                       {entry.fileName || `${humanizeEnum(entry.provider)} statement`}
                     </Text>
                     <Text variant="caption">
-                      {`${humanizeEnum(entry.provider)} · ${formatDate(entry.uploadedAt)}`}
+                      {`${humanizeEnum(entry.provider)} · ${dates.date(entry.uploadedAt)}`}
                     </Text>
                   </View>
                   <Badge
@@ -421,7 +423,12 @@ export default function ManageStatementsScreen() {
                       <View className="flex-1">
                         <Text variant="label">{row.residentName}</Text>
                         <Text variant="caption">
-                          {`${formatDateTime(row.occurredAt)}${row.period ? ` · ${row.period}` : ""}`}
+                          {`${dates.dateTime(row.occurredAt)}${
+                            // The period *key*, `2026-09`, was being printed
+                            // raw next to a formatted date. Named like every
+                            // other month in the portal, in the same calendar.
+                            row.period ? ` · ${dates.period(row.period)}` : ""
+                          }`}
                         </Text>
                       </View>
                       <Money value={row.amount} />
@@ -451,7 +458,7 @@ export default function ManageStatementsScreen() {
                       <View className="flex-1">
                         <Text variant="label">{row.counterpartyName || "Unnamed credit"}</Text>
                         <Text variant="caption">
-                          {`${formatDateTime(row.occurredAt)}${row.providerTxnId ? ` · ${row.providerTxnId}` : ""}`}
+                          {`${dates.dateTime(row.occurredAt)}${row.providerTxnId ? ` · ${row.providerTxnId}` : ""}`}
                         </Text>
                       </View>
                       <Money value={row.amount} />
@@ -495,7 +502,7 @@ export default function ManageStatementsScreen() {
                         <View className="flex-1">
                           <Text variant="label">{row.residentName}</Text>
                           <Text variant="caption">
-                            {`Approved by ${row.approvedByName ?? "a staff member"}${row.approvedAt ? ` on ${formatDate(row.approvedAt)}` : ""}`}
+                            {`Approved by ${row.approvedByName ?? "a staff member"}${row.approvedAt ? ` on ${dates.date(row.approvedAt)}` : ""}`}
                           </Text>
                         </View>
                         <Money owed value={row.amount} />

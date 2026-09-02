@@ -29,6 +29,10 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   CANCELLED: "neutral",
   CLEARED: "success",
   CLOSED: "neutral",
+  /** `Inquiry.status`: somebody has rung the lead back. */
+  CONTACTED: "info",
+  /** `Inquiry.status`: the lead took a bed. The end anybody wants. */
+  CONVERTED: "success",
   ESCALATED: "danger",
   EXPIRED: "neutral",
   FAILED: "danger",
@@ -38,6 +42,12 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   INQUIRY_CREATED: "info",
   JOINED: "success",
   MOVED_OUT: "neutral",
+  /**
+   * `Inquiry.status`: a lead nobody has answered yet. Amber rather than info —
+   * it is the state the red count on Home is counting, and it stays amber until
+   * a person moves it, which is the whole point of the inquiries screen.
+   */
+  NEW: "warning",
   /**
    * Not an absence — a resident nobody has billed for the month. Amber rather
    * than neutral because it is a *bigger* collection problem than a late
@@ -60,6 +70,8 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   UNDER_REVIEW: "info",
   UNPAID: "danger",
   VERIFIED: "success",
+  /** `Inquiry.status`: they are coming to look at the place. */
+  VISIT_SCHEDULED: "info",
   WAIVED: "neutral",
 };
 

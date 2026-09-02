@@ -16,6 +16,7 @@ import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   createResident,
@@ -25,6 +26,7 @@ import {
   lookupResidentProfile,
   type ManagedHostel,
   RESIDENT_TYPES,
+  type ResidentIntakeResult,
   type ResidentPrefill,
   type ResidentType,
 } from "@/lib/admin-manage-api";
@@ -34,6 +36,7 @@ import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
 import {
   backgroundFacts,
   careFacts,
+  firstMonthNote,
   identityFacts,
   type IntakeFact,
   intakePeople,
@@ -193,8 +196,24 @@ export default function NewResidentScreen() {
 
     setSaving(true);
 
+    /*
+     * The POST is the only thing whose failure means "not registered", so it is
+     * the only thing inside this try.
+     *
+     * Everything below runs *after* the resident, their bed and their invoices
+     * are committed on the server, and a single try around the lot turned any
+     * slip down there — a contact that would not attach, a field this build
+     * reads that the deployed API does not yet send — into "Could not register"
+     * over a registration that had already succeeded. The warden then registered
+     * them a second time and got the duplicate refusal, which is the only reason
+     * anyone found out the first one had worked. The server holds this same rule
+     * for itself (`raiseAdmissionInvoice`, `raiseFirstMonthInvoice`); the screen
+     * has to hold it too.
+     */
+    let result: ResidentIntakeResult;
+
     try {
-      const result = await createResident({
+      result = await createResident({
         email: person.email || undefined,
         firstName: person.firstName,
         lastName: person.lastName,
@@ -204,28 +223,38 @@ export default function NewResidentScreen() {
         residentType: person.residentType,
         roomType,
         status: activeNow ? "ACTIVE" : "PENDING",
+        // The card that opened this intake, so the server links the account it
+        // already resolved rather than guessing at it from the email.
+        userResidentId: identity?.kind === "card" ? identity.residentId : undefined,
       });
+    } catch (error) {
+      toastError("Could not register", readApiError(error, "That did not save."));
+      setSaving(false);
+      return;
+    }
 
-      /*
-       * Their own guardian and emergency records, written from the card they
-       * presented. This is the whole point of scanning: the contacts a hostel
-       * would otherwise retype — and would retype wrongly — arrive with them.
-       * Settled rather than awaited in series, and a failure here is reported
-       * in the toast rather than raised: the resident is registered, and a
-       * missing second guardian is fixed from their own screen.
-       */
-      const contacts =
+    /*
+     * Their own guardian and emergency records, written from the card they
+     * presented. This is the whole point of scanning: the contacts a hostel
+     * would otherwise retype — and would retype wrongly — arrive with them.
+     * Settled rather than awaited in series, and a failure here is counted
+     * rather than raised: the resident is registered, and a missing second
+     * guardian is fixed from their own screen.
+     */
+    let contacts = 0;
+
+    try {
+      contacts =
         identity?.kind === "card"
           ? await attachContacts(result.resident.id, identity.prefill)
           : 0;
-
-      toastSuccess("Registered", registeredNote(result.admission.raised, contacts));
-      router.replace(`/manage/resident/${result.resident.id}`);
-    } catch (error) {
-      toastError("Could not register", readApiError(error, "That did not save."));
-    } finally {
-      setSaving(false);
+    } catch {
+      contacts = 0;
     }
+
+    setSaving(false);
+    toastSuccess("Registered", registeredNote(result, contacts));
+    router.replace(`/manage/resident/${result.resident.id}`);
   }, [activeNow, identity, moveInDate, person, referralCode, roomType]);
 
   if (step === "identify") {
@@ -377,6 +406,7 @@ function ConfirmStep({
   residentType: ResidentType;
 }) {
   const { colors } = useAppTheme();
+  const dates = useDates();
 
   if (identity?.kind !== "card") {
     return (
@@ -477,7 +507,7 @@ function ConfirmStep({
         </View>
       </View>
 
-      <FactCard facts={identityFacts(prefill)} title="Who they are" />
+      <FactCard facts={identityFacts(prefill, dates.calendar)} title="Who they are" />
 
       {background.length > 0 ? (
         <FactCard facts={background} title="Where they are from, and what they do" />
@@ -710,8 +740,15 @@ function MoneyCard({
     );
   }
 
-  const { admissionFee, admissionPayable, depositAmount, monthlyRent, referral, rentBasis } =
-    quote.data;
+  const {
+    admissionFee,
+    admissionPayable,
+    depositAmount,
+    firstMonth,
+    monthlyRent,
+    referral,
+    rentBasis,
+  } = quote.data;
 
   return (
     <View className="gap-2">
@@ -728,6 +765,22 @@ function MoneyCard({
             )
           }
         />
+        {/*
+          The month they are actually walking into, directly under the month
+          rate it is derived from.
+
+          This is the row the screen was missing. A hostel admitting somebody on
+          the 20th was shown "Monthly rent NPR 6,000" and nothing else, so the
+          only figure on the screen was one the resident does not owe this month
+          — and the server, until now, billed them nothing for it at all. See
+          `raiseFirstMonthInvoice`.
+        */}
+        {firstMonth ? (
+          <FactRow
+            label={firstMonth.prorated ? "This month (part)" : "This month"}
+            value={<Money value={firstMonth.amount} />}
+          />
+        ) : null}
         {depositAmount > 0 ? (
           <FactRow label="Deposit held" value={<Money value={depositAmount} />} />
         ) : null}
@@ -764,7 +817,7 @@ function MoneyCard({
       </Card>
 
       <Text className="px-1 text-xs text-muted-foreground">
-        {rentBasisNote(rentBasis)}
+        {firstMonth ? `${firstMonthNote(firstMonth)} ${rentBasisNote(rentBasis)}` : rentBasisNote(rentBasis)}
       </Text>
     </View>
   );
@@ -895,10 +948,53 @@ async function attachContacts(residentId: string, prefill: ResidentPrefill) {
   return outcomes.filter((outcome) => outcome.status === "fulfilled").length;
 }
 
-function registeredNote(invoiced: boolean, contacts: number) {
-  const money = invoiced
-    ? "Their admission fee is invoiced and waiting to be paid."
-    : "Issue their activation code next so they can sign in.";
+/**
+ * What the success toast says, in the order it matters.
+ *
+ * Rent leads when it was billed, because that is the new obligation somebody
+ * has to be told about — and because a first month that quietly failed to bill
+ * is exactly the silence this whole change exists to end. The reason is not
+ * printed: `NOT_YET_RESIDENT` is a server enum, and the honest phrasing of it
+ * for a warden who deliberately ticked "not yet arrived" is that nothing is due
+ * yet, which is what the sentence says.
+ *
+ * The login comes last and is always said, because it is the one outcome the
+ * warden can still act on while the resident is standing in front of them.
+ *
+ * Every sentence is dropped rather than guessed when the fact behind it is
+ * missing, and nothing in here may throw: it is describing work the server has
+ * already finished.
+ */
+function registeredNote(result: ResidentIntakeResult, contacts: number) {
+  /*
+   * Read defensively, every field of it. This runs against whatever version of
+   * the API the phone happens to be pointed at — `EXPO_PUBLIC_API_URL` sends
+   * even a debug build to the deployed origin — so a field this build knows
+   * about can simply be absent from the response, and a sentence nobody reads
+   * twice must not be able to take a completed intake down with it.
+   */
+  const sentences = [
+    contacts > 0 ? `${contacts} contact records saved.` : null,
+    // An absent `firstMonth` says nothing at all, rather than guessing: a server
+    // that does not send the field is one that did not raise the invoice, and
+    // "this month's rent is invoiced" would be a claim about money that is false.
+    result.firstMonth
+      ? result.firstMonth.raised
+        ? "This month's rent is invoiced."
+        : "No rent is due yet — it is billed when they are marked as living here."
+      : null,
+    result.admission?.raised ? "Their admission fee is invoiced too." : null,
+    /*
+     * Said out loud because the alternative is silence. When the link does not
+     * hold the resident has no login at all — their website account stays
+     * public and the resident portal never appears for them — until somebody
+     * issues an activation code, and this toast is the only moment anyone is in
+     * a position to notice.
+     */
+    result.accountLink?.linked
+      ? "They can sign in with their own email."
+      : "No login was linked — issue their activation code.",
+  ];
 
-  return contacts > 0 ? `${contacts} contact records saved. ${money}` : money;
+  return sentences.filter(Boolean).join(" ");
 }

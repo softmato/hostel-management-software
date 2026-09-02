@@ -12,7 +12,7 @@ import { useResource } from "@/hooks/use-resource";
 import { type AdminModeratedPost, getAdminCommunityModeration } from "@/lib/admin-api";
 import { openAssetViewer } from "@/lib/asset-viewer";
 import { communityMediaUrl } from "@/lib/community-api";
-import { formatRelativeDay } from "@/lib/format";
+import { useDates } from "@/hooks/use-dates";
 
 /**
  * What a hostel's staff can do to their own community space, on a phone.
@@ -197,6 +197,7 @@ export function ReportedPostCard({
   showStatus: boolean;
 }) {
   const { colors } = useAppTheme();
+  const dates = useDates();
   const hidden = post.status === "HIDDEN";
 
   return (
@@ -209,7 +210,7 @@ export function ReportedPostCard({
           <Text numberOfLines={1} variant="caption">
             {[
               post.spaceType === "PUBLIC" ? "Public space" : post.hostelName,
-              post.createdAt ? formatRelativeDay(post.createdAt) : null,
+              post.createdAt ? dates.relativeDay(post.createdAt) : null,
               post.commentCount > 0 ? `${post.commentCount} comments` : null,
             ]
               .filter(Boolean)

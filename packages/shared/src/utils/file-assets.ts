@@ -5,9 +5,37 @@ export const DEFAULT_DOCUMENT_BYTES = 10 * 1024 * 1024;
  * phone can upload and a browser can stream back without a pipeline behind it.
  */
 export const DEFAULT_VIDEO_BYTES = 50 * 1024 * 1024;
+/**
+ * A maintenance voice note is a warden holding a phone up to a leaking tap and
+ * describing it. Two minutes of mono AAC at 32 kbps is under half a megabyte, so
+ * 10 MB is room for a very long one and still far below the point where a
+ * provider on a Nepali mobile connection gives up waiting for it to load.
+ */
+export const DEFAULT_AUDIO_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 /** Types every current browser can play from a plain `<video>` element. */
 export const DEFAULT_VIDEO_MIME_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
+/**
+ * What `expo-audio` actually records, and nothing else.
+ *
+ * `RecordingPresets` writes `.m4a` on both platforms — AAC in an MPEG-4
+ * container — which arrives labelled `audio/mp4`, `audio/m4a` or `audio/x-m4a`
+ * depending on which end names it. All three are the same container, and
+ * `sniff.ts` resolves every one of them to `ISO_MEDIA`, so a declaration that
+ * disagrees with the bytes is still refused.
+ *
+ * **`audio/mpeg` is deliberately absent.** Nothing in the product records MP3,
+ * and an MP3 has no reliable magic number to sniff — the frame header is a bit
+ * pattern that occurs in arbitrary binary — so accepting it would be the one
+ * audio type whose declaration nothing could check.
+ */
+export const DEFAULT_AUDIO_MIME_TYPES = [
+  "audio/mp4",
+  "audio/m4a",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/webm",
+];
 export const DEFAULT_DOCUMENT_MIME_TYPES = [
   "application/pdf",
   "image/jpeg",
@@ -87,6 +115,7 @@ export const PLATFORM_ACCEPTED_MIME_TYPES = Array.from(
     ...DEFAULT_IMAGE_MIME_TYPES,
     ...DEFAULT_DOCUMENT_MIME_TYPES,
     ...DEFAULT_VIDEO_MIME_TYPES,
+    ...DEFAULT_AUDIO_MIME_TYPES,
   ]),
 );
 
@@ -107,6 +136,10 @@ function mimeList(value: string | undefined, fallback: string[]) {
 
 export function fileAssetLimits() {
   return {
+    allowedAudioMimeTypes: mimeList(
+      process.env.ALLOWED_AUDIO_MIME_TYPES,
+      DEFAULT_AUDIO_MIME_TYPES,
+    ),
     allowedDocumentMimeTypes: mimeList(
       process.env.ALLOWED_DOCUMENT_MIME_TYPES,
       DEFAULT_DOCUMENT_MIME_TYPES,
@@ -130,6 +163,10 @@ export function fileAssetLimits() {
     maxVideoBytes: positiveInteger(
       process.env.UPLOAD_MAX_VIDEO_BYTES,
       DEFAULT_VIDEO_BYTES,
+    ),
+    maxAudioBytes: positiveInteger(
+      process.env.UPLOAD_MAX_AUDIO_BYTES,
+      DEFAULT_AUDIO_BYTES,
     ),
   };
 }
@@ -160,6 +197,12 @@ export function validateFileAssetMetadata(input: {
     return sizeBytes <= limits.maxVideoBytes
       ? null
       : `Video exceeds the ${limits.maxVideoBytes} byte upload limit.`;
+  }
+
+  if (limits.allowedAudioMimeTypes.includes(mimeType)) {
+    return sizeBytes <= limits.maxAudioBytes
+      ? null
+      : `Audio exceeds the ${limits.maxAudioBytes} byte upload limit.`;
   }
 
   if (limits.allowedDocumentMimeTypes.includes(mimeType)) {

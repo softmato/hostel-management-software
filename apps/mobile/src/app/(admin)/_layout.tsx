@@ -38,7 +38,8 @@ import { RoleTabs, type TabDef } from "@/components/role-tabs";
  * ## Alerts is a bell now, not a tab
  *
  * Its four sources each moved next to their own domain (claims → Money,
- * complaints → Today, inquiries → Residents, SOS → a banner on Home), and the
+ * complaints → Today, inquiries → their own screen at `manage/inquiries`, SOS →
+ * a banner on Home), and the
  * catch-all became `/notifications` — the same screen every signed-in user gets,
  * fed by `notifyAdminsOfClaim` and the SOS fan-out. The combined queue survives
  * at `(admin)/alerts` for "show me everything that needs a decision", reached
@@ -52,11 +53,21 @@ function AdminTabs() {
   const tabs = useMemo<readonly TabDef[]>(
     () => [
       { icon: "home", label: "Home", name: "index" },
-      // Badges go where the decision is: inquiries on Residents, claims on
-      // Money. SOS deliberately has none — it is a red banner on Home and a
-      // push, and a "1" on a tab is far too quiet for it. Overdue complaints
-      // lose theirs with the Today tab; Home's row still carries the count.
-      { badge: counts.inquiry, icon: "people", label: "Residents", name: "residents" },
+      /*
+        Badges go where the decision is, and a lead is no longer decided here.
+
+        Residents carried the inquiry count on the argument that a lead and a
+        resident are the same subject. They are not — the roster screen's own
+        doc says so — and once `manage/inquiries` existed the badge was pointing
+        at a tab whose list does not contain a single one of the rows it counted.
+        The count now sits on the tile that opens the queue, on Home.
+
+        Claims keep theirs, because Payments genuinely is where a claim is
+        approved. SOS deliberately has none — it is a red banner on Home and a
+        push, and a "1" on a tab is far too quiet for it. Overdue complaints lose
+        theirs with the Today tab; Home's row still carries the count.
+      */
+      { icon: "people", label: "Residents", name: "residents" },
       { icon: "chatbubbles", label: "Community", name: "community" },
       /*
         `Payments`, not `Money` — the word the portal uses. `portal-nav.ts` says
@@ -67,7 +78,7 @@ function AdminTabs() {
       { badge: counts.claim, icon: "card", label: "Payments", name: "money" },
       { icon: "ellipsis-horizontal", label: "More", name: "more" },
     ],
-    [counts.claim, counts.inquiry],
+    [counts.claim],
   );
 
   return <RoleTabs accent="ADMIN" hidden={HIDDEN} tabs={tabs} />;

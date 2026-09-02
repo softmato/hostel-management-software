@@ -17,6 +17,7 @@ import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type AdminNightStatus,
@@ -25,7 +26,7 @@ import {
   overrideNightStatus,
 } from "@/lib/admin-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, formatDateTime, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import {
   filterRollCall,
   OVERRIDE_OPTIONS,
@@ -121,6 +122,7 @@ async function loadRollCall(): Promise<RollCallData> {
 }
 
 export default function ManageRollCallScreen() {
+  const dates = useDates();
   const roll = useResource<RollCallData>(useCallback(() => loadRollCall(), []), {
     topics: [REALTIME_TOPIC.ATTENDANCE, REALTIME_TOPIC.SAFETY],
   });
@@ -185,7 +187,7 @@ export default function ManageRollCallScreen() {
   }, []);
 
   const header = (
-    <AppBar accent centerTitle showBack subtitle={formatDate(new Date())} title="Roll call" />
+    <AppBar accent centerTitle showBack subtitle={dates.date(new Date())} title="Roll call" />
   );
 
   if (roll.loading) {
@@ -225,7 +227,7 @@ export default function ManageRollCallScreen() {
     <>
       <Screen header={header} onRefresh={roll.refresh} refreshing={roll.refreshing} scroll>
         <View className="gap-4 pt-1">
-          <AdminRollCallCard date={formatDate(new Date())} summary={night.summary} />
+          <AdminRollCallCard date={dates.date(new Date())} summary={night.summary} />
 
           <Segmented
             onChange={setSegment}
@@ -288,7 +290,7 @@ export default function ManageRollCallScreen() {
                       where a timestamp would read as a fact about nothing.
                     */
                     row.status.checkedAt
-                      ? `${humanizeEnum(row.status.source)} · ${formatDateTime(row.status.checkedAt)}`
+                      ? `${humanizeEnum(row.status.source)} · ${dates.dateTime(row.status.checkedAt)}`
                       : "Nobody has marked them",
                   ]
                     .filter(Boolean)

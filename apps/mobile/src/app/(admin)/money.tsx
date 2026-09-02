@@ -7,7 +7,6 @@ import {
   useAdminAlerts,
   useAlertActions,
 } from "@/components/admin-alerts";
-import { EarningsTrend } from "@/components/admin-home";
 import { ClaimCard } from "@/components/claim-card";
 import { PaymentMonthStrip } from "@/components/payment-months";
 import { NotificationBell } from "@/components/notification-bell";
@@ -27,6 +26,7 @@ import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type AdminHostel,
@@ -38,12 +38,15 @@ import {
   getAdminPeriodSummary,
 } from "@/lib/admin-api";
 import { buildAlertFeed } from "@/lib/admin-alerts";
-import { earningsTrend } from "@/lib/admin-home";
 import { recordCashPayment, voidInvoice } from "@/lib/admin-manage-api";
 import {
   amountOwed,
   type InvoiceSegment,
   invoiceSegment,
+  isFirstMonth,
+  isProRated,
+  notBilledReason,
+  projectedAmount,
   searchInvoiceRows,
 } from "@/lib/admin-money";
 import { readApiError } from "@/lib/api-contract";
@@ -144,9 +147,11 @@ async function loadMoney(period: string): Promise<MoneyData> {
     // portal link is the only thing that needs it. The figures are unaffected.
     getAdminHostel().catch(() => null),
     /*
-     * The monthly roll-up the trend chart plots. Tolerant because `viewPayments`
-     * is a per-warden grant and this is the one read here a legitimate user can
-     * be refused — the chart is absent in that case rather than empty.
+     * The monthly roll-up behind the month strip — one chip per month, each
+     * carrying its own count of invoices still waiting. Tolerant because
+     * `viewPayments` is a per-warden grant and this is the one read here a
+     * legitimate user can be refused; the strip is absent in that case rather
+     * than drawn as a single empty month.
      */
     getAdminPeriodSummary().catch(() => null),
   ]);
@@ -163,6 +168,7 @@ export default function AdminMoneyScreen() {
    * silently does nothing, which is the failure that hook's own notes record.
    */
   const [period, setPeriod] = useState(nepalPeriodKey());
+  const dates = useDates();
 
   const money = useResource<MoneyData>(
     useCallback(() => loadMoney(period), [period]),
@@ -172,11 +178,6 @@ export default function AdminMoneyScreen() {
   );
   const alerts = useAdminAlerts();
   const actions = useAlertActions();
-
-  const trend = useMemo(
-    () => earningsTrend(money.data?.periods?.months ?? []),
-    [money.data],
-  );
 
   const [segment, setSegment] = useState<InvoiceSegment>("owing");
   const [query, setQuery] = useState("");
@@ -723,6 +724,35 @@ export default function AdminMoneyScreen() {
                         humanizeEnum(row.resident.roomType),
                         row.resident.roomNumber,
                         /*
+                         * Why this row's amount is smaller than its neighbours'.
+                         * The billing run prorates from the move-in day, so a
+                         * resident admitted mid-month is billed part of one —
+                         * and an unexplained low figure on a list of rents reads
+                         * as a billing fault rather than as arithmetic. Plain
+                         * text in the subtitle, not a badge: nothing is wrong,
+                         * and a coloured marker here would compete with the
+                         * overdue pill, which is the thing on this screen that
+                         * does want the eye.
+                         */
+                        isFirstMonth(row, period) ? "First month" : null,
+                        /*
+                         * What the month would cost somebody nobody has
+                         * invoiced yet. "Not billed" with no figure beside it is
+                         * the row a warden sees the day after a registration,
+                         * and it reads as money that has gone missing; the
+                         * amount says the resident is priced and the run simply
+                         * has not happened.
+                         *
+                         * Deliberately in the subtitle rather than in the amount
+                         * column on the right. That column is what is *owed*,
+                         * every figure in it is summed into the hostel's
+                         * outstanding total, and a projection sitting there
+                         * would read as a debt the resident does not yet have.
+                         */
+                        projectedAmount(row)
+                          ? `Would be ${formatMoney(projectedAmount(row)!)}`
+                          : null,
+                        /*
                          * Says so when there is no number, rather than simply
                          * leaving it out: the sheet this opens leads with a call
                          * button, and a row that cannot be called should say so
@@ -757,24 +787,24 @@ export default function AdminMoneyScreen() {
           </View>
 
           {/*
-            The last few months' takings, under the month they belong to rather
-            than above it. It answers "is this month normal", which is a question
-            somebody asks *after* reading the month — and the strip at the top
-            now owns "which month", so a chart up there was two controls for one
-            job with the less precise one first.
+            No chart here, deliberately.
 
-            Absent, not empty. Without `viewPayments` there is no monthly roll-up
-            to plot, and an empty axis reads as "this hostel has earned nothing"
-            — the same mistake as showing 0% occupancy for a hostel that never
-            configured its rooms.
+            A bar of the last few months' takings stood at this spot and it was
+            removed on 2026-09-02: this screen is a worklist, and the question it
+            exists to answer is "who owes money and what do I do about it". A
+            trend answers "is this month normal", which is a different and much
+            rarer question, and it was the tallest thing on the screen answering
+            it — six bars of chrome between the invoice list and the settings row
+            that actually gets used.
+
+            The figures are not lost. The month strip carries the count still
+            waiting per month, the metric row above carries this month's
+            collected and owed, and `manage/reports` draws the monthly series
+            properly on a screen somebody opened to look at it.
+
+            `earningsTrend` in `lib/admin-home.ts` is still used by Reports; it
+            was the *placement* that was wrong, not the arithmetic.
           */}
-          {trend.length > 0 ? (
-            <View className="px-5">
-              <Card>
-                <EarningsTrend bars={trend} />
-              </Card>
-            </View>
-          ) : null}
 
           {/*
             A row, not a paragraph and a button.
@@ -811,8 +841,13 @@ export default function AdminMoneyScreen() {
                 <View className="flex-1">
                   <Text variant="label">
                     {open.payment
-                      ? `${open.payment.month} invoice`
-                      : "Not billed this month"}
+                      ? /*
+                         * Named, not the raw `2026-09` key this printed — and
+                         * named in the portal's calendar, like every other month
+                         * on the screen. See `hooks/use-dates.ts`.
+                         */
+                        `${dates.period(open.payment.month)} invoice`
+                      : `${dates.period(period)} — not billed`}
                   </Text>
                   <Text variant="caption">
                     {[
@@ -844,6 +879,42 @@ export default function AdminMoneyScreen() {
                     />
                   ) : null}
                 </View>
+              ) : projectedAmount(open) ? (
+                /*
+                  The unbilled sheet's answer to "how much". One chip, and it
+                  says `Would be` rather than `Billed`: the resident is priced,
+                  nothing has been invoiced, and the two must not read alike on a
+                  screen somebody uses to decide who to ring.
+                */
+                <View className="flex-row flex-wrap gap-2">
+                  <Chip
+                    icon="pricetag-outline"
+                    label={`Would be ${formatMoney(projectedAmount(open)!)}`}
+                  />
+                </View>
+              ) : null}
+
+              {/*
+                And "why". Two of these reasons need somebody to go and price a
+                room type, the rest say the run has not happened or that nothing
+                is owed — which is the difference between a row to act on and a
+                row to leave alone, and the status pill cannot say either.
+              */}
+              {!open.payment && notBilledReason(open) ? (
+                <Text variant="caption">{notBilledReason(open)}</Text>
+              ) : null}
+
+              {/*
+                The row said "First month"; this says what that did to the
+                figure above it. Only when the move-in is past the 1st — a
+                resident admitted on the 1st has a first month billed in full,
+                and calling that pro-rated would explain a discount they never
+                got.
+              */}
+              {isProRated(open, period) ? (
+                <Text variant="caption">
+                  {`Part month — billed from ${dates.date(open.resident.moveInDate)}, the day they moved in, so this is less than a full month's rent.`}
+                </Text>
               ) : null}
 
               <View className="flex-row flex-wrap gap-2">

@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Linking, View } from "react-native";
 
+import { VoiceNotePlayer } from "@/components/voice-note-player";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge, StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -161,6 +162,18 @@ export default function ProviderJobScreen() {
           </View>
 
           {job.description ? <Text variant="muted">{job.description}</Text> : null}
+
+          {/*
+            The hostel describing the fault in their own voice.
+
+            Worth more here than anywhere else in the app: this is the screen a
+            contractor opens before driving across town, and the difference
+            between "leak in 204" and thirty seconds of somebody pointing at the
+            pipe is whether they bring the right part.
+          */}
+          {job.voiceNoteAssetId ? (
+            <VoiceNotePlayer assetId={job.voiceNoteAssetId} />
+          ) : null}
         </Card>
 
         <View>

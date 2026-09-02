@@ -18,16 +18,15 @@ import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
+import type { CalendarSystem } from "@/lib/calendar";
 import { useResource } from "@/hooks/use-resource";
 import { type AdminHostel, type AdminLedger, getAdminHostel, getAdminLedger } from "@/lib/admin-api";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
 import {
-  formatDateBoth,
-  formatDateTime,
   formatMoney,
-  formatPeriodBoth,
   formatTime,
   humanizeEnum,
 } from "@/lib/format";
@@ -211,6 +210,32 @@ function ChipGroup({
 }
 
 /** The small-caps label over a figure — the reference's `BALANCE`. */
+/**
+ * The way back to the whole statement, one tap from wherever a filter was set.
+ *
+ * Deliberately not a `<Button>`: it sits inside a row of chips and a caption
+ * line, and a filled or outlined button at that scale would read as the primary
+ * thing to do on a screen whose primary thing is the list underneath. It is the
+ * same weight as the search field's own clear glyph, which is the control it is
+ * a sibling of.
+ */
+function ClearFilters({ count, onPress }: { count: number; onPress: () => void }) {
+  const { colors } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel={count === 1 ? "Clear 1 filter" : `Clear ${count} filters`}
+      accessibilityRole="button"
+      className="flex-row items-center gap-1 rounded-full px-2 py-1.5 active:opacity-60"
+      hitSlop={6}
+      onPress={onPress}
+    >
+      <Ionicons color={colors.mutedForeground} name="close-circle" size={14} />
+      <Text className="text-xs font-semibold text-muted-foreground">Clear</Text>
+    </Pressable>
+  );
+}
+
 function MicroLabel({ children }: { children: string }) {
   return (
     <Text
@@ -232,10 +257,18 @@ function MicroLabel({ children }: { children: string }) {
  * paid, not a payment to repeat.
  */
 function CreditRow({
+  calendar,
   credit,
   onOpen,
   onResident,
 }: {
+  /*
+   * Passed down rather than read from `useDates()` here: this row renders once
+   * per credit, and the title has to be spelled in the same calendar as the
+   * screen's own headings — taking it as a prop is what makes that impossible
+   * to get wrong when the row is reused somewhere else.
+   */
+  calendar: CalendarSystem;
   credit: StatementCredit;
   onOpen: () => void;
   onResident: () => void;
@@ -244,7 +277,7 @@ function CreditRow({
 
   return (
     <Pressable
-      accessibilityLabel={`${creditTitle(credit)}, ${formatMoney(credit.amount)}`}
+      accessibilityLabel={`${creditTitle(credit, calendar)}, ${formatMoney(credit.amount)}`}
       accessibilityRole="button"
       className="active:opacity-80"
       onPress={onOpen}
@@ -257,7 +290,7 @@ function CreditRow({
 
           <View className="flex-1 gap-1">
             <Text numberOfLines={2} variant="label">
-              {creditTitle(credit)}
+              {creditTitle(credit, calendar)}
             </Text>
             <View className="flex-row flex-wrap items-center gap-2">
               <Text variant="caption">{formatTime(credit.receivedAt)}</Text>
@@ -312,6 +345,7 @@ function CreditRow({
 }
 
 export default function ManageStatementScreen() {
+  const dates = useDates();
   const { colors } = useAppTheme();
 
   const ledger = useResource<AdminLedger>(useCallback(() => getAdminLedger(), []), {
@@ -340,7 +374,17 @@ export default function ManageStatementScreen() {
    */
   const [draft, setDraft] = useState<StatementFilter>(NO_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [rangesOpen, setRangesOpen] = useState(true);
+  /*
+   * Collapsed to start with.
+   *
+   * It opened expanded, which meant every visit to the statement began with a
+   * row of three range chips nobody had asked for, pushing the first payment
+   * further down a screen opened to read payments. A filter is something you go
+   * looking for; the pill on the hairline is where it is found, and it carries
+   * the count so a filter left on from last time still announces itself with the
+   * strip shut.
+   */
+  const [rangesOpen, setRangesOpen] = useState(false);
   const [open, setOpen] = useState<StatementCredit | null>(null);
   const [exporting, setExporting] = useState(false);
   const [formatOpen, setFormatOpen] = useState(false);
@@ -348,7 +392,10 @@ export default function ManageStatementScreen() {
   const credits = useMemo(() => statementCredits(ledger.data), [ledger.data]);
   const visible = useMemo(() => filterCredits(credits, filter), [credits, filter]);
   const days = useMemo(() => groupByDay(visible), [visible]);
-  const summary = useMemo(() => statementSummary(credits), [credits]);
+  const summary = useMemo(
+    () => statementSummary(credits, dates.calendar),
+    [credits, dates.calendar],
+  );
   const methods = useMemo(() => methodOptions(credits), [credits]);
   const statuses = useMemo(() => statusOptions(credits), [credits]);
 
@@ -362,6 +409,7 @@ export default function ManageStatementScreen() {
     try {
       await Share.share({
         message: statementShareText({
+          calendar: dates.calendar,
           credits: visible,
           filter,
           hostelName: hostel.data?.name ?? "",
@@ -370,7 +418,7 @@ export default function ManageStatementScreen() {
     } catch (error) {
       toastError("Could not share", readApiError(error, "The share sheet did not open."));
     }
-  }, [filter, hostel.data, visible]);
+  }, [dates.calendar, filter, hostel.data, visible]);
 
   /**
    * Downloads the statement in the format the owner picked.
@@ -401,6 +449,11 @@ export default function ManageStatementScreen() {
     } finally {
       setExporting(false);
     }
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    void Haptics.selectionAsync();
+    setFilter(NO_FILTER);
   }, []);
 
   const openFilters = useCallback(() => {
@@ -599,7 +652,7 @@ export default function ManageStatementScreen() {
         </View>
 
         {rangesOpen ? (
-          <View className="flex-row flex-wrap gap-2">
+          <View className="flex-row flex-wrap items-center gap-2">
             {QUICK_RANGES.map((days) => (
               <FilterChip
                 key={days}
@@ -608,6 +661,24 @@ export default function ManageStatementScreen() {
                 selected={activeRange === days}
               />
             ))}
+
+            {filterCount > 0 ? <ClearFilters count={filterCount} onPress={clearFilters} /> : null}
+          </View>
+        ) : filterCount > 0 ? (
+          /*
+            The strip is shut and something is still filtering the list.
+
+            This is the case the collapse created. A filter set from the sheet —
+            or a range left on from the last visit — would otherwise be
+            announced only by the small badge on the filter glyph, and undoing it
+            would mean opening the sheet to reach its `RESET`. One line, and the
+            way out is on it.
+          */
+          <View className="flex-row items-center gap-2">
+            <Text className="flex-1" numberOfLines={1} variant="caption">
+              {filterCount === 1 ? "1 filter on" : `${filterCount} filters on`}
+            </Text>
+            <ClearFilters count={filterCount} onPress={clearFilters} />
           </View>
         ) : null}
       </View>
@@ -622,7 +693,13 @@ export default function ManageStatementScreen() {
       */}
       <View className="items-center" style={{ height: PILL, marginTop: -PILL / 2 }}>
         <Pressable
-          accessibilityLabel={rangesOpen ? "Hide the quick ranges" : "Show the quick ranges"}
+          accessibilityLabel={
+            rangesOpen
+              ? "Hide the quick ranges"
+              : filterCount > 0
+                ? `Show the quick ranges, ${filterCount} filter(s) on`
+                : "Show the quick ranges"
+          }
           accessibilityRole="button"
           className="items-center justify-center rounded-full bg-primary active:opacity-80"
           hitSlop={10}
@@ -684,7 +761,7 @@ export default function ManageStatementScreen() {
             <Text variant="muted">
               {`${visible.length === 1 ? "1 payment" : `${visible.length} payments`} · ${formatMoney(
                 visibleTotal(visible),
-              )} · ${rangeLabel(filter)}`}
+              )} · ${rangeLabel(filter, dates.calendar)}`}
             </Text>
           ) : null}
 
@@ -726,6 +803,7 @@ export default function ManageStatementScreen() {
 
               {day.credits.map((credit) => (
                 <CreditRow
+                  calendar={dates.calendar}
                   credit={credit}
                   key={credit.id}
                   onOpen={() => setOpen(credit)}
@@ -812,8 +890,8 @@ export default function ManageStatementScreen() {
               </View>
 
               <View className="flex-1 gap-1">
-                <Text variant="subtitle">{creditTitle(open)}</Text>
-                <Text variant="caption">{formatDateTime(open.receivedAt)}</Text>
+                <Text variant="subtitle">{creditTitle(open, dates.calendar)}</Text>
+                <Text variant="caption">{dates.dateTime(open.receivedAt)}</Text>
               </View>
             </View>
 
@@ -833,14 +911,14 @@ export default function ManageStatementScreen() {
               {isPartial(open) ? (
                 <FactRow label="Still owed" value={formatMoney(open.billed - open.amount)} />
               ) : null}
-              <FactRow label="Received on" value={formatDateBoth(open.receivedAt)} />
+              <FactRow label="Received on" value={dates.date(open.receivedAt)} />
               <FactRow label="Method" value={humanizeEnum(open.method)} />
               <FactRow
                 label="For"
-                value={open.period ? formatPeriodBoth(open.period) : "A one-off charge"}
+                value={open.period ? dates.period(open.period) : "A one-off charge"}
               />
               {open.dueDate ? (
-                <FactRow label="Was due" value={formatDateBoth(open.dueDate)} />
+                <FactRow label="Was due" value={dates.date(open.dueDate)} />
               ) : null}
               <FactRow label="Resident" value={open.residentName || "Not recorded"} />
               {open.remarks ? <FactRow label="Remarks" value={open.remarks} /> : null}

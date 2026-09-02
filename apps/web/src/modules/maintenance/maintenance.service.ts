@@ -9,12 +9,16 @@ import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { MaintenanceCommentModel } from "@hostel/db/models/MaintenanceComment";
 import { MaintenanceHistoryModel } from "@hostel/db/models/MaintenanceHistory";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
+import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { MaintenanceRequestModel } from "@hostel/db/models/MaintenanceRequest";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
 import type {
   maintenanceCommentCreateSchema,
   maintenanceRequestCreateSchema,
+  maintenanceProviderAssignSchema,
   maintenanceRequestListQuerySchema,
+  maintenanceSettingsSchema,
   maintenanceStatusUpdateSchema,
 } from "@/modules/maintenance/maintenance.validation";
 
@@ -22,6 +26,8 @@ type MaintenanceRequestCreateInput = z.infer<typeof maintenanceRequestCreateSche
 type MaintenanceRequestListQuery = z.infer<typeof maintenanceRequestListQuerySchema>;
 type MaintenanceStatusUpdateInput = z.infer<typeof maintenanceStatusUpdateSchema>;
 type MaintenanceCommentCreateInput = z.infer<typeof maintenanceCommentCreateSchema>;
+type MaintenanceSettingsInput = z.infer<typeof maintenanceSettingsSchema>;
+type MaintenanceProviderAssignInput = z.infer<typeof maintenanceProviderAssignSchema>;
 
 type MaintenanceStatus =
   | "PENDING"
@@ -47,6 +53,7 @@ type MaintenanceRequestRecord = {
   status: MaintenanceStatus;
   title: string;
   updatedAt?: Date;
+  voiceNoteAssetId?: Types.ObjectId;
 };
 
 type MaintenanceHistoryRecord = {
@@ -181,6 +188,8 @@ function serializeMaintenanceRequest(
     status: request.status,
     title: request.title,
     updatedAt: request.updatedAt?.toISOString(),
+    /** Absent, not `""` — a screen branches on whether there is one at all. */
+    voiceNoteAssetId: request.voiceNoteAssetId?.toString(),
   };
 }
 
@@ -318,6 +327,76 @@ async function requestChildren(requests: MaintenanceRequestRecord[]) {
   };
 }
 
+/**
+ * The voice note is checked before it is attached, or it is refused.
+ *
+ * Three ways a client could hand over an id that would go wrong quietly, and
+ * all three are somebody else's failure showing up as a silent one here:
+ *
+ * - **Not completed.** `uploadCompletedAt` is stamped by `files/{id}/complete`,
+ *   which reads the stored object back and checks its bytes against what was
+ *   declared. An asset that never completed may have no bytes at all, and the
+ *   provider would open a job with a play button that does nothing.
+ * - **Another hostel's.** The id is a 24-character string a client supplies; a
+ *   guessed one must not become readable by attaching it to a request. Same
+ *   rule the finance evidence path already applies.
+ * - **Not audio, or not a note.** `MAINTENANCE_NOTE` is the kind
+ *   `files/{id}/url` widens to the assigned provider, so attaching a payment
+ *   proof here would be the way to hand a contractor a resident's bank
+ *   screenshot.
+ *
+ * Throws rather than dropping the id. A request raised silently without the
+ * recording the warden just made is worse than one that fails and can be
+ * retried — they would only find out when the plumber rang to ask what the job
+ * was.
+ */
+async function assertVoiceNoteUsable(
+  assetId: string | undefined,
+  hostelId: Types.ObjectId,
+): Promise<Types.ObjectId | undefined> {
+  if (!assetId) {
+    return undefined;
+  }
+
+  const asset = await FileAssetModel.findOne({
+    _id: normalizeObjectId(assetId, "voice note id"),
+    isDeleted: false,
+    status: "ACTIVE",
+  }).lean<{
+    _id: Types.ObjectId;
+    hostelId?: Types.ObjectId;
+    kind?: string;
+    mimeType?: string;
+    uploadCompletedAt?: Date;
+  } | null>();
+
+  if (!asset || !asset.uploadCompletedAt) {
+    throw new MaintenanceServiceError(
+      "That voice note did not finish uploading. Record it again.",
+      "VOICE_NOTE_NOT_READY",
+      422,
+    );
+  }
+
+  if (asset.hostelId?.toString() !== hostelId.toString()) {
+    throw new MaintenanceServiceError(
+      "That voice note does not belong to this hostel.",
+      "VOICE_NOTE_NOT_FOUND",
+      404,
+    );
+  }
+
+  if (asset.kind !== "MAINTENANCE_NOTE" || !asset.mimeType?.startsWith("audio/")) {
+    throw new MaintenanceServiceError(
+      "A voice note has to be an audio recording.",
+      "VOICE_NOTE_INVALID",
+      422,
+    );
+  }
+
+  return asset._id;
+}
+
 export async function createMaintenanceRequest(
   input: MaintenanceRequestCreateInput,
   principal: ApiPrincipal,
@@ -326,6 +405,7 @@ export async function createMaintenanceRequest(
 
   const hostelId = resolveAdminHostelId(principal, input.hostelId);
   const providerId = await assertProviderApproved(input.providerId);
+  const voiceNoteAssetId = await assertVoiceNoteUsable(input.voiceNoteAssetId, hostelId);
   const request = (await MaintenanceRequestModel.create({
     category: input.category,
     costNote: input.costNote,
@@ -341,6 +421,7 @@ export async function createMaintenanceRequest(
     status: "PENDING",
     title: input.title,
     updatedBy: principal.userId,
+    voiceNoteAssetId,
   })) as MaintenanceRequestRecord;
   const history = await addHistory(request, principal, {
     action: "MAINTENANCE_REQUEST_CREATED",
@@ -351,6 +432,7 @@ export async function createMaintenanceRequest(
   await auditMaintenanceAction(principal, request, "MAINTENANCE_REQUEST_CREATED", {
     category: request.category,
     providerId: request.providerId?.toString(),
+    voiceNote: Boolean(voiceNoteAssetId),
   });
 
   return {
@@ -475,6 +557,94 @@ export async function updateMaintenanceRequestStatus(
   };
 }
 
+/**
+ * Sending a raised request to a contractor.
+ *
+ * ## Why this exists now and did not before
+ *
+ * The provider used to be picked on the raise sheet and could never be changed,
+ * and this file said so: *a request that went to the wrong person is cancelled
+ * and raised again*. On 2026-09-02 the picker was taken off that sheet — asking
+ * a warden reporting a leak to choose a contractor is asking them to make a
+ * judgement about somebody's availability that they cannot make — which would
+ * otherwise have left **no** path to a provider at all, and a permanently empty
+ * provider job list.
+ *
+ * ## Assign once, still
+ *
+ * The original rule is kept rather than quietly dropped: this refuses a request
+ * that already has somebody on it. Re-pointing a live job is a decision with a
+ * person's wasted trip on the other end of it, and it stays a cancel-and-raise.
+ * What changed is only *when* the one assignment happens, not how many there
+ * are.
+ *
+ * A closed request is refused too — sending a contractor to a job somebody
+ * already finished is the same mistake in a different order.
+ */
+export async function assignMaintenanceProvider(
+  requestId: string,
+  input: MaintenanceProviderAssignInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const request = await findScopedMaintenanceRequest(
+    requestId,
+    principal,
+    input.hostelId,
+  );
+
+  if (request.providerId) {
+    throw new MaintenanceServiceError(
+      "This request already has somebody assigned. Cancel it and raise a new one to change who is coming.",
+      "MAINTENANCE_ALREADY_ASSIGNED",
+      409,
+    );
+  }
+
+  if (request.status === "CANCELLED" || request.status === "COMPLETED") {
+    throw new MaintenanceServiceError(
+      "This request is closed, so nobody can be assigned to it.",
+      "MAINTENANCE_REQUEST_CLOSED",
+      409,
+    );
+  }
+
+  const providerId = await assertProviderApproved(input.providerId);
+
+  const updatedRequest = await MaintenanceRequestModel.findOneAndUpdate(
+    // Pinned to "still unassigned", so two taps racing cannot both win and the
+    // loser is reported rather than silently overwriting the winner.
+    { _id: request._id, isDeleted: false, providerId: { $exists: false } },
+    { $set: { providerId, updatedBy: principal.userId } },
+    { new: true },
+  ).lean<MaintenanceRequestRecord | null>();
+
+  if (!updatedRequest) {
+    throw new MaintenanceServiceError(
+      "This request already has somebody assigned.",
+      "MAINTENANCE_ALREADY_ASSIGNED",
+      409,
+    );
+  }
+
+  const history = await addHistory(updatedRequest, principal, {
+    action: "MAINTENANCE_PROVIDER_ASSIGNED",
+    note: "Assigned to a service provider.",
+  });
+
+  await auditMaintenanceAction(
+    principal,
+    updatedRequest,
+    "MAINTENANCE_PROVIDER_ASSIGNED",
+    { providerId: providerId?.toString() },
+  );
+
+  return {
+    request: serializeMaintenanceRequest(updatedRequest, { history: [history] }),
+  };
+}
+
 export async function addMaintenanceComment(
   requestId: string,
   input: MaintenanceCommentCreateInput,
@@ -504,5 +674,92 @@ export async function addMaintenanceComment(
   return {
     comment: serializeComment(comment),
     request: serializeMaintenanceRequest(request),
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Settings — what a call-out of each trade costs                             */
+/* -------------------------------------------------------------------------- */
+
+export type MinimumCharge = { amount: number; category: string };
+
+/**
+ * The hostel's agreed minimum charges, one per trade.
+ *
+ * ## Absent is not zero
+ *
+ * A category with no agreed rate is **missing from the array**, and every reader
+ * has to treat that as "we have not agreed one" rather than as free. The
+ * temptation is to return all eleven categories with the unset ones at zero,
+ * which reads on a screen as `NPR 0` — a hostel telling somebody the electrician
+ * costs nothing.
+ *
+ * ## Empty is the honest first answer
+ *
+ * A hostel that has never opened this screen has no charges, and the mobile
+ * confirm step says so rather than inventing a platform-wide default. A number
+ * nobody agreed to is worse than an admitted blank on the one screen whose job
+ * is to say what this will cost.
+ */
+export async function getMaintenanceSettings(
+  principal: ApiPrincipal,
+  requestedHostelId?: string,
+) {
+  await connectToDatabase();
+
+  const hostelId = resolveAdminHostelId(principal, requestedHostelId);
+
+  const settings = await HostelSettingsModel.findOne({ hostelId })
+    .select("maintenance")
+    .lean<{ maintenance?: { minimumCharges?: MinimumCharge[] } } | null>();
+
+  return {
+    hostelId: hostelId.toString(),
+    minimumCharges: (settings?.maintenance?.minimumCharges ?? []).map((row) => ({
+      amount: row.amount,
+      category: row.category,
+    })),
+  };
+}
+
+/**
+ * Replaces the whole list — see `maintenanceSettingsSchema` for why it is not a
+ * patch.
+ *
+ * `upsert`, because a hostel that has never touched a setting has no
+ * `HostelSettings` document at all and the first charge it agrees must not 404.
+ */
+export async function updateMaintenanceSettings(
+  input: MaintenanceSettingsInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const hostelId = resolveAdminHostelId(principal, input.hostelId);
+
+  await HostelSettingsModel.updateOne(
+    { hostelId },
+    {
+      $set: {
+        "maintenance.minimumCharges": input.minimumCharges,
+        updatedBy: principal.userId,
+      },
+      $setOnInsert: { createdBy: principal.userId, hostelId },
+    },
+    { upsert: true },
+  );
+
+  await AuditLogModel.create({
+    action: "MAINTENANCE_SETTINGS_UPDATED",
+    actorId: principal.userId,
+    entityId: hostelId.toString(),
+    entityType: "HostelSettings",
+    hostelId,
+    metadata: { count: input.minimumCharges.length },
+  });
+
+  return {
+    hostelId: hostelId.toString(),
+    minimumCharges: input.minimumCharges,
   };
 }

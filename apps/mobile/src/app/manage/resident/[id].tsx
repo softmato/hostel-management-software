@@ -17,6 +17,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   addEmergencyContact,
@@ -43,7 +44,7 @@ import {
   updateResident,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, formatDateTime, formatPeriod, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -169,6 +170,7 @@ function toNumber(value: string) {
 }
 
 export default function ManageResidentScreen() {
+  const dates = useDates();
   const { id } = useLocalSearchParams<{ id: string }>();
   const data = useResource<ResidentData>(useCallback(() => loadResident(id), [id]));
 
@@ -418,7 +420,7 @@ export default function ManageResidentScreen() {
             <Chip icon="person-outline" label={humanizeEnum(resident.residentType)} />
             <Chip
               icon="calendar-outline"
-              label={`Since ${formatDate(resident.moveInDate)}`}
+              label={`Since ${dates.date(resident.moveInDate)}`}
             />
             {resident.userId ? null : (
               <Badge label="No app account yet" tone="warning" />
@@ -499,7 +501,7 @@ export default function ManageResidentScreen() {
               onPress={() => openPanel("moveIn")}
               subtitle={
                 data.data?.moveIn?.completedAt
-                  ? `Recorded ${formatDate(data.data.moveIn.completedAt)}`
+                  ? `Recorded ${dates.date(data.data.moveIn.completedAt)}`
                   : "Not recorded yet"
               }
               title="Move-in checklist"
@@ -510,7 +512,7 @@ export default function ManageResidentScreen() {
               onPress={() => openPanel("moveOut")}
               subtitle={
                 data.data?.moveOut?.completedAt
-                  ? `Recorded ${formatDate(data.data.moveOut.completedAt)}`
+                  ? `Recorded ${dates.date(data.data.moveOut.completedAt)}`
                   : "Deposit, damages, and handing the bed back"
               }
               title="Move-out checklist"
@@ -685,10 +687,10 @@ export default function ManageResidentScreen() {
 
           <DetailSection title="Their tenancy">
             <FactRow label="Room type" value={humanizeEnum(resident.roomType)} />
-            <FactRow label="Moved in" value={formatDate(resident.moveInDate)} />
+            <FactRow label="Moved in" value={dates.date(resident.moveInDate)} />
             <FactRow label="Status" value={humanizeEnum(resident.status)} />
             {resident.createdAt ? (
-              <FactRow label="On the roll since" value={formatDate(resident.createdAt)} />
+              <FactRow label="On the roll since" value={dates.date(resident.createdAt)} />
             ) : null}
           </DetailSection>
 
@@ -721,7 +723,7 @@ export default function ManageResidentScreen() {
                 {monthsOwed.length > 0 ? (
                   <FactRow
                     label={monthsOwed.length === 1 ? "Month still open" : "Months still open"}
-                    value={monthsOwed.map((month) => formatPeriod(month.period)).join(", ")}
+                    value={monthsOwed.map((month) => dates.period(month.period)).join(", ")}
                   />
                 ) : null}
               </>
@@ -750,7 +752,7 @@ export default function ManageResidentScreen() {
               label="Move-in"
               value={
                 moveIn?.completedAt ? (
-                  formatDate(moveIn.completedAt)
+                  dates.date(moveIn.completedAt)
                 ) : (
                   <Text variant="muted">Not recorded</Text>
                 )
@@ -788,7 +790,7 @@ export default function ManageResidentScreen() {
               label="Move-out"
               value={
                 moveOut?.completedAt ? (
-                  formatDate(moveOut.completedAt)
+                  dates.date(moveOut.completedAt)
                 ) : (
                   <Text variant="muted">Still living here</Text>
                 )
@@ -964,7 +966,7 @@ export default function ManageResidentScreen() {
                 </Text>
                 {issued.activation.expiresAt ? (
                   <Text variant="caption">
-                    {`Valid until ${formatDateTime(issued.activation.expiresAt)}`}
+                    {`Valid until ${dates.dateTime(issued.activation.expiresAt)}`}
                   </Text>
                 ) : null}
               </Card>

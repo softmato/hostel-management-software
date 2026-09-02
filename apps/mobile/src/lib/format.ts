@@ -22,9 +22,25 @@
 
 import NepaliDate from "nepali-date-converter";
 
-const NEPAL_OFFSET_MINUTES = 5 * 60 + 45;
+/**
+ * Nepal is UTC+05:45 year-round, with no daylight saving.
+ *
+ * **Exported, and it must be imported rather than restated.** Two other modules
+ * carried their own `5 * 60 + 45` — `lib/manage-dates.ts` and `lib/food-week.ts`
+ * — which is three chances to fix a bug in one of them. There is one offset in
+ * this app and this is it.
+ */
+export const NEPAL_OFFSET_MINUTES = 5 * 60 + 45;
 
-const MONTHS_SHORT = [
+/**
+ * The Gregorian month names, and the only copies of them.
+ *
+ * `lib/admin-home.ts` and `lib/payment-months.ts` each held a private twelve-
+ * string array plus a private `YYYY-MM` regex, so the app had three answers to
+ * "what is month 08 called" and three parsers that could disagree about a
+ * malformed period. Both now read these and {@link periodParts}.
+ */
+export const MONTHS_SHORT = [
   "Jan",
   "Feb",
   "Mar",
@@ -39,7 +55,8 @@ const MONTHS_SHORT = [
   "Dec",
 ] as const;
 
-const MONTHS_LONG = [
+/** The long forms — `August`. Same rule as {@link MONTHS_SHORT}. */
+export const MONTHS_LONG = [
   "January",
   "February",
   "March",
@@ -197,6 +214,70 @@ export function nepalPeriodKey(date: Date = new Date()): string {
   return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
+/**
+ * `"2026-08"` → the year and the zero-based month, or `null`.
+ *
+ * The one `YYYY-MM` parser. Every reader of a period key went through its own
+ * copy of this regex and its own range check, and "malformed period" then meant
+ * something slightly different in each of them — one returned the raw string,
+ * one dropped the row, one rendered `undefined`. They now share a `null` and
+ * each still decides what to do with it, which is the part that legitimately
+ * differs.
+ *
+ * The fields are the *Nepal* calendar's year and month, because that is what
+ * the server's period key already is — see {@link nepalPeriodKey}.
+ */
+export function periodParts(
+  period: string | null | undefined,
+): { monthIndex: number; year: number } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(period?.trim() ?? "");
+
+  if (!match) {
+    return null;
+  }
+
+  const monthIndex = Number(match[2]) - 1;
+
+  return monthIndex >= 0 && monthIndex < 12
+    ? { monthIndex, year: Number(match[1]) }
+    : null;
+}
+
+/**
+ * A Nepal-local calendar day, converted to Bikram Sambat.
+ *
+ * ## The one place an AD day becomes a BS one
+ *
+ * Every BS string in this app comes through here, so the conversion has exactly
+ * one timezone bug to get wrong rather than one per call site.
+ *
+ * ## Why the local constructor, and not `Date.UTC`
+ *
+ * `nepali-date-converter` converts with `getFullYear()` / `getMonth()` /
+ * `getDate()` — the **device-local** getters (`convertToBS` in its `es5` build).
+ * So the `Date` handed to it is only read correctly when its *local* fields are
+ * the day we mean.
+ *
+ * This used to build `new Date(Date.UTC(y, m, d, 12))`. Noon UTC survives every
+ * offset from -11 to +11 and breaks past that: on a phone set to Auckland
+ * (UTC+12, +13 in summer) or Fiji, noon UTC is already **the next day** locally,
+ * and every Nepali date in the app read one day ahead — an invoice due 1 Bhadra
+ * shown as 2 Bhadra, with the Gregorian date beside it still correct. A silent
+ * one-day disagreement between the two calendars on the same row is the exact
+ * failure the BS support exists to prevent.
+ *
+ * `new Date(y, m, d, 12)` sets the local fields directly, so they read back as
+ * `y`/`m`/`d` in every timezone there is. Noon rather than midnight because no
+ * daylight-saving transition anywhere skips the middle of the day, while
+ * several skip the start of it.
+ *
+ * Throws for a day outside the converter's 2000–2090 BS table — callers catch
+ * and fall back to Gregorian rather than printing a guess.
+ */
+function toNepaliDate(year: number, monthIndex: number, day: number): NepaliDate {
+  return new NepaliDate(new Date(year, monthIndex, day, 12));
+}
+
 /** `16 Aug 2026`. */
 export function formatDate(value: Date | string | null | undefined): string {
   const date = parseDate(value);
@@ -246,11 +327,7 @@ export function formatDateBs(value: Date | string | null | undefined): string {
   const { day, month, year } = nepalParts(date);
 
   try {
-    // Constructed from the Nepal-local Y/M/D at noon, so no local-timezone
-    // shift on the device can push it across a day boundary on the way in.
-    const bs = new NepaliDate(new Date(Date.UTC(year, month, day, 12)));
-
-    return bs.format("D MMMM YYYY");
+    return toNepaliDate(year, month, day).format("D MMMM YYYY");
   } catch {
     // The table does not cover every year for ever. A date outside it falls back
     // to Gregorian rather than showing a wrong Nepali date — being silently
@@ -343,82 +420,79 @@ export function formatRelativeDay(
 
 /** `"2026-08"` → `August 2026`. The invoice `month` field's format. */
 export function formatPeriod(period: string | null | undefined): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(period?.trim() ?? "");
+  const parts = periodParts(period);
 
-  if (!match) {
-    return period?.trim() || "—";
-  }
-
-  const monthIndex = Number(match[2]) - 1;
-
-  return monthIndex >= 0 && monthIndex < 12
-    ? `${MONTHS_LONG[monthIndex]} ${match[1]}`
-    : (period as string);
+  return parts
+    ? `${MONTHS_LONG[parts.monthIndex]} ${parts.year}`
+    : period?.trim() || "—";
 }
 
 /**
- * A period in Bikram Sambat — `Shrawan–Bhadra 2083`.
+ * A period in Bikram Sambat — `Bhadra 2083`.
  *
- * ## A Gregorian month is not a Nepali month, and this says so
+ * ## One month, named after the one the period mostly is
  *
  * The two calendars do not line up: BS months begin somewhere around the middle
- * of an AD one, so `2026-08` runs from the back half of Shrawan into the front
- * half of Bhadra. Naming it after either one alone would be wrong for roughly
- * half the days in it — and wrong in the direction that matters, because the
- * hostel's books are kept in BS and somebody reading "Bhadra" over a table of
- * August invoices will reconcile it against the wrong month's ledger.
+ * of an AD one, so `2026-09` runs from the back half of Bhadra into the front
+ * half of Aswin. This used to name both ends — `Bhadra–Aswin 2083` — which is
+ * literally accurate and reads, at a glance under a strip of month chips, like
+ * two months are selected.
  *
- * So it names both ends when there are two, and one when the period genuinely
- * sits inside a single BS month. The years collapse the same way: `Chaitra
- * 2082–Baisakh 2083` when the New Year falls inside the period, one year
- * otherwise.
+ * So it names **one**: the BS month that covers more days of the period than
+ * the other does. That is a rounding, and it is the same rounding a hostel
+ * already makes when it calls this month's rent Bhadra's rent. The exact
+ * Gregorian month is not lost — it is the chip directly above this line, and
+ * `formatPeriodBoth` still prints both calendars where there is room.
+ *
+ * The majority is counted day by day rather than guessed from the first of the
+ * month, because BS month lengths vary from 29 to 32 days per year and the
+ * boundary does not sit in the same place twice.
  *
  * Returns `""` rather than a guess when the conversion table does not reach the
  * period — the caller drops the BS half of the label instead of printing a date
  * that is confidently wrong. Same rule as `formatDateBs`.
  */
 export function formatPeriodBs(period: string | null | undefined): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(period?.trim() ?? "");
+  const parts = periodParts(period);
 
-  if (!match) {
+  if (!parts) {
     return "";
   }
 
-  const year = Number(match[1]);
-  const monthIndex = Number(match[2]) - 1;
-
-  if (monthIndex < 0 || monthIndex > 11) {
-    return "";
-  }
+  const { monthIndex, year } = parts;
 
   try {
-    // Noon, like `formatDateBs`, so no timezone shift on the device can move
-    // either end across a day boundary. Day 0 of the next month is the last day
-    // of this one, whatever its length.
-    const first = new NepaliDate(new Date(Date.UTC(year, monthIndex, 1, 12)));
-    const last = new NepaliDate(
-      new Date(Date.UTC(year, monthIndex + 1, 0, 12)),
-    );
+    // Day 0 of the next month is the last day of this one, whatever its length.
+    const days = new Date(Date.UTC(year, monthIndex + 1, 0, 12)).getUTCDate();
+    const tally = new Map<string, number>();
 
-    const fromMonth = first.format("MMMM");
-    const toMonth = last.format("MMMM");
-    const fromYear = first.format("YYYY");
-    const toYear = last.format("YYYY");
+    for (let day = 1; day <= days; day += 1) {
+      const label = toNepaliDate(year, monthIndex, day).format("MMMM YYYY");
 
-    if (fromMonth === toMonth && fromYear === toYear) {
-      return `${fromMonth} ${fromYear}`;
+      tally.set(label, (tally.get(label) ?? 0) + 1);
     }
 
-    return fromYear === toYear
-      ? `${fromMonth}–${toMonth} ${toYear}`
-      : `${fromMonth} ${fromYear}–${toMonth} ${toYear}`;
+    let winner = "";
+    let best = 0;
+
+    // Insertion order is the order the days ran in, so a period split exactly
+    // down the middle keeps the month it started in rather than flipping on a
+    // Map iteration detail.
+    for (const [label, count] of tally) {
+      if (count > best) {
+        best = count;
+        winner = label;
+      }
+    }
+
+    return winner;
   } catch {
     return "";
   }
 }
 
 /**
- * Both calendars for a period — `August 2026 · Shrawan–Bhadra 2083`.
+ * Both calendars for a period — `August 2026 · Shrawan 2083`.
  *
  * The month-picker counterpart of `formatDateBoth`, and AD-first for the
  * opposite reason that one is BS-first: this label sits under a strip of

@@ -33,6 +33,7 @@
       },
       "permissions": [
         "CAMERA",
+        "RECORD_AUDIO",
         "VIBRATE",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
@@ -122,8 +123,8 @@
       [
         "expo-audio",
         {
-          "microphonePermission": false,
-          "recordAudioAndroid": false,
+          "microphonePermission": "Allow HostelHub to use the microphone so you can record a spoken description of a maintenance problem for the person coming to fix it.",
+          "recordAudioAndroid": true,
           "enableBackgroundPlayback": false,
           "enableBackgroundRecording": false
         }

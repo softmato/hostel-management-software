@@ -17,6 +17,7 @@ import { EmptyState, ErrorState } from "@/components/ui/states";
 import { SwipeRow } from "@/components/ui/swipe-row";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { type AdminResident, listAdminResidents } from "@/lib/admin-api";
 import {
@@ -25,7 +26,7 @@ import {
   rosterSummary,
   searchResidents,
 } from "@/lib/admin-roster";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 
 /**
  * Residents — a directory, and shaped like one.
@@ -91,6 +92,7 @@ import { formatDate, humanizeEnum } from "@/lib/format";
  * `manage/resident/[id]`, and the button registers somebody.
  */
 export default function AdminResidentsScreen() {
+  const dates = useDates();
   const residents = useResource<AdminResident[]>(
     useCallback(() => listAdminResidents(), []),
     { topics: [REALTIME_TOPIC.RESIDENTS] },
@@ -261,7 +263,7 @@ export default function AdminResidentsScreen() {
                   subtitle={[
                     humanizeEnum(resident.roomType),
                     resident.phone,
-                    `Since ${formatDate(resident.moveInDate)}`,
+                    `Since ${dates.date(resident.moveInDate)}`,
                   ]
                     .filter(Boolean)
                     .join(" · ")}

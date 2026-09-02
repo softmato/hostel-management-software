@@ -4,6 +4,7 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { normalizeBedType } from "@/modules/finance/bed-type";
 import {
+  computeInvoiceAmount,
   type FeeScheduleRecord,
   getEffectiveSchedule,
 } from "@/modules/finance/fee-schedule.service";
@@ -42,6 +43,21 @@ import type { BedType } from "@hostel/shared/types/bed-type";
  * nothing there knows how to end. The admission fee is a single charge on a
  * single day, which is the shape a one-time reward actually has.
  *
+ * ## The first month is not a whole month
+ *
+ * Somebody admitted on the 20th owes twenty-nine days of rent for that month and
+ * a full month thereafter, and the person at the desk has to be able to say the
+ * figure out loud before the resident signs anything. `firstMonth` is that
+ * figure, computed by the **same** `computeInvoiceAmount` the billing run uses —
+ * not a second implementation of the proration rule that agrees with it until
+ * the day it does not. The quote and the invoice are therefore the same
+ * arithmetic on the same rate card, which is the only way the number on the
+ * screen and the number on the bill are guaranteed to match.
+ *
+ * It is `null` when there is no rent to prorate (`rentBasis: "UNPRICED"`), for
+ * the same reason `monthlyRent` is: a confident zero is worse than an admitted
+ * gap.
+ *
  * ## Unpriced is a state, not a zero
  *
  * A hostel with no rate card covering the move-in date, or a room type that maps
@@ -53,6 +69,27 @@ import type { BedType } from "@hostel/shared/types/bed-type";
 
 export type RentBasis = "ROOM_CONFIGURATION" | "SCHEDULE" | "UNPRICED";
 
+/**
+ * What the move-in month costs, as distinct from what a month costs.
+ *
+ * `prorated` is the flag a screen branches on rather than comparing `amount`
+ * against `monthlyRent` itself: they are equal for anybody moving in on the 1st,
+ * and a first-month row that disappears on the 1st of the month is a row nobody
+ * can explain.
+ */
+export type FirstMonthCharge = {
+  /** Rupees owed for the move-in month — the whole rent when they arrive on the 1st. */
+  amount: number;
+  /** Days they are actually resident for, inclusive of the move-in day. */
+  billableDays: number;
+  /** Length of the move-in month, so the screen can say "12 of 31 days". */
+  daysInMonth: number;
+  /** `2026-08` — the period the invoice will carry. */
+  period: string;
+  /** False when they arrive on the 1st and owe the full month. */
+  prorated: boolean;
+};
+
 export type IntakeQuote = {
   /** Before the referral discount. */
   admissionFee: number;
@@ -63,6 +100,8 @@ export type IntakeQuote = {
   depositAmount: number;
   /** The rate card this came from, for the invoice line to point at. */
   feeScheduleId: string | null;
+  /** Null when there is no rent to prorate. See `FirstMonthCharge`. */
+  firstMonth: FirstMonthCharge | null;
   /** Null when nothing prices this room type — see `rentBasis`. */
   monthlyRent: number | null;
   referral: {
@@ -159,6 +198,7 @@ export function quoteIntake(input: {
     currency: input.hostel?.pricing?.currency ?? "NPR",
     depositAmount: input.schedule?.depositAmount ?? 0,
     feeScheduleId: input.schedule?._id?.toString() ?? null,
+    firstMonth: quoteFirstMonth(monthlyRent, input.moveInDate),
     monthlyRent,
     referral: {
       applied: discount > 0,
@@ -174,6 +214,57 @@ export function quoteIntake(input: {
     rentBasis,
     roomType: input.roomType,
   };
+}
+
+/**
+ * The move-in month priced through the billing run's own rule.
+ *
+ * Deliberately thin: every judgement about what a partial month costs — how days
+ * are counted, which end is inclusive, what rounding does — lives in
+ * `computeInvoiceAmount` and is asserted by `fee-schedule.test.ts`. Repeating any
+ * of it here would create a second answer to the same question, and the quote is
+ * the half a resident reads before they agree to it.
+ *
+ * A move-in date in a **past** month is still priced against that month, not
+ * against today: the invoice `createResident` raises carries that period, and a
+ * quote describing a different month than the bill would be worse than no quote.
+ */
+function quoteFirstMonth(
+  monthlyRent: number | null,
+  moveInDate: Date | null | undefined,
+): FirstMonthCharge | null {
+  if (monthlyRent === null) {
+    return null;
+  }
+
+  const start = moveInDate ?? new Date();
+  const period = periodOfDate(start);
+
+  try {
+    const charge = computeInvoiceAmount(monthlyRent, start, null, period);
+
+    return {
+      amount: charge.amount,
+      billableDays: charge.billableDays,
+      // `prorationBasis` is `"12/31 days"` or null; the denominator is the one
+      // number the screen needs that the charge does not carry on its own.
+      daysInMonth: daysInPeriod(period),
+      period,
+      prorated: charge.prorationBasis !== null,
+    };
+  } catch {
+    // `computeInvoiceAmount` refuses a rate that is not whole rupees. A rate card
+    // that cannot be prorated must not take the whole quote down with it — the
+    // rent, the deposit and the admission fee are all still true.
+    return null;
+  }
+}
+
+/** Days in a `YYYY-MM`, without reaching for the finance module's bounds type. */
+function daysInPeriod(period: string) {
+  const [year, month] = period.split("-").map(Number);
+
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 /**

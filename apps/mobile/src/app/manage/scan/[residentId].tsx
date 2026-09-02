@@ -17,6 +17,7 @@ import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type ResidentScan,
@@ -26,10 +27,7 @@ import {
   scannedPhotoSource,
 } from "@/lib/admin-scan-api";
 import {
-  formatDate,
-  formatDateTime,
   formatMoney,
-  formatPeriod,
   humanizeEnum,
 } from "@/lib/format";
 import { paymentStanding } from "@/lib/resident-scan";
@@ -76,6 +74,7 @@ import { paymentStanding } from "@/lib/resident-scan";
  * a summary of a screen one tap away; this *is* the detail view.
  */
 export default function ScannedResidentScreen() {
+  const dates = useDates();
   const { residentId } = useLocalSearchParams<{ residentId: string }>();
   const token = useAppSelector((state) => state.auth.accessToken);
 
@@ -203,7 +202,7 @@ export default function ScannedResidentScreen() {
         {membership ? <ComplaintsSection membership={membership} /> : null}
 
         <Text className="pb-2 text-center text-xs text-muted-foreground">
-          {`Card read ${formatDateTime(data.scannedAt)}. ${
+          {`Card read ${dates.dateTime(data.scannedAt)}. ${
             profile
               ? "They were told their profile was opened."
               : "Nothing of theirs was disclosed."
@@ -429,6 +428,8 @@ function Notice({
  * mistake that makes a screen lie about a debt.
  */
 function PaymentsSection({ membership }: { membership: ScannedMembership | null }) {
+  const dates = useDates();
+
   if (!membership) {
     return null;
   }
@@ -467,7 +468,7 @@ function PaymentsSection({ membership }: { membership: ScannedMembership | null 
               label="Paid up to"
               value={
                 standing.paidThrough ? (
-                  formatPeriod(standing.paidThrough)
+                  dates.period(standing.paidThrough)
                 ) : (
                   <Text variant="muted">Nothing settled yet</Text>
                 )
@@ -477,7 +478,7 @@ function PaymentsSection({ membership }: { membership: ScannedMembership | null 
               label="Behind on"
               value={
                 standing.unpaid.length ? (
-                  standing.unpaid.map((month) => formatPeriod(month.period)).join(", ")
+                  standing.unpaid.map((month) => dates.period(month.period)).join(", ")
                 ) : (
                   <Text variant="muted">Nothing</Text>
                 )
@@ -501,7 +502,7 @@ function PaymentsSection({ membership }: { membership: ScannedMembership | null 
                       </View>
                     }
                     subtitle={`Billed ${formatMoney(month.dueAmount)} · paid ${formatMoney(month.paidAmount)}`}
-                    title={formatPeriod(month.period)}
+                    title={dates.period(month.period)}
                   />
                 </View>
               ))}
@@ -531,6 +532,7 @@ function PaymentsSection({ membership }: { membership: ScannedMembership | null 
 
 /** The hostel's own tenancy record — the row it typed in itself. */
 function TenancySection({ membership }: { membership: ScannedMembership }) {
+  const dates = useDates();
   const { resident } = membership;
 
   return (
@@ -541,7 +543,7 @@ function TenancySection({ membership }: { membership: ScannedMembership }) {
         <FactRow label="Room type" value={humanizeEnum(resident.roomType)} />
         <FactRow label="Status" value={<StatusPill status={resident.status} />} />
         <FactRow label="They are a" value={humanizeEnum(resident.residentType)} />
-        <FactRow label="Moved in" value={formatDate(resident.moveInDate)} />
+        <FactRow label="Moved in" value={dates.date(resident.moveInDate)} />
         <FactRow
           label="Monthly fee"
           value={
@@ -555,7 +557,7 @@ function TenancySection({ membership }: { membership: ScannedMembership }) {
           }
         />
         <FactRow label="Deposit held" value={<Money value={resident.depositAmount} />} />
-        <FactRow label="Registered" value={formatDate(resident.createdAt)} />
+        <FactRow label="Registered" value={dates.date(resident.createdAt)} />
         <FactRow
           label="App account"
           value={
@@ -577,7 +579,7 @@ function TenancySection({ membership }: { membership: ScannedMembership }) {
                 {humanizeEnum(membership.nightStatus.status)}
               </Text>
               <Text variant="caption">
-                {`Last checked ${formatDateTime(membership.nightStatus.checkedAt)}${
+                {`Last checked ${dates.dateTime(membership.nightStatus.checkedAt)}${
                   membership.nightStatus.source === "RESIDENT"
                     ? ""
                     : ` · ${humanizeEnum(membership.nightStatus.source)}`
@@ -611,6 +613,8 @@ function PersonSection({
   notice: string | null;
   profile: ScannedProfile | null;
 }) {
+  const dates = useDates();
+
   if (!profile) {
     return (
       <View>
@@ -634,7 +638,7 @@ function PersonSection({
             label="Date of birth"
             value={
               profile.dateOfBirth
-                ? `${formatDate(profile.dateOfBirth)}${profile.age === null ? "" : ` · ${profile.age}`}`
+                ? `${dates.date(profile.dateOfBirth)}${profile.age === null ? "" : ` · ${profile.age}`}`
                 : "—"
             }
           />
@@ -915,6 +919,7 @@ function PersonRow({
 
 /** What they have complained about, and how much of it is still open. */
 function ComplaintsSection({ membership }: { membership: ScannedMembership }) {
+  const dates = useDates();
   const { complaints } = membership;
 
   if (complaints.total === 0) {
@@ -936,7 +941,7 @@ function ComplaintsSection({ membership }: { membership: ScannedMembership }) {
               onPress={() => router.push(`/complaints/${complaint.id}`)}
               right={<StatusPill status={complaint.status} />}
               subtitle={`${humanizeEnum(complaint.category)}${
-                complaint.createdAt ? ` · ${formatDate(complaint.createdAt)}` : ""
+                complaint.createdAt ? ` · ${dates.date(complaint.createdAt)}` : ""
               }`}
               title={complaint.title}
             />

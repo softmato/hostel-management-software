@@ -20,6 +20,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   acknowledgeSos,
@@ -40,7 +41,7 @@ import {
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
 import { openAssetViewer } from "@/lib/asset-viewer";
-import { formatMoney, formatRelativeDay, humanizeEnum } from "@/lib/format";
+import { formatMoney, humanizeEnum } from "@/lib/format";
 import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
 import { toastError, toastSuccess } from "@/lib/toast";
 
@@ -489,6 +490,7 @@ export function AlertCard({
   showKind?: boolean;
 }) {
   const { colors } = useAppTheme();
+  const dates = useDates();
   const busy = actions.busyId === row.id;
 
   return (
@@ -503,7 +505,7 @@ export function AlertCard({
       />
 
       <View className="flex-row items-center justify-between gap-2 border-t border-border pt-3">
-        <Text variant="caption">{row.at ? formatRelativeDay(row.at) : "Undated"}</Text>
+        <Text variant="caption">{row.at ? dates.relativeDay(row.at) : "Undated"}</Text>
 
         {claim ? (
           <View className="flex-row items-center gap-2">

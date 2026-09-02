@@ -6,6 +6,15 @@ import type { ReactNode } from "react";
 export type LoadState = "idle" | "loading" | "ready" | "error";
 
 export type Resident = {
+  /**
+   * The login this resident signs in with, or `null` when they have none yet.
+   *
+   * Not the same thing as `email`. That is the address the hostel recorded — on
+   * a scanned intake it comes off the resident's own profile form, which they
+   * can edit independently of their account. This is read from the account
+   * itself, so it is the address that actually works at the sign-in box.
+   */
+  account?: { email: string; name: string } | null;
   bedId: string;
   demoDataLabel?: string;
   depositAmount: number;

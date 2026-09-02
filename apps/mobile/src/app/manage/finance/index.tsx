@@ -16,6 +16,7 @@ import { ErrorState, LoadingState, PermissionCard } from "@/components/ui/states
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   BED_TYPE_LABELS,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/admin-manage-api";
 import { API_BASE_URL } from "@/lib/api";
 import { openAssetViewer, viewerSourceFor } from "@/lib/asset-viewer";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 
 /**
  * Finance — what a bed costs, where the money goes, and whether it arrived.
@@ -84,6 +85,7 @@ async function loadFinance(): Promise<FinanceData> {
 }
 
 export default function ManageFinanceScreen() {
+  const dates = useDates();
   const { colors } = useAppTheme();
   const token = useAppSelector((state) => state.auth.accessToken);
 
@@ -191,7 +193,7 @@ export default function ManageFinanceScreen() {
           ) : (
             <Card className="gap-3">
               <View className="flex-row items-center justify-between gap-2">
-                <Text variant="label">{`Effective from ${formatDate(open.effectiveFrom)}`}</Text>
+                <Text variant="label">{`Effective from ${dates.date(open.effectiveFrom)}`}</Text>
                 <Badge label="Active" tone="success" />
               </View>
 

@@ -7,12 +7,14 @@ import { applyCreditToInvoice } from "@/modules/finance/credit-balance.service";
 import {
   computeInvoiceAmount,
   getEffectiveSchedule,
+  listedRoomRates,
   periodBounds,
   resolveMonthlyCharge,
 } from "@/modules/finance/fee-schedule.service";
 import type {
   BillableResident,
   FeeScheduleRecord,
+  ListedRoomRates,
 } from "@/modules/finance/fee-schedule.service";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { sumAmounts } from "@/modules/finance/money";
@@ -163,6 +165,7 @@ export function planBillingCycle(
   residents: BillableResidentRow[],
   schedule: FeeScheduleRecord | null,
   period: string,
+  listed: ListedRoomRates = new Map(),
 ): { failures: BillingFailure[]; plans: BillingPlan[]; skipped: BillingSkip[] } {
   const failures: BillingFailure[] = [];
   const plans: BillingPlan[] = [];
@@ -172,7 +175,7 @@ export function planBillingCycle(
     const residentId = resident._id.toString();
 
     try {
-      const charge = resolveMonthlyCharge(resident, schedule);
+      const charge = resolveMonthlyCharge(resident, schedule, listed);
       const invoiceAmount = computeInvoiceAmount(
         charge.amount,
         resident.moveInDate,
@@ -260,8 +263,11 @@ export async function runBillingCycle(
   const dueDate = input.dueDate ?? end;
 
   const hostel = await HostelModel.findOne({ _id: input.hostelId })
-    .select("referencePrefix")
-    .lean<{ referencePrefix?: string } | null>();
+    .select("referencePrefix roomConfigurations")
+    .lean<{
+      referencePrefix?: string;
+      roomConfigurations?: { monthlyRent?: number; roomType: string }[];
+    } | null>();
 
   if (!hostel) {
     throw new FinanceServiceError("Hostel was not found.", "HOSTEL_SCOPE_REQUIRED");
@@ -272,22 +278,42 @@ export async function runBillingCycle(
     getEffectiveSchedule(input.hostelId, input.period),
   ]);
 
+  const listed = listedRoomRates(hostel.roomConfigurations);
+
   const { failures, plans, skipped } = planBillingCycle(
     residents,
     schedule,
     input.period,
+    listed,
   );
 
-  // A missing schedule is hostel-wide, not per resident: every resident without
-  // an override hits it, and billing only the overridden ones would leave the
-  // month half-done in a way nobody could distinguish from a finished run.
+  /*
+   * A missing schedule aborts the run unless the hostel prices its rooms some
+   * other way.
+   *
+   * The rule is unchanged where it was right: "a missing schedule is hostel-wide,
+   * not per resident: every resident without an override hits it, and billing
+   * only the overridden ones would leave the month half-done in a way nobody
+   * could distinguish from a finished run." A per-resident override is still not
+   * allowed to rescue a hostel with no rate card, for exactly that reason.
+   *
+   * A **listed room rate** is different in kind. It is not one resident's
+   * exception; it is a price the owner set for a room type, so a hostel priced
+   * that way has a complete answer for its whole roster and billing it leaves no
+   * half-month behind. Room types the owner never costed still fail per resident,
+   * the way `BED_TYPE_NOT_PRICED` already does.
+   *
+   * So the test is the hostel's price source, not the plan count: no schedule
+   * and no listed rents means nothing could price anybody, and a hostel-wide
+   * error is the fact an owner can act on.
+   */
   const scheduleMissing = failures.find(
     (failure) => failure.errorCode === "FEE_SCHEDULE_MISSING",
   );
 
-  if (scheduleMissing) {
+  if (scheduleMissing && listed.size === 0) {
     throw new FinanceServiceError(
-      `No fee schedule covers ${input.period}. No invoices were issued.`,
+      `No fee schedule covers ${input.period}, and no room type has a listed rent. No invoices were issued.`,
       "FEE_SCHEDULE_MISSING",
     );
   }
@@ -580,11 +606,14 @@ export function periodOf(now: Date): string {
  *
  * **One hostel's failure must not stop the others.** Three hostels on the dev
  * data configure exactly one room type, the string `"Shared"`, which does not
- * say how many people share — §7.3 is explicit that this is reported rather than
- * guessed, so they have no fee schedule and this run fails for them by design.
- * That is the correct outcome and the fix is their data, not a softer resolver.
- * Aborting the platform's billing because of it would be absurd, so each hostel
- * is isolated and its error is returned as a row.
+ * say how many people share — §7.3 is explicit that a bed type is reported
+ * rather than guessed, so no rate card can price them. They now bill anyway,
+ * from the rent the owner listed against that room type
+ * (`resolveMonthlyCharge`), because a stated price is not a guess. A hostel that
+ * listed no rent either still fails, that is still the correct outcome, and the
+ * fix is still their data rather than a softer resolver. Aborting the platform's
+ * billing because of one of them would be absurd, so each hostel is isolated and
+ * its error is returned as a row.
  *
  * The caller — the cron route — returns these rows verbatim. The current
  * dunning job's stats "go nowhere, so a silently failing cron is invisible"

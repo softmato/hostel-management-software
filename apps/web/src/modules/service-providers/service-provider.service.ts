@@ -43,6 +43,7 @@ type MaintenanceJobRecord = {
   scheduledFor?: Date;
   status: string;
   title: string;
+  voiceNoteAssetId?: Types.ObjectId;
 };
 
 type HostelContactRecord = {
@@ -662,6 +663,15 @@ export async function listOwnServiceProviderJobs(userId: string) {
         scheduledFor: request.scheduledFor?.toISOString() ?? null,
         status: request.status,
         title: request.title,
+        /*
+         * The hostel's spoken description of the problem, if one was recorded.
+         *
+         * Read through `files/{assetId}/url`, which grants exactly the provider
+         * this job is assigned to — see `isAssignedProvider` there. The id is
+         * safe to hand over because the route is the authorization, not this
+         * list: possessing the id has never been what grants access to an asset.
+         */
+        voiceNoteAssetId: request.voiceNoteAssetId?.toString() ?? null,
       };
     }),
   };

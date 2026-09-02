@@ -52,7 +52,16 @@ export type BillableResident = {
   roomType?: string | null;
 };
 
-export type ChargeBasis = "OVERRIDE" | "SCHEDULE";
+/**
+ * Where the number on a rent line came from.
+ *
+ * `MANUAL` is the hostel's **listed** price for that room type — the figure the
+ * owner typed into their room configuration when they signed up. It is the same
+ * word `raiseAdmissionInvoice` already uses for a fee that fell back to the
+ * listing: no rate card stands behind the line, and the invoice must not claim
+ * one does by carrying a `feeScheduleId` it does not have.
+ */
+export type ChargeBasis = "OVERRIDE" | "SCHEDULE" | "MANUAL";
 
 export type ResolvedCharge = {
   amount: number;
@@ -60,6 +69,40 @@ export type ResolvedCharge = {
   bedType: BedType | null;
   feeScheduleId: Types.ObjectId | null;
 };
+
+/**
+ * The rents an owner typed into their own room configuration, keyed by the room
+ * type string the resident record carries.
+ *
+ * Keyed on the literal `roomType`, deliberately, and **not** on a bed type. A
+ * hostel whose only room type is the string `"Shared"` has no bed type at all —
+ * `normalizeBedType` cannot say how many people share one — and §7.3 is right
+ * that guessing a bed type is not allowed. But it does not follow that the rent
+ * is unknown: the owner stated it against that exact string, and matching the
+ * string is not a guess about anything.
+ *
+ * Zero and missing are the same thing here, matching `quoteIntake`: a room
+ * configuration with no rent on it has not been priced, and billing somebody
+ * nothing is the failure mode this whole module exists to prevent.
+ */
+export type ListedRoomRates = ReadonlyMap<string, number>;
+
+export function listedRoomRates(
+  roomConfigurations:
+    | { monthlyRent?: number | null; roomType?: string | null }[]
+    | null
+    | undefined,
+): ListedRoomRates {
+  const rates = new Map<string, number>();
+
+  for (const room of roomConfigurations ?? []) {
+    if (room?.roomType && typeof room.monthlyRent === "number" && room.monthlyRent > 0) {
+      rates.set(room.roomType, room.monthlyRent);
+    }
+  }
+
+  return rates;
+}
 
 /** UTC bounds so a billing run gives the same answer wherever it executes. */
 export function periodBounds(period: string) {
@@ -128,6 +171,7 @@ export function resolveBedType(resident: BillableResident): BedType | null {
 export function resolveMonthlyCharge(
   resident: BillableResident,
   schedule: FeeScheduleRecord | null,
+  listed: ListedRoomRates = new Map(),
 ): ResolvedCharge {
   // A per-resident override wins outright, and does not need a schedule: this
   // covers the long-staying resident on an old rate and the negotiated discount
@@ -142,37 +186,69 @@ export function resolveMonthlyCharge(
     };
   }
 
+  const bedType = resolveBedType(resident);
+  const rate =
+    schedule && bedType
+      ? schedule.rates.find((entry) => entry.bedType === bedType)
+      : undefined;
+
+  if (rate) {
+    return {
+      amount: assertWholeRupees(rate.monthlyAmount, "scheduled rate"),
+      basis: "SCHEDULE",
+      bedType,
+      feeScheduleId: schedule?._id ?? null,
+    };
+  }
+
+  /*
+   * The room's own listed rent, and only after the rate card has been asked.
+   *
+   * This is the same fallback `quoteIntake` already applies, in the same order
+   * and for the same stated reason — and the two disagreeing is what this
+   * closes. The intake screen quoted the listed price at the door, priced the
+   * move-in month from it and printed the figure the warden read out; then the
+   * billing run refused the resident because no `FeeSchedule` existed, and the
+   * Money tab said **Not billed** with no amount and no reason, for ever.
+   * Nothing chased it, because nothing was owed. A hostel that has never opened
+   * the rate-card screen — which is most of them on the day they start — could
+   * not bill a single resident.
+   *
+   * The line records `MANUAL` and carries no `feeScheduleId`, so an invoice
+   * priced this way is distinguishable from one the rate card produced. That
+   * distinction is the honest half: the amount is real and the resident owes it,
+   * but no schedule stands behind it, and the owner is still better off writing
+   * a rate card.
+   */
+  const listedRent = resident.roomType ? listed.get(resident.roomType) : undefined;
+
+  if (listedRent !== undefined) {
+    return {
+      amount: assertWholeRupees(listedRent, "listed room rate"),
+      basis: "MANUAL",
+      bedType,
+      feeScheduleId: null,
+    };
+  }
+
   if (!schedule) {
     throw new FinanceServiceError(
-      "No fee schedule covers this period.",
+      "No fee schedule covers this period, and this room type has no listed rent.",
       "FEE_SCHEDULE_MISSING",
     );
   }
 
-  const bedType = resolveBedType(resident);
-
   if (!bedType) {
     throw new FinanceServiceError(
-      `Room type ${JSON.stringify(resident.roomType ?? null)} does not map to a bed type.`,
+      `Room type ${JSON.stringify(resident.roomType ?? null)} does not map to a bed type, and has no listed rent.`,
       "BED_TYPE_NOT_PRICED",
     );
   }
 
-  const rate = schedule.rates.find((entry) => entry.bedType === bedType);
-
-  if (!rate) {
-    throw new FinanceServiceError(
-      `The fee schedule has no rate for ${bedType}.`,
-      "BED_TYPE_NOT_PRICED",
-    );
-  }
-
-  return {
-    amount: assertWholeRupees(rate.monthlyAmount, "scheduled rate"),
-    basis: "SCHEDULE",
-    bedType,
-    feeScheduleId: schedule._id,
-  };
+  throw new FinanceServiceError(
+    `The fee schedule has no rate for ${bedType}.`,
+    "BED_TYPE_NOT_PRICED",
+  );
 }
 
 export type InvoiceAmount = {

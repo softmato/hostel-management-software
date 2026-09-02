@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type GatewayConfig,
@@ -22,7 +23,7 @@ import {
   saveGateway,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -53,6 +54,7 @@ function isProvider(value: string): value is GatewayProviderName {
 }
 
 export default function ManageGatewayScreen() {
+  const dates = useDates();
   const params = useLocalSearchParams<{ provider?: string }>();
   const provider = params.provider && isProvider(params.provider) ? params.provider : null;
 
@@ -242,10 +244,10 @@ export default function ManageGatewayScreen() {
                 />
               ) : null}
               {entry.lastVerifiedAt ? (
-                <FactRow label="Last checked" value={formatDate(entry.lastVerifiedAt)} />
+                <FactRow label="Last checked" value={dates.date(entry.lastVerifiedAt)} />
               ) : null}
               {entry.lastEventAt ? (
-                <FactRow label="Last payment" value={formatDate(entry.lastEventAt)} />
+                <FactRow label="Last payment" value={dates.date(entry.lastEventAt)} />
               ) : null}
             </Card>
           </View>

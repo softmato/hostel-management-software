@@ -27,6 +27,7 @@ function job(overrides: Partial<ProviderJob> = {}): ProviderJob {
     scheduledFor: null,
     status: "PENDING",
     title: "Leaking tap",
+    voiceNoteAssetId: null,
     ...overrides,
   };
 }

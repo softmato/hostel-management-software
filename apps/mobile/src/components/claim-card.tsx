@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import type { AdminClaim, AdminClaimCheck } from "@/lib/admin-api";
 import { approveClaim } from "@/lib/admin-api";
 import type { AlertRow } from "@/lib/admin-alerts";
 import { API_BASE_URL } from "@/lib/api";
 import { openAssetViewer, viewerSourceFor } from "@/lib/asset-viewer";
-import { formatAgo, formatMoney, humanizeEnum } from "@/lib/format";
+import { formatMoney, humanizeEnum } from "@/lib/format";
 import { useAppSelector } from "@/hooks/redux";
 
 /**
@@ -76,6 +77,7 @@ export function ClaimCard({
   row: AlertRow;
 }) {
   const { colors } = useAppTheme();
+  const dates = useDates();
   const token = useAppSelector((state) => state.auth.accessToken);
   const busy = actions.busyId === row.id;
 
@@ -166,7 +168,7 @@ export function ClaimCard({
             <Text className="text-sm font-semibold text-foreground">
               Claims {formatMoney(claim.amount)}
             </Text>
-            {` · ${humanizeEnum(claim.method)} · ${formatAgo(claim.occurredAt)}`}
+            {` · ${humanizeEnum(claim.method)} · ${dates.ago(claim.occurredAt)}`}
           </Text>
 
           {claim.transactionCode ? (

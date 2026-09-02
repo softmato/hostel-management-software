@@ -14,6 +14,7 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   confirmReferral,
@@ -23,7 +24,7 @@ import {
   updateReferralReward,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -71,6 +72,7 @@ const REWARD_STATUSES = [
 ] as const;
 
 export default function ManageReferralsScreen() {
+  const dates = useDates();
   const [filter, setFilter] = useState<Filter>("");
   const [open, setOpen] = useState<ManagedReferral | null>(null);
   const [amount, setAmount] = useState("");
@@ -269,7 +271,7 @@ export default function ManageReferralsScreen() {
             ) : null}
 
             <Text variant="caption">
-              {`Enquired ${formatDate(referral.createdAt)}${referral.confirmedAt ? ` · joined ${formatDate(referral.confirmedAt)}` : ""}`}
+              {`Enquired ${dates.date(referral.createdAt)}${referral.confirmedAt ? ` · joined ${dates.date(referral.confirmedAt)}` : ""}`}
             </Text>
 
             <Button

@@ -16,6 +16,8 @@
  * evening, precisely when someone opens the app to see what dinner is.
  */
 
+import { NEPAL_OFFSET_MINUTES } from "@/lib/format";
+
 export const MEAL_TYPES = ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"] as const;
 
 export type MealType = (typeof MEAL_TYPES)[number];
@@ -32,8 +34,6 @@ export const ROUTINE_DAYS = [
 ] as const;
 
 export type RoutineDay = (typeof ROUTINE_DAYS)[number];
-
-const NEPAL_OFFSET_MINUTES = 5 * 60 + 45;
 
 function nepalClock(now: Date) {
   return new Date(now.getTime() + NEPAL_OFFSET_MINUTES * 60_000);

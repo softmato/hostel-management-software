@@ -356,6 +356,14 @@ export type ManagedMaintenanceRequest = {
   status: string;
   title: string;
   updatedAt?: string;
+  /**
+   * A spoken description of the problem, recorded when the job was raised.
+   *
+   * A **PRIVATE** asset: play it through `viewerSourceFor`, which puts the
+   * bearer token on the request — a bare URL renders a dead player. Absent for
+   * every request raised without one, which is most of them.
+   */
+  voiceNoteAssetId?: string;
 };
 
 export type ManagedMaintenance = {
@@ -388,6 +396,14 @@ export async function createMaintenanceRequest(input: {
   providerId?: string;
   scheduledFor?: string;
   title: string;
+  /**
+   * A completed `MAINTENANCE_NOTE` asset, uploaded just before this call.
+   *
+   * Attached at creation and never afterwards: the server has no route that
+   * adds one to an existing request, deliberately — swapping the recording that
+   * describes a job after a contractor has been sent to it is not an edit.
+   */
+  voiceNoteAssetId?: string;
 }) {
   await api.post("/hostel-admin/maintenance/requests", input);
 }
@@ -409,6 +425,61 @@ export async function updateMaintenanceStatus(
   },
 ) {
   await api.patch(`/hostel-admin/maintenance/requests/${id}/status`, input);
+}
+
+/**
+ * What a call-out of each trade costs before anybody turns up —
+ * `GET /hostel-admin/maintenance/settings`.
+ *
+ * **A category missing from the list has no agreed rate**, and callers must show
+ * that as "not set" rather than as free. Returning all eleven categories at zero
+ * would put `NPR 0` on the confirm step for every trade a hostel has not priced,
+ * which is the app telling a warden the electrician is free.
+ *
+ * Readable by any staff member; only the owner may write. A warden about to
+ * commit the hostel to a call-out has to see the figure, and a warden who could
+ * edit it could approve any job by first lowering it.
+ */
+export type MaintenanceCharge = { amount: number; category: MaintenanceCategory };
+
+export async function getMaintenanceSettings() {
+  const response = await api.get<
+    ApiEnvelope<{ hostelId: string; minimumCharges: MaintenanceCharge[] }>
+  >("/hostel-admin/maintenance/settings");
+
+  return unwrap(response).minimumCharges;
+}
+
+/**
+ * `PATCH /hostel-admin/maintenance/settings` — owner only.
+ *
+ * The **whole** list, every time. A rate is removed by leaving its category out,
+ * which is the only way to say "we no longer have one" without a sentinel amount
+ * that every reader would have to know about.
+ */
+export async function updateMaintenanceSettings(minimumCharges: MaintenanceCharge[]) {
+  const response = await api.patch<
+    ApiEnvelope<{ hostelId: string; minimumCharges: MaintenanceCharge[] }>
+  >("/hostel-admin/maintenance/settings", { minimumCharges });
+
+  return unwrap(response).minimumCharges;
+}
+
+/**
+ * Sending a raised request to a contractor —
+ * `PATCH /hostel-admin/maintenance/requests/{id}/provider`.
+ *
+ * **Once.** The server refuses a request that already has somebody on it with a
+ * 409, because re-pointing a live job has a wasted trip on the other end of it;
+ * changing who is coming is still cancel-and-raise. That is also why this is not
+ * folded into the status update — assigning is not a status change, and a status
+ * move must not be able to re-point the job as a side effect.
+ *
+ * This is what makes the voice note reach anybody: an unassigned request appears
+ * in no provider's job list, so nothing plays the recording.
+ */
+export async function assignMaintenanceProvider(id: string, providerId: string) {
+  await api.patch(`/hostel-admin/maintenance/requests/${id}/provider`, { providerId });
 }
 
 export async function commentOnMaintenance(
@@ -1025,10 +1096,44 @@ export async function getResident(id: string) {
 
 /** What the server did with the money, alongside the resident it created. */
 export type ResidentIntakeResult = {
+  /**
+   * Whether registering them also turned their existing website account into a
+   * resident login.
+   *
+   * `linked: false` is ordinary rather than broken, and `reason` says which of
+   * the four it was: `NO_EMAIL` (nobody typed one), `NO_ACCOUNT` (that mailbox
+   * has never signed up — accounts are never created here, because that would
+   * mean mailing somebody a password), `EMAIL_ALREADY_HAS_ROLE` (it is a staff
+   * or owner account) or `ACCOUNT_ALREADY_LINKED` (they still hold a live
+   * resident profile somewhere). All four end the same way: the resident
+   * redeems an activation code instead.
+   *
+   * Even when it is `true`, a browser or app already signed in on that account
+   * keeps its old role until the access token expires — the role is re-read
+   * from the database on refresh, not on registration.
+   */
+  accountLink: { linked: boolean; reason?: string };
   /** The one-off admission invoice, or why there is none. */
   admission:
     | { amount: number; invoiceId: string; raised: true; referenceCode: string }
     | { raised: false; reason: string };
+  /**
+   * The move-in month's rent, raised as part of the intake.
+   *
+   * `raised: false` is an ordinary outcome, not a failure: a `PENDING` resident
+   * is not billable until somebody admits them (`NOT_YET_RESIDENT`), and a
+   * hostel with no rate card cannot be billed at all. The resident is registered
+   * either way — see `raiseFirstMonthInvoice` on the server.
+   */
+  firstMonth:
+    | {
+        amount: number;
+        invoiceId: string;
+        period: string;
+        raised: true;
+        referenceCode: string;
+      }
+    | { period: string; raised: false; reason: string };
   quote: IntakeQuote;
   referral: { code: string } | null;
   resident: ManagedResident;
@@ -1061,6 +1166,17 @@ export async function createResident(input: {
   residentType?: ResidentType;
   roomType: string;
   status?: ResidentStatus;
+  /**
+   * The platform resident ID that was scanned to open this intake, when one
+   * was — `HH-4K7M-9XQ2`, exactly as {@link lookupResidentProfile} received it.
+   *
+   * **Send it whenever there is one.** It is what tells the server which account
+   * to turn into a resident login. Without it the server can only look the
+   * person up by the email on the form, which comes off their profile rather
+   * than their sign-in, so a scanned resident whose two addresses had drifted
+   * apart was registered and then left with no portal at all.
+   */
+  userResidentId?: string;
 }) {
   const response = await api.post<ApiEnvelope<ResidentIntakeResult>>(
     "/hostel-admin/residents",
@@ -1147,6 +1263,28 @@ export type RentBasis = "ROOM_CONFIGURATION" | "SCHEDULE" | "UNPRICED";
  * route is gated on `registerResidents` instead, so the person admitting
  * somebody is told the price rather than asked for it.
  */
+/**
+ * What the **move-in month** costs, which is rarely what a month costs.
+ *
+ * Somebody admitted on the 20th owes twelve days of a thirty-one-day month, and
+ * a full month from the next one on. The server computes this through the same
+ * function the billing run uses, so the figure quoted at the desk is the figure
+ * on the invoice raised seconds later.
+ *
+ * Branch on `prorated`, never on `amount !== monthlyRent`: they are equal for
+ * anybody arriving on the 1st, and a first-month row that vanishes on the 1st of
+ * the month is a row nobody can explain.
+ */
+export type FirstMonthCharge = {
+  amount: number;
+  /** Days they are resident for, inclusive of the move-in day. */
+  billableDays: number;
+  daysInMonth: number;
+  /** `2026-08` — the period the invoice carries. */
+  period: string;
+  prorated: boolean;
+};
+
 export type IntakeQuote = {
   /** Before the referral discount. */
   admissionFee: number;
@@ -1156,6 +1294,8 @@ export type IntakeQuote = {
   currency: string;
   depositAmount: number;
   feeScheduleId: string | null;
+  /** Null when there is no rent to prorate — same cases as `monthlyRent`. */
+  firstMonth: FirstMonthCharge | null;
   /** Null when nothing prices this room type. Check `rentBasis`, never assume 0. */
   monthlyRent: number | null;
   referral: {
@@ -1427,6 +1567,50 @@ export const INQUIRY_STATUSES = [
 ] as const;
 
 export type InquiryStatus = (typeof INQUIRY_STATUSES)[number];
+
+/**
+ * A lead, as the inquiries screen renders it — `GET /hostel-admin/inquiries`.
+ *
+ * Wider than `AdminInquiry` in `admin-api.ts`, which carries only what the
+ * alert feed needs to draw a one-line row. The difference is deliberate rather
+ * than duplication: the feed's copy is fetched with `status=NEW` as part of the
+ * four-source alerts pull, and this one is the whole queue with its history.
+ */
+export type ManagedInquiry = {
+  budgetRange: string;
+  createdAt?: string;
+  email: string;
+  gender: string;
+  id: string;
+  message: string;
+  name: string;
+  phone: string;
+  preferredRoomType: string;
+  preferredVisitDate?: string;
+  source: string;
+  status: InquiryStatus;
+  updatedAt?: string;
+};
+
+/**
+ * The hostel's leads — `GET /hostel-admin/inquiries`.
+ *
+ * `pageSize` is generous because this screen has no pagination and should not
+ * grow one: an inquiry is a conversation somebody either answers or closes, and
+ * a hostel with two hundred open leads has a process problem the app cannot fix
+ * by adding a *next page* button. The status segments are what keeps the list
+ * short.
+ */
+export async function listManagedInquiries(
+  query: { status?: InquiryStatus } = {},
+) {
+  const response = await api.get<ApiEnvelope<{ inquiries: ManagedInquiry[] }>>(
+    "/hostel-admin/inquiries",
+    { params: { pageSize: 100, ...(query.status ? { status: query.status } : {}) } },
+  );
+
+  return unwrap(response).inquiries;
+}
 
 /**
  * Moving a lead along — `PATCH /hostel-admin/inquiries/{id}/status`.

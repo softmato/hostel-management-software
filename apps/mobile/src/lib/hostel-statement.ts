@@ -30,15 +30,36 @@
  * the invoice — and inventing two rows out of one would be inventing data. The
  * detail sheet says `NPR 3,000 of NPR 5,000` in that case rather than implying
  * the month is closed.
+ *
+ * ## Every function that spells a date takes the calendar
+ *
+ * This is an **admin** surface, and the hostel portal has a calendar preference
+ * (`uiSlice.calendarPreference`, reached through `hooks/use-dates.ts`). These
+ * functions used to call `formatDate` / `formatPeriod` from `lib/format.ts`
+ * directly, so with the preference on Nepali the statement screen printed the
+ * same month twice in two calendars — `Bhadra 2083` in the detail sheet, from
+ * `dates.period`, and `September 2026` in the row title above it, from here.
+ *
+ * So `calendar` is a required argument rather than one defaulting to `"AD"`: a
+ * default is exactly how a new call site keeps printing Gregorian while every
+ * row around it has moved. The two deliberate exceptions are the day heading,
+ * which shows **both** calendars because a date over money is the one place the
+ * standing rule says to double them, and the search haystack, which indexes
+ * both so the search box finds a row either way.
  */
 
 import type { AdminLedger, AdminLedgerEntry } from "@/lib/admin-api";
 import {
+  type CalendarSystem,
+  formatDateIn,
+  formatPeriodIn,
+} from "@/lib/calendar";
+import {
   formatAmount,
-  formatDate,
   formatDateBoth,
   formatMoney,
   formatPeriod,
+  formatPeriodBs,
   formatWeekday,
   humanizeEnum,
   nepalDayKey,
@@ -286,7 +307,13 @@ function haystack(credit: StatementCredit): string {
     credit.residentName,
     humanizeEnum(credit.method),
     credit.remarks,
+    // **Both** month spellings, always, whatever the calendar preference says.
+    // The row is *displayed* in one calendar; it is *searched* in either, so an
+    // owner who reads Nepali dates and types "bhadra" finds the same row as one
+    // who types "september". Indexing only the displayed spelling would make the
+    // search box quietly change what it can find when the setting is flipped.
     credit.period ? formatPeriod(credit.period) : "one-off",
+    credit.period ? formatPeriodBs(credit.period) : "",
     humanizeEnum(credit.status),
     formatAmount(credit.amount),
   ]
@@ -474,6 +501,7 @@ export type StatementSummary = {
  */
 export function statementSummary(
   credits: readonly StatementCredit[],
+  calendar: CalendarSystem,
   now: Date = new Date(),
 ): StatementSummary {
   const period = nepalPeriodKey(now);
@@ -484,7 +512,7 @@ export function statementSummary(
 
   return {
     count: thisMonth.length,
-    periodLabel: formatPeriod(period),
+    periodLabel: formatPeriodIn(calendar, period),
     total: thisMonth.reduce((sum, credit) => sum + credit.amount, 0),
   };
 }
@@ -506,8 +534,13 @@ export function visibleTotal(credits: readonly StatementCredit[]): number {
  * `""` when the record could not be resolved, and a title that starts with a
  * space reads as a rendering fault rather than as missing data.
  */
-export function creditTitle(credit: StatementCredit): string {
-  const what = credit.period ? `${formatPeriod(credit.period)} rent` : "One-off charge";
+export function creditTitle(
+  credit: StatementCredit,
+  calendar: CalendarSystem,
+): string {
+  const what = credit.period
+    ? `${formatPeriodIn(calendar, credit.period)} rent`
+    : "One-off charge";
 
   return `${what} from ${credit.residentName || "a resident"}`;
 }
@@ -524,9 +557,12 @@ export function isPartial(credit: StatementCredit): boolean {
  * range and "26 Aug 2026" on its own is a day, and a reader handed the second
  * when the first was meant will reconcile the wrong week.
  */
-export function rangeLabel(filter: StatementFilter): string {
-  const from = filter.from ? formatDate(startOfDayIso(filter.from)) : "";
-  const to = filter.to ? formatDate(endOfDayIso(filter.to)) : "";
+export function rangeLabel(
+  filter: StatementFilter,
+  calendar: CalendarSystem,
+): string {
+  const from = filter.from ? formatDateIn(calendar, startOfDayIso(filter.from)) : "";
+  const to = filter.to ? formatDateIn(calendar, endOfDayIso(filter.to)) : "";
 
   if (from && to) {
     return from === to ? from : `${from} to ${to}`;
@@ -557,10 +593,17 @@ export function rangeLabel(filter: StatementFilter): string {
  * entitled to the detail can open the screen.
  */
 export function statementShareText({
+  calendar,
   credits,
   filter,
   hostelName,
 }: {
+  /*
+   * The sender's calendar, so the shared text reads the way the screen they
+   * shared it from did. A statement pasted into a thread in the other calendar
+   * from the one the owner was looking at is a range nobody can check.
+   */
+  calendar: CalendarSystem;
   credits: readonly StatementCredit[];
   filter: StatementFilter;
   /** Blank when the caller is a warden scoped to more than one hostel. */
@@ -570,7 +613,7 @@ export function statementShareText({
 
   return [
     hostelName ? `${hostelName} — statement` : "Hostel statement",
-    rangeLabel(filter),
+    rangeLabel(filter, calendar),
     `${count} ${count === 1 ? "payment" : "payments"} · ${formatMoney(visibleTotal(credits))} received`,
   ].join("\n");
 }

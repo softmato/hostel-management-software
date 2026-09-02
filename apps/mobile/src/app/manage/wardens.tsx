@@ -14,6 +14,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   createWarden,
@@ -26,7 +27,6 @@ import {
   type WardenPermission,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -107,6 +107,7 @@ const BLANK_DRAFT: Draft = {
 };
 
 export default function ManageWardensScreen() {
+  const dates = useDates();
   const wardens = useResource<ManagedWarden[]>(useCallback(() => listWardens(), []));
 
   const [inviting, setInviting] = useState(false);
@@ -313,7 +314,7 @@ export default function ManageWardensScreen() {
 
             {warden.status === "INVITED" ? (
               <Text variant="caption">
-                Invited {formatDate(warden.createdAt)} — they have not signed in yet.
+                Invited {dates.date(warden.createdAt)} — they have not signed in yet.
               </Text>
             ) : null}
 

@@ -50,8 +50,21 @@ describe("isAuthBypassEnabled", () => {
     expect(isAuthBypassEnabled()).toBe(false);
   });
 
-  it("bypasses in development", () => {
+  it("does not bypass in development without the flag", () => {
+    /*
+     * The whole point of the change this asserts. `development` used to be its
+     * own opt-in, so a signed-out browser could open /platform/dashboard on any
+     * developer's machine — and nobody working on the app ever exercised the
+     * redirect that real users get.
+     */
     setNodeEnv("development");
+
+    expect(isAuthBypassEnabled()).toBe(false);
+  });
+
+  it("bypasses in development when the preview flag is set", () => {
+    setNodeEnv("development");
+    process.env.NEXT_PUBLIC_UI_PREVIEW = "true";
 
     expect(isAuthBypassEnabled()).toBe(true);
   });

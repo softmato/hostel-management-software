@@ -11,29 +11,18 @@
  */
 
 import type { AdminHostel, AdminPeriodRow, AdminReport } from "@/lib/admin-api";
-import { humanizeEnum } from "@/lib/format";
+import { humanizeEnum, MONTHS_SHORT, periodParts } from "@/lib/format";
 
 /* -------------------------------------------------------------------------- */
 /* Money                                                                      */
 /* -------------------------------------------------------------------------- */
 
-const MONTH_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-] as const;
-
 /**
  * `2026-08` → `Aug`. The x-axis label on the earnings bars.
+ *
+ * The table and the parser are `format.ts`'s, not a private copy — this module
+ * held its own twelve strings and its own `YYYY-MM` regex, which is a second
+ * answer to a question that already had one.
  *
  * Deliberately **not** Bikram Sambat, unlike the invoice due dates in
  * `format.ts`. A due date is a deadline somebody has to act on, so it is worth
@@ -46,15 +35,9 @@ const MONTH_NAMES = [
  * or rendering `undefined` — a malformed period is a bad label, not a crash.
  */
 export function monthShortLabel(period: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(period.trim());
+  const parts = periodParts(period);
 
-  if (!match) {
-    return period;
-  }
-
-  const month = Number(match[2]);
-
-  return MONTH_NAMES[month - 1] ?? period;
+  return parts ? MONTHS_SHORT[parts.monthIndex] : period;
 }
 
 /**
