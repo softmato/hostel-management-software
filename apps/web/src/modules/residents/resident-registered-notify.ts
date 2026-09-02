@@ -75,7 +75,7 @@ export async function notifyResidentRegistered(input: {
 
     await Promise.all([
       notifyTheResident({ ...input, hostelName }),
-      notifyTheHostel({ ...input, hostelName, residentName, room }),
+      notifyTheHostel({ ...input, residentName, room }),
       emailTheResident({ ...input, hostelName }),
     ]);
   } catch (error) {
