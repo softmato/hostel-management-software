@@ -32,8 +32,12 @@ import {
   type CommunitySpaces,
   createCommunityPost,
   getCommunityFeed,
-  getCommunitySpaces,
 } from "@/lib/community-api";
+import {
+  communityQuery,
+  DEFAULT_SORT,
+  DEFAULT_SPACE,
+} from "@/lib/community-queries";
 import {
   audienceOptions,
   avatarInitial,
@@ -138,13 +142,21 @@ export function CommunityBoard({
 }: CommunityBoardProps) {
   const { colors } = useAppTheme();
 
-  const spaces = useResource<CommunitySpaces>(
-    useCallback(() => getCommunitySpaces(), []),
-    { topics: [REALTIME_TOPIC.COMMUNITY] },
-  );
+  /*
+   * Both reads go through `lib/community-queries.ts` rather than through a
+   * loader written here, so a warm-up can run *these* requests under *these*
+   * keys. A board reached from a tab has usually had both answered seconds
+   * before it mounted — see `prefetchCommunity`.
+   */
+  const spacesQuery = communityQuery.spaces();
 
-  const [space, setSpace] = useState("all");
-  const [sort, setSort] = useState<"new" | "top">("new");
+  const spaces = useResource<CommunitySpaces>(spacesQuery.load, {
+    cacheKey: spacesQuery.key,
+    topics: spacesQuery.topics,
+  });
+
+  const [space, setSpace] = useState(DEFAULT_SPACE);
+  const [sort, setSort] = useState<"new" | "top">(DEFAULT_SORT);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [spacePicker, setSpacePicker] = useState(false);
@@ -159,12 +171,32 @@ export function CommunityBoard({
    * synchronous `setState`: the fetch that runs on a filter change is
    * `useResource`'s, whose shape is already written around that lint rule.
    */
+  const feedQuery = communityQuery.feed(space, sort);
+
+  /*
+   * The searched feed, which is the one question here that is **not** cached.
+   *
+   * A key has to carry everything that changes the answer, so a cached search
+   * would have to be keyed on the text — and `community-queries.ts` says at
+   * length why that is the wrong thing to keep: the descriptor registry would
+   * grow per phrase typed, and four searches would evict a portal's worth of
+   * warm answers to make going *back* to a search fast, which nobody does.
+   *
+   * So a search behaves exactly as this whole screen did before the cache
+   * existed: its own loader, its own state, gone on unmount. Clearing the box
+   * returns to the cached feed, and that is the transition people do make.
+   */
+  const searchFeed = useCallback(
+    () => getCommunityFeed({ page: 1, q: query, sort, space }),
+    [query, sort, space],
+  );
+
   const firstPage = useResource<CommunityFeed>(
-    useCallback(
-      () => getCommunityFeed({ page: 1, ...(query ? { q: query } : {}), sort, space }),
-      [query, sort, space],
-    ),
-    { topics: [REALTIME_TOPIC.COMMUNITY] },
+    query ? searchFeed : feedQuery.load,
+    {
+      cacheKey: query ? undefined : feedQuery.key,
+      topics: [REALTIME_TOPIC.COMMUNITY],
+    },
   );
 
   const [appended, setAppended] = useState<CommunityPost[]>([]);

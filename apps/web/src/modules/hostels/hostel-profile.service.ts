@@ -2,6 +2,7 @@ import { connectToDatabase } from "@/lib/db";
 import { buildAddressQuery } from "@/lib/maps/geocoding";
 import { geocodeAndCacheHostel } from "@/modules/hostels/hostel-geo.service";
 import { summarizeConfigurations } from "@/modules/hostels/hostel-capacity.service";
+import { getOpenFeeSchedule } from "@/modules/finance/fee-schedule.service";
 import { sendNotificationEmail } from "@/modules/residents/resident-notify";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { UserModel } from "@hostel/db/models/User";
@@ -46,6 +47,13 @@ export async function getHostelAdminProfile(
 
   return {
     hostel: serializeHostel(hostel),
+    /*
+     * Whether the rents on this profile came from the rate card. The screen
+     * renders them as facts with a link to the rate card when they did, and as
+     * editable fields when the hostel has no card yet — which is every hostel on
+     * its first day.
+     */
+    pricedByRateCard: Boolean(await getOpenFeeSchedule(hostel._id)),
   };
 }
 
@@ -57,6 +65,51 @@ export async function updateHostelAdminProfile(
 
   const hostel = await findScopedHostel(principal, input.hostelId);
   const profileUpdate = definedUpdate(input, ["hostelId"]);
+
+  /*
+   * Prices are not editable here once a rate card exists.
+   *
+   * They used to be, and that was the second half of the platform's worst
+   * pricing bug: `roomConfigurations[].monthlyRent` and `pricing` were typed on
+   * this form while `FeeSchedule` was typed on the rate-card screen, both were
+   * read as "the rent" by different pages, and nothing compared them. A hostel
+   * ended up advertising 18,000 and invoicing 174,000.
+   *
+   * The rate card is the source now and this listing is written from it
+   * (`projectScheduleOntoListing`), so accepting a rent here would let this form
+   * silently overwrite the projection until the next rate change put it back —
+   * a price that changes depending on which screen was saved last.
+   *
+   * Stripped rather than refused: an owner editing their photos and their
+   * address should not be stopped because the form also carries a rent field
+   * that is now read-only. `pricedByRateCard` on the profile response is how the
+   * screen knows to render those fields as facts with a link to the rate card.
+   */
+  const openSchedule = await getOpenFeeSchedule(hostel._id);
+
+  if (openSchedule) {
+    delete profileUpdate.pricing;
+
+    if (Array.isArray(profileUpdate.roomConfigurations)) {
+      const rentByRoomType = new Map(
+        (hostel.roomConfigurations ?? []).map((configuration) => [
+          configuration.roomType,
+          configuration.monthlyRent,
+        ]),
+      );
+
+      profileUpdate.roomConfigurations = (
+        profileUpdate.roomConfigurations as { monthlyRent?: number; roomType: string }[]
+      ).map((configuration) => ({
+        ...configuration,
+        // A room type invented on this form has no rate yet; keeping the
+        // submitted figure lets the owner list it before finance prices it,
+        // and the next rate card overwrites it.
+        monthlyRent:
+          rentByRoomType.get(configuration.roomType) ?? configuration.monthlyRent,
+      }));
+    }
+  }
 
   // roomConfigurations is the source of truth for occupancy, so any edit to it
   // has to bring the derived capacity totals along or the dashboard and the
@@ -133,6 +186,7 @@ export async function updateHostelAdminProfile(
 
   return {
     hostel: serializeHostel(updatedHostel),
+    pricedByRateCard: Boolean(openSchedule),
   };
 }
 

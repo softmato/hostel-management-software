@@ -10,15 +10,22 @@ import { Badge, StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { MealRow } from "@/components/meal-row";
+import { NotificationBell } from "@/components/notification-bell";
 import { Chip, Grid, InfoTile, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import {
+  Skeleton,
+  SkeletonCard,
+  SkeletonTiles,
+} from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { residentQuery } from "@/lib/resident-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { openAssetViewer } from "@/lib/asset-viewer";
@@ -32,7 +39,6 @@ import {
 } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 import {
-  getResidentDashboard,
   type NightStatus,
   openQuestionCall,
   type ResidentDashboard,
@@ -97,13 +103,50 @@ const QUICK_ACTIONS = [
 
 export default function ResidentHomeScreen() {
   const account = useAppSelector((state) => state.auth.account);
-  const home = useResource<ResidentDashboard>(useCallback(() => getResidentDashboard(), []));
+
+  /*
+   * Live, which no resident screen was.
+   *
+   * Every `(admin)` screen names its topics and this group named none — so the
+   * socket was connected app-wide in `_layout.tsx`, publishing to a resident who
+   * had subscribed to nothing. A notice posted while the app was open, a claim
+   * approved by the office, a warden replying to a complaint: none of it moved
+   * this screen until the resident pulled to refresh or left and came back.
+   *
+   * Five topics because this one payload is five domains — `feeStatus`,
+   * `notices`, `complaints`, `foodMenu` and `nightStatus` — and all five are
+   * genuinely published to `private-hostel-<id>`, which a resident's principal
+   * is granted through its own `hostelIds`. Naming a topic nothing publishes
+   * would be decoration; these were checked against the services that emit them.
+   *
+   * The refetch is silent by `useResource`'s design: the screen does not blank
+   * under somebody who is reading it.
+   */
+  const query = residentQuery.dashboard();
+  const home = useResource<ResidentDashboard>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const dashboard = home.data;
   const firstName = dashboard?.resident.firstName ?? account?.name?.split(" ")[0] ?? "";
 
+  /*
+   * The bell, which this group did not have.
+   *
+   * `/notifications` is scoped to `principal.userId` with no role branch, so a
+   * resident has always had a feed — payment reminders, notice broadcasts, the
+   * reply to a complaint. Nothing in these five tabs opened it: there was no
+   * bell on any of them, and More's "Notifications" row pushed `/settings`,
+   * which is the *preferences* screen. So the feed was reachable by a push
+   * banner and by nothing else, and a banner that has been swiped away is gone.
+   *
+   * On every tab rather than only here, matching `(admin)`: a control that
+   * disappears when you change tab is one you stop trusting to be there.
+   */
   const header = (
     <AppBar
+      actions={<NotificationBell />}
       subtitle={dashboard?.hostel?.name ?? undefined}
       title={firstName ? `${greetingFor()}, ${firstName}` : greetingFor()}
     />
@@ -111,8 +154,26 @@ export default function ResidentHomeScreen() {
 
   if (home.loading) {
     return (
-      <Screen header={header} insideTabs>
-        <LoadingState label="Loading your dashboard" />
+      /*
+        Skeletons, not a spinner — the house rule this group was not following.
+        The shape is known before the data is: a dues card, a strip of three
+        tiles, the hostel, then sections. Drawing it means nothing moves when the
+        figures land, and the first thing a resident's eye goes to — the amount
+        outstanding — is already in the place it will end up.
+      */
+      <Screen header={header} insideTabs scroll>
+        <View className="gap-4 pt-1">
+          <View className="gap-3 rounded-2xl border border-border bg-card p-4">
+            <Skeleton height={11} width="28%" />
+            <Skeleton height={30} radius={10} width="55%" />
+            <Skeleton height={12} width="42%" />
+            <Skeleton height={44} radius={14} />
+          </View>
+
+          <SkeletonTiles />
+          <SkeletonCard rows={1} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

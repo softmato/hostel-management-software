@@ -66,11 +66,7 @@ type PublicServiceProviderListQuery = z.infer<
 >;
 
 type ServiceProviderStatus =
-  | "PENDING_APPROVAL"
-  | "APPROVED"
-  | "REJECTED"
-  | "HIDDEN"
-  | "INACTIVE";
+  "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "HIDDEN" | "INACTIVE";
 
 type ServiceProviderRecord = {
   _id: Types.ObjectId;
@@ -968,6 +964,67 @@ export async function listPublicServiceProviders(query: PublicServiceProviderLis
     countsByCategory,
     providers: providers.map(serializePublicProvider),
     total,
+  };
+}
+
+/**
+ * The three numbers the public registration hero leads with.
+ *
+ * Separate from {@link listPublicServiceProviders} because that one exists to
+ * return *providers* and this one never wants the documents: the landing page
+ * is server-rendered on every visit and pulling 120 records to show three
+ * integers is the kind of thing that only looks free until the directory grows.
+ *
+ * **`medianApprovalDays` is measured, not asserted.** The page used to print a
+ * flat "2 days" review time that nobody had ever checked against the queue; a
+ * promise about our own turnaround is exactly the claim an applicant will hold
+ * us to, so it is now the median of what we have actually done. `null` when no
+ * provider has been approved yet, and the hero drops the stat rather than
+ * inventing a number for an empty table.
+ */
+export async function getPublicServiceProviderStats() {
+  await connectToDatabase();
+
+  const scopeFilter = { isDeleted: false, status: "APPROVED" };
+
+  const [totalProviders, areaRows, approvalRows] = await Promise.all([
+    ServiceProviderModel.countDocuments(scopeFilter),
+    // Areas are free text an applicant typed, so "Baneshwor" and "baneshwor "
+    // are one place. Trimmed and lowercased before grouping, or the count
+    // inflates every time somebody capitalises differently.
+    ServiceProviderModel.aggregate<{ count: number }>([
+      { $match: scopeFilter },
+      { $group: { _id: { $toLower: { $trim: { input: "$area" } } } } },
+      { $count: "count" },
+    ]),
+    // Median, not mean: one application that sat over a holiday would drag an
+    // average past anything a new applicant will actually experience.
+    ServiceProviderModel.aggregate<{ days: number[] }>([
+      { $match: { ...scopeFilter, approvedAt: { $exists: true, $ne: null } } },
+      {
+        $project: {
+          days: {
+            $divide: [{ $subtract: ["$approvedAt", "$createdAt"] }, 1000 * 60 * 60 * 24],
+          },
+        },
+      },
+      { $sort: { days: 1 } },
+      { $group: { _id: null, days: { $push: "$days" } } },
+    ]),
+  ]);
+
+  const days = approvalRows[0]?.days ?? [];
+  const middle = Math.floor(days.length / 2);
+
+  return {
+    areaCount: areaRows[0]?.count ?? 0,
+    medianApprovalDays:
+      days.length === 0
+        ? null
+        : days.length % 2 === 1
+          ? days[middle]
+          : (days[middle - 1] + days[middle]) / 2,
+    totalProviders,
   };
 }
 

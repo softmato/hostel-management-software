@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Linking, View } from "react-native";
 
 import { AdminSearchBar } from "@/components/admin-search-bar";
@@ -16,10 +16,10 @@ import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { SwipeRow } from "@/components/ui/swipe-row";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { type AdminResident, listAdminResidents } from "@/lib/admin-api";
+import type { AdminResident } from "@/lib/admin-api";
+import { adminQuery, prefetchAdminResident } from "@/lib/admin-queries";
 import {
   type RosterSegment,
   rosterSegmentRows,
@@ -93,10 +93,15 @@ import { humanizeEnum } from "@/lib/format";
  */
 export default function AdminResidentsScreen() {
   const dates = useDates();
-  const residents = useResource<AdminResident[]>(
-    useCallback(() => listAdminResidents(), []),
-    { topics: [REALTIME_TOPIC.RESIDENTS] },
-  );
+  /*
+   * Warmed by `prefetchAdminPortal` when the portal opens, so arriving here from
+   * Home usually paints the roster rather than a spinner.
+   */
+  const rosterQuery = adminQuery.residents();
+  const residents = useResource<AdminResident[]>(rosterQuery.load, {
+    cacheKey: rosterQuery.key,
+    topics: rosterQuery.topics,
+  });
 
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState<RosterSegment>("active");
@@ -252,6 +257,13 @@ export default function AdminResidentsScreen() {
                    * same trap §11.6 found on the Money screen.
                    */
                   onPress={() => router.push(`/manage/resident/${resident.id}`)}
+                  /*
+                    Touch-down starts the record's six requests, so the tap lands
+                    on a screen that is already loading rather than one that
+                    begins to. Only the row actually pressed — warming forty
+                    would be the request storm, not the fix.
+                  */
+                  onPressIn={() => prefetchAdminResident(resident.id)}
                   right={
                     // `shrink-0`: a long name is the thing allowed to truncate,
                     // not the status, which is the only word on the row saying

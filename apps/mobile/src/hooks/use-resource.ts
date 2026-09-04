@@ -3,6 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { RealtimeTopic } from "@/constants/topics";
 import { readApiError } from "@/lib/api-contract";
+import {
+  DEFAULT_MAX_AGE_MS,
+  DEFAULT_STALE_MS,
+  fetchQuery,
+  readQuery,
+  subscribeQuery,
+  writeQuery,
+} from "@/lib/query-cache";
 import { subscribeTopics } from "@/lib/resource-bus";
 import { toastError } from "@/lib/toast";
 
@@ -89,6 +97,37 @@ import { toastError } from "@/lib/toast";
  * here would replace a working dashboard with a full-screen retry because the
  * phone went into a lift. The data is still good and still on screen; the
  * failure is worth a line, not the whole viewport.
+ *
+ * ## `cacheKey` — the answer outliving the screen
+ *
+ * Optional, and off by default: without one this hook behaves exactly as it did,
+ * holding its payload in component state and losing it on unmount. That is the
+ * right default for a screen visited once.
+ *
+ * With one, the payload is read from and written to `lib/query-cache`, and four
+ * things change:
+ *
+ * 1. **A revisit paints before it asks.** The cached answer seeds the first
+ *    render, so `loading` is already `false` and the mount fetch is a *silent*
+ *    revalidate behind data the user can read — or, if the answer is still
+ *    fresh, no fetch at all.
+ * 2. **A prefetch counts.** `prefetchAdminPortal()` writing this key before the
+ *    screen mounts is indistinguishable from having visited it, which is the
+ *    whole point of the warm-up.
+ * 3. **Two screens on one key stay in step.** They subscribe to it, so whoever
+ *    fetches last updates both.
+ * 4. **A changed key paints from the cache too.** Money's month strip is the
+ *    case: scrubbing back to a month already looked at is instant, and the
+ *    revalidate behind it is silent rather than a spinner.
+ *
+ * The key must contain everything that changes the answer. `adminQuery.money`
+ * puts the period in it for exactly that reason — a filter missing from the key
+ * is a screen showing another month's invoices, which is a worse bug than the
+ * inert-filter one above because it looks right.
+ *
+ * `staleMs` is when to re-ask behind the data (default 30s) and `maxAgeMs` is
+ * when to stop showing it at all (default 5min) — `query-cache.ts` has the
+ * reasoning for two numbers rather than one.
  */
 
 export type Resource<T> = {
@@ -110,14 +149,56 @@ type FetchMode = "initial" | "refresh" | "requery" | "silent";
 export function useResource<T>(
   load: () => Promise<T>,
   {
+    cacheKey,
+    maxAgeMs = DEFAULT_MAX_AGE_MS,
     refetchOnFocus = true,
+    staleMs = DEFAULT_STALE_MS,
     topics,
-  }: { refetchOnFocus?: boolean; topics?: readonly RealtimeTopic[] } = {},
+  }: {
+    /** Names this question in `lib/query-cache`. Omit to keep the old behaviour. */
+    cacheKey?: string;
+    maxAgeMs?: number;
+    refetchOnFocus?: boolean;
+    staleMs?: number;
+    topics?: readonly RealtimeTopic[];
+  } = {},
 ): Resource<T> {
-  const [data, setData] = useState<T | null>(null);
+  /*
+   * What the cache had at mount, read once.
+   *
+   * In a lazy initialiser rather than in an effect, because the point is to have
+   * it in the *first* render: a revisit that painted empty and filled in on the
+   * next frame is the flicker this is here to remove.
+   */
+  const [seed] = useState(() =>
+    cacheKey ? readQuery<T>(cacheKey, { maxAgeMs, staleMs }) : null,
+  );
+
+  const [data, setData] = useState<T | null>(seed?.data ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(seed === null);
   const [refreshing, setRefreshing] = useState(false);
+
+  /*
+   * The key this render is showing, so a *changed* key can paint from the cache
+   * before it asks.
+   *
+   * Adjusted during render — React's own pattern for deriving state from a
+   * changing input, and deliberately not an effect: an effect would commit an
+   * empty screen first and then fill it, which is the flicker again, and it is
+   * what `react-hooks/set-state-in-effect` exists to prevent.
+   */
+  const [renderedKey, setRenderedKey] = useState(cacheKey);
+
+  if (cacheKey !== renderedKey) {
+    setRenderedKey(cacheKey);
+
+    const cached = cacheKey ? readQuery<T>(cacheKey, { maxAgeMs, staleMs }) : null;
+
+    if (cached) {
+      setData(cached.data);
+    }
+  }
 
   /*
    * The loader that produced whatever is on screen, boxed so React cannot
@@ -129,7 +210,13 @@ export function useResource<T>(
    * fetch — which is the one thing `react-hooks/set-state-in-effect` forbids
    * and the reason the spinner could not simply be raised there.
    */
-  const [settled, setSettled] = useState<{ loader: () => Promise<T> } | null>(null);
+  const [settled, setSettled] = useState<{ loader: () => Promise<T> } | null>(() =>
+    // Seeded from the cache counts as settled: the screen has an answer on it,
+    // so the *next* loader identity is a requery and must raise the spinner.
+    // Left null it would stay null until the first fetch finished, and the first
+    // month change on Money would have no spinner behind it.
+    seed ? { loader: load } : null,
+  );
   const requerying = settled !== null && settled.loader !== load;
 
   // `refresh`, `reload` and the topic subscription are created once but must
@@ -153,8 +240,47 @@ export function useResource<T>(
     dataRef.current = data;
   });
 
+  /*
+   * Where a result is filed, read the same way and for the same reason: `run`
+   * must keep a stable identity, so the key and the topic list cannot be closed
+   * over.
+   */
+  const cacheRef = useRef<{ key?: string; topics: readonly RealtimeTopic[] }>({
+    key: cacheKey,
+    topics: topics ?? [],
+  });
+
+  useEffect(() => {
+    cacheRef.current = { key: cacheKey, topics: topics ?? [] };
+  });
+
   const mounted = useRef(true);
   const sequence = useRef(0);
+
+  /*
+   * Set by the optimistic `setData` below, cleared once the edit is filed.
+   *
+   * Only *deliberate* edits are written back. Filing every `data` change would
+   * re-stamp the entry's timestamp on each fetch, which would quietly make a
+   * stale answer look fresh to the next screen that mounts on the same key —
+   * the one failure mode that would turn this cache into a source of wrong
+   * numbers rather than of fewer requests.
+   */
+  const edited = useRef(false);
+
+  useEffect(() => {
+    if (!edited.current) {
+      return;
+    }
+
+    edited.current = false;
+
+    const cache = cacheRef.current;
+
+    if (cache.key && data !== null) {
+      writeQuery(cache.key, data, cache.topics);
+    }
+  }, [data]);
 
   useEffect(() => {
     mounted.current = true;
@@ -179,9 +305,22 @@ export function useResource<T>(
     // Captured, not re-read: `settled` has to name the loader this response
     // actually came from, or a filter changed mid-flight leaves the spinner up.
     const loader = loadRef.current;
+    const cache = cacheRef.current;
 
     try {
-      const result = await loader();
+      /*
+       * `fetchQuery` both deduplicates and files the result. Deduplication is
+       * what keeps the portal's warm-up honest: entering the group prefetches
+       * four tabs while Home is already asking for two of the same reads, and
+       * without it that is the request storm this layer exists to remove,
+       * arriving one frame earlier.
+       *
+       * A failure is deliberately not filed. Whatever was cached stays cached,
+       * which is what lets a `silent` revalidate fail into no change at all.
+       */
+      const result = cache.key
+        ? await fetchQuery(cache.key, loader, cache.topics)
+        : await loader();
 
       if (!mounted.current || ticket !== sequence.current) {
         return;
@@ -235,11 +374,64 @@ export function useResource<T>(
   const started = useRef(false);
 
   useEffect(() => {
-    const mode: FetchMode = started.current ? "requery" : "initial";
+    const first = !started.current;
     started.current = true;
 
-    void run(mode);
-  }, [load, run]);
+    /*
+     * Read here rather than reusing `seed`, because this effect also runs when
+     * the key changes and the question it is asking is about *this* key.
+     */
+    const cached = cacheKey ? readQuery<T>(cacheKey, { maxAgeMs, staleMs }) : null;
+
+    /*
+     * A fresh answer is asked nothing. Without this, walking the five tabs would
+     * re-run every loader on every hop — the cache would spare the spinner and
+     * keep the requests, which is half a fix.
+     *
+     * "Fresh" is not "recent": a topic publish marks the entry stale the moment
+     * the server says the data moved, so this never holds a figure that is known
+     * to have changed.
+     */
+    if (cached?.fresh) {
+      return;
+    }
+
+    /*
+     * With something already on screen the fetch is silent whichever way it got
+     * there — seeded at mount or painted from the cache on a key change. Both
+     * mean the same thing: there is an answer the user is reading, and a failed
+     * revalidate must not take it away.
+     */
+    void run(cached ? "silent" : first ? "initial" : "requery");
+  }, [cacheKey, load, maxAgeMs, run, staleMs]);
+
+  /*
+   * Two screens on one key, kept in step.
+   *
+   * More and Home both read the hostel; Money and Home both read the period
+   * summary. Whoever fetches last updates the other, without either knowing the
+   * other exists.
+   *
+   * A cleared key is deliberately *not* propagated: `clearQueryCache()` runs on
+   * sign-out, and nulling the data under every mounted admin screen would flash
+   * an error state on the way to the login route. The route change unmounts them
+   * a frame later.
+   */
+  useEffect(() => {
+    if (!cacheKey) {
+      return;
+    }
+
+    return subscribeQuery(cacheKey, () => {
+      const next = readQuery<T>(cacheKey, { maxAgeMs, staleMs });
+
+      if (next) {
+        // The same object that was written, so React bails out of the re-render
+        // when this screen is the one that wrote it.
+        setData(next.data);
+      }
+    });
+  }, [cacheKey, maxAgeMs, staleMs]);
 
   const firstFocus = useRef(true);
 
@@ -291,6 +483,11 @@ export function useResource<T>(
       void run("initial");
     }, [run]),
     setData: useCallback((updater: (current: T | null) => T | null) => {
+      // Flagged rather than written here: the updater form is what gives call
+      // sites the latest value, and a cache write inside a state updater is a
+      // side effect React is free to run twice. The effect below files it once
+      // the render it caused has committed.
+      edited.current = true;
       setData((current) => updater(current));
     }, []),
   };

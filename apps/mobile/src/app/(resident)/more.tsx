@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusPill } from "@/components/ui/badge";
@@ -14,14 +15,10 @@ import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { type ResidentMore, residentQuery } from "@/lib/resident-queries";
 import { endSession } from "@/lib/auth-session";
+import { prefetchCommunity } from "@/lib/community-queries";
 import { formatDate, humanizeEnum } from "@/lib/format";
-import {
-  getResidentNightStatus,
-  type NightStatus,
-  type ResidentProfile,
-  getResidentProfile,
-} from "@/lib/resident-api";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
 /**
@@ -45,26 +42,23 @@ import { setThemePreference } from "@/store/slices/uiSlice";
  * rent, meals or notices.
  */
 
-type MoreData = {
-  nightStatus: NightStatus | null;
-  profile: ResidentProfile;
-};
-
-async function loadMore(): Promise<MoreData> {
-  const [profile, nightStatus] = await Promise.all([
-    getResidentProfile(),
-    getResidentNightStatus().catch(() => null),
-  ]);
-
-  return { nightStatus, profile };
-}
-
 export default function ResidentMoreScreen() {
   const account = useAppSelector((state) => state.auth.account);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
-  const more = useResource<MoreData>(useCallback(() => loadMore(), []));
+  /*
+    The loader moved to `lib/resident-queries.ts` so the warm-up and this screen
+    run the same request under the same key — otherwise the prefetch warms a key
+    nobody reads and More loads twice. `safety` is the topic because the
+    night-status subtitle is the one value on this menu a warden can change from
+    the roll-call screen.
+  */
+  const query = residentQuery.more();
+  const more = useResource<ResidentMore>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
   const [signingOut, setSigningOut] = useState(false);
 
   const profile = more.data?.profile;
@@ -88,7 +82,7 @@ export default function ResidentMoreScreen() {
 
   return (
     <Screen
-      header={<AppBar title="More" />}
+      header={<AppBar actions={<NotificationBell />} title="More" />}
       insideTabs
       onRefresh={more.refresh}
       refreshing={more.refreshing}
@@ -174,6 +168,34 @@ export default function ResidentMoreScreen() {
               title="Night status"
             />
             <RowDivider inset />
+            {/*
+              Directly under Night status, because they are the same subject from
+              opposite ends: what the resident *says* about their night, and what
+              their phone *reported*. A resident who wonders "how does my hostel
+              know?" is looking at one of these two rows when the question occurs
+              to them, and the answer should be the next one down.
+            */}
+            <ListRow
+              icon="location-outline"
+              onPress={() => router.push("/attendance")}
+              subtitle="What has been recorded, and switching it off"
+              title="Location & attendance"
+            />
+            <RowDivider inset />
+            {/*
+              Its own row rather than only a link inside Profile. Sharing your
+              record with a parent is a decision people revisit — after a fee
+              goes unpaid, after an argument — and having to remember it lives
+              two screens deep under "Profile" is how a resident ends up leaving
+              access switched on for somebody they meant to remove.
+            */}
+            <ListRow
+              icon="shield-outline"
+              onPress={() => router.push("/guardians")}
+              subtitle="Who can see your record, and exactly what they see"
+              title="Guardians"
+            />
+            <RowDivider inset />
             <ListRow
               icon="chatbox-ellipses-outline"
               onPress={() => router.push("/complaints")}
@@ -186,6 +208,20 @@ export default function ResidentMoreScreen() {
               onPress={() => router.push("/id-card")}
               subtitle="Your hostel identity card"
               title="Digital ID"
+            />
+            <RowDivider inset />
+            {/*
+              Under "Your stay" rather than "Discover": the programme is
+              something a resident is already in, not something to go and find.
+              `/offer-program` — the public explainer — stays where it is, on the
+              Profile tab, because that one is written for somebody who has not
+              signed in.
+            */}
+            <ListRow
+              icon="ribbon-outline"
+              onPress={() => router.push("/offer-program/mine")}
+              subtitle="Your reference codes and certified receipts"
+              title="Offer Program"
             />
           </Card>
         </View>
@@ -212,6 +248,10 @@ export default function ResidentMoreScreen() {
             <ListRow
               icon="people-outline"
               onPress={() => router.push("/community")}
+              // Touch-down warms the feed and the spaces rail — see
+              // `prefetchCommunity`. The tab shells warm it a few seconds after
+              // launch; this covers the roles that reach it by a push instead.
+              onPressIn={prefetchCommunity}
               subtitle="Ask, answer and see what other residents are saying"
               title="Community"
             />
@@ -244,25 +284,51 @@ export default function ResidentMoreScreen() {
             />
             <RowDivider inset />
             {/*
-              One Settings screen holds theme, the notification position and the
-              privacy/deletion panel, so both of these rows lead there rather than
-              splitting one short screen in two.
+              Three rows, three destinations.
+
+              This block used to be two rows that both pushed a bare
+              `/settings` — two subtitles promising two different things, and one
+              screen delivering whichever half happened to be scrolled to. Worse,
+              the row *called* "Notifications" went to the preferences screen,
+              so the notification **feed** had no entry point in this group at
+              all; see the bell in this screen's app bar.
+
+              So: the feed is its own row, and the two settings rows name their
+              `section`, which is the parameter `app/settings.tsx` already reads
+              to draw one half. Same fix, same reasoning as `(browse)/profile.tsx`.
             */}
             <ListRow
               icon="notifications-outline"
-              onPress={() => router.push("/settings")}
-              // Was "…and why you cannot pick yet", which stopped being true
-              // when the preference model shipped (§3.2). A row that describes
-              // a screen it no longer matches is worse than no subtitle.
-              subtitle="Choose what reaches you, and set quiet hours"
+              onPress={() => router.push("/notifications")}
+              subtitle="Everything your hostel and the platform have sent you"
               title="Notifications"
             />
             <RowDivider inset />
             <ListRow
+              icon="options-outline"
+              onPress={() =>
+                router.push({
+                  params: { section: "notifications" },
+                  pathname: "/settings",
+                })
+              }
+              // Was "…and why you cannot pick yet", which stopped being true
+              // when the preference model shipped (§3.2). A row that describes
+              // a screen it no longer matches is worse than no subtitle.
+              subtitle="Choose what reaches you, and set quiet hours"
+              title="Notification settings"
+            />
+            <RowDivider inset />
+            <ListRow
               icon="shield-checkmark-outline"
-              onPress={() => router.push("/settings")}
-              subtitle="Privacy policy and account deletion"
-              title="Privacy & account"
+              onPress={() =>
+                router.push({
+                  params: { section: "privacy" },
+                  pathname: "/settings",
+                })
+              }
+              subtitle="Your data, and closing your account"
+              title="Privacy & your data"
             />
           </Card>
         </View>

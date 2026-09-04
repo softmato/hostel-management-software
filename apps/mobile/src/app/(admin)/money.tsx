@@ -25,19 +25,15 @@ import { Sheet } from "@/components/ui/sheet";
 import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import {
-  type AdminHostel,
-  type AdminInvoiceMatrix,
-  type AdminInvoiceRow,
-  type AdminPeriodSummary,
-  getAdminHostel,
-  getAdminInvoices,
-  getAdminPeriodSummary,
-} from "@/lib/admin-api";
+import type { AdminInvoiceRow } from "@/lib/admin-api";
 import { buildAlertFeed } from "@/lib/admin-alerts";
+import {
+  type AdminMoneyData,
+  adminQuery,
+  prefetchAdminResident,
+} from "@/lib/admin-queries";
 import { recordCashPayment, voidInvoice } from "@/lib/admin-manage-api";
 import {
   amountOwed,
@@ -133,31 +129,12 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * the fee schedule and the billing run are keyboard jobs and stay in the
  * browser, one section down.
  */
-type MoneyData = {
-  hostel: AdminHostel | null;
-  invoices: AdminInvoiceMatrix;
-  /** Null when the caller's role has no `viewPayments` grant — see below. */
-  periods: AdminPeriodSummary | null;
-};
-
-async function loadMoney(period: string): Promise<MoneyData> {
-  const [invoices, hostel, periods] = await Promise.all([
-    getAdminInvoices(period),
-    // A warden scoped to several hostels cannot resolve one profile, and the
-    // portal link is the only thing that needs it. The figures are unaffected.
-    getAdminHostel().catch(() => null),
-    /*
-     * The monthly roll-up behind the month strip — one chip per month, each
-     * carrying its own count of invoices still waiting. Tolerant because
-     * `viewPayments` is a per-warden grant and this is the one read here a
-     * legitimate user can be refused; the strip is absent in that case rather
-     * than drawn as a single empty month.
-     */
-    getAdminPeriodSummary().catch(() => null),
-  ]);
-
-  return { hostel, invoices, periods };
-}
+/*
+ * `MoneyData` and its loader moved to `lib/admin-queries.ts` as
+ * `adminQuery.money(period)` — one definition the portal's warm-up can run under
+ * the same key this screen reads. The period is in that key, so a month already
+ * looked at comes back instantly and a month that has not been is a fresh load.
+ */
 
 export default function AdminMoneyScreen() {
   /*
@@ -170,12 +147,11 @@ export default function AdminMoneyScreen() {
   const [period, setPeriod] = useState(nepalPeriodKey());
   const dates = useDates();
 
-  const money = useResource<MoneyData>(
-    useCallback(() => loadMoney(period), [period]),
-    {
-      topics: [REALTIME_TOPIC.PAYMENTS, REALTIME_TOPIC.RESIDENTS],
-    },
-  );
+  const moneyQuery = adminQuery.money(period);
+  const money = useResource<AdminMoneyData>(moneyQuery.load, {
+    cacheKey: moneyQuery.key,
+    topics: moneyQuery.topics,
+  });
   const alerts = useAdminAlerts();
   const actions = useAlertActions();
 
@@ -371,6 +347,13 @@ export default function AdminMoneyScreen() {
 
   const openRow = useCallback((row: AdminInvoiceRow) => {
     setOpen(row);
+    /*
+     * The sheet's "Open their record" is one tap from here and lands on the
+     * slowest screen in the portal. Opening the sheet is a far better signal
+     * than a touch-down on the row would be — by the time this runs the reader
+     * has already chosen this person.
+     */
+    prefetchAdminResident(row.resident.id);
     setCash({
       amount: row.payment
         ? String(Math.max(0, row.payment.dueAmount - row.payment.paidAmount))

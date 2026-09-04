@@ -142,6 +142,29 @@ export function isAllowedNextPath(role: Role, value: string) {
     return true;
   }
 
+  /*
+   * A `next` the visitor was *already* standing on. Public pages that send
+   * someone to `/login?next=…` — the service-provider funnel, resident
+   * activation — belong to no role, so a role-prefix-only check silently threw
+   * the visitor onto their dashboard instead of back where they started. What
+   * `next` must not do is carry an account into another role's portal, and that
+   * is exactly what the protected-route rules already say.
+   */
+  const rule = protectedRouteRuleForPath(value);
+
+  if (!rule) {
+    return true;
+  }
+
+  // `roles: null` — guarded, but against anonymity rather than against a role.
+  if (rule.roles === null) {
+    return true;
+  }
+
+  if (rule.roles.includes(role)) {
+    return true;
+  }
+
   const allowedPrefixes = roleAllowedNextPrefixes[role] ?? [];
 
   return allowedPrefixes.some((prefix) => pathMatchesPrefix(value, prefix));

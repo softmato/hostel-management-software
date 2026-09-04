@@ -8,5 +8,3 @@ adb reverse tcp:8081 tcp:8081
 
 cd D:\hostel-management-software\apps\mobile; node_modules\.bin\expo start
 
-
-explorer D:\hostel-management-software\ui_inspiration_folder\app_recordings

@@ -22,13 +22,9 @@ import {
   BED_TYPE_LABELS,
   type BedType,
   type FeeSchedule,
-  type GatewayConfig,
   GATEWAY_PROVIDERS,
-  getPaymentProfile,
-  listFeeSchedules,
-  listGateways,
-  type PaymentProfile,
 } from "@/lib/admin-manage-api";
+import { type AdminFinanceData, adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { openAssetViewer, viewerSourceFor } from "@/lib/asset-viewer";
 import { humanizeEnum } from "@/lib/format";
@@ -66,43 +62,84 @@ import { humanizeEnum } from "@/lib/format";
  * to go to — which is why each block can be refused while its neighbour loads.
  */
 
-type FinanceData = {
-  gateways: GatewayConfig[] | null;
-  profile: PaymentProfile | null;
-  schedules: FeeSchedule[] | null;
-};
-
-async function loadFinance(): Promise<FinanceData> {
-  const [schedules, profile, gateways] = await Promise.all([
-    listFeeSchedules().catch(() => null),
-    getPaymentProfile().catch(() => null),
-    // The one read that needs `managePaymentProfile` rather than `viewPayments`
-    // — it lists merchant codes and which keys are installed.
-    listGateways().catch(() => null),
-  ]);
-
-  return { gateways, profile, schedules };
-}
+/*
+ * `FinanceData` and its loader are `adminQuery.finance()` — see
+ * `lib/admin-queries.ts`.
+ */
 
 export default function ManageFinanceScreen() {
   const dates = useDates();
   const { colors } = useAppTheme();
   const token = useAppSelector((state) => state.auth.accessToken);
 
-  const finance = useResource<FinanceData>(useCallback(() => loadFinance(), []));
+  const query = adminQuery.finance();
+  const finance = useResource<AdminFinanceData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const schedules = finance.data?.schedules ?? null;
   const profile = finance.data?.profile ?? null;
   const gateways = finance.data?.gateways ?? null;
 
-  const open = useMemo(
-    () => (schedules ?? []).find((schedule) => schedule.effectiveTo === null) ?? null,
+  /*
+   * What is billing residents today, and what is only booked to.
+   *
+   * These used to be one thing — the row with `effectiveTo: null`, drawn with a
+   * green **Active** badge. They are not one thing for the whole month between
+   * setting new rates and those rates starting, and an owner who set October's
+   * rates in September was shown them as live. Their residents were being billed
+   * at the previous card the entire time, at ten times the rate, and this screen
+   * said everything was fine.
+   *
+   * `standing` is decided by the server so no screen has to work it out twice.
+   */
+  const current = useMemo(
+    () => (schedules ?? []).find((schedule) => schedule.standing === "current") ?? null,
+    [schedules],
+  );
+
+  const upcoming = useMemo(
+    () => (schedules ?? []).find((schedule) => schedule.standing === "upcoming") ?? null,
     [schedules],
   );
 
   const pastCount = useMemo(
-    () => (schedules ?? []).filter((schedule) => schedule.effectiveTo !== null).length,
+    () => (schedules ?? []).filter((schedule) => schedule.standing === "past").length,
     [schedules],
+  );
+
+  /** What the rate rows for one card look like. Two cards can be on screen. */
+  const rateRows = useCallback(
+    (schedule: FeeSchedule) => (
+      <View className="gap-1 border-t border-border pt-3">
+        {schedule.rates.map((rate) => (
+          <FactRow
+            key={rate.roomType ?? rate.bedType ?? String(rate.monthlyAmount)}
+            label={
+              rate.roomType ??
+              (rate.bedType
+                ? (BED_TYPE_LABELS[rate.bedType as BedType] ?? humanizeEnum(rate.bedType))
+                : "Unpriced")
+            }
+            value={<Money value={rate.monthlyAmount} />}
+          />
+        ))}
+        {schedule.admissionFee ? (
+          <FactRow label="Admission" value={<Money value={schedule.admissionFee} />} />
+        ) : null}
+        {schedule.referralAdmissionDiscount ? (
+          <FactRow
+            label="Referral discount"
+            value={<Money value={schedule.referralAdmissionDiscount} />}
+          />
+        ) : null}
+        {schedule.depositAmount ? (
+          <FactRow label="Deposit" value={<Money value={schedule.depositAmount} />} />
+        ) : null}
+      </View>
+    ),
+    [],
   );
 
   const qrSource = profile?.staticQrAssetId
@@ -157,7 +194,7 @@ export default function ManageFinanceScreen() {
           <View className="flex-row justify-end">
             <Chip
               icon="time-outline"
-              label="Past schedules"
+              label="Past rates"
               onPress={() => router.push("/manage/finance/history")}
             />
           </View>
@@ -167,21 +204,21 @@ export default function ManageFinanceScreen() {
         <View>
           <SectionHeader
             action={
-              open ? (
+              current || upcoming ? (
                 <Button
-                  label="New rates"
+                  label={upcoming ? "Change" : "New rates"}
                   onPress={() => router.push("/manage/finance/rates")}
                   size="sm"
                   variant="outline"
                 />
               ) : undefined
             }
-            title="Fee schedule"
+            title="Rates"
           />
 
           {schedules === null ? (
             <PermissionCard capability="payments" feature="The fee schedule" />
-          ) : open === null ? (
+          ) : !current && !upcoming ? (
             <Card className="gap-3">
               <Text variant="label">No rates set</Text>
               <Button
@@ -191,36 +228,41 @@ export default function ManageFinanceScreen() {
               />
             </Card>
           ) : (
-            <Card className="gap-3">
-              <View className="flex-row items-center justify-between gap-2">
-                <Text variant="label">{`Effective from ${dates.date(open.effectiveFrom)}`}</Text>
-                <Badge label="Active" tone="success" />
-              </View>
+            <View className="gap-3">
+              {current ? (
+                <Card className="gap-3">
+                  <View className="flex-row items-center justify-between gap-2">
+                    <Text variant="label">Charging now</Text>
+                    <Badge label="Live" tone="success" />
+                  </View>
+                  {rateRows(current)}
+                </Card>
+              ) : (
+                /*
+                 * Rates booked for a future month and nothing running today. The
+                 * hostel cannot bill anybody this month, and saying so plainly is
+                 * the whole point — the old screen showed the future card as
+                 * Active and this state was invisible.
+                 */
+                <Card className="gap-2">
+                  <Text variant="label">No rates are running this month</Text>
+                  <Text variant="caption">
+                    Nobody can be billed until rates start. The ones below have not
+                    begun yet.
+                  </Text>
+                </Card>
+              )}
 
-              <View className="gap-1 border-t border-border pt-3">
-                {open.rates.map((rate) => (
-                  <FactRow
-                    key={rate.bedType}
-                    label={
-                      BED_TYPE_LABELS[rate.bedType as BedType] ?? humanizeEnum(rate.bedType)
-                    }
-                    value={<Money value={rate.monthlyAmount} />}
-                  />
-                ))}
-                {open.admissionFee ? (
-                  <FactRow label="Admission" value={<Money value={open.admissionFee} />} />
-                ) : null}
-                {open.referralAdmissionDiscount ? (
-                  <FactRow
-                    label="Referral discount"
-                    value={<Money value={open.referralAdmissionDiscount} />}
-                  />
-                ) : null}
-                {open.depositAmount ? (
-                  <FactRow label="Deposit" value={<Money value={open.depositAmount} />} />
-                ) : null}
-              </View>
-            </Card>
+              {upcoming ? (
+                <Card className="gap-3">
+                  <View className="flex-row items-center justify-between gap-2">
+                    <Text variant="label">{`Starts ${dates.dateBoth(upcoming.effectiveFrom)}`}</Text>
+                    <Badge label="Not started" tone="warning" />
+                  </View>
+                  {rateRows(upcoming)}
+                </Card>
+              ) : null}
+            </View>
           )}
         </View>
 

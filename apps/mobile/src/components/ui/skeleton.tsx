@@ -114,6 +114,47 @@ export function SkeletonCard({ rows = 3 }: { rows?: number }) {
 }
 
 /**
+ * The placeholder for a `<Grid>` of `StatTile`s or `InfoTile`s.
+ *
+ * The third shape this app loads into, and the one the kit was missing: the
+ * metric strip on resident Home and resident Payments is a row of square-ish
+ * tiles, and neither `SkeletonCard` nor `SkeletonRows` is anywhere near it —
+ * both draw full-width rows, so the page visibly re-flowed into columns when the
+ * numbers landed.
+ *
+ * `columns` rather than a `<Grid>`: `Grid` measures its container to decide how
+ * many fit, which is a layout pass this placeholder does not need and cannot
+ * benefit from. Pass the same count the real grid will settle on — three on an
+ * ordinary phone — and accept that a 320dp screen shows three narrow tiles for
+ * the half-second before two wide ones replace them.
+ */
+export function SkeletonTiles({
+  columns = 3,
+  height = 84,
+}: {
+  columns?: number;
+  height?: number;
+}) {
+  return (
+    <View className="flex-row gap-2.5">
+      {Array.from({ length: columns }, (_, index) => (
+        <View
+          className="flex-1 justify-between rounded-2xl border border-border bg-card p-3"
+          key={index}
+          style={{ height }}
+        >
+          <Skeleton height={20} radius={10} width={20} />
+          <View className="gap-1.5">
+            <Skeleton height={16} width="55%" />
+            <Skeleton height={9} width="80%" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
  * The placeholder for a stack of `CardRow`s — the shape the admin lists load
  * into now that a menu of destinations is separate cards rather than one card of
  * rows.

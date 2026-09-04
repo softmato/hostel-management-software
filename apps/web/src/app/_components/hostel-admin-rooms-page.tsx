@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import {
+  currency,
   EmptyState,
   Input,
   Panel,
@@ -141,7 +142,10 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
         {
           bedsPerRoom,
           mealInclusion: "Included",
-          monthlyRent: numberField(form, "monthlyRent") ?? 0,
+          // Unpriced until the rate card prices it. Zero is not a rent, and
+          // `listedRoomRates` reads a zero as "not priced" for exactly this
+          // reason — billing somebody nothing is the failure this guards.
+          monthlyRent: 0,
           rooms,
           roomType,
           vacantBeds: rooms * bedsPerRoom,
@@ -175,7 +179,11 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
           ? {
               ...config,
               bedsPerRoom,
-              monthlyRent: numberField(form, "monthlyRent") ?? config.monthlyRent,
+              // Carried through, never read from the form — there is no rent
+              // field on this page any more. The server drops it anyway once a
+              // rate card exists; this keeps a hostel that has no card yet from
+              // losing the price it listed at signup.
+              monthlyRent: config.monthlyRent,
               rooms,
               vacantBeds,
             }
@@ -564,13 +572,33 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
                             required
                             type="number"
                           />
-                          <Input
-                            defaultValue={config.monthlyRent}
-                            label="Monthly rent"
-                            min="0"
-                            name="monthlyRent"
-                            type="number"
-                          />
+                          {/*
+                            The rent is a fact here, not a field.
+
+                            It was a second box a person could type a rent into,
+                            and that is what this whole page's worst bug was made
+                            of: the rate card said one number, this said another,
+                            the public listing read this one and billing read the
+                            card, and nothing compared them — one hostel
+                            advertised 18,000 while invoicing 174,000. The rate
+                            card is the single source now and this figure is
+                            written from it, so showing it as editable would
+                            promise an edit that the next rate change silently
+                            undoes.
+                          */}
+                          <div className="grid content-start gap-1.5">
+                            <span className="text-sm font-medium text-foreground">
+                              Monthly rent
+                            </span>
+                            <p className="flex h-10 items-center text-sm font-semibold text-foreground">
+                              {config.monthlyRent
+                                ? currency(config.monthlyRent)
+                                : "Not priced yet"}
+                            </p>
+                            <span className="text-xs text-muted-foreground">
+                              Set on Fees &amp; Payments → Fee Schedule.
+                            </span>
+                          </div>
                         </div>
                         <div className="flex flex-wrap justify-end gap-2">
                           <button
@@ -597,6 +625,11 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
             New room types start fully vacant. Vacancy then moves on its own as residents
             are registered and moved out.
           </p>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Price it afterwards on Fees &amp; Payments → Fee Schedule. Until you do,
+            nobody in it can be billed and your public page shows it without a price —
+            which is the honest state, and a loud one.
+          </p>
           {addableRoomTypes.length === 0 ? (
             <EmptyState label="Every room type is already on your list. Edit one on the left." />
           ) : (
@@ -617,7 +650,6 @@ export const HostelAdminRoomsPageContent = memo(function HostelAdminRoomsPageCon
                 required
                 type="number"
               />
-              <Input label="Monthly rent" min="0" name="monthlyRent" type="number" />
               <SubmitButton className="h-10 rounded-md bg-role-admin text-sm font-semibold text-white transition hover:bg-role-admin/85">
                 Add Room Type
               </SubmitButton>

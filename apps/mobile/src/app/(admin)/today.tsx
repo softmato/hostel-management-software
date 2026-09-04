@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { View } from "react-native";
 
 import {
@@ -23,21 +23,15 @@ import {
   ErrorState,
   PermissionCard,
 } from "@/components/ui/states";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import {
-  type AdminMaintenance,
-  type AdminNightStatus,
-  type AdminNotice,
-  getAdminFoodRoutine,
-  getAdminMaintenance,
-  getAdminNightStatus,
-  listAdminNotices,
-} from "@/lib/admin-api";
 import { buildAlertFeed } from "@/lib/admin-alerts";
+import {
+  type AdminTodayData,
+  adminQuery,
+  prefetchAdminRoute,
+} from "@/lib/admin-queries";
 import { humanizeEnum } from "@/lib/format";
-import type { FoodRoutine } from "@/lib/resident-api";
 
 /**
  * Today — running the hostel, as opposed to owning it.
@@ -71,32 +65,11 @@ import type { FoodRoutine } from "@/lib/resident-api";
  * one screen that owns it — the same destinations Home's shortcut row and
  * Manage grid use — and nothing on this page is the only way to do anything.
  */
-type TodayData = {
-  maintenance: AdminMaintenance | null;
-  night: AdminNightStatus | null;
-  notices: AdminNotice[];
-  routine: FoodRoutine | null;
-};
-
-/**
- * Each source is allowed to fail on its own.
- *
- * A warden's capabilities are per-flag — `viewNightStatus`, `manageFood`,
- * `manageNotices`, `manageMaintenance` are four separate grants — so one 403
- * must not blank the other three sections. Null means "not yours or not
- * reachable", and each section says so in its own words rather than rendering
- * as empty, which is the lie this codebase keeps having to un-tell.
+/*
+ * `TodayData` and its per-source-tolerant loader moved to
+ * `lib/admin-queries.ts`, so the portal's warm-up runs the identical read under
+ * the key this screen mounts on.
  */
-async function loadToday(): Promise<TodayData> {
-  const [night, routine, notices, maintenance] = await Promise.all([
-    getAdminNightStatus().catch(() => null),
-    getAdminFoodRoutine().catch(() => null),
-    listAdminNotices().catch(() => [] as AdminNotice[]),
-    getAdminMaintenance().catch(() => null),
-  ]);
-
-  return { maintenance, night, notices, routine };
-}
 
 /*
  * A `NIGHT_TONE` table lived here, colouring the roll call's `StatTile` grid.
@@ -109,14 +82,10 @@ async function loadToday(): Promise<TodayData> {
 
 export default function AdminTodayScreen() {
   const dates = useDates();
-  const today = useResource<TodayData>(useCallback(() => loadToday(), []), {
-    topics: [
-      REALTIME_TOPIC.ATTENDANCE,
-      REALTIME_TOPIC.FOOD,
-      REALTIME_TOPIC.MAINTENANCE,
-      REALTIME_TOPIC.NOTICES,
-      REALTIME_TOPIC.SAFETY,
-    ],
+  const query = adminQuery.today();
+  const today = useResource<AdminTodayData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
   });
   const alerts = useAdminAlerts();
   const actions = useAlertActions();
@@ -229,7 +198,11 @@ export default function AdminTodayScreen() {
 
           <View>
             <SectionHeader
-              action={<SectionLink label="All alerts" onPress={() => router.push("/(admin)/alerts")} />}
+              action={<SectionLink
+                  label="All alerts"
+                  onPress={() => router.push("/(admin)/alerts")}
+                  onPressIn={() => prefetchAdminRoute("/(admin)/alerts")}
+                />}
               subtitle="Past their SLA — oldest first"
               title="Complaints needing a reply"
             />
@@ -261,7 +234,11 @@ export default function AdminTodayScreen() {
                   screen one tap away already does.
                 */
                 action={
-                  <SectionLink label="Manage" onPress={() => router.push("/manage/maintenance")} />
+                  <SectionLink
+                    label="Manage"
+                    onPress={() => router.push("/manage/maintenance")}
+                    onPressIn={() => prefetchAdminRoute("/manage/maintenance")}
+                  />
                 }
                 subtitle="Open requests, newest first"
                 title="Maintenance"
@@ -312,7 +289,11 @@ export default function AdminTodayScreen() {
 
           <View>
             <SectionHeader
-              action={<SectionLink label="Manage" onPress={() => router.push("/manage/food")} />}
+              action={<SectionLink
+                  label="Manage"
+                  onPress={() => router.push("/manage/food")}
+                  onPressIn={() => prefetchAdminRoute("/manage/food")}
+                />}
               subtitle="What the kitchen is serving"
               title="Food"
             />
@@ -336,7 +317,11 @@ export default function AdminTodayScreen() {
 
           <View>
             <SectionHeader
-              action={<SectionLink label="Manage" onPress={() => router.push("/manage/notices")} />}
+              action={<SectionLink
+                  label="Manage"
+                  onPress={() => router.push("/manage/notices")}
+                  onPressIn={() => prefetchAdminRoute("/manage/notices")}
+                />}
               subtitle="Newest first"
               title="Notices"
             />

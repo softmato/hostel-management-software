@@ -10,6 +10,7 @@ import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { formatDate, formatMoney, humanizeEnum } from "@/lib/format";
@@ -41,6 +42,13 @@ import { getResidentProfile, type ResidentProfile } from "@/lib/resident-api";
 export default function ProfileScreen() {
   const profile = useResource<ResidentProfile>(
     useCallback(() => getResidentProfile(), []),
+    /*
+     * Read-only to the resident, and therefore only ever changed by somebody
+     * else — the office correcting a phone number, a bed move, a guardian
+     * invitation accepted. Which is exactly the case a live screen is for: the
+     * resident has no action of their own to trigger a refetch with.
+     */
+    { topics: [REALTIME_TOPIC.RESIDENTS, REALTIME_TOPIC.SAFETY] },
   );
 
   const header = <AppBar showBack title="Profile" />;
@@ -140,13 +148,25 @@ export default function ProfileScreen() {
 
         <PeopleSection
           /*
-           * A guardian is an account with its own login and permissions, so the
-           * fix for a wrong one is not an edit field — it is the invite flow the
-           * hostel runs. Naming that is more use than a disabled Edit button.
+           * No longer a dead end, and the copy that made it one is gone.
+           *
+           * This section used to say guardians "are invited by your hostel and
+           * manage their own accounts", which was wrong on the first half:
+           * `inviteGuardian`'s own comment says the **resident** owns the link
+           * and the permissions on it, and `POST`/`PATCH`/`DELETE
+           * /resident/guardians` were live the whole time with nothing on the
+           * phone calling them. The rule the rest of this screen follows — say
+           * who can change a thing rather than draw a control the server
+           * ignores — was being applied to the one section where the server did
+           * not ignore it.
+           *
+           * The rows stay read-only *here* because this screen is the record;
+           * the door into managing them is below.
            */
-          emptyBody="Nobody is linked to your account. Your hostel can invite a parent or guardian, which gives them their own sign-in."
+          action={{ href: "/guardians", label: "Manage" }}
+          emptyBody="Invite a parent or guardian and they get their own sign-in, showing only what you choose to share."
           emptyTitle="No guardians linked"
-          footnote="Guardians are invited by your hostel and manage their own accounts."
+          footnote="You decide who is linked, and what each of them can see."
           people={guardians.map((guardian) => ({
             id: guardian.id,
             isPrimary: guardian.isPrimary,
@@ -238,12 +258,22 @@ type Person = {
  * rather than two that drift.
  */
 function PeopleSection({
+  action,
   emptyBody,
   emptyTitle,
   footnote,
   people,
   title,
 }: {
+  /**
+   * A destination for the section, in the header.
+   *
+   * Only guardians have one, and that asymmetry is the point: emergency
+   * contacts genuinely have no resident-facing write (`/resident/emergency-
+   * contacts` is GET-only), so that section stays a statement of who to ask.
+   * Giving both a Manage row would put a door on a wall.
+   */
+  action?: { href: string; label: string };
   emptyBody: string;
   emptyTitle: string;
   footnote: string;
@@ -254,12 +284,34 @@ function PeopleSection({
 
   return (
     <View>
-      <SectionHeader subtitle={footnote} title={title} />
+      <SectionHeader
+        action={
+          action ? (
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push(action.href)}
+            >
+              <Text className="text-primary" variant="label">
+                {action.label}
+              </Text>
+            </Pressable>
+          ) : undefined
+        }
+        subtitle={footnote}
+        title={title}
+      />
 
       <Card>
         {people.length === 0 ? (
-          // Not an `EmptyState` with an Add button: there is no endpoint to add
-          // one. The honest instruction is who to ask.
+          /*
+            No Add button in the card, for two different reasons depending on
+            which section this is. Emergency contacts have no endpoint to add
+            one, so the honest instruction is who to ask. Guardians do — and
+            their door is the `action` in the header above, where it is in reach
+            whether or not the list is empty, rather than a button that appears
+            only when there is nothing to see.
+          */
           <View className="gap-1 py-2">
             <Text variant="label">{emptyTitle}</Text>
             <Text variant="caption">{emptyBody}</Text>

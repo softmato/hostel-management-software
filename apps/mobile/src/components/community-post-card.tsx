@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Linking, Pressable, Share, View } from "react-native";
 
 import { CommentThread } from "@/components/community-comment-thread";
@@ -20,13 +20,18 @@ import {
   type CommunityPost,
   communityMediaUrl,
   deleteCommunityPost,
-  getPostComments,
   type CommunityComment,
   reactToPost,
   type ReactionTally,
   reportPost,
   type ReactionType,
 } from "@/lib/community-api";
+import {
+  communityQuery,
+  prefetchCommunityComments,
+  seedCommunityPost,
+} from "@/lib/community-queries";
+import { fetchQuery, readQuery, subscribeQuery } from "@/lib/query-cache";
 import {
   avatarInitial,
   avatarTone,
@@ -87,7 +92,21 @@ export function CommunityPostCard({
   const { colors } = useAppTheme();
 
   const [expanded, setExpanded] = useState(standalone);
-  const [comments, setComments] = useState<CommunityComment[] | null>(null);
+  /*
+   * Seeded from the cache when this card is the permalink's own.
+   *
+   * `CommunityPostCard`'s "Open post" row warms the thread on its way out, so
+   * the screen it pushes usually has it before it mounts — and painting that in
+   * the *first* render rather than an effect later is the difference between a
+   * post that opens with its conversation under it and one that opens with a
+   * line saying it is loading.
+   */
+  const [comments, setComments] = useState<CommunityComment[] | null>(() =>
+    standalone
+      ? (readQuery<CommunityComment[]>(communityQuery.comments(post.id).key)?.data ??
+        null)
+      : null,
+  );
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -113,13 +132,81 @@ export function CommunityPostCard({
     toastInfo("Account needed", "Sign in to join the conversation.");
   }, []);
 
+  /*
+   * Through the query cache, so touch-down on the comment count is worth
+   * something: `prefetchCommunityComments` starts this exact request under this
+   * exact key, and `fetchQuery` joins the one already in flight rather than
+   * issuing a second. The tap that follows a hundred milliseconds later finds
+   * the thread arriving instead of starting.
+   *
+   * It is a `fetchQuery`, not a cache read: the thread is the part of a post
+   * most likely to have moved since it was last looked at, and a comment posted
+   * from here calls this again to see its own reply. Re-opening a thread the
+   * card already has does not come back through here at all — `toggleThread`
+   * stops at `comments === null`.
+   */
   const loadComments = useCallback(async () => {
+    const query = communityQuery.comments(post.id);
+
     try {
-      setComments(await getPostComments(post.id));
+      /*
+        The await is its own statement and the `setComments` follows it, rather
+        than the one-liner this was. `react-hooks/set-state-in-effect` traces
+        into the callee, and the standalone effect below calls this — written
+        inline, the analyser reads the setState as synchronous and calls the
+        effect a cascading render. Same shape, and the same reason, as
+        `use-resource`'s own `run`.
+      */
+      const thread = await fetchQuery(query.key, query.load, query.topics);
+
+      setComments(thread);
     } catch (caught) {
       toastError("Could not load comments", readApiError(caught));
     }
   }, [post.id]);
+
+  /*
+   * The standalone card opens expanded, and until now nothing filled it: the
+   * permalink screen — where a share link and every community push land — drew
+   * "Loading comments…" for ever, because the only thing that ever called
+   * `loadComments` was a toggle that screen does not show.
+   *
+   * ## Why this subscribes rather than calling `loadComments`
+   *
+   * `loadComments` sets state, and an effect that calls it is a cascading render
+   * by `react-hooks/set-state-in-effect` — which traces into the callee and does
+   * not care that the write is behind an `await`. So the effect does the two
+   * things the rule is written *for* instead: it asks an external system for the
+   * answer, and it subscribes for updates from it.
+   *
+   * `fetchQuery` files the thread under the key this card's own prefetch warms,
+   * and the subscription hands it back. That also keeps two cards on one post in
+   * step — a reply typed on the feed's copy appears on the permalink's without
+   * either knowing the other is mounted.
+   */
+  useEffect(() => {
+    if (!standalone) {
+      return undefined;
+    }
+
+    const query = communityQuery.comments(post.id);
+
+    const stop = subscribeQuery(query.key, () =>
+      setComments(readQuery<CommunityComment[]>(query.key)?.data ?? null),
+    );
+
+    /*
+      A revalidate even when the seed above found something: the thread is the
+      part of a post most likely to have moved since it was cached, and this is
+      the screen someone opened *to read it*. `fetchQuery` joins the request the
+      card's prefetch already started rather than issuing a second.
+    */
+    void fetchQuery(query.key, query.load, query.topics).catch((caught: unknown) =>
+      toastError("Could not load comments", readApiError(caught)),
+    );
+
+    return stop;
+  }, [post.id, standalone]);
 
   const toggleThread = useCallback(() => {
     const opening = !expanded;
@@ -130,6 +217,19 @@ export function CommunityPostCard({
       void loadComments();
     }
   }, [comments, expanded, loadComments]);
+
+  /**
+   * Touch-down on the comment count.
+   *
+   * Only when the thread is both shut and unread — a second open renders what
+   * the card is already holding, so warming it would be a request for something
+   * nobody is going to ask for.
+   */
+  const warmComments = useCallback(() => {
+    if (!expanded && comments === null) {
+      prefetchCommunityComments(post.id);
+    }
+  }, [comments, expanded, post.id]);
 
   const react = useCallback(
     async (type: ReactionType) => {
@@ -291,6 +391,7 @@ export function CommunityPostCard({
           className="flex-row items-center gap-1.5 py-0.5 active:opacity-70"
           hitSlop={6}
           onPress={toggleThread}
+          onPressIn={warmComments}
         >
           <Ionicons
             color={colors.mutedForeground}
@@ -370,6 +471,17 @@ export function CommunityPostCard({
             label="Open post"
             onPress={() => {
               setMenuOpen(false);
+
+              /*
+                The screen is handed what this card already has, so it opens
+                drawn rather than loading: the post is *filed*, not fetched —
+                `GET /community/<id>` decorates one post with the same function
+                the feed decorated this row with — and only the thread, which
+                that screen shows open, is actually requested.
+              */
+              seedCommunityPost(post);
+              prefetchCommunityComments(post.id);
+
               router.push(`/community/${post.id}`);
             }}
             subtitle="Its own screen, with the thread open"

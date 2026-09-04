@@ -3,15 +3,18 @@ import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { residentQuery } from "@/lib/resident-queries";
 import { formatRelativeDay, humanizeEnum } from "@/lib/format";
 import {
   getResidentNotices,
@@ -54,9 +57,14 @@ const UNREAD = "UNREAD";
 const URGENT = "URGENT";
 
 export default function ResidentNoticesScreen() {
-  const notices = useResource<ResidentNoticeList>(
-    useCallback(() => getResidentNotices(), []),
-  );
+  // Published by `notice.service.ts` to the whole hostel the moment a notice
+  // goes out — "everyone in the hostel gets the notice board refreshed" is its
+  // own comment. This is the screen it meant.
+  const query = residentQuery.notices();
+  const notices = useResource<ResidentNoticeList>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
   const [filter, setFilter] = useState<string>(ALL);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -154,6 +162,7 @@ export default function ResidentNoticesScreen() {
        * navigator and a bottom-tab navigator's default `backBehavior` is
        * `firstRoute`, not `history`.
        */
+      actions={<NotificationBell />}
       onBack={() => router.navigate("/(resident)")}
       showBack
       subtitle={unread > 0 ? `${unread} unread` : undefined}
@@ -164,7 +173,17 @@ export default function ResidentNoticesScreen() {
   if (notices.loading) {
     return (
       <Screen header={header} insideTabs>
-        <LoadingState label="Loading notices" />
+        {/* Filter chips, then a stack of notice cards. See Home's note. */}
+        <View className="gap-4">
+          <View className="flex-row gap-2">
+            <Skeleton height={30} radius={15} width={56} />
+            <Skeleton height={30} radius={15} width={76} />
+            <Skeleton height={30} radius={15} width={68} />
+            <Skeleton height={30} radius={15} width={84} />
+          </View>
+
+          <SkeletonRows rows={6} />
+        </View>
       </Screen>
     );
   }

@@ -9,8 +9,19 @@ const profileMocks = vi.hoisted(() => ({
   geocodeAndCacheHostel: vi.fn(),
   hostelFindOne: vi.fn(),
   hostelFindOneAndUpdate: vi.fn(),
+  getOpenFeeSchedule: vi.fn(),
   sendNotificationEmail: vi.fn(),
   userFind: vi.fn(),
+}));
+
+/*
+ * The rate card is the source of a price, so the profile save asks whether one
+ * exists before it lets a rent through. No card here: these cases are about
+ * renames and photos, and a hostel with no rate card is the state every hostel
+ * starts in.
+ */
+vi.mock("@/modules/finance/fee-schedule.service", () => ({
+  getOpenFeeSchedule: profileMocks.getOpenFeeSchedule,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -80,6 +91,7 @@ describe("hostel profile service", () => {
     profileMocks.auditCreate.mockResolvedValue(undefined);
     profileMocks.sendNotificationEmail.mockResolvedValue(undefined);
     profileMocks.geocodeAndCacheHostel.mockResolvedValue(null);
+    profileMocks.getOpenFeeSchedule.mockResolvedValue(null);
   });
 
   it("counts a rename against the post-approval allowance", async () => {

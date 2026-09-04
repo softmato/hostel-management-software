@@ -135,8 +135,12 @@ describe("numbering", () => {
     );
   });
 
-  it("derives the period in UTC", () => {
-    expect(periodOfDate(new Date("2026-08-31T23:30:00.000Z"))).toBe("2026-08");
+  it("derives the period from the hostel's own day, not from UTC", () => {
+    // 23:30 UTC on 31 August is 05:15 on 1 September in Kathmandu. Numbering
+    // that receipt into August hands somebody a `2026-08` reference on a
+    // September morning, and reopens a counter the month had finished with.
+    expect(periodOfDate(new Date("2026-08-31T23:30:00.000Z"))).toBe("2026-09");
+    expect(periodOfDate(new Date("2026-08-31T18:14:00.000Z"))).toBe("2026-08");
   });
 });
 

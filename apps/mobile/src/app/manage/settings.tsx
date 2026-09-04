@@ -28,15 +28,12 @@ import {
   deleteHostelPhoto,
   geocodeHostelLocation,
   type GeocodeHit,
-  getAttendanceSettings,
-  getCommunitySettings,
-  getManagedHostel,
-  type ManagedHostel,
   requestHostelChange,
   updateAttendanceSettings,
   updateCommunitySettings,
   updateManagedHostel,
 } from "@/lib/admin-manage-api";
+import { type AdminSettingsData, adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { calendarExample, CALENDAR_LABELS } from "@/lib/calendar";
 import { readApiError } from "@/lib/api-contract";
@@ -141,21 +138,10 @@ type Panel =
   | "rules"
   | null;
 
-type SettingsData = {
-  attendance: AttendanceSettings | null;
-  community: CommunitySettings | null;
-  hostel: ManagedHostel;
-};
-
-async function loadSettings(): Promise<SettingsData> {
-  const [hostel, community, attendance] = await Promise.all([
-    getManagedHostel(),
-    getCommunitySettings().catch(() => null),
-    getAttendanceSettings().catch(() => null),
-  ]);
-
-  return { attendance, community, hostel };
-}
+/*
+ * `SettingsData` and its loader are `adminQuery.settings()` — see
+ * `lib/admin-queries.ts`.
+ */
 
 function toNumber(value: string) {
   const parsed = Number(value.trim());
@@ -164,7 +150,11 @@ function toNumber(value: string) {
 }
 
 export default function ManageSettingsScreen() {
-  const settings = useResource<SettingsData>(useCallback(() => loadSettings(), []));
+  const query = adminQuery.settings();
+  const settings = useResource<AdminSettingsData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();

@@ -1,5 +1,9 @@
+import { useEffect } from "react";
+import { InteractionManager } from "react-native";
+
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
 import { SosFab } from "@/components/sos-fab";
+import { prefetchResidentPortal } from "@/lib/resident-queries";
 
 const TABS: readonly TabDef[] = [
   { icon: "home", label: "Home", name: "index" },
@@ -20,6 +24,31 @@ const TABS: readonly TabDef[] = [
 const HIDDEN = ["notices"] as const;
 
 export default function RoleLayout() {
+  /*
+   * The portal's warm-up, and the one place it belongs.
+   *
+   * This layout mounts once when a resident enters the group and stays mounted
+   * until they leave, so the reads fire once per visit rather than once per tab
+   * — and the tab they land on is Home, which is deliberately *not* in the list
+   * (it is already asking; warming it would be a duplicate racing the screen).
+   *
+   * One wave, not the admin portal's three. A warden has seven reads at the door
+   * and a dozen behind it; a resident has five tabs with one payload each, four
+   * of them small, so a second wave would be scheduling machinery around
+   * nothing.
+   *
+   * `runAfterInteractions` puts these after the navigation settles, where the
+   * network is idle — issued in the same frame they would compete with Home's
+   * own three requests on exactly the handsets this app is aimed at, making the
+   * screen someone is looking at slower so that three they are not could be
+   * faster. Nothing is awaited and nothing can throw.
+   */
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(prefetchResidentPortal);
+
+    return () => task.cancel();
+  }, []);
+
   return (
     <>
       <RoleTabs accent="RESIDENT" hidden={HIDDEN} tabs={TABS} />

@@ -22,6 +22,7 @@ import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
 
 import { connectToDatabase } from "@/lib/db";
 import { filterPushRecipients } from "@/modules/notifications/notification-preference.service";
+import { afterResponse } from "@/lib/after-response";
 import { deepLinkForNotification } from "@/modules/notifications/push-routing";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
@@ -296,16 +297,25 @@ export async function sendPushToUsers(
 }
 
 /**
- * Fire-and-forget wrapper used by the notification service.
+ * Send without making the caller wait — used by the notification service.
  *
  * Notification creation happens inside request handlers that a user is waiting
  * on. Blocking a complaint submission for up to ten seconds so a phone can buzz
- * a moment sooner is the wrong trade, so this deliberately does not await —
- * and swallows everything, because an unhandled rejection here would take down
- * a request that already succeeded.
+ * a moment sooner is the wrong trade, so this does not await.
+ *
+ * **It used to be a bare `void`, and that meant it never sent at all.** On a
+ * serverless platform the invocation is frozen the moment the response is
+ * written, so an un-awaited round trip to Expo is discarded — with no error
+ * anywhere, because the request it belonged to succeeded. Proven on production
+ * data: a registration wrote its `Notification` row, Pusher delivered it (the
+ * bell badge appeared), the recipient had a live `DeviceToken` from ten minutes
+ * earlier, and no push was ever delivered. The Pusher call was awaited; this one
+ * was not. That was the only difference.
+ *
+ * `afterResponse` keeps both halves of the trade: the response is not held up,
+ * and the platform keeps the invocation alive until Expo has answered. See
+ * `lib/after-response.ts`.
  */
 export function dispatchPush(userIds: string[], payload: PushPayload) {
-  void sendPushToUsers(userIds, payload).catch(() => {
-    // Best-effort. The durable row is already written.
-  });
+  afterResponse(() => sendPushToUsers(userIds, payload));
 }

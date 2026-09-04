@@ -68,8 +68,9 @@ others.
 
 Walks open payments across every hostel (PHASES.md §3.1 "Payment System") and:
 
-- sends one reminder at or inside `paymentReminderDaysBefore` days before the due
-  date (platform setting `operations`, default 3);
+- climbs **three notices before the bill is late** — the hostel's own window
+  (`paymentReminderDaysBefore` on the `operations` platform setting, **7 days**
+  by default), then 3 days out, then the due day itself;
 - flips past-due invoices to `OVERDUE` and climbs a **terminating** ladder:
   first overdue notice → second at day 3 → up to four weekly chases → escalation
   to the hostel's admins → stop. After the stop the software never contacts the
@@ -249,6 +250,51 @@ Returns `{ dispatched, failed, recipients, scanned }`.
 - Recommended schedule: every 15 minutes (e.g. `*/15 * * * *`). The interval is the worst-case
   delay between the time an admin picked and the notification landing, so pick it to taste — the
   job is cheap when nothing is due.
+
+## Every job, and what to register
+
+The full set to create on cron-job.org. All are `POST`, all take the
+`x-cron-secret` header, none take a body or a query string.
+
+| Job | Path (`/api/v1/cron/...`) | Schedule | Why that cadence |
+| --- | --- | --- | --- |
+| Monthly billing cycle | `billing-cycle` | `0 1 1 * *` | Issues the month's rent invoices. See the timing note below. |
+| Payment reminders and chases | `payment-reminders` | `0 2 * * *` | Daily; the ladder is self-healing, so a missed day is not a skipped resident. |
+| Gateway checkout expiry sweep | `gateway-expiry-sweep` | `*/5 * * * *` | Stale checkouts sit on a resident's screen until this runs. |
+| Dispatch scheduled notifications | `notification-dispatch` | `*/15 * * * *` | The interval is the worst-case delay on a scheduled broadcast. |
+| Refresh nearby places | `refresh-nearby-places` | `0 * * * *` | Fills caches a batch at a time inside the Nominatim rate limit. |
+| Purge expired OTPs | `purge-expired-otps` | `0 3 * * *` | Backup for the TTL index. |
+| Account deletion purge | `account-purge` | `0 3 * * *` | Executes 60-day grace periods that have run out. |
+| Ledger drift check | `ledger-drift` | `0 3 * * *` | Read-only; reports, never corrects. |
+| Complaint SLA breach check | `complaint-sla` | `0 4 * * *` | Alerts once per breached complaint. |
+| Gateway settlement reconciliation | `gateway-settlement-recon` | `0 4 * * 1` | Weekly, with a fortnight window so a missed week is not a gap. |
+| Attendance maintenance | `attendance-maintenance` | `0 5 * * *` | Absence alerts plus the retention purge. |
+| Gateway health check | `gateway-health` | `30 6 * * *` | Daily; a broken checkout and a quiet month look identical without it. |
+
+### Timing note: the rent month is billed in arrears
+
+As shipped, `billing-cycle` runs on the **1st** and bills the month it wakes up
+in, and `runBillingCycle` dates each invoice `periodBounds(period).end` — the
+**last day** of that month. So September's rent is invoiced on 1 September and
+due 30 September, and the dunning ladder above hangs off that due date: a notice
+on 23, 27 and 30 September, then the overdue rungs into October.
+
+A hostel that collects rent **in advance** wants the opposite shape — the
+invoice raised about a week *before* the month starts, due on the 1st, with the
+same three notices landing before the month begins. That is not a scheduling
+change on its own: moving the cron to `0 1 24 * *` would re-bill the *current*
+month, because the run derives its period from today's date
+(`periodOf(new Date())` in the route). Billing a month in advance needs the
+period selection and the invoice due date changed together, and it moves the due
+date of every hostel already on the platform. Left as-is deliberately; raise it
+before changing it.
+
+**Mid-month intakes do not wait for this job.** Registering a resident raises
+their move-in month's rent immediately and prorated, through the same
+`runBillingCycle` restricted to that one resident and period
+(`raiseFirstMonthInvoice`), so somebody admitted on the 20th owes the remaining
+days of that month from the day they are admitted. The cron has them from the
+following month onward.
 
 > **Note on the `operations` platform setting.** Several runtime knobs live in a single
 > `PlatformSetting` document keyed `operations`: `qrActivationExpiryDays`,

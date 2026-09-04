@@ -28,6 +28,7 @@ type PublicHeaderProps = {
     | "contact"
     | "home"
     | "jobs"
+    | "map"
     | "offer-program"
     | "pricing"
     | "privacy"
@@ -70,15 +71,16 @@ function dashboardHrefForRole(role: Role) {
 const navItems = [
   { href: "/", id: "home", label: "Home" },
   { href: "/hostels", id: "browse", label: "Hostels" },
+  // Beside Hostels because it is the same catalogue seen the other way round —
+  // where the hostels *are*, rather than a list of them — and it is the one page
+  // that routes you to a door. Bare `/map` opens on every pin with nothing
+  // selected; `/map?slug=…&route=1` opens on one hostel with directions running,
+  // so a "Directions" link anywhere else can point here.
+  { href: "/map", id: "map", label: "Map" },
   // One community for the whole platform, reachable from every header rather
   // than buried in a portal sidebar — signed-out readers included.
   { href: "/community", id: "community", label: "Community" },
   { href: "/compare", id: "compare", label: "Compare" },
-  // Top level rather than under More: it is the page every payment email links
-  // to, and the one a guardian paying the rent is sent without having an
-  // account of their own. Labelled short — the page itself carries the full
-  // "Resident Offer Program" name that the emails and receipts use.
-  { href: "/resident-offer-program", id: "offer-program", label: "Offer Program" },
   { href: "/register-hostel", id: "register-hostel", label: "Register Hostel" },
   // Lands on the public directory; registering is the CTA on that page.
   { href: "/service-providers", id: "providers", label: "Service Providers" },
@@ -109,6 +111,10 @@ const providerNavItems = [
  * neither exists today, and both are a feature rather than a copy change.
  */
 const moreItems = [
+  // Under More rather than top level: the page is reached by its own link from
+  // every payment email and receipt, so it does not need to hold a tab. Labelled
+  // short — the page itself carries the full "Resident Offer Program" name.
+  { href: "/resident-offer-program", id: "offer-program", label: "Offer Program" },
   { href: "/about", id: "about", label: "About Us" },
   { href: "/contact", id: "contact", label: "Contact" },
   { href: "/terms", id: "terms", label: "Terms" },

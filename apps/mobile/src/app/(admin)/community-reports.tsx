@@ -12,16 +12,15 @@ import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
 import {
   type AdminModeratedPost,
   type AdminModerationFilter,
   clearReportedPost,
-  getAdminCommunityModeration,
   hideReportedPost,
   postHostelAnnouncement,
 } from "@/lib/admin-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { toastError, toastSuccess } from "@/lib/toast";
 
@@ -64,10 +63,11 @@ const FILTERS = [
 export default function AdminCommunityReportsScreen() {
   const [filter, setFilter] = useState<AdminModerationFilter>("flagged");
 
-  const queue = useResource(
-    useCallback(() => getAdminCommunityModeration(filter), [filter]),
-    { topics: [REALTIME_TOPIC.COMMUNITY] },
-  );
+  const query = adminQuery.moderation(filter);
+  const queue = useResource(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [pending, setPending] = useState<Pending | null>(null);
   const [reason, setReason] = useState("");

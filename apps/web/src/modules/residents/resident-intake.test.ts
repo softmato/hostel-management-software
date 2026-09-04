@@ -218,10 +218,45 @@ describe("intake quote", () => {
     expect(result.firstMonth).toBeNull();
   });
 
-  it("reads the move-in month in UTC, so the schedule chosen does not drift", () => {
-    // 23:30 on the 31st in Kathmandu is still January in UTC — and picking
-    // February here would price the intake off a rate card that has not started.
-    expect(periodOfDate(new Date("2026-01-31T23:30:00.000Z"))).toBe("2026-01");
-    expect(periodOfDate(new Date("2026-02-01T00:00:00.000Z"))).toBe("2026-02");
+  it("reads the move-in month in the hostel's own day, not in UTC", () => {
+    /*
+     * This asserted UTC, and UTC is the bug. Nepal is UTC+05:45, so the last
+     * five and three-quarter hours of every UTC month are already the next month
+     * on the wall of the hostel doing the admitting: 23:30 UTC on 31 January is
+     * 05:15 on 1 February in Kathmandu. Reading it as January priced the intake
+     * off the previous rate card and put the first invoice in a month that had
+     * already ended — prorated to its final day.
+     */
+    expect(periodOfDate(new Date("2026-01-31T23:30:00.000Z"))).toBe("2026-02");
+
+    // And the ordinary midnight-local move-in, which is what a date picker in
+    // Nepal actually sends for "1 February".
+    expect(periodOfDate(new Date("2026-01-31T18:15:00.000Z"))).toBe("2026-02");
+
+    // Still January right up to the local rollover.
+    expect(periodOfDate(new Date("2026-01-31T18:14:00.000Z"))).toBe("2026-01");
+  });
+
+  it("prices the move-in month from the day the resident arrived, not the day before", () => {
+    /*
+     * The number this was reported as: a resident who moved in on 3 September
+     * was billed 29 of 30 days rather than 28, because "3 September" reaches the
+     * server as `2026-09-02T18:15:00.000Z` and every reader counts UTC days.
+     */
+    const result = quoteIntake({
+      hostel: { pricing: {}, roomConfigurations: [] },
+      moveInDate: new Date("2026-09-02T18:15:00.000Z"),
+      referralCodeActive: false,
+      roomType: "Single",
+      schedule: schedule({ rates: [{ bedType: "SINGLE", monthlyAmount: 18000 }] }),
+    });
+
+    expect(result.firstMonth).toMatchObject({
+      amount: 16800,
+      billableDays: 28,
+      daysInMonth: 30,
+      period: "2026-09",
+      prorated: true,
+    });
   });
 });

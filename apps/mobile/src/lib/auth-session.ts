@@ -19,7 +19,7 @@
 
 import { router } from "expo-router";
 
-import { bindSessionHandlers } from "@/lib/api";
+import { bindSessionHandlers, rotateAccessToken } from "@/lib/api";
 import {
   type ApiUser,
   fetchActivationStatus,
@@ -27,6 +27,7 @@ import {
   logout as revokeSession,
 } from "@/lib/auth-api";
 import { revokePushToken } from "@/lib/push-notifications";
+import { clearQueryCache } from "@/lib/query-cache";
 import { resetUploadNotifications } from "@/lib/upload-notifier";
 import { clearTokens, readTokens, writeTokens } from "@/lib/session";
 import { persistor, resetStore, store } from "@/store";
@@ -120,6 +121,27 @@ export async function revalidateSession(): Promise<ApiUser | null> {
 
   store.dispatch(setAccount(account));
 
+  const roleChanged = before.account?.role !== account.role;
+
+  /*
+   * A changed role has to reach the *token* before it reaches the router.
+   *
+   * `/auth/me` reads the user record, but every request is authorised from the
+   * claims baked into the access token, so an account promoted elsewhere — a
+   * hostel scanning somebody's ID card at the desk and registering them, which
+   * turns a PUBLIC account into a RESIDENT one server-side — is still a public
+   * user to this phone until its token expires. Re-routing on `/auth/me` alone
+   * put them on a resident dashboard where every call came back refused, and
+   * the 403s are not 401s, so nothing below would have refreshed either.
+   *
+   * Rotating first also makes the activation lookup underneath truthful: it is
+   * a resident-only endpoint, and asking it with a public token answers
+   * "not activated" for somebody who is.
+   */
+  if (roleChanged) {
+    await rotateAccessToken();
+  }
+
   let activated = before.isResidentActivated;
 
   if (account.role === ROLE.RESIDENT) {
@@ -130,7 +152,6 @@ export async function revalidateSession(): Promise<ApiUser | null> {
     }
   }
 
-  const roleChanged = before.account?.role !== account.role;
   const providerChanged = before.account?.isServiceProvider !== account.isServiceProvider;
   const activationChanged = before.isResidentActivated !== activated;
 
@@ -199,6 +220,16 @@ export async function endSession(options?: {
    * next person to sign in on this handset what the last one was uploading.
    */
   resetUploadNotifications();
+
+  /*
+   * The in-memory half of `persistor.purge()` below.
+   *
+   * `lib/query-cache.ts` holds whole rosters, invoice matrices and claim
+   * evidence for the account that is leaving. Hostel phones get handed around —
+   * an owner signs out, a warden signs in — and a cache that survived that would
+   * hand the next person the last one's resident list on their first tab switch.
+   */
+  clearQueryCache();
 
   if (revoke) {
     const tokens = await readTokens();

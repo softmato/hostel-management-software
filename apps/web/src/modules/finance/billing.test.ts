@@ -241,7 +241,7 @@ describe("credit from an earlier overpayment", () => {
 });
 
 describe("skips and failures are returned, never swallowed", () => {
-  it("reports a resident whose bed type has no rate instead of billing zero", async () => {
+  it("reports a room type the card does not price instead of billing zero", async () => {
     // The old `monthlyFee || defaultAmount || 0` chain billed this resident
     // nothing and nobody found out until somebody asked in November.
     mocks.residentFind.mockReturnValue(
@@ -251,10 +251,12 @@ describe("skips and failures are returned, never swallowed", () => {
     const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
 
     expect(mocks.invoiceCreate).not.toHaveBeenCalled();
+    // Named by room type, because that is the key an owner fixes it under — the
+    // bed type is a derived label they never typed.
     expect(result.failures).toEqual([
       {
         errorCode: "BED_TYPE_NOT_PRICED",
-        message: expect.stringContaining("SINGLE"),
+        message: expect.stringContaining("Single"),
         residentId: residentA.toString(),
       },
     ]);

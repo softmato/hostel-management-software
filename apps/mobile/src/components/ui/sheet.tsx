@@ -4,6 +4,7 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
+import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Pressable, useWindowDimensions, View } from "react-native";
 
@@ -86,6 +87,21 @@ type SheetProps = {
   footer?: ReactNode;
   onClose: () => void;
   open: boolean;
+  /**
+   * Open at nearly the full screen instead of at the usual floor.
+   *
+   * For the handful of sheets that are a **workspace** rather than a question —
+   * `manage/statements`' reconciliation results is the one this was added for:
+   * a summary grid, a filter, a second filter and a list of decisions, which at
+   * two thirds arrived with the first row of actual work below the fold. A
+   * sheet the caller has to scroll before it has said anything is a screen
+   * wearing a sheet's clothes, and this is the cheaper of the two fixes.
+   *
+   * Not the default, because it is wrong for every other sheet in the app: a
+   * `<Select>`'s three options at 90% of the screen is a wall of white with a
+   * list along the top.
+   */
+  tall?: boolean;
   title?: string;
 };
 
@@ -130,6 +146,9 @@ const MIN_BODY_FRACTION = 0.45;
  */
 const MIN_BODY_FRACTION_WITH_FOOTER = 0.66;
 
+/** The floor for {@link SheetProps.tall}. Just short of the `topInset` cap. */
+const MIN_BODY_FRACTION_TALL = 0.88;
+
 function renderBackdrop(props: BottomSheetBackdropProps) {
   return (
     <BottomSheetBackdrop
@@ -143,7 +162,15 @@ function renderBackdrop(props: BottomSheetBackdropProps) {
   );
 }
 
-export function Sheet({ bare = false, children, footer, onClose, open, title }: SheetProps) {
+export function Sheet({
+  bare = false,
+  children,
+  footer,
+  onClose,
+  open,
+  tall = false,
+  title,
+}: SheetProps) {
   const { colors } = useAppTheme();
   const insets = useSystemInsets();
   /* The floor under `MIN_BODY_FRACTION` is a fraction of *this* window, not of a
@@ -253,8 +280,28 @@ export function Sheet({ bare = false, children, footer, onClose, open, title }: 
       topInset={insets.top}
     >
       {title ? (
-        <View className="border-b border-border px-5 pb-3">
-          <Text variant="subtitle">{title}</Text>
+        /*
+         * The title row carries an explicit close.
+         *
+         * The sheet has always been draggable and that is still its main exit —
+         * but "drag the panel down" is knowledge, not an affordance, and the
+         * people this app is for do not have it. Every caller already passes
+         * `onClose`, so the button costs nothing and no sheet has to opt in.
+         */
+        <View className="flex-row items-start gap-3 border-b border-border px-5 pb-3">
+          <View className="flex-1">
+            <Text variant="subtitle">{title}</Text>
+          </View>
+
+          <Pressable
+            accessibilityLabel="Close"
+            accessibilityRole="button"
+            className="-mt-1 h-8 w-8 items-center justify-center rounded-full bg-muted active:opacity-70"
+            hitSlop={8}
+            onPress={onClose}
+          >
+            <Ionicons color={colors.mutedForeground} name="close" size={18} />
+          </Pressable>
         </View>
       ) : null}
 
@@ -262,7 +309,11 @@ export function Sheet({ bare = false, children, footer, onClose, open, title }: 
         contentContainerStyle={{
           minHeight:
             window.height *
-            (footer ? MIN_BODY_FRACTION_WITH_FOOTER : MIN_BODY_FRACTION),
+            (tall
+              ? MIN_BODY_FRACTION_TALL
+              : footer
+                ? MIN_BODY_FRACTION_WITH_FOOTER
+                : MIN_BODY_FRACTION),
           // 16, not 8: the last field ends clear of the footer's hairline rather
           // than against it once a long form does scroll.
           paddingBottom: footer ? 16 : Math.max(insets.bottom, 16),

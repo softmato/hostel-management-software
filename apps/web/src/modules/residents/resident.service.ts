@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { escapeRegex } from "@/lib/validators";
 import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { assertHostelAccess } from "@/lib/tenant";
@@ -15,8 +16,10 @@ import { HostelModel } from "@hostel/db/models/Hostel";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { sendEmail } from "@hostel/shared/email/sender";
+import { afterResponse } from "@/lib/after-response";
 import { notifyResidentRegistered } from "@/modules/residents/resident-registered-notify";
 import { wardRegisteredEmail } from "@hostel/shared/email/templates/guardian/ward-registered";
+import { residentAccessClearedEmail } from "@hostel/shared/email/templates/resident/resident-access-cleared";
 import { residentLinkedEmail } from "@hostel/shared/email/templates/resident/resident-linked";
 import {
   assertActiveReferralCode,
@@ -24,9 +27,11 @@ import {
 } from "@/modules/referrals/referral.service";
 import { normalizeResidentId } from "@/modules/users/resident-identity.service";
 import {
-  registerOrUpgradeUserByEmail,
-  UserServiceError,
-} from "@/modules/users/user.service";
+  hasClearance,
+  promoteAccountToResident,
+  type ResidentPromotionClearance,
+} from "@/modules/users/resident-promotion.service";
+import { UserServiceError } from "@/modules/users/user.service";
 import {
   getIntakeQuote,
   periodOfDate,
@@ -272,8 +277,8 @@ function residentDashboardUrl() {
  * with, so it identifies the account only as long as nobody has changed either.
  *
  * The returned `email` is always the **account's own** address, never the one
- * on the intake form, because that is what `registerOrUpgradeUserByEmail` keys
- * on and what the welcome mail has to reach.
+ * on the intake form: that is the mailbox the welcome mail has to reach, and the
+ * two drift apart exactly when it matters.
  */
 type IntakeAccount =
   | { email: string; reason?: undefined; userId: Types.ObjectId }
@@ -317,26 +322,60 @@ async function findAccountForIntake(
     return { reason: "NO_EMAIL" };
   }
 
-  // Only ever promotes an account the resident already owns. If they have none,
-  // creating one would mean mailing them a temporary password — and residents
-  // are never sent credentials — so QR activation takes over instead.
-  const existingAccount = await UserModel.findOne({
+  /*
+   * Only ever promotes an account the resident already owns. If they have none,
+   * creating one would mean mailing them a temporary password — and residents
+   * are never sent credentials — so QR activation takes over instead.
+   *
+   * **All of them, and the promotable one wins.** An address is not unique in
+   * the users collection and in practice is not unique in the field either: an
+   * `INVITED` warden row the person never signed in to, sitting beside the
+   * `PUBLIC` account they actually use, is the ordinary case. `findOne` returned
+   * whichever Mongo reached first, and when that was the staff row the intake
+   * refused the upgrade and the real account stayed public. A PUBLIC account is
+   * the one this is allowed to raise; a RESIDENT one is already right.
+   */
+  const accounts = await UserModel.find({
     email,
     isDeleted: { $ne: true },
   })
-    .select("_id email")
-    .lean<{ _id: Types.ObjectId; email?: string } | null>();
+    .select("_id email role")
+    .lean<{ _id: Types.ObjectId; email?: string; role?: string }[]>();
 
-  if (!existingAccount) {
+  /*
+   * Preference, not exclusion. A RESIDENT row is already right and a PUBLIC one
+   * is the account the person actually uses day to day, so either wins over a
+   * staff row on the same address. But when the staff row is the *only* one,
+   * that is still them — and residency has no blocker, so it is promoted and
+   * whatever it held is cleared (`promoteAccountToResident`). Refusing there is
+   * what left a registered resident on a public login.
+   */
+  const promotable =
+    accounts.find((account) => account.role === Role.RESIDENT) ??
+    accounts.find((account) => account.role === Role.PUBLIC) ??
+    accounts[0];
+
+  if (!promotable) {
     return { reason: "NO_ACCOUNT" };
   }
 
-  return { email: existingAccount.email?.trim().toLowerCase() ?? email, userId: existingAccount._id };
+  return {
+    email: promotable.email?.trim().toLowerCase() ?? email,
+    userId: promotable._id,
+  };
 }
 
 export type ResidentAccountLink = {
   /** Why the account was not linked, when it was not. */
   reason?: string;
+  /**
+   * What becoming a resident took away, when it took anything.
+   *
+   * Returned rather than only emailed so the intake screen can say it out loud
+   * too — an admin who has just closed somebody's warden access from a resident
+   * form is entitled to know that is what the button did.
+   */
+  cleared?: ResidentPromotionClearance;
   emailed: boolean;
   linked: boolean;
   /**
@@ -411,19 +450,26 @@ async function linkResidentAccount(
       .select("name")
       .lean<{ name?: string } | null>();
 
-    const upgrade = await registerOrUpgradeUserByEmail({
-      email,
-      hostelId: hostelId.toString(),
-      hostelName: hostel?.name,
-      // Their own password / Google sign-in stays exactly as it was.
-      issueTemporaryPassword: false,
+    /*
+     * The account, not the address, and residency wins.
+     *
+     * `registerOrUpgradeUserByEmail` used to do this, and it did two things
+     * wrong for an intake. It re-derived the account from the email string —
+     * throwing away the exact row `findAccountForIntake` had already resolved,
+     * and matching a second row on the same mailbox instead — and it refused to
+     * change the role of anything that was not already PUBLIC. Between them,
+     * somebody with an unaccepted warden invitation on their address was
+     * registered, invoiced and welcomed, and then left signed in as a public
+     * user with no portal. `promoteAccountToResident` takes the id and clears
+     * whatever stood in the way, reporting what it cleared so the resident can
+     * be told.
+     */
+    const upgrade = await promoteAccountToResident({
+      hostelId,
       name: `${resident.firstName} ${resident.lastName}`.trim(),
       performedBy: principal.userId,
       phone: resident.phone,
-      role: Role.RESIDENT,
-      // The generic "account upgraded" mail is replaced by a resident-specific
-      // welcome below, sent only once the link actually holds.
-      sendEmailNotification: false,
+      userId: account.userId,
     });
 
     const userId = normalizeObjectId(upgrade.user.id, "user id");
@@ -441,11 +487,30 @@ async function linkResidentAccount(
       return { emailed: false, linked: false, reason: "ACCOUNT_ALREADY_LINKED" };
     }
 
+    /*
+     * The account, and **only** the account.
+     *
+     * This used to `$set: { status: "ACTIVE" }` as well, and that write ran
+     * after `raiseFirstMonthInvoice` had already decided not to bill. So a
+     * warden who registered a pre-booking — the mobile intake's "not yet
+     * arrived" toggle, which sends `PENDING` — got a resident who was silently
+     * flipped to ACTIVE by the account link with **no rent invoice at all**:
+     * the intake skipped them for being `PENDING` (`findBillableResidents`
+     * bills the admitted only) and `updateResidentStatus` could never bill them
+     * afterwards, because its `resident.status !== "ACTIVE"` guard was already
+     * false. A resident living in the building, on the roll, owing nothing for
+     * their move-in month, for ever.
+     *
+     * Linking a login is not admitting somebody. Both callers already own the
+     * status: `createResident` writes what the form asked for, and
+     * `updateResidentStatus` has just written ACTIVE itself — and *that* path
+     * bills the move-in month on the way through, which is the whole point of
+     * keeping the two acts separate.
+     */
     await ResidentModel.updateOne(
       { _id: resident._id, isDeleted: false },
       {
         $set: {
-          status: "ACTIVE",
           updatedBy: principal.userId,
           userId,
         },
@@ -457,7 +522,12 @@ async function linkResidentAccount(
       hostelId,
       resident._id,
       "RESIDENT_ACCOUNT_LINKED",
-      { created: upgrade.created, email, upgraded: upgrade.upgraded },
+      {
+        clearedMemberships: upgrade.cleared.clearedMemberships.length,
+        clearedRole: upgrade.cleared.clearedRole,
+        email,
+        upgraded: upgrade.upgraded,
+      },
     );
 
     // Never blocks the link: a bounced welcome mail must not leave the resident
@@ -480,14 +550,44 @@ async function linkResidentAccount(
       }
     }
 
+    /*
+     * And, separately, what becoming a resident took away.
+     *
+     * Sent whether or not the welcome mail was — a registration sends its own
+     * richer confirmation instead of the welcome, and somebody whose warden
+     * access has just been closed still has to be told. Not sent when nothing
+     * was cleared, which is the ordinary case: a second mail listing an empty
+     * set is noise.
+     *
+     * Never blocks the link, for the same reason the welcome does not.
+     */
+    if (hasClearance(upgrade.cleared)) {
+      try {
+        await sendEmail({
+          to: email,
+          ...residentAccessClearedEmail({
+            clearedMemberships: upgrade.cleared.clearedMemberships,
+            clearedRole: upgrade.cleared.clearedRole,
+            hostelName: hostel?.name ?? "your hostel",
+            reactivatedInvite: upgrade.cleared.activatedInvite,
+            residentName: resident.firstName,
+          }),
+        });
+      } catch {
+        // The access is already cleared; a bounced notice must not undo it.
+      }
+    }
+
     return {
+      cleared: upgrade.cleared,
       emailed,
       linked: true,
       userId: userId.toString(),
     };
   } catch (error) {
-    // A staff account on the same address, a bounced email — the resident is
-    // registered either way and can still be activated by QR code.
+    // An administrator account on the same address, a database that would not
+    // take the write — the resident is registered either way and can still be
+    // activated by QR code.
     return {
       emailed: false,
       linked: false,
@@ -601,9 +701,7 @@ async function raiseFirstMonthInvoice(input: {
       period,
       raised: false,
       reason:
-        result.skipped[0]?.reason ??
-        result.failures[0]?.errorCode ??
-        "NOT_BILLABLE_YET",
+        result.skipped[0]?.reason ?? result.failures[0]?.errorCode ?? "NOT_BILLABLE_YET",
     };
   } catch (error) {
     return {
@@ -623,6 +721,26 @@ export type FirstMonthInvoiceResult =
       raised: true;
       referenceCode: string;
     };
+
+/**
+ * Runs work that must not be able to fail the write it follows.
+ *
+ * Returns `null` instead of throwing. Every caller here is past the point where
+ * the resident record is committed, so the only question left is what the screen
+ * is told — and "registration failed" over a resident who is registered is the
+ * worst available answer.
+ */
+async function nonFatal<T>(work: () => Promise<T>): Promise<T | null> {
+  try {
+    return await work();
+  } catch (error) {
+    logger.error("Post-registration step failed; the resident is registered.", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return null;
+  }
+}
 
 export async function createResident(
   input: ResidentCreateInput,
@@ -665,9 +783,7 @@ export async function createResident(
      * database would have allowed, and that refusal is the correct answer.
      */
     isDeleted: { $ne: true },
-    ...(email
-      ? { $or: [{ phone: input.phone }, { email }] }
-      : { phone: input.phone }),
+    ...(email ? { $or: [{ phone: input.phone }, { email }] } : { phone: input.phone }),
   }).lean<ResidentRecord>();
 
   if (existing) {
@@ -746,19 +862,35 @@ export async function createResident(
     throw error;
   }
 
-  await auditResidentAction(principal, hostelId, resident._id, "RESIDENT_CREATED", {
-    roomType: input.roomType,
-  });
+  /*
+   * Everything from here down is bookkeeping *about* a resident who already
+   * exists, and none of it may fail the registration.
+   *
+   * This is the defect an admin actually sees: the row is written, the bed is
+   * spent, the confirmation email goes out — and the screen says the intake
+   * failed, because something after the write threw. The admin then registers
+   * them again and collects a duplicate-phone 409 over a resident who is sitting
+   * in the list behind the dialog. An audit row that would not save, or a
+   * referral link that could not be made, are both real and both worth knowing
+   * about; neither is worth telling a hostel their resident was not admitted.
+   */
+  await nonFatal(() =>
+    auditResidentAction(principal, hostelId, resident._id, "RESIDENT_CREATED", {
+      roomType: input.roomType,
+    }),
+  );
 
   const referral = input.referralCode
-    ? await linkReferralOnRegistration({
-        code: input.referralCode,
-        hostelId,
-        joinedResidentId: resident._id,
-        name: `${input.firstName} ${input.lastName}`.trim(),
-        phone: input.phone,
-        principal,
-      })
+    ? await nonFatal(() =>
+        linkReferralOnRegistration({
+          code: input.referralCode as string,
+          hostelId,
+          joinedResidentId: resident._id,
+          name: `${input.firstName} ${input.lastName}`.trim(),
+          phone: input.phone,
+          principal,
+        }),
+      )
     : null;
 
   // Last, and never fatally: the resident is registered by this point, so an
@@ -798,37 +930,42 @@ export async function createResident(
    * whether this resident has a login before it can tell them how to sign in,
    * and it pushes to that account's devices.
    *
-   * Deliberately awaited rather than fired and forgotten. It cannot throw
-   * (`notifyResidentRegistered` swallows everything), and awaiting it is what
-   * makes the email actually send on a serverless request that is torn down the
-   * moment the response is written.
+   * **Off the response's critical path, and still guaranteed to run.** This is
+   * four notifications, an Expo round trip and up to two emails — a second or
+   * more of work that a warden standing at a desk with a resident in front of
+   * them should not be made to watch, on the slowest write in the portal. But
+   * it cannot simply be dropped on the floor either: an un-awaited promise on a
+   * serverless platform dies with the invocation. `after()` is the one answer
+   * that is both (`lib/after-response.ts`).
    */
-  await notifyResidentRegistered({
-    admissionFee: quote.admissionPayable > 0 ? quote.admissionPayable : null,
-    depositAmount: resident.depositAmount ?? null,
-    firstMonth: firstMonth.raised
-      ? {
-          amount: firstMonth.amount,
-          invoiceId: firstMonth.invoiceId,
-          period: firstMonth.period,
-          prorated: quote.firstMonth?.prorated ?? false,
-          referenceCode: firstMonth.referenceCode,
-        }
-      : null,
-    hostelId,
-    monthlyRent: quote.monthlyRent,
-    resident: {
-      _id: resident._id,
-      email: resident.email,
-      firstName: resident.firstName,
-      lastName: resident.lastName,
-      moveInDate: input.moveInDate,
-      roomNumber: resident.roomNumber ?? null,
-      roomType: input.roomType,
-      userId: resident.userId,
-    },
-    residentUserId: accountLink.userId ?? null,
-  });
+  afterResponse(() =>
+    notifyResidentRegistered({
+      admissionFee: quote.admissionPayable > 0 ? quote.admissionPayable : null,
+      depositAmount: resident.depositAmount ?? null,
+      firstMonth: firstMonth.raised
+        ? {
+            amount: firstMonth.amount,
+            invoiceId: firstMonth.invoiceId,
+            period: firstMonth.period,
+            prorated: quote.firstMonth?.prorated ?? false,
+            referenceCode: firstMonth.referenceCode,
+          }
+        : null,
+      hostelId,
+      monthlyRent: quote.monthlyRent,
+      resident: {
+        _id: resident._id,
+        email: resident.email,
+        firstName: resident.firstName,
+        lastName: resident.lastName,
+        moveInDate: input.moveInDate,
+        roomNumber: resident.roomNumber ?? null,
+        roomType: input.roomType,
+        userId: resident.userId,
+      },
+      residentUserId: accountLink.userId ?? null,
+    }),
+  );
 
   return {
     accountLink,

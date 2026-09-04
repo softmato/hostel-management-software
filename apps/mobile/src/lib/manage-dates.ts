@@ -109,6 +109,20 @@ export function dayInputFromNow(offsetDays = 0, now: Date = new Date()): string 
   return toDayInput(new Date(now.getTime() + offsetDays * 86_400_000));
 }
 
+/**
+ * The first day of a month, `n` months from now, as a `YYYY-MM-DD` input value.
+ *
+ * Rates change on the first of a month and never mid-month, and a "next month"
+ * chip that added thirty days is how an owner ended up with a card starting on
+ * the 17th. `monthStartFromNow(1)` is the 1st of next month whatever today is —
+ * not today plus a number of days.
+ */
+export function monthStartFromNow(offsetMonths = 0, now: Date = new Date()): string {
+  const start = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
+
+  return toDayInput(start);
+}
+
 /** Whether an instant has already passed — how a screen tells live from expired. */
 export function isPast(value: string | null | undefined, now: Date = new Date()): boolean {
   if (!value) {

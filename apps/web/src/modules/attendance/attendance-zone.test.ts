@@ -99,10 +99,42 @@ describe("attendance zone maths", () => {
     expect(zoneForDistance(201, ATTENDANCE_DEFAULTS)).toBe("OUTSIDE");
   });
 
-  it("buckets a timestamp to UTC midnight", () => {
-    expect(dayKey(new Date("2030-03-04T23:59:59.000Z")).toISOString()).toBe(
+  /*
+   * These replace one assertion that pinned the **bug**: `dayKey` used to bucket
+   * by UTC midnight, and the old test asserted exactly that. Nepal is UTC+05:45,
+   * so the reading a hostel most cares about — somebody coming home after
+   * midnight — filed under the previous day and, because the ping upserts one
+   * row per `{ day, residentId }` with last-write-wins, overwrote the previous
+   * evening's reading.
+   */
+  it("files a late-night return under the night it belongs to", () => {
+    // 02:00 Nepal on 5 March is 20:15Z on 4 March. It is the 5th to the hostel.
+    expect(dayKey(new Date("2030-03-04T20:15:00.000Z")).toISOString()).toBe(
+      "2030-03-05T00:00:00.000Z",
+    );
+  });
+
+  it("keeps a 22:00 check-in on its own day", () => {
+    // 22:00 Nepal on 4 March is 16:15Z the same day.
+    expect(dayKey(new Date("2030-03-04T16:15:00.000Z")).toISOString()).toBe(
       "2030-03-04T00:00:00.000Z",
     );
+  });
+
+  it("does not let a late return overwrite the evening before it", () => {
+    // The regression in one line: these two must be different buckets.
+    const evening = dayKey(new Date("2030-03-04T16:15:00.000Z"));
+    const afterMidnight = dayKey(new Date("2030-03-04T20:15:00.000Z"));
+
+    expect(evening.toISOString()).not.toBe(afterMidnight.toISOString());
+  });
+
+  it("is idempotent on a day it has already produced", () => {
+    // Safe to apply at the route edge and again in the service — UTC midnight is
+    // 05:45 local, still the same hostel day.
+    const once = dayKey(new Date("2030-03-04T20:15:00.000Z"));
+
+    expect(dayKey(once).toISOString()).toBe(once.toISOString());
   });
 });
 

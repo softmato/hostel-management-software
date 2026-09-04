@@ -768,6 +768,7 @@ function QuickAction({
   icon,
   label,
   onPress,
+  onPressIn,
   tone,
 }: {
   /**
@@ -781,6 +782,19 @@ function QuickAction({
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
+  /**
+   * Touch-down, before the press resolves.
+   *
+   * Used for one thing only: starting the fetch the destination is about to
+   * make. A finger resting on a tile is 100–300ms of head start, which is most
+   * of the gap between tapping a tile and reading the screen behind it — and
+   * unlike a launch-time warm-up it costs nothing for the tiles nobody touches.
+   *
+   * It must stay side-effect-free beyond that. This fires on a press that is
+   * then dragged off and cancelled, so anything that *changes* something here
+   * would happen without the user ever having chosen it.
+   */
+  onPressIn?: () => void;
   tone: keyof typeof ACTION_TONES;
 }) {
   const quiet = badge === 0;
@@ -796,6 +810,7 @@ function QuickAction({
         void Haptics.selectionAsync();
         onPress();
       }}
+      onPressIn={onPressIn}
     >
       <View className={`h-12 w-12 items-center justify-center rounded-2xl ${ACTION_TONES[tone]}`}>
         <Ionicons color={glyph} name={icon} size={21} />
@@ -859,7 +874,7 @@ function QuickAction({
  * tinted glyphs with a short label**, never a stack of sections. What a home
  * screen is for is getting somewhere; the somewhere is where the detail lives.
  *
- * ## The nine are `more.tsx`'s nine, deliberately
+ * ## These are `more.tsx`'s rows, deliberately
  *
  * Same destinations, same icons, same order as the More tab — which sounds like
  * duplication and is the opposite. More is the exhaustive list with a sentence
@@ -867,23 +882,31 @@ function QuickAction({
  * somebody who already knows where they are going. Diverging them would mean a
  * hostel owner learning two different maps of one product, so a tile added here
  * is a row added there in the same breath.
+ *
+ * **`Statement` is the one row with no tile here, and only on this screen.** It
+ * sits four cells up under "Waiting for you", so a tile would be a second door
+ * to it inside one scroll — the rule that took `Post notice` and
+ * `Payments to check` off that row, applied in the other direction. More has no
+ * "Waiting for you", so More keeps the row.
  */
-export function ServiceGrid({ onOpen }: { onOpen: (href: string) => void }) {
+export function ServiceGrid({
+  onOpen,
+  onPrefetch,
+}: {
+  onOpen: (href: string) => void;
+  /**
+   * Called on touch-down with the href about to be pushed.
+   *
+   * The grid knows the hrefs and nothing else — which query each one implies is
+   * `lib/admin-queries.ts`'s business, so a tile added here without an entry
+   * there simply loads the way it always did.
+   */
+  onPrefetch?: (href: string) => void;
+}) {
   const { colors, scheme } = useAppTheme();
 
   const services = [
     { href: "/manage/finance", icon: "cash-outline", label: "Finance", tone: "success" },
-    /*
-      Next to Finance, because it is the other half of the same question. Finance
-      is where the money is *configured* — the rate card, the billing run, the
-      gateways — and this is what actually came in, day by day, which is the
-      figure an owner reaches for far more often than any of the settings.
-
-      It is not `manage/statements`. That one imports a bank or wallet export and
-      reconciles it; this one is the hostel's own ledger of credits. Two screens,
-      two questions, unfortunately similar names.
-    */
-    { href: "/manage/finance/statement", icon: "receipt-outline", label: "Statement", tone: "success" },
     { href: "/(admin)/residents", icon: "people-outline", label: "Residents", tone: "admin" },
     /*
       Roll call came down from the shortcut row when the Store took its cell.
@@ -933,8 +956,8 @@ export function ServiceGrid({ onOpen }: { onOpen: (href: string) => void }) {
     the container to the height of the lines it created, so the card drew itself
     around the first four and the rest fell onto the page below it. Explicit rows
     are also the same construction as the shortcut and queue cards above, which
-    is what keeps all three in step — and it is why the count is four here even
-    though the list is now nine long.
+    is what keeps all three in step — and it is why the count is four here
+    whatever length the list happens to be.
   */
   const rows: (typeof services)[number][][] = [];
 
@@ -953,6 +976,7 @@ export function ServiceGrid({ onOpen }: { onOpen: (href: string) => void }) {
               key={service.href}
               label={service.label}
               onPress={() => onOpen(service.href)}
+              onPressIn={onPrefetch ? () => onPrefetch(service.href) : undefined}
               tone={service.tone}
             />
           ))}
@@ -1136,54 +1160,74 @@ export function QuickActions({
  * the direction that makes an owner stop trusting the screen, so these read the
  * live queues — the same data the tab badges show.
  *
- * ## Complaints came off this row and went into the Manage grid
+ * ## The row only holds what has no door elsewhere on Home
  *
- * `Post notice` took the slot when the scanner took *its* place in the shortcut
- * row above. The trade is deliberate rather than a shuffle: complaints are
- * already the largest section of `(admin)/today`, which the `Today` cell at the
- * end of this same row opens — so the count was one tap from a screen showing
- * the complaints themselves — while writing a notice would have had no door on
- * Home at all once it left the shortcuts.
+ * Three cells came off it for that reason. Complaints went into the Manage grid
+ * (they are also the largest section of `(admin)/today`, which the last cell
+ * opens); `Post notice` went back to the Manage grid it is already a tile in;
+ * and `Payments to check` went to the Money tab, which is a whole tab about
+ * exactly that.
+ *
+ * ## Statement and Reconcile are two cells because they are two screens
+ *
+ * The cell labelled `Statement` opened `manage/statements`, which is the **bank
+ * import** — while the Manage grid, one section below, carried a tile of the
+ * same name opening `manage/finance/statement`, the hostel's own ledger of
+ * credits. One word, two destinations, one scroll apart: whichever an owner
+ * tapped first taught them the wrong thing about the other.
+ *
+ * Both halves of that are fixed here. `Statement` is now the ledger — the
+ * figure an owner reaches for most often, so it gets the door on the row they
+ * are already reading — and the import has the cell beside it under the name of
+ * the job it actually does. The grid's tile came off in the same breath, by this
+ * row's own rule: a cell here and a tile there are two doors to one room inside
+ * a single scroll. `more.tsx` keeps its row, having no "Waiting for you".
  */
 export function WaitingActions({
-  claims,
   inquiries,
-  onClaims,
   onInquiries,
-  onNotice,
+  onReconcile,
+  onStatement,
   onToday,
 }: {
-  claims: number;
   inquiries: number;
-  onClaims: () => void;
   onInquiries: () => void;
-  onNotice: () => void;
+  /** `manage/statements` — importing a bank or wallet export and matching it. */
+  onReconcile: () => void;
+  /** `manage/finance/statement` — the ledger of credits, day by day. */
+  onStatement: () => void;
   onToday: () => void;
 }) {
   const { colors, scheme } = useAppTheme();
 
   return (
     <ActionCard>
-      <QuickAction
-        badge={claims}
-        glyph={colors.warning}
-        icon="cash-outline"
-        label="Payments to check"
-        onPress={onClaims}
-        tone="warning"
-      />
       {/*
-        No badge, and that is not an oversight: a notice is a thing you *write*,
-        not a queue that fills up, so there is no number here that would mean
-        "how much of this is waiting". Same reasoning as `Today` at the end of
-        the row, and the reason `badge` is optional at all.
+        The ledger, wearing the glyph and the tone the Manage grid's tile wore
+        before it came off — an owner who learnt the receipt in green finds the
+        same object one section higher rather than a new one.
       */}
       <QuickAction
-        glyph={colors.primary}
-        icon="megaphone-outline"
-        label="Post notice"
-        onPress={onNotice}
-        tone="brand"
+        glyph={colors.success}
+        icon="receipt-outline"
+        label="Statement"
+        onPress={onStatement}
+        tone="success"
+      />
+      {/*
+        The bank import, under the name of the job rather than of the file.
+
+        No badge: an import is something you *do*, not a queue that fills — the
+        same reason `Today` below carries none. It keeps the amber the cell
+        beside it used to have, so the row still reads left-to-right as "the
+        money paperwork, then the people, then the day".
+      */}
+      <QuickAction
+        glyph={colors.warning}
+        icon="git-compare-outline"
+        label="Reconcile"
+        onPress={onReconcile}
+        tone="warning"
       />
       <QuickAction
         badge={inquiries}

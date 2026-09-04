@@ -96,6 +96,24 @@ export async function refreshCapacitySummary(hostelId: Types.ObjectId) {
   );
 }
 
+/**
+ * Every room type the hostel offers, vacant or not, with its current rent.
+ *
+ * The rate card needs this rather than {@link listAvailableRoomTypes}: a room
+ * type that is full still has to be priced, and pricing only what has vacancy
+ * today would silently drop a rate the next time the card was saved.
+ */
+export async function listAllRoomTypes(hostelId: Types.ObjectId) {
+  const configurations = await loadConfigurations(hostelId);
+
+  return configurations
+    .map((config) => ({
+      monthlyRent: config.monthlyRent ?? 0,
+      roomType: config.roomType,
+    }))
+    .sort((a, b) => a.roomType.localeCompare(b.roomType));
+}
+
 /** Room types with at least one free bed, for the resident intake dropdown. */
 export async function listAvailableRoomTypes(hostelId: Types.ObjectId) {
   const configurations = await loadConfigurations(hostelId);

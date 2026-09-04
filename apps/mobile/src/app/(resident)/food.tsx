@@ -8,6 +8,7 @@ import {
   FoodRoutineWeek,
   MonthEndSpecial,
 } from "@/components/food-routine";
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,11 +16,13 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { Grid } from "@/components/ui/layout";
 import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { residentQuery } from "@/lib/resident-queries";
 import { readApiError } from "@/lib/api-contract";
 import {
   dateForDay,
@@ -29,7 +32,6 @@ import {
 } from "@/lib/food-week";
 import { formatDate, humanizeEnum } from "@/lib/format";
 import {
-  getResidentFood,
   type ResidentFood,
   submitFoodFeedback,
   uploadFoodPhoto,
@@ -62,14 +64,45 @@ import { privateAssetSource, uploadAsset } from "@/lib/uploads";
  */
 
 export default function ResidentFoodScreen() {
-  const food = useResource<ResidentFood>(useCallback(() => getResidentFood(), []));
+  /*
+   * The kitchen changes this screen, not the resident. `food.service.ts` and
+   * `cook.service.ts` both publish, so a menu edited at 5pm reaches the phone
+   * of somebody deciding whether to eat in.
+   */
+  const query = residentQuery.food();
+  const food = useResource<ResidentFood>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
-  const header = <AppBar subtitle="This week's routine" title="Food" />;
+  const header = (
+    <AppBar actions={<NotificationBell />} subtitle="This week's routine" title="Food" />
+  );
 
   if (food.loading) {
     return (
       <Screen header={header} insideTabs>
-        <LoadingState label="Loading the menu" />
+        {/*
+          The day strip, then the day's meals, then the photo wall — the three
+          bands `FoodRoutineWeek` and `PhotoGallery` resolve into. See Home's
+          note on why this is a skeleton and not a spinner.
+        */}
+        <View className="gap-4">
+          <View className="flex-row gap-2">
+            {Array.from({ length: 7 }, (_, index) => (
+              <Skeleton height={52} key={index} radius={14} width={42} />
+            ))}
+          </View>
+
+          <SkeletonCard rows={2} />
+          <SkeletonCard rows={2} />
+
+          <View className="flex-row gap-2">
+            <Skeleton height={92} radius={14} width="32%" />
+            <Skeleton height={92} radius={14} width="32%" />
+            <Skeleton height={92} radius={14} width="32%" />
+          </View>
+        </View>
       </Screen>
     );
   }

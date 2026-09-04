@@ -1,4 +1,4 @@
-import type { Types } from "mongoose";
+import { Types } from "mongoose";
 
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { periodBounds } from "@/modules/finance/fee-schedule.service";
@@ -201,7 +201,23 @@ async function emailTheResident(input: {
   };
   residentUserId?: string | null;
 }) {
-  const contact = await resolveResidentContact(input.resident);
+  /*
+   * The account we *just* linked, not the one the record remembers.
+   *
+   * `input.resident` is the document as it was created — the intake reads it
+   * back only when the link succeeded, and this notification is handed the
+   * in-memory copy either way, so its `userId` is still empty at this point.
+   * A resident registered from a scanned card with the email box left blank
+   * therefore resolved to no contact at all and was sent nothing, even though
+   * the card had already resolved them to an account with a working address.
+   * `residentUserId` is that account, and it is the reason it is passed in.
+   */
+  const contact = await resolveResidentContact({
+    ...input.resident,
+    userId:
+      input.resident.userId ??
+      (input.residentUserId ? new Types.ObjectId(input.residentUserId) : undefined),
+  });
 
   if (!contact) {
     return;

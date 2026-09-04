@@ -10,6 +10,7 @@ import {
   feeScheduleCreateSchema,
   feeScheduleListQuerySchema,
 } from "@/modules/finance/fee-schedule.validation";
+import { listAllRoomTypes } from "@/modules/hostels/hostel-capacity.service";
 import { resolveAdminHostelId } from "@/modules/hostels/hostel.service";
 
 export const runtime = "nodejs";
@@ -29,10 +30,18 @@ export async function GET(request: NextRequest) {
     );
     const hostelId = resolveAdminHostelId(principal, query.hostelId);
 
-    return successResponse(
-      { schedules: await listFeeSchedules(hostelId) },
-      "Fee schedules",
-    );
+    /*
+     * The room types come back with the cards because they are the *keys* of a
+     * card now, not context for it. An editor that had to fetch them separately
+     * could render a rate box for a room type the hostel no longer offers, which
+     * is how a rate nobody can book gets saved.
+     */
+    const [schedules, roomTypes] = await Promise.all([
+      listFeeSchedules(hostelId),
+      listAllRoomTypes(hostelId),
+    ]);
+
+    return successResponse({ roomTypes, schedules }, "Fee schedules");
   } catch (error) {
     return handleRouteError(error);
   }

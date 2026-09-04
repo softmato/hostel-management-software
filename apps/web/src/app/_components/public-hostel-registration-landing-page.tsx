@@ -32,6 +32,7 @@ import {
 import { PublicShell } from "@/app/_components/shared";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { contentIcon, resolveContentPage } from "@/lib/site-content";
+import { useSessionStore } from "@/stores/session-store";
 
 const SYMBOLS = "0SCB87675HJGS##&";
 
@@ -166,15 +167,29 @@ export function PublicHostelRegistrationLandingPage() {
   const router = useRouter();
 
   // If the signed-in user has already submitted a hostel, this route shows their
-  // application status instead of the marketing page. Anonymous visitors (the
-  // request 401s) keep seeing the landing page.
+  // application status instead of the marketing page.
   const [statusApp, setStatusApp] = useState<OwnerApplication | null>(null);
+  // Read from the shared session cache the header already fills, so the lookup
+  // below can wait until it is known whether anyone is signed in.
+  const sessionResolved = useSessionStore((state) => state.status === "resolved");
+  const sessionUser = useSessionStore((state) => state.user);
 
   const loadOwnerStatus = useCallback(async () => {
     setStatusApp(await fetchOwnerApplication());
   }, []);
 
   useEffect(() => {
+    // Only ask for an anonymous visitor's application if there is an account to
+    // ask about. `my-applications` 401s for a signed-out visitor, and a 401 that
+    // no refresh token can rescue is exactly what `browserApi` reads as an
+    // expired session — it sends the tab to /login. So merely opening the pitch
+    // page bounced people to the sign-in screen. Signing in is a requirement of
+    // the *form*, and `/register-hostel/form` guards itself; the page that
+    // explains the product asks nothing of anyone.
+    if (!sessionResolved || !sessionUser) {
+      return;
+    }
+
     let active = true;
 
     void fetchOwnerApplication().then((application) => {
@@ -185,7 +200,7 @@ export function PublicHostelRegistrationLandingPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [sessionResolved, sessionUser]);
 
   const bottomCtaOpacity = useTransform(scrollY, [600, 900], [0, 1]);
 
@@ -227,7 +242,9 @@ export function PublicHostelRegistrationLandingPage() {
 
   const SlideIcon = heroSlides[currentSlide].icon;
 
-  if (statusApp) {
+  // `sessionUser` guards the render as well as the fetch, so signing out in the
+  // header drops the status view instead of leaving a stale one on screen.
+  if (statusApp && sessionUser) {
     return (
       <PublicShell active="register-hostel">
         <HostelStatusView

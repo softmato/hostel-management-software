@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { type ColorValue, View } from "react-native";
+import { useEffect } from "react";
+import { type ColorValue, InteractionManager, View } from "react-native";
 
 import { AnimatedTabBar } from "@/components/tab-bar";
 import { Avatar } from "@/components/ui/avatar";
@@ -8,7 +9,24 @@ import type { RoleAccentKey } from "@/constants/theme";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { API_BASE_URL } from "@/lib/api";
+import { prefetchCommunity } from "@/lib/community-queries";
 import { absoluteMediaUrl } from "@/lib/media";
+
+/**
+ * How long a shell waits before warming the Community tab.
+ *
+ * Four seconds, and the number is chosen off what is happening in front of it.
+ * The tab a shell lands on is its own home, which is mounting and asking in the
+ * same frame; the warden shell then warms the portal on top of that and its
+ * Manage doors three seconds in. Community is the *last* thing in that queue on
+ * purpose — it is a tab nobody is looking at yet, and every request it issues
+ * early is bandwidth taken off the screen someone is watching load.
+ *
+ * Long enough to be out of the way, short enough to land inside the pause
+ * between a home screen appearing and a tab being chosen, which is the whole
+ * window this is aiming at.
+ */
+const COMMUNITY_WARM_MS = 4_000;
 
 export type TabDef = {
   /**
@@ -64,6 +82,41 @@ export function RoleTabs({
 }) {
   const { colors } = useAppTheme();
   const account = useAppSelector((state) => state.auth.account);
+
+  const hasCommunity = tabs.some((tab) => tab.name === "community");
+
+  /*
+   * The community warm-up lives here rather than in six group layouts, because
+   * this is the one place that knows whether Community is a tab in this role.
+   *
+   * It is deliberately not in `prefetchAdminPortal` — that module says why, and
+   * the reason generalises: the board is platform-wide, so it belongs to
+   * whatever shell puts it on screen and not to any one portal's registry.
+   *
+   * Nothing is awaited and nothing can throw: `prefetchQuery` swallows failures
+   * by design, and both reads work signed out, which is what lets `(browse)`
+   * run this at all.
+   */
+  useEffect(() => {
+    if (!hasCommunity) {
+      return undefined;
+    }
+
+    let task: ReturnType<typeof InteractionManager.runAfterInteractions> | null =
+      null;
+
+    const warm = setTimeout(() => {
+      // After the interactions as well as after the delay: a shell whose home
+      // is still settling gets the network back before this takes any of it.
+      task = InteractionManager.runAfterInteractions(prefetchCommunity);
+    }, COMMUNITY_WARM_MS);
+
+    // Cancelled on the way out, so signing straight back out never fires it.
+    return () => {
+      clearTimeout(warm);
+      task?.cancel();
+    };
+  }, [hasCommunity]);
 
   return (
     <Tabs

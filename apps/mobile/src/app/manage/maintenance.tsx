@@ -26,7 +26,6 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -34,20 +33,16 @@ import {
   assignMaintenanceProvider,
   commentOnMaintenance,
   createMaintenanceRequest,
-  getMaintenanceSettings,
-  listManagedMaintenance,
-  listManagedProviders,
   MAINTENANCE_CATEGORIES,
   type MaintenanceCategory,
   type MaintenanceCharge,
   type MaintenancePriority,
   type MaintenanceStatus,
-  type ManagedMaintenance,
   type ManagedMaintenanceRequest,
-  type ManagedProvider,
   updateMaintenanceSettings,
   updateMaintenanceStatus,
 } from "@/lib/admin-manage-api";
+import { type AdminMaintenanceData, adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { formatMoney, humanizeEnum } from "@/lib/format";
 import {
@@ -161,28 +156,10 @@ const BLANK_NEW: NewDraft = {
   problem: "",
 };
 
-type MaintenanceData = {
-  /** The owner's agreed call-out floors. Empty until somebody sets them. */
-  charges: MaintenanceCharge[];
-  maintenance: ManagedMaintenance | null;
-  providers: ManagedProvider[];
-};
-
-async function loadMaintenance(status: string): Promise<MaintenanceData> {
-  const [maintenance, providers, charges] = await Promise.all([
-    listManagedMaintenance(status ? { status } : {}).catch(() => null),
-    listManagedProviders().catch(() => [] as ManagedProvider[]),
-    /*
-     * Tolerant, and empty rather than absent on failure. The charges are a
-     * convenience on the confirm step; a hostel that has set none is the normal
-     * first state, so "could not read them" and "there are none" already look
-     * the same to every reader and there is nothing to distinguish.
-     */
-    getMaintenanceSettings().catch(() => [] as MaintenanceCharge[]),
-  ]);
-
-  return { charges, maintenance, providers };
-}
+/*
+ * `MaintenanceData` and its loader are `adminQuery.maintenance(status)` — see
+ * `lib/admin-queries.ts`.
+ */
 
 export default function ManageMaintenanceScreen() {
   const dates = useDates();
@@ -242,10 +219,11 @@ export default function ManageMaintenanceScreen() {
    * make the summary say "all of them are pending", which is the trap
    * `admin-api.ts` already documents for Today's copy of this call.
    */
-  const data = useResource<MaintenanceData>(
-    useCallback(() => loadMaintenance(""), []),
-    { topics: [REALTIME_TOPIC.MAINTENANCE] },
-  );
+  const query = adminQuery.maintenance("");
+  const data = useResource<AdminMaintenanceData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const requests = useMemo(
     () => data.data?.maintenance?.requests ?? [],

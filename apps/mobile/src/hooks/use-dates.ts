@@ -45,6 +45,17 @@ export type PortalDates = {
   calendar: CalendarSystem;
   /** `18 Aug 2026` / `2 Bhadra 2083`. */
   date: (value: Date | string | null | undefined) => string;
+  /**
+   * Both calendars at once — `2 Bhadra 2083 (18 Aug 2026)`.
+   *
+   * For the few dates an owner has to act on rather than merely read. A rate
+   * card that said "Effective from 17 Aswin 2083" gave no clue that it had not
+   * started yet, because working out where 17 Aswin falls against today is
+   * arithmetic nobody does at a desk. Anything that decides *when money changes*
+   * prints both; ordinary row timestamps stay in the one calendar the owner
+   * chose, or every list turns into a parenthesis.
+   */
+  dateBoth: (value: Date | string | null | undefined) => string;
   /** `18 Aug 2026, 2:45 pm` / `2 Bhadra 2083, 2:45 pm`. */
   dateTime: (value: Date | string | null | undefined) => string;
   /** `"2026-08"` → `August 2026` / `Shrawan 2083`. */
@@ -61,6 +72,14 @@ export function useDates(): PortalDates {
       ago: (value, now) => formatAgoIn(calendar, value, now),
       calendar,
       date: (value) => formatDateIn(calendar, value),
+      dateBoth: (value) => {
+        const chosen = formatDateIn(calendar, value);
+        const other = formatDateIn(calendar === "BS" ? "AD" : "BS", value);
+
+        // An unparseable date formats the same way twice; one em dash beats
+        // "— (—)".
+        return chosen === other ? chosen : `${chosen} (${other})`;
+      },
       dateTime: (value) => formatDateTimeIn(calendar, value),
       period: (value) => formatPeriodIn(calendar, value),
       relativeDay: (value, now) => formatRelativeDayIn(calendar, value, now),

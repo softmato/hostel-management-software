@@ -110,6 +110,24 @@ export type RegisterOrUpgradeInput = {
   performedBy?: string;
   sendEmailNotification?: boolean;
   /**
+   * The exact account to upgrade, when the caller has already resolved one.
+   *
+   * An email is not an identity. Nothing stops two rows sharing an address — an
+   * `INVITED` warden who never signed in and the `PUBLIC` account the same
+   * person actually uses is the pairing that happens in practice — and
+   * `findOne({ email })` then returns whichever Mongo reaches first. Resident
+   * intake had *already* resolved the right account from the card it scanned,
+   * threw that away, matched the warden row instead, and refused the upgrade
+   * with `EMAIL_ALREADY_HAS_ROLE`: the resident was registered, mailed their
+   * welcome, and left signed in as a public user with no portal.
+   *
+   * So a caller holding an id says so, and the email is used only for what it
+   * is actually good for — addressing the mail. A pinned account that no longer
+   * exists is an error rather than a licence to create a third row on the same
+   * address.
+   */
+  userId?: string;
+  /**
    * Whether a Google-only account may be given a temporary email/password
    * fallback on upgrade. Defaults to true. Resident linking passes false: a
    * resident never receives credentials, so minting a password they are never
@@ -134,18 +152,35 @@ export async function registerOrUpgradeUserByEmail(input: RegisterOrUpgradeInput
     throw new UserServiceError("This role cannot be issued.", "ROLE_NOT_ISSUABLE", 400);
   }
 
-  const email = input.email.trim().toLowerCase();
+  const requestedEmail = input.email.trim().toLowerCase();
 
-  if (!email) {
+  if (!requestedEmail && !input.userId) {
     throw new UserServiceError("Email is required.", "EMAIL_REQUIRED", 400);
   }
 
   const roleLabel = ROLE_LABELS[input.role] ?? input.role;
   const notify = input.sendEmailNotification ?? true;
-  const existing = await UserModel.findOne({
-    email,
-    isDeleted: { $ne: true },
-  }).select("+passwordHash");
+  const existing = await UserModel.findOne(
+    input.userId
+      ? { _id: input.userId, isDeleted: { $ne: true } }
+      : { email: requestedEmail, isDeleted: { $ne: true } },
+  ).select("+passwordHash");
+
+  // A pinned account that has since been deleted must not fall through to the
+  // create branch below: that would mint a *second* row on an address that
+  // already has one, which is the shape of the bug `userId` exists to end.
+  if (input.userId && !existing) {
+    throw new UserServiceError(
+      "That account no longer exists.",
+      "USER_NOT_FOUND",
+      404,
+    );
+  }
+
+  // The address the account actually signs in with wins over the one the caller
+  // typed — they differ exactly when this matters, and every mail below goes to
+  // a real mailbox rather than to a profile field.
+  const email = existing?.email?.trim().toLowerCase() || requestedEmail;
 
   let user = existing;
   let created = false;

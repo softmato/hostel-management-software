@@ -10,8 +10,19 @@
 export const FINANCE_ERROR_STATUS = {
   /** No schedule covers the billing period (target §3.4). */
   FEE_SCHEDULE_MISSING: 422,
-  /** The schedule has no rate for this resident's bed type. */
+  /** The schedule has no rate for this resident's room type. */
   BED_TYPE_NOT_PRICED: 422,
+  /**
+   * Rates were asked to change for a month that is already billing.
+   *
+   * A conflict rather than a validation failure: the request is well formed and
+   * the month is simply no longer open to change. Residents in it are being
+   * invoiced at the current card, and rewriting the basis underneath them is the
+   * silent edit the versioning exists to prevent.
+   */
+  FEE_SCHEDULE_MONTH_LOCKED: 409,
+  /** The card has already priced an invoice, so it cannot be deleted. */
+  FEE_SCHEDULE_IN_USE: 409,
   /** A non-void invoice already exists for the period. */
   INVOICE_ALREADY_BILLED: 409,
   /** No such invoice **that this principal may see** — same answer either way. */

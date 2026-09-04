@@ -2,11 +2,13 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { hostelCalendarDay, hostelPeriodOf, hostelToday } from "@/lib/hostel-day";
 import { normalizeBedType } from "@/modules/finance/bed-type";
 import {
   computeInvoiceAmount,
   type FeeScheduleRecord,
   getEffectiveSchedule,
+  rateForRoomType,
 } from "@/modules/finance/fee-schedule.service";
 import { allocateReferenceCode } from "@/modules/finance/reference-sequence.service";
 import { isActiveReferralCode } from "@/modules/referrals/referral.service";
@@ -130,9 +132,18 @@ type HostelPricing = {
   roomConfigurations?: RoomConfiguration[];
 };
 
-/** "YYYY-MM" for the month a move-in falls in, in UTC like every other period. */
+/**
+ * "YYYY-MM" for the month a move-in falls in, in the hostel's own reckoning.
+ *
+ * Not UTC, which is what this used to be. Nepal is UTC+05:45, so the last five
+ * and three-quarter hours of every UTC month are already the next month here —
+ * and a resident admitted at midnight on 1 September was handed an invoice for
+ * **August**, prorated to its final day, against August's rate card. Deriving
+ * the period from the calendar day rather than the instant is the whole fix; see
+ * `lib/hostel-day.ts`.
+ */
 export function periodOfDate(date: Date) {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return hostelPeriodOf(date);
 }
 
 /**
@@ -152,16 +163,24 @@ export function quoteIntake(input: {
   schedule: FeeScheduleRecord | null;
 }): IntakeQuote {
   const bedType = normalizeBedType(input.roomType);
-  const rate = bedType
-    ? input.schedule?.rates.find((entry) => entry.bedType === bedType)
-    : undefined;
+  // The billing run's own lookup, not a second one. Room type first, bed type
+  // only for cards written before rates were re-keyed — see `rateForRoomType`.
+  const rate = rateForRoomType(input.schedule, input.roomType, bedType);
 
   /*
-   * The rate card first, the room's own `monthlyRent` only as a fallback. They
-   * disagree often — `roomConfigurations` is the listing price the owner typed
-   * when they signed up and rarely revisits, while the schedule is what billing
-   * actually charges. Quoting the listing price at the door and then invoicing
-   * the scheduled one is how a resident ends up arguing with their first bill.
+   * The rate card first, the room's own `monthlyRent` only as a bootstrap.
+   *
+   * These used to be two prices maintained side by side, and "they disagree
+   * often" was written here as a fact of life: the listing was what the owner
+   * typed at signup, the schedule was what billing charged, and quoting one at
+   * the door while invoicing the other is how a resident ends up arguing with
+   * their first bill. One hostel reached 18,000 on its listing and 180,000 on
+   * its card that way.
+   *
+   * The card is now the source and the listing is written from it
+   * (`projectScheduleOntoListing`), so this fallback only covers a hostel that
+   * has not opened the rate-card screen yet — which is every hostel on its first
+   * day, and the reason it still exists.
    */
   const configured = input.hostel?.roomConfigurations?.find(
     (entry) => entry.roomType === input.roomType,
@@ -237,7 +256,7 @@ function quoteFirstMonth(
     return null;
   }
 
-  const start = moveInDate ?? new Date();
+  const start = moveInDate ? hostelCalendarDay(moveInDate) : hostelToday();
   const period = periodOfDate(start);
 
   try {
@@ -305,7 +324,7 @@ export async function getIntakeQuote(
 ): Promise<IntakeQuote> {
   await connectToDatabase();
 
-  const moveInDate = input.moveInDate ?? new Date();
+  const moveInDate = input.moveInDate ? hostelCalendarDay(input.moveInDate) : hostelToday();
 
   const [hostel, schedule, referralCodeActive] = await Promise.all([
     HostelModel.findById(hostelId)

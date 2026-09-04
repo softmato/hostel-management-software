@@ -1,8 +1,22 @@
 import { z } from "zod";
 
+import { hostelCalendarDay } from "@/lib/hostel-day";
 import { paginationQuerySchema } from "@/lib/pagination";
 
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
+
+/**
+ * A move-in or move-out as the calendar date it is, not the instant it arrived
+ * as.
+ *
+ * A date picker in Kathmandu serialises "3 September" as
+ * `2026-09-02T18:15:00.000Z`, and every reader downstream counts UTC days — so
+ * an unnormalised move-in bills the resident from the 2nd, and a move-in on the
+ * 1st lands its first invoice in the *previous month*. Normalising here rather
+ * than in each service means there is one edge to get right, and the stored
+ * value is the one a human would read off the form.
+ */
+const calendarDateSchema = z.coerce.date().transform(hostelCalendarDay);
 
 const optionalHostelScopeSchema = {
   hostelId: objectIdSchema.optional(),
@@ -47,7 +61,7 @@ export const residentCreateSchema = z.object({
   email: z.string().trim().email().optional(),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
-  moveInDate: z.coerce.date(),
+  moveInDate: calendarDateSchema,
   phone: z.string().trim().min(7).max(24),
   /** Optional code of the resident who referred this one (PHASES.md §5.1). */
   referralCode: z.string().trim().min(4).max(32).optional(),
@@ -95,7 +109,7 @@ export const residentUpdateSchema = z.object({
   firstName: z.string().trim().min(1).max(80).optional(),
   lastName: z.string().trim().min(1).max(80).optional(),
   monthlyFee: z.coerce.number().nonnegative().optional(),
-  moveInDate: z.coerce.date().optional(),
+  moveInDate: calendarDateSchema.optional(),
   phone: z.string().trim().min(7).max(24).optional(),
   residentType: residentTypeSchema.optional(),
   roomType: z.string().trim().min(1).max(80).optional(),

@@ -22,6 +22,7 @@ import {
   resolveBedType,
   resolveMonthlyCharge,
   type BillableResident,
+  rateForRoomType,
   type FeeScheduleRecord,
 } from "@/modules/finance/fee-schedule.service";
 
@@ -295,5 +296,63 @@ describe("computeInvoiceAmount — proration, target §3.5", () => {
     expect(
       computeInvoiceAmount(12000, d("2026-08-20"), d("2026-08-10"), AUG),
     ).toMatchObject({ amount: 0 });
+  });
+});
+
+/**
+ * Rates are keyed by the hostel's own room type.
+ *
+ * Bed-type keying is why the platform stored a price twice. `normalizeBedType`
+ * returns null for real room types — `"Shared"` is live data and does not say
+ * how many people share — so a rate card could not price every room a hostel
+ * rents, `roomConfigurations[].monthlyRent` had to stay as a second store, and
+ * the two drifted until one hostel advertised 18,000 and invoiced 174,000.
+ */
+describe("rateForRoomType", () => {
+  const byRoomType: FeeScheduleRecord = {
+    ...schedule,
+    rates: [
+      { bedType: "SINGLE", monthlyAmount: 18000, roomType: "Single Room" },
+      { bedType: null, monthlyAmount: 7500, roomType: "Shared" },
+    ],
+  };
+
+  it("matches the room type the hostel actually uses", () => {
+    expect(rateForRoomType(byRoomType, "Single Room")?.monthlyAmount).toBe(18000);
+  });
+
+  it("prices a room type that maps to no bed type at all", () => {
+    // The whole reason the second store existed.
+    expect(rateForRoomType(byRoomType, "Shared")?.monthlyAmount).toBe(7500);
+  });
+
+  it("ignores spelling and case, because a room type is text somebody typed", () => {
+    expect(rateForRoomType(byRoomType, "  single room ")?.monthlyAmount).toBe(18000);
+  });
+
+  it("falls back to bed type for a card written before the re-key", () => {
+    // Nothing has to be migrated before it can be billed.
+    expect(rateForRoomType(schedule, "Single")?.monthlyAmount).toBe(18000);
+  });
+
+  it("does not match a re-keyed rate on bed type", () => {
+    /*
+     * "Private" and "Single Room" both normalise to SINGLE. Matching a rate that
+     * names a room type on its bed type instead would hand back whichever came
+     * first — the ambiguity room-type keying exists to end.
+     */
+    expect(rateForRoomType(byRoomType, "Private")).toBeNull();
+  });
+
+  it("returns null rather than guessing when nothing matches", () => {
+    expect(rateForRoomType(byRoomType, "Penthouse")).toBeNull();
+    expect(rateForRoomType(null, "Single Room")).toBeNull();
+  });
+
+  it("prices a resident off the room-type rate, through the same lookup", () => {
+    // The billing run and the intake quote must be one arithmetic on one row.
+    const charge = resolveMonthlyCharge(resident({ roomType: "Shared" }), byRoomType);
+
+    expect(charge).toMatchObject({ amount: 7500, basis: "SCHEDULE" });
   });
 });

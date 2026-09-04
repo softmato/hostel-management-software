@@ -1,4 +1,3 @@
-import type { AxiosError } from "axios";
 import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
@@ -16,15 +15,17 @@ import { Sheet } from "@/components/ui/sheet";
 import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
-  type AdminNightStatus,
   type AdminNightStatusRow,
-  getAdminNightStatus,
   overrideNightStatus,
 } from "@/lib/admin-api";
+import {
+  type AdminRollCallData,
+  adminQuery,
+  MAX_ROLL_CALL_PAGES,
+} from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import {
@@ -70,61 +71,20 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * them. This is bounded by residents-per-hostel, which the service's own note
  * puts in the hundreds, so it is two requests in the worst realistic case.
  */
-type RollCallData = {
-  /** Null when this account has no `viewNightStatus` grant — a 403, not a fault. */
-  night: AdminNightStatus | null;
-};
-
-/**
- * Ten pages of a hundred.
- *
- * Not a paging strategy — a fuse. The roster is bounded by how many people live
- * in one hostel, so `totalPages` above this means the server is telling us
- * something we do not understand, and a thousand rows is already far past the
- * point where a phone list is the right answer. Better a truncated screen than
- * a launch that fires forty requests.
+/*
+ * `RollCallData`, the page-walk and the 403 rule moved to
+ * `lib/admin-queries.ts` as `adminQuery.rollCall()`. The portal warms it on
+ * entry, because this screen is one tap from Home in two places — the Manage
+ * grid and Today — and walking ten pages of roster is the slowest read in the
+ * portal.
  */
-const MAX_PAGES = 10;
-
-async function loadRollCall(): Promise<RollCallData> {
-  try {
-    const first = await getAdminNightStatus();
-
-    if (!first.pagination.hasMore) {
-      return { night: first };
-    }
-
-    const rest = await Promise.all(
-      Array.from(
-        { length: Math.min(first.pagination.totalPages, MAX_PAGES) - 1 },
-        (_unused, index) => getAdminNightStatus({ page: index + 2 }),
-      ),
-    );
-
-    return {
-      night: {
-        ...first,
-        statuses: [...first.statuses, ...rest.flatMap((page) => page.statuses)],
-      },
-    };
-  } catch (error) {
-    /*
-     * Only a 403 becomes "not yours". Everything else — a timeout, a 500, no
-     * network — has to stay an error, because rendering the permission card for
-     * a server that is merely down tells a warden their access was removed.
-     */
-    if ((error as AxiosError).response?.status === 403) {
-      return { night: null };
-    }
-
-    throw error;
-  }
-}
 
 export default function ManageRollCallScreen() {
   const dates = useDates();
-  const roll = useResource<RollCallData>(useCallback(() => loadRollCall(), []), {
-    topics: [REALTIME_TOPIC.ATTENDANCE, REALTIME_TOPIC.SAFETY],
+  const rollQuery = adminQuery.rollCall();
+  const roll = useResource<AdminRollCallData>(rollQuery.load, {
+    cacheKey: rollQuery.key,
+    topics: rollQuery.topics,
   });
 
   const [segment, setSegment] = useState<RollCallSegment>("unverified");
@@ -301,9 +261,9 @@ export default function ManageRollCallScreen() {
             </View>
           )}
 
-          {night.pagination.totalPages > MAX_PAGES ? (
+          {night.pagination.totalPages > MAX_ROLL_CALL_PAGES ? (
             <Text variant="caption">
-              {`Showing the first ${MAX_PAGES * night.pagination.pageSize} of ${night.pagination.total}. The rest are on the portal.`}
+              {`Showing the first ${MAX_ROLL_CALL_PAGES * night.pagination.pageSize} of ${night.pagination.total}. The rest are on the portal.`}
             </Text>
           ) : null}
         </View>

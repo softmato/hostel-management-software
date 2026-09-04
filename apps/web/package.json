@@ -17,6 +17,8 @@
     "recover:admin": "node scripts/recover-admin-account.mjs",
     "check:private-documents": "node scripts/check-private-documents.mjs",
     "migrate:rooms-to-counts": "node scripts/migrate-rooms-to-counts.mjs",
+    "migrate:rate-card-room-types": "node scripts/migrate-rate-card-to-room-types.mjs",
+    "fix:september-single-rate": "node scripts/fix-september-single-rate.mjs",
     "migrate:payment-caps": "node scripts/migrate-warden-payment-capabilities.mjs",
     "seed:fee-schedules": "node scripts/seed-fee-schedules.mjs",
     "backfill:reference-prefix": "node scripts/backfill-hostel-reference-prefix.mjs",

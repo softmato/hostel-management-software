@@ -411,6 +411,7 @@ export function PublicShell({
     | "contact"
     | "home"
     | "jobs"
+    | "map"
     | "offer-program"
     | "pricing"
     | "privacy"

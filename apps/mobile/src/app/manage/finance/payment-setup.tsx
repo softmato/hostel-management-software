@@ -15,11 +15,8 @@ import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
-import {
-  getPaymentProfile,
-  type PaymentProfile,
-  updatePaymentProfile,
-} from "@/lib/admin-manage-api";
+import { type PaymentProfile, updatePaymentProfile } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { viewerSourceFor } from "@/lib/asset-viewer";
@@ -62,9 +59,11 @@ export default function ManagePaymentSetupScreen() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  const resource = useResource<PaymentProfile>(
-    useCallback(() => getPaymentProfile(), []),
-  );
+  const query = adminQuery.paymentProfile();
+  const resource = useResource<PaymentProfile>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const profile = resource.data ?? null;
 

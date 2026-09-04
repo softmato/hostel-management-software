@@ -15,16 +15,12 @@ import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
-  type AttendanceAnalytics,
   type CountMap,
-  type FoodAnalytics,
-  getAttendanceAnalytics,
-  getFoodAnalytics,
-  getReportsOverview,
   REPORT_EXPORTS,
   type ReportExport,
   type ReportsOverview,
 } from "@/lib/admin-manage-api";
+import { type AdminReportsData, adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
@@ -152,23 +148,10 @@ function CollectionStrip({ points }: { points: ReportsOverview["payments"]["mont
   );
 }
 
-type ReportsData = {
-  attendance: AttendanceAnalytics | null;
-  food: FoodAnalytics | null;
-  overview: ReportsOverview | null;
-};
-
-async function loadReports(month: string): Promise<ReportsData> {
-  const [overview, attendance, food] = await Promise.all([
-    getReportsOverview(month).catch(() => null),
-    getAttendanceAnalytics(30).catch(() => null),
-    // `reports/food` wants `manageFood`, while the other two only want staff —
-    // so this is the one a warden most often cannot see, and it fails alone.
-    getFoodAnalytics(30).catch(() => null),
-  ]);
-
-  return { attendance, food, overview };
-}
+/*
+ * `ReportsData` and its loader are `adminQuery.reports(month)` — see
+ * `lib/admin-queries.ts`.
+ */
 
 export default function ManageReportsScreen() {
   const dates = useDates();
@@ -176,9 +159,11 @@ export default function ManageReportsScreen() {
   const [tab, setTab] = useState<Tab>("money");
   const [exporting, setExporting] = useState<ReportExport | "">("");
 
-  const reports = useResource<ReportsData>(
-    useCallback(() => loadReports(month), [month]),
-  );
+  const query = adminQuery.reports(month);
+  const reports = useResource<AdminReportsData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const overview = reports.data?.overview ?? null;
   const months = useMemo(() => [...(overview?.months ?? [])].reverse(), [overview]);

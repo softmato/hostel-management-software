@@ -14,8 +14,10 @@ import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
-import { type AdminHostel, getAdminHostel } from "@/lib/admin-api";
+import type { AdminHostel } from "@/lib/admin-api";
+import { adminQuery, prefetchAdminRoute } from "@/lib/admin-queries";
 import { endSession } from "@/lib/auth-session";
+import { prefetchCommunity } from "@/lib/community-queries";
 import { readableRole } from "@/constants/roles";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
@@ -56,9 +58,11 @@ const MANAGE_ROWS: {
   },
   {
     /*
-      The tile added to Home's `ServiceGrid` in the same breath — this list and
-      that grid are one map of the product, and letting them diverge means a
-      hostel owner learning two.
+      The one row in this list with no tile in Home's `ServiceGrid`, and the
+      divergence is deliberate: Home reaches the ledger from "Waiting for you",
+      four cells above where the tile would sit, and two doors to one screen
+      inside a single scroll is what that row's own rules forbid. This screen has
+      no "Waiting for you", so here it is a row like any other.
     */
     href: "/manage/finance/statement",
     icon: "receipt-outline",
@@ -74,9 +78,10 @@ const MANAGE_ROWS: {
   {
     /*
       Added when the Store took roll call's cell in Home's shortcut row. This
-      list and Home's `ServiceGrid` are the same nine-then-ten destinations in
-      the same order — a tile added there is a row added here in the same
-      breath, or a hostel owner ends up learning two maps of one product.
+      list and Home's `ServiceGrid` are the same destinations in the same order,
+      bar the `Statement` row above — a tile added there is a row added here in
+      the same breath, or a hostel owner ends up learning two maps of one
+      product.
     */
     href: "/manage/roll-call",
     icon: "moon-outline",
@@ -138,9 +143,16 @@ export default function AdminMoreScreen() {
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
-  const hostel = useResource<AdminHostel | null>(
-    useCallback(() => getAdminHostel().catch(() => null), []),
-  );
+  /*
+   * The same key Home reads, so whichever of the two loads first fills in the
+   * other. It is also in the portal's warm-up, which is why this screen's header
+   * is usually already named by the time it is opened.
+   */
+  const query = adminQuery.hostel();
+  const hostel = useResource<AdminHostel | null>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
   const [signingOut, setSigningOut] = useState(false);
 
   const signOut = useCallback(() => {
@@ -259,6 +271,9 @@ export default function AdminMoreScreen() {
                 icon={row.icon}
                 key={row.href}
                 onPress={() => router.push(row.href)}
+                // Same trigger as Home's Manage grid, which lists these same
+                // eight doors — see `prefetchAdminRoute`.
+                onPressIn={() => prefetchAdminRoute(row.href)}
                 subtitle={row.subtitle}
                 title={row.title}
               />
@@ -279,6 +294,13 @@ export default function AdminMoreScreen() {
             <ListRow
               icon="people-outline"
               onPress={() => router.push("/community")}
+              /*
+                The same trigger the Manage rows above use, pointed at the one
+                registry that is not `admin-queries.ts`: the board is
+                platform-wide, so `prefetchAdminRoute` deliberately does not know
+                this route. See `lib/community-queries.ts`.
+              */
+              onPressIn={prefetchCommunity}
               subtitle="What residents are saying, platform-wide"
               title="Community"
             />

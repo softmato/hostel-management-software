@@ -63,7 +63,19 @@ export function SectionHeader({
  * and must not out-weigh it — a filled control up there reads as the section's
  * main action, which is the opposite of what this is.
  */
-export function SectionLink({ label = "See all", onPress }: { label?: string; onPress: () => void }) {
+export function SectionLink({
+  label = "See all",
+  onPress,
+  onPressIn,
+}: {
+  label?: string;
+  onPress: () => void;
+  /**
+   * Touch-down. Starts the fetch the destination will make — see `<ListRow>`'s
+   * note for why it must stay side-effect-free.
+   */
+  onPressIn?: () => void;
+}) {
   const { colors } = useAppTheme();
 
   return (
@@ -75,6 +87,7 @@ export function SectionLink({ label = "See all", onPress }: { label?: string; on
         void Haptics.selectionAsync();
         onPress();
       }}
+      onPressIn={onPressIn}
     >
       <Text className="text-xs font-semibold text-primary">{label}</Text>
       <Ionicons color={colors.primary} name="chevron-forward" size={13} />

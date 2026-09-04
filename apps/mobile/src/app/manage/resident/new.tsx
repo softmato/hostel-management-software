@@ -14,7 +14,6 @@ import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { Toggle } from "@/components/ui/toggle";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -31,6 +30,7 @@ import {
   type ResidentType,
 } from "@/lib/admin-manage-api";
 import { readApiError } from "@/lib/api-contract";
+import { formatDateIn } from "@/lib/calendar";
 import { humanizeEnum } from "@/lib/format";
 import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
 import {
@@ -122,7 +122,6 @@ export default function NewResidentScreen() {
   const [roomType, setRoomType] = useState<string | null>(null);
   const [moveInDate, setMoveInDate] = useState(() => dayInputFromNow(0));
   const [referralCode, setReferralCode] = useState("");
-  const [activeNow, setActiveNow] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const rooms = useMemo(
@@ -222,7 +221,16 @@ export default function NewResidentScreen() {
         referralCode: referralCode.trim() || undefined,
         residentType: person.residentType,
         roomType,
-        status: activeNow ? "ACTIVE" : "PENDING",
+        /*
+         * Always active. The intake screen used to carry a "Living here" toggle
+         * that wrote `PENDING` instead, and nobody ever turned it off — a warden
+         * is registering the person standing at the desk. A pending resident
+         * holds a bed without being counted in occupancy or billed for it, which
+         * is a state worth having but not one worth asking about here; the
+         * resident's own screen is where somebody who has not turned up yet gets
+         * marked so.
+         */
+        status: "ACTIVE",
         // The card that opened this intake, so the server links the account it
         // already resolved rather than guessing at it from the email.
         userResidentId: identity?.kind === "card" ? identity.residentId : undefined,
@@ -255,7 +263,7 @@ export default function NewResidentScreen() {
     setSaving(false);
     toastSuccess("Registered", registeredNote(result, contacts));
     router.replace(`/manage/resident/${result.resident.id}`);
-  }, [activeNow, identity, moveInDate, person, referralCode, roomType]);
+  }, [identity, moveInDate, person, referralCode, roomType]);
 
   if (step === "identify") {
     return (
@@ -348,12 +356,10 @@ export default function NewResidentScreen() {
         />
       ) : (
         <TermsStep
-          activeNow={activeNow}
           moveInDate={moveInDate}
           onChangeMoveInDate={setMoveInDate}
           onChangeReferralCode={setReferralCode}
           onPickRoom={setRoomType}
-          onToggleActive={setActiveNow}
           quote={quote}
           referralCode={referralCode}
           roomType={roomType}
@@ -588,28 +594,35 @@ function FactCard({ facts, title }: { facts: IntakeFact[]; title: string }) {
 /* -------------------------------------------------------------------------- */
 
 function TermsStep({
-  activeNow,
   moveInDate,
   onChangeMoveInDate,
   onChangeReferralCode,
   onPickRoom,
-  onToggleActive,
   quote,
   referralCode,
   roomType,
   rooms,
 }: {
-  activeNow: boolean;
   moveInDate: string;
   onChangeMoveInDate: (value: string) => void;
   onChangeReferralCode: (value: string) => void;
   onPickRoom: (value: string) => void;
-  onToggleActive: (value: boolean) => void;
   quote: { data: IntakeQuote | null; loading: boolean };
   referralCode: string;
   roomType: string | null;
   rooms: ManagedHostel["roomConfigurations"];
 }) {
+  /*
+   * The move-in date said back in Nepali, under the field.
+   *
+   * Not `useDates().dateBoth`, which every other `manage/` screen reaches for:
+   * that prints the calendar the owner chose with the other in a parenthesis,
+   * and the box directly above already holds the Gregorian day they just typed.
+   * The hint's job here is the half they cannot read off the field — so it is
+   * always Bikram Sambat, and it moves on every keystroke.
+   */
+  const moveInHint = nepaliDayLabel(moveInDate);
+
   return (
     <View className="gap-5 pt-1">
       <View>
@@ -638,40 +651,13 @@ function TermsStep({
           )}
 
           <Input
+            hint={moveInHint}
             keyboardType="numbers-and-punctuation"
             label="Moving in on"
             onChangeText={onChangeMoveInDate}
             placeholder="YYYY-MM-DD"
             value={moveInDate}
           />
-
-          <View className="flex-row flex-wrap gap-2">
-            <Chip label="Today" onPress={() => onChangeMoveInDate(dayInputFromNow(0))} />
-            <Chip
-              label="Tomorrow"
-              onPress={() => onChangeMoveInDate(dayInputFromNow(1))}
-            />
-            <Chip
-              label="Next week"
-              onPress={() => onChangeMoveInDate(dayInputFromNow(7))}
-            />
-          </View>
-
-          <View className="flex-row items-center justify-between gap-3 border-t border-border pt-3">
-            <View className="flex-1">
-              <Text variant="label">{activeNow ? "Living here" : "Not yet arrived"}</Text>
-              <Text variant="caption">
-                {activeNow
-                  ? "Counted in occupancy and billed from the move-in date."
-                  : "Held as pending until you mark them active."}
-              </Text>
-            </View>
-            <Toggle
-              accessibilityLabel="Resident is already living here"
-              onChange={onToggleActive}
-              value={activeNow}
-            />
-          </View>
         </Card>
       </View>
 
@@ -705,6 +691,25 @@ function TermsStep({
       </View>
     </View>
   );
+}
+
+/**
+ * The typed day, said back in Bikram Sambat.
+ *
+ * Always BS, never the hostel's chosen calendar: the box above it is a
+ * `YYYY-MM-DD` Gregorian field, so this line is the *translation* of what was
+ * typed rather than a second rendering of it, and following the preference here
+ * would print the same date twice for a hostel that keeps books in English.
+ *
+ * Routed through `startOfDayIso` rather than parsed here so the Nepali day shown
+ * is the one the server will actually be sent — the conversion happens on the
+ * instant, at Nepal's offset, exactly as it does on save. A half-typed date has
+ * no Nepali day, and says the format instead.
+ */
+function nepaliDayLabel(dayInput: string): string {
+  const iso = startOfDayIso(dayInput);
+
+  return iso ? formatDateIn("BS", iso) : "Write the day as YYYY-MM-DD";
 }
 
 /**

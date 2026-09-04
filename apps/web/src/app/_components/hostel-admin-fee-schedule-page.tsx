@@ -22,7 +22,8 @@ import {
 import { browserApi } from "@/lib/browser-api";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
-import { BED_TYPE_LABELS, BED_TYPES, type BedType } from "@hostel/shared/types/bed-type";
+import { normalizeBedType } from "@/modules/finance/bed-type";
+import { BED_TYPE_LABELS, type BedType } from "@hostel/shared/types/bed-type";
 import { Message, PageHeader, field } from "./portal-shared";
 
 /**
@@ -31,15 +32,32 @@ import { Message, PageHeader, field } from "./portal-shared";
  * **This replaces the old Fee Plans page** (deviation §3.4, D2). That page read
  * `roomConfigurations[].monthlyRent` and called it a fee plan, so a hostel had
  * two rate cards on two screens — which is how a hostel bills the wrong amount.
- * `roomConfigurations[].monthlyRent` survives as the *public listing price*;
- * what is edited here is the *billing price*, and they are allowed to differ.
+ *
+ * For a while afterwards `roomConfigurations[].monthlyRent` survived as the
+ * *public listing price* and this was the *billing price*, and they were allowed
+ * to differ. That did not survive contact with a hostel: one advertised a single
+ * room at 18,000, had 180,000 here, and invoiced a resident 174,000 for their
+ * first month. Every screen read its own number correctly and nothing compared
+ * them. **There is one price now.** Saving this card writes the public listing,
+ * and the profile form no longer accepts a rent.
+ *
+ * So the boxes below are one per **room type**, not one per bed type. That is
+ * the change that makes a single price possible: a bed type is a five-value enum
+ * derived from free text, and it cannot express a hostel whose rooms are called
+ * `"Shared"` — which is why a second store had to exist.
  *
  * **A schedule is never edited.** Saving closes the current card the day before
  * the new one starts and opens a successor, so an invoice issued in March can
  * still be explained in September.
  */
 
-type Rate = { bedType: BedType; monthlyAmount: number };
+type Rate = {
+  /** Derived, for display only. Absent on a card written before the re-key. */
+  bedType?: BedType | null;
+  monthlyAmount: number;
+  /** The key. Absent on a card written before the re-key. */
+  roomType?: string | null;
+};
 
 type FeeSchedule = {
   _id: string;
@@ -49,7 +67,26 @@ type FeeSchedule = {
   effectiveFrom: string;
   effectiveTo: string | null;
   rates: Rate[];
+  /**
+   * Whether these rates are billing residents today, are only booked for a
+   * future month, or have finished.
+   *
+   * Decided by the server, because `effectiveTo === null` is a different
+   * question. For the whole month between saving new rates and them starting,
+   * the open row is upcoming while a closed row does the billing — reading the
+   * open row as "current" told an owner their rates were live when they were
+   * not, and the residents were billed at ten times the figure on screen.
+   */
+  standing?: "current" | "past" | "upcoming";
 };
+
+/** A room type the hostel offers, with what its public listing says today. */
+type RoomTypeOption = { monthlyRent: number; roomType: string };
+
+/** Matching is case- and punctuation-insensitive, as it is on the server. */
+function roomTypeKey(value: string | null | undefined) {
+  return (value ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
 
 const SCHEDULES_ENDPOINT = hostelAdminEndpoints.feeSchedules;
 
@@ -57,12 +94,19 @@ function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleDateString() : "—";
 }
 
-/** First of next month — the date a rate change almost always takes effect. */
-function defaultEffectiveFrom() {
+/**
+ * First of a month, `n` months out. Rates never start mid-month.
+ *
+ * Built from local parts rather than `toISOString` on a local `Date`, which
+ * shifts the day backwards for anyone east of UTC — in Kathmandu the 1st became
+ * the last day of the previous month, which the server would then round back and
+ * quietly reject as "this month".
+ */
+function monthStart(offsetMonths: number) {
   const now = new Date();
-  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const start = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
 
-  return next.toISOString().slice(0, 10);
+  return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 export const HostelAdminFeeSchedulePageContent = memo(
@@ -70,25 +114,125 @@ export const HostelAdminFeeSchedulePageContent = memo(
     const [message, setMessage] = useState("");
     const [saving, setSaving] = useState(false);
 
-    const resource = usePortalResource<{ schedules: FeeSchedule[] }>(
-      SCHEDULES_ENDPOINT,
-      { errorMessage: "Could not load the rate card." },
-    );
+    const resource = usePortalResource<{
+      roomTypes: RoomTypeOption[];
+      schedules: FeeSchedule[];
+    }>(SCHEDULES_ENDPOINT, { errorMessage: "Could not load the rate card." });
 
     const schedules = useMemo(
       () => resource.data?.schedules ?? [],
       [resource.data],
     );
-    const open = useMemo(
-      () => schedules.find((schedule) => schedule.effectiveTo === null) ?? null,
+    const roomTypes = useMemo(
+      () => resource.data?.roomTypes ?? [],
+      [resource.data],
+    );
+    /*
+     * What is billing residents today, and what is only booked to. Two different
+     * cards for the whole month between saving rates and their month arriving —
+     * conflating them is the defect this screen carried.
+     */
+    const current = useMemo(
+      () => schedules.find((schedule) => schedule.standing === "current") ?? null,
+      [schedules],
+    );
+    const upcoming = useMemo(
+      () => schedules.find((schedule) => schedule.standing === "upcoming") ?? null,
+      [schedules],
+    );
+    /** The card the form edits: next month's if one is booked, else a new one. */
+    const open = upcoming ?? current;
+
+    /** Only rates that have finished. The live ones are shown above, not filed. */
+    const pastSchedules = useMemo(
+      () => schedules.filter((schedule) => schedule.standing === "past"),
       [schedules],
     );
 
-    /** Rate for a bed type on the open card, or blank so nothing is invented. */
+    /*
+     * Every room type the hostel offers *or* has ever priced. A card closed
+     * against a room type since renamed still has to show its rents — history
+     * that quietly drops a column is history nobody can audit.
+     */
+    const historyColumns = useMemo(() => {
+      const seen = new Map<string, string>();
+
+      for (const option of roomTypes) {
+        seen.set(roomTypeKey(option.roomType), option.roomType);
+      }
+
+      for (const schedule of schedules) {
+        for (const rate of schedule.rates) {
+          const label =
+            rate.roomType ?? (rate.bedType ? BED_TYPE_LABELS[rate.bedType] : null);
+
+          if (label && !seen.has(roomTypeKey(label))) {
+            seen.set(roomTypeKey(label), label);
+          }
+        }
+      }
+
+      return [...seen.values()];
+    }, [roomTypes, schedules]);
+
+    /**
+     * The rate on the open card for one room type, or blank so nothing is
+     * invented. Falls back to the bed type for a card saved before rates were
+     * keyed by room type, so an owner opening this screen sees what they set.
+     */
     const rateFor = useCallback(
-      (bedType: BedType) =>
-        open?.rates.find((rate) => rate.bedType === bedType)?.monthlyAmount ?? "",
+      (roomType: string) => {
+        const byRoomType = open?.rates.find(
+          (rate) => roomTypeKey(rate.roomType) === roomTypeKey(roomType),
+        );
+
+        if (byRoomType) {
+          return byRoomType.monthlyAmount;
+        }
+
+        const bedType = normalizeBedType(roomType);
+        const legacy = bedType
+          ? open?.rates.find((rate) => !rate.roomType && rate.bedType === bedType)
+          : undefined;
+
+        return legacy?.monthlyAmount ?? "";
+      },
       [open],
+    );
+
+    /**
+     * Drops rates that have not started yet, and lets the current ones carry on.
+     *
+     * Only ever offered for an upcoming card. One that is billing residents is
+     * history — an invoice may already carry its id — and the server refuses it
+     * regardless of what the screen shows.
+     */
+    const removeUpcoming = useCallback(
+      async (scheduleId: string) => {
+        const confirmed = window.confirm(
+          "Delete the rates booked for next month? They have not started, so nothing has been billed from them, and your current rates carry on.",
+        );
+
+        if (!confirmed) {
+          return;
+        }
+
+        setSaving(true);
+        setMessage("");
+
+        try {
+          await browserApi(`${SCHEDULES_ENDPOINT}/${scheduleId}`, { method: "DELETE" });
+          setMessage("Upcoming rates deleted. Your current rates carry on.");
+          await resource.refreshAsync();
+        } catch (error) {
+          setMessage(
+            error instanceof Error ? error.message : "Could not delete those rates.",
+          );
+        } finally {
+          setSaving(false);
+        }
+      },
+      [resource],
     );
 
     const save = useCallback(
@@ -96,21 +240,22 @@ export const HostelAdminFeeSchedulePageContent = memo(
         event.preventDefault();
         const form = new FormData(event.currentTarget);
 
-        // A blank box means "this hostel does not offer that bed type", not
-        // "free". Sending a zero would price it at nothing; omitting it makes
-        // billing fail loudly with BED_TYPE_NOT_PRICED, which is the rule.
-        const rates = BED_TYPES.map((bedType) => ({
-          bedType,
-          monthlyAmount: field(form, `rate-${bedType}`),
-        }))
+        // A blank box means "not priced yet", not "free". Sending a zero would
+        // price it at nothing; omitting it makes billing fail loudly and name
+        // the resident it could not price, which is the rule.
+        const rates = roomTypes
+          .map((option) => ({
+            monthlyAmount: field(form, `rate-${option.roomType}`),
+            roomType: option.roomType,
+          }))
           .filter((entry) => entry.monthlyAmount !== "")
           .map((entry) => ({
-            bedType: entry.bedType,
             monthlyAmount: Number(entry.monthlyAmount),
+            roomType: entry.roomType,
           }));
 
         if (rates.length === 0) {
-          setMessage("Set a rate for at least one bed type.");
+          setMessage("Set a rate for at least one room type.");
           return;
         }
 
@@ -136,7 +281,7 @@ export const HostelAdminFeeSchedulePageContent = memo(
           });
 
           setMessage(
-            "New rate card saved. The previous one is closed and stays readable below.",
+            "New rate card saved. Your public listing now shows these rents, and the previous card is closed and stays readable below.",
           );
           await resource.refreshAsync();
         } catch (error) {
@@ -147,13 +292,13 @@ export const HostelAdminFeeSchedulePageContent = memo(
           setSaving(false);
         }
       },
-      [resource],
+      [resource, roomTypes],
     );
 
     return (
       <div className="mx-auto max-w-[1100px] space-y-6">
         <PageHeader
-          description="What this hostel charges per bed type. Every invoice is computed from the card that was open on its billing date."
+          description="The one place a rent is set. Your public listing is written from this card, and every invoice is computed from the card that was open on its billing date."
           icon={Coins}
           title="Fee Schedule"
         />
@@ -166,38 +311,90 @@ export const HostelAdminFeeSchedulePageContent = memo(
 
         {resource.state === "ready" ? (
           <>
-            {open ? null : (
+            {current ? null : (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300">
-                <p className="font-semibold">This hostel has no open rate card.</p>
+                <p className="font-semibold">
+                  {upcoming
+                    ? "No rates are running this month."
+                    : "This hostel has no rate card."}
+                </p>
                 <p className="mt-1 leading-5">
-                  Billing will fail for every resident until one exists — deliberately,
-                  because a guessed rate is worse than a run that stops and says why.
+                  {upcoming
+                    ? `Billing fails for every resident until ${formatDate(upcoming.effectiveFrom)}, when the rates below start. Rates already running cannot be changed, so this gap has to be filled by the platform team.`
+                    : "Billing will fail for every resident until one exists — deliberately, because a guessed rate is worse than a run that stops and says why."}
                 </p>
               </div>
             )}
 
+            {upcoming ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+                <p className="leading-5">
+                  <span className="font-semibold text-foreground">
+                    Rates are booked for {formatDate(upcoming.effectiveFrom)}.
+                  </span>{" "}
+                  They have not started, so you can change them below or delete them.
+                </p>
+                <button
+                  className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive transition hover:bg-destructive/20 disabled:opacity-60"
+                  disabled={saving}
+                  onClick={() => void removeUpcoming(upcoming._id)}
+                  type="button"
+                >
+                  Delete these rates
+                </button>
+              </div>
+            ) : null}
+
             <Panel
-              title={open ? "Change the rate card" : "Create the first rate card"}
+              title={
+                upcoming
+                  ? "Change next month's rates"
+                  : current
+                    ? "Set rates for a future month"
+                    : "Set your first rates"
+              }
             >
               <form className="grid gap-4" key={open?._id ?? "new"} onSubmit={save}>
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Layers aria-hidden="true" className="size-4" />
-                  Leave a bed type blank if you do not offer it. A blank is not free —
-                  billing stops and names the resident it could not price.
+                  One rate per room type you offer. A blank is not free — billing
+                  stops and names the resident it could not price.
                 </p>
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {BED_TYPES.map((bedType) => (
-                    <Input
-                      defaultValue={rateFor(bedType)}
-                      key={bedType}
-                      label={`${BED_TYPE_LABELS[bedType]} (NPR / month)`}
-                      min="0"
-                      name={`rate-${bedType}`}
-                      step="1"
-                      type="number"
-                    />
-                  ))}
-                </div>
+                {roomTypes.length === 0 ? (
+                  <EmptyState label="Add your room types on the hostel profile first — a rate is set against one." />
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {roomTypes.map((option) => {
+                      const bedType = normalizeBedType(option.roomType);
+
+                      return (
+                        <Input
+                          defaultValue={rateFor(option.roomType)}
+                          /*
+                           * The rent the public page shows today, printed under
+                           * the box. Nothing used to put these two numbers on one
+                           * screen, which is exactly how 18,000 on a listing and
+                           * 180,000 on a card went unnoticed for a month. After
+                           * saving they are the same number by construction.
+                           */
+                          hint={
+                            option.monthlyRent > 0
+                              ? `Listed at ${currency(option.monthlyRent)}${bedType ? ` · ${BED_TYPE_LABELS[bedType]}` : ""}`
+                              : bedType
+                                ? BED_TYPE_LABELS[bedType]
+                                : "No listed price yet"
+                          }
+                          key={option.roomType}
+                          label={`${option.roomType} (NPR / month)`}
+                          min="0"
+                          name={`rate-${option.roomType}`}
+                          step="1"
+                          type="number"
+                        />
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <Input
                     defaultValue={open?.admissionFee ?? ""}
@@ -224,9 +421,10 @@ export const HostelAdminFeeSchedulePageContent = memo(
                     type="number"
                   />
                   <Input
-                    defaultValue={defaultEffectiveFrom()}
-                    hint="The current card closes the day before this."
-                    label="Effective from"
+                    defaultValue={upcoming?.effectiveFrom.slice(0, 10) ?? monthStart(1)}
+                    hint="Rates start on the 1st of a month. This month cannot change — those residents are already being billed."
+                    label="Starts from"
+                    min={monthStart(1)}
                     name="effectiveFrom"
                     required
                     type="date"
@@ -244,17 +442,17 @@ export const HostelAdminFeeSchedulePageContent = memo(
               </form>
             </Panel>
 
-            <Panel title="Rate card history">
-              {schedules.length === 0 ? (
-                <EmptyState label="No rate card has been set for this hostel yet." />
+            <Panel title="Past rates">
+              {pastSchedules.length === 0 ? (
+                <EmptyState label="No rates have finished yet." />
               ) : (
                 <DataTable className="min-w-[680px]">
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
                       <Th>Effective</Th>
-                      {BED_TYPES.map((bedType) => (
-                        <Th align="right" key={bedType}>
-                          {BED_TYPE_LABELS[bedType]}
+                      {historyColumns.map((roomType) => (
+                        <Th align="right" key={roomType}>
+                          {roomType}
                         </Th>
                       ))}
                       <Th align="right">Deposit</Th>
@@ -262,7 +460,7 @@ export const HostelAdminFeeSchedulePageContent = memo(
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {schedules.map((schedule) => (
+                    {pastSchedules.map((schedule) => (
                       <TableRow key={schedule._id}>
                         <TableCell className="whitespace-nowrap font-semibold text-foreground">
                           <span className="flex items-center gap-1.5">
@@ -274,13 +472,24 @@ export const HostelAdminFeeSchedulePageContent = memo(
                             {formatDate(schedule.effectiveTo)}
                           </span>
                         </TableCell>
-                        {BED_TYPES.map((bedType) => {
-                          const rate = schedule.rates.find(
-                            (entry) => entry.bedType === bedType,
-                          );
+                        {historyColumns.map((roomType) => {
+                          const bedType = normalizeBedType(roomType);
+                          const rate =
+                            schedule.rates.find(
+                              (entry) =>
+                                roomTypeKey(entry.roomType) === roomTypeKey(roomType),
+                            ) ??
+                            // A card closed before rates were keyed by room type
+                            // still has to be readable — that is the whole point
+                            // of keeping history.
+                            (bedType
+                              ? schedule.rates.find(
+                                  (entry) => !entry.roomType && entry.bedType === bedType,
+                                )
+                              : undefined);
 
                           return (
-                            <TableCell className="text-right" key={bedType}>
+                            <TableCell className="text-right" key={roomType}>
                               {rate ? (
                                 currency(rate.monthlyAmount)
                               ) : (
@@ -295,11 +504,7 @@ export const HostelAdminFeeSchedulePageContent = memo(
                             : "—"}
                         </TableCell>
                         <TableCell>
-                          {schedule.effectiveTo === null ? (
-                            <SoftBadge tone="green">Current</SoftBadge>
-                          ) : (
-                            <SoftBadge tone="slate">Closed</SoftBadge>
-                          )}
+                          <SoftBadge tone="slate">Finished</SoftBadge>
                         </TableCell>
                       </TableRow>
                     ))}

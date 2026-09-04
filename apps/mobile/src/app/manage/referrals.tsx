@@ -18,11 +18,11 @@ import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   confirmReferral,
-  listReferrals,
   type ManagedReferral,
   type ReferralsPayload,
   updateReferralReward,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -83,9 +83,11 @@ export default function ManageReferralsScreen() {
   >("APPROVED");
   const [busy, setBusy] = useState(false);
 
-  const referrals = useResource<ReferralsPayload>(
-    useCallback(() => listReferrals(filter), [filter]),
-  );
+  const query = adminQuery.referrals(filter);
+  const referrals = useResource<ReferralsPayload>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const rows = useMemo(() => referrals.data?.referrals ?? [], [referrals.data]);
   const summary = referrals.data?.summary ?? null;

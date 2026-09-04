@@ -183,6 +183,20 @@ export default function SettingsScreen() {
                 subtitle="What we collect, why, and for how long"
                 title="Privacy policy"
               />
+              <RowDivider inset />
+              {/*
+                The one piece of data collection a resident can actually switch
+                off, so it belongs on the privacy screen and not only on More.
+                Somebody who opens "Privacy & your data" looking for the tracking
+                control should find it here rather than being sent to a policy
+                document that describes it.
+              */}
+              <ListRow
+                icon="location-outline"
+                onPress={() => router.push("/attendance")}
+                subtitle="See what has been recorded, stop it, or delete it"
+                title="Location & attendance"
+              />
             </Card>
           </View>
         ) : null}

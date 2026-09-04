@@ -23,26 +23,16 @@ import {
   addEmergencyContact,
   addResidentGuardian,
   type ActivationIssue,
-  getManagedHostel,
-  getMoveInChecklist,
-  getMoveOutChecklist,
-  getResident,
-  getResidentLedger,
   issueActivationCode,
   issueGuardianAccess,
-  listResidentContacts,
-  type ManagedResident,
-  type MoveInChecklist,
   type MoveOutChecklist,
-  type ResidentEmergencyContact,
-  type ResidentGuardian,
-  type ResidentLedger,
   saveMoveInChecklist,
   saveMoveOutChecklist,
   setResidentFee,
   setResidentStatus,
   updateResident,
 } from "@/lib/admin-manage-api";
+import { type AdminResidentRecord, adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -104,44 +94,11 @@ const REFUND_OPTIONS = [
   { description: "Nothing goes back.", label: "Forfeited", value: "FORFEITED" },
 ] as const;
 
-type ResidentData = {
-  contacts: {
-    emergencyContacts: ResidentEmergencyContact[];
-    guardians: ResidentGuardian[];
-  };
-  /**
-   * Their whole payment history — null when this account cannot see money.
-   * `viewPayments` is a separate capability, so a warden who may manage people
-   * but not payments still gets the rest of the record.
-   */
-  ledger: ResidentLedger | null;
-  moveIn: MoveInChecklist | null;
-  moveOut: MoveOutChecklist | null;
-  resident: ManagedResident;
-  roomTypes: string[];
-};
-
-async function loadResident(id: string): Promise<ResidentData> {
-  const [resident, contacts, moveIn, moveOut, hostel, ledger] = await Promise.all([
-    getResident(id),
-    listResidentContacts(id).catch(() => ({ emergencyContacts: [], guardians: [] })),
-    getMoveInChecklist(id).catch(() => null),
-    getMoveOutChecklist(id).catch(() => null),
-    // Only for the room-type picker. A stale list would offer a type that no
-    // longer exists, and the move would fail on the server rather than here.
-    getManagedHostel().catch(() => null),
-    getResidentLedger(id).catch(() => null),
-  ]);
-
-  return {
-    contacts,
-    ledger,
-    moveIn,
-    moveOut,
-    resident,
-    roomTypes: (hostel?.roomConfigurations ?? []).map((config) => config.roomType),
-  };
-}
+/*
+ * `ResidentData` and its six-request loader are `adminQuery.resident(id)` — see
+ * `lib/admin-queries.ts`. The roster warms this key on touch-down of a row, so
+ * the record is usually on its way before the screen is pushed.
+ */
 
 /**
  * One labelled block of facts inside the See details sheet.
@@ -172,7 +129,11 @@ function toNumber(value: string) {
 export default function ManageResidentScreen() {
   const dates = useDates();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const data = useResource<ResidentData>(useCallback(() => loadResident(id), [id]));
+  const query = adminQuery.resident(id);
+  const data = useResource<AdminResidentRecord>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [panel, setPanel] = useState<Panel>(null);
   const [busy, setBusy] = useState(false);

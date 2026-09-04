@@ -18,7 +18,6 @@ import { Money } from "@/components/ui/money";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -28,11 +27,11 @@ import {
   type AdminClaim,
   type AdminInquiry,
   approveClaim,
-  getAdminAlerts,
   rejectClaim,
   replyToComplaint,
 } from "@/lib/admin-api";
 import type { AlertKind, AlertRow } from "@/lib/admin-alerts";
+import { adminQuery } from "@/lib/admin-queries";
 import {
   addInquiryNote,
   INQUIRY_STATUSES,
@@ -64,6 +63,14 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * `useResource`'s `topics` keep it live — the socket publishes `payments`,
  * `complaints`, `inquiries` and `safety` on every server-side change, so an SOS
  * raised while the app is open lands on the banner without a pull.
+ *
+ * ## And once per *session*, not once per visit
+ *
+ * The provider unmounts when a warden leaves the group — to the public browse
+ * tabs, to a hostel page, to settings — so "once for the whole admin group" used
+ * to end at the group's edge, and every return counted the badges again from
+ * nothing. The queue is now keyed in `lib/query-cache`, so coming back paints
+ * the counts it left with and revalidates behind them.
  */
 type AdminAlertsValue = {
   /** How many rows of each kind need someone. Drives the tab badges. */
@@ -86,13 +93,10 @@ const EMPTY_COUNTS: Record<AlertKind, number> = {
 const AdminAlertsContext = createContext<AdminAlertsValue | null>(null);
 
 export function AdminAlertsProvider({ children }: { children: ReactNode }) {
-  const alerts = useResource<AdminAlerts>(useCallback(() => getAdminAlerts(), []), {
-    topics: [
-      REALTIME_TOPIC.PAYMENTS,
-      REALTIME_TOPIC.COMPLAINTS,
-      REALTIME_TOPIC.INQUIRIES,
-      REALTIME_TOPIC.SAFETY,
-    ],
+  const query = adminQuery.alerts();
+  const alerts = useResource<AdminAlerts>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
   });
 
   const { data, error, loading, refresh, refreshing, reload } = alerts;

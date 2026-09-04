@@ -24,7 +24,9 @@ const serviceMocks = vi.hoisted(() => ({
   notifyRegistered: vi.fn(),
   residentUpdateOne: vi.fn(),
   sendEmail: vi.fn(),
+  userFind: vi.fn(),
   userFindOne: vi.fn(),
+  promoteAccountToResident: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -98,7 +100,7 @@ vi.mock("@hostel/db/models/Resident", () => ({
  * account up by an address the resident can edit.
  */
 vi.mock("@hostel/db/models/User", () => ({
-  UserModel: { findOne: serviceMocks.userFindOne },
+  UserModel: { find: serviceMocks.userFind, findOne: serviceMocks.userFindOne },
 }));
 
 vi.mock("@hostel/db/models/Hostel", () => ({
@@ -107,6 +109,18 @@ vi.mock("@hostel/db/models/Hostel", () => ({
 
 vi.mock("@hostel/shared/email/sender", () => ({
   sendEmail: serviceMocks.sendEmail,
+}));
+
+vi.mock("@/modules/users/resident-promotion.service", () => ({
+  hasClearance: (cleared: {
+    activatedInvite?: boolean;
+    clearedMemberships?: unknown[];
+    clearedRole?: string | null;
+  }) =>
+    Boolean(cleared?.clearedRole) ||
+    (cleared?.clearedMemberships?.length ?? 0) > 0 ||
+    Boolean(cleared?.activatedInvite),
+  promoteAccountToResident: serviceMocks.promoteAccountToResident,
 }));
 
 vi.mock("@/modules/users/user.service", () => ({
@@ -151,6 +165,13 @@ const staffPrincipal = {
   role: Role.HOSTEL_ADMIN,
   sessionId: "session-1",
   userId: "64f0f0f0f0f0f0f0f0f0f0f9",
+};
+
+/** A promotion that took nothing away, which is the ordinary case. */
+const NO_CLEARANCE = {
+  activatedInvite: false,
+  clearedMemberships: [] as { hostelName: string; role: string }[],
+  clearedRole: null,
 };
 
 function queryResult<T>(value: T) {
@@ -210,6 +231,7 @@ describe("resident management service behavior", () => {
     // somebody who has never used the website: the intake still succeeds and
     // the resident redeems an activation code instead.
     serviceMocks.userFindOne.mockReturnValue(queryResult(null));
+    serviceMocks.userFind.mockReturnValue(queryResult([]));
     serviceMocks.hostelFindById.mockReturnValue(queryResult({ name: "Sunrise Hostel" }));
     serviceMocks.residentUpdateOne.mockResolvedValue({ acknowledged: true });
     serviceMocks.sendEmail.mockResolvedValue(undefined);
@@ -768,9 +790,8 @@ describe("resident management service behavior", () => {
     serviceMocks.residentFindById.mockReturnValue(
       queryResult(residentRecord({ status: "ACTIVE", userId: accountId })),
     );
-    serviceMocks.registerOrUpgradeUserByEmail.mockResolvedValue({
-      created: false,
-      temporaryPassword: null,
+    serviceMocks.promoteAccountToResident.mockResolvedValue({
+      cleared: NO_CLEARANCE,
       upgraded: true,
       user: {
         email: "asha.login@example.com",
@@ -799,12 +820,67 @@ describe("resident management service behavior", () => {
       isDeleted: { $ne: true },
       userResidentId: "HH-4K7M-9XQ2",
     });
-    // Promoted on their *sign-in* address, so the account that is upgraded is
-    // the one they actually log in to.
-    expect(serviceMocks.registerOrUpgradeUserByEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ email: "asha.login@example.com", role: Role.RESIDENT }),
+    // Promoted as the account the card named, by id. Passing the address alone
+    // is what let a second row on the same mailbox be matched instead.
+    expect(serviceMocks.promoteAccountToResident).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: accountId }),
     );
     expect(result.accountLink).toMatchObject({ linked: true });
+  });
+
+  it("links a pre-booking's account without admitting them", async () => {
+    /*
+     * The regression this exists for lost a hostel a month's rent, silently and
+     * on every pre-booking. The link used to `$set: { status: "ACTIVE" }`, which
+     * ran *after* the intake had already declined to bill a `PENDING` resident —
+     * so the move-in month was never invoiced by the intake, and never invoiced
+     * by `updateResidentStatus` either, because that path only bills a
+     * transition *into* ACTIVE and the resident was already there.
+     */
+    const accountId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fb");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "asha@example.com", status: "PENDING" }),
+    );
+    serviceMocks.userFindOne.mockReturnValueOnce(
+      queryResult({ _id: accountId, email: "asha@example.com" }),
+    );
+    serviceMocks.residentFindById.mockReturnValue(
+      queryResult(residentRecord({ status: "PENDING", userId: accountId })),
+    );
+    serviceMocks.promoteAccountToResident.mockResolvedValue({
+      cleared: NO_CLEARANCE,
+      upgraded: true,
+      user: {
+        email: "asha@example.com",
+        id: accountId.toString(),
+        role: Role.RESIDENT,
+      },
+    });
+
+    const result = await createResident(
+      {
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "PENDING",
+        userResidentId: "hh4k7m9xq2",
+      },
+      staffPrincipal,
+    );
+
+    expect(result.accountLink).toMatchObject({ linked: true });
+    expect(result.resident.status).toBe("PENDING");
+
+    for (const [, update] of serviceMocks.residentUpdateOne.mock.calls) {
+      expect((update as { $set: Record<string, unknown> }).$set).not.toHaveProperty(
+        "status",
+      );
+    }
   });
 
   it("falls back to the email when nobody scanned a card", async () => {
@@ -813,15 +889,14 @@ describe("resident management service behavior", () => {
     serviceMocks.residentCreate.mockResolvedValueOnce(
       residentRecord({ email: "asha@example.com" }),
     );
-    serviceMocks.userFindOne.mockReturnValueOnce(
-      queryResult({ _id: accountId, email: "asha@example.com" }),
+    serviceMocks.userFind.mockReturnValueOnce(
+      queryResult([{ _id: accountId, email: "asha@example.com", role: Role.PUBLIC }]),
     );
     serviceMocks.residentFindById.mockReturnValue(
       queryResult(residentRecord({ status: "ACTIVE", userId: accountId })),
     );
-    serviceMocks.registerOrUpgradeUserByEmail.mockResolvedValue({
-      created: false,
-      temporaryPassword: null,
+    serviceMocks.promoteAccountToResident.mockResolvedValue({
+      cleared: NO_CLEARANCE,
       upgraded: true,
       user: { email: "asha@example.com", id: accountId.toString(), role: Role.RESIDENT },
     });
@@ -840,11 +915,175 @@ describe("resident management service behavior", () => {
       staffPrincipal,
     );
 
-    expect(serviceMocks.userFindOne).toHaveBeenCalledWith({
+    expect(serviceMocks.userFind).toHaveBeenCalledWith({
       email: "asha@example.com",
       isDeleted: { $ne: true },
     });
+    // The account is upgraded by id, not re-found by the address — see the
+    // shared-mailbox test below for why that distinction is the whole fix.
+    expect(serviceMocks.promoteAccountToResident).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: accountId }),
+    );
     expect(result.accountLink).toMatchObject({ linked: true });
+  });
+
+  /*
+   * The bug an actual registration hit: one mailbox, two rows.
+   *
+   * An `INVITED` warden account somebody was sent months ago and never signed
+   * in to, sitting beside the PUBLIC account they really use. `findOne({ email })`
+   * returned the warden row, `registerOrUpgradeUserByEmail` refused to change a
+   * staff account's role, and the intake reported `EMAIL_ALREADY_HAS_ROLE` — so
+   * the resident was registered, was emailed their welcome, and stayed a public
+   * user with no portal to sign in to.
+   */
+  it("promotes the public account when a staff row shares the address", async () => {
+    const wardenId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fb");
+    const publicId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "asha@example.com" }),
+    );
+    serviceMocks.userFind.mockReturnValueOnce(
+      queryResult([
+        { _id: wardenId, email: "asha@example.com", role: Role.WARDEN },
+        { _id: publicId, email: "asha@example.com", role: Role.PUBLIC },
+      ]),
+    );
+    serviceMocks.residentFindById.mockReturnValue(
+      queryResult(residentRecord({ status: "ACTIVE", userId: publicId })),
+    );
+    serviceMocks.promoteAccountToResident.mockResolvedValue({
+      cleared: NO_CLEARANCE,
+      upgraded: true,
+      user: { email: "asha@example.com", id: publicId.toString(), role: Role.RESIDENT },
+    });
+
+    const result = await createResident(
+      {
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.promoteAccountToResident).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: publicId }),
+    );
+    expect(result.accountLink).toMatchObject({ linked: true });
+  });
+
+  /*
+   * Residency has no blocker.
+   *
+   * When the *only* account on the address is a staff row — the unaccepted
+   * warden invite, months old — that is still the person standing at the desk
+   * with their luggage. Refusing to link them was the defect: they were
+   * registered, invoiced and welcomed, and left on a login with no portal. It is
+   * promoted, whatever it held is cleared, and they are told what was cleared.
+   */
+  it("promotes a lone staff account and reports what it cleared", async () => {
+    const wardenId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fb");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "warden@example.com" }),
+    );
+    serviceMocks.userFind.mockReturnValueOnce(
+      queryResult([{ _id: wardenId, email: "warden@example.com", role: Role.WARDEN }]),
+    );
+    serviceMocks.residentFindById.mockReturnValue(
+      queryResult(residentRecord({ status: "ACTIVE", userId: wardenId })),
+    );
+    serviceMocks.promoteAccountToResident.mockResolvedValue({
+      cleared: {
+        activatedInvite: true,
+        clearedMemberships: [{ hostelName: "Sunrise Hostel", role: Role.WARDEN }],
+        clearedRole: Role.WARDEN,
+      },
+      upgraded: true,
+      user: {
+        email: "warden@example.com",
+        id: wardenId.toString(),
+        role: Role.RESIDENT,
+      },
+    });
+
+    const result = await createResident(
+      {
+        email: "warden@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.promoteAccountToResident).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: wardenId }),
+    );
+    expect(result.accountLink).toMatchObject({
+      cleared: { clearedRole: Role.WARDEN },
+      linked: true,
+    });
+    // Told, not merely done: an access closed without a word sends somebody
+    // looking for a dashboard that has quietly stopped existing.
+    expect(serviceMocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: expect.stringContaining("now a resident account"),
+        to: "warden@example.com",
+      }),
+    );
+  });
+
+  it("says nothing extra when the promotion cleared nothing", async () => {
+    const accountId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "asha@example.com" }),
+    );
+    serviceMocks.userFind.mockReturnValueOnce(
+      queryResult([{ _id: accountId, email: "asha@example.com", role: Role.PUBLIC }]),
+    );
+    serviceMocks.residentFindById.mockReturnValue(
+      queryResult(residentRecord({ status: "ACTIVE", userId: accountId })),
+    );
+    serviceMocks.promoteAccountToResident.mockResolvedValue({
+      cleared: NO_CLEARANCE,
+      upgraded: true,
+      user: { email: "asha@example.com", id: accountId.toString(), role: Role.RESIDENT },
+    });
+
+    await createResident(
+      {
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    // A second mail listing an empty set is noise; the registration
+    // confirmation already covers the ordinary promotion.
+    expect(serviceMocks.sendEmail).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: expect.stringContaining("now a resident account"),
+      }),
+    );
   });
 
   it("does not link a different account when the card's has no address", async () => {
@@ -873,7 +1112,7 @@ describe("resident management service behavior", () => {
     );
 
     expect(serviceMocks.userFindOne).toHaveBeenCalledTimes(1);
-    expect(serviceMocks.registerOrUpgradeUserByEmail).not.toHaveBeenCalled();
+    expect(serviceMocks.promoteAccountToResident).not.toHaveBeenCalled();
     expect(result.accountLink).toMatchObject({
       linked: false,
       reason: "ACCOUNT_HAS_NO_EMAIL",

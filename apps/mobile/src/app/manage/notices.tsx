@@ -15,19 +15,18 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   createManagedNotice,
-  listManagedNotices,
   type ManagedNotice,
   NOTICE_CATEGORIES,
   type NoticeAudience,
   type NoticeCategory,
   updateManagedNotice,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import {
@@ -191,10 +190,15 @@ export default function ManageNoticesScreen() {
   const [saving, setSaving] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
-  const notices = useResource<ManagedNotice[]>(
-    useCallback(() => listManagedNotices({ category }), [category]),
-    { topics: [REALTIME_TOPIC.NOTICES] },
-  );
+  /*
+   * The category is in the key, so switching filters re-asks — and switching
+   * back to one already looked at does not.
+   */
+  const query = adminQuery.notices(category);
+  const notices = useResource<ManagedNotice[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const now = new Date();
   const rows = useMemo(() => notices.data ?? [], [notices.data]);

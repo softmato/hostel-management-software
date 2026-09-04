@@ -1669,7 +1669,113 @@ export const BED_TYPE_LABELS: Record<BedType, string> = {
   TRIPLE_SHARING: "Triple sharing",
 };
 
-export type FeeScheduleRate = { bedType: string; monthlyAmount: number };
+/**
+ * One rate, keyed by the hostel's own room type.
+ *
+ * `bedType` used to be the key, and that is why the platform stored a price
+ * twice: it is a five-value enum derived from free text, it cannot express a
+ * hostel whose rooms are called "Shared", so `roomConfigurations[].monthlyRent`
+ * had to stay as a second store — and the two drifted until a hostel advertised
+ * 18,000 and invoiced 174,000. It survives as a derived reporting label the
+ * server writes; never send it.
+ *
+ * Both are optional because a card saved before the re-key carries only the
+ * bed type, and history has to stay readable.
+ */
+export type FeeScheduleRate = {
+  bedType?: string | null;
+  monthlyAmount: number;
+  roomType?: string | null;
+};
+
+/** A room type the hostel offers, with what its public listing says today. */
+export type FeeScheduleRoomType = { monthlyRent: number; roomType: string };
+
+/**
+ * Labels each card `current` / `upcoming` / `past` when the server has not.
+ *
+ * The server computes `standing` and is the authority on it, but the app ships
+ * separately from the API and reaches a phone before a deploy does. This build
+ * ran against an API that had never heard of the field: every card came back
+ * unlabelled, nothing matched `current` or `upcoming`, and the Finance screen
+ * told a hostel with three rate cards that it had **No rates set**. A client
+ * that hard-depends on a field the server may not send yet is a client that
+ * breaks on deploy order.
+ *
+ * Same rule as the server's `labelSchedules`: the current card is the newest one
+ * whose span covers this month, which is how billing picks it. Not
+ * `effectiveTo === null` — a card closed to make room for a successor can still
+ * be the one billing, while the open row may not start for weeks.
+ */
+function withStanding(schedules: FeeSchedule[]): FeeSchedule[] {
+  if (schedules.every((schedule) => schedule.standing)) {
+    return schedules;
+  }
+
+  const now = new Date();
+  const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const monthEnd = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
+  const from = (schedule: FeeSchedule) => new Date(schedule.effectiveFrom).getTime();
+  const to = (schedule: FeeSchedule) =>
+    schedule.effectiveTo === null ? null : new Date(schedule.effectiveTo).getTime();
+
+  const current = schedules
+    .filter((schedule) => {
+      const end = to(schedule);
+
+      return from(schedule) <= monthEnd && (end === null || end >= monthStart);
+    })
+    .sort((a, b) => from(b) - from(a))[0];
+
+  return schedules.map((schedule) => ({
+    ...schedule,
+    standing:
+      schedule === current
+        ? ("current" as const)
+        : from(schedule) > monthEnd
+          ? ("upcoming" as const)
+          : ("past" as const),
+  }));
+}
+
+/**
+ * Room types recovered from the cards, for an API that does not send them.
+ *
+ * A poor substitute and deliberately so: it can only name room types somebody
+ * has already priced, so a hostel's unpriced rooms stay invisible until the API
+ * is updated. Still better than a rate editor with no boxes in it at all. Cards
+ * from before the room-type re-key carry only a bed type, which is at least a
+ * label a person recognises.
+ */
+function roomTypesFromSchedules(schedules: FeeSchedule[]): FeeScheduleRoomType[] {
+  const seen = new Map<string, FeeScheduleRoomType>();
+
+  for (const schedule of schedules) {
+    for (const rate of schedule.rates) {
+      const roomType = rate.roomType ?? rate.bedType;
+
+      if (roomType && !seen.has(roomType)) {
+        seen.set(roomType, { monthlyRent: 0, roomType });
+      }
+    }
+  }
+
+  return [...seen.values()].sort((a, b) => a.roomType.localeCompare(b.roomType));
+}
+
+/** The rate cards plus the room types they are keyed by. */
+export type FeeScheduleData = {
+  roomTypes: FeeScheduleRoomType[];
+  schedules: FeeSchedule[];
+};
 
 /**
  * A rate card, with the dates it governs.
@@ -1686,6 +1792,17 @@ export type FeeSchedule = {
   effectiveTo: string | null;
   rates: FeeScheduleRate[];
   /**
+   * Whether these rates are billing residents today, are only booked for a
+   * future month, or have finished.
+   *
+   * Decided by the server. `effectiveTo === null` is **not** the same question:
+   * for the whole month between setting new rates and them starting, the open
+   * row is an upcoming card while a closed one is doing the billing. Reading the
+   * open row as "active" is what showed an owner 18,000 as live while their
+   * residents were being invoiced at 180,000.
+   */
+  standing?: "current" | "past" | "upcoming";
+  /**
    * What comes off the admission fee for a resident who arrives on another
    * resident's referral code. Never off the rent — a referral is a one-time
    * thank-you, not a standing rate.
@@ -1693,12 +1810,38 @@ export type FeeSchedule = {
   referralAdmissionDiscount?: number;
 };
 
-export async function listFeeSchedules() {
-  const response = await api.get<ApiEnvelope<{ schedules: FeeSchedule[] }>>(
-    "/hostel-admin/finance/fee-schedules",
-  );
+/**
+ * The rate cards **and** the room types they are keyed by.
+ *
+ * The room types come back together with the cards because they are the keys of
+ * a card, not context for it — an editor that fetched them separately could
+ * offer a rate box for a room type the hostel no longer rents.
+ */
+/**
+ * `DELETE /hostel-admin/finance/fee-schedules/{id}`.
+ *
+ * Only rates that have not started. One that is billing residents is history and
+ * the server refuses it — an invoice may already carry its id, and an orphaned
+ * `feeScheduleId` makes "what was this resident's rent in March?" unanswerable.
+ * Deleting puts the previous rates back, so a hostel is never left unable to
+ * bill by dropping *next* month's card.
+ */
+export async function deleteFeeSchedule(scheduleId: string) {
+  const response = await api.delete<
+    ApiEnvelope<{ deletedId: string; restoredId: string | null }>
+  >(`/hostel-admin/finance/fee-schedules/${encodeURIComponent(scheduleId)}`);
 
-  return unwrap(response).schedules;
+  return unwrap(response);
+}
+
+export async function listFeeSchedules() {
+  const response = await api.get<
+    ApiEnvelope<{ roomTypes?: FeeScheduleRoomType[]; schedules: FeeSchedule[] }>
+  >("/hostel-admin/finance/fee-schedules");
+  const data = unwrap(response);
+  const schedules = withStanding(data.schedules ?? []);
+
+  return { roomTypes: data.roomTypes ?? roomTypesFromSchedules(schedules), schedules };
 }
 
 /**
@@ -1719,7 +1862,7 @@ export async function createFeeSchedule(input: {
   depositAmount?: number;
   /** ISO. */
   effectiveFrom: string;
-  rates: { bedType: BedType; monthlyAmount: number }[];
+  rates: { monthlyAmount: number; roomType: string }[];
   /** Refused server-side if it exceeds `admissionFee`. */
   referralAdmissionDiscount?: number;
 }) {

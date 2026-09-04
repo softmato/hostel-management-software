@@ -5,22 +5,29 @@ import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge, StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { IconButton } from "@/components/ui/icon-button";
 import { Chip, Grid, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import {
+  Skeleton,
+  SkeletonCard,
+  SkeletonTiles,
+} from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { residentQuery } from "@/lib/resident-queries";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
 import {
-  getFinanceView,
   type ResidentFinanceView,
   type ResidentInvoice,
   statementPdfUrl,
@@ -78,7 +85,18 @@ const FILTERS: { label: string; value: PaymentFilter }[] = [
 ];
 
 export default function ResidentPaymentsScreen() {
-  const finance = useResource<ResidentFinanceView>(useCallback(() => getFinanceView(), []));
+  /*
+   * `payments` is published by all four of the services that can change what a
+   * resident owes without the resident doing anything: a claim approved or
+   * rejected, a gateway payment reviewed, a bank statement reconciled, a
+   * statement imported. This is the screen where being one refresh stale is
+   * most expensive — it is the balance somebody is about to pay again.
+   */
+  const query = residentQuery.finance();
+  const finance = useResource<ResidentFinanceView>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [statementBusy, setStatementBusy] = useState(false);
   const [filter, setFilter] = useState<PaymentFilter>("all");
@@ -103,21 +121,35 @@ export default function ResidentPaymentsScreen() {
     }
   }, []);
 
+  /*
+   * Two actions, both `<IconButton>`.
+   *
+   * The statement button used to be a bare `Pressable` around an `Ionicons`
+   * with **no `color`** — which is black, so on a dark bar in dark mode it was a
+   * control nobody could see. `IconButton` reads `colors.foreground` and is the
+   * header-action shape the rest of the app already uses, bell included.
+   *
+   * It has no `disabled` prop, and does not need one here: the glyph still
+   * swaps to an hourglass while the download runs, and the handler returns
+   * early rather than queueing a second fetch of the same PDF.
+   */
   const header = (
     <AppBar
       actions={
-        <Pressable
-          accessibilityLabel="Download statement"
-          accessibilityRole="button"
-          disabled={statementBusy}
-          hitSlop={10}
-          onPress={() => void shareStatement()}
-        >
-          <Ionicons
+        <View className="flex-row items-center gap-2">
+          <IconButton
+            label={statementBusy ? "Downloading your statement" : "Download statement"}
             name={statementBusy ? "hourglass-outline" : "download-outline"}
-            size={22}
+            onPress={() => {
+              if (statementBusy) {
+                return;
+              }
+
+              void shareStatement();
+            }}
           />
-        </Pressable>
+          <NotificationBell />
+        </View>
       }
       title="Payments"
     />
@@ -125,8 +157,26 @@ export default function ResidentPaymentsScreen() {
 
   if (finance.loading) {
     return (
-      <Screen header={header} insideTabs>
-        <LoadingState label="Loading your invoices" />
+      /* Focus card, metric strip, filter chips, then months. See Home's note. */
+      <Screen header={header} insideTabs scroll>
+        <View className="gap-4 pt-1">
+          <View className="gap-3 rounded-2xl border border-border bg-card p-4">
+            <Skeleton height={11} width="34%" />
+            <Skeleton height={30} radius={10} width="50%" />
+            <Skeleton height={12} width="46%" />
+            <Skeleton height={44} radius={14} />
+          </View>
+
+          <SkeletonTiles />
+
+          <View className="flex-row gap-2">
+            <Skeleton height={30} radius={15} width={68} />
+            <Skeleton height={30} radius={15} width={82} />
+            <Skeleton height={30} radius={15} width={74} />
+          </View>
+
+          <SkeletonCard rows={4} />
+        </View>
       </Screen>
     );
   }
@@ -187,6 +237,23 @@ export default function ResidentPaymentsScreen() {
         </Card>
 
         {stats.nextDue ? <FocusCard invoice={stats.nextDue} /> : <SettledCard />}
+
+        {/*
+          The programme's own view, as a row rather than a third icon in the app
+          bar. Three glyphs up there would crowd a title, and this is not a
+          header action in any case — it is a destination, and the question it
+          answers ("where are my certified receipts") is not one somebody asks
+          while looking at a balance. It sits under the focus card because that
+          is where the reference code they are about to quote already is.
+        */}
+        <Card padding="px-4 py-1">
+          <ListRow
+            icon="ribbon-outline"
+            onPress={() => router.push("/offer-program/mine")}
+            subtitle="Your live codes, certified receipts and what has been matched"
+            title="Offer Program"
+          />
+        </Card>
 
         <Grid gap={10} maxColumns={3} minCellWidth={104}>
           <StatTile

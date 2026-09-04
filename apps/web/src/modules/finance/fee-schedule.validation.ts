@@ -21,10 +21,25 @@ export const periodSchema = z
   .string()
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Period must be YYYY-MM.");
 
-const rateSchema = z.object({
-  bedType: z.enum(BED_TYPES),
-  monthlyAmount: wholeRupeeSchema,
-});
+/**
+ * One rate, keyed by the hostel's own room type.
+ *
+ * `bedType` is still accepted so a client written against the old shape keeps
+ * working, but the server derives it from `roomType` whenever there is one — a
+ * label the client can set is a label that can contradict the room type beside
+ * it. One of the two is required: a rate keyed by nothing prices nobody.
+ */
+const rateSchema = z
+  .object({
+    bedType: z.enum(BED_TYPES).optional(),
+    currency: z.string().trim().max(8).optional(),
+    monthlyAmount: wholeRupeeSchema,
+    roomType: z.string().trim().min(1).max(80).optional(),
+  })
+  .refine((rate) => Boolean(rate.roomType || rate.bedType), {
+    message: "A rate needs a room type.",
+    path: ["roomType"],
+  });
 
 export const feeScheduleCreateSchema = z
   .object({
@@ -39,10 +54,17 @@ export const feeScheduleCreateSchema = z
     rates: z
       .array(rateSchema)
       .min(1, "A schedule needs at least one rate.")
-      .max(BED_TYPES.length)
+      .max(30)
       .refine(
-        (rates) => new Set(rates.map((rate) => rate.bedType)).size === rates.length,
-        "Each bed type may appear once.",
+        (rates) =>
+          new Set(
+            rates.map((rate) =>
+              (rate.roomType ?? rate.bedType ?? "")
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, ""),
+            ),
+          ).size === rates.length,
+        "Each room type may appear once.",
       ),
   })
   // A discount larger than the fee it comes off would make the admission

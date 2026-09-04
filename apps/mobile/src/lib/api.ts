@@ -184,6 +184,79 @@ function releaseWaiters(token: string | null) {
   pending.forEach((resolve) => resolve(token));
 }
 
+/**
+ * Rotate the session because the **account** changed, not because a request
+ * failed.
+ *
+ * Every API call is authorised from the claims inside the access token
+ * (`payload.role` in `lib/api-auth.ts`), not from the user record. So a public
+ * account that a hostel has just registered as a resident — scanned at the desk,
+ * promoted by `promoteAccountToResident` — is a RESIDENT in the database and a
+ * PUBLIC one to every request this phone makes, for as long as the token in hand
+ * lives (`ACCESS_TOKEN_TTL`, 15 minutes by default). `/auth/me` reads the
+ * database and so notices immediately; routing to the resident portal on the
+ * strength of that alone lands them on a dashboard whose every call is refused.
+ * `/auth/refresh` re-reads the user, so one rotation closes that window.
+ *
+ * Shares the interceptor's `refreshing` flag and its waiter queue, deliberately:
+ * a second, independent refresh path racing the first is how the loser writes an
+ * already-invalid rotated token and the session dies for good.
+ *
+ * **Never ends the session.** A failure here means the caller keeps the token it
+ * already had, which still works — unlike the interceptor, this is not running
+ * over a request that has already been refused.
+ */
+export async function rotateAccessToken(): Promise<string | null> {
+  if (refreshing) {
+    return new Promise((resolve) => {
+      waiters.push(resolve);
+    });
+  }
+
+  refreshing = true;
+
+  try {
+    const tokens = await readTokens();
+
+    if (!tokens?.refreshToken) {
+      releaseWaiters(null);
+      return null;
+    }
+
+    const response = await publicApi.post<RefreshResponseBody>("/auth/refresh", {
+      refreshToken: tokens.refreshToken,
+    });
+
+    const outcome = readRefreshOutcome(response.data);
+
+    if (!outcome.ok) {
+      releaseWaiters(null);
+      return null;
+    }
+
+    const { accessToken, refreshToken } = outcome;
+
+    // Both tokens, for the reason the interceptor spells out below: the server
+    // invalidates the refresh token it was handed.
+    if (refreshToken) {
+      await writeTokens({ accessToken, refreshToken });
+    } else {
+      await writeAccessToken(accessToken);
+    }
+
+    handlers?.onAccessToken(accessToken);
+    releaseWaiters(accessToken);
+
+    return accessToken;
+  } catch {
+    releaseWaiters(null);
+
+    return null;
+  } finally {
+    refreshing = false;
+  }
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {

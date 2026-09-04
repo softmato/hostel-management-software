@@ -16,12 +16,12 @@ import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import type { CalendarSystem } from "@/lib/calendar";
 import { useResource } from "@/hooks/use-resource";
-import { type AdminHostel, type AdminLedger, getAdminHostel, getAdminLedger } from "@/lib/admin-api";
+import { type AdminHostel, type AdminLedger } from "@/lib/admin-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
@@ -348,8 +348,10 @@ export default function ManageStatementScreen() {
   const dates = useDates();
   const { colors } = useAppTheme();
 
-  const ledger = useResource<AdminLedger>(useCallback(() => getAdminLedger(), []), {
-    topics: [REALTIME_TOPIC.PAYMENTS],
+  const ledgerQuery = adminQuery.ledger();
+  const ledger = useResource<AdminLedger>(ledgerQuery.load, {
+    cacheKey: ledgerQuery.key,
+    topics: ledgerQuery.topics,
   });
 
   /*
@@ -358,9 +360,11 @@ export default function ManageStatementScreen() {
    * and 404s — `statementShareText` drops the name rather than the screen
    * dropping the button. Same trade admin Home takes for its header.
    */
-  const hostel = useResource<AdminHostel | null>(
-    useCallback(() => getAdminHostel().catch(() => null), []),
-  );
+  const hostelQuery = adminQuery.hostel();
+  const hostel = useResource<AdminHostel | null>(hostelQuery.load, {
+    cacheKey: hostelQuery.key,
+    topics: hostelQuery.topics,
+  });
 
   /** What the list is actually filtered by. */
   const [filter, setFilter] = useState<StatementFilter>(NO_FILTER);

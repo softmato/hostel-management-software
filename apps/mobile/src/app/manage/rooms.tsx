@@ -23,11 +23,11 @@ import { readApiError } from "@/lib/api-contract";
 import {
   addHostelPhoto,
   deleteHostelPhoto,
-  getManagedHostel,
   type ManagedHostel,
   type RoomConfiguration,
   updateManagedHostel,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { openAssetViewer } from "@/lib/asset-viewer";
 import { formatMoney } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
@@ -131,9 +131,12 @@ function toNumber(value: string) {
 
 export default function ManageRoomsScreen() {
   const { colors } = useAppTheme();
-  const hostel = useResource<ManagedHostel>(
-    useCallback(() => getManagedHostel(), []),
-  );
+  // Warmed on touch-down of the Rooms tile on Home — see `prefetchAdminRoute`.
+  const query = adminQuery.managedHostel();
+  const hostel = useResource<ManagedHostel>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   /** `null` = closed, `""` = adding a new type, otherwise the type being edited. */
   const [editing, setEditing] = useState<string | null>(null);

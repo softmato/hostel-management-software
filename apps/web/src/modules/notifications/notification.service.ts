@@ -141,8 +141,10 @@ async function publishNewNotification(
 ) {
   const record = asRecord(document);
 
-  // Not awaited: an Expo round trip can take seconds, and a user is waiting on
-  // the request that created this notification.
+  // Not awaited — but not abandoned either. An Expo round trip can take
+  // seconds and a user is waiting on the request that created this row, so
+  // `dispatchPush` hands the send to `after()`: off the response's critical
+  // path, and still alive once the response has gone.
   dispatchPush([userId], {
     actionUrl: record.actionUrl,
     body: record.body,

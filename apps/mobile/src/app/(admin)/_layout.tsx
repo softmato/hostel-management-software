@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { InteractionManager } from "react-native";
 
 import { AdminAlertsProvider, useAdminAlerts } from "@/components/admin-alerts";
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
+import { prefetchAdminManage, prefetchAdminPortal } from "@/lib/admin-queries";
 
 /**
  * The five, and why they are these five.
@@ -85,6 +87,50 @@ function AdminTabs() {
 }
 
 export default function RoleLayout() {
+  /*
+   * The portal's warm-up, and the one place it belongs.
+   *
+   * This layout mounts once when a warden enters the group and stays mounted
+   * until they leave it, so the reads fire once per visit rather than once per
+   * tab — and the tab a warden lands on is Home, which is the only one of the
+   * five that is *not* in the list.
+   *
+   * ## After the interactions, not during them
+   *
+   * Home is mounting in the same frame and doing its own three requests behind a
+   * spinner the user is watching. Seven more issued alongside them would compete
+   * for the same connections on the handsets this app is aimed at, and the
+   * screen someone is actually looking at would get slower so that four they are
+   * not looking at could get faster. `runAfterInteractions` puts them after the
+   * navigation settles, where the network is idle.
+   *
+   * Nothing is awaited and nothing can throw: `prefetchQuery` swallows failures
+   * by design, because half of these are refused for a warden whose grants are
+   * narrow and a speculative 403 is not news.
+   */
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(prefetchAdminPortal);
+
+    /*
+     * The second wave, once Home has had the network to itself.
+     *
+     * Three seconds is chosen off what the screen is for: Home is a grid of
+     * doors, and the gap between it appearing and a door being chosen is longer
+     * than this on any reading of it. Warming the doors inside that gap is what
+     * turns "already loading" into "already drawn"; warming them at the same
+     * instant as the first wave would only make the first wave slower.
+     *
+     * Cancelled on the way out, so a warden who opens the portal and immediately
+     * leaves never fires it.
+     */
+    const doors = setTimeout(prefetchAdminManage, 3_000);
+
+    return () => {
+      task.cancel();
+      clearTimeout(doors);
+    };
+  }, []);
+
   return (
     <AdminAlertsProvider>
       <AdminTabs />

@@ -15,13 +15,8 @@ import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { getAdminFoodRoutine } from "@/lib/admin-api";
-import {
-  type CookPortalSettings,
-  getCookPortal,
-  saveFoodRoutine,
-  updateCookPortal,
-} from "@/lib/admin-manage-api";
+import { saveFoodRoutine, updateCookPortal } from "@/lib/admin-manage-api";
+import { type AdminFoodData, adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import { MEAL_TYPES, type MealType, ROUTINE_DAYS, type RoutineDay, todayInNepal } from "@/lib/food-week";
@@ -106,23 +101,15 @@ function draftFrom(routine: FoodRoutine | null): Draft {
   };
 }
 
-type FoodData = { cook: CookPortalSettings | null; routine: FoodRoutine | null };
-
-async function loadFood(): Promise<FoodData> {
-  // Independently, and tolerantly. Both routes want `manageFood`, so in practice
-  // they fail together — but a cook-portal outage blanking the menu editor would
-  // be a bad trade for one shared `Promise.all`.
-  const [routine, cook] = await Promise.all([
-    getAdminFoodRoutine().catch(() => null),
-    getCookPortal().catch(() => null),
-  ]);
-
-  return { cook, routine };
-}
+/* `FoodData` and its loader are `adminQuery.food()` — see `lib/admin-queries.ts`. */
 
 export default function ManageFoodScreen() {
   const dates = useDates();
-  const food = useResource<FoodData>(useCallback(() => loadFood(), []));
+  const query = adminQuery.food();
+  const food = useResource<AdminFoodData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [day, setDay] = useState<RoutineDay>(() => todayInNepal());
   const [draft, setDraft] = useState<Draft | null>(null);

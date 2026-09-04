@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 
 import { ServiceProviderRegistrationPage } from "@/app/_components/service-provider-registration-page";
-import { listPublicServiceProviders } from "@/modules/service-providers/service-provider.service";
+import { getPublicServiceProviderStats } from "@/modules/service-providers/service-provider.service";
 
 export const metadata: Metadata = {
   title: "Join the Service Provider Network",
   description:
-    "Register as a plumber, electrician, cleaner or other tradesperson and get matched with hostel maintenance jobs across Kathmandu.",
+    "Register as a plumber, electrician, cleaner or other tradesperson and get matched with hostel maintenance jobs across Nepal.",
   alternates: { canonical: "/service-providers" },
 };
 
@@ -15,18 +15,18 @@ export const metadata: Metadata = {
  * directory (PHASES.md §6.1 — the marketplace lives in the app, and hostel
  * admins reach providers from their own portal rather than a public listing).
  *
- * The approved-provider total is read on the server so the hero renders its real
- * number in the first paint and the page stays crawlable.
+ * The hero's three numbers are read on the server so they are in the first
+ * paint and the page stays crawlable. A failure here is not worth a 500 on a
+ * marketing page: the hero drops whichever stat it has no number for.
  */
 export default async function ServiceProvidersPage() {
-  let providerCount: number | undefined;
+  let stats: Awaited<ReturnType<typeof getPublicServiceProviderStats>> | undefined;
 
   try {
-    providerCount = (await listPublicServiceProviders({})).total;
+    stats = await getPublicServiceProviderStats();
   } catch {
-    // Falls back to the component's own client fetch, then to a dash.
-    providerCount = undefined;
+    stats = undefined;
   }
 
-  return <ServiceProviderRegistrationPage initialProviderCount={providerCount} />;
+  return <ServiceProviderRegistrationPage stats={stats} />;
 }

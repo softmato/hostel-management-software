@@ -2,6 +2,7 @@ import type { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { hostelPeriodOf } from "@/lib/hostel-day";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { listResidentInvoices } from "@/modules/finance/ledger-read.service";
@@ -69,9 +70,17 @@ export async function nextReceiptNumber(
   return segments.filter(Boolean).join("-");
 }
 
-/** "YYYY-MM" from a date, in UTC, so a receipt's period does not depend on where it was issued. */
+/**
+ * "YYYY-MM" from a date, in the hostel's own day, so a receipt's period does not
+ * depend on where it was issued.
+ *
+ * That was the intent when this read UTC, and UTC did not deliver it. Nepal is
+ * UTC+05:45, so a receipt issued after 18:15 on the last day of a month was
+ * numbered into the month that had already ended — `RCP-…-2026-08-00001` handed
+ * to somebody on 1 September. The offset lives in `lib/hostel-day.ts`.
+ */
 export function periodOfDate(date: Date): string {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return hostelPeriodOf(date);
 }
 
 /**

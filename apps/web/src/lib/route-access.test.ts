@@ -131,6 +131,28 @@ describe("route access", () => {
     }
   });
 
+  it("returns every role to the public page they came from", () => {
+    /*
+     * The service-provider funnel and resident activation are public pages that
+     * send a visitor to `/login?next=…` and expect them back. They belong to no
+     * role's prefix list, so a prefix-only check dropped a PUBLIC account on
+     * `/` and a hostel admin on their dashboard instead.
+     */
+    expect(destinationForRole(Role.PUBLIC, "/service-providers")).toBe(
+      "/service-providers",
+    );
+    expect(destinationForRole(Role.HOSTEL_ADMIN, "/service-providers")).toBe(
+      "/service-providers",
+    );
+    expect(destinationForRole(Role.PUBLIC, "/resident-activation")).toBe(
+      "/resident-activation",
+    );
+    // Signed-in-only, not role-bound: an approved provider is a PUBLIC account.
+    expect(destinationForRole(Role.PUBLIC, "/jobs")).toBe("/jobs");
+    // A public `next` still cannot become a door into someone else's portal.
+    expect(destinationForRole(Role.PUBLIC, "/platform/dashboard")).toBe("/");
+  });
+
   it("falls back to the role landing page for unsafe or cross-role next paths", () => {
     expect(isSafeLocalPath("/resident/dashboard")).toBe(true);
     expect(isSafeLocalPath("//evil.example/login")).toBe(false);

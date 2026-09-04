@@ -1,19 +1,13 @@
 import { useLocalSearchParams } from "expo-router";
-import { useCallback } from "react";
 import { View } from "react-native";
 
 import { CommunityPostCard } from "@/components/community-post-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
-import {
-  type CommunityPost,
-  type CommunitySpaces,
-  getCommunityPost,
-  getCommunitySpaces,
-} from "@/lib/community-api";
+import type { CommunityPost, CommunitySpaces } from "@/lib/community-api";
+import { communityQuery } from "@/lib/community-queries";
 
 /**
  * One post on its own screen — the permalink a share link points at, and where a
@@ -32,19 +26,34 @@ import {
 export default function CommunityPostScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
 
-  const post = useResource<CommunityPost>(
-    useCallback(() => getCommunityPost(postId), [postId]),
-    { topics: [REALTIME_TOPIC.COMMUNITY] },
-  );
+  /*
+   * Both reads are keyed, and reaching here from a card usually costs neither.
+   *
+   * `CommunityPostCard` files the post it is already holding under this key on
+   * the way out — `seedCommunityPost` — because `GET /community/<id>` decorates
+   * one post with the same function the feed decorated the row with, so asking
+   * again would spend a request to be told what is on the screen. The
+   * revalidate still runs, silently, behind a post the reader can read.
+   */
+  const postQuery = communityQuery.post(postId);
+
+  const post = useResource<CommunityPost>(postQuery.load, {
+    cacheKey: postQuery.key,
+    topics: postQuery.topics,
+  });
 
   /*
-   * Only for `viewer.canPost` — the same question the feed asks. A signed-out
+   * Only for `viewer.canPost` — the same question the feed asks, on the same
+   * key, which is why arriving from the board answers it for free. A signed-out
    * reader arriving from a shared link still sees the post and its thread; what
    * they cannot do is react, comment or vote.
    */
-  const spaces = useResource<CommunitySpaces>(
-    useCallback(() => getCommunitySpaces(), []),
-  );
+  const spacesQuery = communityQuery.spaces();
+
+  const spaces = useResource<CommunitySpaces>(spacesQuery.load, {
+    cacheKey: spacesQuery.key,
+    topics: spacesQuery.topics,
+  });
 
   const header = <AppBar showBack title="Post" />;
 

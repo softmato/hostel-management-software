@@ -11,6 +11,7 @@ import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { endSession } from "@/lib/auth-session";
+import { prefetchCommunity } from "@/lib/community-queries";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
 /**
@@ -65,6 +66,9 @@ export default function ProviderMoreScreen() {
             <ListRow
               icon="people-outline"
               onPress={() => router.push("/community")}
+              // Touch-down warms the feed and the spaces rail — see
+              // `prefetchCommunity`.
+              onPressIn={prefetchCommunity}
               subtitle="Ask, answer and see what residents are saying"
               title="Community"
             />

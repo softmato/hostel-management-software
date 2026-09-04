@@ -110,7 +110,7 @@ const VARIANTS: Record<PlatformIdCardType, CardVariant> = {
     backBullets: [
       "Show this card when you arrive for a job so the hostel can confirm you are a verified provider.",
       "No job or resident detail is stored in the code itself — it only carries your platform ID.",
-      "Jobs are broadcast to the provider mobile app you signed in to with this ID.",
+      "Hostels send you jobs in the provider mobile app you signed in to with this ID.",
     ],
     bulge: { back: 0, front: 0 },
     idLabel: "PROVIDER ID",

@@ -3,10 +3,13 @@ import { Types } from "mongoose";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
+import { hostelMonthStart } from "@/lib/hostel-day";
 import { normalizeBedType } from "@/modules/finance/bed-type";
+import { projectScheduleOntoListing } from "@/modules/finance/listing-projection.service";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { assertWholeRupees, prorate } from "@/modules/finance/money";
 import { FeeScheduleModel } from "@hostel/db/models/FeeSchedule";
+import { InvoiceModel } from "@hostel/db/models/Invoice";
 import type { BedType } from "@hostel/shared/types/bed-type";
 import type {
   FeeScheduleCloseInput,
@@ -25,9 +28,12 @@ import type {
  */
 
 export type FeeScheduleRate = {
-  bedType: BedType;
+  /** Derived from `roomType`, kept for reporting. Never typed. See the model. */
+  bedType?: BedType | null;
   currency?: string;
   monthlyAmount: number;
+  /** The hostel's own room type — the key. Absent on pre-migration rows. */
+  roomType?: string | null;
 };
 
 export type FeeScheduleRecord = {
@@ -158,6 +164,70 @@ export function resolveBedType(resident: BillableResident): BedType | null {
   return resident.bedType ?? normalizeBedType(resident.roomType);
 }
 
+/** Case- and punctuation-insensitive, because a room type is text a human typed. */
+function sameRoomType(left: string | null | undefined, right: string | null | undefined) {
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    left.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") ===
+    right.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
+  );
+}
+
+/**
+ * The one place a rate is looked up on a rate card.
+ *
+ * **Room type first.** That is the key now, and it is the key precisely because
+ * it is the same string the hostel's own room configuration, the resident record
+ * and the public listing all use — so there is exactly one number per room type
+ * and no way for two of those to disagree. A hostel whose rooms are called
+ * `"Shared"` is priceable here and was not before.
+ *
+ * **Bed type second, for rows written before that.** A schedule saved against
+ * the old five-value enum still prices correctly, so nothing has to be migrated
+ * before it can be billed. The migration backfills `roomType` and this branch
+ * stops being reached.
+ *
+ * Exported because `quoteIntake` must ask the same question the billing run
+ * asks. Two implementations of "what does this room cost" is the defect this
+ * whole change exists to remove — the intake quote and the invoice have to be
+ * the same arithmetic on the same row.
+ */
+export function rateForRoomType(
+  schedule: FeeScheduleRecord | null | undefined,
+  roomType: string | null | undefined,
+  bedType: BedType | null = null,
+): FeeScheduleRate | null {
+  if (!schedule) {
+    return null;
+  }
+
+  const byRoomType = schedule.rates.find((entry) =>
+    sameRoomType(entry.roomType, roomType),
+  );
+
+  if (byRoomType) {
+    return byRoomType;
+  }
+
+  const resolved = bedType ?? normalizeBedType(roomType);
+
+  if (!resolved) {
+    return null;
+  }
+
+  /*
+   * Only a rate that has not been re-keyed yet. A migrated card may hold two
+   * room types that normalise to the same bed type — "Private" and "Single
+   * Room" are both SINGLE — and matching one of those on bed type would hand
+   * back whichever came first, which is the ambiguity room-type keying exists
+   * to end.
+   */
+  return schedule.rates.find((entry) => !entry.roomType && entry.bedType === resolved) ?? null;
+}
+
 /**
  * What this resident is charged per month (target §3.4).
  *
@@ -187,10 +257,7 @@ export function resolveMonthlyCharge(
   }
 
   const bedType = resolveBedType(resident);
-  const rate =
-    schedule && bedType
-      ? schedule.rates.find((entry) => entry.bedType === bedType)
-      : undefined;
+  const rate = rateForRoomType(schedule, resident.roomType, bedType);
 
   if (rate) {
     return {
@@ -238,15 +305,8 @@ export function resolveMonthlyCharge(
     );
   }
 
-  if (!bedType) {
-    throw new FinanceServiceError(
-      `Room type ${JSON.stringify(resident.roomType ?? null)} does not map to a bed type, and has no listed rent.`,
-      "BED_TYPE_NOT_PRICED",
-    );
-  }
-
   throw new FinanceServiceError(
-    `The fee schedule has no rate for ${bedType}.`,
+    `The rate card has no rate for room type ${JSON.stringify(resident.roomType ?? null)}, and it has no listed rent.`,
     "BED_TYPE_NOT_PRICED",
   );
 }
@@ -321,14 +381,36 @@ function countDaysInclusive(from: Date, to: Date) {
 /*                                    CRUD                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Every rate card this hostel has had, newest first, each labelled.
+ *
+ * `standing` is computed here rather than left to the screens, and that is the
+ * fix for the thing an owner actually saw: a card starting 17 Aswin was drawn
+ * with a green **Active** badge because it was the row with `effectiveTo: null`,
+ * while the rates genuinely billing residents that day were on a card the same
+ * screen filed under history. "Open" and "in force" are not the same thing for
+ * the month between setting rates and them starting, and every reader that
+ * conflated them told the owner something false.
+ */
 export async function listFeeSchedules(hostelId: Types.ObjectId | string) {
   await connectToDatabase();
 
-  return FeeScheduleModel.find({ hostelId })
+  const schedules = await FeeScheduleModel.find({ hostelId })
     .sort({ effectiveFrom: -1 })
     .lean<FeeScheduleRecord[]>();
+
+  return labelSchedules(schedules);
 }
 
+/**
+ * The open row — the one a new card will displace.
+ *
+ * Note this is **not** necessarily the card in force today: between setting next
+ * month's rates and that month arriving, the open row is an upcoming card and
+ * the rates actually billing residents are on a closed one. Use
+ * {@link getEffectiveSchedule} for "what am I charging right now"; this is for
+ * "what does a new card replace".
+ */
 export async function getOpenFeeSchedule(hostelId: Types.ObjectId | string) {
   await connectToDatabase();
 
@@ -341,10 +423,33 @@ export async function getOpenFeeSchedule(hostelId: Types.ObjectId | string) {
 /**
  * Opens a new schedule, closing the current one the day before it starts.
  *
- * Never an edit (target §3.3): the previous rates stay readable, so a historical
- * invoice can be explained rather than merely trusted. The close-then-open order
- * matters — the partial unique index permits only one open row per hostel, so
- * opening first would be rejected by the database.
+ * ## Rates change on the first of a month
+ *
+ * `effectiveFrom` is pulled back to the start of whatever month it names. A card
+ * starting on the 17th would split that month across two prices, which nothing
+ * downstream can express — `getEffectiveSchedule` hands a whole month to one
+ * card, and an invoice carries a single `feeScheduleId`. An owner pressed a
+ * "next month" button that added thirty days, got a card starting 17 Aswin, and
+ * the screen then told them rates were live that would not apply for another
+ * four weeks.
+ *
+ * ## A card that has not started yet is not history
+ *
+ * "Never an edit" (target §3.3) protects invoices: the rates an invoice was
+ * computed from must stay readable. A **future** card has priced nothing — no
+ * month has been billed from it and no invoice references it — so replacing it
+ * is not rewriting history, and refusing to was a trap. An owner who set October
+ * wrong could not correct it until October arrived, because the guard here only
+ * compared dates. Replacing a not-yet-started card deletes it outright; anything
+ * that has governed a month is closed, never touched.
+ *
+ * ## The running month is frozen
+ *
+ * A hostel with a rate card may only start a new one from a *future* month.
+ * Changing the rate a resident is already being billed at, mid-month, is the
+ * silent rewrite the versioning exists to prevent. The first card a hostel ever
+ * writes is the exception: it may start this month, because until it exists
+ * nobody can be billed at all.
  */
 export async function createFeeSchedule(
   hostelId: Types.ObjectId | string,
@@ -353,35 +458,73 @@ export async function createFeeSchedule(
 ) {
   await connectToDatabase();
 
+  const effectiveFrom = hostelMonthStart(input.effectiveFrom);
+  const thisMonth = hostelMonthStart(new Date());
+
   const current = await FeeScheduleModel.findOne({
     effectiveTo: null,
     hostelId,
   }).lean<FeeScheduleRecord | null>();
 
   if (current) {
-    if (input.effectiveFrom <= current.effectiveFrom) {
+    if (effectiveFrom <= thisMonth) {
       throw new FinanceServiceError(
-        "A new schedule must start after the current one.",
-        "FEE_SCHEDULE_MISSING",
+        "Rates can only change from the start of a future month. This month's residents are already being billed at the current rates.",
+        "FEE_SCHEDULE_MONTH_LOCKED",
       );
     }
 
-    await FeeScheduleModel.updateOne(
-      { _id: current._id },
-      { $set: { effectiveTo: dayBefore(input.effectiveFrom) } },
-    );
+    if (effectiveFrom.getTime() === hostelMonthStart(current.effectiveFrom).getTime()) {
+      /*
+       * Replacing a card that has not started. It has priced nothing, so there
+       * is no history to keep — leaving it closed-but-present would litter the
+       * card list with drafts nobody can tell apart.
+       */
+      await FeeScheduleModel.deleteOne({ _id: current._id });
+    } else if (effectiveFrom < current.effectiveFrom) {
+      throw new FinanceServiceError(
+        `The rate card already changes on ${current.effectiveFrom.toISOString().slice(0, 10)}. Replace that one, or pick a later month.`,
+        "FEE_SCHEDULE_MISSING",
+      );
+    } else {
+      await FeeScheduleModel.updateOne(
+        { _id: current._id },
+        { $set: { effectiveTo: dayBefore(effectiveFrom) } },
+      );
+    }
   }
+
+  /*
+   * `bedType` is derived here, never taken from the request. It is a reporting
+   * label — the vocabulary that makes one hostel's "Two Sharing" and another's
+   * "Double Room" one row in a platform report — and a label the client could
+   * set is a label that can contradict the room type it sits beside.
+   */
+  const rates = input.rates.map((rate) => ({
+    bedType: rate.roomType ? normalizeBedType(rate.roomType) : (rate.bedType ?? null),
+    currency: rate.currency,
+    monthlyAmount: rate.monthlyAmount,
+    roomType: rate.roomType,
+  }));
 
   const created = (await FeeScheduleModel.create({
     admissionFee: input.admissionFee,
     createdBy: principal.userId,
     depositAmount: input.depositAmount,
-    effectiveFrom: input.effectiveFrom,
+    effectiveFrom,
     effectiveTo: null,
     hostelId,
-    rates: input.rates,
+    rates,
     referralAdmissionDiscount: input.referralAdmissionDiscount,
   })) as unknown as FeeScheduleRecord;
+
+  /*
+   * And the public listing, which is a view of this document rather than a
+   * second copy of it. Deliberately after the write and deliberately unable to
+   * fail it: the rate card is the record that matters, and a stale listing is a
+   * smaller problem than a rate change reported as failed after it succeeded.
+   */
+  await projectScheduleOntoListing(hostelId, { admissionFee: input.admissionFee, rates });
 
   // A rate card is what every future invoice is computed from, so a change to
   // it is a finance action even though no money moves today.
@@ -396,6 +539,165 @@ export async function createFeeSchedule(
   });
 
   return created;
+}
+
+export type ScheduleStanding = "current" | "past" | "upcoming";
+
+/**
+ * Whether a rate card has started, and therefore whether it may be changed.
+ *
+ * The whole editing rule in one word. A card that is pricing residents right now
+ * is history — an invoice may already carry its id — so it is only readable. A
+ * card for a future month has priced nobody, and an owner who typed it wrong
+ * must be able to fix or drop it before it takes effect. Refusing that was the
+ * trap: October's rates were set by mistake and could not be corrected until
+ * October arrived.
+ *
+ * **`current` is decided the way billing decides it**, not by whether
+ * `effectiveTo` is null. Those are different questions and the difference is not
+ * academic: this hostel's September rates sit on a card that was closed on
+ * 1 October to make room for a successor, so it has an `effectiveTo` and would
+ * read as finished — while the card with no `effectiveTo` does not start for
+ * another month. Both readings were wrong in opposite directions on the same
+ * screen. So the current card is the one {@link getEffectiveSchedule} would
+ * return for this month: the newest whose span covers it.
+ */
+export function labelSchedules<
+  T extends Pick<FeeScheduleRecord, "effectiveFrom" | "effectiveTo">,
+>(schedules: T[], now: Date = new Date()): (T & { standing: ScheduleStanding })[] {
+  const monthStart = hostelMonthStart(now);
+  const monthEnd = new Date(
+    Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+  );
+
+  const covers = (schedule: T) =>
+    schedule.effectiveFrom <= monthEnd &&
+    (schedule.effectiveTo === null ||
+      schedule.effectiveTo === undefined ||
+      schedule.effectiveTo >= monthStart);
+
+  // Newest start wins, exactly as `getEffectiveSchedule` sorts.
+  const currentId = [...schedules]
+    .filter(covers)
+    .sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime())[0];
+
+  return schedules.map((schedule) => ({
+    ...schedule,
+    standing:
+      schedule === currentId
+        ? ("current" as const)
+        : schedule.effectiveFrom > monthEnd
+          ? ("upcoming" as const)
+          : ("past" as const),
+  }));
+}
+
+/** One card's standing, when the whole list is not to hand. */
+export function scheduleStanding(
+  schedule: Pick<FeeScheduleRecord, "effectiveFrom" | "effectiveTo">,
+  now: Date = new Date(),
+): ScheduleStanding {
+  return labelSchedules([schedule], now)[0]!.standing;
+}
+
+/**
+ * Drops a rate card that has not started yet, and puts the previous one back.
+ *
+ * ## Only an upcoming card
+ *
+ * Deleting a card that has priced a month would leave every invoice raised from
+ * it pointing at a `feeScheduleId` that no longer resolves — "what was this
+ * resident's rent in March?" would stop having an answer, which is the exact
+ * question the versioning exists to answer. Refused, not soft-deleted: a card
+ * you cannot see but that still owns invoices is worse than either.
+ *
+ * ## Putting the previous card back
+ *
+ * Opening a card closed its predecessor the day before it starts. Deleting it
+ * has to undo that, or the hostel is left with no open card at all and billing
+ * stops for everybody — a delete on next month's rates silently breaking this
+ * month's. The most recent closed card is re-opened (`effectiveTo: null`), so
+ * the rates that were running before simply carry on.
+ */
+export async function deleteFeeSchedule(
+  hostelId: Types.ObjectId | string,
+  scheduleId: string,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const schedule = await FeeScheduleModel.findOne({
+    _id: scheduleId,
+    hostelId,
+  }).lean<FeeScheduleRecord | null>();
+
+  if (!schedule) {
+    throw new FinanceServiceError("Fee schedule was not found.", "FEE_SCHEDULE_MISSING");
+  }
+
+  if (scheduleStanding(schedule) !== "upcoming") {
+    throw new FinanceServiceError(
+      "Only rates that have not started yet can be deleted. These are already billing residents.",
+      "FEE_SCHEDULE_MONTH_LOCKED",
+    );
+  }
+
+  /*
+   * Belt and braces. `scheduleStanding` says no month has begun under this card,
+   * so nothing should reference it — but a manual back-dated billing run is a
+   * thing a person can do, and an orphaned invoice basis is unrecoverable.
+   */
+  const invoiced = await InvoiceModel.countDocuments({
+    "lines.feeScheduleId": schedule._id,
+  });
+
+  if (invoiced > 0) {
+    throw new FinanceServiceError(
+      `These rates have already priced ${invoiced} invoice(s) and cannot be deleted.`,
+      "FEE_SCHEDULE_IN_USE",
+    );
+  }
+
+  await FeeScheduleModel.deleteOne({ _id: schedule._id });
+
+  // And the card this one displaced goes back to being the current one, so the
+  // hostel is never left unable to bill.
+  const previous = await FeeScheduleModel.findOne({
+    _id: { $ne: schedule._id },
+    effectiveFrom: { $lt: schedule.effectiveFrom },
+    hostelId,
+  })
+    .sort({ effectiveFrom: -1 })
+    .lean<FeeScheduleRecord | null>();
+
+  if (previous) {
+    await FeeScheduleModel.updateOne(
+      { _id: previous._id },
+      { $set: { effectiveTo: null } },
+    );
+
+    // The listing follows whichever card is now current.
+    await projectScheduleOntoListing(hostelId, {
+      admissionFee: previous.admissionFee,
+      rates: previous.rates,
+    });
+  }
+
+  await auditFinanceAction(principal, {
+    action: "FEE_SCHEDULE_CLOSED",
+    amountAfter: previous ? totalOfRates(previous.rates) : 0,
+    amountBefore: totalOfRates(schedule.rates),
+    entityId: schedule._id,
+    entityType: "FeeSchedule",
+    hostelId,
+    reason: "Upcoming rates deleted before they took effect.",
+    source: "FEE_SCHEDULE_EDITOR",
+  });
+
+  return {
+    deletedId: schedule._id.toString(),
+    restoredId: previous?._id.toString() ?? null,
+  };
 }
 
 export async function closeFeeSchedule(

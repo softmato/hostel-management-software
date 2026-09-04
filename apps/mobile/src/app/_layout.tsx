@@ -309,7 +309,21 @@ function RootShell() {
         <Stack.Screen name="about" />
         <Stack.Screen name="contact" />
         <Stack.Screen name="pricing" />
-        <Stack.Screen name="offer-program" />
+        {/*
+          Two screens, one programme, and the split is deliberate.
+
+          `offer-program/index` is the **public explainer** — it renders signed
+          out, because the two moments somebody most wants to read about the
+          programme are the confirmation email after submitting a proof and a
+          conversation with a parent who has no account at all.
+
+          `offer-program/mine` is the **resident's own** view: which code is live
+          for them, what has been certified, what is still being checked. It is a
+          different question asked at a different moment, which is why it is a
+          second destination rather than a tab on the first.
+        */}
+        <Stack.Screen name="offer-program/index" />
+        <Stack.Screen name="offer-program/mine" />
         <Stack.Screen name="register-hostel/index" />
         <Stack.Screen name="service-providers/index" />
         {/*
@@ -341,11 +355,27 @@ function RootShell() {
         {/* Reached from More and from the dashboard's night-status card. */}
         <Stack.Screen name="night-status" />
         {/*
+          What the app has recorded about where the resident was, and the two
+          controls over it. At the root beside `night-status` because the two are
+          the same subject from opposite ends — one is what the resident says,
+          the other is what their phone reported.
+        */}
+        <Stack.Screen name="attendance" />
+        {/*
           A provider's job detail. At the root for the same reason an invoice is:
           it opens over the tab bar rather than becoming a fourth tab.
         */}
         <Stack.Screen name="job/[id]" />
         <Stack.Screen name="profile" />
+        {/*
+          Who the resident has shared their record with. At the root rather than
+          inside `(resident)` because it is reached from Profile, which is itself
+          a root screen — and because the guardian relationship outlives the tab
+          you happened to be on when you went looking for it.
+        */}
+        <Stack.Screen name="guardians/index" />
+        {/* A form you open, fill and finish — same shape as `complaints/new`. */}
+        <Stack.Screen name="guardians/new" options={{ animation: "slide_from_bottom" }} />
         <Stack.Screen name="id-card/index" />
         {/*
           Bottom, not right: this is a form you open, fill and finish — the same

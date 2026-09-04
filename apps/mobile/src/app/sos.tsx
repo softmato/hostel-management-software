@@ -11,6 +11,7 @@ import { RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { useSos } from "@/hooks/use-sos";
@@ -83,7 +84,11 @@ function ContactRow({ contact }: { contact: EmergencyContact }) {
 export default function SosScreen() {
   const { colors } = useAppTheme();
   const sos = useSos();
-  const contacts = useResource(useCallback(() => getEmergencyContacts(), []));
+  // The numbers on this screen are maintained by the hostel, so `safety` is the
+  // only way they change while a resident is looking at them.
+  const contacts = useResource(useCallback(() => getEmergencyContacts(), []), {
+    topics: [REALTIME_TOPIC.SAFETY],
+  });
 
   const [message, setMessage] = useState("");
   const [alertGuardians, setAlertGuardians] = useState(true);

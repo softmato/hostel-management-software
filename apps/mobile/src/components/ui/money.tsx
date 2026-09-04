@@ -18,21 +18,33 @@ import { formatMoney } from "@/lib/format";
  */
 export const CURRENCY_SCALE = 0.72;
 
-const SIZES = {
-  display: "text-3xl font-semibold tracking-tight",
-  inline: "text-base",
-  large: "text-2xl font-semibold tracking-tight",
+/**
+ * Each size, as the `<Text>` variant that already draws it.
+ *
+ * Not a class string through `className`, which is what this was and what made
+ * "Due at move-in" render `NPR` *larger* than its digits. `<Text>` applies its
+ * default `body` variant first — `text-base` — and a `text-2xl` appended after
+ * it does not win: both rules reach the compiled stylesheet and which one lands
+ * is decided by generation order, not by where it sat in the string. So the
+ * digits stayed at 16 while the prefix, sized by a real `fontSize` style, scaled
+ * to 24 × 0.72 and overtook them. The same trap `<Card>`'s `padding` and
+ * `<AppBar>`'s `ink` document: one slot, one value.
+ */
+const VARIANTS = {
+  display: "display",
+  inline: "body",
+  large: "title",
 } as const;
 
 /**
- * The point size each class in `SIZES` actually resolves to.
+ * The point size each variant above actually resolves to.
  *
  * Duplicated from Tailwind's scale because the currency prefix is sized as a
- * *fraction* of its parent, and a class name carries no number to take a
- * fraction of. If a size above is changed, change it here too — they are one
+ * *fraction* of its parent, and a variant name carries no number to take a
+ * fraction of. If `<Text>`'s scale changes, change it here too — they are one
  * fact written twice, which is the trade for not hard-coding four more classes.
  */
-const SIZE_PT: Record<keyof typeof SIZES, number> = {
+const SIZE_PT: Record<keyof typeof VARIANTS, number> = {
   display: 30,
   inline: 16,
   large: 24,
@@ -57,7 +69,7 @@ export function Money({
   className?: string;
   /** Colour by whether anything is actually outstanding. */
   owed?: boolean;
-  size?: keyof typeof SIZES;
+  size?: keyof typeof VARIANTS;
   /**
    * Colour by what *kind* of money this is, for a caller that already knows the
    * direction — the statement's rows are credits by construction, so there is
@@ -95,7 +107,7 @@ export function Money({
   const prefix = text.startsWith("NPR ") ? "NPR" : null;
 
   return (
-    <Text className={`${SIZES[size]} ${inkClass} ${className}`}>
+    <Text className={`${inkClass} ${className}`} variant={VARIANTS[size]}>
       {prefix ? (
         <>
           {/*

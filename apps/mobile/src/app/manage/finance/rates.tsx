@@ -13,16 +13,14 @@ import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
-  BED_TYPE_LABELS,
-  BED_TYPES,
-  type BedType,
-  closeFeeSchedule,
   createFeeSchedule,
-  type FeeSchedule,
-  listFeeSchedules,
+  deleteFeeSchedule,
+  type FeeScheduleData,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
-import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
+import { formatMoney } from "@/lib/format";
+import { monthStartFromNow, startOfDayIso } from "@/lib/manage-dates";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -56,18 +54,55 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * behind a confirm — not beside the numbers an owner opens Finance to read.
  */
 
+/** Matching is case- and punctuation-insensitive, as it is on the server. */
+function roomTypeKey(value: string | null | undefined) {
+  return (value ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 export default function ManageRatesScreen() {
   const dates = useDates();
   const [busy, setBusy] = useState(false);
   const [ratesDraft, setRatesDraft] = useState<Record<string, string> | null>(null);
   const [formDraft, setFormDraft] = useState<Record<string, string> | null>(null);
 
-  const schedules = useResource<FeeSchedule[]>(
-    useCallback(() => listFeeSchedules(), []),
-  );
+  // The same key `finance/history` reads: one rate card, two views of it.
+  const query = adminQuery.feeSchedules();
+  const schedules = useResource<FeeScheduleData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const open = useMemo(
-    () => (schedules.data ?? []).find((schedule) => schedule.effectiveTo === null) ?? null,
+    () =>
+      (schedules.data?.schedules ?? []).find(
+        (schedule: { effectiveTo: string | null }) => schedule.effectiveTo === null,
+      ) ?? null,
+    [schedules.data],
+  );
+
+  /*
+   * The keys of a rate card: the hostel's own room types.
+   *
+   * Not `BED_TYPES`. A bed type is a five-value enum derived from free text and
+   * it cannot name a room called "Shared", so pricing by bed type left the
+   * public listing as a second, separately typed store of the same number — and
+   * a hostel ended up advertising 18,000 while its card said 180,000. One box
+   * per room the hostel actually rents is what makes one price possible.
+   */
+  const roomTypes = useMemo(() => schedules.data?.roomTypes ?? [], [schedules.data]);
+
+  /**
+   * Rates booked for a future month, if any.
+   *
+   * Not the same as `open`. The open row is an upcoming card for the whole month
+   * between saving it and its month arriving, and only an upcoming card may be
+   * changed or dropped — one that has started is billing residents.
+   */
+  const upcoming = useMemo(
+    () =>
+      (schedules.data?.schedules ?? []).find(
+        (schedule) => schedule.standing === "upcoming",
+      ) ?? null,
     [schedules.data],
   );
 
@@ -83,20 +118,34 @@ export default function ManageRatesScreen() {
   const seededRates = useMemo(() => {
     const next: Record<string, string> = {};
 
-    for (const bedType of BED_TYPES) {
-      const rate = open?.rates.find((entry) => entry.bedType === bedType);
+    for (const option of roomTypes) {
+      /*
+       * A card saved before rates were keyed by room type carries only a bed
+       * type, and an owner opening this screen still has to see the rate they
+       * set. The server derives `bedType` from the room type on every write, so
+       * an un-migrated rate is the one that has a bed type and no room type.
+       */
+      const rate =
+        open?.rates.find(
+          (entry) => roomTypeKey(entry.roomType) === roomTypeKey(option.roomType),
+        ) ??
+        open?.rates.find(
+          (entry) =>
+            !entry.roomType &&
+            roomTypeKey(entry.bedType) === roomTypeKey(option.roomType),
+        );
 
-      next[bedType] = rate ? String(rate.monthlyAmount) : "";
+      next[option.roomType] = rate ? String(rate.monthlyAmount) : "";
     }
 
     return next;
-  }, [open]);
+  }, [open, roomTypes]);
 
   const seededForm = useMemo(
     () => ({
       admissionFee: open?.admissionFee ? String(open.admissionFee) : "",
       depositAmount: open?.depositAmount ? String(open.depositAmount) : "",
-      effectiveFrom: dayInputFromNow(1),
+      effectiveFrom: monthStartFromNow(1),
       referralAdmissionDiscount: open?.referralAdmissionDiscount
         ? String(open.referralAdmissionDiscount)
         : "",
@@ -127,8 +176,8 @@ export default function ManageRatesScreen() {
       return;
     }
 
-    const priced = BED_TYPES.flatMap((bedType) => {
-      const raw = rates[bedType]?.trim();
+    const priced = roomTypes.flatMap((option) => {
+      const raw = rates[option.roomType]?.trim();
 
       if (!raw) {
         return [];
@@ -137,12 +186,12 @@ export default function ManageRatesScreen() {
       const monthlyAmount = Number(raw);
 
       return Number.isInteger(monthlyAmount) && monthlyAmount >= 0
-        ? [{ bedType: bedType as BedType, monthlyAmount }]
+        ? [{ monthlyAmount, roomType: option.roomType }]
         : [];
     });
 
     if (priced.length === 0) {
-      toastError("Price at least one bed type", "Otherwise nobody can be billed.");
+      toastError("Price at least one room type", "Otherwise nobody can be billed.");
       return;
     }
 
@@ -158,23 +207,23 @@ export default function ManageRatesScreen() {
           ? Number(form.referralAdmissionDiscount)
           : undefined,
       });
-      toastSuccess("Rates saved");
+      toastSuccess("Rates saved", "Your public listing now shows these rents.");
       router.back();
     } catch (error) {
       toastError("Could not save", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [form, rates]);
+  }, [form, rates, roomTypes]);
 
   const stop = useCallback(() => {
-    if (!open) {
+    if (!upcoming) {
       return;
     }
 
     Alert.alert(
-      "Stop these rates?",
-      "Nothing is priced from today, so the next billing run fails every resident without a personal fee.",
+      "Delete these upcoming rates?",
+      "They have not started, so nothing has been billed from them. Your current rates carry on.",
       [
         { style: "cancel", text: "Keep them" },
         {
@@ -183,22 +232,22 @@ export default function ManageRatesScreen() {
               setBusy(true);
 
               try {
-                await closeFeeSchedule(open._id, startOfDayIso(dayInputFromNow(0)) ?? "");
-                toastSuccess("Stopped");
+                await deleteFeeSchedule(upcoming._id);
+                toastSuccess("Deleted", "Your current rates carry on.");
                 router.back();
               } catch (error) {
-                toastError("Could not stop them", readApiError(error));
+                toastError("Could not delete them", readApiError(error));
               } finally {
                 setBusy(false);
               }
             })();
           },
           style: "destructive",
-          text: "Stop them",
+          text: "Delete",
         },
       ],
     );
-  }, [open]);
+  }, [upcoming]);
 
   if (schedules.loading) {
     return (
@@ -224,7 +273,9 @@ export default function ManageRatesScreen() {
           accent
           centerTitle
           showBack
-          subtitle={open ? `Replaces the rates from ${dates.date(open.effectiveFrom)}` : undefined}
+          subtitle={
+            open ? `Replaces the rates from ${dates.dateBoth(open.effectiveFrom)}` : undefined
+          }
           title={open ? "New rates" : "Set the rates"}
         />
       }
@@ -232,21 +283,39 @@ export default function ManageRatesScreen() {
     >
       <View className="gap-5 pt-1">
         <View>
-          <SectionHeader subtitle="Per month, per bed" title="Rent" />
+          <SectionHeader subtitle="Per month, per room type" title="Rent" />
           <Card className="gap-3">
-            {BED_TYPES.map((bedType) => (
+            {roomTypes.length === 0 ? (
+              <Text variant="caption">
+                Add your room types on the hostel profile first — a rate is set against
+                one.
+              </Text>
+            ) : null}
+            {roomTypes.map((option) => (
               <Input
-                key={bedType}
+                /*
+                 * What the public page says today, under the box. Nothing used to
+                 * put these two numbers on one screen, which is how 18,000 on a
+                 * listing and 180,000 on a card went unnoticed. After saving they
+                 * are the same number by construction.
+                 */
+                hint={
+                  option.monthlyRent > 0
+                    ? `Listed at ${formatMoney(option.monthlyRent)}`
+                    : "No listed price yet"
+                }
+                key={option.roomType}
                 keyboardType="number-pad"
-                label={BED_TYPE_LABELS[bedType]}
-                onChangeText={(value) => editRates({ [bedType]: value })}
+                label={option.roomType}
+                onChangeText={(value) => editRates({ [option.roomType]: value })}
                 placeholder="NPR"
-                value={rates[bedType] ?? ""}
+                value={rates[option.roomType] ?? ""}
               />
             ))}
             <Text variant="caption">
               Leave one blank and it is not priced — those residents are skipped by the
-              billing run rather than charged a guess.
+              billing run rather than charged a guess. Saving writes these rents onto
+              your public listing, so this is the only place a rent is set.
             </Text>
           </Card>
         </View>
@@ -283,33 +352,56 @@ export default function ManageRatesScreen() {
           <SectionHeader title="Effective from" />
           <Card className="gap-3">
             <Input
+              /*
+               * The box takes a Gregorian date because that is what the API
+               * stores, but an owner reading Bikram Sambat cannot tell which
+               * Nepali month `2026-10-01` lands in — which is how a card meant
+               * for Kartik was set to start in Aswin. The echo below closes that
+               * gap without making them convert anything in their head.
+               */
+              hint={
+                startOfDayIso(form.effectiveFrom ?? "")
+                  ? dates.dateBoth(startOfDayIso(form.effectiveFrom ?? ""))
+                  : undefined
+              }
               keyboardType="numbers-and-punctuation"
               onChangeText={(effectiveFrom) => editForm({ effectiveFrom })}
               placeholder="YYYY-MM-DD"
               value={form.effectiveFrom ?? ""}
             />
             <View className="flex-row flex-wrap gap-2">
-              <Chip
-                label="Tomorrow"
-                onPress={() => editForm({ effectiveFrom: dayInputFromNow(1) })}
-              />
+              {/*
+                Months, not day offsets. A "next month" chip that added thirty
+                days gave a card starting on the 17th — and rates cannot start
+                mid-month, because the billing run gives a whole month to one
+                card. Both chips land on a 1st.
+              */}
               <Chip
                 label="Next month"
-                onPress={() => editForm({ effectiveFrom: dayInputFromNow(30) })}
+                onPress={() => editForm({ effectiveFrom: monthStartFromNow(1) })}
+              />
+              <Chip
+                label="Month after"
+                onPress={() => editForm({ effectiveFrom: monthStartFromNow(2) })}
               />
             </View>
-            {open ? (
-              <Text variant="caption">
-                The current rates stop the day before, and stay readable under Past
-                schedules so old invoices still add up.
-              </Text>
-            ) : null}
+            <Text variant="caption">
+              New rates always start on the 1st of a month. You cannot change this
+              month — those residents are already being billed.
+            </Text>
           </Card>
         </View>
 
-        {open ? (
+        {/*
+          Only rates that have not started can be dropped. One that is billing
+          residents is history — an invoice may already carry its id, and
+          deleting it would make "what was this resident's rent in March?"
+          unanswerable. The server refuses it either way; the button simply does
+          not offer what cannot be done.
+        */}
+        {upcoming ? (
           <Button
-            label="Stop charging these rates"
+            label="Delete these upcoming rates"
             loading={busy}
             onPress={stop}
             size="sm"

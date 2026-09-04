@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { hostelCalendarDay } from "@/lib/hostel-day";
 import {
   MAX_PAGE_SIZE,
   paginationMeta,
@@ -90,11 +91,32 @@ export class AttendanceServiceError extends Error {
   }
 }
 
-/** UTC midnight for a timestamp — the bucket every reading is filed under. */
+/**
+ * The bucket every reading is filed under — the **hostel's** calendar day.
+ *
+ * ## Why this is not `Date.UTC(...getUTCDate())` any more
+ *
+ * It was, and that was wrong by 5h45m in the direction that matters most here.
+ * Nepal is UTC+05:45, so a resident pinging at **02:00 Nepal — coming home late,
+ * which is precisely the event this feature exists to record** — is
+ * `20:15Z on the previous day`. Under UTC bucketing that reading filed under
+ * *yesterday*, and because `recordLocationPing` upserts one row per
+ * `{ day, residentId }` with last-write-wins, it **overwrote yesterday's 22:00
+ * reading**. So the two nights this feature is for were the two it corrupted:
+ * the night somebody came back late, and the night before it.
+ *
+ * `hostelCalendarDay` is the same normalisation move-in dates, billing periods
+ * and rate cards already go through, and it returns the same shape — UTC
+ * midnight — so every existing reader, index and query bound is unchanged.
+ *
+ * **Rows written before this fix are left where they are.** A migration would
+ * have to guess which side of the boundary each `recordedAt` fell on for a
+ * one-day shift affecting only pings between 00:00 and 05:45 Nepal, and a wrong
+ * guess is indistinguishable from the bug. The history self-corrects as it ages
+ * out of `retentionDays`.
+ */
 export function dayKey(value: Date) {
-  return new Date(
-    Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
-  );
+  return hostelCalendarDay(value);
 }
 
 /** Great-circle distance in metres. */

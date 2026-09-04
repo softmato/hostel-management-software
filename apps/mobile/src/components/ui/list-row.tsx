@@ -19,6 +19,7 @@ export function ListRow({
   icon,
   left,
   onPress,
+  onPressIn,
   right,
   subtitle,
   title,
@@ -35,6 +36,18 @@ export function ListRow({
    */
   left?: ReactNode;
   onPress?: () => void;
+  /**
+   * Touch-down, before the press resolves.
+   *
+   * One use only: starting the fetch the destination is about to make, so the
+   * screen behind the row is already loading while the finger is still on it.
+   * See `prefetchAdminRoute` in `lib/admin-queries.ts`.
+   *
+   * It must stay side-effect-free beyond that — this fires on a press that is
+   * then dragged off and cancelled, so anything that *changes* something would
+   * happen without the user having chosen it.
+   */
+  onPressIn?: () => void;
   /** Replaces the chevron/value slot entirely — a switch, a pill, a button. */
   right?: ReactNode;
   subtitle?: string;
@@ -87,6 +100,7 @@ export function ListRow({
         void Haptics.selectionAsync();
         onPress();
       }}
+      onPressIn={onPressIn}
     >
       {body}
     </Pressable>
@@ -148,6 +162,7 @@ export function CardRow({
   icon,
   left,
   onPress,
+  onPressIn,
   right,
   subtitle,
   title,
@@ -166,6 +181,18 @@ export function CardRow({
    */
   left?: ReactNode;
   onPress?: () => void;
+  /**
+   * Touch-down, before the press resolves.
+   *
+   * One use only: starting the fetch the destination is about to make, so the
+   * screen behind the row is already loading while the finger is still on it.
+   * See `prefetchAdminRoute` in `lib/admin-queries.ts`.
+   *
+   * It must stay side-effect-free beyond that — this fires on a press that is
+   * then dragged off and cancelled, so anything that *changes* something would
+   * happen without the user having chosen it.
+   */
+  onPressIn?: () => void;
   /** Replaces the chevron/value slot — a switch, a badge, a count pill. */
   right?: ReactNode;
   subtitle?: string;
@@ -236,6 +263,7 @@ export function CardRow({
         void Haptics.selectionAsync();
         onPress();
       }}
+      onPressIn={onPressIn}
     >
       {body}
     </Pressable>

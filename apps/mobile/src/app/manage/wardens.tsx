@@ -19,13 +19,13 @@ import { useResource } from "@/hooks/use-resource";
 import {
   createWarden,
   DEFAULT_WARDEN_PERMISSIONS,
-  listWardens,
   type ManagedWarden,
   removeWarden,
   updateWarden,
   WARDEN_PERMISSIONS,
   type WardenPermission,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { toastError, toastSuccess } from "@/lib/toast";
 
@@ -108,7 +108,11 @@ const BLANK_DRAFT: Draft = {
 
 export default function ManageWardensScreen() {
   const dates = useDates();
-  const wardens = useResource<ManagedWarden[]>(useCallback(() => listWardens(), []));
+  const query = adminQuery.wardens();
+  const wardens = useResource<ManagedWarden[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [inviting, setInviting] = useState(false);
   const [draft, setDraft] = useState<Draft>(BLANK_DRAFT);

@@ -12,15 +12,14 @@ import { Segmented } from "@/components/ui/segmented";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type InquiryStatus,
-  listManagedInquiries,
   type ManagedInquiry,
   setInquiryStatus,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import {
@@ -78,10 +77,14 @@ const SEGMENTS: { bucket: InquiryBucket; label: string }[] = [
 export default function ManageInquiriesScreen() {
   const dates = useDates();
 
-  const inquiries = useResource<ManagedInquiry[]>(
-    useCallback(() => listManagedInquiries(), []),
-    { topics: [REALTIME_TOPIC.INQUIRIES] },
-  );
+  // Warmed on portal entry: Home's "New inquiries" tile carries the count that
+  // sends people here, so this is a queue an owner opens because they were
+  // already told there was something in it.
+  const query = adminQuery.inquiries();
+  const inquiries = useResource<ManagedInquiry[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [bucket, setBucket] = useState<InquiryBucket>("new");
   const [busyId, setBusyId] = useState<string | null>(null);

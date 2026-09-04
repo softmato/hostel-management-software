@@ -96,20 +96,15 @@ export default function UiPreview() {
             title="Waiting for you"
           />
           <Grid maxColumns={2} minCellWidth={140}>
+            {/* No badge: importing a statement is something you do, not a
+                queue. `Payments to check` and `Post notice` both left this row
+                — Money is a tab and notices are a Manage tile — see
+                `WaitingActions`. */}
             <InfoTile
-              badge={3}
-              icon="cash-outline"
-              label="Payments to check"
+              icon="document-text-outline"
+              label="Statement"
               onPress={() => {}}
               tone="warning"
-            />
-            {/* No badge: a notice is written, not queued. Complaints moved to
-                the Manage grid — see `WaitingActions`. */}
-            <InfoTile
-              icon="megaphone-outline"
-              label="Post notice"
-              onPress={() => {}}
-              tone="brand"
             />
             <InfoTile
               badge={2}

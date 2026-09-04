@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { View } from "react-native";
 
 import {
@@ -19,19 +19,15 @@ import { SectionHeader } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { ROLE } from "@/constants/roles";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
-import {
-  type AdminHostel,
-  type AdminPeriodSummary,
-  type AdminReport,
-  getAdminHostel,
-  getAdminPeriodSummary,
-  getAdminReport,
-} from "@/lib/admin-api";
 import { buildAlertFeed, occupancyRate } from "@/lib/admin-alerts";
 import { earningsSummary, listingState, monthOverMonth } from "@/lib/admin-home";
+import {
+  type AdminOverview,
+  adminQuery,
+  prefetchAdminRoute,
+} from "@/lib/admin-queries";
 
 /**
  * The hostel at a glance — and the first screen a hostel owner ever sees.
@@ -83,43 +79,29 @@ import { earningsSummary, listingState, monthOverMonth } from "@/lib/admin-home"
  * below. Two surfaces on purpose — the alarm has to be seen, the decision needs
  * the resident's name and message next to it.
  */
-type Overview = {
-  hostel: AdminHostel | null;
-  /** Null when the caller's role has no `viewPayments` grant. */
-  periods: AdminPeriodSummary | null;
-  report: AdminReport;
-};
-
-async function loadOverview(): Promise<Overview> {
-  const [report, hostel, periods] = await Promise.all([
-    getAdminReport(),
-    // A warden may be scoped to several hostels, in which case the profile read
-    // needs a hostelId it has no way to choose. The numbers above still apply
-    // across all of them, so the header simply loses its name.
-    getAdminHostel().catch(() => null),
-    /*
-     * Tolerant for a different reason: `viewPayments` is a per-warden grant, so
-     * this is the one read here that a legitimate user can be refused. Falling
-     * back rather than failing keeps the rest of the screen — see
-     * `earningsSummary`, which decides what the hero says without it.
-     */
-    getAdminPeriodSummary().catch(() => null),
-  ]);
-
-  return { hostel, periods, report };
-}
+/*
+ * The shape and the loader moved to `lib/admin-queries.ts`, where the portal's
+ * prefetch can run the same read under the same key. What used to be a local
+ * `loadOverview` is `adminQuery.overview()`, tolerant reads and all.
+ */
 
 export default function AdminHomeScreen() {
   // Read for one decision only: whether the shortcut row's lead cell is the
   // Store or roll call. See the `onStore` note on `<QuickActions>` below.
   const account = useAppSelector((state) => state.auth.account);
-  const overview = useResource<Overview>(useCallback(() => loadOverview(), []), {
-    topics: [
-      REALTIME_TOPIC.PAYMENTS,
-      REALTIME_TOPIC.RESIDENTS,
-      REALTIME_TOPIC.COMPLAINTS,
-      REALTIME_TOPIC.SAFETY,
-    ],
+  /*
+   * The descriptor, not a local loader: the same object the portal's warm-up
+   * prefetched into the cache under `query.key`, so a Home that was warmed paints
+   * from it and revalidates behind the figures instead of over them.
+   *
+   * `adminQuery` hands back one object per key for the life of the process, so
+   * `query.load` is a stable identity and needs no `useCallback` — see `define`
+   * in `lib/admin-queries.ts` for why that is a requirement rather than a tidy-up.
+   */
+  const query = adminQuery.overview();
+  const overview = useResource<AdminOverview>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
   });
 
   const alerts = useAdminAlerts();
@@ -284,12 +266,12 @@ export default function AdminHomeScreen() {
               This started as five full-width rows in a bordered card, became a
               two-by-two grid of separately bordered tiles, and is now the same
               object as the shortcut row that sits directly above it:
-              `WaitingActions` and `QuickActions` are both an `ActionCard` with
-              four icon cells in it, differing only in that these carry a count.
+              `WaitingActions` and `QuickActions` are both an `ActionCard` of
+              icon cells, differing only in that these carry a count.
 
               Each step was the same correction. The question this section
               answers is "is anything waiting, and roughly how much", which is a
-              *looking* question — and every bit of chrome that made it four
+              *looking* question — and every bit of chrome that made them
               separate objects, or gave each one a sentence of explanation, was
               turning a glance back into a read.
             */}
@@ -304,9 +286,7 @@ export default function AdminHomeScreen() {
             <DeniedNotice denied={alerts.data?.denied ?? []} />
 
             <WaitingActions
-              claims={alerts.counts.claim}
               inquiries={alerts.counts.inquiry}
-              onClaims={() => router.push("/(admin)/money")}
               /*
                 `manage/inquiries`, not the Residents tab.
 
@@ -317,13 +297,26 @@ export default function AdminHomeScreen() {
               */
               onInquiries={() => router.push("/manage/inquiries")}
               /*
-                `manage/notices` opens on its list with a "Write a notice"
-                floating button, so the time-sensitive case — water off until
-                4pm — is one tap past this cell. It carries no badge because a
-                notice is written rather than queued; the complaint count it
-                replaced now lives in the Manage grid below and on Today.
+                `manage/statements`, the bank import — under the name of the job
+                rather than of the file it eats.
+
+                It is the screen the cell beside it used to open while wearing
+                the word `Statement`, which the Manage grid below spends on a
+                different screen entirely. Two doors, one word, one scroll
+                apart. Now each says what is behind it.
+
+                No badge: an import is something you *do*, not a queue that
+                fills, same as `Today` below.
               */
-              onNotice={() => router.push("/manage/notices")}
+              onReconcile={() => router.push("/manage/statements")}
+              /*
+                `manage/finance/statement`, the hostel's own ledger of credits —
+                the same screen the Manage grid's `Statement` tile opens, and the
+                whole point of this cell: money coming in is the thing an owner
+                checks most often, so it gets the door on the row they are
+                already reading rather than one section further down.
+              */
+              onStatement={() => router.push("/manage/finance/statement")}
               /*
                 No badge on this one: Today is a **door**, not a queue — roll
                 call, complaints, maintenance, the menu and notices — and there
@@ -350,7 +343,15 @@ export default function AdminHomeScreen() {
             */}
             <SectionHeader title="Manage" />
 
-            <ServiceGrid onOpen={(href: string) => router.push(href as never)} />
+            {/*
+              Touch-down warms the screen the tile opens, where there is anything
+              to warm. The launch-time warm-up deliberately does not cover these
+              eleven — see `prefetchAdminRoute`.
+            */}
+            <ServiceGrid
+              onOpen={(href: string) => router.push(href as never)}
+              onPrefetch={prefetchAdminRoute}
+            />
           </View>
         </View>
       </Screen>

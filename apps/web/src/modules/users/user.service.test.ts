@@ -205,3 +205,81 @@ describe("registerOrUpgradeUserByEmail (ARCHITECTURE.md §3.2)", () => {
     ).rejects.toMatchObject({ errorCode: "ROLE_NOT_ISSUABLE" });
   });
 });
+
+/*
+ * An email is not an identity, and the users collection has never pretended it
+ * was. Two rows on one address — an `INVITED` warden nobody ever signed in to
+ * and the PUBLIC account the same person actually uses — is the pairing a real
+ * resident registration hit: the intake had already resolved the right account
+ * from the card it scanned, this function re-found the wrong one from the
+ * address, and refused the upgrade with `EMAIL_ALREADY_HAS_ROLE`.
+ */
+describe("registerOrUpgradeUserByEmail — a pinned account", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("upgrades the account it was given rather than one matching the address", async () => {
+    const pinned = mockExistingUser({ _id: "user-public", email: "shared@example.com" });
+
+    mockFindOneResult(pinned);
+
+    const result = await registerOrUpgradeUserByEmail({
+      email: "shared@example.com",
+      role: Role.RESIDENT,
+      sendEmailNotification: false,
+      userId: "user-public",
+    });
+
+    expect(mocks.userFindOne).toHaveBeenCalledWith({
+      _id: "user-public",
+      isDeleted: { $ne: true },
+    });
+    expect(pinned.role).toBe(Role.RESIDENT);
+    expect(result).toMatchObject({ upgraded: true, user: { id: "user-public" } });
+  });
+
+  it("addresses the mail to the account's own login, not the address passed in", async () => {
+    // The caller's `email` is `Resident.primaryEmail` — a profile field the
+    // resident edits. The account's is what they sign in with, and the two drift.
+    const pinned = mockExistingUser({ _id: "user-public", email: "login@example.com" });
+
+    mockFindOneResult(pinned);
+
+    const result = await registerOrUpgradeUserByEmail({
+      email: "profile@example.com",
+      role: Role.RESIDENT,
+      sendEmailNotification: false,
+      userId: "user-public",
+    });
+
+    expect(result.user.email).toBe("login@example.com");
+  });
+
+  it("refuses a pinned account that no longer exists instead of creating a second one", async () => {
+    // Falling through to the create branch would mint a *third* row on an
+    // address that already has two — the exact shape of the bug this ends.
+    mockFindOneResult(null);
+
+    await expect(
+      registerOrUpgradeUserByEmail({
+        email: "shared@example.com",
+        role: Role.RESIDENT,
+        userId: "user-gone",
+      }),
+    ).rejects.toMatchObject({ errorCode: "USER_NOT_FOUND" });
+    expect(mocks.userCreate).not.toHaveBeenCalled();
+  });
+
+  it("still refuses to turn a staff account into a resident, pinned or not", async () => {
+    mockFindOneResult(mockExistingUser({ _id: "user-warden", role: Role.WARDEN }));
+
+    await expect(
+      registerOrUpgradeUserByEmail({
+        email: "test@example.com",
+        role: Role.RESIDENT,
+        userId: "user-warden",
+      }),
+    ).rejects.toMatchObject({ errorCode: "EMAIL_ALREADY_HAS_ROLE" });
+  });
+});

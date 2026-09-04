@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
@@ -13,9 +13,9 @@ import { useResource } from "@/hooks/use-resource";
 import {
   BED_TYPE_LABELS,
   type BedType,
-  type FeeSchedule,
-  listFeeSchedules,
+  type FeeScheduleData,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { humanizeEnum } from "@/lib/format";
 
 /**
@@ -33,19 +33,31 @@ import { humanizeEnum } from "@/lib/format";
 
 export default function ManageRateHistoryScreen() {
   const dates = useDates();
-  const schedules = useResource<FeeSchedule[]>(
-    useCallback(() => listFeeSchedules(), []),
-  );
+  // The same key `finance/rates` reads — see there.
+  const query = adminQuery.feeSchedules();
+  const schedules = useResource<FeeScheduleData>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
+  /*
+   * Every set of rates that has finished, newest first.
+   *
+   * Filtered on `standing`, not on `effectiveTo !== null`. Those are different
+   * questions for the month between saving new rates and them starting: the
+   * upcoming card has no `effectiveTo` and belongs on the Finance screen, while
+   * the card still billing residents does have one and is emphatically not past.
+   * Filtering on the date field showed the live rates under History.
+   */
   const past = useMemo(
     () =>
-      (schedules.data ?? [])
-        .filter((schedule) => schedule.effectiveTo !== null)
+      (schedules.data?.schedules ?? [])
+        .filter((schedule) => schedule.standing === "past")
         .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom)),
     [schedules.data],
   );
 
-  const header = <AppBar accent centerTitle showBack title="Past schedules" />;
+  const header = <AppBar accent centerTitle showBack title="Past rates" />;
 
   if (schedules.loading) {
     return (
@@ -80,15 +92,26 @@ export default function ManageRateHistoryScreen() {
           {past.map((schedule) => (
             <View className="gap-2" key={schedule._id}>
               <Text variant="subtitle">
-                {`${dates.date(schedule.effectiveFrom)} – ${dates.date(schedule.effectiveTo)}`}
+                {`${dates.dateBoth(schedule.effectiveFrom)} – ${dates.dateBoth(schedule.effectiveTo)}`}
               </Text>
 
               <Card className="gap-1">
                 {schedule.rates.map((rate) => (
+                  /*
+                   * The room type is the label, because it is the key and it is
+                   * the word the owner typed. A card closed before rates were
+                   * keyed by room type has only its derived bed type, and that
+                   * still has to read as something — history that renders blank
+                   * rows is history nobody can audit.
+                   */
                   <FactRow
-                    key={rate.bedType}
+                    key={rate.roomType ?? rate.bedType ?? String(rate.monthlyAmount)}
                     label={
-                      BED_TYPE_LABELS[rate.bedType as BedType] ?? humanizeEnum(rate.bedType)
+                      rate.roomType ??
+                      (rate.bedType
+                        ? (BED_TYPE_LABELS[rate.bedType as BedType] ??
+                          humanizeEnum(rate.bedType))
+                        : "Unpriced")
                     }
                     value={<Money value={rate.monthlyAmount} />}
                   />

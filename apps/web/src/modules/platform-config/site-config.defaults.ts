@@ -58,8 +58,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
         "Today, {siteName} powers hundreds of verified hostel listings, processes thousands of inquiries every month, and provides hostel teams with modern tools to manage rooms, residents, payments, food quality, and safety.",
         "We are headquartered in Kathmandu, Nepal, and our team is passionate about using technology to solve real problems for students and hostel operators alike.",
       ],
-      noteBody:
-        "Reach out at {supportEmail} — or visit our office in Kathmandu, Nepal.",
+      noteBody: "Reach out at {supportEmail} — or visit our office in Kathmandu, Nepal.",
       noteTitle: "Want to know more?",
       sections: [
         {
@@ -385,47 +384,63 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
       ],
       subtitle: "For Hostel Owners & Operators",
     },
+    /*
+     * Read by the public `/service-providers` page and the app's Service
+     * providers screen.
+     *
+     * Two claims were removed here rather than reworded, because neither was
+     * true: jobs are **not** broadcast to every matching provider, and there is
+     * no "first to accept wins" race. A hostel picks a named provider out of
+     * their directory and assigns the job to them. That is a materially
+     * different promise to a tradesperson — it makes the profile, not the
+     * reaction time, the thing that wins work — and the copy now says so.
+     *
+     * The city is gone for the same reason: we serve Nepal, and a page that
+     * names one city tells everybody outside it that they are not invited.
+     *
+     * `*asterisks*` in `subtitle` mark the words the hero paints in the brand
+     * green; see `renderEmphasis` on the page.
+     */
     serviceProviders: {
-      highlights: [
-        { label: "review time", value: "2 days" },
-        { label: "trades covered", value: "11" },
-      ],
+      highlights: [],
       intro: [
-        "Get matched with hostel maintenance jobs in your area — plumbing, electrical, cleaning and more.",
-        "Approved providers are notified the moment a matching job is broadcast by a hostel in their area — first to accept wins the job.",
+        "Join {siteName} as a service provider and receive real maintenance jobs — plumbing, electrical, cleaning and more.",
+        "Hostels raise maintenance requests, and pick a provider in their area to send them to.",
       ],
       noteBody:
-        "By continuing you agree this account is used to receive job offers from hostels in your category and area. No web dashboard is required — once approved, you'll manage jobs from the {siteName} Provider mobile app.",
+        "By continuing you agree this account is used to receive job offers from hostels in your trade and area. No web dashboard is required — once approved, you'll manage jobs from the {siteName} Provider mobile app.",
       noteTitle: "Before you apply",
       sections: [
         {
           body: [
-            "Sign in with the account you want job offers to reach, then fill out your trade details — the trades you cover, the area you work in, and when you are available.",
-            "Attach a profile photo and any supporting document that shows your work or your licence. Both are optional, and both make an application easier to approve.",
+            "Fill in a short form. Only your name, phone, trades and area are required.",
           ],
           icon: "user-plus",
-          title: "How to apply",
+          title: "Apply",
         },
         {
           body: [
-            "Applications are reviewed by the platform team, normally within two business days.",
-            "You are emailed the decision. An approved account keeps the same login — nothing new to remember.",
-            "A rejected application can be resubmitted with more detail; nothing is lost.",
+            "Our team checks your application and emails you the result with a clear reason.",
           ],
           icon: "badge-check",
-          title: "What happens next",
+          title: "We review",
         },
         {
           body: [
-            "A hostel raises a maintenance job and broadcasts it to providers in the matching trade and area.",
-            "Every matching provider is notified at once. The first to accept takes the job — there is no bidding and no queue.",
-            "You agree the price and the visit with the hostel directly; the platform does not take a cut of the work.",
+            "On approval you are emailed your Provider Identity Card, with a QR code you show at the gate.",
+          ],
+          icon: "shield",
+          title: "Get verified",
+        },
+        {
+          body: [
+            "Hostels send you jobs in the Provider app. You agree the price with them directly — we take no cut.",
           ],
           icon: "wrench",
-          title: "How jobs reach you",
+          title: "Start getting work",
         },
       ],
-      subtitle: "Join Kathmandu's trusted service provider network",
+      subtitle: "Get Steady Maintenance Work from *Hostels* in Nepal",
     },
     terms: {
       highlights: [],
