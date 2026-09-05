@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { loadSharp } from "@/lib/sharp";
 import { extractReferenceCodes } from "@/modules/finance/reference-code";
 import { transactionCodeProblem } from "@/modules/finance/transaction-code";
@@ -71,6 +73,42 @@ export const OCR_FLAGS = {
  */
 const OCR_TIMEOUT_MS = 8_000;
 
+/**
+ * How long the whole attempt may take — **worker creation included**.
+ *
+ * {@link OCR_TIMEOUT_MS} guarded only `recognize()`, which left the expensive,
+ * failure-prone half of the operation unguarded: building the worker spawns a
+ * thread, loads a WASM core and reads a language model, and until this existed
+ * it could take forever without anything noticing.
+ *
+ * It did. In production `createWorker` never settled — the worker thread came
+ * up but never signalled ready — so `readEvidenceText` waited on it with no
+ * deadline, the read route's `reading` stage never ended, and the stream stayed
+ * open until the platform killed the function. What the resident saw was a
+ * claim form that sat on "Reading the amount and transaction ID…" until the
+ * client gave up, and then told them their receipt could not be read. Which
+ * unlocks submit — so the phone accepted files this module had already decided
+ * were not payments, purely because its verdict never arrived.
+ *
+ * Rule 2 at the top of this file says a slow worker degrades to "no signal".
+ * This is the line that makes that true rather than aspirational: past this
+ * budget the answer is null, which every caller already handles.
+ *
+ * Larger than the recognition budget because it covers strictly more work, and
+ * a cold container legitimately pays for the core and the model once.
+ */
+const RECOGNITION_BUDGET_MS = 20_000;
+
+/** Rejects once `ms` has passed, so an unbounded await cannot outlive it. */
+function deadline(ms: number): { promise: Promise<never>; cancel: () => void } {
+  let timer: NodeJS.Timeout | undefined;
+  const promise = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("EVIDENCE_OCR_DEADLINE")), ms);
+  });
+
+  return { cancel: () => clearTimeout(timer), promise };
+}
+
 /** Longest edge we feed the recogniser. Beyond this, accuracy stops improving. */
 const MAX_EDGE = 1600;
 
@@ -99,6 +137,28 @@ type Worker = {
  */
 let workerPromise: Promise<Worker | null> | null = null;
 
+/**
+ * The directory holding `eng.traineddata`, shipped with the app.
+ *
+ * **Vendored rather than downloaded, and that is a correctness fix, not a
+ * speed one.** This used to pass no `langPath`, which makes tesseract.js fetch
+ * the 5 MB model from the jsdelivr CDN on first use and write it beside the
+ * process. On a serverless deployment both halves of that are wrong: the
+ * filesystem is read-only, so the write always fails and the download is
+ * repeated for the life of every container, and the fetch itself is on the
+ * critical path of a request a resident is watching.
+ *
+ * When that fetch hung, so did the read — see {@link RECOGNITION_BUDGET_MS} for
+ * the second half of the fix. Pointing at a local file removes the network from
+ * this path altogether.
+ *
+ * `process.cwd()` is the app root both under `next dev` and in a Vercel lambda,
+ * where the file arrives through `outputFileTracingIncludes` in next.config.ts.
+ * That entry is load-bearing: without it the model is absent in production and
+ * this is back to having no recogniser.
+ */
+const TESSDATA_PATH = path.join(process.cwd(), "tessdata");
+
 async function getWorker(): Promise<Worker | null> {
   workerPromise ??= (async () => {
     try {
@@ -107,17 +167,19 @@ async function getWorker(): Promise<Worker | null> {
       // than the ability to submit a claim.
       const { createWorker } = await import("tesseract.js");
 
-      // No `langPath`: the English model is fetched from tesseract.js's CDN on
-      // first use and cached beside the process (the `eng.traineddata` that
-      // appears in a dev checkout, and which .gitignore excludes — it is a
-      // download, not a source file).
-      //
-      // The consequence is worth stating because it is silent: a deployment
-      // whose egress cannot reach that CDN loses OCR entirely, and by rule 2
-      // above that shows up as every claim carrying no evidence flag rather
-      // than as an error anywhere. If that matters, vendor the model and pass
-      // `langPath` — nothing else about this module changes.
-      return (await createWorker("eng")) as unknown as Worker;
+      return (await createWorker("eng", undefined, {
+        // Read the model off disk, never from the network.
+        langPath: TESSDATA_PATH,
+        // No cache read, no cache write. The cache exists to save the download
+        // this no longer performs, and its write is a guaranteed failure on a
+        // read-only filesystem — one logged exception per worker, every worker.
+        cacheMethod: "none",
+        // The vendored file is the plain model, not the compressed one. Left
+        // unset, tesseract.js looks for `eng.traineddata.gz`, does not find it,
+        // and the load never completes — the exact hang this module is being
+        // fixed for, reproduced from a different direction.
+        gzip: false,
+      })) as unknown as Worker;
     } catch {
       return null;
     }
@@ -227,35 +289,67 @@ export async function readEvidenceText(
 
   if (!prepared) return null;
 
-  const worker = await getWorker();
-
-  if (!worker) return null;
-
-  let timer: NodeJS.Timeout | undefined;
+  /*
+   * One deadline over the whole attempt.
+   *
+   * `getWorker()` is inside it, which is the point: it was the unguarded await,
+   * and an unguarded await on a worker that never comes up is a request that
+   * never ends. Everything past this line is best-effort work the caller is
+   * happy to lose — never a reason for a resident to be stuck on a form.
+   */
+  const budget = deadline(RECOGNITION_BUDGET_MS);
+  let worker: Worker | null = null;
 
   try {
-    const text = await Promise.race([
-      worker.recognize(prepared).then((result) => result.data.text ?? ""),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), OCR_TIMEOUT_MS);
-      }),
-    ]);
+    worker = await Promise.race([getWorker(), budget.promise]);
 
-    if (text === null) {
-      // The worker is still busy with the recognition we abandoned, so it cannot
-      // be reused — dropping it is cheaper than queueing behind it.
-      void resetWorker(worker);
+    if (!worker) return null;
 
-      return null;
+    /*
+     * The `catch` is not dead code: when the budget or the recognition timeout
+     * wins the race below, nothing is left awaiting this promise, and a worker
+     * we then terminate rejects it. Unhandled, that takes the process down.
+     */
+    const recognition = worker
+      .recognize(prepared)
+      .then((result) => result.data.text ?? "")
+      .catch(() => null);
+    let timer: NodeJS.Timeout | undefined;
+
+    try {
+      const text = await Promise.race([
+        recognition,
+        budget.promise,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), OCR_TIMEOUT_MS);
+        }),
+      ]);
+
+      if (text === null) {
+        // The worker is still busy with the recognition we abandoned, so it
+        // cannot be reused — dropping it is cheaper than queueing behind it.
+        void resetWorker(worker);
+
+        return null;
+      }
+
+      return text.trim() || null;
+    } finally {
+      clearTimeout(timer);
     }
-
-    return text.trim() || null;
   } catch {
+    /*
+     * The budget expired, or the worker threw.
+     *
+     * Dropped either way. A worker we timed out on is a worker whose state we
+     * cannot describe — mid-recognition, or never started — and the next
+     * resident deserves a fresh one rather than a queue behind this.
+     */
     void resetWorker(worker);
 
     return null;
   } finally {
-    clearTimeout(timer);
+    budget.cancel();
   }
 }
 

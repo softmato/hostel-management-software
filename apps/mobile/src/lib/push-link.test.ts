@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PUSH_FALLBACK_PATH, resolvePushPath } from "@/lib/push-link";
+import { marksRoleChange, PUSH_FALLBACK_PATH, resolvePushPath } from "@/lib/push-link";
 
 describe("resolvePushPath", () => {
   it("passes through a route that exists", () => {
@@ -108,5 +108,42 @@ describe("resolvePushPath", () => {
 
   it("does not mistake a payments path with extra segments for an invoice", () => {
     expect(resolvePushPath("/(resident)/payments/abc/def")).toBe(PUSH_FALLBACK_PATH);
+  });
+});
+
+/**
+ * The one push that changes what app this is.
+ *
+ * `usePush` rotates the access token and replaces the shell when this is true,
+ * so a false positive throws somebody out of the screen they are reading and a
+ * false negative leaves a paid-up resident stuck in the browsing app until
+ * their token expires. The string is frozen in two places on purpose — here,
+ * and in the server's `resident-registered-notify.ts`.
+ */
+describe("marksRoleChange", () => {
+  it("recognises the registration push", () => {
+    expect(marksRoleChange({ type: "RESIDENT_REGISTERED" })).toBe(true);
+    expect(marksRoleChange({ invoiceId: "inv-1", type: "RESIDENT_REGISTERED" })).toBe(
+      true,
+    );
+  });
+
+  it("ignores every other notification", () => {
+    expect(marksRoleChange({ type: "DOWNLOAD_COMPLETE" })).toBe(false);
+    expect(marksRoleChange({ invoiceId: "inv-1" })).toBe(false);
+    expect(marksRoleChange({ category: "PAYMENT" })).toBe(false);
+  });
+
+  /*
+   * `data` is network input written by many call sites, and an older server
+   * build sends no `type` at all. None of those may throw inside a notification
+   * listener — an exception there loses the tap.
+   */
+  it("survives a payload that is missing, empty or the wrong shape", () => {
+    expect(marksRoleChange(undefined)).toBe(false);
+    expect(marksRoleChange(null)).toBe(false);
+    expect(marksRoleChange({})).toBe(false);
+    expect(marksRoleChange("RESIDENT_REGISTERED")).toBe(false);
+    expect(marksRoleChange({ type: 42 })).toBe(false);
   });
 });

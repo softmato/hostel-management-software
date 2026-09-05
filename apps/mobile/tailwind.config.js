@@ -64,6 +64,10 @@ module.exports = {
           DEFAULT: "var(--success)",
           soft: "var(--success-soft)",
         },
+        info: {
+          DEFAULT: "var(--info)",
+          soft: "var(--info-soft)",
+        },
         brand: {
           DEFAULT: "var(--brand)",
           soft: "var(--brand-soft)",

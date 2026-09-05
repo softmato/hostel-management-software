@@ -245,3 +245,132 @@ export function invalidInviteReason(input: {
 
   return null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Inviting somebody the hostel already knows about                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A guardian as the **hostel's record** holds them — the block
+ * `/resident/profile` returns, written at intake by the office.
+ *
+ * Not a `GuardianLink`. These two are the same `Guardian` document seen from
+ * either end: this is the row on the resident's record, a link is that row
+ * *plus* a `GuardianAccess` and its permissions. Every link has a record behind
+ * it; most records have no link, because being written down at intake never
+ * gave anybody a sign-in.
+ */
+export type GuardianOnRecord = {
+  email: string;
+  firstName: string;
+  id: string;
+  isPrimary: boolean;
+  lastName: string;
+  phone: string;
+  relation: string;
+};
+
+/** The five identity fields the invite form sends. */
+export type GuardianInviteDraft = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  relation: string;
+};
+
+export const EMPTY_INVITE_DRAFT: GuardianInviteDraft = {
+  email: "",
+  firstName: "",
+  lastName: "",
+  phone: "",
+  relation: "",
+};
+
+/** Trimmed and case-folded, for comparing two people rather than two strings. */
+function fold(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/**
+ * The last ten digits — a Nepali mobile number, with whatever the typist put in
+ * front of it thrown away.
+ *
+ * `+977 9800000000`, `097-7 9800000000` and `9800000000` are one person to
+ * everybody except a string comparison. Ten because that is the length of a
+ * mobile number here; a shorter value is compared whole rather than padded.
+ */
+function phoneKey(value: string): string {
+  const only = value.replace(/\D/g, "");
+
+  return only.length > 10 ? only.slice(-10) : only;
+}
+
+export function inviteDraftFrom(guardian: GuardianOnRecord): GuardianInviteDraft {
+  return {
+    email: guardian.email.trim(),
+    firstName: guardian.firstName.trim(),
+    lastName: guardian.lastName.trim(),
+    phone: guardian.phone.trim(),
+    relation: guardian.relation.trim(),
+  };
+}
+
+/** How the invite form names one of these people in a chooser. */
+export function describeGuardianOnRecord(guardian: GuardianOnRecord): string {
+  const name = `${guardian.firstName} ${guardian.lastName}`.trim();
+  const relation = guardian.relation.trim();
+
+  return relation ? `${name} · ${relation}` : name;
+}
+
+/**
+ * The guardians on record who do **not** already have a sign-in — the ones an
+ * invitation would actually give something to.
+ *
+ * ## Three ways to be the same person
+ *
+ * `guardianId` is the honest match: a link carries the id of the very document
+ * this record came from. Email and phone are the fallbacks, because a resident
+ * can invite an address the office never wrote down and the office can later add
+ * a row for somebody already linked — `inviteGuardian` itself reuses a guardian
+ * on `{ email, hostelId, residentId }`, so the address is what the server treats
+ * as identity too.
+ *
+ * Getting this wrong in the safe direction means offering to invite somebody who
+ * is already in, which the server handles by replacing their invitation. Getting
+ * it wrong the other way hides a parent who has no access at all, which is the
+ * failure worth avoiding — so a blank email or phone matches nothing rather than
+ * matching every other blank.
+ *
+ * ## Primary first
+ *
+ * `isPrimary` is the office's answer to "who do we call", and it is the person
+ * a resident is most likely inviting. The rest keep the order the record gives.
+ */
+export function invitableGuardians(
+  onRecord: GuardianOnRecord[],
+  links: Pick<GuardianLink, "email" | "guardianId" | "phone">[],
+): GuardianOnRecord[] {
+  const linkedIds = new Set(links.map((link) => link.guardianId));
+  const linkedEmails = new Set(links.map((link) => fold(link.email)).filter(Boolean));
+  const linkedPhones = new Set(
+    links.map((link) => phoneKey(link.phone)).filter(Boolean),
+  );
+
+  const free = onRecord.filter((guardian) => {
+    const email = fold(guardian.email);
+    const phone = phoneKey(guardian.phone);
+
+    return (
+      !linkedIds.has(guardian.id) &&
+      !(email && linkedEmails.has(email)) &&
+      !(phone && linkedPhones.has(phone))
+    );
+  });
+
+  return [
+    ...free.filter((guardian) => guardian.isPrimary),
+    ...free.filter((guardian) => !guardian.isPrimary),
+  ];
+}

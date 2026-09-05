@@ -21,6 +21,7 @@ import {
   TableRow,
   Th,
 } from "@/app/_components/portal-dashboard-ui";
+import { monthLabel } from "@/lib/format-month";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 import { Message } from "./core-portal-shared";
@@ -111,7 +112,11 @@ export const HostelAdminTransactionsPageContent = memo(
         if (methodFilter && entry.paymentMethod !== methodFilter) return false;
         if (monthFilter && entry.period !== monthFilter) return false;
         if (!term) return true;
-        return `${entry.period} ${entry.id} ${entry.residentName} ${entry.remarks ?? ""}`
+        // Both spellings of the month are searchable. The owner reading this
+        // table thinks in `Bhadra`, and the reference they were sent by email
+        // may say `2083-05`; matching only the key means typing the month name
+        // returns nothing on a screen that is visibly full of that month.
+        return `${monthLabel(entry.period)} ${entry.period} ${entry.id} ${entry.residentName} ${entry.remarks ?? ""}`
           .toLowerCase()
           .includes(term);
       });
@@ -238,7 +243,9 @@ export const HostelAdminTransactionsPageContent = memo(
                       setMonthFilter(next);
                       setPage(1);
                     }}
-                    options={Array.from(new Set(ledger.map((entry) => entry.period)))}
+                    options={Array.from(
+                      new Set(ledger.map((entry) => entry.period)),
+                    ).map((period) => ({ label: monthLabel(period), value: period }))}
                     value={monthFilter}
                   />
                 </div>
@@ -274,8 +281,11 @@ export const HostelAdminTransactionsPageContent = memo(
                           <TableCell className="font-medium text-foreground">
                             {entry.residentName || "—"}
                           </TableCell>
+                          {/* `Bhadra 2083 BS`, not `2083-05`. The key is what
+                              the row is stored under; it is not a thing to put
+                              in front of somebody reconciling a ledger. */}
                           <TableCell className="text-muted-foreground">
-                            {entry.period}
+                            {monthLabel(entry.period)}
                           </TableCell>
                           <TableCell>
                             <SoftBadge tone="slate">

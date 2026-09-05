@@ -12,7 +12,7 @@ import {
   type LedgerInvoice,
 } from "@/modules/finance/ledger-read.service";
 import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
-import { readNightStatusFor } from "@/modules/safety/safety.service";
+import { readLatestSOSFor, readNightStatusFor } from "@/modules/safety/safety.service";
 import {
   findCurrentResident,
   serializeResidentSummary,
@@ -260,11 +260,20 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
   const [
     { hostel, notices, payments, roomType, routine },
     nightStatus,
+    sos,
     complaints,
     unsettled,
   ] = await Promise.all([
     loadResidentBase(resident),
     readNightStatusFor(resident._id),
+    /*
+     * The night status row says `SOS_TRIGGERED` until something overwrites it,
+     * and nothing does — one upserted row per resident, no expiry. So the home
+     * screen was flagging an alert raised weeks ago and settled the same hour.
+     * The alert row is what carries "is this still open, and when was it
+     * raised"; see `readLatestSOSFor`.
+     */
+    readLatestSOSFor(resident._id),
     summarizeResidentComplaints(resident),
     /*
      * Unbounded, and unsettled only — the arithmetic behind `feeStatus`, which
@@ -292,6 +301,7 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
       nightStatus,
       notices: notices.map(serializeNotice),
       resident: serializeResidentSummary(resident),
+      sos,
     },
   };
 }

@@ -83,7 +83,15 @@ export type Payment = {
   dueAmount: number;
   dueDate: string;
   id: string;
-  month: string;
+  /**
+   * `YYYY-MM`, or **null** for a one-off that belongs to no month — the joining
+   * bill is the one every hostel raises. This mirrors `PortalInvoice.month`,
+   * which has always been nullable; declaring it `string` here was the screen
+   * asserting something the server never promised, and the first resident with
+   * an admission fee took the payments page down with a `localeCompare` of
+   * null. Every reader goes through `monthLabel`, which prints the empty case.
+   */
+  month: string | null;
   paidAmount: number;
   /**
    * Every receipt for this month that has not been voided, newest first.
@@ -175,6 +183,12 @@ export type Complaint = {
   slaDueAt: string;
   status: "PENDING" | "IN_PROGRESS" | "RESOLVED" | "REJECTED";
   title: string;
+  /**
+   * Their own recording, on a complaint raised from the app by speaking rather
+   * than typing. `description` is empty on those, so a row that prints only
+   * text shows a complaint with nothing in it.
+   */
+  voiceNoteAssetId?: string;
 };
 
 export function field(form: FormData, name: string) {

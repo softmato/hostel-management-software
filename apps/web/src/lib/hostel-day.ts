@@ -40,6 +40,7 @@ export {
   bsMonthStart,
   bsPeriodBounds,
   bsPeriodOf,
+  bsPeriodsBetween,
   currentBsPeriod,
   formatBsDate,
   formatBsDayMonth,

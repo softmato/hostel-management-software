@@ -2,8 +2,8 @@
  * The single HTTP client.
  *
  * Three responsibilities, in order:
- *  1. Resolve the API base URL, including the dev-machine LAN address so a
- *     physical phone can reach `npm run web:dev`.
+ *  1. Resolve the API base URL — the deployed origin, unless
+ *     `EXPO_PUBLIC_API_URL` overrides it. See {@link resolveApiBaseUrl}.
  *  2. Attach the access token to every request, plus the mobile client header
  *     that makes `/auth/login` return `refreshToken` in the JSON body instead of
  *     a cookie (apps/web/src/lib/mobile-auth.ts).
@@ -22,8 +22,6 @@ import {
   type AxiosInstance,
   type InternalAxiosRequestConfig,
 } from "axios";
-import Constants from "expo-constants";
-import { Platform } from "react-native";
 
 import { AUTH_CLIENT_HEADER, MOBILE_AUTH_CLIENT } from "@/lib/api-contract";
 import {
@@ -33,100 +31,42 @@ import {
 import { clearTokens, readTokens, writeAccessToken, writeTokens } from "@/lib/session";
 
 /**
- * The deployed web app. It serves the API under `/api/v1`, so this is the origin
- * every build that is not talking to a dev machine should use.
+ * The deployed web app. It serves the API under `/api/v1`, and it is where every
+ * build of this app talks unless `EXPO_PUBLIC_API_URL` says otherwise.
  */
 const PRODUCTION_API_URL = "https://hostel-management-software-web.vercel.app";
-
-/**
- * Where to go when `EXPO_PUBLIC_API_URL` is unset.
- *
- * Split by build type, because "unset" means opposite things in each. In a dev
- * build it means "you are running the web app yourself" and localhost is right.
- * In a release build it means the build was configured wrong — and answering
- * `localhost` there is the worst possible failure: every request dies at the
- * loopback with nothing on screen to explain why, and the app looks broken
- * rather than misconfigured. The deployed origin is the only sane answer, so a
- * missing variable costs nothing instead of costing the build.
- *
- * `eas.json` still sets it explicitly on `preview` and `production`. This is the
- * floor, not the mechanism.
- */
-const FALLBACK_API_URL = __DEV__ ? "http://localhost:3000" : PRODUCTION_API_URL;
-const DEV_WEB_PORT = process.env.EXPO_PUBLIC_WEB_DEV_PORT?.trim() || "3000";
 
 function trimTrailingSlash(value?: string | null) {
   const trimmed = value?.trim();
   return trimmed ? trimmed.replace(/\/+$/, "") : "";
 }
 
-/** The host Metro is being served from — i.e. the dev machine's LAN address. */
-function expoHostUri() {
-  const constants = Constants as unknown as {
-    expoConfig?: { hostUri?: string };
-    manifest?: { debuggerHost?: string; hostUri?: string };
-    manifest2?: { extra?: { expoClient?: { hostUri?: string } } };
-  };
-
-  return (
-    constants.expoConfig?.hostUri ||
-    constants.manifest2?.extra?.expoClient?.hostUri ||
-    constants.manifest?.hostUri ||
-    constants.manifest?.debuggerHost ||
-    ""
-  );
-}
-
-function hostOf(hostUri: string) {
-  const withPort = hostUri.replace(/^[a-z][a-z\d+.-]*:\/\//i, "").split("/")[0];
-  return withPort?.split(":")[0]?.trim() ?? "";
-}
-
-function isPrivateHost(host: string) {
-  if (!host) return false;
-  if (host === "localhost" || host === "127.0.0.1") return true;
-  if (host.startsWith("192.168.") || host.startsWith("10.")) return true;
-
-  const match = /^172\.(\d{1,3})\./.exec(host);
-  if (!match) return false;
-
-  const secondOctet = Number(match[1]);
-  return secondOctet >= 16 && secondOctet <= 31;
-}
-
-/** The Android emulator reaches the host machine at 10.0.2.2, not localhost. */
-function forEmulator(host: string) {
-  return Platform.OS === "android" && (host === "localhost" || host === "127.0.0.1")
-    ? "10.0.2.2"
-    : host;
-}
-
 /**
- * Where `EXPO_PUBLIC_API_URL` comes from, per build:
+ * The origin every request goes to.
  *
- * - **Expo Go / `expo start`** — `apps/mobile/.env`, which does not set it. The
- *   Metro-host branch below takes over.
- * - **`development` EAS profile** — deliberately *not* set in `eas.json`. A dev
- *   client is meant to talk to the dev machine, and a configured public origin
- *   would switch the branch below off (a non-private configured host wins).
- * - **`preview` / `production` EAS profiles** — set in `eas.json` to the
- *   deployed origin. `.env` is gitignored and never reaches an EAS build, which
- *   is exactly how a release APK ended up pointed at its own loopback.
+ * **Always the deployed app**, unless `EXPO_PUBLIC_API_URL` names something
+ * else. There is no dev-machine branch and there must not be one again.
+ *
+ * There was: in a dev build it read the host Metro was served from and pointed
+ * the API at port 3000 on that machine, on the theory that whoever runs Metro is
+ * also running `npm run web:dev`. That is not how this project is worked on —
+ * the phone talks to the deployed server, always — so what the branch actually
+ * did was aim every request at a port with nothing behind it, and the failure it
+ * produced was the worst kind: a `fetch` with no timeout, aimed at a private
+ * address that neither answers nor refuses, hangs until the OS gives up. On the
+ * claim screen that showed as "Opening your receipt…" and never anything else.
+ * `10.0.2.2` made it worse still, because that address means the host machine
+ * only on the Android *emulator* and means nothing at all on a real handset.
+ *
+ * So: one origin, named in one place, the same in every build.
+ *
+ * `EXPO_PUBLIC_API_URL` remains the override, and `eas.json` sets it explicitly
+ * on `preview` and `production`. Point it at a LAN address when you genuinely do
+ * want a local server — that is a deliberate choice someone typed, not a guess
+ * this function made from the Metro host.
  */
 export function resolveApiBaseUrl() {
-  const configured = trimTrailingSlash(process.env.EXPO_PUBLIC_API_URL);
-
-  if (__DEV__) {
-    // In dev, prefer the machine serving Metro: it is almost always also
-    // running `npm run web:dev`, and hardcoding a LAN IP goes stale every time
-    // the router hands out a new lease.
-    const host = hostOf(expoHostUri());
-    if (host && isPrivateHost(host) && (!configured || isPrivateHost(hostOf(configured)))) {
-      return `http://${forEmulator(host)}:${DEV_WEB_PORT}`;
-    }
-  }
-
-  return configured || FALLBACK_API_URL;
+  return trimTrailingSlash(process.env.EXPO_PUBLIC_API_URL) || PRODUCTION_API_URL;
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

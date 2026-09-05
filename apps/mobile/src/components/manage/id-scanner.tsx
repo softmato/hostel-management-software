@@ -7,7 +7,13 @@ import {
 import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "expo-router";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { Linking, Pressable, useWindowDimensions, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -62,11 +68,21 @@ import {
  * And nothing leaves the phone until the payload is ours. `normalizeResidentId`
  * mirrors the server's parse precisely so a bus ticket held up to the lens costs
  * no request at all.
+ *
+ * ## The half-second after a card reads used to look like nothing happening
+ *
+ * A good scan buzzes and hands the id to the caller — and on the intake screen
+ * the caller then spends a network round trip fetching the profile. The camera
+ * stayed on a live feed with the sweep still travelling, which is the screen's
+ * own signal for *still looking*, so a warden who felt the buzz and saw no
+ * change did the one thing that cannot help: held the card up again. `busy`
+ * closes that window. See `ScanWindow`.
  */
 
 export type ScannerTone = "brand" | "neutral";
 
 export function IdScanner({
+  busy,
   extraAction,
   hint,
   manualTitle,
@@ -77,6 +93,18 @@ export function IdScanner({
   title,
   tone,
 }: {
+  /**
+   * What the caller is doing with the id it was just handed — `"Fetching their
+   * details"` — or null while the camera is still looking.
+   *
+   * It is the label rather than a boolean because the wait is the caller's, and
+   * only the caller knows what it is for: the lookup screen navigates on the
+   * spot and never passes one, while the intake spends a network round trip
+   * here before the form appears. A boolean would let a caller claim the screen
+   * is busy without saying why, which on a full-bleed camera is a frozen picture
+   * with no explanation.
+   */
+  busy?: string | null;
   /** An escape hatch under the keypad button — "register without a card", say. */
   extraAction?: ReactNode;
   /** Set by the caller when a *valid* id was rejected downstream. */
@@ -227,6 +255,7 @@ export function IdScanner({
 
         <View className="items-center gap-5 px-5">
           <ScanWindow
+            busy={busy ?? null}
             live={Boolean(permission?.granted)}
             message={hint ?? localHint}
             size={windowSize}
@@ -254,7 +283,20 @@ export function IdScanner({
           ) : null}
         </View>
 
-        <View className="gap-3 px-5">
+        {/*
+          Inert while the caller is working, rather than removed.
+
+          `handled` already stops the *camera* firing twice, but the keypad and
+          whatever the caller hangs under it are a second way in — and typing an
+          id during a lookup starts a second one whose answer arrives after the
+          first has already moved the screen on. Dimmed and untappable keeps the
+          layout still: a row of buttons that vanishes for half a second and
+          comes back is a screen that looks like it crashed and recovered.
+        */}
+        <View
+          className="gap-3 px-5"
+          style={{ opacity: busy ? 0.4 : 1, pointerEvents: busy ? "none" : "auto" }}
+        >
           {/*
             Not a fallback for a broken camera so much as the other half of the
             feature. A cracked screen, a card photocopied small, a permission
@@ -380,15 +422,33 @@ const SWEEP_MS = 2200;
  * no evidence it is running: point it at a wall and a frozen feed looks
  * identical to a live one. The travelling bar is the only thing on screen that
  * says "still looking", and it runs on a Reanimated shared value so it keeps
- * moving on the UI thread while JS is busy parsing the lookup it just fired —
- * the exact moment a spinner would freeze.
+ * moving on the UI thread while JS is busy parsing the lookup it just fired.
+ *
+ * ## Which is exactly why it has to stop when the card has been read
+ *
+ * "Still looking" is a lie once a card has been accepted and the caller has gone
+ * to the network for it. The buzz says the code was read and the sweep says the
+ * camera wants another one, and a warden reads the second: they lift the card
+ * away and hold it back up, into a screen that is already handling the first
+ * scan. So `busy` swaps the sweep for the wait it is actually in — the frame
+ * fills, and the label names what is being fetched.
+ *
+ * The spinner is a native `<ActivityIndicator>`, which is the one kind that
+ * keeps turning while the JS thread is parsing the very response it is waiting
+ * on. `docs/DESIGN.md` prefers skeletons to spinners, and it is right about
+ * lists and cards — but there is no content shape to skeletonise over a camera
+ * feed, and this wait has a known end rather than an unknown amount of content
+ * arriving.
  */
 function ScanWindow({
+  busy,
   live,
   message,
   size,
   tone,
 }: {
+  /** What the caller is fetching, or null while the camera is looking. */
+  busy: string | null;
   live: boolean;
   /** Why the last read was ignored, printed over the frame it was read in. */
   message: string | null;
@@ -423,11 +483,18 @@ function ScanWindow({
     <View style={{ height: size, width: size }}>
       {/* Clipped, so the bar cannot travel out past the brackets. */}
       <View className="overflow-hidden rounded-3xl" style={{ height: size, width: size }}>
-        {live ? (
+        {live && !busy ? (
           <Animated.View
             className="absolute inset-x-2 h-0.5 rounded-full bg-primary"
             style={sweep}
           />
+        ) : null}
+
+        {busy ? (
+          <View className="absolute inset-0 items-center justify-center gap-3 bg-black/70 px-6">
+            <ActivityIndicator color="#ffffff" />
+            <Text className="text-center text-sm font-semibold text-white">{busy}</Text>
+          </View>
         ) : null}
       </View>
 
@@ -436,7 +503,13 @@ function ScanWindow({
       <View className={`${bracket} bottom-0 left-0 rounded-bl-3xl border-b-4 border-l-4`} />
       <View className={`${bracket} bottom-0 right-0 rounded-br-3xl border-b-4 border-r-4`} />
 
-      {message ? (
+      {/*
+        Suppressed while busy. The two say different things about the same
+        moment — "that is not a HostelHub ID card" under "Fetching their
+        details" is a screen contradicting itself — and the overlay is the one
+        describing what is happening now.
+      */}
+      {message && !busy ? (
         <View className="absolute inset-x-0 -bottom-12 items-center">
           <View className="rounded-full bg-black/70 px-4 py-2">
             <Text className="text-center text-xs font-medium text-white">{message}</Text>

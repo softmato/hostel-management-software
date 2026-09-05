@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
-import { SosFab } from "@/components/sos-fab";
 import { runWhenIdle } from "@/lib/idle";
 import { prefetchResidentPortal } from "@/lib/resident-queries";
 
@@ -52,17 +51,16 @@ export default function RoleLayout() {
    */
   useEffect(() => runWhenIdle(prefetchResidentPortal), []);
 
-  return (
-    <>
-      <RoleTabs accent="RESIDENT" hidden={HIDDEN} tabs={TABS} />
+  /*
+    No `<SosFab>` any more.
 
-      {/*
-        Outside the navigator, so it is mounted once and survives every tab
-        change — §M5 wants SOS reachable from every resident screen, and a copy
-        per screen is five chances to forget one. It also means the countdown
-        keeps running if the resident switches tabs mid-arm.
-      */}
-      <SosFab />
-    </>
-  );
+    It hung outside the navigator so one red circle could float over all five
+    tabs — and floating is what was wrong with it: it hid on scroll with the rest
+    of the bottom chrome, it covered whatever was underneath, and a circle with
+    no fixed neighbours reads as decoration rather than as the alarm. SOS is now
+    `<SosHeaderButton>`, a fixed seat on Home's top bar, which is the tab the app
+    opens on and one tap from every other. Nothing here renders it, and nothing
+    here should: two of them is two countdowns.
+  */
+  return <RoleTabs accent="RESIDENT" hidden={HIDDEN} tabs={TABS} />;
 }

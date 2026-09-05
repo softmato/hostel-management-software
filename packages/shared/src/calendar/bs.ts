@@ -464,3 +464,60 @@ export function formatBsDayRange(from: Date, to: Date): string {
 
   return endName ? `${name} ${start.day} – ${endName} ${end.day}` : "";
 }
+
+/**
+ * Every BS period from `from` to `to` inclusive, oldest first.
+ *
+ * ## Why this is here and not walked by each caller
+ *
+ * Two services need "a row per month between these two months" — the payments
+ * month picker and a resident's own ledger — and both walked it with
+ * `cursor.setUTCMonth(cursor.getUTCMonth() + 1)`, which steps a *Gregorian*
+ * month. After the cutover those walks produced `2026-09` while the invoices
+ * they were joined against were keyed `2083-05`, so every lookup missed: a
+ * resident's ledger showed twelve months of `NOT_BILLED` over real invoices, and
+ * the picker offered a hundred months the hostel has never billed in.
+ *
+ * The step that carries a year correctly is `addBsMonths`, and the reason to put
+ * the loop beside it rather than in each service is that a second walker is
+ * exactly what produced the defect the first time.
+ *
+ * ## Both ends are period keys, not instants
+ *
+ * A caller holding a `Date` converts with {@link bsPeriodOf} first. Taking
+ * instants here would invite the same call site to pass a Gregorian month start
+ * it built by hand, which is the shape of the bug this replaces.
+ *
+ * `cap` bounds the result because both callers derive `from` from stored data —
+ * a resident's `moveInDate`, a hostel's `createdAt` — and one bad year in one
+ * document would otherwise build a table with six hundred rows in it. Reaching
+ * the cap truncates the *old* end, keeping the months nearest `to`, because a
+ * screen that can only show a hundred months should show the recent ones.
+ *
+ * An empty array when `from` is after `to`: a hostel approved this month has no
+ * history, and that is not an error.
+ */
+export function bsPeriodsBetween(from: string, to: string, cap = 120): string[] {
+  const start = periodParts(from);
+  const end = periodParts(to);
+
+  if (!start || !end) {
+    throw new RangeError(
+      `Periods must be YYYY-MM, received ${String(from)} and ${String(to)}.`,
+    );
+  }
+
+  const span =
+    (end.year * 12 + (end.month - 1) - (start.year * 12 + (start.month - 1))) + 1;
+
+  if (span <= 0) {
+    return [];
+  }
+
+  const length = Math.min(span, cap);
+  // Counted back from `to` so the cap drops the oldest months rather than the
+  // newest — the truncated end is the one nobody is looking for.
+  const first = addBsMonths(to, -(length - 1));
+
+  return Array.from({ length }, (_, offset) => addBsMonths(first, offset));
+}

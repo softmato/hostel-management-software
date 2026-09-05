@@ -9,7 +9,7 @@
  * invoices in it, which is the failure mode a naive "approval date" floor has.
  */
 import { Types } from "mongoose";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   eventCount: vi.fn(),
@@ -41,6 +41,7 @@ vi.mock("@hostel/db/models/Resident", () => ({
   ResidentModel: { find: mocks.residentFind },
 }));
 
+import { addBsMonths, bsPeriodBounds, bsPeriodOf } from "@/lib/hostel-day";
 import { getPeriodSummary } from "@/modules/finance/period-summary.service";
 
 const hostelId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a1");
@@ -57,39 +58,63 @@ function invoice(overrides: Record<string, unknown> = {}) {
     hostelId: hostelId.toString(),
     id: new Types.ObjectId().toString(),
     paidAmount: 0,
-    period: "2026-08",
+    period: periodAgo(0),
     residentId: residentA,
     status: "UNPAID",
     ...overrides,
   };
 }
 
-/** `months` back from today, as a period key. */
+/**
+ * The clock these expectations are written against.
+ *
+ * Frozen, and not for flake: these helpers used to step a **Gregorian** month
+ * off `new Date()` and compare the result against periods the service derives,
+ * so they agreed only while both sides were Gregorian. Stepping a BS month off a
+ * moving "today" would put the test's own month arithmetic back in competition
+ * with the module's.
+ *
+ * 5 September 2026 is Bhadra 20, 2083 — Bhadra 2083 runs 17 August to 16
+ * September 2026, which is the anchor `bs-calendar.test.ts` pins against a
+ * published Nepali calendar rather than against this module's own output.
+ */
+const NOW = new Date("2026-09-05T06:00:00.000Z");
+const CURRENT_PERIOD = "2083-05";
+
+/**
+ * `months` back from the frozen month, as a period key.
+ *
+ * Bikram Sambat months, because that is what an `Invoice.period` is. The
+ * distance is real calendar arithmetic and not a subtraction on a number:
+ * `2083-01` minus one month is `2082-12`, and a BS year ends at Chaitra.
+ */
 function periodAgo(months: number) {
-  const date = new Date();
-
-  date.setUTCDate(1);
-  date.setUTCMonth(date.getUTCMonth() - months);
-
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return addBsMonths(CURRENT_PERIOD, -months);
 }
 
-/** `months` forward from today, as a period key. */
+/** `months` forward from the frozen month, as a period key. */
 function periodAhead(months: number) {
-  return periodAgo(-months);
+  return addBsMonths(CURRENT_PERIOD, months);
 }
 
+/**
+ * An instant inside the BS month `periodAgo(months)` names.
+ *
+ * The month's own first day, so `hostelPeriodOf` reads it back as exactly that
+ * period. Anything else — the 1st of some Gregorian month, which is what this
+ * built before — lands in whichever BS month happens to straddle it, and the
+ * verification date the service reads would then floor the picker a month away
+ * from the one the assertion names. BS month lengths run 29 to 32 days and vary
+ * by year, so there is no offset that makes the two line up by construction.
+ */
 function dateAgo(months: number) {
-  const date = new Date();
-
-  date.setUTCDate(1);
-  date.setUTCMonth(date.getUTCMonth() - months);
-
-  return date;
+  return bsPeriodBounds(periodAgo(months)).start;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Only `Date`. Faking timers wholesale would stall the awaited mocks below.
+  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
   mocks.verificationFindOne.mockReturnValue(chain({ verifiedAt: dateAgo(2) }));
   mocks.hostelFindOne.mockReturnValue(chain({ createdAt: dateAgo(3) }));
   mocks.listRecentInvoices.mockResolvedValue([]);
@@ -97,6 +122,21 @@ beforeEach(() => {
   mocks.residentFind.mockReturnValue(
     chain([{ _id: new Types.ObjectId(residentA) }, { _id: new Types.ObjectId(residentB) }]),
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/**
+ * The anchor the rest of this file leans on, asserted rather than assumed.
+ *
+ * Without it every expectation below is self-consistent and could still be
+ * naming the wrong month: `periodAgo` and the service would agree with each
+ * other while both sat a month off the calendar a hostel actually bills in.
+ */
+it("bills the frozen day into Bhadra 2083", () => {
+  expect(bsPeriodOf(NOW)).toBe(CURRENT_PERIOD);
 });
 
 describe("soft-deleted residents", () => {
@@ -199,13 +239,13 @@ describe("the month badges", () => {
       invoice({ paidAmount: 10000, status: "PAID" }),
     ]);
 
-    const august = (await getPeriodSummary(hostelId)).months.find(
-      (month) => month.period === "2026-08",
+    const bhadra = (await getPeriodSummary(hostelId)).months.find(
+      (month) => month.period === periodAgo(0),
     );
 
-    expect(august?.needsAttention).toBe(4);
-    expect(august?.paid).toBe(1);
-    expect(august?.total).toBe(5);
+    expect(bhadra?.needsAttention).toBe(4);
+    expect(bhadra?.paid).toBe(1);
+    expect(bhadra?.total).toBe(5);
   });
 
   it("gives a month with nothing billed a zero rather than omitting it", async () => {

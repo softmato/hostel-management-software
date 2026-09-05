@@ -197,3 +197,47 @@ export function resolvePushPath(path: unknown): string {
 
   return PUSH_FALLBACK_PATH;
 }
+
+/**
+ * The push that means "your account is a resident account now".
+ *
+ * Sent by `notifyResidentRegistered` on the server when a hostel registers
+ * somebody whose platform account it managed to link. It is the only
+ * notification in the product that is about the *recipient's own role* rather
+ * than about a thing they can go and look at.
+ *
+ * ## Why the app cannot just route it and be done
+ *
+ * The promotion happened in the database. Every request this phone makes is
+ * authorised from the claims inside its access token, which still say `PUBLIC` —
+ * so tapping through to a resident screen would land on tabs whose every call
+ * comes back 403, and 403s are not 401s, so nothing in the HTTP layer would
+ * refresh either. The token has to be rotated first (`revalidateSession`), and
+ * that is what `usePush` does when this predicate is true.
+ *
+ * ## Kept as a literal string on both sides
+ *
+ * The server writes the same word in `resident-registered-notify.ts`. It is
+ * deliberately not a shared package constant: the API and an installed app ship
+ * on different clocks, a phone can be a month behind, and a value both sides
+ * must agree on forever is clearer frozen in two places with a comment than
+ * imported from one that looks safe to rename.
+ */
+const ROLE_CHANGE_TYPES = new Set(["RESIDENT_REGISTERED"]);
+
+/**
+ * Does this payload say the recipient's own role has changed?
+ *
+ * Reads `data.type` defensively — the payload is network input, `data` is
+ * written by many call sites and is not a stable schema, and an older server
+ * build sends no `type` at all.
+ */
+export function marksRoleChange(data: unknown): boolean {
+  if (!data || typeof data !== "object") {
+    return false;
+  }
+
+  const type = (data as { type?: unknown }).type;
+
+  return typeof type === "string" && ROLE_CHANGE_TYPES.has(type);
+}

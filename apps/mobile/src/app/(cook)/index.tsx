@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { View } from "react-native";
 
 import { CookShiftCard } from "@/components/cook-shift-card";
 import { mealIcon } from "@/components/meal-row";
-import { NotificationBell } from "@/components/notification-bell";
-import { AppBar } from "@/components/ui/app-bar";
+import { PortalBrandHeader } from "@/components/portal-shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
@@ -126,16 +126,39 @@ export default function CookTodayScreen() {
   );
 
   /*
-   * The bell, which no cook screen had. `/notifications` is scoped to
-   * `principal.userId` with no role branch, so this shared kitchen account has a
-   * feed — the More tab had a row into it and none of the other three tabs did,
-   * so the control vanished the moment you left that one screen.
-   *
-   * The hostel's name moved off the bar and onto the card, where it sits under
-   * the head count it qualifies. A subtitle naming the hostel on every tab is
-   * chrome repeating what the account already is.
+   * Off `today.data`, not off `today.data!`: the header is built before the
+   * loading and error branches return, so the eye is absent until the payload
+   * lands rather than appearing on a bar already on screen.
    */
-  const header = <AppBar actions={<NotificationBell />} large title="Today" />;
+  const hostelSlug = today.data?.hostel.slug ?? "";
+
+  /*
+   * The lockup, the hostel's page and the bell — the same front-door bar the
+   * other three portals open on.
+   *
+   * **Branding.** This tab led with `AppBar large title="Today"`, which named
+   * the screen and not the product. The kitchen login is the most anonymous
+   * account in the app — one shared credential, handed over by an admin, on a
+   * phone that may be propped on a worktop for anyone to pick up — so it is the
+   * one that most needs the app to say what it is on sight.
+   *
+   * **The bell**, which no cook screen had. `/notifications` is scoped to
+   * `principal.userId` with no role branch, so this shared account has a feed —
+   * the More tab had a row into it and none of the other three tabs did, so the
+   * control vanished the moment you left that one screen.
+   *
+   * The hostel's name stays off the bar and on `<CookShiftCard>`, where it sits
+   * under the head count it qualifies. A subtitle naming the hostel on every tab
+   * is chrome repeating what the account already is.
+   */
+  const header = (
+    <PortalBrandHeader
+      hostelPageLabel="Open the hostel's page"
+      onHostelPage={
+        hostelSlug ? () => router.push(`/hostel/${hostelSlug}`) : undefined
+      }
+    />
+  );
 
   if (today.loading) {
     return (

@@ -1,5 +1,6 @@
 import { nightStanding } from "@/lib/night-status";
 import type { NightStatus } from "@/lib/resident-api";
+import { sosIsFlagged, type SosStanding } from "@/lib/sos";
 
 /**
  * The strings the resident Home's hero card puts under its headline.
@@ -110,16 +111,30 @@ export type StayPill = {
  * than last week's, which is exactly what `nightStanding` already works out for
  * the screen that owns this data.
  *
- * An SOS on the record is called out by name. It is written by `triggerSOS` and
- * only staff can clear it, so a resident who has since marked themselves safe
- * must not see a card implying the alert is gone.
+ * ## The SOS flag is read from the alert, not from the night status
+ *
+ * It used to test `status.status === "SOS_TRIGGERED"`, which is a row
+ * `writeNightStatus` upserts once per resident and never expires — so the card
+ * said `SOS active` for weeks after a test alert, and went on saying it after
+ * the hostel had closed the alert. It now asks `sosIsFlagged`: **open, and
+ * raised within the last day.** Settled by staff, it goes immediately; a day
+ * old, it goes on its own. Neither hides anything — `/sos` lists every alert
+ * ever raised, and `nightStanding` keeps saying an SOS is on the record for as
+ * long as the alert is genuinely open.
+ *
+ * `sos` defaults to `null`, which means "no alert information" and not "no
+ * alert": with nothing passed the pill simply falls back to the check-in state.
  */
-export function stayPill(status: NightStatus, now: Date = new Date()): StayPill {
-  if (status.status === "SOS_TRIGGERED") {
+export function stayPill(
+  status: NightStatus,
+  sos: SosStanding | null = null,
+  now: Date = new Date(),
+): StayPill {
+  if (sosIsFlagged(sos, now)) {
     return { label: "SOS active", settled: false };
   }
 
-  return nightStanding(status, now).answered
+  return nightStanding(status, now, sos).answered
     ? { label: "Checked in", settled: true }
     : { label: "Not checked in", settled: false };
 }

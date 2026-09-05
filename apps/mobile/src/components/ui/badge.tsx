@@ -13,7 +13,14 @@ import { type BadgeTone, statusTone } from "@/lib/status";
  */
 
 const TONES: Record<BadgeTone, { background: string; foreground: string }> = {
-  danger: { background: "bg-destructive/10", foreground: "text-destructive" },
+  /*
+    `bg-destructive-soft`, not `bg-destructive/10`. NativeWind does not compose
+    an opacity suffix onto a colour that is a CSS variable, so every `danger`
+    badge in the app shipped with *no background at all* — red text floating on
+    the card while its `warning` and `success` neighbours sat on a tint. The
+    token this needs already exists; `global.css` documents why it was added.
+  */
+  danger: { background: "bg-destructive-soft", foreground: "text-destructive" },
   info: { background: "bg-role-admin-soft", foreground: "text-role-admin" },
   neutral: { background: "bg-muted", foreground: "text-muted-foreground" },
   success: { background: "bg-success-soft", foreground: "text-success" },
@@ -32,7 +39,9 @@ export function Badge({
   const { background, foreground } = TONES[tone];
 
   return (
-    <View className={`self-start rounded-full px-2.5 py-1 ${background} ${className}`}>
+    <View
+      className={`self-start rounded-full px-2.5 py-1 ${background} ${className}`}
+    >
       <Text className={`text-xs font-semibold ${foreground}`}>{label}</Text>
     </View>
   );
@@ -46,7 +55,11 @@ export function StatusPill({
   status: string | null | undefined;
 }) {
   return (
-    <Badge className={className} label={humanizeEnum(status)} tone={statusTone(status)} />
+    <Badge
+      className={className}
+      label={humanizeEnum(status)}
+      tone={statusTone(status)}
+    />
   );
 }
 

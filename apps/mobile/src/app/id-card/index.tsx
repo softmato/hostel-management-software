@@ -20,7 +20,7 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
-import { shareDataUrlImage, shareLocalImage } from "@/lib/documents";
+import { saveDataUrlToDevice, saveToDevice } from "@/lib/documents";
 import { buildIdCard, hasIdCard, idCardNoun } from "@/lib/id-card";
 import {
   clearIdentityPhoto,
@@ -54,11 +54,11 @@ import { uploadAsset } from "@/lib/uploads";
  *
  * ## Saving
  *
- * The QR shares as a real PNG through the OS sheet, which is where "Save to
- * Photos" lives. A single-tap write to the camera roll — and a rasterised copy of
- * the whole two-sided card — needs `expo-media-library` and
- * `react-native-view-shot`, both native modules, so both are a development build
- * rather than a screen change. Tracked in `docs/MOBILE_APP_PHASES.md` §M5.
+ * Both saves are saves. The card is rasterised with `react-native-view-shot` and
+ * the QR arrives from the server as a `data:` PNG, and both then go through
+ * `lib/documents.ts` into `Download/HostelHub/` — no share sheet, no "choose an
+ * app", no second decision after the one the row already asked for. Sharing is
+ * its own row, above, and it sends a link rather than a picture.
  */
 
 export default function IdCardScreen() {
@@ -226,45 +226,88 @@ function IdCardDetail({
    * the first time the card changed. Snapshotting what is already on screen is
    * the only version that cannot drift.
    *
-   * ## It saves the face you are looking at
+   * ## It saves both sides, and it does not capture the one on screen
    *
-   * The card flips on tap, and the capture takes whichever side is showing. That
-   * is why the row's subtitle names the face: someone who wants both saves twice,
-   * which is clearer than a button that silently picks one.
+   * A card has two sides and the resident wants the card, so one tap produces
+   * two pictures. It used to snapshot whichever face was showing and tell the
+   * user to flip and tap again, which is the app making a person do the loop.
+   *
+   * The capture targets are a hidden pair rendered off to the side of the
+   * screen, not the card the user is tapping. Flipping the visible card twice
+   * with `setFace` to photograph each side would mean waiting on a state change
+   * and a re-layout for each one — a race with the user's own next tap, and a
+   * card that visibly flips by itself. Two views that are always mounted at the
+   * right width are simply always ready.
+   *
+   * They are placed with a large negative offset rather than `opacity: 0` or
+   * `display: none`: a view has to be laid out and drawable for `captureRef` to
+   * get pixels out of it, and a transparent one photographs as transparent.
    *
    * ## Needs a dev build
    *
    * `react-native-view-shot` is a native module, so this does nothing under Expo
    * Go. The failure is caught and reported rather than thrown — a missing native
    * module must not take out the screen.
+   *
+   * ## It ends in Downloads, not in a share sheet
+   *
+   * The row says "Save this card", so it saves it. `saveToDevice` walks the same
+   * ladder every download in the app walks and only reaches the share sheet on a
+   * platform with nowhere else to put a file.
    */
   // Typed loosely on purpose: `captureRef` accepts a ref to any host view, and
   // naming a concrete component type here would only be a cast at the call site.
-  const cardRef = useRef<View>(null);
+  const frontRef = useRef<View>(null);
+  const backRef = useRef<View>(null);
+  /*
+   * The visible card's measured width, which the hidden pair is rendered at.
+   *
+   * `IdCardFace` scales every coordinate off its own measured width, so a
+   * capture target of a different width is a different picture. Taking the
+   * number from the card actually on screen means the saved image is the card
+   * the resident is looking at, at the size their phone drew it.
+   */
+  const [cardWidth, setCardWidth] = useState(0);
 
   const saveCard = useCallback(async () => {
-    if (!cardRef.current) {
+    if (!frontRef.current || !backRef.current) {
       return;
     }
 
     try {
-      const uri = await captureRef(cardRef, {
-        format: "png",
-        // The card is drawn at screen scale; capturing at 2x keeps the QR
-        // readable when the saved picture is shown on a counter scanner rather
-        // than re-displayed at card size.
-        quality: 1,
-        result: "tmpfile",
-      });
+      const named = `hostelhub-card-${identity.residentId ?? "id"}`;
 
-      await shareLocalImage(uri);
+      /*
+       * Sequential rather than `Promise.all`. Each save is a MediaStore write
+       * and a row in the transfer queue, and running the two at once buys
+       * nothing on two files of a few kilobytes while making the toaster count
+       * up in a random order.
+       */
+      for (const side of ["front", "back"] as const) {
+        const uri = await captureRef(side === "front" ? frontRef : backRef, {
+          format: "png",
+          // The card is drawn at screen scale; capturing at 2x keeps the QR
+          // readable when the saved picture is shown on a counter scanner rather
+          // than re-displayed at card size.
+          quality: 1,
+          result: "tmpfile",
+        });
+
+        await saveToDevice({
+          extension: "png",
+          fileName: `${named}-${side}`,
+          label: `ID card, ${side}`,
+          mimeType: "image/png",
+          uri,
+        });
+      }
     } catch (caught) {
       toastError(
         "Could not save the card",
         readApiError(caught, "This needs the full app rather than Expo Go."),
       );
     }
-  }, []);
+  }, [identity.residentId]);
 
   const saveQr = useCallback(async () => {
     if (!qr.data?.qrDataUrl) {
@@ -276,9 +319,10 @@ function IdCardDetail({
     }
 
     try {
-      await shareDataUrlImage({
+      await saveDataUrlToDevice({
         dataUrl: qr.data.qrDataUrl,
         fileName: `hostelhub-id-${identity.residentId ?? "card"}`,
+        label: "QR code",
       });
     } catch (caught) {
       toastError("Could not save that", readApiError(caught));
@@ -353,14 +397,7 @@ function IdCardDetail({
           accessibilityRole="button"
           onPress={() => setFace(face === "front" ? "back" : "front")}
         >
-          {/*
-            The capture target for "Save this card". `collapsable={false}` is
-            load-bearing on Android: React Native flattens a view that only wraps
-            another into its parent, and a flattened view has no native handle
-            for `captureRef` to snapshot — the call fails with an unhelpful
-            message about a missing tag.
-          */}
-          <View collapsable={false} ref={cardRef}>
+          <View onLayout={(event) => setCardWidth(event.nativeEvent.layout.width)}>
             <IdCardFace
               card={card}
               face={face}
@@ -370,6 +407,44 @@ function IdCardDetail({
             />
           </View>
         </Pressable>
+
+        {/*
+          The capture targets for "Save this card" — both faces, always drawn,
+          parked off the side of the screen at the width the visible card
+          measured. See `saveCard` for why they are here rather than a snapshot
+          of the card above.
+
+          `collapsable={false}` is load-bearing on Android: React Native flattens
+          a view that only wraps another into its parent, and a flattened view
+          has no native handle for `captureRef` to snapshot — the call fails with
+          an unhelpful message about a missing tag.
+        */}
+        {cardWidth > 0 ? (
+          <View
+            importantForAccessibility="no-hide-descendants"
+            pointerEvents="none"
+            style={{ left: -10_000, position: "absolute", top: 0, width: cardWidth }}
+          >
+            <View collapsable={false} ref={frontRef}>
+              <IdCardFace
+                card={card}
+                face="front"
+                photo={photo}
+                qrDataUrl={qr.data?.qrDataUrl ?? null}
+                siteLabel={siteLabel}
+              />
+            </View>
+            <View collapsable={false} ref={backRef}>
+              <IdCardFace
+                card={card}
+                face="back"
+                photo={photo}
+                qrDataUrl={qr.data?.qrDataUrl ?? null}
+                siteLabel={siteLabel}
+              />
+            </View>
+          </View>
+        ) : null}
 
         <View className="flex-row items-center justify-center gap-2">
           <Ionicons color={colors.mutedForeground} name="sync-outline" size={14} />
@@ -423,14 +498,14 @@ function IdCardDetail({
             <ListRow
               icon="image-outline"
               onPress={() => void saveCard()}
-              subtitle={`Saves the ${face} as a picture — choose Save to Photos`}
+              subtitle="Saves both sides as pictures in your gallery"
               title="Save this card"
             />
             <RowDivider inset />
             <ListRow
               icon="download-outline"
               onPress={() => void saveQr()}
-              subtitle="Opens the share sheet — choose Save to Photos"
+              subtitle="Saves the QR as a picture in your gallery"
               title="Save my QR code"
             />
           </Card>

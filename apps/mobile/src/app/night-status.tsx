@@ -24,8 +24,10 @@ import {
 import {
   getResidentNightStatus,
   type NightStatus,
+  type NightStatusView,
   setResidentNightStatus,
 } from "@/lib/resident-api";
+import type { SosAlert } from "@/lib/safety-api";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -54,7 +56,13 @@ import { toastError, toastSuccess } from "@/lib/toast";
  */
 
 export default function NightStatusScreen() {
-  const resource = useResource<NightStatus>(
+  /*
+    The endpoint returns the resident's latest `SOSAlert` alongside the status
+    row now. The screen needs both: the row says an SOS was written and the alert
+    says whether staff have closed it — and the row alone can never say, because
+    `writeNightStatus` upserts one per resident and expires nothing.
+  */
+  const resource = useResource<NightStatusView>(
     useCallback(() => getResidentNightStatus(), []),
     { topics: [REALTIME_TOPIC.SAFETY] },
   );
@@ -83,10 +91,19 @@ export default function NightStatusScreen() {
   return (
     <NightStatusForm
       header={header}
-      onChanged={(next) => resource.setData(() => next)}
+      /*
+        Only the status comes back from the POST — `updateResidentNightStatus`
+        returns the row it wrote and nothing about the alert, which is correct:
+        answering a night check does not close an SOS. So the alert already on
+        screen is carried through untouched.
+      */
+      onChanged={(status) =>
+        resource.setData((view) => (view ? { ...view, status } : { sos: null, status }))
+      }
       onRefresh={resource.refresh}
       refreshing={resource.refreshing}
-      status={resource.data}
+      sos={resource.data.sos}
+      status={resource.data.status}
     />
   );
 }
@@ -96,18 +113,21 @@ function NightStatusForm({
   onChanged,
   onRefresh,
   refreshing,
+  sos,
   status,
 }: {
   header: React.ReactNode;
   onChanged: (status: NightStatus) => void;
   onRefresh: () => void;
   refreshing: boolean;
+  /** The resident's latest alert, or null if they have never raised one. */
+  sos: SosAlert | null;
   status: NightStatus;
 }) {
   const dates = useDates();
 
   const { colors } = useAppTheme();
-  const standing = nightStanding(status);
+  const standing = nightStanding(status, new Date(), sos);
   const [choice, setChoice] = useState<SelfReportableStatus | null>(
     standing.suggested,
   );

@@ -10,8 +10,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * owner. Each of those was a way the old code said nothing at all.
  */
 const mocks = vi.hoisted(() => ({
-  adminContacts: vi.fn(),
   createNotification: vi.fn(),
+  staffUserIds: vi.fn(),
   hostelName: vi.fn(),
   residentContact: vi.fn(),
   sendEmail: vi.fn(),
@@ -24,7 +24,7 @@ vi.mock("@/modules/notifications/notification.service", () => ({
 vi.mock("@/modules/residents/resident-notify", () => ({
   appUrl: (path: string) => `https://hostelhub.test${path}`,
   getHostelName: mocks.hostelName,
-  resolveHostelAdminContacts: mocks.adminContacts,
+  resolveHostelStaffUserIds: mocks.staffUserIds,
   resolveResidentContact: mocks.residentContact,
   sendNotificationEmail: mocks.sendEmail,
 }));
@@ -64,9 +64,7 @@ function input(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.hostelName.mockResolvedValue("Rupa Hostel");
-  mocks.adminContacts.mockResolvedValue([
-    { email: "owner@example.test", name: "Owner", userId: "64f0f0f0f0f0f0f0f0f0f0d1" },
-  ]);
+  mocks.staffUserIds.mockResolvedValue(["64f0f0f0f0f0f0f0f0f0f0d1"]);
   mocks.residentContact.mockResolvedValue({
     email: "asha@example.test",
     name: "Asha Rai",
@@ -85,7 +83,7 @@ describe("telling the resident", () => {
     expect(mocks.createNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         category: "PAYMENT",
-        data: { invoiceId: "inv-1" },
+        data: { invoiceId: "inv-1", type: "RESIDENT_REGISTERED" },
         title: "You are registered",
         userId: "64f0f0f0f0f0f0f0f0f0f0b1",
       }),
@@ -100,7 +98,29 @@ describe("telling the resident", () => {
     );
 
     expect(call?.[0].category).toBe("ACCOUNT");
-    expect(call?.[0].data).toBeUndefined();
+    /*
+     * Still marked, with no invoice to point at. The marker is about the
+     * account's *role* changing, which happened whether or not money did — and
+     * it is the only thing that turns the browsing app into the resident app.
+     */
+    expect(call?.[0].data).toEqual({ type: "RESIDENT_REGISTERED" });
+  });
+
+  /*
+   * The one push in the product that is about the recipient themselves. The
+   * mobile client keys off this exact string (`marksRoleChange`), rotates its
+   * access token and replaces the public shell with the resident tabs — so a
+   * rename here silently strands every resident registered at a desk in the
+   * browsing app until their token expires.
+   */
+  it("marks the payload as a role change, so the app can promote itself", async () => {
+    await notifyResidentRegistered(input());
+
+    const call = mocks.createNotification.mock.calls.find(
+      (one) => one[0].userId === "64f0f0f0f0f0f0f0f0f0f0b1",
+    );
+
+    expect(call?.[0].data).toMatchObject({ type: "RESIDENT_REGISTERED" });
   });
 
   it("says nothing to a resident with no login, and still emails them", async () => {
@@ -136,8 +156,27 @@ describe("telling the hostel", () => {
     expect(call?.[0].body).toContain("FOUR SHARING · 201");
   });
 
-  it("skips an admin contact with no account behind it", async () => {
-    mocks.adminContacts.mockResolvedValue([{ email: "x@example.test", name: "X" }]);
+  /*
+   * The audience is `resolveHostelStaffUserIds`, not the email helper it used
+   * to be. That is what puts wardens on it — the people who actually perform
+   * intakes, and who heard nothing about one until this — and what stops an
+   * owner with no email on file being dropped from their own hostel's
+   * notifications.
+   */
+  it("tells every member of staff the hostel resolves, wardens included", async () => {
+    mocks.staffUserIds.mockResolvedValue(["owner-1", "warden-1", "admin-1"]);
+
+    await notifyResidentRegistered(input());
+
+    const told = mocks.createNotification.mock.calls
+      .filter((one) => one[0].category === "RESIDENT")
+      .map((one) => one[0].userId);
+
+    expect(told).toEqual(["owner-1", "warden-1", "admin-1"]);
+  });
+
+  it("says nothing to a hostel with no staff on file", async () => {
+    mocks.staffUserIds.mockResolvedValue([]);
 
     await notifyResidentRegistered(input());
 
@@ -183,7 +222,7 @@ it("never throws over a registration that already succeeded", async () => {
   // The resident exists and their bed is spent by the time this runs. Throwing
   // would report "could not register" over a registration that worked, and the
   // warden would register them a second time.
-  mocks.adminContacts.mockRejectedValue(new Error("mongo is down"));
+  mocks.staffUserIds.mockRejectedValue(new Error("mongo is down"));
 
   await expect(notifyResidentRegistered(input())).resolves.toBeUndefined();
 });

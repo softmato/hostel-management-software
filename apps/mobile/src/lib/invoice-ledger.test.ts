@@ -435,10 +435,10 @@ describe("invoiceRowCopy", () => {
   });
 
   /*
-   * A part month replaces the due line rather than joining it: the span already
-   * names the month, so `Due Bhadra · Bhadra 19–31 · 13 of 31 days` says Bhadra
-   * twice to fit less in. And the smaller figure on the right is the one thing
-   * on this screen somebody is most likely to query, so it is what gets the row.
+   * A part month replaces the due line rather than joining it — the smaller
+   * figure on the right is the one thing somebody is most likely to query — but
+   * only when the basis names its own month. `Due Bhadra · Bhadra 19–31 · 13 of
+   * 31 days` would say Bhadra twice to fit less in.
    */
   it("says which days a mid-month move-in is charged for", () => {
     const row = copy(
@@ -456,6 +456,32 @@ describe("invoiceRowCopy", () => {
     expect(row).toMatchObject({
       proration: "Bhadra 19–31 · 13 of 31 days",
       subtitle: "Bhadra 19–31 · 13 of 31 days",
+      title: "Monthly rent",
+    });
+  });
+
+  /*
+   * The basis is snapshotted at issue time, and invoices raised under the older
+   * format carry `28/30 days` with no month in it. Under a group heading that
+   * is a year, that row named no month at all — so the month goes in front of
+   * a basis that does not already hold one.
+   */
+  it("puts the month in front of a legacy basis that names no month", () => {
+    const row = copy(
+      invoice({
+        lines: [
+          line({
+            amount: 16800,
+            description: "Monthly rent",
+            prorationBasis: "28/30 days",
+          }),
+        ],
+      }),
+    );
+
+    expect(row).toMatchObject({
+      proration: "28/30 days",
+      subtitle: "Bhadra · 28/30 days",
       title: "Monthly rent",
     });
   });

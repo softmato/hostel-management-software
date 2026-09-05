@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
+import { bsPeriodsBetween, hostelPeriodOf } from "@/lib/hostel-day";
 import { listResidentInvoices } from "@/modules/finance/ledger-read.service";
 import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
@@ -77,37 +78,31 @@ type ResidentDoc = {
   roomType?: string;
 };
 
-function periodOf(date: Date) {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
 /**
- * Every month from `start` to `end` inclusive, as `YYYY-MM`.
+ * Every month from `start` to `end` inclusive, as **Bikram Sambat** period keys.
  *
- * Bounded at 120 entries. A bad `moveInDate` — 1970, or a typo'd year — would
- * otherwise spin out a row per month for half a century and hand the browser a
- * table it cannot render.
+ * ## Why this is the whole bug
+ *
+ * The spine of this ledger is the calendar and the flesh is `invoiceByPeriod`,
+ * so the two only meet if the keys are the same string. This walked Gregorian
+ * months — `cursor.setUTCMonth(cursor.getUTCMonth() + 1)` producing `2026-09` —
+ * while every invoice after the cutover is keyed `2083-05`, and a `Map` lookup
+ * that misses does not raise anything. It returns `undefined`, which this file
+ * already has an honest meaning for: `NOT_BILLED`.
+ *
+ * So the screen did not break. It rendered a full year of tidy rows saying this
+ * resident had never been billed, over invoices that existed, with
+ * `monthsBilled: 0` and `outstanding: 0` in the totals beside them — for every
+ * resident in every hostel. The silence is the reason the walk lives in the
+ * shared calendar now instead of being re-implemented per service.
+ *
+ * Bounded, for the reason it always was: a typo'd year in `moveInDate` would
+ * otherwise spin out a row per month for half a century. The bound now keeps the
+ * newest months rather than the oldest, so one bad date costs a resident their
+ * early history instead of hiding the month they are actually being chased for.
  */
 function monthsBetween(start: Date, end: Date): string[] {
-  const periods: string[] = [];
-  const cursor = new Date(
-    Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1, 0, 0, 0, 0),
-  );
-  const last = periodOf(end);
-
-  while (periods.length < 120) {
-    const period = periodOf(cursor);
-
-    periods.push(period);
-
-    if (period >= last) {
-      break;
-    }
-
-    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
-  }
-
-  return periods;
+  return bsPeriodsBetween(hostelPeriodOf(start), hostelPeriodOf(end));
 }
 
 export async function getResidentLedger(

@@ -543,7 +543,8 @@ export const ResidentClaimForm = memo(function ResidentClaimForm({
   outstanding,
 }: {
   invoiceId: string;
-  month: string;
+  /** Null on a one-off invoice, which belongs to no month. `monthLabel` prints it. */
+  month: string | null;
   onCancel: () => void;
   onSubmitted: (message: string) => void;
   outstanding: number;

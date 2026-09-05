@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
 import { NotificationBell } from "@/components/notification-bell";
-import { ReferenceStrip, ResidentDuesCard } from "@/components/resident-payments";
+import { ResidentDuesCard } from "@/components/resident-payments";
 import { AppBar } from "@/components/ui/app-bar";
 import { StatusText } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,8 +60,7 @@ import { toastError } from "@/lib/toast";
  * | | |
  * | --- | --- |
  * | **The card** | what I owe in total, whether any of it is late, and what the buttons below are about to pay |
- * | **Two buttons** | pay that amount, or say I already have |
- * | **Reference code** | the string to quote in a transfer, as a copy strip |
+ * | **Two buttons** | pay that amount, or say I already have. The reference code is not here — it is on the pay screen the first one opens |
  * | **Credit** | money of mine the hostel is holding. Absent when there is none |
  * | **Certified receipts** | where my verified receipts are — a door, on the shelf shape More uses |
  * | **Pending claims** | what I have told them, still unverified. Absent when there is none |
@@ -361,56 +360,46 @@ export default function ResidentPaymentsScreen() {
           payments the hostel cannot see.
         */}
         {focus ? (
-          <>
-            <View className="flex-row gap-3">
-              <View className="flex-1">
-                {/*
-                  The button names the figure it is about to charge.
+          /*
+            The reference code stood under these buttons and has gone.
 
-                  `Pay now` under a card headlining `Rs 18,800` reads as a
-                  button that pays Rs 18,800, and it never was — it opens the
-                  oldest open invoice, which on a new resident's first screen is
-                  a Rs 2,000 admission fee. Putting the amount on the control
-                  closes the gap at the last point where closing it still
-                  prevents the surprise.
-                */}
-                <Button
-                  label={`Pay ${formatMoney(focusOwed)}`}
-                  onPress={() => router.push(`/invoice/${focus.id}/pay`)}
-                />
-              </View>
-              <View className="flex-1">
-                <Button
-                  label="I've paid"
-                  onPress={() => router.push(`/invoice/${focus.id}/claim`)}
-                  variant="outline"
-                />
-              </View>
+            It was the same code the `Pay` button leads to: `invoice/[id]/pay`
+            opens on a `<ReferenceCard>` carrying it under `PUT THIS IN THE
+            REMARKS`, beside the wallet the resident is about to quote it in. A
+            copy strip here asked somebody looking at a balance to copy a string
+            for a transfer they had not started yet, one tap before the screen
+            that hands them the same string with the instruction attached — and
+            a code copied a screen early is a code copied against whichever
+            figure was on screen at the time, which here is the total rather
+            than the invoice it settles.
+
+            The code lives where the payment happens. This screen is the
+            balance and the history.
+          */
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              {/*
+                The button names the figure it is about to charge.
+
+                `Pay now` under a card headlining `Rs 18,800` reads as a button
+                that pays Rs 18,800, and it never was — it opens the oldest open
+                invoice, which on a new resident's first screen is a Rs 2,000
+                admission fee. Putting the amount on the control closes the gap
+                at the last point where closing it still prevents the surprise.
+              */}
+              <Button
+                label={`Pay ${formatMoney(focusOwed)}`}
+                onPress={() => router.push(`/invoice/${focus.id}/pay`)}
+              />
             </View>
-
-            {/*
-              The code came off the painted card's two-up, where it was a peer
-              of the money and taking the width the next charge's amount needed.
-              It is here instead: under the buttons, because the resident who
-              wants it is the one who has just decided to pay by transfer rather
-              than through the app, and it is the same `<ReferenceStrip>` the
-              invoice and pay screens draw. `resident-payments.tsx` has the rest.
-            */}
-            {/*
-              Named for the charge it settles, not left generic.
-
-              A resident's first screen is a joining invoice carrying two
-              charges, and the code is issued once per resident for that whole
-              amount — so "Reference code for this payment" is the sentence that
-              tells them one transfer with one code clears both. A generic hint
-              over a card headlining a different, larger total is what left
-              people quoting it against the wrong figure.
-            */}
-            <ReferenceStrip
-              code={focus.referenceCode}
-              hint="Reference code for this payment — quote it in your transfer"
-            />
-          </>
+            <View className="flex-1">
+              <Button
+                label="I've paid"
+                onPress={() => router.push(`/invoice/${focus.id}/claim`)}
+                variant="outline"
+              />
+            </View>
+          </View>
         ) : null}
 
         {credit > 0 ? (
@@ -587,10 +576,14 @@ export default function ResidentPaymentsScreen() {
                                 their payments wants "rent" before they want
                                 "Bhadra".
 
-                                A part month replaces the due line with the days
-                                it covers, because the smaller figure on the
-                                right is otherwise unexplained. `invoiceRowCopy`
-                                holds both rules and is tested on them.
+                                A part month replaces the due line with the
+                                month and the days it covers, because the
+                                smaller figure on the right is otherwise
+                                unexplained — and because a basis snapshotted
+                                under the older format reads `28/30 days`, which
+                                under a heading that is a year names no month at
+                                all. `invoiceRowCopy` holds both rules and is
+                                tested on them.
 
                                 Not the reference code, which is on the strip at
                                 the top of this screen and on the invoice's own —

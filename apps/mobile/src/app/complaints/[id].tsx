@@ -12,6 +12,7 @@ import { Screen } from "@/components/ui/screen";
 import { Sheet } from "@/components/ui/sheet";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { VoiceNotePlayer } from "@/components/voice-note-player";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -148,7 +149,20 @@ function ComplaintDetail({
             <StatusPill status={complaint.status} />
           </View>
 
-          <Text variant="muted">{complaint.description}</Text>
+          {complaint.description ? (
+            <Text variant="muted">{complaint.description}</Text>
+          ) : null}
+
+          {/*
+            The recording sits inside the card with the description rather than
+            in the attachments section below, because for a complaint raised by
+            speaking it *is* the description — the photographs are the evidence
+            beside it. Somebody opening their own complaint should find their own
+            words where the words go.
+          */}
+          {complaint.voiceNoteAssetId ? (
+            <VoiceNotePlayer assetId={complaint.voiceNoteAssetId} />
+          ) : null}
 
           <View className="flex-row flex-wrap items-center gap-2">
             <Badge label={complaintCategoryLabel(complaint.category)} />

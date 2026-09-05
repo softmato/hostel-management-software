@@ -1,10 +1,16 @@
 /**
- * Push registration, tap routing and the app-icon badge.
+ * Push registration, tap routing, the app-icon badge — and the one push that
+ * changes what app this is.
  *
  * Mounted once, at the root. Everything is keyed to the signed-in account:
  * registration re-runs when the account changes, because the `DeviceToken` row
  * belongs to a user id and a shared phone must not keep delivering person A's
  * alerts to person B.
+ *
+ * The exception to "a push opens a screen" is `marksRoleChange`: being
+ * registered at a hostel promotes the recipient's own account, and that push is
+ * handled in both directions — tapped, and merely received while the app is
+ * open. See `adoptRoleChange`.
  */
 
 import * as Notifications from "expo-notifications";
@@ -13,13 +19,15 @@ import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
 import { useAppSelector } from "@/hooks/redux";
+import { adoptRoleChange } from "@/lib/auth-session";
 import { openDownloaded } from "@/lib/native-downloads";
-import { resolvePushPath } from "@/lib/push-link";
+import { marksRoleChange, resolvePushPath } from "@/lib/push-link";
 import {
   forgetPushToken,
   registerPushToken,
   setBadgeCount,
 } from "@/lib/push-notifications";
+import { toastInfo } from "@/lib/toast";
 import { DOWNLOAD_NOTIFICATION_TYPE } from "@/lib/upload-notification";
 
 export function usePush() {
@@ -82,14 +90,57 @@ export function usePush() {
        * "Downloaded" notice that dropped you on a dashboard instead of the file
        * would be the same broken promise as one that does nothing at all.
        *
-       * Falls through to routing if the open fails, which is what happens on a
-       * build with no native module or a phone with nothing that reads CSV.
+       * ## When there is nothing to open it with
+       *
+       * `openDownloaded` answers `false` rather than throwing — a build with no
+       * native module, or a phone with nothing that reads the type. That answer
+       * used to be discarded, so the tap did nothing at all and the file looked
+       * lost. It is a bad ending either way, but the recoverable version of it
+       * says where the file is, which is enough to go and find it.
+       *
+       * There is deliberately no `router.push` here: this notification has no
+       * screen behind it. Dropping the user on a dashboard would be the broken
+       * promise the paragraph above rules out.
        */
       if (data?.type === DOWNLOAD_NOTIFICATION_TYPE && typeof data.uri === "string") {
+        const path = typeof data.path === "string" ? data.path : null;
+
         void openDownloaded(
           data.uri,
           typeof data.mimeType === "string" ? data.mimeType : "*/*",
-        );
+        ).then((opened) => {
+          if (!opened) {
+            toastInfo(
+              "Nothing on this phone opens that",
+              path ? `It is saved in ${path}.` : "It is saved on your phone.",
+            );
+          }
+        });
+
+        return;
+      }
+
+      const path = resolvePushPath(data?.path);
+
+      /*
+       * A push that says the account's own role changed re-reads the session
+       * before it routes anywhere.
+       *
+       * Order is the whole point. `/(resident)/payments/<id>` is a resident
+       * route, and this phone is still holding a public access token until
+       * `adoptRoleChange` rotates it — routing first would open the invoice on
+       * a session whose every request comes back 403, which reads exactly like
+       * a broken screen. Rotating first also lands the resident tabs under the
+       * pushed screen, so backing out of the invoice arrives at their own home
+       * rather than the browsing app they were in when it buzzed.
+       *
+       * Awaited, then pushed, and the push still happens if the refresh failed
+       * — an offline phone should not swallow a tapped notification.
+       */
+      if (marksRoleChange(data)) {
+        void adoptRoleChange()
+          .catch(() => null)
+          .finally(() => router.push(path as never));
 
         return;
       }
@@ -100,7 +151,7 @@ export function usePush() {
        * unrouted push lands on `+not-found`, which reads as the app being
        * broken at the exact moment it just buzzed. See `lib/push-link.ts`.
        */
-      router.push(resolvePushPath(data?.path) as never);
+      router.push(path as never);
     }
 
     const subscription = Notifications.addNotificationResponseReceivedListener(open);
@@ -143,10 +194,30 @@ export function usePush() {
      * into a burst of requests, to correct a number nobody is looking at while
      * the app is in front of them.
      */
-    const received = Notifications.addNotificationReceivedListener(() => {
+    const received = Notifications.addNotificationReceivedListener((notification) => {
       void Notifications.getBadgeCountAsync()
         .then((count) => setBadgeCount(count + 1))
         .catch(() => undefined);
+
+      /*
+       * The app changes shape without waiting to be tapped.
+       *
+       * A resident registered at a hostel desk is holding their phone with the
+       * app open — that is the moment the warden scanned their card. The push
+       * arrives in the foreground, where a notification that is only *routed on
+       * tap* does nothing at all: they are left in the public browsing app,
+       * having just paid a deposit, with no way to reach a resident screen and
+       * no reason to think one exists. `adoptRoleChange` rotates the token and
+       * replaces the shell with their own tabs.
+       *
+       * Only for this class of notification. Every other push in the app is
+       * about something to go and look at, and re-routing the screen out from
+       * under somebody because their rent was invoiced would be the app taking
+       * over their phone.
+       */
+      if (marksRoleChange(notification.request.content.data)) {
+        void adoptRoleChange().catch(() => null);
+      }
     });
 
     return () => received.remove();

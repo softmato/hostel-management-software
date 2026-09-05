@@ -32,7 +32,13 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { browserApi } from "@/lib/browser-api";
-import { dayMonthYear, monthLabel } from "@/lib/format-month";
+import {
+  dayMonthYear,
+  dayMonthYearBs,
+  monthLabel,
+  periodKey,
+} from "@/lib/format-month";
+import { bsPeriodBounds } from "@/lib/hostel-day";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import {
   combineResources,
@@ -47,7 +53,7 @@ import {
   type PaymentProof,
   type Resident,
 } from "./hostel-admin-shared";
-import { MonthPicker, type PeriodRow } from "./hostel-admin-month-picker";
+import { MonthField, MonthPicker, type PeriodRow } from "./hostel-admin-month-picker";
 import { ProofReviewModal } from "./hostel-admin-proof-review-modal";
 import { HostelAdminReviewQueue } from "./hostel-admin-review-queue";
 import { ResidentPaymentTrackSheet } from "./hostel-admin-resident-payment-track";
@@ -112,26 +118,49 @@ type MatrixTotals = {
 };
 
 /**
- * Rent for a month falls due at the start of the next one, which is the
- * convention every hostel in this product already follows. Pre-filled rather
- * than left blank: an empty required date field is the reason this form was
- * abandoned half-completed.
+ * The last day of the month being billed — the same date the server picks when
+ * the field is left off entirely (`runBillingCycle` defaults `dueDate` to the
+ * period's `lastDay`).
+ *
+ * Pre-filled rather than left blank: an empty required date field is the reason
+ * this form was abandoned half-completed. Pre-filled with *the server's own
+ * default* rather than a second convention, because a form that quietly submits
+ * something other than what the button would do on its own is a rule nobody can
+ * find later.
+ *
+ * ## `lastDay`, not `end`
+ *
+ * `bsPeriodBounds` returns both. `end` is 23:59:59.999 UTC, and Kathmandu is
+ * 5h45m ahead — that instant is already 05:44 the next morning there, so a
+ * Bhadra invoice would be stamped due on a moment every Nepali reader names
+ * Aswin 1. A due date is a calendar day and takes `lastDay`; only a `$lte`
+ * range takes `end`.
+ *
+ * This used to build `Date.UTC(year, month, 1)` straight off the two numbers in
+ * the key. Once the key became Bikram Sambat that read `2083-05` as the year
+ * 2083 AD and pre-filled the date picker with **1 June 2083**.
  */
 function defaultDueDate(period: string) {
-  const match = /^(\d{4})-(\d{2})$/.exec(period);
-
-  if (!match) {
+  try {
+    return bsPeriodBounds(period).lastDay.toISOString().slice(0, 10);
+  } catch {
+    // A pre-cutover key, or a year past the conversion table. An empty field the
+    // owner must fill beats a date from the wrong calendar.
     return "";
   }
-
-  const due = new Date(Date.UTC(Number(match[1]), Number(match[2]), 1));
-
-  return due.toISOString().slice(0, 10);
 }
 
+/**
+ * The month this screen opens on.
+ *
+ * **An identity, not a label.** It is sent to the server as the `period` the
+ * matrix is keyed by, so it has to be the string `hostelPeriodOf` would produce
+ * for the same instant. Assembling `2026-09` from the local Gregorian fields —
+ * which is what this did — asked for a month the server has no invoices in, and
+ * the screen answered with an empty table and no error on it.
+ */
 function defaultMonth() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return periodKey(new Date());
 }
 
 export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
@@ -141,6 +170,12 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showFeeRun, setShowFeeRun] = useState(false);
+  /**
+   * The month the billing dialog will bill, tracked here rather than left to the
+   * form so the due-date field beside it can follow along. Seeded from the table
+   * when the dialog opens — the owner has just been looking at that month.
+   */
+  const [billMonth, setBillMonth] = useState(defaultMonth);
   const [approvingAll, setApprovingAll] = useState(false);
   /** Whose month-by-month history is open in the side sheet. "" means none. */
   const [trackResidentId, setTrackResidentId] = useState("");
@@ -459,7 +494,13 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
             </Button>
             <Button
               className="h-10 gap-2 rounded-xl"
-              onClick={() => setShowFeeRun(true)}
+              onClick={() => {
+                // Opens on the month the owner is looking at, every time. Left
+                // holding its last value, the dialog would offer to bill a month
+                // chosen two screens ago under a heading naming this one.
+                setBillMonth(month);
+                setShowFeeRun(true);
+              }}
               type="button"
               variant="outline"
             >
@@ -553,7 +594,7 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                 </option>
               ))}
             </FormSelect>
-            <FormInput label="Month" name="month" required type="month" />
+            <MonthField label="Month" name="month" />
             <FormInput label="Due amount" name="dueAmount" required type="number" />
             <FormInput label="Due date" name="dueDate" required type="date" />
             <div className="md:col-span-2">
@@ -586,15 +627,19 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
 
           <form className="grid gap-3" onSubmit={handleFeeRun}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <FormInput
-                defaultValue={month}
+              <MonthField
                 label="Month to bill"
                 name="month"
-                required
-                type="month"
+                onChange={setBillMonth}
+                value={billMonth}
               />
+              {/* Keyed on the month so the pre-filled due date follows it. A
+                  date left over from the previously selected month is the one
+                  mistake this dialog cannot show you: it looks filled in, and it
+                  stamps an Asar deadline on a Bhadra invoice. */}
               <FormInput
-                defaultValue={defaultDueDate(month)}
+                defaultValue={defaultDueDate(billMonth)}
+                key={billMonth}
                 label="Payment due by"
                 name="dueDate"
                 required
@@ -610,11 +655,29 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
             />
 
             <ul className="space-y-1.5 rounded-lg border border-border/70 bg-muted/20 p-3 text-[12px] text-muted-foreground">
+              {/* The count comes from the table, which is loaded for one month.
+                  Pick a different month to bill and the number no longer
+                  describes it — so it is dropped rather than restated under the
+                  wrong heading. A confident "0 residents" about a month nobody
+                  has counted is the sentence that stops an owner billing. */}
               <li>
-                <span className="font-semibold text-foreground">
-                  {stats.notBilled} resident(s)
-                </span>{" "}
-                have no invoice for {monthLabel(month)} yet — only they will be billed.
+                {billMonth === month ? (
+                  <>
+                    <span className="font-semibold text-foreground">
+                      {stats.notBilled} resident(s)
+                    </span>{" "}
+                    have no invoice for {monthLabel(month)} yet — only they will be
+                    billed.
+                  </>
+                ) : (
+                  <>
+                    Every active resident with no invoice for{" "}
+                    <span className="font-semibold text-foreground">
+                      {monthLabel(billMonth)}
+                    </span>{" "}
+                    will be billed.
+                  </>
+                )}
               </li>
               <li>Residents who already have one are skipped, so running it twice is safe.</li>
               <li>
@@ -741,7 +804,15 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                   <TableBody>
                     {filteredRows.map((row) => {
                       const name = row.resident.fullName;
-                      const movedInThisMonth = row.resident.moveInDate.startsWith(month);
+                      // The move-in *instant* converted to a period, not a
+                      // string prefix. `moveInDate` is an ISO timestamp and
+                      // `month` is now `2083-05`, so the old `startsWith` could
+                      // not match on any resident in any hostel — every
+                      // mid-month intake lost its "(pro-rated)" note, which is
+                      // the only thing on the row explaining a part-month
+                      // amount.
+                      const movedInThisMonth =
+                        periodKey(new Date(row.resident.moveInDate)) === month;
 
                       return (
                         <TableRow
@@ -796,11 +867,26 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
                                 : row.displayStatus.replaceAll("_", " ")}
                             </SoftBadge>
                           </TableCell>
-                          {/* "1 Sep 2026", never "9/1/2026" — which month that
-                              is depends on the reader's locale, and rent is not
-                              a thing to be ambiguous about. */}
+                          {/* Both calendars, BS leading, stacked rather than
+                              joined: this is a column the owner scans down, and
+                              a single line carrying two dates makes the eye do
+                              the splitting on every row. Never "9/1/2026" —
+                              which month that is depends on the reader's locale,
+                              and rent is not a thing to be ambiguous about. */}
                           <TableCell className="text-muted-foreground">
-                            {row.payment ? dayMonthYear(row.payment.dueDate) : "—"}
+                            {row.payment ? (
+                              <>
+                                <span className="block font-medium text-foreground">
+                                  {dayMonthYearBs(row.payment.dueDate) ||
+                                    dayMonthYear(row.payment.dueDate)}
+                                </span>
+                                <span className="block text-[11px]">
+                                  {dayMonthYear(row.payment.dueDate)}
+                                </span>
+                              </>
+                            ) : (
+                              "—"
+                            )}
                           </TableCell>
                         </TableRow>
                       );

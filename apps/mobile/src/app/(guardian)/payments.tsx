@@ -230,7 +230,10 @@ export default function GuardianPaymentsScreen() {
             <Card padding="px-4 py-1">
               {dashboard.payments.map((payment, index) => {
                 const owed = guardianOutstanding(payment);
-                const receipt = receipts.get(payment.month);
+                // A one-off belongs to no month, so there is no month-keyed
+                // receipt to join it to — the lookup is skipped rather than
+                // reaching for a key that does not exist.
+                const receipt = payment.month ? receipts.get(payment.month) : undefined;
 
                 return (
                   <View key={payment.id}>

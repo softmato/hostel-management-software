@@ -226,9 +226,11 @@ function ComplaintCard({ complaint }: { complaint: Complaint }) {
           <StatusPill status={complaint.status} />
         </View>
 
-        <Text numberOfLines={2} variant="muted">
-          {complaint.description}
-        </Text>
+        {complaint.description ? (
+          <Text numberOfLines={2} variant="muted">
+            {complaint.description}
+          </Text>
+        ) : null}
 
         <Text variant="caption">{standing.headline}</Text>
 
@@ -236,6 +238,16 @@ function ComplaintCard({ complaint }: { complaint: Complaint }) {
           <Badge label={complaintCategoryLabel(complaint.category)} />
           {complaint.isOverdue ? <Badge label="Overdue" tone="danger" /> : null}
           {complaint.isAnonymous ? <Badge label="Anonymous" /> : null}
+
+          {/*
+            A complaint raised by speaking has no line of prose above, so this
+            glyph is the row's only tell that there is something to listen to.
+            It sits with the photo count rather than replacing it — a resident
+            who photographed the leak *and* described it has both.
+          */}
+          {complaint.voiceNoteAssetId ? (
+            <Ionicons color={colors.mutedForeground} name="mic-outline" size={14} />
+          ) : null}
 
           {complaint.attachments.length > 0 ? (
             <View className="flex-row items-center gap-1">

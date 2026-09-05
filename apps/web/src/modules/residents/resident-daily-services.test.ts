@@ -43,6 +43,7 @@ const serviceMocks = vi.hoisted(() => ({
   residentFindOne: vi.fn(),
   residentFindOneAndUpdate: vi.fn(),
   roomFindOne: vi.fn(),
+  sosFindOne: vi.fn(),
   userFindOneAndUpdate: vi.fn(),
 }));
 
@@ -171,6 +172,16 @@ vi.mock("@hostel/db/models/Guardian", () => ({
 vi.mock("@hostel/db/models/NightStatus", () => ({
   NightStatusModel: {
     findOne: serviceMocks.nightStatusFindOne,
+  },
+}));
+
+// The dashboard reads the resident's latest alert beside the night status: the
+// status row keeps saying `SOS_TRIGGERED` long after the alert is closed, so the
+// alert row is what says whether one is live. Unmocked, this reaches mongoose
+// and the dashboard tests time out.
+vi.mock("@hostel/db/models/SOSAlert", () => ({
+  SOSAlertModel: {
+    findOne: serviceMocks.sosFindOne,
   },
 }));
 
@@ -312,6 +323,9 @@ describe("resident daily-use services", () => {
     serviceMocks.userFindOne.mockReturnValue(leanResult(null));
     serviceMocks.notificationCreate.mockResolvedValue({});
     serviceMocks.sendEmail.mockResolvedValue({ sent: false, reason: "not_configured" });
+
+    // No alert on file unless a case says otherwise.
+    serviceMocks.sosFindOne.mockReturnValue(queryResult(null));
   });
 
   it("generates hashed one-time activation codes without storing plain code", async () => {
@@ -479,6 +493,8 @@ describe("resident daily-use services", () => {
     const result = await getResidentDashboard(residentPrincipal);
 
     expect(result.dashboard.nightStatus).toMatchObject({ status: "IN_HOSTEL" });
+    // Never raised one, so there is nothing for the home card to flag.
+    expect(result.dashboard.sos).toBeNull();
     expect(result.dashboard.complaints.openCount).toBe(2);
     expect(result.dashboard.complaints.recent[0]).toMatchObject({
       isOverdue: true,
@@ -515,6 +531,60 @@ describe("resident daily-use services", () => {
     expect(result.dashboard.nightStatus).toMatchObject({
       checkedAt: null,
       status: "NOT_VERIFIED",
+    });
+  });
+
+  /*
+   * The pair the mobile home card reads. `writeNightStatus` upserts one row per
+   * resident and expires nothing, so `SOS_TRIGGERED` outlives the emergency —
+   * the card was flagging alerts staff had closed weeks earlier. The alert row
+   * is what carries "still open" and "raised when".
+   */
+  it("carries the latest SOS alert beside the night status it outlives", async () => {
+    serviceMocks.residentFindOne.mockReturnValueOnce(
+      leanResult(residentRecord({ userId: objectId(userId) })),
+    );
+    serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
+    serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
+    serviceMocks.nightStatusFindOne.mockReturnValueOnce(
+      leanResult({
+        _id: objectId("64f0f0f0f0f0f0f0f0f0f0b1"),
+        checkedAt: new Date("2030-01-01T18:30:00.000Z"),
+        hostelId: objectId(hostelId),
+        residentId: objectId(residentId),
+        source: "SOS",
+        status: "SOS_TRIGGERED",
+      }),
+    );
+    serviceMocks.sosFindOne.mockReturnValueOnce(
+      queryResult({
+        _id: objectId("64f0f0f0f0f0f0f0f0f0f0b3"),
+        createdAt: new Date("2030-01-01T18:30:00.000Z"),
+        guardianAlertEnabled: true,
+        hostelId: objectId(hostelId),
+        message: "Locked out",
+        residentId: objectId(residentId),
+        resolvedAt: new Date("2030-01-01T19:00:00.000Z"),
+        status: "RESOLVED",
+        triggeredBy: objectId(userId),
+      }),
+    );
+    serviceMocks.complaintFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.complaintCountDocuments.mockResolvedValueOnce(0);
+
+    const result = await getResidentDashboard(residentPrincipal);
+
+    expect(result.dashboard.nightStatus).toMatchObject({ status: "SOS_TRIGGERED" });
+    expect(result.dashboard.sos).toMatchObject({
+      message: "Locked out",
+      status: "RESOLVED",
+    });
+    // Newest first, so the client reads one alert rather than paging a history.
+    expect(serviceMocks.sosFindOne).toHaveBeenCalledWith({
+      residentId: objectId(residentId),
     });
   });
 

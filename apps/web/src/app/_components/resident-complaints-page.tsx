@@ -124,9 +124,11 @@ export const ResidentComplaintsPageContent = memo(
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold text-foreground">{complaint.title}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {complaint.description}
-                      </p>
+                      {complaint.description ? (
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {complaint.description}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <StatusBadge>{complaint.status}</StatusBadge>
@@ -136,6 +138,23 @@ export const ResidentComplaintsPageContent = memo(
                       ) : null}
                     </div>
                   </div>
+                  {/*
+                    Their own recording, when they raised it from the app by
+                    speaking. Cookie-authenticated, so a plain `<audio>` pointed
+                    at the authorizing route follows the 302 to storage with no
+                    header of ours attached.
+                  */}
+                  {complaint.voiceNoteAssetId ? (
+                    <audio
+                      className="mt-3 w-full"
+                      controls
+                      preload="none"
+                      src={`/api/v1/files/${complaint.voiceNoteAssetId}/url`}
+                    >
+                      Your browser cannot play this recording.
+                    </audio>
+                  ) : null}
+
                   <div className="mt-4 grid gap-2 text-sm text-muted-foreground md:grid-cols-3">
                     <span>
                       Created:{" "}

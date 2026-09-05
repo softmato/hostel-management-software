@@ -490,8 +490,20 @@ export async function getCookToday(principal: ApiPrincipal, requestedHostelId?: 
 
   const [hostel, routine, residentCount, announcements] = await Promise.all([
     HostelModel.findOne({ _id: hostelId, isDeleted: false })
-      .select("name")
-      .lean<{ _id: Types.ObjectId; name: string } | null>(),
+      /*
+       * The listing fields as well as the name, so the kitchen's header can
+       * offer the hostel's public page. `slug` alone is not enough to decide
+       * that: `getPublicHostelBySlug` filters on PUBLISHED **and** VERIFIED, so
+       * a hostel mid-application has a slug that answers with a 404.
+       */
+      .select("name slug status verificationStatus")
+      .lean<{
+        _id: Types.ObjectId;
+        name: string;
+        slug?: string;
+        status?: string;
+        verificationStatus?: string;
+      } | null>(),
     getFoodRoutine(hostelId),
     // The same filter `resolveActiveResidentRecipients` counts for the
     // announcement fan-out, so "cook for 38" and "38 residents notified" agree.
@@ -521,8 +533,23 @@ export async function getCookToday(principal: ApiPrincipal, requestedHostelId?: 
       })),
       date: today.toISOString().slice(0, 10),
       hostel: hostel
-        ? { id: hostel._id.toString(), name: hostel.name }
-        : { id: hostelId.toString(), name: "Your hostel" },
+        ? {
+            id: hostel._id.toString(),
+            name: hostel.name,
+            /*
+             * `""` unless the listing is genuinely live — the same gate the
+             * guardian and resident dashboards apply, and the reason the client
+             * needs no copy of the rule. A cook handed a slug that 404s learns
+             * nothing except that the app is broken.
+             */
+            slug:
+              hostel.status === "PUBLISHED" &&
+              hostel.verificationStatus === "VERIFIED" &&
+              hostel.slug
+                ? hostel.slug
+                : "",
+          }
+        : { id: hostelId.toString(), name: "Your hostel", slug: "" },
       /** Today's weekday entries off the weekly routine, in meal order. */
       meals: mealsOn(routine, today),
       /** The whole week, so the menu screen needs no second request. */

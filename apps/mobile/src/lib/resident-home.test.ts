@@ -2,12 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import { duesLine, stayPill } from "@/lib/resident-home";
 import type { NightStatus } from "@/lib/resident-api";
+import type { SosStanding } from "@/lib/sos";
 
 const night = (over: Partial<NightStatus> = {}): NightStatus => ({
   checkedAt: null,
   note: "",
   source: "SELF",
   status: "NOT_VERIFIED",
+  ...over,
+});
+
+/** `serializeSOS`, cut down to the two fields the pill reads. */
+const alert = (over: Partial<SosStanding> = {}): SosStanding => ({
+  createdAt: "2026-09-04T14:00:00.000Z",
+  status: "ACTIVE",
   ...over,
 });
 
@@ -117,6 +125,7 @@ describe("stayPill", () => {
     expect(
       stayPill(
         night({ checkedAt: "2026-09-04T15:00:00.000Z", status: "INSIDE_HOSTEL" }),
+        null,
         now,
       ),
     ).toEqual({ label: "Checked in", settled: true });
@@ -124,13 +133,14 @@ describe("stayPill", () => {
     expect(
       stayPill(
         night({ checkedAt: "2026-09-04T15:00:00.000Z", status: "MARKED_SAFE" }),
+        null,
         now,
       ),
     ).toEqual({ label: "Checked in", settled: true });
   });
 
   it("flags a resident who has not answered tonight", () => {
-    expect(stayPill(night(), now)).toEqual({
+    expect(stayPill(night(), null, now)).toEqual({
       label: "Not checked in",
       settled: false,
     });
@@ -140,17 +150,66 @@ describe("stayPill", () => {
     expect(
       stayPill(
         night({ checkedAt: "2026-09-03T15:00:00.000Z", status: "INSIDE_HOSTEL" }),
+        null,
         now,
       ),
     ).toEqual({ label: "Not checked in", settled: false });
   });
 
-  it("names an SOS on the record, whatever else has been answered since", () => {
+  it("names an SOS raised today that the hostel has not settled", () => {
     expect(
       stayPill(
-        night({ checkedAt: "2026-09-04T15:00:00.000Z", status: "SOS_TRIGGERED" }),
+        night({ checkedAt: "2026-09-04T14:00:00.000Z", status: "SOS_TRIGGERED" }),
+        alert(),
         now,
       ),
     ).toEqual({ label: "SOS active", settled: false });
+  });
+
+  it("keeps flagging one a warden has only acknowledged", () => {
+    expect(
+      stayPill(
+        night({ checkedAt: "2026-09-04T14:00:00.000Z", status: "SOS_TRIGGERED" }),
+        alert({ status: "ACKNOWLEDGED" }),
+        now,
+      ),
+    ).toEqual({ label: "SOS active", settled: false });
+  });
+
+  /*
+    The two cases this pill was rewritten for. The night status row is
+    `SOS_TRIGGERED` in both — it is one upserted row per resident that nothing
+    ever clears, so reading it was how a test alert stayed on the card for weeks.
+  */
+  it("drops the flag the moment staff settle the alert", () => {
+    for (const status of ["RESOLVED", "FALSE_ALARM"]) {
+      expect(
+        stayPill(
+          night({ checkedAt: "2026-09-04T14:00:00.000Z", status: "SOS_TRIGGERED" }),
+          alert({ status }),
+          now,
+        ),
+      ).toEqual({ label: "Not checked in", settled: false });
+    }
+  });
+
+  it("drops the flag a day after the alert was raised, settled or not", () => {
+    expect(
+      stayPill(
+        night({ checkedAt: "2026-09-01T14:00:00.000Z", status: "SOS_TRIGGERED" }),
+        alert({ createdAt: "2026-09-01T14:00:00.000Z" }),
+        now,
+      ),
+    ).toEqual({ label: "Not checked in", settled: false });
+  });
+
+  it("says nothing about an SOS when it has no alert to read", () => {
+    expect(
+      stayPill(
+        night({ checkedAt: "2026-09-04T14:00:00.000Z", status: "SOS_TRIGGERED" }),
+        null,
+        now,
+      ),
+    ).toEqual({ label: "Not checked in", settled: false });
   });
 });

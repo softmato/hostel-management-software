@@ -44,21 +44,51 @@ export function isUsableRecording(milliseconds: number): boolean {
   return milliseconds >= VOICE_NOTE_MIN_MS;
 }
 
+/**
+ * Who is going to listen to this, which is the only thing that differs between
+ * the two places a note is recorded.
+ *
+ * A warden's maintenance note is heard by a contractor who has not seen the
+ * fault; a resident's complaint note is heard by their own hostel's staff. The
+ * mechanics — the cap, the countdown, the play-it-back nudge — are identical,
+ * so the recorder is one component and only the sentence changes.
+ */
+export type VoiceNoteContext = "complaint" | "maintenance";
+
+const IDLE_HINTS: Record<VoiceNoteContext, string> = {
+  complaint: "Optional. Your hostel hears exactly what you say, in your own words.",
+  maintenance: "Optional. The person coming to fix it hears exactly what you describe.",
+};
+
+const READY_HINTS: Record<VoiceNoteContext, string> = {
+  complaint: "Play it back before you send it. You can record over it or delete it.",
+  maintenance:
+    "Play it back before you raise the job. You can record over it or delete it.",
+};
+
+const RECORDING_HINTS: Record<VoiceNoteContext, string> = {
+  complaint: "Say where it is and what is wrong.",
+  maintenance: "Say where it is and what it is doing.",
+};
+
 /** The line under the recorder, which changes with what is in hand. */
 export function recorderHint(state: {
+  context?: VoiceNoteContext;
   durationMs: number;
   hasRecording: boolean;
   recording: boolean;
 }): string {
+  const context = state.context ?? "maintenance";
+
   if (state.recording) {
     return `Recording — ${formatDuration(
       Math.max(0, VOICE_NOTE_MAX_MS - state.durationMs),
-    )} left. Say where it is and what it is doing.`;
+    )} left. ${RECORDING_HINTS[context]}`;
   }
 
   if (state.hasRecording) {
-    return "Play it back before you raise the job. You can record over it or delete it.";
+    return READY_HINTS[context];
   }
 
-  return "Optional. The person coming to fix it hears exactly what you describe.";
+  return IDLE_HINTS[context];
 }

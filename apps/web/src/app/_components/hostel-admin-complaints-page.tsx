@@ -189,9 +189,11 @@ export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-foreground">{complaint.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {complaint.description}
-                  </p>
+                  {complaint.description ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {complaint.description}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge>{complaint.status}</StatusBadge>
@@ -200,16 +202,61 @@ export const HostelAdminComplaintsPage = memo(function HostelAdminComplaintsPage
                 </div>
               </div>
 
+              {/*
+                A complaint raised from the app can have no typed description at
+                all — the resident held the microphone and said what was wrong.
+                Without this the queue row for it is a title and nothing else.
+
+                A plain `<audio>` pointed at the authorizing route: this browser
+                is cookie-authenticated, so the 302 to the presigned R2 URL is
+                followed with no header of ours attached. That is the whole
+                reason the mobile player needs `?format=json` and this does not.
+              */}
+              {complaint.voiceNoteAssetId ? (
+                <audio
+                  className="mt-3 w-full"
+                  controls
+                  preload="none"
+                  src={`/api/v1/files/${complaint.voiceNoteAssetId}/url`}
+                >
+                  Your browser cannot play this recording.
+                </audio>
+              ) : null}
+
               <div className="mt-4 grid gap-2 text-sm text-muted-foreground md:grid-cols-3">
                 <span>
                   Resident: {complaint.isAnonymous ? "Anonymous" : complaint.residentId}
                 </span>
                 <span>SLA: {new Date(complaint.slaDueAt).toLocaleString()}</span>
-                <span>
-                  Attachments:{" "}
-                  {complaint.attachments.length > 0
-                    ? complaint.attachments.map((item) => item.fileAssetId).join(", ")
-                    : "None"}
+                <span className="flex flex-wrap items-center gap-2">
+                  Photos:{" "}
+                  {complaint.attachments.length > 0 ? (
+                    complaint.attachments.map((item) => (
+                      /*
+                       * The thumbnail variant, which the route serves when one
+                       * exists and silently falls back to the original when it
+                       * does not. This row used to print the raw asset ids,
+                       * which told an admin a photograph existed and gave them
+                       * no way at all to look at it.
+                       */
+                      <a
+                        className="inline-block"
+                        href={`/api/v1/files/${item.fileAssetId}/url`}
+                        key={item.id}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- private asset served through our own authorizing route */}
+                        <img
+                          alt="Complaint photo"
+                          className="h-12 w-12 rounded-md border border-border object-cover"
+                          src={`/api/v1/files/${item.fileAssetId}/url?variant=THUMBNAIL`}
+                        />
+                      </a>
+                    ))
+                  ) : (
+                    <>None</>
+                  )}
                 </span>
               </div>
 

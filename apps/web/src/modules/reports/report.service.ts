@@ -3,6 +3,7 @@ import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { addBsMonths, bsPeriodBounds, hostelPeriodOf, isBsPeriod } from "@/lib/hostel-day";
 import { assertHostelAccess } from "@/lib/tenant";
 import { ComplaintModel } from "@hostel/db/models/Complaint";
 import { FoodFeedbackModel } from "@hostel/db/models/FoodFeedback";
@@ -68,28 +69,32 @@ function hostelFilter(principal: ApiPrincipal, requestedHostelId?: string) {
   };
 }
 
-function startOfMonth(month?: string) {
-  if (!month) {
+/**
+ * The instants a reported month opens and closes on.
+ *
+ * `query.month` is an `Invoice.period` — a **Bikram Sambat** month — and this
+ * split it on the hyphen and fed the two numbers to `Date.UTC`. `2083-05` read
+ * that way is May of the year 2083 AD, so the claim count filtered on a window
+ * fifty-seven years in the future and came back zero on every report, under
+ * totals that were right because they matched on the period string instead.
+ *
+ * Both ends are returned together because they are one decision. Returns `null`
+ * for a month it cannot bound — a pre-cutover Gregorian key, or a year past the
+ * conversion table — and the caller drops the date window rather than reporting
+ * a hostel's claims against a window nobody can name.
+ */
+function monthWindow(month?: string): { end: Date; start: Date } | null {
+  if (!month || !isBsPeriod(month)) {
     return null;
   }
 
-  const [year, index] = month.split("-").map(Number);
+  try {
+    const { end, start } = bsPeriodBounds(month);
 
-  if (!year || !index) {
+    return { end, start };
+  } catch {
     return null;
   }
-
-  return new Date(Date.UTC(year, index - 1, 1));
-}
-
-function endOfMonth(month?: string) {
-  const start = startOfMonth(month);
-
-  if (!start) {
-    return null;
-  }
-
-  return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
 }
 
 /**
@@ -552,13 +557,15 @@ export async function getHostelAdminPaymentsReport(
 
   const scoped = hostelFilter(principal, query.hostelId);
   const filter = ledgerScopeFrom(scoped, query.month ? { period: query.month } : {});
-  const monthStart = startOfMonth(query.month);
-  const monthEnd = endOfMonth(query.month);
+  const window = monthWindow(query.month);
 
   const proofFilter: Record<string, unknown> = { ...scoped };
 
-  if (monthStart && monthEnd) {
-    proofFilter.submittedAt = { $gte: monthStart, $lt: monthEnd };
+  if (window) {
+    // `$lte` against `end`, which is the month's last millisecond. `lastDay` is
+    // the other half of `bsPeriodBounds` and belongs to due dates, not to
+    // ranges — using it here would drop everything claimed on the final day.
+    proofFilter.submittedAt = { $gte: window.start, $lte: window.end };
   }
 
   const [totals, byStatus, pendingProofs] = await Promise.all([
@@ -614,17 +621,25 @@ function collectionRate(due: number, paid: number) {
   return due > 0 ? Number(((paid / due) * 100).toFixed(1)) : 0;
 }
 
-/** Last `OVERVIEW_MONTHS` month keys ending at `month` (or the current month). */
+/**
+ * Last `OVERVIEW_MONTHS` month keys ending at `month` (or the current month).
+ *
+ * These keys are matched against `Invoice.period`, so they are Bikram Sambat
+ * months or they match nothing. Built by stepping Gregorian months, which is
+ * what this did, the overview's payment chart drew six months of zeroes over a
+ * hostel that had billed every one of them.
+ *
+ * A pre-cutover Gregorian anchor is honoured as itself rather than converted:
+ * `addBsMonths` is plain month arithmetic on a `YYYY-MM` key and carries a year
+ * the same way in either calendar, so asking for September 2026 still walks back
+ * through August and July. See `isBsPeriod` for why the two never collide.
+ */
 function recentMonthKeys(month?: string) {
-  const anchor = startOfMonth(month) ?? new Date();
-  const year = anchor.getUTCFullYear();
-  const index = anchor.getUTCMonth();
+  const anchor = month ?? hostelPeriodOf(new Date());
 
-  return Array.from({ length: OVERVIEW_MONTHS }, (_, offset) => {
-    const date = new Date(Date.UTC(year, index - (OVERVIEW_MONTHS - 1 - offset), 1));
-
-    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-  });
+  return Array.from({ length: OVERVIEW_MONTHS }, (_, offset) =>
+    addBsMonths(anchor, -(OVERVIEW_MONTHS - 1 - offset)),
+  );
 }
 
 /**

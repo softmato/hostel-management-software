@@ -12,6 +12,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { prefetchCommunity } from "@/lib/community-queries";
 import { runWhenIdle } from "@/lib/idle";
 import { absoluteMediaUrl } from "@/lib/media";
+import { prefetchNotifications } from "@/lib/notification-queries";
 
 /**
  * How long a shell waits before warming the Community tab.
@@ -117,6 +118,33 @@ export function RoleTabs({
       cancelIdle?.();
     };
   }, [hasCommunity]);
+
+  /*
+   * The bell's feed, warmed for whichever shell this is — and here for the same
+   * reason Community is: `/notifications` is scoped to `principal.userId` with no
+   * role branch, so it is the one read every portal makes and belongs to no
+   * portal's registry.
+   *
+   * On the first idle frame rather than four seconds in, because this is not a
+   * guess about where somebody will go next. Nearly every tab in every shell
+   * draws a `<NotificationBell>`, so the count is *already on screen* — the only
+   * question is whether it appears with the tab or a round trip later. The
+   * shells whose landing tab has no bell (the store, most of all) are exactly
+   * the ones this exists for; where a bell does mount in the same frame,
+   * `prefetchQuery` joins its request instead of making a second.
+   *
+   * Signed out it does nothing: the endpoint is a 401 for `(browse)`'s anonymous
+   * half, and `prefetchQuery` would swallow that silently once per visit.
+   */
+  const signedIn = Boolean(account);
+
+  useEffect(() => {
+    if (!signedIn) {
+      return undefined;
+    }
+
+    return runWhenIdle(prefetchNotifications);
+  }, [signedIn]);
 
   return (
     <Tabs

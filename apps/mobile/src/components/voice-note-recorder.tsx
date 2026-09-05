@@ -22,6 +22,7 @@ import {
   isUsableRecording,
   recorderHint,
   VOICE_NOTE_MAX_MS,
+  type VoiceNoteContext,
 } from "@/lib/voice-note";
 
 /**
@@ -98,14 +99,41 @@ export const VOICE_NOTE_RECORDING: RecordingOptions = {
 export type VoiceNote = { durationMs: number; uri: string };
 
 export function VoiceNoteRecorder({
+  context = "maintenance",
   disabled = false,
+  label = "Say what is wrong",
   note,
   onChange,
+  showHint = true,
 }: {
+  /**
+   * Who hears it. Only the sentences change — see `recorderHint`.
+   *
+   * Defaulted rather than required because the maintenance screen was here
+   * first and its copy is the default; a second caller states its own.
+   */
+  context?: VoiceNoteContext;
   /** True while the request is being submitted — the file is being uploaded. */
   disabled?: boolean;
+  /**
+   * The field label above the control, or `null` on a screen that already says
+   * what this is — the complaint screen puts the recorder inside a section it
+   * has titled, and a second heading two lines below the first reads as two
+   * separate controls.
+   */
+  label?: string | null;
   note: VoiceNote | null;
   onChange: (note: VoiceNote | null) => void;
+  /**
+   * The changing line underneath — the countdown, the play-it-back nudge.
+   *
+   * Off for a screen that already carries one line of guidance and does not
+   * want a second: the complaint screen says what to do once, under the send
+   * button, and repeating it here was a paragraph where the camera should be.
+   * The control still says everything load-bearing in its own two lines
+   * ("Recording" and the clock), so nothing is lost but the prose.
+   */
+  showHint?: boolean;
 }) {
   const recorder = useAudioRecorder(VOICE_NOTE_RECORDING);
   const recorderState = useAudioRecorderState(recorder, 250);
@@ -218,11 +246,16 @@ export function VoiceNoteRecorder({
     player.play();
   }, [player, playerStatus.currentTime, playerStatus.duration, playerStatus.playing]);
 
-  const hint = recorderHint({ durationMs, hasRecording: note !== null, recording });
+  const hint = recorderHint({
+    context,
+    durationMs,
+    hasRecording: note !== null,
+    recording,
+  });
 
   return (
     <View className="gap-2">
-      <Text variant="label">Say what is wrong</Text>
+      {label ? <Text variant="label">{label}</Text> : null}
 
       <View className="flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3">
         {note && !recording ? (
@@ -280,7 +313,7 @@ export function VoiceNoteRecorder({
         )}
       </View>
 
-      <Text variant="caption">{hint}</Text>
+      {showHint ? <Text variant="caption">{hint}</Text> : null}
     </View>
   );
 }

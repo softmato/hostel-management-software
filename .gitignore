@@ -51,7 +51,10 @@ graphify-out/manifest.json
 # Runtime-generated activation QR images (local fallback when R2 is unconfigured).
 apps/web/public/uploads/activation-qr/
 
-# Tesseract language models. `createWorker("eng")` downloads these at runtime and
-# caches them next to the process, so this is a build artifact, not a source
-# file — 5 MB of it. See apps/web/src/modules/finance/evidence-ocr.ts.
+# Tesseract language models that land beside the process as a download.
+#
+# `apps/web/tessdata/eng.traineddata` is deliberately NOT ignored: it is the
+# model the recogniser is pointed at, and it has to be in the deployment or the
+# read hangs. See apps/web/src/modules/finance/evidence-ocr.ts.
 *.traineddata
+!apps/web/tessdata/*.traineddata

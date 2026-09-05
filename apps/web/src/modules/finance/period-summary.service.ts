@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
+import { bsPeriodsBetween, hostelPeriodOf, isBsPeriod } from "@/lib/hostel-day";
 import { listRecentInvoices } from "@/modules/finance/ledger-read.service";
 import { countableResidentIds } from "@/modules/finance/resident-scope";
 import { HostelModel } from "@hostel/db/models/Hostel";
@@ -60,8 +61,19 @@ export type PeriodSummary = {
   };
 };
 
+/**
+ * The **Bikram Sambat** month an instant belongs to — the same key an invoice
+ * carries.
+ *
+ * This built `2026-09` off the UTC fields until the cutover, and the mismatch
+ * did not fail anywhere: the picker seeded its rows with Gregorian keys, the
+ * invoices arrived keyed `2083-05`, and every real month landed in the map
+ * through the fallback branch instead of the seeded one. The visible result was
+ * a dropdown of a hundred months the hostel had never billed in, with the four
+ * real ones sorted above them because `2083` beats `2026` as a string.
+ */
 function periodOf(date: Date) {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return hostelPeriodOf(date);
 }
 
 /**
@@ -91,27 +103,17 @@ async function approvalPeriod(hostelId: Types.ObjectId | string): Promise<string
 /**
  * Every month from `start` to `end` inclusive, newest first.
  *
- * Capped at 120. A hostel record with a bad `createdAt` would otherwise build a
- * dropdown with six hundred entries in it.
+ * Capped, for the reason the shared walker documents: a hostel record with a bad
+ * `createdAt` would otherwise build a dropdown with six hundred entries in it.
+ * The cap now drops the *oldest* months rather than stopping at the hundred-and-
+ * twentieth from the far end, so a hostel with one bad date still gets a picker
+ * open on the months it is actually billing.
+ *
+ * Stepping a BS month is the whole point — see `bsPeriodsBetween`. The loop that
+ * used to live here stepped a Gregorian one.
  */
 function monthsBetween(start: string, end: string): string[] {
-  const [startYear, startMonth] = start.split("-").map(Number);
-  const periods: string[] = [];
-  const cursor = new Date(Date.UTC(startYear!, startMonth! - 1, 1));
-
-  while (periods.length < 120) {
-    const period = periodOf(cursor);
-
-    periods.push(period);
-
-    if (period >= end) {
-      break;
-    }
-
-    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
-  }
-
-  return periods.reverse();
+  return bsPeriodsBetween(start, end).reverse();
 }
 
 export async function getPeriodSummary(
@@ -152,7 +154,14 @@ export async function getPeriodSummary(
     // `months[0]` — the mobile hero above all — then read that hostel's month as
     // zero the moment its first resident was taken in.
     .map((invoice) => invoice.period)
-    .filter((period): period is string => typeof period === "string" && period !== "")
+    // Bikram Sambat only, and not because a legacy row is unwelcome. The two
+    // ends of this list become a *range* that gets walked a BS month at a time,
+    // and `2026-09` compared against `2083-04` as a string is not a comparison
+    // of two months — it is two calendars sorted by magnitude. A pre-cutover key
+    // still gets its own row further down, through the same fallback that
+    // catches any month the range does not cover; what it may not do is decide
+    // where the range starts. See `isBsPeriod`.
+    .filter((period): period is string => isBsPeriod(period))
     .sort();
   const earliestBilled = periodsBilled.at(0) ?? null;
   const latestBilled = periodsBilled.at(-1) ?? null;

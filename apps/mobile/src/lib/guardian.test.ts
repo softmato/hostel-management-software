@@ -52,8 +52,11 @@ function dashboard(overrides: Partial<GuardianDashboard> = {}): GuardianDashboar
     hostel: {
       contact: { email: "", phone: "9812345678" },
       id: "h-1",
+      isVerified: true,
       location: {},
       name: "Sunrise",
+      photoUrl: "",
+      slug: "sunrise",
     },
     notices: [],
     payments: [],
@@ -302,5 +305,26 @@ describe("guardianLatestPaid", () => {
 
   it("returns null when nothing has been paid", () => {
     expect(guardianLatestPaid([payment()])).toBeNull();
+  });
+
+  it("survives a one-off invoice, which belongs to no month", () => {
+    // The joining bill carries `period: null`, and it is the *first* invoice a
+    // household ever settles — so a `.month.localeCompare` here threw for every
+    // new resident before their first month of rent was raised.
+    const latest = guardianLatestPaid([
+      payment({ id: "joining", month: null, paidAmount: 12000, status: "PAID" }),
+      payment({ id: "aug", month: "2026-08", paidAmount: 5000, status: "PAID" }),
+    ]);
+
+    expect(latest?.id).toBe("aug");
+  });
+
+  it("shows the joining bill when it is the only thing settled", () => {
+    const latest = guardianLatestPaid([
+      payment({ id: "joining", month: null, paidAmount: 12000, status: "PAID" }),
+      payment({ id: "aug", month: "2026-08", paidAmount: 0, status: "UNPAID" }),
+    ]);
+
+    expect(latest?.id).toBe("joining");
   });
 });

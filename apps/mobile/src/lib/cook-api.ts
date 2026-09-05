@@ -48,7 +48,16 @@ export type CookToday = {
   announced: FoodReadyAnnouncement[];
   /** `YYYY-MM-DD`, from the server's clock rather than the phone's. */
   date: string;
-  hostel: { id: string; name: string };
+  hostel: {
+    id: string;
+    name: string;
+    /**
+     * The public listing's slug, or `""` when there is no live page — the
+     * server sends nothing unless the hostel is PUBLISHED **and** VERIFIED, so
+     * the header's eye is withheld rather than pointed at a 404.
+     */
+    slug: string;
+  };
   /** Today's weekday entries off the routine, in meal order. */
   meals: RoutineMeal[];
   /** Active residents. The same count the announcement fan-out notifies. */

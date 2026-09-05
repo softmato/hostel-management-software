@@ -5,20 +5,24 @@ import { Pressable, ScrollView, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { humanizeEnum } from "@/lib/format";
+import {
+  type NotificationTone,
+  notificationVisual,
+} from "@/lib/notification-categories";
+import { groupNotifications } from "@/lib/notification-groups";
+import { notificationQuery } from "@/lib/notification-queries";
 import {
   type AppNotification,
   type NotificationFeed,
   type NotificationFilter,
-  listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/notifications-api";
@@ -35,6 +39,30 @@ import { toastError } from "@/lib/toast";
  * the same file serves a resident's payment reminder and an admin's approval
  * queue, and a folder nested under a `<Tabs>` layout would become another tab.
  *
+ * ## It opens already drawn
+ *
+ * The list reads `notificationQuery.feed(filter)`, which is the same key
+ * `<NotificationBell>` reads for its badge and the one `role-tabs.tsx` warms on
+ * the way into every portal. So the usual path into this screen — tap the bell
+ * whose count came from this entry — paints the rows on the first frame and
+ * revalidates behind them. `lib/notification-queries.ts` has the reasoning.
+ *
+ * The skeleton below is therefore for the cold cases only: a deep link from a
+ * push, a hard relaunch, or a filter nobody has asked for yet.
+ *
+ * ## Three shapes of feed, and the grouping is what makes it a list
+ *
+ * Rows come from everywhere — rent, complaints, the kitchen, an SOS, a store
+ * delivery — and arrive as one column sorted by time. Two things from
+ * `ui_inspiration_folder/app_recordings/NOTES.md` turn that into something
+ * scannable, and both are load-bearing rather than decorative:
+ *
+ * - **§5, headings outside the cards.** The day is written once on the page
+ *   background instead of once per row, which is what lets "what happened since
+ *   I last looked" be answered by the shape of the screen. `lib/notification-groups.ts`.
+ * - **§5 and §11, a tinted glyph leading the row.** The category *and* what
+ *   happened to it, before a word is read. `lib/notification-categories.ts`.
+ *
  * ## Read is marked on tap, and optimistically
  *
  * Same rule as `(resident)/notices.tsx`: the row un-bolds immediately and the
@@ -42,6 +70,10 @@ import { toastError } from "@/lib/toast";
  * somebody opened and closed, and the one notification that mattered is exactly
  * the one that gets scrolled past. A failed PATCH leaves a row locally read that
  * the next fetch corrects — cheaper than a tap that appears to do nothing.
+ *
+ * The optimistic edit is written back to the shared cache entry, so the bell on
+ * the screen underneath loses its badge on the same frame as the row loses its
+ * tint. That is `use-resource`'s `setData` doing it, not a second update here.
  *
  * ## `actionUrl` is not a link
  *
@@ -57,24 +89,69 @@ const FILTERS: { label: string; value: NotificationFilter }[] = [
   { label: "Needs you", value: "action" },
 ];
 
+/**
+ * The tinted square behind the glyph.
+ *
+ * `bg-destructive-soft` rather than `bg-destructive/10`: NativeWind does not
+ * compose an opacity modifier from a CSS variable, so the `/10` form renders no
+ * square at all. `global.css` carries that as a comment beside the token, and
+ * `<CardRow>` still has the broken form.
+ */
+const TILE_TONES: Record<NotificationTone, string> = {
+  brand: "bg-brand-soft",
+  danger: "bg-destructive-soft",
+  neutral: "bg-muted",
+  success: "bg-success-soft",
+  warning: "bg-warning-soft",
+};
+
+const TILE_GLYPH: Record<
+  NotificationTone,
+  "destructive" | "mutedForeground" | "primary" | "success" | "warning"
+> = {
+  brand: "primary",
+  danger: "destructive",
+  neutral: "mutedForeground",
+  success: "success",
+  warning: "warning",
+};
+
 export default function NotificationsScreen() {
   const account = useAppSelector((state) => state.auth.account);
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [marking, setMarking] = useState(false);
 
   /*
+   * The descriptor, not an inline loader. `defineQuery` hands back the same
+   * object for a key for the life of the process, so `query.load` is a stable
+   * identity `useResource` can key its fetch effect off — and changing the chip
+   * changes the key, which paints the other filter from cache if it has been
+   * looked at and re-asks if it has not.
+   *
    * `topics` is what makes the bell live: the socket publishes `notifications`
    * on every `notification:new` and `notification:updated`, so a notice
-   * published on the web updates this list with no push involved and no
-   * polling. The refetch is silent — the list stays on screen while it runs.
+   * published on the web updates this list with no push involved and no polling.
+   * The refetch is silent — the list stays on screen while it runs.
    */
-  const feed = useResource<NotificationFeed>(
-    useCallback(() => listNotifications(filter), [filter]),
-    { topics: ["notifications"] },
-  );
+  const query = notificationQuery.feed(filter);
+
+  const feed = useResource<NotificationFeed>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const rows = useMemo(() => feed.data?.notifications ?? [], [feed.data]);
   const unread = feed.data?.unreadCount ?? 0;
+
+  /*
+   * Grouped here rather than in the render body so the buckets are recomputed
+   * when the rows move and not when the screen re-renders for a chip.
+   *
+   * `new Date()` is read once per grouping rather than per row: a list crossing
+   * midnight Kathmandu time mid-loop would otherwise file its first rows under
+   * one heading and its last under another.
+   */
+  const groups = useMemo(() => groupNotifications(rows), [rows]);
 
   /*
    * The app-icon badge, written from the server's count.
@@ -174,15 +251,7 @@ export default function NotificationsScreen() {
     );
   }
 
-  if (feed.loading) {
-    return (
-      <Screen header={header}>
-        <LoadingState label="Loading notifications" />
-      </Screen>
-    );
-  }
-
-  if (feed.error || !feed.data) {
+  if (feed.error || (!feed.data && !feed.loading)) {
     return (
       <Screen header={header}>
         <ErrorState
@@ -228,7 +297,15 @@ export default function NotificationsScreen() {
           })}
         </ScrollView>
 
-        {rows.length === 0 ? (
+        {/*
+          Skeleton rows rather than a centred spinner, per NOTES §9: the shape of
+          this list is known before its contents are, and matching it is what
+          keeps the page from jumping when the rows land. Six because that is
+          roughly a screenful at this row height.
+        */}
+        {feed.loading ? (
+          <SkeletonRows rows={6} />
+        ) : rows.length === 0 ? (
           <EmptyState
             description={
               filter === "unread"
@@ -240,13 +317,28 @@ export default function NotificationsScreen() {
             title="Nothing to read"
           />
         ) : (
-          <View className="gap-3">
-            {rows.map((notification) => (
-              <NotificationCard
-                key={notification.id}
-                notification={notification}
-                onOpen={markRead}
-              />
+          <View className="gap-5">
+            {groups.map((group) => (
+              <View className="gap-2.5" key={group.bucket}>
+                {/*
+                  On the page, not in a card — NOTES §5. The day is stated once
+                  for the rows under it instead of once on every row.
+                */}
+                <Text
+                  className="px-0.5 font-semibold uppercase tracking-wider"
+                  variant="caption"
+                >
+                  {group.label}
+                </Text>
+
+                {group.rows.map((notification) => (
+                  <NotificationRow
+                    key={notification.id}
+                    notification={notification}
+                    onOpen={markRead}
+                  />
+                ))}
+              </View>
             ))}
           </View>
         )}
@@ -255,7 +347,30 @@ export default function NotificationsScreen() {
   );
 }
 
-function NotificationCard({
+/**
+ * One row: a tinted glyph, the title with its age opposite, two lines of body.
+ *
+ * ## Not a `<Card>`, and not `<CardRow>`
+ *
+ * The accent edge has to be flush with the rounded corner, which a component
+ * whose padding is a single slot cannot do — `<Card>`'s own doc explains why
+ * that slot is not additive. `<CardRow>` is the other near-miss: its value sits
+ * vertically centred in the right slot rather than on the title's baseline, and
+ * its subtitle is fixed at two lines with nothing to expand. Both differences
+ * are the row's whole anatomy, so this is a screen-level composition rather than
+ * a fifth variant of a kit primitive.
+ *
+ * ## Unread inverts the row rather than adding a dot to it
+ *
+ * Unread rows take a tinted ground and their glyph tile goes white; read rows
+ * are a white card with a tinted tile. Two states, one pair of surfaces swapped,
+ * and the tone still shows in both because it is the *glyph* that carries the
+ * colour — a tinted tile on a tinted ground would simply disappear.
+ *
+ * The dot that used to say "unread" is gone with it: ground, weight and edge all
+ * say it already, and it was the fourth. Screen readers get the word itself.
+ */
+function NotificationRow({
   notification,
   onOpen,
 }: {
@@ -268,71 +383,95 @@ function NotificationCard({
   const [expanded, setExpanded] = useState(false);
 
   const urgent = notification.priority === "URGENT" || notification.priority === "HIGH";
+  const unread = !notification.isRead;
+  const visual = notificationVisual(notification);
+
+  /*
+   * One edge, two meanings, and urgency wins.
+   *
+   * A left border for urgency, never a red card — the same rule the notices list
+   * follows, and two red cards on one screen means neither reads as urgent. An
+   * unread row that is *also* urgent keeps the red: it is the more important of
+   * the two things to know, and the tinted ground still says unread.
+   */
+  const edge = urgent ? colors.destructive : unread ? colors.primary : "transparent";
 
   return (
     <Pressable
+      accessibilityLabel={`${unread ? "Unread. " : ""}${visual.label}. ${notification.title}. ${notification.body}`}
       accessibilityRole="button"
       accessibilityState={{ expanded }}
+      className="active:opacity-80"
       onPress={() => {
         setExpanded((value) => !value);
         onOpen(notification);
       }}
     >
-      {/*
-        A left border for urgency, never a red card — the same rule the notices
-        list follows. Two red cards on one screen and neither reads as urgent.
-      */}
-      <Card
-        className={`gap-2 active:opacity-80 ${
-          urgent ? "border-l-4 border-l-destructive" : ""
+      <View
+        className={`flex-row overflow-hidden rounded-2xl border ${
+          unread ? "border-transparent bg-brand-soft" : "border-border bg-card"
         }`}
       >
-        <View className="flex-row items-start gap-2">
-          {notification.isRead ? null : (
-            <View
-              accessibilityLabel="Unread"
-              className="mt-1.5 h-2 w-2 rounded-full"
-              style={{ backgroundColor: colors.primary }}
-            />
-          )}
-
-          <Text
-            className={`flex-1 ${notification.isRead ? "" : "font-semibold"}`}
-            variant="subtitle"
-          >
-            {notification.title}
-          </Text>
-
-          <Ionicons
-            color={colors.mutedForeground}
-            name={expanded ? "chevron-up" : "chevron-down"}
-            size={18}
-          />
-        </View>
-
-        <Text numberOfLines={expanded ? undefined : 2} variant="muted">
-          {notification.body}
-        </Text>
-
-        <View className="flex-row flex-wrap items-center gap-2">
-          {notification.needsAction ? <Badge label="Needs you" tone="warning" /> : null}
-          {notification.category ? (
-            <Badge label={humanizeEnum(notification.category)} />
-          ) : null}
-          <Text variant="caption">{dates.relativeDay(notification.createdAt)}</Text>
-        </View>
-
         {/*
-          Only once the row is open, and only as a sentence. The action itself is
-          a web endpoint this app deliberately does not fire — saying where it
-          can be done beats a button that posts blind.
+          Always drawn, transparent when there is nothing to say — so a read row
+          and an unread one align on the same left edge and the list does not
+          shift by four points as rows are opened.
         */}
-        {expanded && notification.needsAction ? (
-          <Text variant="caption">
-            This one is waiting on a decision. It can be actioned from the web portal.
-          </Text>
-        ) : null}
-      </Card>
+        <View style={{ backgroundColor: edge, width: 4 }} />
+
+        <View className="flex-1 flex-row gap-3 p-3">
+          <View
+            className={`h-10 w-10 items-center justify-center rounded-xl ${
+              unread ? "bg-card" : TILE_TONES[visual.tone]
+            }`}
+          >
+            <Ionicons
+              color={colors[TILE_GLYPH[visual.tone]]}
+              name={visual.icon}
+              size={19}
+            />
+          </View>
+
+          <View className="flex-1 gap-1">
+            <View className="flex-row items-start gap-2">
+              <Text
+                className={`flex-1 ${unread ? "font-semibold" : ""}`}
+                numberOfLines={2}
+                variant="subtitle"
+              >
+                {notification.title}
+              </Text>
+
+              {/*
+                The age, on the title's line and hard right — the reference's own
+                row anatomy. `dates.ago` falls back to a date past a week, which
+                is the point at which "23 days ago" stops being an answer.
+              */}
+              <Text variant="caption">{dates.ago(notification.createdAt)}</Text>
+            </View>
+
+            <Text numberOfLines={expanded ? undefined : 2} variant="muted">
+              {notification.body}
+            </Text>
+
+            <View className="flex-row flex-wrap items-center gap-2 pt-0.5">
+              {notification.needsAction ? <Badge label="Needs you" tone="warning" /> : null}
+              <Badge label={visual.label} />
+            </View>
+
+            {/*
+              Only once the row is open, and only as a sentence. The action itself
+              is a web endpoint this app deliberately does not fire — saying where
+              it can be done beats a button that posts blind.
+            */}
+            {expanded && notification.needsAction ? (
+              <Text variant="caption">
+                This one is waiting on a decision. It can be actioned from the web portal.
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </View>
     </Pressable>
   );
 }

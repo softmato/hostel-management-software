@@ -117,6 +117,15 @@ export type Complaint = {
   updatedAt?: string;
   /** Oldest first — the server sorts `createdAt: 1`. */
   updates: ComplaintUpdate[];
+  /**
+   * The resident's own recording of what is wrong, when they spoke instead of
+   * typing. Its own field rather than a sixth attachment, because attachments
+   * are drawn as photographs everywhere they appear.
+   *
+   * The id only — play it with `<VoiceNotePlayer>`, which resolves it through
+   * `files/{assetId}/url?format=json`.
+   */
+  voiceNoteAssetId?: string;
 };
 
 export type ComplaintList = {
@@ -143,13 +152,33 @@ export async function getResidentComplaints() {
  * `complaintCreateSchema`. An asset whose `complete` step never ran is a
  * reservation the hostel cannot open, so let the upload pipeline finish before
  * submitting.
+ *
+ * **`description` and `voiceNoteAssetId` are optional individually and required
+ * together**: the schema refuses a complaint carrying neither, because a
+ * category and a photograph do not tell an admin what they are looking at.
  */
 export async function createResidentComplaint(input: {
   attachmentAssetIds?: string[];
   category: ComplaintCategory;
-  description: string;
+  /**
+   * Optional, and omitted entirely when the resident only recorded a note —
+   * `complaintCreateSchema` refuses `""` (min 2) but accepts an absent field,
+   * so a blank box must not be sent as an empty string.
+   */
+  description?: string;
   isAnonymous?: boolean;
-  title: string;
+  /**
+   * Optional since the phone stopped asking. The server derives one from the
+   * first line of `description`, or from the category when there is no text at
+   * all — see `complaint-title.ts`. Nothing in this app sends it.
+   */
+  title?: string;
+  /**
+   * A completed `COMPLAINT_NOTE` audio asset. The server refuses one that never
+   * completed, belongs to another hostel, or is not audio — so let
+   * `uploadAsset` finish before calling this.
+   */
+  voiceNoteAssetId?: string;
 }) {
   const response = await api.post<
     ApiEnvelope<{ complaint: Complaint; resident: ResidentSummary }>

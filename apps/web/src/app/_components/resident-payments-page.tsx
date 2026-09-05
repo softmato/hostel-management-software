@@ -17,7 +17,15 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResidentClaimForm } from "@/app/_components/resident-claim-form";
 import { ResidentPayInvoicePanel } from "@/app/_components/resident-pay-invoice-panel";
-import { dayMonthYear, daysLeftLabel, monthLabel } from "@/lib/format-month";
+import {
+  dayMonthYear,
+  dayMonthYearBoth,
+  dayMonthYearBs,
+  daysLeftLabel,
+  monthLabel,
+} from "@/lib/format-month";
+import { formatBsDayMonth } from "@/lib/hostel-day";
+import { bsPeriodOf } from "@hostel/shared/calendar/bs";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { downloadFile } from "@/lib/downloads/downloader";
 import { residentEndpoints } from "@/lib/resident-endpoints";
@@ -60,6 +68,30 @@ import {
  *   two instant rejections (§11.3), none of which is about this list of months.
  * - **Months are written out.** "2026-07" was on every row of a rent statement.
  */
+
+/**
+ * What an open invoice sorts by, when the point is "which have I owed longest".
+ *
+ * Not `month`, because not every invoice has one. A one-off belongs to no
+ * period — the joining bill is the one every hostel raises, and it arrives
+ * before the resident's first month of rent exists — so its `month` is null,
+ * and calling `localeCompare` on it threw before the page rendered a row.
+ *
+ * A one-off is placed by its due date instead, converted to the same Bikram
+ * Sambat period key so the two kinds compare as one sequence rather than by
+ * two different rulers. An invoice with neither sorts first: nothing else is
+ * known about it, and an unplaceable open bill is better in front of the
+ * resident than buried under six months of rent.
+ */
+function openOrder(payment: Payment): string {
+  if (payment.month) {
+    return payment.month;
+  }
+
+  const due = payment.dueDate ? new Date(payment.dueDate) : null;
+
+  return due && !Number.isNaN(due.getTime()) ? bsPeriodOf(due) : "";
+}
 
 /**
  * The one invoice the resident is here about.
@@ -135,7 +167,7 @@ function FocusCard({
           <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <CalendarDays className="size-3.5" />
-              Due {dayMonthYear(payment.dueDate)}
+              Due {dayMonthYearBoth(payment.dueDate)}
             </span>
             <span
               className={cn(
@@ -298,7 +330,7 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
         (p) =>
           p.status === "UNPAID" || p.status === "OVERDUE" || p.status === "PARTIAL",
       )
-      .sort((left, right) => left.month.localeCompare(right.month));
+      .sort((left, right) => openOrder(left).localeCompare(openOrder(right)));
 
     return {
       lastPaid,
@@ -446,8 +478,20 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
           icon={CalendarDays}
           label="Next Due Date"
           tone="blue"
-          trend={stats.nextDue ? monthLabel(stats.nextDue.month) : "No open dues"}
-          value={stats.nextDue ? dayMonthYear(stats.nextDue.dueDate) : "—"}
+          /* The tile's value is one short line, so it takes the lead calendar
+             alone — `Bhadra 31`. The Gregorian date is not dropped, it moves to
+             the trend line beside the month the rent is for. */
+          trend={
+            stats.nextDue
+              ? `${monthLabel(stats.nextDue.month)} · ${dayMonthYear(stats.nextDue.dueDate)}`
+              : "No open dues"
+          }
+          value={
+            stats.nextDue
+              ? formatBsDayMonth(new Date(stats.nextDue.dueDate)) ||
+                dayMonthYear(stats.nextDue.dueDate)
+              : "—"
+          }
         />
         <MetricCard
           icon={ReceiptText}
@@ -578,8 +622,16 @@ export const ResidentPaymentsPageContent = memo(function ResidentPaymentsPageCon
                           : payment.status.replaceAll("_", " ")}
                       </SoftBadge>
                     </TableCell>
+                    {/* Stacked, not joined: a column of two-calendar dates on
+                         one line is a column nobody can scan. */}
                     <TableCell className="text-muted-foreground">
-                      {dayMonthYear(payment.dueDate)}
+                      <span className="block font-medium text-foreground">
+                        {dayMonthYearBs(payment.dueDate) ||
+                          dayMonthYear(payment.dueDate)}
+                      </span>
+                      <span className="block text-[11px]">
+                        {dayMonthYear(payment.dueDate)}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {/* One chip per receipt, each carrying its own amount.

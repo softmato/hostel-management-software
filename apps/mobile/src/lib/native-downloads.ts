@@ -2,9 +2,14 @@
  * The zero-prompt Downloads writer, if this binary has one.
  *
  * Wraps the local Expo module in `modules/hostelhub-downloads`, which inserts a
- * file into `MediaStore.Downloads` — the one route to a user-visible Downloads
- * folder on a modern Android that costs no permission and no dialogue. The
- * module's README has the table of what the other four routes cost.
+ * file into `MediaStore` — the one route to a user-visible folder on a modern
+ * Android that costs no permission and no dialogue. The module's README has the
+ * table of what the other four routes cost.
+ *
+ * Which folder is the module's decision, not this file's: documents land in
+ * `Download/HostelHub/` and images in `Pictures/HostelHub/`, so a saved card
+ * turns up in the gallery rather than in a download list. `path` comes back
+ * saying which, and every message the user reads is built from it.
  *
  * ## `requireOptionalNativeModule`, and why this file never imports the module
  *
@@ -54,13 +59,14 @@ export type SavedDownload = {
 const native = requireOptionalNativeModule<NativeDownloads>("HostelHubDownloads");
 
 /**
- * Saves an already-downloaded file into `Download/<subfolder>/`.
+ * Saves a file that is already on the device into `<subfolder>` of whichever
+ * public folder suits its type.
  *
- * Returns the public path on success and `null` when this build or device cannot
- * do it — never throws for that case, because "cannot" is a routine answer here
- * and the caller has two more rungs of ladder below it. A genuine failure *after*
- * the write started does throw, since that is a broken download rather than a
- * missing capability.
+ * Returns the public path on success and `null` for every way of not managing
+ * it — no module, no Downloads collection, or a MediaStore that refused the
+ * write. **This never throws.** "Cannot" is a routine answer here and the caller
+ * has two more rungs of ladder below it, so the one thing this function must not
+ * do is take the whole download down with it.
  */
 export async function saveSilently({
   fileName,
@@ -79,7 +85,30 @@ export async function saveSilently({
     return null;
   }
 
-  return native.saveToDownloads(sourceUri, fileName, mimeType, subfolder);
+  try {
+    return await native.saveToDownloads(sourceUri, fileName, mimeType, subfolder);
+  } catch (error) {
+    /*
+     * A rung that fails is a rung that cannot, and this one is the top of a
+     * ladder with two more below it.
+     *
+     * The bytes are already on the device by the time this is called, so a
+     * MediaStore refusal — a vendor-modified Downloads provider, a volume that
+     * is not mounted, a name the provider will not take — must hand the file
+     * down to the Storage Access Framework grant and then to the share sheet,
+     * not end the download. Rethrowing meant a `saveToDownloads` rejection
+     * escaped `downloadToDevice` past both remaining rungs and reached the user
+     * as the raw Expo message, on every download button in the app.
+     *
+     * The native side already deletes its own half-written row before throwing,
+     * so there is nothing to clean up here and nothing left in Downloads.
+     */
+    if (__DEV__) {
+      console.warn("[downloads] MediaStore refused the file; falling back.", error);
+    }
+
+    return null;
+  }
 }
 
 /**

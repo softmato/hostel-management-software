@@ -22,6 +22,7 @@
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
 import type { MealType, RoutineDay } from "@/lib/food-week";
+import type { SosAlert } from "@/lib/safety-api";
 
 /* -------------------------------------------------------------------------- */
 /* Shared                                                                     */
@@ -151,6 +152,17 @@ export type ResidentDashboard = {
     "category" | "content" | "id" | "isUrgent" | "publishedAt" | "title"
   >[];
   resident: ResidentSummary;
+  /**
+   * The resident's most recent SOS alert, or `null` if they have never raised
+   * one. `readLatestSOSFor` on the server.
+   *
+   * **Not the same fact as `nightStatus.status === "SOS_TRIGGERED"`**, which is
+   * what every screen used to read. The night status is one upserted row per
+   * resident with no expiry, so that value sticks until the resident sets a new
+   * status; the alert row is what says whether staff have settled it and when it
+   * was raised. `lib/sos.ts` owns both rules.
+   */
+  sos: SosAlert | null;
 };
 
 /** `GET /resident/profile` — the dashboard's resident block plus their people. */
@@ -215,12 +227,26 @@ export type NightStatus = {
   status: NightStatusValue | string;
 };
 
-export async function getResidentNightStatus() {
-  const response = await api.get<ApiEnvelope<{ status: NightStatus }>>(
+/**
+ * What `GET /resident/night-status` returns: the row, and the alert that has to
+ * be read beside it.
+ *
+ * The endpoint used to return the status alone, so the screen decided whether an
+ * SOS was live from `status === "SOS_TRIGGERED"` — a value nothing ever clears.
+ */
+export type NightStatusView = {
+  sos: SosAlert | null;
+  status: NightStatus;
+};
+
+export async function getResidentNightStatus(): Promise<NightStatusView> {
+  const response = await api.get<ApiEnvelope<NightStatusView>>(
     "/resident/night-status",
   );
 
-  return unwrap(response).status;
+  const payload = unwrap(response);
+
+  return { sos: payload.sos ?? null, status: payload.status };
 }
 
 export async function setResidentNightStatus(input: {

@@ -4,6 +4,7 @@ import { Linking, Pressable, Switch, View } from "react-native";
 
 import { SosOverlay } from "@/components/sos-overlay";
 import { AppBar } from "@/components/ui/app-bar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,10 +14,17 @@ import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { useSos } from "@/hooks/use-sos";
-import { type EmergencyContact, getEmergencyContacts } from "@/lib/safety-api";
 import {
+  type EmergencyContact,
+  getEmergencyContacts,
+  getResidentSosAlerts,
+  type SosAlert,
+} from "@/lib/safety-api";
+import {
+  describeSosStatus,
   SOS_COUNTDOWN_SECONDS,
   SOS_MESSAGE_MAX,
   sosMessagePayload,
@@ -25,7 +33,8 @@ import {
 
 /**
  * The considered half of SOS: a note, who hears about it, and the numbers to
- * ring. The floating button's long press is the other half and skips all of it.
+ * ring. The long press on Home's `<SosHeaderButton>` is the other half and skips
+ * all of it.
  *
  * ## The phone numbers are the point of this screen
  *
@@ -33,6 +42,14 @@ import {
  * alert depends on someone else's phone being charged, unlocked and in a
  * signal; a phone call does not. If this screen only ever gets someone to a
  * number faster, it has done its job.
+ *
+ * ## The history is the record, and it is why the home card can let go
+ *
+ * Home flags an SOS for a day, and drops the flag the moment staff settle it —
+ * see `sosIsFlagged`. That is only defensible because nothing is lost when it
+ * goes: `GET /resident/sos` lists every alert this resident has ever raised and
+ * what the hostel did with each one, and `updateSOSAlertStatus` moves a row's
+ * status without deleting anything.
  *
  * ## Contacts are read-only, and that is the server's shape
  *
@@ -81,6 +98,38 @@ function ContactRow({ contact }: { contact: EmergencyContact }) {
   );
 }
 
+/**
+ * One past alert: when it was raised, what was said, and where it got to.
+ *
+ * No chevron and nothing to tap. There is no resident-facing action on a past
+ * alert — they cannot reopen one and they cannot close one — so a row that
+ * looked pressable would be a promise the server does not keep.
+ */
+function AlertRow({ alert }: { alert: SosAlert }) {
+  const dates = useDates();
+  const state = describeSosStatus(alert.status);
+
+  return (
+    <View className="gap-1.5 py-3">
+      <View className="flex-row items-center justify-between gap-3">
+        <Text className="flex-1" numberOfLines={1} variant="label">
+          {alert.createdAt ? dates.dateTime(alert.createdAt) : "Alert raised"}
+        </Text>
+
+        <Badge label={state.label} tone={state.tone} />
+      </View>
+
+      {alert.message ? <Text variant="muted">{alert.message}</Text> : null}
+
+      <Text variant="caption">
+        {alert.guardianAlertEnabled
+          ? "Hostel staff and your guardians were alerted."
+          : "Hostel staff were alerted."}
+      </Text>
+    </View>
+  );
+}
+
 export default function SosScreen() {
   const { colors } = useAppTheme();
   const sos = useSos();
@@ -89,18 +138,31 @@ export default function SosScreen() {
   const contacts = useResource(useCallback(() => getEmergencyContacts(), []), {
     topics: [REALTIME_TOPIC.SAFETY],
   });
+  /*
+    Same topic, which is what keeps this list honest without an effect watching
+    the countdown: `triggerSOS` and `updateSOSAlertStatus` both publish a
+    `safety` change on the hostel channel, so an alert this resident just raised
+    — and a settlement a warden just made — arrive here on their own.
+  */
+  const alerts = useResource(useCallback(() => getResidentSosAlerts(), []), {
+    topics: [REALTIME_TOPIC.SAFETY],
+  });
 
   const [message, setMessage] = useState("");
   const [alertGuardians, setAlertGuardians] = useState(true);
 
   const messageError = validateSosMessage(message);
   const rows = contacts.data?.contacts ?? [];
+  const history = alerts.data ?? [];
 
   return (
     <Screen
       header={<AppBar showBack title="Emergency" />}
-      onRefresh={contacts.refresh}
-      refreshing={contacts.refreshing}
+      onRefresh={() => {
+        contacts.refresh();
+        alerts.refresh();
+      }}
+      refreshing={contacts.refreshing || alerts.refreshing}
       scroll
     >
       <View className="gap-5 pt-1">
@@ -196,6 +258,33 @@ export default function SosScreen() {
             </Text>
           </Card>
         </View>
+
+        {/*
+          Last, because it is the one part of this screen nobody opens it for.
+          It is drawn only when there is something to draw — a resident who has
+          never raised an alert does not need a heading telling them so.
+        */}
+        {alerts.loading || history.length > 0 ? (
+          <View>
+            <SectionHeader
+              subtitle="Every alert you have raised, and what your hostel did with it."
+              title="Your past alerts"
+            />
+
+            <Card>
+              {alerts.loading ? (
+                <LoadingState />
+              ) : (
+                history.map((alert, index) => (
+                  <View key={alert.id}>
+                    {index > 0 ? <RowDivider /> : null}
+                    <AlertRow alert={alert} />
+                  </View>
+                ))
+              )}
+            </Card>
+          </View>
+        ) : null}
       </View>
 
       <SosOverlay sos={sos} />

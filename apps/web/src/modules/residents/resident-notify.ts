@@ -75,6 +75,70 @@ export async function resolveResidentContact(resident: {
   };
 }
 
+/**
+ * Every member of staff who should be *told* something, as user ids.
+ *
+ * ## Why this is not `resolveHostelAdminContacts`
+ *
+ * That function answers a different question — "who do we **email**" — and its
+ * two rules follow from that: it takes owners and `HOSTEL_ADMIN` members only,
+ * and it drops anybody whose user record carries no address. Both are wrong for
+ * a bell row and a push, which need a user id and nothing else.
+ *
+ * The wardens are the ones that matter here. A warden is the person actually at
+ * the desk registering residents, raising complaints and handling the food log,
+ * and they were absent from every in-app notification this hostel sends because
+ * the audience was resolved by an email helper. So the warden who performed an
+ * intake got no record of it, and neither did the warden on the next shift.
+ *
+ * The second rule is quieter and just as wrong: an owner who signed up with a
+ * phone number and no email was silently excluded from their own hostel's
+ * notifications, on a phone that was holding a live device token.
+ *
+ * ## Not narrowed to "everyone except the actor"
+ *
+ * Deliberately, and `notifyTheHostel` has the argument: a toast is gone in four
+ * seconds and the bell row is the durable record. On a shared front desk the
+ * other people's copy is the only way an intake somebody else did is ever seen.
+ */
+export async function resolveHostelStaffUserIds(
+  hostelId: Types.ObjectId | string,
+): Promise<string[]> {
+  const hostel = await HostelModel.findOne({ _id: hostelId })
+    .select("ownerId")
+    .lean<{ ownerId?: Types.ObjectId } | null>();
+
+  const members = await HostelMemberModel.find({
+    hostelId,
+    isDeleted: { $ne: true },
+    role: { $in: [Role.HOSTEL_ADMIN, Role.WARDEN] },
+    status: "ACTIVE",
+  }).lean<{ userId: Types.ObjectId }[]>();
+
+  const userIds = [
+    ...(hostel?.ownerId ? [hostel.ownerId] : []),
+    ...members.map((member) => member.userId),
+  ];
+
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  /*
+   * Checked against `User` rather than trusted from the membership rows: a
+   * deleted account keeps its `HostelMember` row, and writing notifications to
+   * it is writing rows nobody will ever read.
+   */
+  const users = await UserModel.find({
+    _id: { $in: userIds },
+    isDeleted: { $ne: true },
+  })
+    .select({ _id: 1 })
+    .lean<{ _id: Types.ObjectId }[]>();
+
+  return [...new Set(users.map((user) => user._id.toString()))];
+}
+
 /** Owner + active hostel-admin members, de-duplicated by user id. */
 export async function resolveHostelAdminContacts(
   hostelId: Types.ObjectId | string,

@@ -212,8 +212,11 @@ export default function PayInvoiceScreen() {
   // Scoped to the whole list, not to the primary: a resident who opened a
   // sheet and paid by bank transfer is exactly the case where a missing
   // reference costs the owner a manual match.
-  const needsReference = data.methods.some((method) => method.kind !== "GATEWAY");
-  const sheetMethod = others.find((method) => methodKey(method) === openMethod) ?? null;
+  const needsReference = data.methods.some(
+    (method) => method.kind !== "GATEWAY",
+  );
+  const sheetMethod =
+    others.find((method) => methodKey(method) === openMethod) ?? null;
 
   return (
     <Screen
@@ -223,11 +226,7 @@ export default function PayInvoiceScreen() {
       scroll
     >
       <View className="gap-4 pt-1">
-        <AmountCard instructions={data} />
-
-        {data.referenceCode ? (
-          <ReferenceCard code={data.referenceCode} needsReference={needsReference} />
-        ) : null}
+        <AmountCard instructions={data} needsReference={needsReference} />
 
         {data.usable && primary ? (
           <>
@@ -263,7 +262,9 @@ export default function PayInvoiceScreen() {
                     <View key={methodKey(method)}>
                       {index > 0 ? <RowDivider /> : null}
                       <ListRow
-                        left={<WalletMark name={methodProvider(method)} size={36} />}
+                        left={
+                          <WalletMark name={methodProvider(method)} size={36} />
+                        }
                         onPress={() => setOpenMethod(methodKey(method))}
                         subtitle={methodCaption(method)}
                         title={methodLabel(method)}
@@ -313,7 +314,11 @@ export default function PayInvoiceScreen() {
         */}
         {needsReference ? (
           <Card className="flex-row items-start gap-2.5">
-            <Ionicons color={colors.mutedForeground} name="information-circle-outline" size={16} />
+            <Ionicons
+              color={colors.mutedForeground}
+              name="information-circle-outline"
+              size={16}
+            />
             <Text className="flex-1" variant="caption">
               After payment, submit proof only for manual methods.
             </Text>
@@ -342,102 +347,244 @@ export default function PayInvoiceScreen() {
 /**
  * What is being paid.
  *
- * The screen's whole first question — *how much, for what, and by when* — in the
- * object the eye lands on. A plain card on the page rather than a straddling one
- * on paint: this screen's bar is not accented any more (see `index.tsx` for why
- * a pushed screen's bar says what the screen is rather than what the record is),
- * and a card pulled up onto nothing is a card with a negative margin bug.
+ * The screen's whole first question — *how much, for what, by when, and what to
+ * type in the remarks* — in the object the eye lands on. A plain card on the page
+ * rather than a straddling one on paint: this screen's bar is not accented any
+ * more (see `index.tsx` for why a pushed screen's bar says what the screen is
+ * rather than what the record is), and a card pulled up onto nothing is a card
+ * with a negative margin bug.
+ *
+ * ## The reference code lives in this card, not the one below it
+ *
+ * It shipped as a second `<Card>` stacked under this one, which put a border and
+ * a gap between two halves of a single instruction: the resident opens their
+ * banking app, types the amount, then types the code. Splitting those across two
+ * objects made the code look like a separate topic the screen had moved on to.
+ * One card, one hairline, both halves — the mockup's Pay-now screen has it this
+ * way for the same reason.
  */
-function AmountCard({ instructions }: { instructions: PayInstructions }) {
+function AmountCard({
+  instructions,
+  needsReference,
+}: {
+  instructions: PayInstructions;
+  needsReference: boolean;
+}) {
   const dates = useDates();
-  const { colors } = useAppTheme();
 
   const dueLabel = formatDueLabel(instructions.dueDate);
   const late = Boolean(dueLabel?.includes("overdue"));
+  const dueToday = dueLabel === "Due today";
 
   return (
-    <Card className="gap-1">
-      {/*
-        Above the amount, never below it. A credit that surfaces after the
-        resident has read the number is a credit they have already ignored.
-      */}
-      {instructions.credit > 0 ? (
-        <Badge label={`${formatMoney(instructions.credit)} credit applied`} tone="success" />
-      ) : null}
+    <Card className="gap-4">
+      <View className="gap-1">
+        <View className="flex-row items-start justify-between gap-3">
+          <Text className="flex-1" variant="caption">
+            Amount due
+          </Text>
 
-      <Text variant="caption">Amount due</Text>
-      <Money size="display" value={instructions.amountDue} />
+          {/*
+            The lateness is a pill, and the only thing on the card wearing the
+            destructive tone.
 
-      {/* So they can sanity-check their own bill: "is this the right rent" is
+            It used to be a `·`-joined tail on the due-date line, which put the
+            whole line — the date included — in red, so the card's loudest
+            colour was spent on a fact that is not itself alarming. Worse, the
+            red was applied as a resolved `style` colour because
+            `variant="caption"`'s `text-muted-foreground` beat `text-destructive`
+            in the compiled sheet: order decided it, not the call site. A
+            `<Badge>` sidesteps both. The date goes back to grey, the status
+            lands where the eye already goes for status on this screen, and it
+            is the same "Overdue" chip the mockup's summary cards wear.
+          */}
+          {dueLabel ? (
+            <Badge
+              label={dueLabel}
+              tone={late ? "danger" : dueToday ? "warning" : "neutral"}
+            />
+          ) : null}
+        </View>
+
+        <Money size="display" value={instructions.amountDue} />
+
+        {/* So they can sanity-check their own bill: "is this the right rent" is
           only answerable if the screen says what it is rent for. */}
-      {instructions.bedLabel ? (
-        <Text variant="muted">{instructions.bedLabel}</Text>
-      ) : null}
+        {instructions.bedLabel ? (
+          <Text variant="muted">{instructions.bedLabel}</Text>
+        ) : null}
 
-      {/*
-        The overdue tone is a resolved colour, not `text-destructive` through
-        `className`.
+        {instructions.dueDate ? (
+          <Text variant="caption">
+            {`Due date: ${dates.dateBoth(instructions.dueDate)}`}
+          </Text>
+        ) : null}
 
-        `variant="caption"` already carries `text-muted-foreground`; both rules
-        reach the compiled stylesheet and which one wins is decided by
-        generation order, not by where it sat in the string. The caption won, so
-        "1 day overdue" shipped in the same grey as the date beside it — the
-        same trap `<AppBar>`'s `ink` and `<Card>`'s `padding` document, and the
-        reason this file's own glyphs read `colors.*`.
-      */}
-      {instructions.dueDate ? (
-        <Text
-          style={late ? { color: colors.destructive } : undefined}
-          variant="caption"
-        >
-          {`Due date: ${dates.dateBoth(instructions.dueDate)}${dueLabel ? ` · ${dueLabel}` : ""}`}
-        </Text>
+        {/*
+          Below the amount now, not above it.
+
+          The old note here said the opposite — a credit read after the number
+          is a credit already ignored — and it was written when this badge was
+          the card's only pill. It is not any more: sitting first it pushed
+          "Amount due" and the lateness chip down a row and opened the card with
+          a green pill about money the resident does *not* have to send, which is
+          not the screen's question. It is a footnote to the amount, and reads as
+          one from directly under it.
+        */}
+        {instructions.credit > 0 ? (
+          <Badge
+            className="mt-1"
+            label={`${formatMoney(instructions.credit)} credit applied`}
+            tone="success"
+          />
+        ) : null}
+      </View>
+
+      {instructions.referenceCode ? (
+        <>
+          <View className="h-px bg-border" />
+          <ReferenceSection
+            code={instructions.referenceCode}
+            needsReference={needsReference}
+          />
+        </>
       ) : null}
     </Card>
   );
 }
 
-function ReferenceCard({
+/**
+ * The reference code, given the loudest treatment on the screen.
+ *
+ * A *section* of `<AmountCard>` rather than a card of its own — see that
+ * component's note — so it renders no border and no background beyond the
+ * painted block the code itself sits in.
+ *
+ * It carried a painted `bg-brand-soft` block for one revision and that was one
+ * treatment too many: the code already sits alone under its own label, below a
+ * hairline, in the heaviest weight on the card. A green box around it added a
+ * second filled surface to a screen whose only filled surface should be the
+ * accented pay button further down. The mockup's Pay-now card is a label, the
+ * code, and a bare copy glyph on white — nothing else — and that is what this is.
+ *
+ * The copy affordance is the glyph on its own, in the brand green, no border and
+ * no "Copy" label. `<DetailLine>` below still uses the bordered chip, and should:
+ * a bank account number sits in a list of three near-identical rows where the
+ * chip is what says which one you are about to take. Here there is exactly one
+ * thing to copy on the whole card.
+ *
+ * The paragraph underneath used to argue the case for typing it — faster
+ * confirmation, hand-matching, sometimes wrong. Three sentences of reasoning on
+ * a screen whose reader is mid-payment and holding a second phone. It says what
+ * the code buys them and stops; the argument, and the eligibility rules, live on
+ * the offer-program screen the `i` opens.
+ *
+ * ## The `i` sits in the sentence, not in the header
+ *
+ * It began as a tile at the top-right of the section, which is the position a
+ * screen uses for an action on the *section* — and this is not that. It explains
+ * one noun in one sentence, so it belongs at the end of that sentence, small, the
+ * way a footnote marker does. The whole line is the tap target; the glyph is only
+ * the marker.
+ *
+ * `--info` exists for exactly this: "explain this", never "do this". Nothing blue
+ * on this screen performs an action.
+ */
+function ReferenceSection({
   code,
   needsReference,
 }: {
   code: string;
   needsReference: boolean;
 }) {
+  const { colors } = useAppTheme();
+
   return (
-    <Card className="gap-2">
-      <Text variant="caption">
-        {needsReference ? "PUT THIS IN THE REMARKS" : "YOUR REFERENCE"}
-      </Text>
+    <View className="gap-2">
+      <Text variant="caption">Reference code</Text>
 
       <View className="flex-row items-center justify-between gap-3">
-        <Text className="flex-1 text-2xl font-semibold tracking-widest text-foreground">
+        <Text className="flex-1 text-2xl font-bold tracking-wider text-foreground">
           {code}
         </Text>
-        <CopyButton label="reference code" value={code} />
+        <CopyButton label="reference code" tone="glyph" value={code} />
       </View>
 
-      <Text variant="caption">
-        {needsReference
-          ? "Payments carrying it are confirmed faster. Without it your hostel has to match the payment by hand, which is slower and sometimes wrong."
-          : "Added automatically when you pay through the app."}
-      </Text>
-    </Card>
+      {needsReference ? (
+        <Pressable
+          accessibilityHint="Opens the Resident Offer Program"
+          accessibilityLabel="Fill this code as remark in your payment to get resident offer program. About the Resident Offer Program"
+          accessibilityRole="button"
+          className="active:opacity-70"
+          hitSlop={6}
+          onPress={() => router.push("/offer-program")}
+        >
+          {/*
+            The glyph is nested *inside* the sentence, not laid beside it in a
+            row. As a row sibling it was pushed to the card's right edge by the
+            text's `flex-1` and ended up hanging in the white space after
+            "program" — an icon floating at the margin, which reads as a control
+            for the whole block rather than a marker on one phrase. Inline, it
+            wraps with the last word the way a footnote marker does. `<Ionicons>`
+            renders a glyph font inside a `<Text>`, so it nests.
+          */}
+          <Text variant="caption">
+            Fill this code as remark in your payment to get resident offer
+            program{" "}
+            <Ionicons color={colors.info} name="information-circle" size={13} />
+          </Text>
+        </Pressable>
+      ) : (
+        <Text variant="caption">
+          Added automatically when you pay through the app.
+        </Text>
+      )}
+    </View>
   );
 }
 
-function CopyButton({ label, value }: { label: string; value: string }) {
+function CopyButton({
+  label,
+  tone = "default",
+  value,
+}: {
+  label: string;
+  /**
+   * `"glyph"` is the bare green icon the reference code uses — no border, no
+   * "Copy" label. It is for the one place on a card where there is nothing else
+   * to copy, so the chip's job of saying *which* value it takes is not needed.
+   */
+  tone?: "default" | "glyph";
+  value: string;
+}) {
   const { colors } = useAppTheme();
+  const glyph = tone === "glyph";
+
+  const copy = () => {
+    void Clipboard.setStringAsync(value);
+    toastSuccess("Copied");
+  };
+
+  if (glyph) {
+    return (
+      <Pressable
+        accessibilityLabel={`Copy ${label}`}
+        accessibilityRole="button"
+        className="p-1 active:opacity-70"
+        hitSlop={12}
+        onPress={copy}
+      >
+        <Ionicons color={colors.brand} name="copy-outline" size={22} />
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable
       accessibilityLabel={`Copy ${label}`}
       accessibilityRole="button"
       className="flex-row items-center gap-1.5 rounded-lg border border-border px-3 py-2 active:opacity-70"
-      onPress={() => {
-        void Clipboard.setStringAsync(value);
-        toastSuccess("Copied");
-      }}
+      onPress={copy}
     >
       <Ionicons color={colors.mutedForeground} name="copy-outline" size={14} />
       <Text variant="caption">Copy</Text>
@@ -460,7 +607,13 @@ function DetailLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MethodPanel({ invoiceId, method }: { invoiceId: string; method: PayMethod }) {
+function MethodPanel({
+  invoiceId,
+  method,
+}: {
+  invoiceId: string;
+  method: PayMethod;
+}) {
   if (method.kind === "GATEWAY") {
     return <GatewayPanel invoiceId={invoiceId} method={method} />;
   }
@@ -472,7 +625,9 @@ function MethodPanel({ invoiceId, method }: { invoiceId: string; method: PayMeth
   if (method.kind === "BANK") {
     return (
       <View className="gap-2">
-        {method.bankName ? <Text variant="label">{method.bankName}</Text> : null}
+        {method.bankName ? (
+          <Text variant="label">{method.bankName}</Text>
+        ) : null}
         {method.accountName ? (
           <DetailLine label="Account name" value={method.accountName} />
         ) : null}
@@ -620,8 +775,8 @@ function GatewayPanel({
       />
 
       <Text className="text-center" variant="caption">
-        Opens the {label} app if you have it. Confirms automatically — no screenshot
-        needed.
+        Opens the {label} app if you have it. Confirms automatically — no
+        screenshot needed.
       </Text>
 
       {method.sandbox ? (

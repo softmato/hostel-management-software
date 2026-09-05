@@ -15,7 +15,7 @@
  * owner and the resident looking at it together.
  */
 
-import { bsPeriodOf, formatBsPeriod } from "@hostel/shared/calendar/bs";
+import { bsPeriodOf, formatBsDate, formatBsPeriod } from "@hostel/shared/calendar/bs";
 
 const MONTH_NAMES = [
   "January",
@@ -125,6 +125,67 @@ export function dayMonthYearTime(value: Date | string | null | undefined): strin
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+/**
+ * A date in Bikram Sambat — `"Bhadra 31, 2083 BS"`.
+ *
+ * Month first, year last, era spelled out, because that is how a Nepali date is
+ * written on a receipt book and a government form. Empty string — never a guess
+ * — for a date the conversion table cannot reach, which is every caller's cue to
+ * show the Gregorian date alone.
+ */
+export function dayMonthYearBs(value: Date | string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+
+  return Number.isNaN(date.getTime()) ? "" : formatBsDate(date);
+}
+
+/**
+ * Both calendars, BS first — `"Bhadra 31, 2083 BS · 16 Sep 2026"`.
+ *
+ * ## The rule, written down because the two apps must not diverge
+ *
+ * **Bikram Sambat leads wherever a date is money; Gregorian is the translation
+ * beside it.** The hostel's books, its notice board and its receipt pad all run
+ * on BS — it is the calendar the amount was decided in — while the bank
+ * statement, the gateway and the phone all run on AD. Showing one calendar makes
+ * somebody convert in their head at exactly the moment a mistake costs money.
+ *
+ * The mobile app settled this first (`formatDateBoth`) and the web follows it
+ * rather than inventing a second convention: a resident and an owner discuss the
+ * same invoice across the two clients, and a due date that leads with a different
+ * calendar in each is a disagreement they have to resolve themselves.
+ *
+ * Where a surface genuinely cannot carry both — a chart axis, a dense column —
+ * it takes the *lead* calendar and drops the translation, not the other way
+ * round. It never silently keeps the Gregorian one because that is what the old
+ * code did.
+ *
+ * ## Which dates this is for
+ *
+ * **Deadlines and billing months** — a due date, the month an invoice covers,
+ * the month a rate card starts in. These are dates the reader has to *act* on,
+ * in the calendar the amount was decided in.
+ *
+ * **Not event timestamps** — when a claim was submitted, when a proof was
+ * approved, when a payment landed. Those are reconciled line by line against a
+ * gateway export or a bank statement, both of which are Gregorian, and doubling
+ * them adds a second calendar to a column whose only job is to match a row in
+ * another document. They stay `dayMonthYear`.
+ *
+ * Falls back to the Gregorian date alone when the conversion is unavailable,
+ * never to a doubled or a wrong one.
+ */
+export function dayMonthYearBoth(value: Date | string | null | undefined): string {
+  const ad = dayMonthYear(value);
+  const bs = dayMonthYearBs(value);
+
+  return bs && ad !== "—" ? `${bs} · ${ad}` : ad;
 }
 
 /**

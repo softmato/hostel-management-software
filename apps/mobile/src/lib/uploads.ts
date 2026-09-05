@@ -32,6 +32,16 @@ import { resolveFileName, resolveMimeType } from "@/lib/mime";
 import { finishUpload, startUpload, updateUpload } from "@/lib/upload-queue";
 
 export type FileAssetKind =
+  /**
+   * A resident describing a complaint out loud, attached to one complaint.
+   *
+   * Deliberately **not** `MAINTENANCE_NOTE`, even though the recorder and the
+   * player are the same components: that kind is the one `files/{assetId}/url`
+   * widens to an assigned service provider, and a complaint about the kitchen
+   * staff — possibly raised anonymously — must never sit in a kind whose read
+   * rule reaches outside the hostel at all.
+   */
+  | "COMPLAINT_NOTE"
   | "GENERIC"
   /**
    * A spoken description of a maintenance problem. Its own kind because it is

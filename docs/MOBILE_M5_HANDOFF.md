@@ -41,12 +41,12 @@ src/lib/sos.ts               pure: describeFanout, message validation  ← 10 te
 src/lib/sos.test.ts
 src/hooks/use-sos.ts         the one arm → countdown → send → report pipeline
 src/components/sos-overlay.tsx   presentational: countdown, spinner, outcome
-src/components/sos-fab.tsx   the floating button; tap vs long press
+src/components/sos-header-button.tsx  the red pill on Home's bar; tap vs long press
 src/app/sos.tsx              contacts (tap to call), note, guardian toggle
 ```
 
-Modified: `src/app/(resident)/_layout.tsx` (renders `<SosFab/>` outside the
-navigator), `src/app/_layout.tsx` (registers the `sos` root route),
+Modified: `src/components/resident-home.tsx` (the bar renders
+`<SosHeaderButton/>`), `src/app/_layout.tsx` (registers the `sos` root route),
 `docs/MOBILE_APP_PHASES.md` (§1 gaps table + the M5 section).
 
 ---

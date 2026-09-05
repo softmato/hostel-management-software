@@ -7,6 +7,7 @@ import {
   bsMonthStart,
   bsPeriodBounds,
   bsPeriodOf,
+  bsPeriodsBetween,
   formatBsDate,
   formatBsDayRange,
   formatBsPeriod,
@@ -184,5 +185,50 @@ describe("display", () => {
 
     expect(day.toISOString()).toBe("2026-09-04T00:00:00.000Z");
     expect(toBs(day)).toEqual({ day: 19, month: 5, year: 2083 });
+  });
+});
+
+/**
+ * The month sequence two services join against invoices.
+ *
+ * Every expectation is a boundary the Gregorian walker got wrong: a year that
+ * carries at Chaitra rather than at December, and a range whose two ends are in
+ * different BS years.
+ */
+describe("a run of BS months", () => {
+  it("steps a Bikram Sambat month, not a Gregorian one", () => {
+    expect(bsPeriodsBetween("2083-04", "2083-07")).toEqual([
+      "2083-04",
+      "2083-05",
+      "2083-06",
+      "2083-07",
+    ]);
+  });
+
+  it("carries the year at Chaitra, which is where a BS year ends", () => {
+    expect(bsPeriodsBetween("2083-11", "2084-02")).toEqual([
+      "2083-11",
+      "2083-12",
+      "2084-01",
+      "2084-02",
+    ]);
+  });
+
+  it("gives one month when both ends are the same month", () => {
+    expect(bsPeriodsBetween("2083-05", "2083-05")).toEqual(["2083-05"]);
+  });
+
+  it("gives nothing when the range runs backwards", () => {
+    expect(bsPeriodsBetween("2083-06", "2083-05")).toEqual([]);
+  });
+
+  it("drops the oldest months at the cap, never the newest", () => {
+    const months = bsPeriodsBetween("2070-01", "2083-05", 3);
+
+    expect(months).toEqual(["2083-03", "2083-04", "2083-05"]);
+  });
+
+  it("refuses a range it cannot read as two periods", () => {
+    expect(() => bsPeriodsBetween("2083-5", "2083-06")).toThrow(RangeError);
   });
 });

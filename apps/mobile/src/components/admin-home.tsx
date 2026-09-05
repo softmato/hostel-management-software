@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Image } from "expo-image";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
@@ -9,21 +8,18 @@ import {
   HERO_AMOUNT_LEAD_TRIM,
   HERO_LINE_GAP,
   PaintedAmount,
+  PortalBrandHeader,
   PortalHeroCard,
 } from "@/components/portal-shared";
-import { NotificationBell } from "@/components/notification-bell";
 import {
   ActionCard,
   ActionCell,
   type ActionTile,
   ActionTiles,
 } from "@/components/ui/action-grid";
-import { IconButton } from "@/components/ui/icon-button";
 import { Text } from "@/components/ui/text";
-import { APP_NAME, APP_NAME_PARTS, logo } from "@/constants/branding";
 import { roleAccent } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useSystemInsets } from "@/hooks/use-system-insets";
 import type { AdminHostel } from "@/lib/admin-api";
 import {
   type EarningsSummary,
@@ -87,101 +83,33 @@ import { absoluteMediaUrl } from "@/lib/media";
 /* Header                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** The platform wordmark, in points. */
-const WORDMARK = 22;
-
-/** The logo mark beside it, sized to the wordmark's cap height. */
-const MARK = 24;
-
 /**
- * The fixed bar: whose product this is, and the bell.
+ * The fixed bar: whose product this is, the listing, and the bell.
  *
- * ## Why the platform sits above the hostel, and does not move
+ * `<PortalBrandHeader>` with this role's screen-reader sentence on the eye —
+ * see that component for why the platform name sits above the hostel, why the
+ * bar is never painted, and why the eye is withheld rather than drawn onto a
+ * 404. This wrapper exists so the Home screen keeps naming its own header, and
+ * so `onPreview` keeps the name the admin screen has always called it.
  *
- * Two identities are in play on this screen and they answer different
- * questions. *HostelHub* is the app you opened — it belongs to the chrome, it is
- * the same on every screen in every role, and the public side of the app has
- * always drawn it in exactly this spot. *Shanti Bhawan Residency* is the subject
- * of the page, one of possibly several a warden can see, and it belongs to the
- * content. Stacking them the other way round, or letting the platform name
- * scroll away, makes the app feel like it belongs to whichever hostel loaded.
+ * ## Why an owner needs this most
  *
- * ## It stopped being painted, and that is what let the card become a card
- *
- * This bar was a flat fill of the gradient's first stop, joining seamlessly into
- * a full-bleed hero below it. The two together were one green mass from the
- * status bar to the quick actions — and a green card on a green ground is not a
- * card, it is a region. `ebl-01` is unambiguous about this: the bar is the page
- * background, the card is the only coloured object on the screen, and the
- * distance between those two facts is what makes the card read as something you
- * could pick up.
- *
- * So the bar takes `bg-background` and the wordmark takes the public header's
- * own foreground/brand pair, which is the lockup as designed rather than the
- * two-tones-of-white substitute the paint forced.
- *
- * ## The eye, and why it is sometimes not there
- *
- * Left of the bell is the one thing an owner cannot get to any other way: their
- * own listing, drawn by the same `hostel/[slug]` screen a stranger browsing the
- * app sees. Every other role already had this — a resident's dashboard has an
- * `open-outline` row to their hostel's page, and every card in Search opens it
- * — while the person who *writes* the listing had no way to look at it.
- *
- * It renders only when the caller hands over an `onPreview`, and the Home screen
- * only builds one when the listing is genuinely live. That is not caution:
- * `getPublicHostelBySlug` filters on `status: "PUBLISHED"` **and**
- * `verificationStatus: "VERIFIED"`, so an owner mid-application who taps this
- * gets a 404 screen reading "Hostel was not found" — which, to somebody waiting
- * on approval, reads as their hostel having been deleted. The hero's
- * `ListingPill` is already carrying the real answer in that state ("Awaiting
- * verification", "Not published yet"), so the honest move is to withhold a door
- * that does not open rather than to draw one that lies.
+ * Every other role already had a way to their hostel's public page — a resident
+ * has it on Home, every card in Search opens one — while the person who
+ * *writes* the listing had no way to look at it.
  */
 export function AdminHomeHeader({
   /**
    * Opens the hostel's public page. Omitted — and the control hidden — when
-   * there is no single hostel, or when its listing is not live. See above.
+   * there is no single hostel, or when its listing is not live.
    */
   onPreview,
 }: { onPreview?: () => void } = {}) {
-  const { colors } = useAppTheme();
-  const insets = useSystemInsets();
-
   return (
-    <View className="bg-background" style={{ paddingTop: insets.top }}>
-      <View className="min-h-14 flex-row items-center gap-2.5 px-5 pb-2 pt-1">
-        <Image
-          contentFit="contain"
-          source={logo.mark}
-          style={{ height: MARK, width: MARK }}
-        />
-
-        <View accessibilityLabel={APP_NAME} accessibilityRole="header" className="flex-1">
-          <Text style={{ fontSize: WORDMARK, fontWeight: "800", letterSpacing: -0.4 }}>
-            <Text style={{ color: colors.foreground }}>{APP_NAME_PARTS.head}</Text>
-            <Text style={{ color: colors.primary }}>{APP_NAME_PARTS.tail}</Text>
-          </Text>
-        </View>
-
-        {onPreview ? (
-          /*
-            An eye rather than a globe or a share arrow. Both of those promise
-            to leave the app — `hostel-share.ts` builds a real `https://` URL
-            for exactly that, and it is a different action — whereas this pushes
-            a screen inside the app. The label says whose page it is, because
-            "Preview" alone in a screen reader is a verb with no object.
-          */
-          <IconButton
-            label="See your listing as visitors do"
-            name="eye-outline"
-            onPress={onPreview}
-          />
-        ) : null}
-
-        <NotificationBell />
-      </View>
-    </View>
+    <PortalBrandHeader
+      hostelPageLabel="See your listing as visitors do"
+      onHostelPage={onPreview}
+    />
   );
 }
 

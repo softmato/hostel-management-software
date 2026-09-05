@@ -119,6 +119,9 @@ async function apply(notice: UploadNotice | null) {
       data: openable
         ? {
             mimeType: notice.openMimeType,
+            // Travels with the tap so a phone that cannot open the file can
+            // still be told where it is. See `usePush`.
+            path: notice.openPath,
             type: DOWNLOAD_NOTIFICATION_TYPE,
             uri: notice.openUri,
           }

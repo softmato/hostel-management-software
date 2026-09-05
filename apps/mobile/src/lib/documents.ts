@@ -84,81 +84,6 @@ export async function downloadAndShare({
 }
 
 /**
- * Writes an image that is already in hand as a `data:` URL, then shares it.
- *
- * For the ID card's QR, which the server renders with `qrcode` and returns
- * inline. Nothing is downloaded — the bytes arrived with the JSON — so this is
- * the same cache-folder-then-share tail as {@link downloadAndShare} without the
- * request.
- *
- * The share sheet is the route to the camera roll on both platforms ("Save to
- * Photos" / "Save image"). Writing to the gallery directly would need
- * `expo-media-library`, which is a native module and therefore a development
- * build — a cost worth paying only once somebody has asked for one tap instead
- * of two.
- */
-export async function shareDataUrlImage({
-  dataUrl,
-  fileName,
-}: {
-  /** `data:image/<type>;base64,…`. */
-  dataUrl: string;
-  /** Without the extension; taken from the data URL's own MIME type. */
-  fileName: string;
-}) {
-  const match = /^data:(image\/([a-z0-9.+-]+));base64,(.+)$/i.exec(dataUrl.trim());
-
-  if (!match) {
-    throw new Error("That image could not be read.");
-  }
-
-  const [, mimeType, extension, base64] = match;
-  const folder = new Directory(Paths.cache, FOLDER);
-
-  if (!folder.exists) {
-    folder.create({ intermediates: true });
-  }
-
-  const target = new File(folder, `${safeFileName(fileName)}.${extension}`);
-
-  if (target.exists) {
-    target.delete();
-  }
-
-  target.create();
-  /*
-   * `{ encoding: "base64" }` rather than decoding to a `Uint8Array` ourselves.
-   * `atob` is a Hermes built-in rather than a React Native guarantee, and a
-   * hand-rolled decode of a 420px PNG is a pointless pass over the string when
-   * the native side already accepts base64.
-   */
-  target.write(base64, { encoding: "base64" });
-
-  if (!(await Sharing.isAvailableAsync())) {
-    throw new Error("Sharing isn't available on this device.");
-  }
-
-  await Sharing.shareAsync(target.uri, { mimeType, UTI: "public.png" });
-}
-
-/**
- * Shares a file that already exists on disk — the output of a view capture.
- *
- * Separate from `shareDataUrlImage` because the two start from different things:
- * that one is handed base64 by the server and has to write it out first, this one
- * is handed a `file://` URI that `captureRef` has already written. Collapsing
- * them would mean a function that takes "either a data URL or a path", which is
- * the shape that eventually gets passed the wrong one.
- */
-export async function shareLocalImage(uri: string, mimeType = "image/png") {
-  if (!(await Sharing.isAvailableAsync())) {
-    throw new Error("Sharing isn't available on this device.");
-  }
-
-  await Sharing.shareAsync(uri, { mimeType, UTI: "public.png" });
-}
-
-/**
  * Downloads a remote image and hands it to the share sheet — the global asset
  * viewer's "Save" action.
  *
@@ -285,7 +210,7 @@ export async function downloadAndShareCsv({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Downloading to the device                                                  */
+/* Saving to the device                                                       */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -485,6 +410,117 @@ async function assertMatchesExtension(file: File, extension: string) {
   }
 }
 
+/**
+ * Puts a file that is already on the device somewhere the user can find it.
+ *
+ * Three rungs, best first, and every one of them ends with the file somewhere
+ * reachable:
+ *
+ * 1. **MediaStore** — `Download/HostelHub/`, or `Pictures/HostelHub/` for an
+ *    image so it lands in the gallery. No permission, no dialogue, nothing to
+ *    remember. Android 10+ and a binary that has the native module. This is
+ *    what a download should feel like.
+ * 2. **Storage Access Framework** — one folder grant, once, remembered for
+ *    ever. Covers Android 9 and older, and any build made before the module
+ *    shipped.
+ * 3. **The share sheet** — iOS, where there is no Downloads folder to write
+ *    into, and the Android user who declined the grant.
+ *
+ * The ladder is walked rather than branched on a platform check, because "can
+ * this build do it" and "can this device do it" are different questions and only
+ * the rung itself knows the answer to both. For the same reason no rung may
+ * throw its way out of the ladder: a rung that fails is a rung that cannot, and
+ * there is another one underneath it. See `saveSilently`.
+ *
+ * Takes an open toaster row rather than starting its own, because the two
+ * callers reach here having done different amounts of work — one downloaded the
+ * bytes over the network and has been reporting progress, the other wrote them
+ * from something already in hand.
+ */
+async function placeOnDevice({
+  extension,
+  id,
+  mimeType,
+  safe,
+  title,
+  uri,
+}: {
+  /** Without the dot — `csv`, `pdf`, `png`. */
+  extension: string;
+  /** The open row in the transfer queue, which this finishes. */
+  id: string;
+  mimeType: string;
+  /** The file's name, already through `safeFileName`, without the extension. */
+  safe: string;
+  /** The toast's first line — "Downloaded" for a transfer, "Saved" otherwise. */
+  title: string;
+  /** `file://` URI of the copy in the cache directory. */
+  uri: string;
+}) {
+  const saved = await saveSilently({
+    fileName: `${safe}.${extension}`,
+    mimeType,
+    sourceUri: uri,
+    subfolder: APP_FOLDER,
+  });
+
+  if (saved !== null) {
+    /*
+     * The file's handle travels with the finished row, so the completion
+     * notification can open it — the toaster is gone in 2.5 seconds and the
+     * notification is what is left. See `UploadRow.openUri`.
+     */
+    finishUpload(id, {
+      openMimeType: mimeType,
+      openPath: saved.path,
+      openUri: saved.uri,
+    });
+    toastSuccess(title, `Saved to ${saved.path}.`);
+
+    return;
+  }
+
+  const saf =
+    Platform.OS === "android" ? (loadLegacyFileSystem()?.StorageAccessFramework ?? null) : null;
+  const destination = saf ? await resolveDownloadFolder(saf) : null;
+
+  if (saf && destination) {
+    try {
+      const fileUri = await saf.createFileAsync(destination, safe, mimeType);
+
+      /*
+       * Base64 through JS rather than a native move, because SAF has no
+       * relocate that accepts a `file://` source. Fine for an export, a receipt
+       * or a card capture — all kilobytes — and the reason this is not the
+       * function to reach for with a video.
+       */
+      await saf.writeAsStringAsync(fileUri, await new File(uri).base64(), {
+        encoding: "base64",
+      });
+
+      finishUpload(id);
+      toastSuccess(title, `Saved as ${safe}.${extension} in your ${APP_FOLDER} folder.`);
+
+      return;
+    } catch {
+      /*
+       * The remembered grant is gone — the user cleared app data, or removed
+       * the card it pointed at. Forget it so the next attempt asks again, and
+       * hand this one to the share sheet rather than losing a file that is
+       * already on the device.
+       */
+      await forgetDownloadFolder();
+    }
+  }
+
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error("There is nowhere to save this on this device.");
+  }
+
+  await Sharing.shareAsync(uri, { mimeType });
+  finishUpload(id);
+}
+
 export async function downloadToDevice({
   extension,
   fileName,
@@ -559,85 +595,7 @@ export async function downloadToDevice({
     // them. This stage reads "Saving…" on a download — see `uploadRowMessage`.
     updateUpload(id, { fraction: 1, stage: "verifying" });
 
-    /*
-     * Three rungs, best first, and every one of them ends with the file
-     * somewhere the user can get at it:
-     *
-     * 1. **MediaStore** — `Download/HostelHub/`, no permission, no dialogue,
-     *    nothing to remember. Android 10+ and a binary that has the native
-     *    module. This is what a download should feel like.
-     * 2. **Storage Access Framework** — one folder grant, once, remembered for
-     *    ever. Covers Android 9 and older, and any build made before the module
-     *    shipped.
-     * 3. **The share sheet** — iOS, where there is no Downloads folder to write
-     *    into, and the Android user who declined the grant.
-     *
-     * The ladder is walked rather than branched on a platform check, because
-     * "can this build do it" and "can this device do it" are different questions
-     * and only the rung itself knows the answer to both.
-     */
-    const saved = await saveSilently({
-      fileName: `${safe}.${extension}`,
-      mimeType,
-      sourceUri: uri,
-      subfolder: APP_FOLDER,
-    });
-
-    if (saved !== null) {
-      /*
-       * The file's handle travels with the finished row, so the completion
-       * notification can open it — the toaster is gone in 2.5 seconds and the
-       * notification is what is left. See `UploadRow.openUri`.
-       */
-      finishUpload(id, {
-        openMimeType: mimeType,
-        openPath: saved.path,
-        openUri: saved.uri,
-      });
-      toastSuccess("Downloaded", `Saved to ${saved.path}.`);
-
-      return;
-    }
-
-    const saf =
-      Platform.OS === "android" ? (loadLegacyFileSystem()?.StorageAccessFramework ?? null) : null;
-    const destination = saf ? await resolveDownloadFolder(saf) : null;
-
-    if (saf && destination) {
-      try {
-        const fileUri = await saf.createFileAsync(destination, safe, mimeType);
-
-        /*
-         * Base64 through JS rather than a native move, because SAF has no
-         * relocate that accepts a `file://` source. Fine for an export or a
-         * receipt — both are kilobytes — and the reason this is not the
-         * function to reach for with a video.
-         */
-        await saf.writeAsStringAsync(fileUri, await new File(uri).base64(), {
-          encoding: "base64",
-        });
-
-        finishUpload(id);
-        toastSuccess("Downloaded", `Saved as ${safe}.${extension} in your ${APP_FOLDER} folder.`);
-
-        return;
-      } catch {
-        /*
-         * The remembered grant is gone — the user cleared app data, or removed
-         * the card it pointed at. Forget it so the next attempt asks again, and
-         * hand this one to the share sheet rather than losing a file that has
-         * already been downloaded.
-         */
-        await forgetDownloadFolder();
-      }
-    }
-
-    if (!(await Sharing.isAvailableAsync())) {
-      throw new Error("There is nowhere to save this on this device.");
-    }
-
-    await Sharing.shareAsync(uri, { mimeType });
-    finishUpload(id);
+    await placeOnDevice({ extension, id, mimeType, safe, title: "Downloaded", uri });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The download failed.";
 
@@ -647,6 +605,136 @@ export async function downloadToDevice({
      * silently continued past a failed download would leave the button looking
      * like it worked.
      */
+    finishUpload(id, { error: message });
+    throw error;
+  }
+}
+
+/**
+ * Splits a `data:` URL into the three things a file needs.
+ *
+ * Kept separate from the writing so the failure — a string that is not a data
+ * URL at all — is reported before a cache folder is made for it.
+ */
+function readDataUrl(dataUrl: string) {
+  const match = /^data:(image\/([a-z0-9.+-]+));base64,(.+)$/i.exec(dataUrl.trim());
+
+  if (!match) {
+    throw new Error("That image could not be read.");
+  }
+
+  const [, mimeType, extension, base64] = match;
+
+  return { base64, extension, mimeType };
+}
+
+/**
+ * Saves an image that is already in hand as a `data:` URL **to the phone**.
+ *
+ * For the ID card's QR, which the server renders with `qrcode` and returns
+ * inline. Nothing is downloaded — the bytes arrived with the JSON — so this is
+ * the cache-folder write and then the same ladder every other save in this file
+ * walks.
+ *
+ * ## Why this is not the share sheet
+ *
+ * It was, and it was wrong. "Save this QR code" that opens a share sheet is the
+ * app re-opening a decision the user already made — they said *save*, and were
+ * answered with a list of apps to send it to. The share sheet is a route to the
+ * camera roll, not a save, and it costs two more taps and a choice to get there.
+ *
+ * The native Downloads writer removed the reason for the compromise: the file
+ * lands in `Download/HostelHub/` with no permission and no dialogue, and the
+ * share sheet stays as the bottom rung for the platforms that have nowhere else
+ * to put it.
+ */
+export async function saveDataUrlToDevice({
+  dataUrl,
+  fileName,
+  label,
+}: {
+  /** `data:image/<type>;base64,…`. */
+  dataUrl: string;
+  /** Without the extension; taken from the data URL's own MIME type. */
+  fileName: string;
+  /** What the user asked for, as the toaster says it — "QR code". */
+  label: string;
+}) {
+  const { base64, extension, mimeType } = readDataUrl(dataUrl);
+  const id = startDownload(label);
+
+  try {
+    const folder = new Directory(Paths.cache, FOLDER);
+
+    if (!folder.exists) {
+      folder.create({ intermediates: true });
+    }
+
+    const safe = safeFileName(fileName);
+    const target = new File(folder, `${safe}.${extension}`);
+
+    if (target.exists) {
+      target.delete();
+    }
+
+    target.create();
+    /*
+     * `{ encoding: "base64" }` rather than decoding to a `Uint8Array` ourselves.
+     * `atob` is a Hermes built-in rather than a React Native guarantee, and a
+     * hand-rolled decode of a 420px PNG is a pointless pass over the string when
+     * the native side already accepts base64.
+     */
+    target.write(base64, { encoding: "base64" });
+
+    updateUpload(id, { fraction: 1, stage: "verifying" });
+    await placeOnDevice({ extension, id, mimeType, safe, title: "Saved", uri: target.uri });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "It could not be saved.";
+
+    finishUpload(id, { error: message });
+    throw error;
+  }
+}
+
+/**
+ * Saves a file that already exists on disk **to the phone** — the output of a
+ * view capture.
+ *
+ * Separate from `saveDataUrlToDevice` because the two start from different
+ * things: that one is handed base64 by the server and has to write it out first,
+ * this one is handed a `file://` URI that `captureRef` has already written.
+ * Collapsing them would mean a function that takes "either a data URL or a
+ * path", which is the shape that eventually gets passed the wrong one.
+ *
+ * The capture's own temporary name is not used. `captureRef` writes something
+ * like `ReactNative-snapshot-image-1a2b.png`, which is a name for the machine;
+ * the file the user finds in Downloads is named by the caller.
+ */
+export async function saveToDevice({
+  extension,
+  fileName,
+  label,
+  mimeType,
+  uri,
+}: {
+  /** Without the dot — `png`. */
+  extension: string;
+  /** Without the extension. */
+  fileName: string;
+  /** What the user asked for, as the toaster says it — "ID card". */
+  label: string;
+  mimeType: string;
+  /** `file://` URI of a file that already exists. */
+  uri: string;
+}) {
+  const id = startDownload(label);
+
+  try {
+    updateUpload(id, { fraction: 1, stage: "verifying" });
+    await placeOnDevice({ extension, id, mimeType, safe: safeFileName(fileName), title: "Saved", uri });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "It could not be saved.";
+
     finishUpload(id, { error: message });
     throw error;
   }

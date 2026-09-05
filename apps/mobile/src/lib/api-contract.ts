@@ -20,6 +20,16 @@ export type ApiEnvelope<T> = {
 };
 
 export type ApiFailure = {
+  /**
+   * What the thrower attached, when it attached anything.
+   *
+   * `handleRouteError` forwards it from any error carrying a `details` property,
+   * so the shape is per-`errorCode` and never guaranteed — a refused payment
+   * claim names the month and date it collided with, and most failures carry
+   * nothing at all. Read it through {@link readApiErrorDetails}, which types the
+   * hole rather than pretending it is filled.
+   */
+  details?: unknown;
   errorCode: string;
   message: string;
   success: false;
@@ -92,4 +102,22 @@ export function isOfflineError(message: string | null | undefined): boolean {
 
 export function readApiErrorCode(error: unknown): string | null {
   return (error as AxiosError<ApiFailure>)?.response?.data?.errorCode ?? null;
+}
+
+/**
+ * The `details` object a failure carried, or null.
+ *
+ * Typed by the caller, because the shape belongs to the `errorCode` rather than
+ * to the envelope — a refused payment claim carries the month and date it
+ * collided with, a validation failure carries Zod issues, and most failures
+ * carry nothing. Anything non-object (a string, a number, an array the caller
+ * did not expect) reads as null: a caller reaching for `details.priorPeriod` on
+ * one should render the generic failure, not `undefined` dressed as a fact.
+ */
+export function readApiErrorDetails<T>(error: unknown): T | null {
+  const details = (error as AxiosError<ApiFailure>)?.response?.data?.details;
+
+  return details && typeof details === "object" && !Array.isArray(details)
+    ? (details as T)
+    : null;
 }

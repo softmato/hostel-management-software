@@ -5,7 +5,7 @@ import { memo, useMemo, useState } from "react";
 
 import { currency } from "@/app/_components/shared-ui";
 import { Button } from "@/components/ui/button";
-import { dayMonthYear, monthLabel } from "@/lib/format-month";
+import { dayMonthYearBoth, monthLabel } from "@/lib/format-month";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 
@@ -133,7 +133,7 @@ export const OrphanAssignPicker = memo(function OrphanAssignPicker({
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {currency(Math.max(0, month.dueAmount - month.paidAmount))} still owed
-                    {month.dueDate ? ` · due ${dayMonthYear(month.dueDate)}` : ""}
+                    {month.dueDate ? ` · due ${dayMonthYearBoth(month.dueDate)}` : ""}
                   </span>
                 </button>
               </li>

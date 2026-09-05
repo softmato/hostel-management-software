@@ -1,7 +1,14 @@
 # hostelhub-downloads
 
-A local Expo module with one job: **put a file in the phone's Downloads folder
-without asking the user anything.**
+A local Expo module with one job: **put a file somewhere the phone shows the
+user, without asking the user anything.**
+
+Documents go to `Download/HostelHub/`. Images go to `Pictures/HostelHub/`, which
+is a different MediaStore collection and not a detail: a row in **Downloads** is
+a download, so a gallery neither lists it nor reliably opens it, while a row in
+**Images** appears beside the camera roll and answers an `ACTION_VIEW`. A saved
+ID card that a tap on its own notification would not open is what that
+distinction costs when it is ignored.
 
 ## Why it exists
 

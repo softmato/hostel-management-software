@@ -57,6 +57,7 @@ vi.mock("@hostel/db/models/Resident", () => ({
 import {
   issueReceiptForEvent,
   nextReceiptNumber,
+  periodCoverage,
   periodOfDate,
   voidReceipt,
 } from "@/modules/finance/receipt.service";
@@ -300,5 +301,48 @@ describe("voiding and reissuing", () => {
         amountBefore: 12000,
       }),
     );
+  });
+});
+
+/**
+ * The span printed on a receipt as "Covers from" and "Covers until".
+ *
+ * The anchors are the ones `bs-calendar.test.ts` checks against a published
+ * Nepali calendar, not against this module: Bhadra 2083 runs 17 August to 16
+ * September 2026 and is 31 days, and Asar 2083 is 32 — the length is read from
+ * the table every time because it changes from one year to the next.
+ */
+describe("the days an invoice covers", () => {
+  it("spans the Bikram Sambat month the period names", () => {
+    const coverage = periodCoverage("2083-05");
+
+    expect(coverage?.from.toISOString()).toBe("2026-08-17T00:00:00.000Z");
+    expect(coverage?.to.toISOString()).toBe("2026-09-16T00:00:00.000Z");
+  });
+
+  it("reads each month's length from the table rather than assuming one", () => {
+    const asar = periodCoverage("2083-03");
+
+    expect(asar?.from.toISOString()).toBe("2026-06-15T00:00:00.000Z");
+    expect(asar?.to.toISOString()).toBe("2026-07-16T00:00:00.000Z");
+  });
+
+  it("closes on the last day, not on the millisecond Kathmandu calls tomorrow", () => {
+    // `bsPeriodBounds.end` is 23:59:59.999 UTC, which is 05:44 the next morning
+    // in Nepal — printed as "Covers until", it would name Aswin 1.
+    expect(periodCoverage("2083-05")?.to.getUTCHours()).toBe(0);
+  });
+
+  it("leaves a pre-cutover Gregorian receipt saying what it always said", () => {
+    const coverage = periodCoverage("2026-08");
+
+    expect(coverage?.from.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+    expect(coverage?.to.toISOString()).toBe("2026-08-31T00:00:00.000Z");
+  });
+
+  it("covers no span at all for a one-off that bought no month", () => {
+    expect(periodCoverage(null)).toBeNull();
+    expect(periodCoverage("")).toBeNull();
+    expect(periodCoverage("2083-13")).toBeNull();
   });
 });

@@ -222,3 +222,112 @@ export function firstMonthNote(charge: {
     ? `${charge.billableDays} of ${charge.daysInMonth} days — billed when you register them. Full rent from the month after.`
     : "A full month, because they arrive on the 1st. Billed when you register them.";
 }
+
+
+/**
+ * What the resident can hand over before they leave the desk.
+ *
+ * ## The codes were on the wire and went in the bin
+ *
+ * `createResident` raises up to two invoices and returns a reference code for
+ * each. The screen read neither: it toasted "their admission fee is invoiced
+ * too" and navigated away, so a resident who had their phone out and wanted to
+ * settle the joining bill on the spot had to be told to go home, open the app,
+ * find Payments, and read a code that the warden's screen had been holding all
+ * along. This turns that response into the two or three lines somebody says out
+ * loud while the person is still standing there.
+ *
+ * ## Two invoices means two codes, and they are not interchangeable
+ *
+ * The joining charge and the first month are separate invoices — separate
+ * periods, separate `kind`s, separate codes — so they are separate rows here
+ * rather than one summed total under one code. A single "Collect NPR 18,800"
+ * with either code under it is the mistake this is written to make impossible:
+ * a transfer quoting the admission code settles the admission invoice and
+ * leaves the rent open, whatever figure was sent.
+ *
+ * ## The joining row names both charges
+ *
+ * `admission.amount` is the fee *after* any referral discount **plus the
+ * deposit** — see `raiseAdmissionInvoice`, which writes all three as lines on
+ * one invoice. A row labelled "Admission fee" over that figure overstates the
+ * fee by the size of the deposit, which is usually the larger half, so the
+ * label is built from the quote the same way the server built the lines.
+ *
+ * ## Read defensively, like every other reader of this response
+ *
+ * The phone talks to whatever API version `EXPO_PUBLIC_API_URL` points at, so
+ * every field here is optional and a bill with no code is dropped rather than
+ * rendered as an empty strip. A code nobody can quote is not a way to pay.
+ */
+export type CollectableBill = {
+  amount: number;
+  /** `Admission fee + Security deposit`, `Monthly rent — Bhadra`. */
+  label: string;
+  referenceCode: string;
+};
+
+type IntakeBills = {
+  admission?: {
+    amount?: number;
+    raised?: boolean;
+    reason?: string;
+    referenceCode?: string;
+  } | null;
+  firstMonth?: {
+    amount?: number;
+    period?: string;
+    raised?: boolean;
+    reason?: string;
+    referenceCode?: string;
+  } | null;
+  quote?: { admissionFee?: number; depositAmount?: number } | null;
+};
+
+export function collectableBills(
+  result: IntakeBills,
+  monthLabel: (period: string | null) => string,
+): CollectableBill[] {
+  const bills: CollectableBill[] = [];
+
+  const admission = result.admission;
+
+  if (admission?.raised && admission.referenceCode && (admission.amount ?? 0) > 0) {
+    bills.push({
+      amount: admission.amount as number,
+      label: joiningLabel(result.quote),
+      referenceCode: admission.referenceCode,
+    });
+  }
+
+  const firstMonth = result.firstMonth;
+
+  if (firstMonth?.raised && firstMonth.referenceCode && (firstMonth.amount ?? 0) > 0) {
+    bills.push({
+      amount: firstMonth.amount as number,
+      label: `Monthly rent — ${monthLabel(firstMonth.period ?? null)}`,
+      referenceCode: firstMonth.referenceCode,
+    });
+  }
+
+  return bills;
+}
+
+/**
+ * What the joining invoice is called, from the charges that went onto it.
+ *
+ * The same three cases `raiseAdmissionInvoice` writes lines for: a hostel that
+ * takes only a deposit is a real configuration, and calling its one charge an
+ * admission fee would be a description of money the resident is not being
+ * asked for.
+ */
+function joiningLabel(quote: IntakeBills["quote"]): string {
+  const fee = (quote?.admissionFee ?? 0) > 0;
+  const deposit = (quote?.depositAmount ?? 0) > 0;
+
+  if (fee && deposit) {
+    return "Admission fee + Security deposit";
+  }
+
+  return deposit ? "Security deposit" : "Admission fee";
+}

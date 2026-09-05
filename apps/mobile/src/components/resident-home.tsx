@@ -1,29 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Image } from "expo-image";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
-import { NotificationBell } from "@/components/notification-bell";
 import {
   FLOAT_SHADOW,
   HERO_AMOUNT_LEAD_TRIM,
   HERO_LINE_GAP,
   PaintedAmount,
+  PortalBrandHeader,
   PortalHeroCard,
 } from "@/components/portal-shared";
-import {
-  ActionCard,
-  ActionCell,
-  type ActionTile,
-  ActionTiles,
-} from "@/components/ui/action-grid";
-import { IconButton } from "@/components/ui/icon-button";
+import { SosHeaderButton } from "@/components/sos-header-button";
+import { type ActionTile, ActionTiles } from "@/components/ui/action-grid";
 import { Text } from "@/components/ui/text";
-import { APP_NAME, APP_NAME_PARTS, logo } from "@/constants/branding";
 import { roleAccent } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useSystemInsets } from "@/hooks/use-system-insets";
 import { formatMoney, heroAmountSize, maskMoney } from "@/lib/format";
 import type { StayPill } from "@/lib/resident-home";
 
@@ -33,11 +25,15 @@ import type { StayPill } from "@/lib/resident-home";
  * ## It is the admin Home, with a resident's subject
  *
  * The two screens are now one design: a `bg-background` bar carrying the
- * platform lockup and the bell, a painted account card inset under it, a
- * shortcut row of tinted glyph cells, a card of queues with counts on them, and
- * a grid of doors that the screen ends on. `<PortalHeroCard>` and
- * `ui/action-grid.tsx` are literally the same components in both, so the two
- * cannot drift apart by a corner radius or a column pitch.
+ * platform lockup and the bell, a painted account card inset under it, tinted
+ * glyph cells straddling the fold, and a grid of doors that the screen ends on.
+ * `<PortalHeroCard>` and `ui/action-grid.tsx` are literally the same components
+ * in both, so the two cannot drift apart by a corner radius or a column pitch.
+ *
+ * They differ by one thing in the middle: the admin keeps its shortcut row and
+ * its queue card as two cards with a heading between them, and here they are a
+ * single row — three shortcuts and the one count worth the fold. Same component,
+ * one fewer seam; see `<ResidentHomeActions>`.
  *
  * What differs is what each card is *about*, which is the whole of the
  * difference between the two roles:
@@ -77,18 +73,11 @@ import type { StayPill } from "@/lib/resident-home";
 /* Header                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** The platform wordmark, in points. */
-const WORDMARK = 22;
-
-/** The logo mark beside it, sized to the wordmark's cap height. */
-const MARK = 24;
-
 /**
- * The fixed bar: whose product this is, and the bell.
+ * The fixed bar: whose product this is, SOS, the hostel's page, and the bell.
  *
- * The admin bar, unchanged in construction and for the same reasons. *HostelHub*
- * is the app you opened — chrome, identical in every role — and the hostel is the
- * subject of the page, so it belongs on the card below rather than up here.
+ * `<PortalBrandHeader>` with SOS in its `actions` slot — see that component for
+ * the lockup, the eye and why the bar is never painted.
  *
  * ## What it replaced, and what was lost on purpose
  *
@@ -97,41 +86,23 @@ const MARK = 24;
  * the resident already knows, on every single open. The hostel's name moved to
  * the card, where it is the identity the money belongs to; the greeting is gone.
  *
- * ## The eye
+ * ## SOS is here rather than floating
  *
- * Opens the hostel's public page — the same `hostel/[slug]` screen a stranger
- * browsing the app sees, and the row that used to be a chip on the hostel card.
- * It is only drawn when the caller has a slug to hand it.
+ * It was a red circle hovering above the tab bar that hid itself on scroll. A
+ * control that moves, overlaps what you are reading and disappears is not one
+ * anybody trusts in an emergency — so it took a fixed seat on the one bar that
+ * never scrolls away, and leftmost of the row so that a hostel whose listing is
+ * not live does not shift it. See `<SosHeaderButton>`.
  */
 export function ResidentHomeHeader({
   onHostelPage,
 }: { onHostelPage?: () => void } = {}) {
-  const { colors } = useAppTheme();
-  const insets = useSystemInsets();
-
   return (
-    <View className="bg-background" style={{ paddingTop: insets.top }}>
-      <View className="min-h-14 flex-row items-center gap-2.5 px-5 pb-2 pt-1">
-        <Image contentFit="contain" source={logo.mark} style={{ height: MARK, width: MARK }} />
-
-        <View accessibilityLabel={APP_NAME} accessibilityRole="header" className="flex-1">
-          <Text style={{ fontSize: WORDMARK, fontWeight: "800", letterSpacing: -0.4 }}>
-            <Text style={{ color: colors.foreground }}>{APP_NAME_PARTS.head}</Text>
-            <Text style={{ color: colors.primary }}>{APP_NAME_PARTS.tail}</Text>
-          </Text>
-        </View>
-
-        {onHostelPage ? (
-          <IconButton
-            label="Open your hostel's page"
-            name="eye-outline"
-            onPress={onHostelPage}
-          />
-        ) : null}
-
-        <NotificationBell />
-      </View>
-    </View>
+    <PortalBrandHeader
+      actions={<SosHeaderButton />}
+      hostelPageLabel="Open your hostel's page"
+      onHostelPage={onHostelPage}
+    />
   );
 }
 
@@ -305,8 +276,8 @@ function HeroAction({ onPress, owes }: { onPress: () => void; owes: boolean }) {
  * `HostelCard` with a photo thumbnail and a wrap of contact chips — three
  * objects, three surfaces, about two thirds of the first screenful. Every fact
  * they carried is still on this screen; the photo became the card's ground, the
- * three tiles became the queue row, and the contact chips became a shortcut that
- * dials.
+ * three tiles became the pill and the badge on this card, and the contact chips
+ * became a shortcut that dials.
  *
  * ## The deposit
  *
@@ -508,189 +479,132 @@ export function ResidentStayHero({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Quick actions                                                              */
+/* Home actions                                                               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * The jobs a phone is genuinely better at than a laptop, pinned to the fold.
+ * One row of tinted glyph cells, straddling the fold under the hero.
  *
- * The admin row's rule, applied to a resident: **never a bottom tab, always
- * something you would do standing up.** Payments, Community, Food and More are
- * tabs a thumb-width below this card, and a shortcut to something permanently on
- * screen is the same door drawn twice.
+ * It was two cards with a `Waiting for you` heading between them: this shortcut
+ * row, then a second, identically-built card of four queue cells a section-gap
+ * below. They were the same object drawn twice — a glyph, a label and a
+ * destination, differing only in whether the destination carries a number — and
+ * the heading over the second one named that difference, which is not a
+ * difference a resident is looking for. What they are looking for is *where to
+ * go*, and it now sits in one place under the money.
  *
- * So the three that are left are the three that happen away from a desk:
+ * ## What the merge dropped, and what it kept
  *
- * - **Digital ID** — produced at a gate, at a counter, to a warden who does not
- *   recognise you. It is the single most phone-shaped thing a resident owns.
- * - **Call hostel** — one tap to the office, from a card that previously made
- *   you read the number off a chip and type it into the dialler. `tel:` rather
- *   than a screen, which is the whole point.
- * - **Raise issue** — `complaints/new`, opened with the broken tap in front of
- *   you and the camera in your hand. The *queue* of complaints is a cell in the
- *   card below; composing one is a different verb and a different moment, the
- *   same way `Add resident` and `New inquiries` are two cells on the admin Home.
+ * `Invoices`, `Complaints` and `Night status` came off Home. Each was a count on
+ * a door, and each door is reached without it: the Payments tab is a
+ * thumb-width below this card, and Complaints and Night status are rows on More.
+ * A queue cell earns its place on the fold by being the thing a resident opens
+ * the app for, and on a screen whose hero is already the money and its due date,
+ * three of the four were repeating what the card above them had said.
+ *
+ * `Notices` stayed, as the row's one counted cell. Nothing else on this screen
+ * says a notice is urgent — the hero's badge is the same number, and it is the
+ * only fact here the resident cannot get from the money.
+ *
+ * ## The order
+ *
+ * **Digital ID** leads, because it is the single most phone-shaped thing a
+ * resident owns: produced at a gate, at a counter, to a warden who does not
+ * recognise them. Then **Call hostel**, one tap to the office rather than
+ * reading a number off a chip; then **Raise issue**, which is `complaints/new`
+ * opened with the broken tap in front of you; then **Notices**.
+ *
+ * ## The rules both cards brought, which still hold
+ *
+ * - **A destination carries no count at all.** `badge` is omitted, not passed as
+ *   zero, for the three shortcuts. A cell with a count and a cell without read
+ *   as different kinds of thing at a glance, which is exactly what they are.
+ * - **Notices counts the urgent ones, not the unread ones.** `serializeNotice`
+ *   emits no `isRead` field, so `!notice.isRead` is true for every notice and
+ *   the web marks all of them new. Repeating that here would be repeating a bug;
+ *   `isUrgent` is a field the serializer does emit.
+ * - **Tones are meanings, not decoration**, and no two of them repeat in the
+ *   row — four colours are recognised by position after about two uses, which is
+ *   the entire reason these cells are tinted. `Notices` wore the warning tone in
+ *   the card it came from, where nothing else did; here `Call hostel` already
+ *   has it, so the notice board takes the row's remaining colour rather than
+ *   drawing the second amber square the eye then has to read word by word.
+ * - **A resident with no hostel phone number gets three cells.** `onCall` is
+ *   optional and the cell is simply not in the list; `<ActionTiles>` pads the
+ *   short row with a spacer, so the column pitch holds either way.
  *
  * ## SOS is not here, and must not be added
  *
  * `<SosFab>` is mounted outside the navigator in `(resident)/_layout.tsx`, so it
  * is on screen on every resident tab and survives tab changes mid-countdown. A
- * fourth cell repeating it would be a second, quieter alarm — and the one that
- * scrolls away.
- *
- * ## A resident with no hostel phone number gets two cells
- *
- * `onCall` is optional and the cell simply does not draw. They are `flex-1` and
- * space themselves; this row is a list of what qualifies, not a shape with slots
- * that have to be filled.
+ * cell repeating it would be a second, quieter alarm — and the one that scrolls
+ * away.
  */
-export function ResidentQuickActions({
+export function ResidentHomeActions({
   onCall,
   onIdCard,
+  onNotices,
   onRaiseIssue,
+  urgentNotices,
 }: {
   /** `tel:` the hostel. Omitted when the listing carries no phone number. */
   onCall?: () => void;
   onIdCard: () => void;
-  onRaiseIssue: () => void;
-}) {
-  const { colors } = useAppTheme();
-
-  return (
-    <View className="px-5">
-      <ActionCard>
-        <ActionCell
-          glyph={colors.primary}
-          icon="card-outline"
-          label="Digital ID"
-          onPress={onIdCard}
-          tone="brand"
-        />
-
-        {/*
-          Amber and red rather than two more greens. `roleAccent.RESIDENT` and
-          `colors.success` are the **same hex** in light mode (`#16a34a`), so a
-          row tinted by role would have drawn three cells the eye cannot tell
-          apart — and a row of four colours recognised by position is the entire
-          reason these cells are tinted at all.
-        */}
-        {onCall ? (
-          <ActionCell
-            glyph={colors.warning}
-            icon="call-outline"
-            label="Call hostel"
-            onPress={onCall}
-            tone="warning"
-          />
-        ) : null}
-
-        <ActionCell
-          glyph={colors.destructive}
-          icon="create-outline"
-          label="Raise issue"
-          onPress={onRaiseIssue}
-          tone="danger"
-        />
-      </ActionCard>
-    </View>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Waiting for you                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * What is waiting, as one card of four rather than three metric tiles.
- *
- * Identical in construction to the shortcut row above it, and that is the point:
- * these are destinations with a number on them, the row above is destinations
- * without, and they differ by the number and by nothing else.
- *
- * ## It replaced the `StatStrip`, and kept only the counts that mean something
- *
- * That strip drew three `<StatTile>`s — Notices, Complaints, Night status — each
- * carrying a value, a label *and* a trend line ("Nothing urgent", "All
- * resolved", "Checked 2 days ago"). Three sentences of reassurance, in the
- * second-most valuable band on the screen, on a screen where the thing a
- * resident came for is above them.
- *
- * The counts survive as badges; the reassurance does not. A cell reading nothing
- * is a cell with a grey `0` on it, which says the same thing in a glance.
- *
- * ## Notices counts the urgent ones, not the unread ones
- *
- * `serializeNotice` emits no `isRead` field, so `!notice.isRead` is true for
- * every notice and the web marks all of them new. Repeating that here would be
- * repeating a bug. `isUrgent` is a field the serializer does emit, and it is the
- * one worth counting anyway — the unread count comes back the day the serializer
- * carries the flag.
- *
- * ## Night status is a door, and carries no count
- *
- * There is no number that means "how much of tonight is waiting". It is a cell
- * without a badge for the same reason `Today` is on the admin card, and the
- * hero's pill above already says which of the two states it is in.
- */
-export function ResidentWaitingActions({
-  complaints,
-  invoices,
-  onComplaints,
-  onInvoices,
-  onNightStatus,
-  onNotices,
-  urgentNotices,
-}: {
-  /** Still open. */
-  complaints: number;
-  /** `feeStatus.unpaidCount` — invoices, not rupees. */
-  invoices: number;
-  onComplaints: () => void;
-  onInvoices: () => void;
-  onNightStatus: () => void;
   onNotices: () => void;
+  onRaiseIssue: () => void;
+  /** Urgent notices, not unread ones — see the note above. */
   urgentNotices: number;
 }) {
   const { colors } = useAppTheme();
 
+  const tiles: ActionTile[] = [
+    {
+      glyph: colors.primary,
+      icon: "card-outline",
+      key: "id-card",
+      label: "Digital ID",
+      onPress: onIdCard,
+      tone: "brand",
+    },
+    /*
+      A cell that dials nothing is worse than a missing cell, so this one is in
+      the list only when the listing carries a number.
+    */
+    ...(onCall
+      ? [
+          {
+            glyph: colors.warning,
+            icon: "call-outline",
+            key: "call",
+            label: "Call hostel",
+            onPress: onCall,
+            tone: "warning",
+          } satisfies ActionTile,
+        ]
+      : []),
+    {
+      glyph: colors.destructive,
+      icon: "create-outline",
+      key: "raise-issue",
+      label: "Raise issue",
+      onPress: onRaiseIssue,
+      tone: "danger",
+    },
+    {
+      badge: urgentNotices,
+      glyph: colors.success,
+      icon: "megaphone-outline",
+      key: "notices",
+      label: "Notices",
+      onPress: onNotices,
+      tone: "success",
+    },
+  ];
+
   return (
-    <ActionCard>
-      <ActionCell
-        badge={invoices}
-        glyph={colors.success}
-        icon="receipt-outline"
-        label="Invoices"
-        onPress={onInvoices}
-        tone="success"
-      />
-      <ActionCell
-        badge={urgentNotices}
-        glyph={colors.warning}
-        icon="megaphone-outline"
-        label="Notices"
-        onPress={onNotices}
-        tone="warning"
-      />
-      {/*
-        Red, the tone the admin grid's `Complaints` tile wears — so the two
-        people either side of one complaint find it under the same colour.
-      */}
-      <ActionCell
-        badge={complaints}
-        glyph={colors.destructive}
-        icon="chatbox-ellipses-outline"
-        label="Complaints"
-        onPress={onComplaints}
-        tone="danger"
-      />
-      <ActionCell
-        glyph={colors.primary}
-        icon="moon-outline"
-        label="Night status"
-        onPress={onNightStatus}
-        tone="brand"
-      />
-    </ActionCard>
+    <View className="px-5">
+      <ActionTiles tiles={tiles} />
+    </View>
   );
 }
 
@@ -712,12 +626,12 @@ export function ResidentWaitingActions({
  *
  * ## What is not here
  *
- * The four cells of `Waiting for you` — invoices, notices, complaints, night
- * status — and `Digital ID`, which is the shortcut row's lead cell. A cell up
- * there and a tile down here are two doors to one room inside a single scroll,
- * which is the rule that took `Statement` off the admin's grid. `more.tsx` has
- * no "Waiting for you" and no shortcut row, so More keeps every one of those
- * rows.
+ * Anything already on `<ResidentHomeActions>` — Digital ID, Call hostel, Raise
+ * issue and Notices. A cell up there and a tile down here are two doors to one
+ * room inside a single scroll, which is the rule that took `Statement` off the
+ * admin's grid. `more.tsx` has no action row at all, so More keeps every one of
+ * those rows — and it is where Complaints and Night status now live, since the
+ * merge took their cells off Home.
  *
  * Community too: it is a bottom tab, and unlike Residents on the admin side it
  * has no second identity as a section of the product. Food likewise — the tab is

@@ -11,7 +11,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { dayMonthYear, dayMonthYearTime, monthLabel } from "@/lib/format-month";
+import {
+  dayMonthYear,
+  dayMonthYearBoth,
+  dayMonthYearTime,
+  monthLabel,
+} from "@/lib/format-month";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 
@@ -96,7 +101,7 @@ function MonthRow({ month }: { month: LedgerMonth }) {
           <p className="text-sm font-bold text-foreground">{monthLabel(month.period)}</p>
           <p className="mt-0.5 text-[11.5px] text-muted-foreground">
             {billed
-              ? `${currency(month.dueAmount)} rent · pay by ${dayMonthYear(month.dueDate)}`
+              ? `${currency(month.dueAmount)} rent · pay by ${dayMonthYearBoth(month.dueDate)}`
               : "No rent invoiced for this month"}
           </p>
         </div>

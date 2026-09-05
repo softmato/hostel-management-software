@@ -199,10 +199,10 @@ will ignore.**
 
 ## §4 Not in scope, recorded so it is not reopened
 
-- **A guardian does not get an `<SosFab>`.** It is mounted outside the navigator
-  in `(resident)/_layout.tsx` because a resident in trouble needs it on every
-  screen. A guardian raising an alarm about somebody else is a phone call to the
-  office, which is the card on Safety and the register on Home's hero.
+- **A guardian does not get an SOS control.** `<SosHeaderButton>` is on the
+  resident Home bar because a resident in trouble needs it where nothing can
+  scroll it away. A guardian raising an alarm about somebody else is a phone call
+  to the office, which is the card on Safety and the register on Home's hero.
 - **Community stays one board for everyone.** Signed out, public account,
   resident, staff, guardian — `community.service.ts` is platform-wide, which is
   why it is a root-stack screen rather than something inside a role's tabs.

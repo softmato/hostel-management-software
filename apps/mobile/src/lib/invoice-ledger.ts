@@ -154,18 +154,24 @@ function chargeDescriptions(invoice: ResidentInvoice): string[] {
  * Bhadra**. The one-off invoice already had a charge to lead with — its lines —
  * and now names both of them.
  *
- * ## And a part month says which days instead
+ * ## And a part month names the month *and* the days
  *
  * A resident admitted mid-month owes part of it, and a row reading `Monthly
  * rent` over `Due Bhadra` leaves the smaller figure beside it unexplained —
- * which is the one thing on this screen somebody is most likely to query.
- * `prorationBasis` is snapshotted on the line at issue time and already reads
- * `Bhadra 19–31 · 13 of 31 days`, so the row carries it verbatim rather than
- * re-deriving a span from dates the client would have to convert itself.
+ * which is the one thing on this screen somebody is most likely to query. So
+ * the row carries `prorationBasis`, snapshotted on the line at issue time.
  *
- * It **replaces** the due line rather than joining it. Both would be three
- * facts on one row of a list, and the span already names the month — so `Due
- * Bhadra · Bhadra 19–31 · 13 of 31 days` says "Bhadra" twice to fit less in.
+ * It used to carry it *instead* of the month, on the reasoning that the basis
+ * already names it: `Bhadra 19–31 · 13 of 31 days` does, and `Due Bhadra ·
+ * Bhadra 19–31 · 13 of 31 days` says "Bhadra" twice to fit less in. But the
+ * basis is a **snapshot**, and the invoices already issued under the older
+ * format say only `28/30 days`. Under a group heading that is a year, that row
+ * reads `Monthly rent` over `28/30 days` — a fraction of nothing, on a screen
+ * whose whole job is saying which month is owed.
+ *
+ * So the month leads unless the snapshot itself already contains it: legacy
+ * lines get `Bhadra · 28/30 days`, current ones stay `Bhadra 19–31 · 13 of 31
+ * days`. Neither repeats a month name, and neither omits one.
  *
  * Pure, and tested, because this is the sentence a resident reads before
  * deciding whether their bill is right.
@@ -195,6 +201,8 @@ export function invoiceRowCopy(
     };
   }
 
+  const month = monthLabel(invoice.month).trim();
+
   return {
     proration,
     /*
@@ -202,9 +210,27 @@ export function invoiceRowCopy(
      * rent falls due on Bhadra 31 — and the row used to show only the second,
      * in a title that read like a date.
      */
-    subtitle: proration ?? `Due ${monthLabel(invoice.month)}`,
+    subtitle: proration ? prorationSubtitle(proration, month) : `Due ${month}`,
     title: "Monthly rent",
   };
+}
+
+/**
+ * The days a part month covers, with its month in front of them if the
+ * snapshotted basis does not already say it.
+ *
+ * The test is containment rather than a prefix because the span sits at the
+ * front of a current basis (`Bhadra 19–31 · 13 of 31 days`) but nothing
+ * guarantees a future one will — and a row that says "Bhadra" twice is worse
+ * than one that says it once in the wrong place. An unnameable month falls back
+ * to the basis alone: a bare fraction is poor, an empty separator is broken.
+ */
+function prorationSubtitle(proration: string, month: string): string {
+  if (!month || proration.toLowerCase().includes(month.toLowerCase())) {
+    return proration;
+  }
+
+  return `${month} · ${proration}`;
 }
 
 export function outstanding(invoice: ResidentInvoice): number {

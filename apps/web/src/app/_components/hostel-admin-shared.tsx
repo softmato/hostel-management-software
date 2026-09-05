@@ -110,6 +110,16 @@ export type Complaint = {
   slaDueAt: string;
   status: "PENDING" | "IN_PROGRESS" | "RESOLVED" | "REJECTED";
   title: string;
+  /**
+   * The resident's own recording, when they spoke instead of typing — the app's
+   * raise screen offers the microphone first. Absent on every complaint raised
+   * from this portal's own form, which has no recorder.
+   *
+   * `description` can be empty when this is set: for a spoken complaint the
+   * recording *is* the description, so a queue row that only prints text shows
+   * an empty complaint.
+   */
+  voiceNoteAssetId?: string;
 };
 
 export type ComplaintSummary = {

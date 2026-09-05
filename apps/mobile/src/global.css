@@ -50,6 +50,16 @@
     --warning-soft: #fffbeb;
     --success: #16a34a;
     --success-soft: #dcfce7;
+    /*
+      Blue, in a black-white-and-green app, and only ever for "explain this".
+      It joins `--warning` / `--destructive` / `--success` as a *semantic* tone
+      rather than a second brand: an `i` glyph that opens the page describing
+      what a thing is. Nothing structural, no filled surface bigger than the
+      glyph's own tile, and never on a control that performs an action — those
+      stay green.
+    */
+    --info: #2563eb;
+    --info-soft: #e8effd;
 
     --brand: #0a8a4b;
     --brand-soft: #e6f4ec;
@@ -107,6 +117,8 @@
     --warning-soft: #2a1f07;
     --success: #22c55e;
     --success-soft: #06240f;
+    --info: #60a5fa;
+    --info-soft: #0e1c33;
 
     --brand: #12a95d;
     --brand-soft: #07301f;

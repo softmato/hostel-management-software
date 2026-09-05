@@ -56,7 +56,7 @@ import {
   getResidentNightStatus,
   getResidentNotices,
   getResidentProfile,
-  type NightStatus,
+  type NightStatusView,
   type ResidentDashboard,
   type ResidentFood,
   type ResidentNoticeList,
@@ -77,7 +77,12 @@ const define = defineQuery;
  * a subtitle is missing would be the tail wagging the dog.
  */
 export type ResidentMore = {
-  nightStatus: NightStatus | null;
+  /**
+   * The status row **and** the resident's latest alert, because a night status
+   * of `SOS_TRIGGERED` is a row nothing ever clears — see `stayPill`, which is
+   * what turns the pair into the one word this screen prints.
+   */
+  nightStatus: NightStatusView | null;
   profile: ResidentProfile;
 };
 

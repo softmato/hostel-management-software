@@ -4,6 +4,7 @@ import type { ResidentPrefill } from "@/lib/admin-manage-api";
 import {
   backgroundFacts,
   careFacts,
+  collectableBills,
   firstMonthNote,
   identityFacts,
   intakePeople,
@@ -171,5 +172,98 @@ describe("intake confirm rows", () => {
 
     expect(full).not.toMatch(/31 of 31/);
     expect(full).toMatch(/full month/i);
+  });
+});
+
+/**
+ * What the warden can collect before the resident walks away.
+ *
+ * The rule worth protecting: two invoices are two payments with two codes, and
+ * the joining row's figure includes the deposit — so it must not be labelled as
+ * though it were the admission fee alone.
+ */
+describe("collectableBills", () => {
+  const monthLabel = (period: string | null) =>
+    period === "2083-05" ? "Bhadra" : String(period);
+
+  const raised = {
+    admission: {
+      amount: 12000,
+      invoiceId: "a1",
+      raised: true,
+      referenceCode: "EDU-000D-6",
+    },
+    firstMonth: {
+      amount: 16800,
+      invoiceId: "i1",
+      period: "2083-05",
+      raised: true,
+      referenceCode: "EDU-000E-7",
+    },
+    quote: { admissionFee: 2000, depositAmount: 10000 },
+  };
+
+  it("keeps the two invoices apart, each with its own code", () => {
+    expect(collectableBills(raised, monthLabel)).toEqual([
+      {
+        amount: 12000,
+        label: "Admission fee + Security deposit",
+        referenceCode: "EDU-000D-6",
+      },
+      {
+        amount: 16800,
+        label: "Monthly rent — Bhadra",
+        referenceCode: "EDU-000E-7",
+      },
+    ]);
+  });
+
+  /*
+   * `admission.amount` is the fee after any discount *plus* the deposit — see
+   * `raiseAdmissionInvoice`. Calling that row "Admission fee" would understate
+   * what the fee is by the size of the deposit, which is usually the larger of
+   * the two.
+   */
+  it("names only the charges the hostel actually takes", () => {
+    expect(
+      collectableBills(
+        { ...raised, quote: { admissionFee: 2000, depositAmount: 0 } },
+        monthLabel,
+      )[0].label,
+    ).toBe("Admission fee");
+
+    expect(
+      collectableBills(
+        { ...raised, quote: { admissionFee: 0, depositAmount: 10000 } },
+        monthLabel,
+      )[0].label,
+    ).toBe("Security deposit");
+  });
+
+  it("drops an invoice that was not raised", () => {
+    const bills = collectableBills(
+      { ...raised, firstMonth: { period: "2083-05", raised: false, reason: "NO_RATE_CARD" } },
+      monthLabel,
+    );
+
+    expect(bills).toHaveLength(1);
+    expect(bills[0].referenceCode).toBe("EDU-000D-6");
+  });
+
+  /*
+   * A code the phone cannot show is not a way to pay, and an empty strip under
+   * a live figure is a screen telling a warden to read out nothing. An older
+   * API that omits these fields entirely must produce no rows rather than
+   * throw — this runs against whatever `EXPO_PUBLIC_API_URL` points at.
+   */
+  it("shows nothing for a bill with no code, and survives an older response", () => {
+    expect(
+      collectableBills(
+        { ...raised, admission: { amount: 12000, raised: true }, firstMonth: null },
+        monthLabel,
+      ),
+    ).toEqual([]);
+
+    expect(collectableBills({}, monthLabel)).toEqual([]);
   });
 });

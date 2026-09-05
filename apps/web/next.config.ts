@@ -53,6 +53,34 @@ const SHARP_NATIVE = [
   "./node_modules/@img/**/*",
 ];
 
+/**
+ * What the recogniser needs at runtime, none of which the tracer can find.
+ *
+ * Three separate hops it cannot follow, and missing any one of them broke OCR
+ * in production while every local run stayed green:
+ *
+ * 1. **The worker script.** `tesseract.js` spawns `new Worker(workerPath)` where
+ *    `workerPath` is built with `path.join(__dirname, …)` at runtime. A computed
+ *    path is invisible to a static trace, so the file was simply absent — and
+ *    `new Worker` on a missing path never signals ready, which is why the read
+ *    hung rather than failed.
+ * 2. **The WASM cores.** `worker-script/node/getCore.js` picks one of six builds
+ *    by `require`ing a name it assembles from runtime SIMD feature detection.
+ *    Also invisible, also fatal.
+ * 3. **The language model.** `tessdata/eng.traineddata`, which
+ *    `evidence-ocr.ts` now reads off disk instead of fetching from a CDN. It is
+ *    data, so nothing `require`s it at all.
+ *
+ * ~20 MB, listed only on the two subtrees that actually recognise anything.
+ */
+const TESSERACT_RUNTIME = [
+  "../../node_modules/tesseract.js/src/**/*",
+  "./node_modules/tesseract.js/src/**/*",
+  "../../node_modules/tesseract.js-core/**/*",
+  "./node_modules/tesseract.js-core/**/*",
+  "./tessdata/**/*",
+];
+
 const nextConfig: NextConfig = {
   transpilePackages: ["@hostel/db", "@hostel/shared"],
   /**
@@ -103,9 +131,9 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     "/api/v1/files/**": SHARP_NATIVE,
-    "/api/v1/hostel-admin/finance/**": SHARP_NATIVE,
+    "/api/v1/hostel-admin/finance/**": [...SHARP_NATIVE, ...TESSERACT_RUNTIME],
     "/api/v1/public/files/**": SHARP_NATIVE,
-    "/api/v1/resident/finance/**": SHARP_NATIVE,
+    "/api/v1/resident/finance/**": [...SHARP_NATIVE, ...TESSERACT_RUNTIME],
   },
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];

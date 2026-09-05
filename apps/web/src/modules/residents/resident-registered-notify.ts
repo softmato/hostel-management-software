@@ -6,7 +6,7 @@ import { periodBounds } from "@/modules/finance/fee-schedule.service";
 import {
   appUrl,
   getHostelName,
-  resolveHostelAdminContacts,
+  resolveHostelStaffUserIds,
   resolveResidentContact,
   sendNotificationEmail,
 } from "@/modules/residents/resident-notify";
@@ -41,6 +41,17 @@ import { residentRegisteredEmail } from "@hostel/shared/email/templates/resident
  * is how the duplicate-refusal path gets exercised by accident. Every failure in
  * here is logged and swallowed.
  */
+/**
+ * The marker the mobile app reads to know its own role just changed.
+ *
+ * Duplicated as a literal in `apps/mobile/src/lib/push-link.ts` rather than
+ * imported: the two ship on different clocks, and a phone that has not updated
+ * in a month is reading today's payloads. A shared constant would suggest they
+ * move together, which is exactly what must not be assumed — so the string is
+ * frozen, and both sides carry a comment pointing at the other.
+ */
+const RESIDENT_REGISTERED = "RESIDENT_REGISTERED";
+
 export async function notifyResidentRegistered(input: {
   admissionFee: number | null;
   /** Resolved by the intake, when it managed to link an account. */
@@ -102,6 +113,23 @@ export async function notifyResidentRegistered(input: {
  * The category decides where a tap lands, so it follows what actually happened:
  * a resident who has been invoiced is sent to that invoice, and one who has not
  * is sent to their profile rather than to a payments screen with nothing on it.
+ *
+ * ## `type` is what turns the app into the resident app
+ *
+ * This is the one notification in the product that is *about the recipient's own
+ * role changing*. Registering them promoted a `PUBLIC` account to `RESIDENT`
+ * server-side, but every request the phone makes is authorised from the claims
+ * baked into its access token — so until that token expires, the app they are
+ * holding is still the public browsing app, and it will stay that way for the
+ * rest of the token's life however many times they reopen it.
+ *
+ * The mobile client watches for this marker and re-reads the session when it
+ * arrives, which rotates the token and lands them in the resident tabs
+ * (`marksRoleChange` in `lib/push-link.ts`, `usePush`). It is sent whether or
+ * not an invoice was raised, because the promotion happened either way.
+ *
+ * `data` is spread verbatim into the Expo payload by `sendPushToUsers`, so this
+ * reaches the phone on the push as well as sitting on the durable bell row.
  */
 async function notifyTheResident(input: {
   firstMonth: { amount: number; invoiceId: string; period: string } | null;
@@ -120,7 +148,10 @@ async function notifyTheResident(input: {
       ? `You are registered at ${input.hostelName}. Your rent for ${formatBsPeriod(input.firstMonth.period) || input.firstMonth.period} is NPR ${input.firstMonth.amount.toLocaleString("en-US")}.`
       : `You are registered at ${input.hostelName}.`,
     category: input.firstMonth ? "PAYMENT" : "ACCOUNT",
-    data: input.firstMonth ? { invoiceId: input.firstMonth.invoiceId } : undefined,
+    data: {
+      type: RESIDENT_REGISTERED,
+      ...(input.firstMonth ? { invoiceId: input.firstMonth.invoiceId } : {}),
+    },
     hostelId: input.hostelId.toString(),
     priority: "NORMAL",
     title: "You are registered",
@@ -129,12 +160,23 @@ async function notifyTheResident(input: {
 }
 
 /**
- * The owner and the hostel's admins, including whoever performed the intake.
+ * The owner, the hostel's admins **and its wardens** — including whoever
+ * performed the intake.
  *
- * The actor is deliberately **not** excluded. A warden registering somebody at
- * the desk sees a toast that is gone in four seconds; the bell row is the
- * durable record that it happened, and on a shared front desk the owner's copy
- * of it is the only way they ever see an intake they did not do.
+ * The actor is deliberately not excluded. A warden registering somebody at the
+ * desk sees a toast that is gone in four seconds; the bell row is the durable
+ * record that it happened, and on a shared front desk the owner's copy of it is
+ * the only way they ever see an intake they did not do.
+ *
+ * ## The wardens were missing, and they are the ones at the desk
+ *
+ * The audience used to come from `resolveHostelAdminContacts`, which answers
+ * "who do we email": owners and `HOSTEL_ADMIN` members, and only those with an
+ * address on file. Resolving a *notification* audience from an email helper
+ * meant the person actually performing intakes never heard about one — not in
+ * the bell, and therefore not on their phone, since `createInAppNotification`
+ * fans both out together. `resolveHostelStaffUserIds` asks the question this
+ * call site is actually asking.
  *
  * `actionUrl` is the web portal's path — it is what the bell links to there —
  * and the app maps it to its own residents tab (`lib/push-link.ts`), which is
@@ -146,14 +188,10 @@ async function notifyTheHostel(input: {
   residentName: string;
   room: string;
 }) {
-  const admins = await resolveHostelAdminContacts(input.hostelId);
+  const staff = await resolveHostelStaffUserIds(input.hostelId);
 
   await Promise.all(
-    admins.map(async (admin) => {
-      if (!admin.userId) {
-        return;
-      }
-
+    staff.map(async (userId) => {
       await createInAppNotification({
         actionUrl: "/hostel-admin/residents",
         body: `${input.residentName} — ${input.room || "no room recorded"}, moving in ${input.resident.moveInDate.toDateString()}.`,
@@ -161,7 +199,7 @@ async function notifyTheHostel(input: {
         data: { residentId: input.resident._id.toString() },
         hostelId: input.hostelId.toString(),
         title: "New resident registered",
-        userId: admin.userId,
+        userId,
       });
     }),
   );

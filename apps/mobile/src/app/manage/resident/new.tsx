@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { IdScanner } from "@/components/manage/id-scanner";
+import { ReferenceStrip } from "@/components/resident-payments";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
@@ -36,6 +37,7 @@ import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
 import {
   backgroundFacts,
   careFacts,
+  collectableBills,
   firstMonthNote,
   identityFacts,
   type IntakeFact,
@@ -93,7 +95,11 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * thank-you, not a standing rate for the referred resident.
  */
 
-type Step = "confirm" | "identify" | "terms";
+/**
+ * `collect` is not a fourth thing to fill in — it is what the screen becomes
+ * once the resident exists. See `CollectStep`.
+ */
+type Step = "collect" | "confirm" | "identify" | "terms";
 
 const TYPE_OPTIONS = RESIDENT_TYPES.map((value) => ({
   label: humanizeEnum(value),
@@ -112,6 +118,18 @@ export default function NewResidentScreen() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
 
+  /*
+   * The gap between the buzz and the form.
+   *
+   * `lookupResidentProfile` is a network round trip, and until this the camera
+   * kept its sweep running through it — the screen's own way of saying "still
+   * looking". A warden who felt the success buzz and saw an unchanged
+   * viewfinder held the card up a second time, which the scanner's `handled`
+   * ref correctly ignores, so the screen looked broken for as long as the
+   * request took.
+   */
+  const [reading, setReading] = useState(false);
+
   // Only reachable on the manual path — a card answers all four.
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -123,6 +141,13 @@ export default function NewResidentScreen() {
   const [moveInDate, setMoveInDate] = useState(() => dayInputFromNow(0));
   const [referralCode, setReferralCode] = useState("");
   const [saving, setSaving] = useState(false);
+
+  /*
+   * The intake response, kept rather than dropped on the floor. It carries the
+   * reference codes for the invoices the server has just raised, and the desk
+   * is the one moment somebody can act on them — see `CollectStep`.
+   */
+  const [registered, setRegistered] = useState<ResidentIntakeResult | null>(null);
 
   const rooms = useMemo(
     () => (hostel.data?.roomConfigurations ?? []).filter((config) => config.vacantBeds > 0),
@@ -153,6 +178,7 @@ export default function NewResidentScreen() {
 
   const readCard = useCallback(async (residentId: string) => {
     setScanError(null);
+    setReading(true);
 
     try {
       const { prefill } = await lookupResidentProfile(residentId);
@@ -167,6 +193,14 @@ export default function NewResidentScreen() {
        * camera is still live can do that without touching the screen.
        */
       setScanError(readApiError(error, "That card could not be read."));
+    } finally {
+      /*
+       * In `finally`, not on the success path. A refused card leaves this screen
+       * mounted and listening again, and a `reading` flag stuck true would dim
+       * the keypad and hold the overlay over a camera that is very much live —
+       * the one state from which there is no way forward at all.
+       */
+      setReading(false);
     }
   }, []);
 
@@ -262,12 +296,24 @@ export default function NewResidentScreen() {
 
     setSaving(false);
     toastSuccess("Registered", registeredNote(result, contacts));
-    router.replace(`/manage/resident/${result.resident.id}`);
+
+    /*
+     * Not `router.replace` any more. Navigating straight to the dossier threw
+     * away the two reference codes in `result` at the exact moment they were
+     * worth something — the resident is still at the desk with their phone out,
+     * and asking them to go home and find the code in their own app is asking
+     * for a payment that arrives next week or not at all.
+     *
+     * The dossier is one tap on, from the footer.
+     */
+    setRegistered(result);
+    setStep("collect");
   }, [identity, moveInDate, person, referralCode, roomType]);
 
   if (step === "identify") {
     return (
       <IdScanner
+        busy={reading ? "Fetching their details" : null}
         extraAction={
           <Pressable
             accessibilityLabel="Register somebody with no ID card"
@@ -293,6 +339,38 @@ export default function NewResidentScreen() {
         title="Register a new resident"
         tone="brand"
       />
+    );
+  }
+
+  /*
+   * Registered, and still on screen.
+   *
+   * Ahead of the loading and error guards below deliberately: those describe
+   * whether the *form* can be drawn, and the form is finished. A hostel resource
+   * that happened to be refetching would otherwise replace a screen holding two
+   * live reference codes with a spinner, and there is no way back to it.
+   */
+  if (step === "collect" && registered) {
+    return (
+      <Screen
+        footer={
+          <Button
+            label="Open their profile"
+            onPress={() => router.replace(`/manage/resident/${registered.resident.id}`)}
+          />
+        }
+        header={
+          <AppBar
+            accent
+            centerTitle
+            subtitle={`${person.firstName} ${person.lastName}`.trim() || undefined}
+            title="Registered"
+          />
+        }
+        scroll
+      >
+        <CollectStep result={registered} />
+      </Screen>
     );
   }
 
@@ -824,6 +902,100 @@ function MoneyCard({
       <Text className="px-1 text-xs text-muted-foreground">
         {firstMonth ? `${firstMonthNote(firstMonth)} ${rentBasisNote(rentBasis)}` : rentBasisNote(rentBasis)}
       </Text>
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* After registering — what can be collected at the desk                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The bill, again, with the codes that settle it — while they are still here.
+ *
+ * ## Why this screen exists at all
+ *
+ * The intake used to end on a toast and a jump to the dossier. The response it
+ * jumped away from carried a reference code for each invoice the server had
+ * just raised, and those codes are the only way a payment can be matched to
+ * this resident. A person who has just handed over a phone number, a card and a
+ * signature is at their most willing to also hand over the money; sending them
+ * home to find the code themselves converts that into an open invoice.
+ *
+ * So the last thing the warden sees is what to collect and what to quote.
+ *
+ * ## One row per invoice, and no total across them
+ *
+ * `collectableBills` returns the joining charge and the first month separately
+ * because they *are* separate invoices with separate codes. Summing them under
+ * one figure would invite one transfer for the total quoting one of the two
+ * codes — which settles that invoice, overpays it into credit, and leaves the
+ * other showing unpaid. The line under the rows says so in words rather than
+ * relying on two cards to imply it.
+ *
+ * ## Nothing to collect is an outcome, not an error
+ *
+ * A hostel with no admission fee, no deposit and no rate card raises no invoice
+ * at the desk, and a resident marked as not yet living here is not billable
+ * yet. Both are ordinary, and both get a sentence — an empty card under
+ * "Collect now" would read as a screen that failed to load.
+ */
+function CollectStep({ result }: { result: ResidentIntakeResult }) {
+  const dates = useDates();
+
+  const bills = collectableBills(result, dates.periodMonth);
+
+  if (bills.length === 0) {
+    return (
+      <View className="gap-5 pt-1">
+        <SectionHeader
+          subtitle="They are registered and hold a bed"
+          title="Nothing to collect yet"
+        />
+        <Card>
+          <Text variant="muted">
+            No invoice was raised at registration, so there is no code to quote. Their
+            first bill and its code appear on their own screen when it is raised.
+          </Text>
+        </Card>
+      </View>
+    );
+  }
+
+  return (
+    <View className="gap-5 pt-1">
+      <View className="gap-2">
+        <SectionHeader
+          subtitle="If they want to pay now, this is what to quote"
+          title="Collect now"
+        />
+
+        {bills.map((bill) => (
+          <Card key={bill.referenceCode} padding="px-4 pb-3 pt-1">
+            <FactRow label={bill.label} value={<Money size="large" value={bill.amount} />} />
+            {/*
+              The code sits under the figure it settles rather than beside it.
+              Two cards, two codes, and the only thing that keeps them straight
+              is that each code is directly beneath its own amount — a column of
+              codes on the right margin would be two strings a warden could read
+              across the wrong row.
+            */}
+            <ReferenceStrip code={bill.referenceCode} hint="Reference code" />
+          </Card>
+        ))}
+      </View>
+
+      {bills.length > 1 ? (
+        <Text className="px-1 text-xs text-muted-foreground">
+          Two invoices, so two payments — each one quotes its own code. A single
+          transfer for the total settles only the invoice whose code it carries.
+        </Text>
+      ) : (
+        <Text className="px-1 text-xs text-muted-foreground">
+          One payment, one code. It works for cash at the desk as well as a transfer —
+          the code is how the payment is matched to them either way.
+        </Text>
+      )}
     </View>
   );
 }

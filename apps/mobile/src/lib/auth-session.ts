@@ -40,7 +40,7 @@ import {
   setSession,
   setSessionEndReason,
 } from "@/store/slices/authSlice";
-import { ROLE } from "@/constants/roles";
+import { resolveHome, ROLE } from "@/constants/roles";
 
 /** Wire the HTTP layer to the store once, at module load. */
 bindSessionHandlers({
@@ -161,6 +161,52 @@ export async function revalidateSession(): Promise<ApiUser | null> {
    * to pull the screen out from under someone mid-launch.
    */
   return roleChanged || providerChanged || activationChanged ? account : null;
+}
+
+/**
+ * Re-read the account and, if it moved, put the app on the home its new role
+ * implies.
+ *
+ * ## What this is for
+ *
+ * Being registered at a hostel desk promotes a `PUBLIC` account to `RESIDENT`
+ * on the server, and the phone in the resident's pocket knows nothing about it:
+ * its access token still carries the old claims, so it stays the public
+ * browsing app for the rest of that token's life — through backgrounding,
+ * through relaunches, through however long `ACCESS_TOKEN_TTL` has left. The
+ * hostel has just taken their deposit and their app has not changed.
+ *
+ * The registration push is the signal, and this is what it triggers
+ * (`usePush`). `revalidateSession` already does the hard half — it rotates the
+ * token when the role changed, which is what makes the resident endpoints stop
+ * refusing — and returns the account only when something actually moved, so a
+ * push arriving at somebody who is already a resident routes nothing.
+ *
+ * ## `replace`, not `push`
+ *
+ * The public shell is not somewhere to go *back* to. Leaving `(browse)` under a
+ * resident stack would let a back gesture return to tabs that no longer match
+ * the account, which is the state this whole function exists to end.
+ *
+ * Silent on failure by design: an offline phone keeps the app it has, and the
+ * ordinary boot revalidation corrects it on the next launch.
+ */
+export async function adoptRoleChange(): Promise<ApiUser | null> {
+  const account = await revalidateSession();
+
+  if (!account) {
+    return null;
+  }
+
+  router.replace(
+    resolveHome({
+      isApprovedProvider: account.isServiceProvider,
+      isResidentActivated: store.getState().auth.isResidentActivated ?? true,
+      role: account.role,
+    }),
+  );
+
+  return account;
 }
 
 /** Called on every successful login, signup, Google exchange and QR activation. */

@@ -16,7 +16,7 @@ import { memo, useCallback, useState } from "react";
 
 import { currency, EmptyState, LoadingRows } from "@/app/_components/shared-ui";
 import { browserApi } from "@/lib/browser-api";
-import { dayMonthYear, daysLeftLabel, monthLabel } from "@/lib/format-month";
+import { dayMonthYearBoth, daysLeftLabel, monthLabel } from "@/lib/format-month";
 import { usePortalResource } from "@/lib/portal-query";
 import { residentEndpoints } from "@/lib/resident-endpoints";
 import { cn } from "@/lib/utils";
@@ -546,7 +546,7 @@ export const ResidentPayInvoicePanel = memo(function ResidentPayInvoicePanel({
                   <div className="flex justify-between gap-3">
                     <dt className="text-muted-foreground">Due by</dt>
                     <dd className="text-right font-semibold text-foreground">
-                      {dayMonthYear(instructions.dueDate)}
+                      {dayMonthYearBoth(instructions.dueDate)}
                       {daysLeftLabel(instructions.dueDate) ? (
                         <span className="block text-[11px] font-medium text-muted-foreground">
                           {daysLeftLabel(instructions.dueDate)}

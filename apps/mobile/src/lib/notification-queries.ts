@@ -1,0 +1,87 @@
+/**
+ * The bell's read, named once — the one question every portal asks.
+ *
+ * The sibling of `admin-queries.ts`, `resident-queries.ts`, `cook-queries.ts`
+ * and `guardian-queries.ts`, and the only one of the five that belongs to no
+ * portal at all. `GET /notifications` runs `requireApiPrincipal` and filters on
+ * `userId` with no role branch, so a resident, a warden, a cook, a guardian, a
+ * service provider and a signed-in browsing account all ask it — which is
+ * exactly why it could not live in any one portal's registry, the same argument
+ * `role-tabs.tsx` already makes for the community board.
+ *
+ * ## One key for the bell and the screen
+ *
+ * This was two requests for one answer. `<NotificationBell>` fetched
+ * `filter=unread` for its badge and `app/notifications.tsx` fetched `filter=all`
+ * for its list, both with no `cacheKey`, so every screen carrying a bell asked
+ * on mount and the screen the bell opened asked again — on the tab bars where a
+ * bell sits on four of five tabs, that is four requests to draw one number.
+ *
+ * They are now the same key. `listNotifications` counts `unreadCount` and
+ * `actionCount` over the whole mailbox rather than over the page it returns —
+ * `notification.service.ts` says so in as many words — so the `all` payload
+ * carries everything the badge needs. The badge paints from cache, the screen
+ * paints from the same entry, and marking a row read moves both at once because
+ * `use-resource`'s optimistic `setData` writes back to the key they share.
+ *
+ * ## Why the feed is worth warming and most reads are not
+ *
+ * The bell is drawn on nearly every tab of every portal, so the answer is needed
+ * whether or not anybody opens it — the badge is the read. That makes it the
+ * cheapest possible warm-up to justify: it is not speculation about where
+ * somebody will go next, it is the number already on screen.
+ */
+
+import { REALTIME_TOPIC } from "@/constants/topics";
+import {
+  type NotificationFeed,
+  type NotificationFilter,
+  listNotifications,
+} from "@/lib/notifications-api";
+import { defineQuery, prefetchQuery, type Query } from "@/lib/query-cache";
+
+export type NotificationQuery<T> = Query<T>;
+
+/**
+ * The filter the bell reads and the screen opens on.
+ *
+ * Not a default parameter on `feed` — a caller that forgot to pass one would
+ * silently share this entry, and the two other filters return genuinely
+ * different lists.
+ */
+export const DEFAULT_NOTIFICATION_FILTER: NotificationFilter = "all";
+
+export const notificationQuery = {
+  /**
+   * One filter's page of the mailbox.
+   *
+   * The filter is in the key because it changes the answer — `unread` and
+   * `action` return different rows, and the screen's chips switch between them.
+   * The two counts do not vary by filter, which is what lets the badge read
+   * whichever entry it likes.
+   */
+  feed: (filter: NotificationFilter): NotificationQuery<NotificationFeed> =>
+    defineQuery(`notifications:${filter}`, [REALTIME_TOPIC.NOTIFICATIONS], () =>
+      listNotifications(filter),
+    ),
+} as const;
+
+/** Warms one descriptor. Never throws, never re-asks something already fresh. */
+export function prefetchNotificationQuery<T>(query: NotificationQuery<T>) {
+  prefetchQuery(query.key, query.load, { topics: query.topics });
+}
+
+/**
+ * The feed, warmed for whichever shell is being entered.
+ *
+ * Called from `role-tabs.tsx`, which is the one component every portal's layout
+ * mounts, and only for a signed-in account — the endpoint is 401 for anybody
+ * else, and `(browse)` runs signed out.
+ *
+ * Only `all` is warmed. The other two filters are one tap away *and* behind a
+ * screen this has already made instant, so warming them would be three requests
+ * to save the second one somebody might not make.
+ */
+export function prefetchNotifications() {
+  prefetchNotificationQuery(notificationQuery.feed(DEFAULT_NOTIFICATION_FILTER));
+}

@@ -2,7 +2,8 @@ import type { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
-import { hostelPeriodOf } from "@/lib/hostel-day";
+import { monthLabel } from "@/lib/format-month";
+import { bsPeriodBounds, hostelPeriodOf, isBsPeriod } from "@/lib/hostel-day";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { listResidentInvoices } from "@/modules/finance/ledger-read.service";
@@ -84,18 +85,33 @@ export function periodOfDate(date: Date): string {
 }
 
 /**
- * The dates a monthly invoice's period covers — first day to last day, UTC.
+ * The dates a monthly invoice's period covers — first day to last day.
  *
  * Derived rather than stored because `Invoice` holds `period` and nothing else:
  * there is no `periodStart`/`periodEnd` on the model, and adding a pair of
  * denormalised dates that must agree with the string forever is a worse trade
- * than computing them where they are printed. Day 0 of the following month is the
- * last day of this one, which is also how February and leap years come out right
- * without a table.
+ * than computing them where they are printed.
  *
- * Returns null for anything that is not a `YYYY-MM` month. A one-off invoice — an
- * admission fee, a deposit — covers no span, and a receipt for one is honest by
- * omitting the line rather than by inventing a month it did not buy.
+ * ## The two numbers were read in the wrong calendar
+ *
+ * This split the key on the hyphen and handed the halves to `Date.UTC`. After
+ * the cutover the key is Bikram Sambat, so `2083-05` — Bhadra 2083, 17 August to
+ * 16 September 2026 — was printed on a resident's receipt as **1 to 31 May
+ * 2083**: a span in the wrong calendar, the wrong month within it, and fifty-
+ * seven years away, on the one document a resident hands to a landlord or an
+ * employer. `bsPeriodBounds` is the table that knows a BS month is 29 to 32 days
+ * and which of those this one is.
+ *
+ * `lastDay`, not `end`. This is a **calendar day** printed as "Covers until", and
+ * `end` is the month's last millisecond in UTC — 05:44 the next morning in
+ * Kathmandu, which every Nepali reader would name as the first of the following
+ * month. `end` belongs to `$lte` range queries and nowhere near a printed date.
+ *
+ * Returns null for anything that is not a month this can bound. A one-off — an
+ * admission fee, a deposit — carries no period at all, and a receipt for one is
+ * honest by omitting the line rather than by inventing a month it did not buy.
+ * A pre-cutover Gregorian key keeps the Gregorian span it has always meant: those
+ * receipts were correct when they were issued and must not be re-dated now.
  */
 export function periodCoverage(
   period: string | null | undefined,
@@ -111,6 +127,17 @@ export function periodCoverage(
 
   if (month < 1 || month > 12) {
     return null;
+  }
+
+  if (isBsPeriod(period)) {
+    try {
+      const { lastDay, start } = bsPeriodBounds(period!);
+
+      return { from: start, to: lastDay };
+    } catch {
+      // Past the conversion table. Printing nothing beats printing a guess.
+      return null;
+    }
   }
 
   return {
@@ -261,7 +288,10 @@ export async function renderReceiptById(
     coversFrom: coverage?.from ?? null,
     coversTo: coverage?.to ?? null,
     hostelName: hostel?.name ?? "Hostel",
-    invoicePeriod: invoice?.period ?? null,
+    // Named, never raw. `2083-05` is a database key; the line on the document
+    // has to say `Bhadra 2083 BS`, which is the month written on the hostel's
+    // own receipt pad. `monthLabel` keeps a pre-cutover key in English.
+    invoicePeriod: invoice?.period ? monthLabel(invoice.period) : null,
     issuedAt: receipt.issuedAt,
     // Only `MANUAL_REVIEW` hedges. A statement match and a gateway verification
     // are both independent of the payer; an `UNCONFIRMED` event has no business
@@ -314,7 +344,7 @@ export async function renderStatementForResident(scope: {
       // A one-off — an admission fee, a fine — has no period, and the Period
       // column has to say something. Blank would read as a rendering fault on a
       // document a resident hands to a landlord or an employer.
-      period: invoice.period ?? "One-off",
+      period: invoice.period ? monthLabel(invoice.period) : "One-off",
       status: invoice.status,
     })),
   });

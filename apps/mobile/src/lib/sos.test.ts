@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   describeFanout,
+  SOS_FLAG_WINDOW_MS,
   SOS_MESSAGE_MAX,
+  sosIsFlagged,
+  sosIsOpen,
   sosMessagePayload,
   validateSosMessage,
 } from "@/lib/sos";
@@ -96,5 +99,65 @@ describe("sosMessagePayload", () => {
     expect(sosMessagePayload("")).toBeUndefined();
     expect(sosMessagePayload("   ")).toBeUndefined();
     expect(sosMessagePayload("  locked out  ")).toBe("locked out");
+  });
+});
+
+describe("sosIsOpen", () => {
+  it("counts an acknowledged alert as still open", () => {
+    // A warden has seen it. That is not the same as it being over, and the
+    // resident's screen must not say it is.
+    expect(sosIsOpen({ status: "ACTIVE" })).toBe(true);
+    expect(sosIsOpen({ status: "ACKNOWLEDGED" })).toBe(true);
+  });
+
+  it("counts the two staff can close it with as settled", () => {
+    expect(sosIsOpen({ status: "RESOLVED" })).toBe(false);
+    expect(sosIsOpen({ status: "FALSE_ALARM" })).toBe(false);
+  });
+
+  it("treats no alert as nothing open", () => {
+    expect(sosIsOpen(null)).toBe(false);
+    expect(sosIsOpen(undefined)).toBe(false);
+  });
+});
+
+describe("sosIsFlagged", () => {
+  const raised = "2026-09-04T12:00:00.000Z";
+  const now = new Date("2026-09-04T18:00:00.000Z");
+
+  it("flags an open alert raised within the day", () => {
+    expect(sosIsFlagged({ createdAt: raised, status: "ACTIVE" }, now)).toBe(true);
+  });
+
+  /*
+   * The bug this pair exists for. The night status row stays `SOS_TRIGGERED`
+   * forever — one upserted row per resident, nothing clears it — so a home card
+   * reading that row flagged a settled alert, and a weeks-old one.
+   */
+  it("stops the moment staff settle it", () => {
+    expect(sosIsFlagged({ createdAt: raised, status: "RESOLVED" }, now)).toBe(false);
+    expect(sosIsFlagged({ createdAt: raised, status: "FALSE_ALARM" }, now)).toBe(false);
+  });
+
+  it("stops a day after it was raised, however it was left", () => {
+    const old = new Date(
+      new Date(raised).getTime() + SOS_FLAG_WINDOW_MS + 1000,
+    );
+
+    expect(sosIsFlagged({ createdAt: raised, status: "ACTIVE" }, old)).toBe(false);
+  });
+
+  it("holds right up to the edge of the window", () => {
+    const edge = new Date(new Date(raised).getTime() + SOS_FLAG_WINDOW_MS);
+
+    expect(sosIsFlagged({ createdAt: raised, status: "ACTIVE" }, edge)).toBe(true);
+  });
+
+  it("flags nothing it cannot date", () => {
+    // `createdAt` is optional on `serializeSOS`, and an alert with no timestamp
+    // cannot be aged out — so it is not flagged rather than flagged forever.
+    expect(sosIsFlagged({ status: "ACTIVE" }, now)).toBe(false);
+    expect(sosIsFlagged({ createdAt: "not a date", status: "ACTIVE" }, now)).toBe(false);
+    expect(sosIsFlagged(null, now)).toBe(false);
   });
 });

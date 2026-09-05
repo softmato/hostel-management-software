@@ -7,6 +7,7 @@
 
 import { nepalDayKey } from "@/lib/format";
 import type { NightStatus, NightStatusValue } from "@/lib/resident-api";
+import { sosIsOpen, type SosStanding } from "@/lib/sos";
 
 /* -------------------------------------------------------------------------- */
 /* What a resident is allowed to report                                       */
@@ -117,6 +118,14 @@ export type NightStanding = {
 export function nightStanding(
   status: NightStatus,
   now: Date = new Date(),
+  /**
+   * The resident's most recent `SOSAlert`, when the caller has it.
+   *
+   * `null` means *no information*, not *no alert*: with nothing passed the
+   * status row decides, which is what every caller did before the alert was on
+   * the payload. Passed and settled, the SOS notice goes — see below.
+   */
+  sos: SosStanding | null = null,
 ): NightStanding {
   const current = isCurrentNight(status.checkedAt, now);
 
@@ -124,10 +133,24 @@ export function nightStanding(
    * An SOS outranks everything. It is written by `triggerSOS`, not by a resident,
    * and only staff can move an alert off `ACTIVE` — so the screen must not imply
    * that picking "I am safe" cancels it.
+   *
+   * Which is exactly why it has to stop once they have. The notice below says
+   * "only hostel staff can close it"; leaving it up after they did makes the
+   * screen lie in the other direction, and the status row alone can never say —
+   * it is a single upserted row that nothing clears. So: the row says an SOS was
+   * written, and the alert (when the caller has one) says whether it is still
+   * open.
    */
-  if (status.status === "SOS_TRIGGERED") {
+  if (status.status === "SOS_TRIGGERED" && (sos === null || sosIsOpen(sos))) {
     return {
-      answered: current,
+      /*
+        Never answered, even when the alert was raised tonight. `checkedAt` on an
+        SOS row is the moment the alert fired, not the moment the resident said
+        where they were — and `answered` is what puts "Checked in" on the home
+        card and "Update my status" on this screen's button. Somebody in the
+        middle of an emergency has told the hostel nothing about their night.
+      */
+      answered: false,
       headline: "Your hostel has an SOS alert on your record.",
       sosNotice:
         "Telling them you are safe updates your night status. It does not close the alert — only hostel staff can do that.",

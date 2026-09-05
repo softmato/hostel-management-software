@@ -102,7 +102,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow HostelHub to use your camera to scan your hostel activation QR code."
+          "cameraPermission": "Allow HostelHub to use your camera to scan your hostel activation QR code and to photograph an issue you are reporting."
         }
       ],
       [
@@ -123,7 +123,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow HostelHub to use the microphone so you can record a spoken description of a maintenance problem for the person coming to fix it.",
+          "microphonePermission": "Allow HostelHub to use the microphone so you can say what is wrong out loud instead of typing it — when you raise an issue, and when a warden reports a repair.",
           "recordAudioAndroid": true,
           "enableBackgroundPlayback": false,
           "enableBackgroundRecording": false

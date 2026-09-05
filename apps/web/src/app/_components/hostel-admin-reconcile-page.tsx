@@ -517,7 +517,7 @@ export const HostelAdminReconcilePageContent = memo(
                     >
                       <p className="text-sm font-medium">
                         {row.residentName} · {currency(row.amount)}
-                        {row.period ? ` · ${row.period}` : ""}
+                        {row.period ? ` · ${monthLabel(row.period)}` : ""}
                       </p>
                       <p className="mt-0.5 text-sm text-muted-foreground">{row.why}</p>
                       <p className="mt-0.5 text-sm text-muted-foreground">

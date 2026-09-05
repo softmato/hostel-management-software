@@ -71,8 +71,13 @@ export type GuardianPayment = {
   dueAmount: number;
   dueDate?: string;
   id: string;
-  /** `YYYY-MM`, the billing period — the same key receipts are grouped by. */
-  month: string;
+  /**
+   * `YYYY-MM`, the billing period — the same key receipts are grouped by — or
+   * **null** on a one-off that belongs to no month. The joining bill is one,
+   * and it is the *first* invoice a household ever sees, so this is the common
+   * case for a new resident rather than an edge one. See `Invoice.period`.
+   */
+  month: string | null;
   paidAmount: number;
   status: string;
 };
@@ -128,8 +133,24 @@ export type GuardianDashboard = {
   hostel: {
     contact: { email: string; phone: string };
     id: string;
+    /** True only when the platform has verified the hostel. */
+    isVerified: boolean;
     location: { address?: string; area?: string; city?: string };
     name: string;
+    /** The building's cover photo, or `""`. */
+    photoUrl: string;
+    /**
+     * The public listing's slug, or `""`.
+     *
+     * The server has always sent these last three and this type has always
+     * omitted them, so `hostel/[slug]` was unreachable from this portal for no
+     * reason other than a hand-written type being shorter than the payload it
+     * described. It is empty — never a slug — unless the listing is `PUBLISHED`
+     * **and** `VERIFIED`, because `getPublicHostelBySlug` filters on both and a
+     * guardian who taps through to "Hostel was not found" learns something
+     * frightening and untrue about where their child lives.
+     */
+    slug: string;
   } | null;
   notices: GuardianNotice[];
   payments: GuardianPayment[];

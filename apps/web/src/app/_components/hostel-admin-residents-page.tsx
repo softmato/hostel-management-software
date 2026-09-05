@@ -54,6 +54,7 @@ import {
   useResidents,
 } from "@/hooks/use-hostel-admin";
 import { browserApi } from "@/lib/browser-api";
+import { monthLabel } from "@/lib/format-month";
 import { cn } from "@/lib/utils";
 
 import {
@@ -604,7 +605,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         const rentNote = !created.firstMonth
           ? ""
           : created.firstMonth.raised
-            ? ` ${currency(created.firstMonth.amount)} invoiced for ${created.firstMonth.period}, pro-rated from their move-in day.`
+            ? ` ${currency(created.firstMonth.amount)} invoiced for ${monthLabel(created.firstMonth.period)}, pro-rated from their move-in day.`
             : " No rent is due yet — it is invoiced when they are marked as living here.";
         setMessage(
           (prefill

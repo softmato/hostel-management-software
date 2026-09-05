@@ -24,6 +24,7 @@ import {
 import { endSession } from "@/lib/auth-session";
 import { prefetchCommunity } from "@/lib/community-queries";
 import { humanizeEnum } from "@/lib/format";
+import { stayPill } from "@/lib/resident-home";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
 /**
@@ -239,8 +240,17 @@ export default function ResidentMoreScreen() {
 
   const nextTheme = preference === "dark" ? "light" : "dark";
 
+  /*
+    `stayPill`, not `humanizeEnum(status.status)`.
+
+    The raw value printed `Sos Triggered` — and went on printing it for as long
+    as the row said so, which is forever: one upserted row per resident, cleared
+    by nothing. The pill reads the row *and* the alert, so this row says `SOS
+    active` while the alert is genuinely open and today's, and `Checked in` /
+    `Not checked in` the rest of the time.
+  */
   const nightSubtitle = more.data?.nightStatus
-    ? humanizeEnum(more.data.nightStatus.status)
+    ? stayPill(more.data.nightStatus.status, more.data.nightStatus.sos).label
     : null;
 
   return (

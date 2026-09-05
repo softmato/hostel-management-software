@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  describeGuardianOnRecord,
   describeInvitation,
   describeSharing,
+  type GuardianLink,
+  type GuardianOnRecord,
   type GuardianPermissions,
   grantedKeys,
   grantedLabels,
   invalidInviteReason,
+  invitableGuardians,
+  inviteDraftFrom,
   NO_GUARDIAN_PERMISSIONS,
 } from "@/lib/guardian-access";
 
@@ -141,5 +146,84 @@ describe("the invite form, against guardianInviteSchema", () => {
     // The server runs `z.string().email()`. Being stricter here would refuse a
     // working address, which is worse than one failed round trip.
     expect(invalidInviteReason({ ...valid, email: "a+b@sub.example.co.uk" })).toBeNull();
+  });
+});
+
+describe("inviting somebody the hostel already knows about", () => {
+  const aama: GuardianOnRecord = {
+    email: "Aama@Example.com",
+    firstName: " Sita ",
+    id: "g1",
+    isPrimary: true,
+    lastName: "Sharma",
+    phone: " 9800000000 ",
+    relation: "Mother",
+  };
+
+  const uncle: GuardianOnRecord = {
+    email: "kaka@example.com",
+    firstName: "Ram",
+    id: "g2",
+    isPrimary: false,
+    lastName: "Sharma",
+    phone: "+977 9811111111",
+    relation: "Uncle",
+  };
+
+  function link(over: Partial<Pick<GuardianLink, "email" | "guardianId" | "phone">>) {
+    return { email: "", guardianId: "", phone: "", ...over };
+  }
+
+  it("fills the invite form from the record, trimmed", () => {
+    expect(inviteDraftFrom(aama)).toEqual({
+      email: "Aama@Example.com",
+      firstName: "Sita",
+      lastName: "Sharma",
+      phone: "9800000000",
+      relation: "Mother",
+    });
+  });
+
+  it("offers everybody on record when nobody is linked yet", () => {
+    expect(invitableGuardians([uncle, aama], [])).toEqual([aama, uncle]);
+  });
+
+  it("puts the primary guardian first — they are who the office calls", () => {
+    expect(invitableGuardians([uncle, aama], []).map((one) => one.id)).toEqual([
+      "g1",
+      "g2",
+    ]);
+  });
+
+  it("drops the guardian the link came from", () => {
+    expect(invitableGuardians([aama, uncle], [link({ guardianId: "g1" })])).toEqual([
+      uncle,
+    ]);
+  });
+
+  it("drops a match on email whatever its case, and on phone whatever its format", () => {
+    // A resident can invite an address the office never wrote down, and the
+    // office can add a row for somebody already linked — the id match alone
+    // would miss both, and re-offering them replaces a working invitation.
+    expect(
+      invitableGuardians([aama, uncle], [link({ email: "aama@example.com" })]),
+    ).toEqual([uncle]);
+    expect(invitableGuardians([aama, uncle], [link({ phone: "9811111111" })])).toEqual([
+      aama,
+    ]);
+  });
+
+  it("does not treat two blank emails as the same person", () => {
+    // The failure worth avoiding is hiding a parent who has no access at all.
+    const noEmail = { ...uncle, email: "", phone: "" };
+
+    expect(invitableGuardians([noEmail], [link({ email: "", phone: "" })])).toEqual([
+      noEmail,
+    ]);
+  });
+
+  it("names a person the way the chooser does", () => {
+    expect(describeGuardianOnRecord(uncle)).toBe("Ram Sharma · Uncle");
+    expect(describeGuardianOnRecord({ ...uncle, relation: "" })).toBe("Ram Sharma");
   });
 });

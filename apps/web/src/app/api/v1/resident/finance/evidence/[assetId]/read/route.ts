@@ -41,6 +41,22 @@ import { InvoiceModel } from "@hostel/db/models/Invoice";
 export const runtime = "nodejs";
 
 /**
+ * The outer bound on a read, in seconds.
+ *
+ * Belt to `evidence-ocr`'s braces. That module now gives up on a recognition
+ * after its own budget, which is the fix that matters; this is the guarantee
+ * that holds even if some future path inside the stream forgets to bound
+ * itself. It was the absence of *any* limit here that let a stalled recogniser
+ * hold the response open until the platform killed it — minutes during which
+ * the resident's claim form sat on "Reading the amount and transaction ID…".
+ *
+ * Comfortably above the recognition budget plus the object fetch, and well
+ * below the mobile client's own 45-second deadline, so the phone receives a
+ * real verdict rather than timing out and reporting the file as unreadable.
+ */
+export const maxDuration = 30;
+
+/**
  * Reads a just-uploaded payment screenshot and hands back what it appears to say,
  * so the claim form can fill itself in.
  *

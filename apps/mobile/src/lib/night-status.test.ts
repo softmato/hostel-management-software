@@ -148,6 +148,48 @@ describe("nightStanding", () => {
     expect(standing.sosNotice).toBeTruthy();
     expect(standing.answered).toBe(false);
   });
+
+  /*
+   * An SOS is not an answer to "where are you tonight". `checkedAt` on that row
+   * is when the alert fired, so counting it as answered put "Checked in" on the
+   * home card for a resident in the middle of an emergency.
+   */
+  it("never counts an SOS as tonight's answer", () => {
+    const standing = nightStanding(
+      status({ status: "SOS_TRIGGERED" }),
+      new Date(NIGHT_OF_17TH.smallHours),
+    );
+
+    expect(standing.answered).toBe(false);
+  });
+
+  /*
+   * The notice says only hostel staff can close the alert. Once they have, it
+   * must go — and the night status row can never say so, because nothing
+   * rewrites it.
+   */
+  it("drops the SOS notice once staff have settled the alert", () => {
+    for (const sosStatus of ["RESOLVED", "FALSE_ALARM"]) {
+      const standing = nightStanding(
+        status({ status: "SOS_TRIGGERED" }),
+        new Date(NIGHT_OF_17TH.smallHours),
+        { createdAt: NIGHT_OF_17TH.evening, status: sosStatus },
+      );
+
+      expect(standing.sosNotice).toBeUndefined();
+      expect(standing.headline).toBe("Your hostel does not know where you are tonight.");
+    }
+  });
+
+  it("keeps it while the alert is only acknowledged", () => {
+    const standing = nightStanding(
+      status({ status: "SOS_TRIGGERED" }),
+      new Date(NIGHT_OF_17TH.smallHours),
+      { createdAt: NIGHT_OF_17TH.evening, status: "ACKNOWLEDGED" },
+    );
+
+    expect(standing.sosNotice).toBeTruthy();
+  });
 });
 
 describe("nightNote", () => {

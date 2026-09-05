@@ -215,11 +215,17 @@ export function guardianNextDue(payments: GuardianPayment[]): GuardianPayment | 
  *
  * `paidAmount > 0` rather than a `PAID` status: a `PARTIAL` month has real money
  * against it, and a parent who paid half of August should see August here.
+ *
+ * A one-off carries no month at all, and reading `.month` off it threw. It
+ * sorts last rather than being dropped: the joining bill is real money paid,
+ * and a household whose only settled invoice is that bill should see it here
+ * instead of "nothing paid yet" — but it is undated, so any month with a key
+ * outranks it.
  */
 export function guardianLatestPaid(payments: GuardianPayment[]): GuardianPayment | null {
   return (
     [...payments]
       .filter((payment) => payment.paidAmount > 0)
-      .sort((left, right) => right.month.localeCompare(left.month))[0] ?? null
+      .sort((left, right) => (right.month ?? "").localeCompare(left.month ?? ""))[0] ?? null
   );
 }

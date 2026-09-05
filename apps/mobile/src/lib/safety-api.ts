@@ -55,7 +55,7 @@ export type SosResult = {
  *
  * There is no resident-facing cancel: only staff can move an alert to
  * `FALSE_ALARM`, via `PATCH /hostel-admin/sos/{id}`. That is why the countdown
- * in `components/sos-fab.tsx` runs *before* this call rather than after — once
+ * in `hooks/use-sos.ts` runs *before* this call rather than after — once
  * it is sent, the resident cannot take it back.
  */
 export async function triggerSos(input: {
@@ -65,6 +65,20 @@ export async function triggerSos(input: {
   const response = await api.post<ApiEnvelope<SosResult>>("/resident/sos", input);
 
   return unwrap(response);
+}
+
+/**
+ * `GET /resident/sos` — the resident's own alerts, newest first.
+ *
+ * The record behind the home screen's flag. That flag goes out after a day (see
+ * `sosIsFlagged`) and the moment staff settle the alert, and this is where the
+ * alert goes when it does: nothing is deleted server-side, so a resident can
+ * always see what they raised and what the hostel did with it.
+ */
+export async function getResidentSosAlerts() {
+  const response = await api.get<ApiEnvelope<{ alerts: SosAlert[] }>>("/resident/sos");
+
+  return unwrap(response).alerts;
 }
 
 /* -------------------------------------------------------------------------- */

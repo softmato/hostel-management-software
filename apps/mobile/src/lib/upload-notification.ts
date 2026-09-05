@@ -329,6 +329,15 @@ export type UploadNotice = {
   channel: typeof DOWNLOAD_CHANNEL | typeof UPLOAD_CHANNEL;
   /** The file to open when this notification is tapped, if there is one. */
   openMimeType: string | null;
+  /**
+   * Where that file landed, as a person reads it — `Pictures/HostelHub/x.png`.
+   *
+   * Carried separately from the body text it also appears in, because the tap
+   * handler needs it when the open *fails*: a phone with nothing that reads the
+   * type has to be told where the file is instead, and "it is saved, somewhere"
+   * is not being told.
+   */
+  openPath: string | null;
   openUri: string | null;
   /**
    * Android's `sticky`: the notification cannot be swiped away while bytes are
@@ -348,7 +357,7 @@ export type UploadNotice = {
  * two directions drift apart. `null` is the mixed batch — see
  * `UploadTally.direction` — and takes the neutral verb rather than guessing.
  */
-const VERBS: Record<"download" | "mixed" | "upload", {
+const VERBS: Record<"download" | "mixed" | "read" | "upload", {
   /** Mid-transfer, title case: `Uploading payment proof`. */
   active: string;
   /** The settle stage's body line. */
@@ -377,6 +386,17 @@ const VERBS: Record<"download" | "mixed" | "upload", {
     settling: "Finishing…",
     verb: "transfer",
   },
+  /*
+   * The server looking at a file already stored. No bytes are moving, so the
+   * percentage this table's other rows earn is meaningless here — `uploadNotice`
+   * suppresses it, and every stage says the same thing.
+   */
+  read: {
+    active: "Checking",
+    done: "checked",
+    settling: "Reading it…",
+    verb: "check",
+  },
   upload: {
     active: "Uploading",
     done: "uploaded",
@@ -393,7 +413,12 @@ const VERBS: Record<"download" | "mixed" | "upload", {
  */
 export function uploadNotice(tally: UploadTally, now: number = Date.now()): UploadNotice | null {
   const words = VERBS[tally.direction ?? "mixed"];
-  const quiet = { channel: UPLOAD_CHANNEL, openMimeType: null, openUri: null } as const;
+  const quiet = {
+    channel: UPLOAD_CHANNEL,
+    openMimeType: null,
+    openPath: null,
+    openUri: null,
+  } as const;
 
   if (tally.active > 0) {
     // Too short to be worth telling the shade about — see `PROGRESS_DELAY_MS`.
@@ -408,12 +433,23 @@ export function uploadNotice(tally: UploadTally, now: number = Date.now()): Uplo
      * puts the bar at a standstill at each end of a transfer, which is the
      * reading that makes people force-quit mid-payment.
      */
+    /*
+     * A percentage is shown only while bytes are actually moving. Presigning
+     * reports 0 and verifying reports 1 — rendering those as "0%" and "100%"
+     * puts the bar at a standstill at each end of a transfer, which is the
+     * reading that makes people force-quit mid-payment.
+     *
+     * A read never shows one at all: nothing is being counted, and a bar that
+     * climbs to a number it invented is worse than a sentence that does not.
+     */
     const progress =
-      tally.phase === "preparing"
-        ? "Preparing…"
-        : tally.phase === "verifying"
-          ? words.settling
-          : `${tally.percent}%`;
+      tally.direction === "read"
+        ? words.settling
+        : tally.phase === "preparing"
+          ? "Preparing…"
+          : tally.phase === "verifying"
+            ? words.settling
+            : `${tally.percent}%`;
 
     return {
       ...quiet,
@@ -458,6 +494,7 @@ export function uploadNotice(tally: UploadTally, now: number = Date.now()): Uplo
       channel: openable ? DOWNLOAD_CHANNEL : UPLOAD_CHANNEL,
       ongoing: false,
       openMimeType: openable ? tally.openMimeType : null,
+      openPath: openable ? tally.openPath : null,
       openUri: openable ? tally.openUri : null,
       title:
         tally.total === 1 && tally.label

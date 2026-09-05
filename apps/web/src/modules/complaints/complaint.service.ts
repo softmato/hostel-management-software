@@ -14,6 +14,8 @@ import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { ComplaintAttachmentModel } from "@hostel/db/models/ComplaintAttachment";
 import { ComplaintModel } from "@hostel/db/models/Complaint";
 import { ComplaintUpdateModel } from "@hostel/db/models/ComplaintUpdate";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
+import { complaintTitle } from "@/modules/complaints/complaint-title";
 import {
   notifyAdminsOfNewComplaint,
   notifyResidentOfComplaintReply,
@@ -58,7 +60,7 @@ type ComplaintRecord = {
   confirmedAt?: Date;
   createdAt?: Date;
   createdBy?: Types.ObjectId;
-  description: string;
+  description?: string;
   hostelId: Types.ObjectId;
   isAnonymous: boolean;
   rejectedAt?: Date;
@@ -70,6 +72,7 @@ type ComplaintRecord = {
   title: string;
   updatedAt?: Date;
   updatedBy?: Types.ObjectId;
+  voiceNoteAssetId?: Types.ObjectId;
 };
 
 type ComplaintAttachmentRecord = {
@@ -201,7 +204,7 @@ function serializeComplaint(
     category: complaint.category,
     confirmedAt: complaint.confirmedAt?.toISOString(),
     createdAt: complaint.createdAt?.toISOString(),
-    description: complaint.description,
+    description: complaint.description ?? "",
     hostelId: complaint.hostelId.toString(),
     id: complaint._id.toString(),
     isAnonymous: complaint.isAnonymous,
@@ -217,6 +220,12 @@ function serializeComplaint(
     title: complaint.title,
     updatedAt: complaint.updatedAt?.toISOString(),
     updates: (options.updates ?? []).map(serializeUpdate),
+    /*
+     * The id only. Like every attachment on this payload it is resolved through
+     * `files/{assetId}/url`, which is where the reading is authorized — a URL
+     * baked in here would be one the serializer had no way to scope.
+     */
+    voiceNoteAssetId: complaint.voiceNoteAssetId?.toString(),
   };
 }
 
@@ -355,6 +364,71 @@ async function attachFiles(
   );
 }
 
+/**
+ * The voice note is checked before it is attached, or the complaint is refused.
+ *
+ * Same three doors `assertVoiceNoteUsable` closes on the maintenance side, for
+ * the same reasons — an asset that never completed may hold no bytes at all, a
+ * guessed id must not become readable by being attached to something, and a
+ * payment proof must not become a "recording" that staff can open.
+ *
+ * The one difference is the kind: `COMPLAINT_NOTE`, never `MAINTENANCE_NOTE`.
+ * That is not tidiness. `files/{assetId}/url` widens a `MAINTENANCE_NOTE` to the
+ * service provider assigned to the job, and a resident recording a complaint
+ * about the kitchen staff — possibly anonymously — must not land in a kind whose
+ * read rule has an outward-facing branch at all.
+ *
+ * Throws rather than dropping the id, because a complaint raised silently
+ * without the recording that *was* its description is a complaint with nothing
+ * in it.
+ */
+async function assertComplaintVoiceNote(
+  assetId: string | undefined,
+  hostelId: Types.ObjectId,
+): Promise<Types.ObjectId | undefined> {
+  if (!assetId) {
+    return undefined;
+  }
+
+  const asset = await FileAssetModel.findOne({
+    _id: normalizeObjectId(assetId, "voice note id"),
+    isDeleted: false,
+    status: "ACTIVE",
+  }).lean<{
+    _id: Types.ObjectId;
+    hostelId?: Types.ObjectId;
+    kind?: string;
+    mimeType?: string;
+    uploadCompletedAt?: Date;
+  } | null>();
+
+  if (!asset || !asset.uploadCompletedAt) {
+    throw new ComplaintServiceError(
+      "That recording did not finish uploading. Record it again.",
+      "VOICE_NOTE_NOT_READY",
+      422,
+    );
+  }
+
+  if (asset.hostelId?.toString() !== hostelId.toString()) {
+    throw new ComplaintServiceError(
+      "That recording does not belong to this hostel.",
+      "VOICE_NOTE_NOT_FOUND",
+      404,
+    );
+  }
+
+  if (asset.kind !== "COMPLAINT_NOTE" || !asset.mimeType?.startsWith("audio/")) {
+    throw new ComplaintServiceError(
+      "A voice note has to be an audio recording.",
+      "VOICE_NOTE_INVALID",
+      422,
+    );
+  }
+
+  return asset._id;
+}
+
 export async function createComplaint(
   input: ComplaintCreateInput,
   principal: ApiPrincipal,
@@ -363,6 +437,10 @@ export async function createComplaint(
 
   const resident = await findCurrentResident(principal);
   const { complaintSlaHours } = await getOperationsConfig();
+  const voiceNoteAssetId = await assertComplaintVoiceNote(
+    input.voiceNoteAssetId,
+    resident.hostelId,
+  );
   const complaint = (await ComplaintModel.create({
     category: input.category,
     createdBy: principal.userId,
@@ -372,8 +450,15 @@ export async function createComplaint(
     residentId: resident._id,
     slaDueAt: slaDueDate(complaintSlaHours),
     status: "PENDING",
-    title: input.title,
+    // Derived, because the phone no longer asks for one. See `complaint-title.ts`.
+    title: complaintTitle({
+      category: input.category,
+      description: input.description,
+      hasVoiceNote: Boolean(voiceNoteAssetId),
+      title: input.title,
+    }),
     updatedBy: principal.userId,
+    voiceNoteAssetId,
   })) as ComplaintRecord;
   const [attachments, update] = await Promise.all([
     attachFiles(complaint, principal, input.attachmentAssetIds),

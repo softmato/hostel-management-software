@@ -42,6 +42,18 @@ type ButtonProps = Omit<PressableProps, "children" | "style"> & {
   /** Fires a selection tick on press. Off for destructive flows with their own confirm. */
   haptic?: boolean;
   label: string;
+  /**
+   * Replaces the size's own type classes on the label — **both** of them, so a
+   * caller that wants a quieter weight is not fighting `font-semibold` for
+   * specificity.
+   *
+   * For the rare button whose text should not shout at the size the button
+   * needs to be. The complaint screen's Send is the case: it is a full-width
+   * `md` because it wants the tap target, but `text-base font-semibold` on a
+   * calm screen reads as an alarm. Use it for type only — the tone classes are
+   * still appended after this and stay the variant's.
+   */
+  labelClassName?: string;
   loading?: boolean;
   size?: keyof typeof SIZES;
   variant?: keyof typeof VARIANTS;
@@ -52,6 +64,7 @@ export function Button({
   disabled,
   haptic = true,
   label,
+  labelClassName,
   loading = false,
   onPress,
   size = "md",
@@ -87,7 +100,21 @@ export function Button({
         </View>
       ) : null}
 
-      <Text className={`font-semibold ${dimensions.label} ${tone.label}`}>{label}</Text>
+      {/*
+        `variant={null}`: the button owns its label's type completely.
+
+        With the default `body` variant the label carried `text-base` from the
+        variant table *and* the size's own class, and NativeWind settles that
+        collision by stylesheet order rather than string order — so `text-base`
+        won and `size="sm"` rendered at 16pt like everything else. Stating the
+        whole treatment here is the only way the size table means anything.
+      */}
+      <Text
+        className={`${labelClassName ?? `font-semibold ${dimensions.label}`} ${tone.label}`}
+        variant={null}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }

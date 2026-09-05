@@ -148,6 +148,7 @@ describe("uploadNotice", () => {
       channel: UPLOAD_CHANNEL,
       ongoing: true,
       openMimeType: null,
+      openPath: null,
       openUri: null,
       title: "Uploading payment proof",
       tone: "active",
@@ -339,6 +340,8 @@ describe("the finished-download notice", () => {
     expect(notice?.channel).toBe(DOWNLOAD_CHANNEL);
     expect(notice?.openUri).toBe("content://media/external_primary/downloads/42");
     expect(notice?.openMimeType).toBe("text/csv");
+    // Carried for the tap that cannot open it — see `UploadNotice.openPath`.
+    expect(notice?.openPath).toBe("Download/HostelHub/hostel-statement.csv");
   });
 
   it("keeps the file after the row it came from has been pruned away", () => {
@@ -433,6 +436,7 @@ describe("shouldRepost", () => {
     channel: UPLOAD_CHANNEL,
     ongoing: true,
     openMimeType: null,
+    openPath: null,
     openUri: null,
     title: "Uploading payment proof",
     tone: "active",
@@ -453,6 +457,7 @@ describe("shouldRepost", () => {
         channel: UPLOAD_CHANNEL,
         ongoing: false,
         openMimeType: null,
+        openPath: null,
         openUri: null,
         title: "Payment proof uploaded",
         tone: "succeeded",

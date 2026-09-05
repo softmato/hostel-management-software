@@ -121,7 +121,7 @@ good. What follows is measured, not assumed.
 | More | `(resident)/more.tsx` (292) | sidebar `RESIDENT_NAV` | ◐ two rows mis-target, no notifications row (§2.1) |
 | Complaints | `complaints/{index,new,[id]}` | `resident-complaints-page.tsx` | ◐ capped at 100 by the route (§7.4) |
 | Night status | `night-status.tsx` (246) | `resident-night-status-page.tsx` | ◐ no history — server gap (§7.2) |
-| SOS | `sos.tsx` (199) + `components/sos-fab.tsx` | `resident-sos-page.tsx` | ✅ ahead — fan-out honesty, two gestures |
+| SOS | `sos.tsx` + `components/sos-header-button.tsx` | `resident-sos-page.tsx` | ✅ ahead — fan-out honesty, two gestures, own alert history |
 | Profile | `profile.tsx` (318) | `resident-profile-page.tsx` | ◐ read-only; guardians shown, not managed (§3.2) |
 | Digital ID | `id-card/{index,edit}` | `resident-id-share-page.tsx` | ✅ ahead |
 | Review | `review.tsx` (244) | `resident-reviews-page.tsx` | ◐ cannot read back — server gap (§7.3) |
@@ -477,7 +477,7 @@ screen's doc comment, in this codebase's house voice.
 - ☐ **4.6 Night status** (`night-status.tsx`) — three choices, not five; nothing
       preselected from a stale answer; the night runs 17:00 → 17:00 Nepal time.
       History blocked by §7.2.
-- ☐ **4.7 SOS** (`sos.tsx` + `sos-fab.tsx`) — numbers first and tappable;
+- ☐ **4.7 SOS** (`sos.tsx` + `sos-header-button.tsx`) — numbers first and tappable;
       `describeFanout` tells the truth when nobody was reached. Contacts stay
       read-only until §7.1.
 - ☐ **4.8 Profile** (`profile.tsx`) — every field on `ResidentProfile` drawn or

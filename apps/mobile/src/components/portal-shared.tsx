@@ -3,10 +3,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
+import { NotificationBell } from "@/components/notification-bell";
+import { IconButton } from "@/components/ui/icon-button";
 import { CURRENCY_SCALE } from "@/components/ui/money";
 import { Text } from "@/components/ui/text";
+import { APP_NAME, APP_NAME_PARTS, logo } from "@/constants/branding";
 import { adminHero } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useSystemInsets } from "@/hooks/use-system-insets";
 import type { NightChip } from "@/lib/admin-home";
 
 /**
@@ -468,6 +472,116 @@ export function PortalHeroCard({
 
         {footer ? <View className="bg-card">{footer}</View> : null}
       </LinearGradient>
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Header                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** The platform wordmark, in points. */
+const WORDMARK = 22;
+
+/** The logo mark beside it, sized to the wordmark's cap height. */
+const MARK = 24;
+
+/**
+ * The front-door bar of a portal: whose product this is, the hostel's page, and
+ * the bell.
+ *
+ * ## One component, because it was already the same bar four times
+ *
+ * `AdminHomeHeader` and `ResidentHomeHeader` were byte-for-byte the same view —
+ * the same lockup, the same 22/24 pair, the same eye, the same bell — declared
+ * twice, and the guardian and cook portals were about to become a third and a
+ * fourth. Two copies is a thing you fix; four is a thing you stop being able to.
+ * Now the mark's size, the wordmark's letter-spacing and the order of the
+ * actions cannot drift between roles, because there is one of each.
+ *
+ * ## Why the platform sits above the hostel, and does not move
+ *
+ * Two identities are in play and they answer different questions. *HostelHub* is
+ * the app you opened — chrome, identical in every role, and the public side of
+ * the app has always drawn it in exactly this spot. The hostel is the *subject*
+ * of the page, and it belongs on the card below. Stacking them the other way
+ * round makes the app feel like it belongs to whichever hostel loaded.
+ *
+ * ## It is `bg-background`, never painted
+ *
+ * This bar was once a flat fill of the hero's first stop, joining seamlessly
+ * into a full-bleed card — one green mass from the status bar down, in which the
+ * card was not a card but a region. `ebl-01` is unambiguous: the bar is the page
+ * background, the card is the only coloured object, and the distance between
+ * those two facts is what makes the card look like something you could pick up.
+ *
+ * ## The eye, and why it is sometimes not there
+ *
+ * It opens the hostel's public page — the same `hostel/[slug]` screen a stranger
+ * browsing the app sees. An eye rather than a globe or a share arrow: both of
+ * those promise to leave the app (`hostel-share.ts` builds a real `https://` URL
+ * for exactly that, and it is a different action), whereas this pushes a screen
+ * inside it.
+ *
+ * It is drawn only when the caller hands over an `onHostelPage`, and a caller
+ * only builds one when it has a slug. That is not caution:
+ * `getPublicHostelBySlug` filters on `status: "PUBLISHED"` **and**
+ * `verificationStatus: "VERIFIED"`, so a hostel mid-application would answer
+ * this tap with "Hostel was not found" — which, to somebody waiting on approval,
+ * reads as their hostel having been deleted. Every server payload that feeds
+ * this sends `""` rather than a slug in that state, so withholding the door is
+ * the default and no screen has to remember the rule.
+ *
+ * ## `label` is not optional
+ *
+ * "Preview" alone in a screen reader is a verb with no object, and the object
+ * differs by role: an owner is checking *their listing*, a resident is opening
+ * *their hostel's page*, a guardian is looking at *their ward's hostel*. The
+ * glyph is shared; the sentence a screen reader speaks is the caller's.
+ */
+export function PortalBrandHeader({
+  actions,
+  hostelPageLabel = "Open the hostel's page",
+  onHostelPage,
+}: {
+  /**
+   * Slot ahead of the eye and the bell, for a control only one role has.
+   *
+   * The resident's SOS button is the whole reason it exists — a control that
+   * must never move, on the one bar that never scrolls away. Leftmost of the
+   * row because the eye is conditional, and an emergency control that shifts
+   * position depending on whether the hostel's listing is live is the same
+   * problem in a smaller form.
+   */
+  actions?: ReactNode;
+  /** What a screen reader says for the eye. See the note above. */
+  hostelPageLabel?: string;
+  /** Omitted, and the eye hidden, when there is no live listing to open. */
+  onHostelPage?: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const insets = useSystemInsets();
+
+  return (
+    <View className="bg-background" style={{ paddingTop: insets.top }}>
+      <View className="min-h-14 flex-row items-center gap-2.5 px-5 pb-2 pt-1">
+        <Image contentFit="contain" source={logo.mark} style={{ height: MARK, width: MARK }} />
+
+        <View accessibilityLabel={APP_NAME} accessibilityRole="header" className="flex-1">
+          <Text style={{ fontSize: WORDMARK, fontWeight: "800", letterSpacing: -0.4 }}>
+            <Text style={{ color: colors.foreground }}>{APP_NAME_PARTS.head}</Text>
+            <Text style={{ color: colors.primary }}>{APP_NAME_PARTS.tail}</Text>
+          </Text>
+        </View>
+
+        {actions}
+
+        {onHostelPage ? (
+          <IconButton label={hostelPageLabel} name="eye-outline" onPress={onHostelPage} />
+        ) : null}
+
+        <NotificationBell />
+      </View>
     </View>
   );
 }

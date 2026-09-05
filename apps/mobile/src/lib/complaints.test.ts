@@ -4,6 +4,7 @@ import type { Complaint, ComplaintUpdate } from "@/lib/complaints-api";
 import {
   canConfirmResolution,
   complaintCategoryLabel,
+  complaintDescription,
   complaintStanding,
   confirmNote,
   hasComplaintErrors,
@@ -45,61 +46,92 @@ function complaint(overrides: Partial<Complaint> = {}): Complaint {
 }
 
 describe("validateComplaint", () => {
-  it("accepts a filled-in draft", () => {
+  it("accepts a typed complaint with photos", () => {
     const errors = validateComplaint({
       attachmentCount: 2,
       description: "Water everywhere.",
-      title: "Running tap",
+      hasVoiceNote: false,
     });
 
     expect(hasComplaintErrors(errors)).toBe(false);
   });
 
   /*
-   * The server trims before measuring, so a title of spaces is a 422 rather
-   * than a two-character title.
+   * The point of the rebuilt screen: somebody photographs the problem, holds
+   * the mic, says what it is, and sends. Nothing was typed and nothing should
+   * be demanded.
    */
-  it("measures trimmed lengths, like the server does", () => {
-    expect(validateComplaint({ attachmentCount: 0, description: "     ", title: "  " }))
-      .toEqual({
-        description: "Describe what is wrong.",
-        title: "Give this a short title.",
-      });
+  it("accepts a complaint with a recording and no words at all", () => {
+    expect(
+      hasComplaintErrors(
+        validateComplaint({ attachmentCount: 1, description: "", hasVoiceNote: true }),
+      ),
+    ).toBe(false);
+  });
+
+  // `complaintCreateSchema` refuses one carrying neither: a category and a
+  // photograph do not tell an admin what they are looking at.
+  it("refuses a complaint with neither words nor a recording", () => {
+    expect(
+      validateComplaint({ attachmentCount: 3, description: "  ", hasVoiceNote: false })
+        .description,
+    ).toBe("Say what happened, or record it.");
   });
 
   it("holds the server's exact bounds", () => {
     expect(
       validateComplaint({
         attachmentCount: 0,
-        description: "Long enough.",
-        title: "a".repeat(161),
-      }).title,
-    ).toContain("160");
+        description: "d".repeat(4001),
+        hasVoiceNote: false,
+      }).description,
+    ).toContain("4000");
 
+    // The cap applies to a recorded complaint too — the length is the server's,
+    // not a consequence of the box being the only thing filled in.
     expect(
       validateComplaint({
         attachmentCount: 0,
         description: "d".repeat(4001),
-        title: "Fine",
+        hasVoiceNote: true,
       }).description,
     ).toContain("4000");
 
-    // `complaintCreateSchema` caps `attachmentAssetIds` at 5 — a sixth photo is
-    // a rejected submission after six uploads have already completed.
+    // `attachmentAssetIds` is capped at 5 — a sixth photo is a rejected
+    // submission after six uploads have already completed.
     expect(
-      validateComplaint({ attachmentCount: 6, description: "Long enough.", title: "Fine" })
-        .attachmentCount,
+      validateComplaint({
+        attachmentCount: 6,
+        description: "Long enough.",
+        hasVoiceNote: false,
+      }).attachmentCount,
     ).toContain("5");
   });
 
   it("passes a draft sitting exactly on the limits", () => {
     const errors = validateComplaint({
       attachmentCount: 5,
-      description: "12345",
-      title: "ab",
+      description: "ab",
+      hasVoiceNote: false,
     });
 
     expect(hasComplaintErrors(errors)).toBe(false);
+  });
+});
+
+describe("complaintDescription", () => {
+  /*
+   * `min(2).optional()`: an absent field is fine and `""` is a 422, so a
+   * voice-only complaint must omit the key rather than send an empty one.
+   */
+  it("omits an empty box rather than sending an empty string", () => {
+    expect(complaintDescription("")).toBeUndefined();
+    expect(complaintDescription("   ")).toBeUndefined();
+    expect(complaintDescription("k")).toBeUndefined();
+  });
+
+  it("trims what it does send, as the server would", () => {
+    expect(complaintDescription("  Tap is running  ")).toBe("Tap is running");
   });
 });
 

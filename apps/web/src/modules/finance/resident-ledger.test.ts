@@ -8,7 +8,7 @@
  * not existing.
  */
 import { Types } from "mongoose";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   eventFind: vi.fn(),
@@ -35,6 +35,7 @@ vi.mock("@hostel/db/models/Resident", () => ({
   ResidentModel: { findOne: mocks.residentFindOne },
 }));
 
+import { addBsMonths, bsPeriodBounds, bsPeriodOf } from "@/lib/hostel-day";
 import { getResidentLedger } from "@/modules/finance/resident-ledger.service";
 
 const hostelId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a1");
@@ -51,27 +52,41 @@ function chain<T>(rows: T) {
   };
 }
 
-/** Two months back from today, so the fixture never ages out of the window. */
+/**
+ * The clock these rows are counted from.
+ *
+ * Frozen because the spine of this ledger is a run of **Bikram Sambat** months
+ * and the fixtures have to name the same ones. Stepping a Gregorian month off a
+ * live `new Date()` — which is what this did — is how the service and its test
+ * agreed with each other for a year while both disagreed with the invoices.
+ *
+ * 5 September 2026 is Bhadra 20, 2083. Bhadra 2083 runs 17 August to 16
+ * September 2026; `bs-calendar.test.ts` pins that against a published calendar.
+ */
+const NOW = new Date("2026-09-05T06:00:00.000Z");
+const CURRENT_PERIOD = "2083-05";
+
+/** `months` back from the frozen month, in the calendar an invoice is keyed by. */
 function periodAgo(months: number) {
-  const date = new Date();
-
-  date.setUTCDate(1);
-  date.setUTCMonth(date.getUTCMonth() - months);
-
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return addBsMonths(CURRENT_PERIOD, -months);
 }
 
+/**
+ * A move-in instant inside the BS month `periodAgo(months)` names.
+ *
+ * That month's own first day. The 1st of a Gregorian month lands wherever the
+ * BS boundary happens to fall — BS months are 29 to 32 days and the offset moves
+ * every year — so a resident whose fixture said "two months ago" could open the
+ * ledger a month away from the period the assertion below names.
+ */
 function moveInDate(months: number) {
-  const date = new Date();
-
-  date.setUTCDate(1);
-  date.setUTCMonth(date.getUTCMonth() - months);
-
-  return date;
+  return bsPeriodBounds(periodAgo(months)).start;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Only `Date`. Faking timers wholesale would stall the awaited mocks below.
+  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
   mocks.residentFindOne.mockReturnValue(
     chain({
       _id: residentId,
@@ -87,6 +102,15 @@ beforeEach(() => {
   mocks.listResidentInvoices.mockResolvedValue([]);
   mocks.eventFind.mockReturnValue(chain([]));
   mocks.receiptFind.mockReturnValue(chain([]));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** The anchor the fixtures lean on, asserted rather than assumed. */
+it("puts the frozen day in Bhadra 2083", () => {
+  expect(bsPeriodOf(NOW)).toBe(CURRENT_PERIOD);
 });
 
 describe("getResidentLedger", () => {

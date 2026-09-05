@@ -496,9 +496,18 @@ describe("daily operations routes", () => {
   });
 
   it("rejects invalid daily operation payloads before calling services", async () => {
+    /*
+     * A complaint with neither typed words nor a recording.
+     *
+     * This used to be `{ description: "Bad" }`, which was invalid only because
+     * `title` was mandatory and `description` had a 5-character floor. Both went
+     * when the app's raise screen dropped the title field, so the payload that
+     * must still be refused is the one carrying nothing to read or listen to —
+     * `complaintCreateSchema`'s `refine`.
+     */
     const complaintResponse = await residentComplaintsRoute.POST(
       request("/api/v1/resident/complaints", {
-        body: { description: "Bad" },
+        body: { category: "FOOD" },
         method: "POST",
       }),
     );

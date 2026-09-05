@@ -10,6 +10,8 @@
  * 422 after their photos have already uploaded.
  */
 
+import type { Ionicons } from "@expo/vector-icons";
+
 import type {
   Complaint,
   ComplaintCategory,
@@ -22,30 +24,73 @@ import { humanizeEnum } from "@/lib/format";
 /* -------------------------------------------------------------------------- */
 
 /**
- * `complaintCategorySchema`'s enum, in the server's order, with the label and
- * the one-line explanation the picker shows.
+ * `complaintCategorySchema`'s enum, in the server's order, with the label, the
+ * glyph and the one-line explanation.
  *
  * The descriptions exist because the categories are not self-evident: a broken
  * tap is `MAINTENANCE`, not `ROOM`, and a resident who picks the wrong one lands
  * in the wrong admin's filter and waits out an SLA nobody is watching.
+ *
+ * The **icons** exist because the raise screen draws these as a tile grid rather
+ * than as a list of sentences — the one thing every reference app in
+ * `app_recordings` agrees on. Eight glyphs are read in about the time one column
+ * of text is, and the grid is two taps shallower than a picker that opens a
+ * sheet. The descriptions still carry: they are the caption under each tile.
  */
 export const COMPLAINT_CATEGORY_OPTIONS: {
   description: string;
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: ComplaintCategory;
 }[] = [
-  { description: "Meals, quality, timing", label: "Food", value: "FOOD" },
-  { description: "Your room, bed or roommates", label: "Room", value: "ROOM" },
+  {
+    description: "Meals, quality, timing",
+    icon: "restaurant-outline",
+    label: "Food",
+    value: "FOOD",
+  },
+  {
+    description: "Your room, bed or roommates",
+    icon: "bed-outline",
+    label: "Room",
+    value: "ROOM",
+  },
   {
     description: "Something broken — water, power, furniture",
+    icon: "construct-outline",
     label: "Maintenance",
     value: "MAINTENANCE",
   },
-  { description: "Anything that feels unsafe", label: "Safety", value: "SAFETY" },
-  { description: "Rent, dues, receipts", label: "Payment", value: "PAYMENT" },
-  { description: "Conduct of hostel staff", label: "Staff", value: "STAFF" },
-  { description: "Disturbance, late-night noise", label: "Noise", value: "NOISE" },
-  { description: "Anything else", label: "Other", value: "OTHER" },
+  {
+    description: "Anything that feels unsafe",
+    icon: "shield-checkmark-outline",
+    label: "Safety",
+    value: "SAFETY",
+  },
+  {
+    description: "Rent, dues, receipts",
+    icon: "card-outline",
+    label: "Payment",
+    value: "PAYMENT",
+  },
+  {
+    description: "Conduct of hostel staff",
+    icon: "people-outline",
+    label: "Staff",
+    value: "STAFF",
+  },
+  {
+    description: "Disturbance, late-night noise",
+    icon: "volume-high-outline",
+    label: "Noise",
+    value: "NOISE",
+  },
+  {
+    description: "Anything else",
+    icon: "ellipsis-horizontal-circle-outline",
+    label: "Other",
+    value: "OTHER",
+  },
 ];
 
 export function complaintCategoryLabel(category: string): string {
@@ -59,34 +104,45 @@ export function complaintCategoryLabel(category: string): string {
 /* The create form                                                            */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * What the raise screen holds.
+ *
+ * **There is no title.** The screen asks one question — what is this about —
+ * then shows the camera and a record button, and the server derives the title
+ * from the first line of whatever was written (or from the category when
+ * nothing was). A resident standing in front of a blocked drain does not have a
+ * headline for it, and asking for one was the field everybody stalled on.
+ */
 export type ComplaintDraft = {
   attachmentCount: number;
+  /** Typed, or empty when they spoke instead. */
   description: string;
-  title: string;
+  hasVoiceNote: boolean;
 };
 
 export type ComplaintErrors = Partial<Record<keyof ComplaintDraft, string>>;
 
 /** `complaintCreateSchema`'s bounds. Trimmed lengths, as the server trims first. */
-const TITLE_MIN = 2;
-const TITLE_MAX = 160;
-const DESCRIPTION_MIN = 5;
+const DESCRIPTION_MIN = 2;
 const DESCRIPTION_MAX = 4000;
 export const MAX_COMPLAINT_ATTACHMENTS = 5;
 
+/**
+ * The one thing the screen can actually refuse.
+ *
+ * `description` and `voiceNoteAssetId` are optional individually and required
+ * together — `complaintCreateSchema` refuses a complaint carrying neither,
+ * because a category and a photograph do not tell an admin what they are
+ * looking at. Everything else on the screen is genuinely optional, so this
+ * returns at most one error and the submit button is the only thing that can be
+ * blocked.
+ */
 export function validateComplaint(draft: ComplaintDraft): ComplaintErrors {
   const errors: ComplaintErrors = {};
-  const title = draft.title.trim();
   const description = draft.description.trim();
 
-  if (title.length < TITLE_MIN) {
-    errors.title = "Give this a short title.";
-  } else if (title.length > TITLE_MAX) {
-    errors.title = `Keep the title under ${TITLE_MAX} characters.`;
-  }
-
-  if (description.length < DESCRIPTION_MIN) {
-    errors.description = "Describe what is wrong.";
+  if (!draft.hasVoiceNote && description.length < DESCRIPTION_MIN) {
+    errors.description = "Say what happened, or record it.";
   } else if (description.length > DESCRIPTION_MAX) {
     errors.description = `That is longer than the ${DESCRIPTION_MAX} characters the form takes.`;
   }
@@ -100,6 +156,21 @@ export function validateComplaint(draft: ComplaintDraft): ComplaintErrors {
 
 export function hasComplaintErrors(errors: ComplaintErrors): boolean {
   return Object.keys(errors).length > 0;
+}
+
+/**
+ * `description` as the API should receive it: **absent, not empty**.
+ *
+ * The schema is `min(2).optional()`, so `""` is a 422 while a missing field is
+ * fine — and a voice-only complaint has nothing to send. One-character text is
+ * treated the same way rather than being padded into validity; the recording is
+ * the description in that case, and `validateComplaint` has already refused it
+ * if there is no recording either.
+ */
+export function complaintDescription(raw: string): string | undefined {
+  const description = raw.trim();
+
+  return description.length >= DESCRIPTION_MIN ? description : undefined;
 }
 
 /* -------------------------------------------------------------------------- */

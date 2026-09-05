@@ -6,11 +6,10 @@ import { Linking, Platform, Pressable, View } from "react-native";
 
 import { MealRow } from "@/components/meal-row";
 import {
+  ResidentHomeActions,
   ResidentHomeHeader,
-  ResidentQuickActions,
   ResidentServiceGrid,
   ResidentStayHero,
-  ResidentWaitingActions,
 } from "@/components/resident-home";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,15 +58,27 @@ import { toastError } from "@/lib/toast";
  * | --- | --- |
  * | `AppBar` with a greeting | the platform lockup, bell and hostel-page eye |
  * | `DuesCard` — amount, pill, due label, button | the hero, with `Pay now` on the figure |
- * | `StatStrip` — three metric tiles | four cells of `Waiting for you`, counts only |
+ * | `StatStrip` — three metric tiles | the hero's figures, and the `Notices` count |
  * | `HostelCard` — photo, address, chips | the hero's ground, its name line, `Call hostel` |
- * | `ComplaintsCard` — a summary of a screen | the `Complaints` cell's badge |
- * | `QuickActions` — Complaints, ID, Review, SOS | the shortcut row and the `Your stay` grid |
+ * | `ComplaintsCard` — a summary of a screen | `Raise issue`, and the More tab's row |
+ * | `QuickActions` — Complaints, ID, Review, SOS | the action card and the `Your stay` grid |
  *
  * Nothing was dropped that carried a fact. The complaints *summary* went for the
  * reason the admin Home lost six sections of figures: a home screen whose job is
  * to get you somewhere had become a shorter, worse copy of the screen one tap
  * away. The open count is on the cell that opens it.
+ *
+ * ## One action card, not two
+ *
+ * The shortcut row and `Waiting for you` were two identically-built cards
+ * separated by a heading and a section gap — the same cell drawn twice, split by
+ * whether its destination carries a number. They are one row now: `Digital ID`,
+ * `Call hostel`, `Raise issue` and `Notices`.
+ *
+ * `Invoices`, `Complaints` and `Night status` came off the screen with the
+ * heading. Every one of them is still one tap away — Payments is a bottom tab,
+ * the hero's pill opens the night roster, and Complaints is a row on More — and
+ * a count on the fold has to earn the fold. See `<ResidentHomeActions>`.
  *
  * ## What is still below the fold, and why
  *
@@ -75,7 +86,8 @@ import { toastError } from "@/lib/toast";
  * summary of a screen you can reach in one tap and read properly — a resident
  * checks what is for dinner *here*, without going anywhere, and a notice's first
  * two lines are the whole notice most days. They are the two things this app is
- * opened for that are not money, so they sit between the queues and the grid.
+ * opened for that are not money, so they sit between the action row and the
+ * grid.
  *
  * ## One request
  *
@@ -143,10 +155,16 @@ export default function ResidentHomeScreen() {
     />
   );
 
+  /*
+    Two fields, not one. `nightStatus.status` says an SOS was *written* — it is a
+    single upserted row per resident that nothing ever clears — and `sos` says
+    whether the alert is still open and when it was raised. The card flagged a
+    settled test alert for weeks on the strength of the first one alone.
+  */
   const stay = useMemo(
     () =>
       dashboard
-        ? stayPill(dashboard.nightStatus)
+        ? stayPill(dashboard.nightStatus, dashboard.sos)
         : { label: "Not checked in", settled: false },
     [dashboard],
   );
@@ -185,8 +203,8 @@ export default function ResidentHomeScreen() {
       /*
         Skeletons, not a spinner — the house rule this group was not following.
         The shape is known before the data is, and it is the shape the screen
-        actually lands in: a painted card, a row of shortcuts, a row of queues,
-        then sections. Drawing it means nothing moves when the figures arrive.
+        actually lands in: a painted card, a row of action cells, then sections.
+        Drawing it means nothing moves when the figures arrive.
       */
       <Screen header={header} insideTabs padded={false} scroll>
         {/* `px-3.5` is 14 points — `HERO_INSET`, so the card lands where it will. */}
@@ -199,11 +217,6 @@ export default function ResidentHomeScreen() {
         </View>
 
         <View className="gap-6 px-5 pt-6">
-          <View className="gap-3">
-            <Skeleton height={18} width="45%" />
-            <Skeleton height={96} radius={24} />
-          </View>
-
           <SkeletonCard rows={2} />
 
           <View className="gap-3">
@@ -264,40 +277,27 @@ export default function ResidentHomeScreen() {
       {/*
         Its own row, not pulled up onto the card's shoulder. The straddle needs a
         full-width painted edge to straddle, and the hero has corners.
+
+        No heading over it. `Waiting for you` used to head a second, identical
+        card a section-gap below this one; what survived of it — the urgent
+        notice count — is the last cell in this row, and a heading naming one
+        cell would have been the seam we removed. See `<ResidentHomeActions>`.
       */}
       <View className="pt-3">
-        <ResidentQuickActions
+        <ResidentHomeActions
           /*
             Only when the listing carries a number. A cell that dials nothing is
-            worse than a missing cell — see `<ResidentQuickActions>`.
+            worse than a missing cell — see `<ResidentHomeActions>`.
           */
           onCall={phone ? () => void Linking.openURL(`tel:${phone}`) : undefined}
           onIdCard={() => router.push("/id-card")}
+          onNotices={() => router.push("/(resident)/notices")}
           onRaiseIssue={() => router.push("/complaints/new")}
+          urgentNotices={urgentNotices}
         />
       </View>
 
       <View className="gap-6 px-5 pt-6">
-        <View>
-          {/*
-            No "See all". Every cell in the card below opens the screen that owns
-            its queue, and the bell in the header opens the feed — a third path
-            to the same places, on the heading of a row that is nothing but
-            paths, was chrome.
-          */}
-          <SectionHeader title="Waiting for you" />
-
-          <ResidentWaitingActions
-            complaints={dashboard.complaints.openCount}
-            invoices={dashboard.feeStatus.unpaidCount}
-            onComplaints={() => router.push("/complaints")}
-            onInvoices={() => router.push("/(resident)/payments")}
-            onNightStatus={() => router.push("/night-status")}
-            onNotices={() => router.push("/(resident)/notices")}
-            urgentNotices={urgentNotices}
-          />
-        </View>
-
         <TodaysMenuCard meals={dashboard.foodMenu} />
 
         <NoticesCard notices={dashboard.notices} />

@@ -20,10 +20,13 @@ import {
   Th,
 } from "@/app/_components/portal-dashboard-ui";
 import { browserApi } from "@/lib/browser-api";
+import { dayMonthYearBoth, periodKey } from "@/lib/format-month";
+import { addBsMonths, bsPeriodBounds } from "@/lib/hostel-day";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
 import { normalizeBedType } from "@/modules/finance/bed-type";
 import { BED_TYPE_LABELS, type BedType } from "@hostel/shared/types/bed-type";
+import { MonthField } from "./hostel-admin-month-picker";
 import { Message, PageHeader, field } from "./portal-shared";
 
 /**
@@ -90,23 +93,58 @@ function roomTypeKey(value: string | null | undefined) {
 
 const SCHEDULES_ENDPOINT = hostelAdminEndpoints.feeSchedules;
 
+/**
+ * A rate card boundary, named in the calendar the card actually turns over in.
+ *
+ * ## Two things were wrong with `toLocaleDateString()`
+ *
+ * It renders in the *browser's* locale, so the same card read `17/09/2026` for
+ * the owner and `9/17/2026` for anyone whose machine says `en-US` — the ambiguity
+ * `lib/format-month` exists to keep off the finance screens.
+ *
+ * And it is a bare Gregorian day for a date that is now a **Bikram Sambat month
+ * boundary**: `createFeeSchedule` pulls `effectiveFrom` back to `hostelMonthStart`,
+ * so a card always begins on the 1st of a BS month and ends on the last day of
+ * one. Printed as "17 Sep 2026" that reads as an arbitrary mid-month date an
+ * owner never chose, when what actually happened is that the card starts on
+ * **Aswin 1**. So the BS date leads and the Gregorian follows it — a rate card
+ * boundary is the definition of a date that is money.
+ */
 function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleDateString() : "—";
+  return value ? dayMonthYearBoth(value) : "—";
 }
 
 /**
- * First of a month, `n` months out. Rates never start mid-month.
+ * The **Bikram Sambat** month `n` months out, as a period key.
  *
- * Built from local parts rather than `toISOString` on a local `Date`, which
- * shifts the day backwards for anyone east of UTC — in Kathmandu the 1st became
- * the last day of the previous month, which the server would then round back and
- * quietly reject as "this month".
+ * Rates never start mid-month, and the month they start on is a BS one:
+ * `createFeeSchedule` runs the submitted date through `hostelMonthStart`, which
+ * pulls it back to the first day of the BS month it lands in.
+ *
+ * That rounding is why the Gregorian date picker here had to go. An owner
+ * choosing **1 October 2026** — a perfectly ordinary "from next month" — was
+ * handing the server a day inside Aswin 2083, and the card that came back
+ * started on **17 September**. Two weeks earlier than the date they picked, over
+ * a fortnight they had already billed at the old rate, with nothing on the screen
+ * to show it had happened.
  */
-function monthStart(offsetMonths: number) {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
+function monthStartPeriod(offsetMonths: number) {
+  return addBsMonths(periodKey(new Date()), offsetMonths);
+}
 
-  return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`;
+/**
+ * The instant a BS month opens, as `YYYY-MM-DD`, which is what the API takes.
+ *
+ * `effectiveFrom` on the wire stays a date — the server stores an instant and
+ * `z.coerce.date()` parses one. Only the *choosing* moved to months; the picker
+ * hands back `2083-06` and this is where that becomes the day Aswin starts.
+ */
+function periodStartDate(period: string) {
+  try {
+    return bsPeriodBounds(period).start.toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
 }
 
 export const HostelAdminFeeSchedulePageContent = memo(
@@ -271,7 +309,10 @@ export const HostelAdminFeeSchedulePageContent = memo(
               depositAmount: field(form, "depositAmount")
                 ? Number(field(form, "depositAmount"))
                 : undefined,
-              effectiveFrom: field(form, "effectiveFrom"),
+              // The field holds a BS period key; the API takes the instant that
+              // month opens on. Converting here rather than posting the key
+              // keeps `effectiveFrom` the date it has always been on the wire.
+              effectiveFrom: periodStartDate(field(form, "effectiveFrom")),
               rates,
               referralAdmissionDiscount: field(form, "referralAdmissionDiscount")
                 ? Number(field(form, "referralAdmissionDiscount"))
@@ -420,14 +461,15 @@ export const HostelAdminFeeSchedulePageContent = memo(
                     name="depositAmount"
                     type="number"
                   />
-                  <Input
-                    defaultValue={upcoming?.effectiveFrom.slice(0, 10) ?? monthStart(1)}
-                    hint="Rates start on the 1st of a month. This month cannot change — those residents are already being billed."
+                  <MonthField
+                    defaultValue={
+                      upcoming
+                        ? periodKey(new Date(upcoming.effectiveFrom))
+                        : monthStartPeriod(1)
+                    }
+                    hint="Rates start on the first day of a Nepali month. This month cannot change — those residents are already being billed."
                     label="Starts from"
-                    min={monthStart(1)}
                     name="effectiveFrom"
-                    required
-                    type="date"
                   />
                 </div>
                 <div className="flex justify-end">

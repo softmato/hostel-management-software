@@ -6,8 +6,7 @@ import {
   GuardianWardHero,
 } from "@/components/guardian-home";
 import { MealRow } from "@/components/meal-row";
-import { NotificationBell } from "@/components/notification-bell";
-import { AppBar } from "@/components/ui/app-bar";
+import { PortalBrandHeader } from "@/components/portal-shared";
 import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { CardRow } from "@/components/ui/list-row";
@@ -82,15 +81,41 @@ export default function GuardianHomeScreen() {
   });
 
   /*
-   * The bell, which no guardian screen had.
-   *
-   * `/notifications` is scoped to `principal.userId` with no role branch, so a
-   * guardian has always had a feed — and nothing in these five tabs opened it.
-   * Exactly the fault the resident group had at §2.1, and the same fix: the bell
-   * on every tab so the control does not vanish when you change tab, plus a row
-   * on More.
+   * Off `guardian.data`, not off `dashboard`, because the header is built before
+   * the loading and error branches return — the eye is simply absent until the
+   * payload lands rather than appearing on a bar that has already been drawn.
    */
-  const header = <AppBar actions={<NotificationBell />} large title="Home" />;
+  const hostelSlug = guardian.data?.hostel?.slug ?? "";
+
+  /*
+   * The lockup, the hostel's page and the bell — the same front-door bar the
+   * admin and resident homes open on, and for the same two reasons.
+   *
+   * **Branding.** This portal led with `AppBar large title="Home"`, so the one
+   * screen a guardian lands on after signing in never said whose product they
+   * were in. A parent typing a code off a printed slip has, at that point, no
+   * other evidence — the app they were told about and the app they are looking
+   * at have to be visibly the same thing.
+   *
+   * **The bell**, which no guardian screen had. `/notifications` is scoped to
+   * `principal.userId` with no role branch, so a guardian has always had a feed
+   * and nothing in these five tabs opened it — same fault the resident group had
+   * at §2.1, same fix: it rides the header on the tab, plus a row on More.
+   *
+   * The eye is drawn only when the payload carries a slug, which the server
+   * sends only for a live listing — so a guardian whose ward's hostel is still
+   * awaiting verification simply does not get the control. `hostel/[slug]` is a
+   * public screen and needs no permission flag: a guardian granted nothing at
+   * all may still look at the listing any stranger can.
+   */
+  const header = (
+    <PortalBrandHeader
+      hostelPageLabel="Open the hostel's page"
+      onHostelPage={
+        hostelSlug ? () => router.push(`/hostel/${hostelSlug}`) : undefined
+      }
+    />
+  );
 
   if (guardian.loading) {
     return (

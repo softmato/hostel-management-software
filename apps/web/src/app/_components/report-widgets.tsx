@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 
 import { currency, EmptyState } from "@/app/_components/shared-ui";
+import { monthLabel } from "@/lib/format-month";
+import { formatBsPeriodMonth } from "@/lib/hostel-day";
 
 export type CountMap = Record<string, number>;
 
@@ -92,7 +94,40 @@ export type MonthlyPoint = {
   residents: number;
 };
 
-function monthLabel(month: string) {
+/**
+ * An axis tick — `Bhadra`, the month alone.
+ *
+ * ## Why the private copy went
+ *
+ * This built a `Date` out of the two halves of the period key and asked it for
+ * an English short month. That was right while a period was Gregorian and became
+ * silently wrong the day it stopped being one: `2083-05` fed to `Date.UTC` is
+ * May of the year 2083, so the collection chart labelled Bhadra's bar **May**,
+ * Aswin's **Jun**, and so on down the axis — six wrong month names under
+ * correct-looking bars, which is worse than no labels at all.
+ *
+ * The fix is not a corrected local copy. A second answer to "what is this month
+ * called" living beside `lib/format-month` is what produced the divergence, so
+ * the name now comes from the shared calendar like everywhere else.
+ *
+ * ## The month alone, not abbreviated
+ *
+ * An axis carries the **lead** calendar and drops the translation — there is no
+ * room for both under a bar. Not shortened to three letters: `Bhadra` and
+ * `Baisakh` collide at `Bha`/`Bai`, as do `Mangsir` and `Magh`, so three
+ * characters do not separate the Nepali months the way they separate the English
+ * ones. The year is not repeated per bar; the chart covers one run of months and
+ * the tooltip carries the full label.
+ *
+ * A pre-cutover Gregorian key keeps the English short month it always had.
+ */
+function axisMonth(month: string) {
+  const bs = formatBsPeriodMonth(month);
+
+  if (bs) {
+    return bs;
+  }
+
   const [year, index] = month.split("-");
   const date = new Date(Date.UTC(Number(year), Number(index) - 1, 1));
 
@@ -119,7 +154,7 @@ export function CollectionChart({ points }: { points: MonthlyPoint[] }) {
             <div
               className="relative flex w-full items-end justify-center gap-0.5"
               style={{ height: 120 }}
-              title={`${point.month} — due ${point.due}, collected ${point.paid}`}
+              title={`${monthLabel(point.month)} — due ${point.due}, collected ${point.paid}`}
             >
               <div
                 className="w-1/2 rounded-t bg-muted"
@@ -131,7 +166,7 @@ export function CollectionChart({ points }: { points: MonthlyPoint[] }) {
               />
             </div>
             <span className="text-[11px] font-medium text-muted-foreground">
-              {monthLabel(point.month)}
+              {axisMonth(point.month)}
             </span>
           </div>
         ))}

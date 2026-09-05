@@ -4,6 +4,7 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { paginationMeta, paginationRange } from "@/lib/pagination";
+import { publishResourceChange } from "@/lib/realtime/server";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
@@ -271,10 +272,15 @@ export async function getResidentNightStatus(principal: ApiPrincipal) {
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
+  const [sos, status] = await Promise.all([
+    readLatestSOSFor(resident._id),
+    readNightStatusFor(resident._id),
+  ]);
 
   return {
     resident: serializeResidentSummary(resident),
-    status: await readNightStatusFor(resident._id),
+    sos,
+    status,
   };
 }
 
@@ -294,6 +300,29 @@ export async function readNightStatusFor(residentId: Types.ObjectId) {
   }).lean<NightStatusRecord | null>();
 
   return serializeNightStatus(status);
+}
+
+/**
+ * The resident's most recent SOS alert, or null if they have never raised one.
+ *
+ * Read alongside the night status by every resident-facing caller, because the
+ * two answer different questions and the clients had been using one for both.
+ * `writeNightStatus` upserts a **single row per resident** and never expires it,
+ * so a status of `SOS_TRIGGERED` outlives the emergency by however long it takes
+ * somebody to set a new one — which is how a test alert ends up flagged on a
+ * home screen weeks later. Whether an alert is *live* is a fact about the
+ * `SOSAlert` row: `ACTIVE`/`ACKNOWLEDGED` is open, `RESOLVED`/`FALSE_ALARM` is
+ * closed, and `createdAt` says how old it is.
+ *
+ * The night status row is left exactly as it is. It is the record of what was
+ * written and when, and the clients now decide what to *show* from the alert.
+ */
+export async function readLatestSOSFor(residentId: Types.ObjectId) {
+  const alert = await SOSAlertModel.findOne({ residentId })
+    .sort({ createdAt: -1 })
+    .lean<SOSAlertRecord | null>();
+
+  return alert ? serializeSOS(alert) : null;
 }
 
 export async function listAdminNightStatus(
@@ -438,6 +467,17 @@ export async function triggerSOS(input: SOSCreateInput, principal: ApiPrincipal)
     ),
   ]);
 
+  /*
+   * The warden roster, the alerts queue and the resident's own home screen all
+   * watch `safety`, so the alert lands on every open screen without waiting for
+   * a poll. Best-effort by `publishResourceChange`'s contract: it never throws,
+   * and an alert that was recorded must not fail because Pusher was down.
+   */
+  await publishResourceChange({
+    hostelIds: [resident.hostelId.toString()],
+    topics: ["safety"],
+  });
+
   // Awaited rather than fired and forgotten: §4.2 wants staff and guardians
   // alerted within seconds, and a serverless function stops executing the
   // moment the response is returned. fanOutSOSAlert swallows its own failures.
@@ -460,6 +500,30 @@ export async function triggerSOS(input: SOSCreateInput, principal: ApiPrincipal)
     },
     resident: serializeResidentSummary(resident),
   };
+}
+
+/**
+ * A resident's own SOS history, newest first.
+ *
+ * The counterpart of `listAdminSOSAlerts`, scoped to the caller rather than to a
+ * hostel, and the reason the mobile app can stop treating the night status row
+ * as an alert log. Every alert stays here for good — `updateSOSAlertStatus`
+ * moves a row's status and deletes nothing — so hiding a settled alert from the
+ * home screen costs no record.
+ *
+ * Capped rather than paged: this is the tail of one person's emergencies, and a
+ * resident with more than fifty is a conversation, not a scroll.
+ */
+export async function listResidentSOSAlerts(principal: ApiPrincipal) {
+  await connectToDatabase();
+
+  const resident = await findCurrentResident(principal);
+  const alerts = await SOSAlertModel.find({ residentId: resident._id })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean<SOSAlertRecord[]>();
+
+  return { alerts: alerts.map(serializeSOS) };
 }
 
 export async function listAdminSOSAlerts(query: SOSListQuery, principal: ApiPrincipal) {
@@ -547,6 +611,16 @@ export async function updateSOSAlertStatus(
       { status: input.status },
     ),
   ]);
+
+  /*
+   * Settling an alert has to reach the resident *now*. Their home screen stops
+   * flagging the SOS the moment it is no longer open, and that screen is watching
+   * `safety` on the hostel channel their principal is already subscribed to.
+   */
+  await publishResourceChange({
+    hostelIds: [alert.hostelId.toString()],
+    topics: ["safety"],
+  });
 
   return {
     alert: serializeSOS(updatedAlert),

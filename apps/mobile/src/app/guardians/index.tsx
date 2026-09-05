@@ -102,14 +102,6 @@ export default function GuardiansScreen() {
       scroll
     >
       <View className="gap-5 pt-1">
-        <Card className="gap-2">
-          <Text variant="label">Sharing is off until you turn it on</Text>
-          <Text variant="muted">
-            A guardian sees nothing by default. Every line you switch on is one more
-            thing they can open — and you can take any of it back here at any time.
-          </Text>
-        </Card>
-
         {rows.length === 0 ? (
           <EmptyState
             action={

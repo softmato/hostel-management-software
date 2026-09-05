@@ -40,11 +40,17 @@ export type UploadStage =
  * identical (prepare, move bytes, settle, done or failed) and only the *words*
  * differ, which is exactly what `uploadRowMessage` is for.
  *
+ * `read` is the third, and it moves no bytes the user cares about: it is the
+ * server looking at a file already stored — OCR over a payment receipt — which
+ * the resident is waiting on exactly as they wait on an upload, and which the
+ * shade has to be able to name. It borrows the same five stages for the same
+ * reason a download does.
+ *
  * Required rather than defaulted, so every construction site says which it is.
  * A row that silently claimed to be an upload would report "Uploading 45%" over
  * a download, which is the one failure this field exists to prevent.
  */
-export type TransferDirection = "download" | "upload";
+export type TransferDirection = "download" | "read" | "upload";
 
 export type UploadRow = {
   direction: TransferDirection;
@@ -116,6 +122,20 @@ export function pruneUploads(rows: readonly UploadRow[], now: number): UploadRow
  */
 export function uploadRowMessage(row: UploadRow): string {
   const down = row.direction === "download";
+
+  /*
+   * A read has no bytes to count and no percentage to show — the server is
+   * looking at a file that is already stored — so it says the same thing at
+   * every stage rather than pretending to a progress it cannot measure. It also
+   * never reports a failure: a receipt nothing could read costs the resident the
+   * two fields they would have typed anyway, and calling that an error would
+   * send them to re-upload a file that is already there.
+   */
+  if (row.direction === "read") {
+    return row.stage === "succeeded" || row.stage === "failed"
+      ? "Checked"
+      : "Reading it…";
+  }
 
   switch (row.stage) {
     case "failed":
@@ -240,6 +260,19 @@ export function startUpload(label: string, now: number = Date.now()): string {
  */
 export function startDownload(label: string, now: number = Date.now()): string {
   return startTransfer(label, "download", now);
+}
+
+/**
+ * The server reading a file the phone has already sent.
+ *
+ * In the queue rather than beside it, so the resident who photographs a receipt
+ * and switches to their banking app to check the amount is told in the shade
+ * that the check is still running — the same promise the upload half already
+ * makes, over the leg that is actually slow. OCR over a full-size screenshot is
+ * seconds of work, and a screen the user has walked away from cannot report it.
+ */
+export function startRead(label: string, now: number = Date.now()): string {
+  return startTransfer(label, "read", now);
 }
 
 export function updateUpload(
