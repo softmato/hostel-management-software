@@ -1,108 +1,100 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Linking, Platform, Pressable, View } from "react-native";
 
-import { AppBar } from "@/components/ui/app-bar";
-import { Badge, StatusPill } from "@/components/ui/badge";
+import { MealRow } from "@/components/meal-row";
+import {
+  ResidentHomeHeader,
+  ResidentQuickActions,
+  ResidentServiceGrid,
+  ResidentStayHero,
+  ResidentWaitingActions,
+} from "@/components/resident-home";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
-import { MealRow } from "@/components/meal-row";
-import { NotificationBell } from "@/components/notification-bell";
-import { Chip, Grid, InfoTile, StatTile } from "@/components/ui/layout";
-import { ListRow, RowDivider } from "@/components/ui/list-row";
-import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import {
-  Skeleton,
-  SkeletonCard,
-  SkeletonTiles,
-} from "@/components/ui/skeleton";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { residentQuery } from "@/lib/resident-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
-import { openAssetViewer } from "@/lib/asset-viewer";
-import {
-  formatDate,
-  formatDueLabel,
-  formatPeriod,
-  formatRelativeDay,
-  greetingFor,
-  humanizeEnum,
-} from "@/lib/format";
+import { formatDueLabel, humanizeEnum } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 import {
-  type NightStatus,
   openQuestionCall,
   type ResidentDashboard,
   type RoutineMeal,
 } from "@/lib/resident-api";
+import { duesLine, stayPill } from "@/lib/resident-home";
+import { prefetchResidentRoute, residentQuery } from "@/lib/resident-queries";
 import { toastError } from "@/lib/toast";
 
 /**
  * The resident's home.
  *
+ * ## It is the admin Home now, with a resident's subject
+ *
+ * The two screens had drifted into two products: the admin's is a painted
+ * account card under the platform lockup, with a shortcut row straddling the
+ * fold, a card of queues and a grid of doors; this was an app bar with a
+ * greeting, a bordered dues card, a strip of three metric tiles, a hostel card
+ * with a photo thumbnail and a wrap of chips, and then four sections. Same
+ * palette, same components, two different ideas of what a home screen is.
+ *
+ * It is now the same object. `<PortalHeroCard>` and `ui/action-grid.tsx` are
+ * literally the same components both roles draw, so the card's corner radius,
+ * the column pitch and the badge rules cannot drift apart again. What differs is
+ * the content, which is the whole of the difference between the two roles — see
+ * the table in `components/resident-home.tsx`.
+ *
+ * ## What each of the old objects became
+ *
+ * | was | is |
+ * | --- | --- |
+ * | `AppBar` with a greeting | the platform lockup, bell and hostel-page eye |
+ * | `DuesCard` — amount, pill, due label, button | the hero, with `Pay now` on the figure |
+ * | `StatStrip` — three metric tiles | four cells of `Waiting for you`, counts only |
+ * | `HostelCard` — photo, address, chips | the hero's ground, its name line, `Call hostel` |
+ * | `ComplaintsCard` — a summary of a screen | the `Complaints` cell's badge |
+ * | `QuickActions` — Complaints, ID, Review, SOS | the shortcut row and the `Your stay` grid |
+ *
+ * Nothing was dropped that carried a fact. The complaints *summary* went for the
+ * reason the admin Home lost six sections of figures: a home screen whose job is
+ * to get you somewhere had become a shorter, worse copy of the screen one tap
+ * away. The open count is on the cell that opens it.
+ *
+ * ## What is still below the fold, and why
+ *
+ * **Today's food** and **the latest notices**, in that order. Neither is a
+ * summary of a screen you can reach in one tap and read properly — a resident
+ * checks what is for dinner *here*, without going anywhere, and a notice's first
+ * two lines are the whole notice most days. They are the two things this app is
+ * opened for that are not money, so they sit between the queues and the grid.
+ *
  * ## One request
  *
  * It used to be two. `GET /resident/dashboard` returned `nightStatus` as a
- * hardcoded `{ status: "UNKNOWN", checkedAt: null }` — a value the enum does
- * not even contain, written by nothing — so this screen fetched
- * `/resident/night-status` alongside it and ignored the dashboard's copy. Its
- * `complaints` block was the literal `{ openCount: 0, recent: [] }`, and a
- * confident zero on a resident with three open complaints is worse than an
- * absent card, so it was not rendered at all.
- *
+ * hardcoded `{ status: "UNKNOWN", checkedAt: null }` — a value the enum does not
+ * even contain — so this screen fetched `/resident/night-status` alongside it.
  * `resident-dashboard.service.ts` reads both properly as of 2026-08-17, so the
- * second request is gone and complaints render. The absent night status is
- * `NOT_VERIFIED`, which is a real answer, not a missing one.
+ * second request is gone. The absent night status is `NOT_VERIFIED`, which is a
+ * real answer, not a missing one.
  *
- * ## Ordering, against `resident-dashboard-page.tsx` (§5.1)
- *
- * The web leads with a full-width hostel photo. **Here the money leads.** A
- * resident opens this app to pay rent or to read a notice; they already know
- * which building they live in, so a 200dp photo of it above the fold is the
- * marketing row this project has cut twice before — while pushing the one
- * actionable number below the first screenful.
- *
- * What the photo card *is* worth keeping is the part a phone does better than a
- * browser: the hostel's phone number and email are one tap from a call, so they
- * become chips and the photo shrinks to a thumbnail beside them.
- *
- * Ported from the web in this pass: **the hostel contact card** (phone, email,
- * public page), **notice previews** (the web shows two lines of the body; the
- * rows here showed only a category), and **QuestionCall**, which existed on the
- * web for students and was entirely absent from mobile.
- *
- * Deliberately **not** ported: the web's "Unread notices" metric and its "New"
- * badge. `serializeNotice` on the dashboard emits no `isRead` field at all, so
+ * Deliberately **not** ported from the web: its "Unread notices" metric and its
+ * "New" badge. `serializeNotice` emits no `isRead` field at all, so
  * `!notice.isRead` is true for every notice and the web marks all of them new.
- * Repeating that would be repeating a bug. The unread count comes back the day
- * the serializer carries the flag.
+ * The count comes back the day the serializer carries the flag; until then the
+ * `Notices` cell counts the urgent ones, which is a field that does exist.
  */
-
-/**
- * The web offers Payments, Notices, Complaints, SOS and Reviews here. Payments
- * and Notices are **tabs** on this app — a shortcut to the tab you can already
- * see is a wasted target — so this row is the three the web has that mobile has
- * nowhere else, plus the digital ID, which is the thing a resident is asked to
- * produce at a gate.
- */
-const QUICK_ACTIONS = [
-  { href: "/complaints", icon: "chatbox-ellipses-outline", label: "Complaints" },
-  { href: "/id-card", icon: "card-outline", label: "Digital ID" },
-  { href: "/review", icon: "star-outline", label: "Review" },
-  { href: "/sos", icon: "alert-circle-outline", label: "SOS", tone: "danger" },
-] as const;
 
 export default function ResidentHomeScreen() {
-  const account = useAppSelector((state) => state.auth.account);
+  const dates = useDates();
 
   /*
    * Live, which no resident screen was.
@@ -116,8 +108,7 @@ export default function ResidentHomeScreen() {
    * Five topics because this one payload is five domains — `feeStatus`,
    * `notices`, `complaints`, `foodMenu` and `nightStatus` — and all five are
    * genuinely published to `private-hostel-<id>`, which a resident's principal
-   * is granted through its own `hostelIds`. Naming a topic nothing publishes
-   * would be decoration; these were checked against the services that emit them.
+   * is granted through its own `hostelIds`.
    *
    * The refetch is silent by `useResource`'s design: the screen does not blank
    * under somebody who is reading it.
@@ -129,50 +120,96 @@ export default function ResidentHomeScreen() {
   });
 
   const dashboard = home.data;
-  const firstName = dashboard?.resident.firstName ?? account?.name?.split(" ")[0] ?? "";
+  const hostel = dashboard?.hostel ?? null;
 
   /*
-   * The bell, which this group did not have.
+   * The bell and the eye, on the bar in all three states.
    *
    * `/notifications` is scoped to `principal.userId` with no role branch, so a
    * resident has always had a feed — payment reminders, notice broadcasts, the
-   * reply to a complaint. Nothing in these five tabs opened it: there was no
-   * bell on any of them, and More's "Notifications" row pushed `/settings`,
-   * which is the *preferences* screen. So the feed was reachable by a push
-   * banner and by nothing else, and a banner that has been swiped away is gone.
+   * reply to a complaint. Before the bell, nothing in these five tabs opened it:
+   * More's "Notifications" row pushed `/settings`, the *preferences* screen, so
+   * the feed was reachable by a push banner and by nothing else — and a banner
+   * that has been swiped away is gone.
    *
-   * On every tab rather than only here, matching `(admin)`: a control that
-   * disappears when you change tab is one you stop trusting to be there.
+   * Drawn in the loading and error states too, which is what makes a slow first
+   * load look like the app arriving rather than a blank screen with a spinner.
    */
   const header = (
-    <AppBar
-      actions={<NotificationBell />}
-      subtitle={dashboard?.hostel?.name ?? undefined}
-      title={firstName ? `${greetingFor()}, ${firstName}` : greetingFor()}
+    <ResidentHomeHeader
+      onHostelPage={
+        hostel?.slug ? () => router.push(`/hostel/${hostel.slug}`) : undefined
+      }
     />
   );
+
+  const stay = useMemo(
+    () =>
+      dashboard
+        ? stayPill(dashboard.nightStatus)
+        : { label: "Not checked in", settled: false },
+    [dashboard],
+  );
+
+  const duesNote = useMemo(() => {
+    if (!dashboard) {
+      return "";
+    }
+
+    /*
+      `nextDue`, not `latestPayment`.
+
+      The date and the month have to describe the invoice the resident should
+      act on, which is the **earliest unsettled** one — and `latestPayment` is
+      the opposite of that by construction: the invoice due furthest in the
+      future, settled ones included. Pairing it with a total summed across every
+      unpaid invoice printed "Across 2 unpaid invoices · Due in 27 days" at
+      somebody whose older invoice had been overdue for a month.
+
+      It falls back to `latestPayment` only when nothing is unsettled, where
+      there is no date to be wrong about and the month is all the line uses.
+    */
+    const due = dashboard.feeStatus.nextDue ?? dashboard.feeStatus.latestPayment;
+
+    return duesLine({
+      dueAmount: dashboard.feeStatus.dueAmount,
+      dueLabel: formatDueLabel(due?.dueDate),
+      pendingProofs: dashboard.feeStatus.pendingProofs,
+      periodLabel: due ? dates.period(due.month) : null,
+      unpaidCount: dashboard.feeStatus.unpaidCount,
+    });
+  }, [dashboard, dates]);
 
   if (home.loading) {
     return (
       /*
         Skeletons, not a spinner — the house rule this group was not following.
-        The shape is known before the data is: a dues card, a strip of three
-        tiles, the hostel, then sections. Drawing it means nothing moves when the
-        figures land, and the first thing a resident's eye goes to — the amount
-        outstanding — is already in the place it will end up.
+        The shape is known before the data is, and it is the shape the screen
+        actually lands in: a painted card, a row of shortcuts, a row of queues,
+        then sections. Drawing it means nothing moves when the figures arrive.
       */
-      <Screen header={header} insideTabs scroll>
-        <View className="gap-4 pt-1">
-          <View className="gap-3 rounded-2xl border border-border bg-card p-4">
-            <Skeleton height={11} width="28%" />
-            <Skeleton height={30} radius={10} width="55%" />
-            <Skeleton height={12} width="42%" />
-            <Skeleton height={44} radius={14} />
+      <Screen header={header} insideTabs padded={false} scroll>
+        {/* `px-3.5` is 14 points — `HERO_INSET`, so the card lands where it will. */}
+        <View className="px-3.5">
+          <Skeleton height={190} radius={18} />
+        </View>
+
+        <View className="px-5 pt-3">
+          <Skeleton height={96} radius={24} />
+        </View>
+
+        <View className="gap-6 px-5 pt-6">
+          <View className="gap-3">
+            <Skeleton height={18} width="45%" />
+            <Skeleton height={96} radius={24} />
           </View>
 
-          <SkeletonTiles />
-          <SkeletonCard rows={1} />
-          <SkeletonCard rows={3} />
+          <SkeletonCard rows={2} />
+
+          <View className="gap-3">
+            <Skeleton height={18} width="45%" />
+            <Skeleton height={172} radius={24} />
+          </View>
         </View>
       </Screen>
     );
@@ -189,36 +226,91 @@ export default function ResidentHomeScreen() {
     );
   }
 
+  const phone = hostel?.contact.phone;
+  const urgentNotices = dashboard.notices.filter((notice) => notice.isUrgent).length;
+
   return (
     <Screen
       header={header}
       insideTabs
       onRefresh={home.refresh}
+      padded={false}
       refreshing={home.refreshing}
       scroll
     >
-      <View className="gap-4 pt-1">
-        <DuesCard feeStatus={dashboard.feeStatus} />
+      <ResidentStayHero
+        deposit={dashboard.resident.depositAmount}
+        dueAmount={dashboard.feeStatus.dueAmount}
+        duesNote={duesNote}
+        hostelName={hostel?.name ?? null}
+        onNightStatus={() => router.push("/night-status")}
+        onNotices={() => router.push("/(resident)/notices")}
+        onPay={() => router.push("/(resident)/payments")}
+        photoUrl={absoluteMediaUrl(hostel?.photoUrl, API_BASE_URL)}
+        /*
+          The card's "account number": what a resident is asked at the office, in
+          the order they are asked it. Two props rather than one joined string,
+          because the card gives each a row of its own — see the note there.
 
-        <StatStrip
-          complaints={dashboard.complaints}
-          nightStatus={dashboard.nightStatus}
-          notices={dashboard.notices}
-        />
+          Residents are placed by room *type*, not by room number, so that is all
+          the accommodation detail there is to show.
+        */
+        roomLabel={humanizeEnum(dashboard.accommodation.roomType)}
+        sinceLabel={dates.date(dashboard.resident.moveInDate)}
+        stay={stay}
+        urgentCount={urgentNotices}
+      />
 
-        <HostelCard
-          hostel={dashboard.hostel}
-          moveInDate={dashboard.resident.moveInDate}
-          roomType={dashboard.accommodation.roomType}
+      {/*
+        Its own row, not pulled up onto the card's shoulder. The straddle needs a
+        full-width painted edge to straddle, and the hero has corners.
+      */}
+      <View className="pt-3">
+        <ResidentQuickActions
+          /*
+            Only when the listing carries a number. A cell that dials nothing is
+            worse than a missing cell — see `<ResidentQuickActions>`.
+          */
+          onCall={phone ? () => void Linking.openURL(`tel:${phone}`) : undefined}
+          onIdCard={() => router.push("/id-card")}
+          onRaiseIssue={() => router.push("/complaints/new")}
         />
+      </View>
+
+      <View className="gap-6 px-5 pt-6">
+        <View>
+          {/*
+            No "See all". Every cell in the card below opens the screen that owns
+            its queue, and the bell in the header opens the feed — a third path
+            to the same places, on the heading of a row that is nothing but
+            paths, was chrome.
+          */}
+          <SectionHeader title="Waiting for you" />
+
+          <ResidentWaitingActions
+            complaints={dashboard.complaints.openCount}
+            invoices={dashboard.feeStatus.unpaidCount}
+            onComplaints={() => router.push("/complaints")}
+            onInvoices={() => router.push("/(resident)/payments")}
+            onNightStatus={() => router.push("/night-status")}
+            onNotices={() => router.push("/(resident)/notices")}
+            urgentNotices={urgentNotices}
+          />
+        </View>
 
         <TodaysMenuCard meals={dashboard.foodMenu} />
 
         <NoticesCard notices={dashboard.notices} />
 
-        <ComplaintsCard complaints={dashboard.complaints} />
+        <View>
+          <SectionHeader title="Your stay" />
 
-        <QuickActions />
+          {/* Touch-down warms the screen the tile opens, where there is one. */}
+          <ResidentServiceGrid
+            onOpen={(href: string) => router.push(href as never)}
+            onPrefetch={prefetchResidentRoute}
+          />
+        </View>
 
         {/*
           Students only — a working professional has no use for it, and the API
@@ -230,295 +322,6 @@ export default function ResidentHomeScreen() {
         ) : null}
       </View>
     </Screen>
-  );
-}
-
-function DuesCard({ feeStatus }: { feeStatus: ResidentDashboard["feeStatus"] }) {
-  const owes = feeStatus.dueAmount > 0;
-  const latest = feeStatus.latestPayment;
-  const dueLabel = formatDueLabel(latest?.dueDate);
-
-  return (
-    <Card className="gap-3">
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="flex-1 gap-1">
-          <Text variant="caption">{owes ? "Outstanding" : "Balance"}</Text>
-          <Money owed size="display" value={feeStatus.dueAmount} />
-          {/*
-            The web's `unpaidCount` was on the dashboard payload all along and
-            drawn nowhere here. It is the difference between "you owe NPR 17,000"
-            and "you owe NPR 17,000 across two months", which is the question
-            anybody asks next.
-          */}
-          {owes && feeStatus.unpaidCount > 1 ? (
-            <Text variant="caption">Across {feeStatus.unpaidCount} unpaid invoices</Text>
-          ) : null}
-        </View>
-
-        {feeStatus.pendingProofs > 0 ? (
-          <Badge
-            label={
-              feeStatus.pendingProofs === 1
-                ? "1 claim in review"
-                : `${feeStatus.pendingProofs} claims in review`
-            }
-            tone="warning"
-          />
-        ) : null}
-      </View>
-
-      {latest ? (
-        <View className="flex-row flex-wrap items-center gap-2">
-          <Text variant="muted">{formatPeriod(latest.month)}</Text>
-          <StatusPill status={latest.status} />
-          {/*
-            The due label is the actionable half: "NPR 8,500 outstanding" is a
-            fact, "4 days overdue" is a reason to open the tab.
-          */}
-          {dueLabel ? <Text variant="caption">{dueLabel}</Text> : null}
-        </View>
-      ) : null}
-
-      <Button
-        label={owes ? "Pay now" : "View payments"}
-        onPress={() => router.push("/(resident)/payments")}
-        variant={owes ? "primary" : "outline"}
-      />
-    </Card>
-  );
-}
-
-/**
- * The three numbers worth a glance, as the mockup's metric strip.
- *
- * `<Grid>` decides how many fit: three across on any ordinary phone, two on a
- * 320dp screen where three would truncate "Night status" to "Night s…".
- *
- * The night-status tile replaced a full-width card. Its note ("checked, in
- * room") does not survive the move and is not reproduced here — a tile carries
- * one line, and the note belongs on the screen that owns it, which this tile
- * links to.
- */
-function StatStrip({
-  complaints,
-  nightStatus,
-  notices,
-}: {
-  complaints: ResidentDashboard["complaints"];
-  nightStatus: NightStatus;
-  notices: ResidentDashboard["notices"];
-}) {
-  const urgent = notices.filter((notice) => notice.isUrgent).length;
-
-  return (
-    <Grid gap={10} maxColumns={3} minCellWidth={104}>
-      <StatTile
-        icon="megaphone-outline"
-        label="Notices"
-        onPress={() => router.push("/(resident)/notices")}
-        tone={urgent > 0 ? "danger" : "brand"}
-        // Not "unread": the dashboard's notices carry no read flag. Urgent is a
-        // field the serializer does emit, and is the one worth counting anyway.
-        trend={urgent > 0 ? `${urgent} urgent` : "Nothing urgent"}
-        value={String(notices.length)}
-      />
-
-      <StatTile
-        icon="chatbox-ellipses-outline"
-        label="Complaints"
-        onPress={() => router.push("/complaints")}
-        tone={complaints.openCount > 0 ? "warning" : "success"}
-        trend={complaints.openCount > 0 ? "Still open" : "All resolved"}
-        value={String(complaints.openCount)}
-      />
-
-      <StatTile
-        icon="moon-outline"
-        label="Night status"
-        onPress={() => router.push("/night-status")}
-        tone={nightStatus.status === "VERIFIED" ? "success" : "neutral"}
-        trend={
-          nightStatus.checkedAt
-            ? `Checked ${formatRelativeDay(nightStatus.checkedAt)}`
-            : "Not checked in"
-        }
-        value={humanizeEnum(nightStatus.status)}
-      />
-    </Grid>
-  );
-}
-
-/**
- * Where you live, and how to reach it.
- *
- * The web's version is a banner with a 320dp-wide photo. Shrunk to a thumbnail
- * here, for the reason in the file header — and the thumbnail is tappable, so
- * the photo is still available full-screen through the global asset viewer to
- * anyone who wants it.
- */
-function HostelCard({
-  hostel,
-  moveInDate,
-  roomType,
-}: {
-  hostel: ResidentDashboard["hostel"];
-  moveInDate: string;
-  roomType: string;
-}) {
-  const { colors } = useAppTheme();
-  const photo = absoluteMediaUrl(hostel?.photoUrl, API_BASE_URL);
-  const address = [hostel?.location.address, hostel?.location.area, hostel?.location.city]
-    .filter(Boolean)
-    .join(", ");
-
-  return (
-    <Card className="gap-3">
-      <View className="flex-row items-center gap-3">
-        {photo ? (
-          <Pressable
-            accessibilityLabel={`Photo of ${hostel?.name ?? "your hostel"}`}
-            accessibilityRole="imagebutton"
-            className="active:opacity-80"
-            onPress={() =>
-              openAssetViewer([{ caption: address || undefined, title: hostel?.name, url: photo }])
-            }
-          >
-            <Image
-              contentFit="cover"
-              source={{ uri: photo }}
-              style={{
-                backgroundColor: colors.muted,
-                borderRadius: 14,
-                height: 64,
-                width: 64,
-              }}
-              transition={150}
-            />
-          </Pressable>
-        ) : (
-          <View
-            className="h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: colors.brandSoft }}
-          >
-            <Ionicons color={colors.primary} name="business-outline" size={26} />
-          </View>
-        )}
-
-        <View className="flex-1 gap-1">
-          <Text numberOfLines={1} variant="subtitle">
-            {hostel?.name ?? "Your hostel"}
-          </Text>
-          {address ? (
-            <View className="flex-row items-center gap-1">
-              <Ionicons color={colors.mutedForeground} name="location-outline" size={12} />
-              <Text className="flex-1" numberOfLines={2} variant="caption">
-                {address}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
-
-      {/*
-        Chips rather than the web's rows of text. A phone number here is one tap
-        to a call and an email is one tap to a draft — the browser version is a
-        number you have to copy. Residents are placed by room *type*, not by room
-        number, so that is all the accommodation detail there is to show.
-      */}
-      <View className="flex-row flex-wrap gap-2">
-        <Chip icon="bed-outline" label={humanizeEnum(roomType)} />
-        <Chip icon="calendar-outline" label={`Since ${formatDate(moveInDate)}`} />
-
-        {hostel?.contact.phone ? (
-          <Chip
-            icon="call-outline"
-            label={hostel.contact.phone}
-            onPress={() => void Linking.openURL(`tel:${hostel.contact.phone}`)}
-            tone="brand"
-          />
-        ) : null}
-
-        {hostel?.contact.email ? (
-          <Chip
-            icon="mail-outline"
-            label={hostel.contact.email}
-            onPress={() => void Linking.openURL(`mailto:${hostel.contact.email}`)}
-          />
-        ) : null}
-
-        {hostel?.slug ? (
-          <Chip
-            icon="open-outline"
-            label="Hostel page"
-            onPress={() => router.push(`/hostel/${hostel.slug}`)}
-          />
-        ) : null}
-      </View>
-    </Card>
-  );
-}
-
-/**
- * Only when there is something to say.
- *
- * A resident who has never complained does not need a card telling them so. The
- * rows became pressable in M5.2, when `/complaints/[id]` started existing — the
- * dashboard's cut of a complaint carries no thread and no attachments, so the row
- * is a pointer into the real screen rather than a summary that tries to be one.
- */
-function ComplaintsCard({
-  complaints,
-}: {
-  complaints: ResidentDashboard["complaints"];
-}) {
-  if (complaints.openCount === 0 && complaints.recent.length === 0) {
-    return null;
-  }
-
-  return (
-    <View>
-      <SectionHeader
-        action={
-          <Pressable
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => router.push("/complaints")}
-          >
-            <Text className="text-primary" variant="label">
-              See all
-            </Text>
-          </Pressable>
-        }
-        subtitle={
-          complaints.openCount === 1
-            ? "1 still open"
-            : `${complaints.openCount} still open`
-        }
-        title="Your complaints"
-      />
-
-      <Card>
-        {complaints.recent.map((complaint, index) => (
-          <View key={complaint.id}>
-            {index > 0 ? <RowDivider /> : null}
-            <ListRow
-              onPress={() => router.push(`/complaints/${complaint.id}`)}
-              right={
-                complaint.isOverdue ? (
-                  <Badge label="Overdue" tone="danger" />
-                ) : (
-                  <StatusPill status={complaint.status} />
-                )
-              }
-              subtitle={`${humanizeEnum(complaint.category)} · ${formatRelativeDay(
-                complaint.createdAt,
-              )}`}
-              title={complaint.title}
-            />
-          </View>
-        ))}
-      </Card>
-    </View>
   );
 }
 
@@ -539,6 +342,12 @@ function TodaysMenuCard({ meals }: { meals: RoutineMeal[] }) {
             accessibilityRole="button"
             hitSlop={8}
             onPress={() => router.push("/(resident)/food")}
+            /*
+              Food is a push rather than a tab since Statement took its slot, so
+              its read is no longer warmed at the door — this is the tap that
+              warms it, on the same `onPressIn` the `Your stay` grid uses.
+            */
+            onPressIn={() => prefetchResidentRoute("/(resident)/food")}
           >
             <Text className="text-primary" variant="label">
               All meals
@@ -574,6 +383,8 @@ function TodaysMenuCard({ meals }: { meals: RoutineMeal[] }) {
  * leaves out the half that says when the water is off. Ported.
  */
 function NoticesCard({ notices }: { notices: ResidentDashboard["notices"] }) {
+  const dates = useDates();
+
   return (
     <View>
       <SectionHeader
@@ -616,29 +427,13 @@ function NoticesCard({ notices }: { notices: ResidentDashboard["notices"] }) {
               ) : null}
 
               <Text variant="caption">
-                {`${humanizeEnum(notice.category)} · ${formatRelativeDay(notice.publishedAt)}`}
+                {`${humanizeEnum(notice.category)} · ${dates.relativeDay(notice.publishedAt)}`}
               </Text>
             </Pressable>
           ))
         )}
       </Card>
     </View>
-  );
-}
-
-function QuickActions() {
-  return (
-    <Grid gap={10} maxColumns={4} minCellWidth={78}>
-      {QUICK_ACTIONS.map((action) => (
-        <InfoTile
-          icon={action.icon}
-          key={action.href}
-          label={action.label}
-          onPress={() => router.push(action.href)}
-          tone={"tone" in action ? action.tone : "brand"}
-        />
-      ))}
-    </Grid>
   );
 }
 
@@ -659,7 +454,9 @@ function QuestionCallCard() {
     try {
       // Not "web": the server validates the enum, and a wrong value is a 400 on
       // a card that otherwise looks like it worked.
-      const { redirectUrl } = await openQuestionCall(Platform.OS === "ios" ? "ios" : "android");
+      const { redirectUrl } = await openQuestionCall(
+        Platform.OS === "ios" ? "ios" : "android",
+      );
 
       await WebBrowser.openBrowserAsync(redirectUrl);
     } catch (caught) {

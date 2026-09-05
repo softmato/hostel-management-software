@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
+import { FactRow } from "@/components/ui/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -166,20 +167,22 @@ export default function CheckoutStatusScreen() {
           </Text>
         </View>
 
+        {/*
+          `<FactRow>`, not three hand-rolled label/value rows.
+
+          `NOTES.md` §8 — a detail screen's facts are a two-column label/value
+          grid, and this kit's `<FactRow>` is that idea — and the version here
+          was the component re-typed three times without the one thing it
+          actually carries: a value that **wraps** rather than being squeezed.
+          On a 320dp phone the right-hand column is about 150dp, which a long
+          reference does not fit in, so the row that matters most to a resident
+          chasing a payment was the one being truncated.
+        */}
         {status ? (
           <Card className="w-full gap-2">
-            <View className="flex-row items-center justify-between gap-3">
-              <Text variant="caption">Amount</Text>
-              <Money value={status.amount} />
-            </View>
-            <View className="flex-row items-center justify-between gap-3">
-              <Text variant="caption">Provider</Text>
-              <Text variant="label">{humanizeEnum(status.provider)}</Text>
-            </View>
-            <View className="flex-row items-center justify-between gap-3">
-              <Text variant="caption">Reference</Text>
-              <Text variant="label">{status.reference}</Text>
-            </View>
+            <FactRow label="Amount" value={<Money value={status.amount} />} />
+            <FactRow label="Provider" value={humanizeEnum(status.provider)} />
+            <FactRow label="Reference" value={status.reference} />
 
             {status.sandbox ? (
               <Badge label="Test mode — no real money" tone="warning" />

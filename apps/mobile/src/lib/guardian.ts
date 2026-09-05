@@ -175,3 +175,51 @@ export function guardianPaidAmount(
     0,
   );
 }
+
+/**
+ * The month the household should settle next — the **oldest** open one.
+ *
+ * Not the newest, and the distinction is the whole reason this is a function
+ * rather than `payments[0]`. The server sends newest-first, so taking the first
+ * open row points a parent whose child is two months behind at August while July
+ * quietly ages into a default. `paymentStats` in `invoice-ledger.ts` holds the
+ * same rule for the resident's own screen, and the two must not disagree about
+ * which month is "next" for one debt.
+ *
+ * A missing `dueDate` sorts **last** rather than first: an invoice with no date
+ * is not urgent, and treating absent as epoch-zero would put it above every real
+ * one.
+ */
+export function guardianNextDue(payments: GuardianPayment[]): GuardianPayment | null {
+  const open = payments.filter((payment) => guardianOutstanding(payment) > 0);
+
+  return (
+    [...open].sort((left, right) => {
+      const leftDue = left.dueDate ? Date.parse(left.dueDate) : Number.POSITIVE_INFINITY;
+      const rightDue = right.dueDate ? Date.parse(right.dueDate) : Number.POSITIVE_INFINITY;
+
+      return leftDue - rightDue;
+    })[0] ?? null
+  );
+}
+
+/**
+ * The most recent month with money against it.
+ *
+ * **Ordered by billing month, not by a payment date**, because `GuardianPayment`
+ * carries none — the resident's own `ResidentInvoice` has `paidDate` and the
+ * guardian projection deliberately does not, since when a family paid is a
+ * detail about the household rather than about the hostel's ledger. `month` is
+ * `YYYY-MM`, which sorts correctly as a string, so no parsing is involved and no
+ * timezone can move a January payment into the previous year.
+ *
+ * `paidAmount > 0` rather than a `PAID` status: a `PARTIAL` month has real money
+ * against it, and a parent who paid half of August should see August here.
+ */
+export function guardianLatestPaid(payments: GuardianPayment[]): GuardianPayment | null {
+  return (
+    [...payments]
+      .filter((payment) => payment.paidAmount > 0)
+      .sort((left, right) => right.month.localeCompare(left.month))[0] ?? null
+  );
+}

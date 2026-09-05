@@ -12,12 +12,14 @@
     "./email/*": "./src/email/*.ts",
     "./email/templates/*": "./src/email/templates/*.ts",
     "./constants/*": "./src/constants/*.ts",
-    "./utils/*": "./src/utils/*.ts"
+    "./utils/*": "./src/utils/*.ts",
+    "./calendar/*": "./src/calendar/*.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "nepali-date-converter": "^3.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

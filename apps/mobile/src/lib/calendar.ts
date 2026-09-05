@@ -3,8 +3,8 @@
  *
  * ## Why this is a preference and not a second line of text
  *
- * `format.ts` already carries `formatDateBoth`, which prints `2 Bhadra 2083 ·
- * 18 Aug 2026`. That was the right answer for a screen where a date *is* money
+ * `format.ts` already carries `formatDateBoth`, which prints `Bhadra 2, 2083 BS
+ * · 18 Aug 2026`. That was the right answer for a screen where a date *is* money
  * — an invoice due date read by an owner in BS and a bank in AD — and it is the
  * wrong answer for the other forty places a date appears, where doubling every
  * one of them is two thirds of a list row spent saying the same thing twice.
@@ -35,10 +35,19 @@ import {
   formatDate,
   formatDateBs,
   formatDateTime,
+  formatDayMonth,
+  formatDayMonthBs,
   formatPeriod,
   formatPeriodBs,
+  formatPeriodMonth,
+  formatPeriodMonthBs,
+  formatPeriodYear,
+  formatPeriodYearBs,
   formatRelativeDay,
   formatTime,
+  formatWeekday,
+  formatYear,
+  formatYearBs,
 } from "@/lib/format";
 
 export type CalendarSystem = "AD" | "BS";
@@ -64,7 +73,7 @@ export function calendarExample(
   return formatDateIn(calendar, now);
 }
 
-/** `18 Aug 2026`, or `2 Bhadra 2083`. */
+/** `18 Aug 2026`, or `Bhadra 2, 2083 BS`. */
 export function formatDateIn(
   calendar: CalendarSystem,
   value: Date | string | null | undefined,
@@ -73,7 +82,38 @@ export function formatDateIn(
 }
 
 /**
- * `18 Aug 2026, 2:45 pm`, or `2 Bhadra 2083, 2:45 pm`.
+ * A date with the weekday after it — `Bhadra 2, 2083 BS · Tuesday`.
+ *
+ * ## Why the weekday is not on every date
+ *
+ * It is the single most useful thing you can add to a date and the single
+ * easiest thing to add to too many of them. "That Friday" is how a person
+ * remembers the day they paid, or the night they were marked absent — but a
+ * notification list where every row ends in a weekday has spent a third of each
+ * row saying something nobody read.
+ *
+ * So it goes on dates that are the *subject* of what you are looking at — the
+ * day an attendance row is about, the day a roll call covers, the heading over a
+ * group of that day's meal photos — and nowhere else. A timestamp hanging off
+ * the end of a row is not a subject.
+ *
+ * The weekday itself is calendar-independent: Bikram Sambat renumbers the days,
+ * it does not reorder them, so `formatWeekday` answers for both. It reads the
+ * Nepal-local day like everything else here, so a phone left on another timezone
+ * still names the weekday the hostel is having.
+ */
+export function formatDateLongIn(
+  calendar: CalendarSystem,
+  value: Date | string | null | undefined,
+): string {
+  const date = formatDateIn(calendar, value);
+  const weekday = formatWeekday(value);
+
+  return date === "—" || weekday === "—" ? date : `${date} · ${weekday}`;
+}
+
+/**
+ * `18 Aug 2026, 2:45 pm`, or `Bhadra 2, 2083 BS, 2:45 pm`.
  *
  * The clock half is untouched: Bikram Sambat is a calendar, not a timekeeping
  * system, and Nepal reads a 12-hour clock in both.
@@ -92,7 +132,7 @@ export function formatDateTimeIn(
 }
 
 /**
- * A month, named in the reader's calendar — `August 2026` or `Shrawan 2083`.
+ * A month, named in the reader's calendar — `August 2026` or `Shrawan 2083 BS`.
  *
  * One month a side. The two calendars do not line up, so `2026-08` genuinely
  * straddles two Nepali months; the BS side names whichever of them holds more
@@ -108,6 +148,64 @@ export function formatPeriodIn(
   }
 
   return formatPeriodBs(period) || formatPeriod(period);
+}
+
+/**
+ * A day without its year — `16 Aug`, or `Aswin 15`.
+ *
+ * Only inside a section whose heading already names the year. See
+ * {@link formatDayMonth}.
+ */
+export function formatDayMonthIn(
+  calendar: CalendarSystem,
+  value: Date | string | null | undefined,
+): string {
+  return calendar === "BS" ? formatDayMonthBs(value) : formatDayMonth(value);
+}
+
+/** A month without its year — `August`, or `Bhadra`. Same rule as above. */
+export function formatPeriodMonthIn(
+  calendar: CalendarSystem,
+  period: string | null | undefined,
+): string {
+  if (calendar !== "BS") {
+    return formatPeriodMonth(period);
+  }
+
+  return formatPeriodMonthBs(period) || formatPeriodMonth(period);
+}
+
+/**
+ * The year a period falls in — `2026`, or `2083 BS`.
+ *
+ * The heading a grouped list of months sits under, and the thing that has to be
+ * derived rather than sliced off the period key: `2026-09` is `2083 BS` and
+ * `2026-02` is `2082 BS`, so a list grouped on the Gregorian year and then
+ * labelled in Bikram Sambat puts two BS years under one heading. The Payments
+ * screen shipped exactly that — a `2026` heading over rows that every one of
+ * them said `2083 BS` — which is what `dueDate.slice(0, 4)` buys you.
+ */
+export function formatPeriodYearIn(
+  calendar: CalendarSystem,
+  period: string | null | undefined,
+): string {
+  if (calendar !== "BS") {
+    return formatPeriodYear(period);
+  }
+
+  return formatPeriodYearBs(period) || formatPeriodYear(period);
+}
+
+/** The year an instant falls in — `2026`, or `2083 BS`. */
+export function formatYearIn(
+  calendar: CalendarSystem,
+  value: Date | string | null | undefined,
+): string {
+  if (calendar !== "BS") {
+    return formatYear(value);
+  }
+
+  return formatYearBs(value) || formatYear(value);
 }
 
 /**

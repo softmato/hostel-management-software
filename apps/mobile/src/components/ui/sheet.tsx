@@ -347,12 +347,21 @@ export function Sheet({
  */
 export function SheetRow({
   label,
+  leading,
   onPress,
   selected = false,
   subtitle,
   trailing,
 }: {
   label: string;
+  /**
+   * Ahead of the label — an avatar, a logo tile.
+   *
+   * Added for the claim form's "How did you pay?" list, where six wallet names
+   * in identical grey type is exactly the list a brand mark is for. Optional and
+   * unset everywhere else, so the nineteen existing sheets are unchanged.
+   */
+  leading?: ReactNode;
   onPress: () => void;
   selected?: boolean;
   subtitle?: string;
@@ -367,6 +376,7 @@ export function SheetRow({
       className="flex-row items-center gap-3 px-5 py-3.5 active:bg-muted"
       onPress={handlePress}
     >
+      {leading}
       <View className="flex-1">
         <Text className={selected ? "text-primary" : undefined} variant="subtitle">
           {label}

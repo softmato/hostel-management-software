@@ -8,6 +8,8 @@ import type {
 import {
   canSee,
   guardianDueAmount,
+  guardianLatestPaid,
+  guardianNextDue,
   guardianOutstanding,
   guardianPaidAmount,
   NO_GUARDIAN_PERMISSIONS,
@@ -234,5 +236,71 @@ describe("guardianPaidAmount", () => {
 
   it("survives a missing dashboard", () => {
     expect(guardianPaidAmount(null)).toBeNull();
+  });
+});
+
+describe("guardianNextDue", () => {
+  it("picks the oldest open month, not the newest", () => {
+    // The server sends newest-first, so `payments[0]` would point a parent whose
+    // child is two months behind at August while July ages into a default.
+    const next = guardianNextDue([
+      payment({ dueDate: "2026-08-05T00:00:00.000Z", id: "aug", month: "2026-08" }),
+      payment({ dueDate: "2026-07-05T00:00:00.000Z", id: "jul", month: "2026-07" }),
+    ]);
+
+    expect(next?.id).toBe("jul");
+  });
+
+  it("ignores months with nothing outstanding", () => {
+    const next = guardianNextDue([
+      payment({ dueAmount: 5000, id: "settled", paidAmount: 5000, status: "PAID" }),
+      payment({ dueDate: "2026-09-05T00:00:00.000Z", id: "open", month: "2026-09" }),
+    ]);
+
+    expect(next?.id).toBe("open");
+  });
+
+  it("sorts an undated invoice last rather than first", () => {
+    // Absent is not urgent. Coercing it to epoch-zero would put it above every
+    // real due date.
+    const next = guardianNextDue([
+      payment({ dueDate: undefined, id: "undated", month: "2026-06" }),
+      payment({ dueDate: "2026-07-05T00:00:00.000Z", id: "jul", month: "2026-07" }),
+    ]);
+
+    expect(next?.id).toBe("jul");
+  });
+
+  it("returns null when nothing is open", () => {
+    expect(
+      guardianNextDue([payment({ paidAmount: 5000, status: "PAID" })]),
+    ).toBeNull();
+  });
+});
+
+describe("guardianLatestPaid", () => {
+  it("orders by billing month, because the projection carries no payment date", () => {
+    const latest = guardianLatestPaid([
+      payment({ id: "jun", month: "2026-06", paidAmount: 5000, status: "PAID" }),
+      payment({ id: "aug", month: "2026-08", paidAmount: 5000, status: "PAID" }),
+      payment({ id: "jul", month: "2026-07", paidAmount: 5000, status: "PAID" }),
+    ]);
+
+    expect(latest?.id).toBe("aug");
+  });
+
+  it("counts a part-paid month", () => {
+    // Real money has moved against a PARTIAL row, and a parent who paid half of
+    // August should see August rather than the last fully-settled month.
+    const latest = guardianLatestPaid([
+      payment({ id: "jul", month: "2026-07", paidAmount: 5000, status: "PAID" }),
+      payment({ id: "aug", month: "2026-08", paidAmount: 2000, status: "PARTIAL" }),
+    ]);
+
+    expect(latest?.id).toBe("aug");
+  });
+
+  it("returns null when nothing has been paid", () => {
+    expect(guardianLatestPaid([payment()])).toBeNull();
   });
 });

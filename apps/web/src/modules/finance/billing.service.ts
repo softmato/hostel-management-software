@@ -4,6 +4,7 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { applyCreditToInvoice } from "@/modules/finance/credit-balance.service";
+import { formatBsPeriod, hostelPeriodOf } from "@/lib/hostel-day";
 import {
   computeInvoiceAmount,
   getEffectiveSchedule,
@@ -259,8 +260,17 @@ export async function runBillingCycle(
 ): Promise<BillingCycleResult> {
   await connectToDatabase();
 
-  const { end } = periodBounds(input.period);
-  const dueDate = input.dueDate ?? end;
+  /*
+   * The due date is the month's closing **day**, not its closing instant.
+   *
+   * `end` is 23:59:59.999 UTC and Nepal is 5h45m ahead of that, so stamping it
+   * onto an invoice dated a BS month produced a due date every BS reader in the
+   * product correctly named as the *first of the next month* — a Bhadra invoice
+   * saying it was due in Aswin, on every invoice, in the direction that reads as
+   * a deadline already missed.
+   */
+  const { lastDay } = periodBounds(input.period);
+  const dueDate = input.dueDate ?? lastDay;
 
   const hostel = await HostelModel.findOne({ _id: input.hostelId })
     .select("referencePrefix roomConfigurations")
@@ -313,7 +323,7 @@ export async function runBillingCycle(
 
   if (scheduleMissing && listed.size === 0) {
     throw new FinanceServiceError(
-      `No fee schedule covers ${input.period}, and no room type has a listed rent. No invoices were issued.`,
+      `No fee schedule covers ${formatBsPeriod(input.period) || input.period}, and no room type has a listed rent. No invoices were issued.`,
       "FEE_SCHEDULE_MISSING",
     );
   }
@@ -356,7 +366,12 @@ export async function runBillingCycle(
             amount: plan.amount,
             basis: plan.basis,
             bedType: plan.bedType,
-            description: `Monthly rent — ${input.period}`,
+            /*
+             * Named, not keyed. `2083-05` is the storage form and it is not what
+             * a resident reads on their own bill; the description is snapshotted
+             * at issue time precisely so it stays legible without a lookup.
+             */
+            description: `Monthly rent — ${formatBsPeriod(input.period) || input.period}`,
             feeScheduleId: plan.feeScheduleId,
             prorationBasis: plan.prorationBasis ?? undefined,
           },
@@ -596,9 +611,20 @@ export type HostelBillingOutcome = {
   totalBilled: number;
 };
 
-/** "YYYY-MM" for the month containing `now`, in UTC. */
+/**
+ * The Bikram Sambat month containing `now` — `2083-05` for Bhadra 2083.
+ *
+ * What the cron wakes up and bills. It used to slice the Gregorian year and
+ * month out of a UTC instant, which was wrong twice over: Nepal is 5h45m ahead,
+ * so a run fired in the last quarter of a UTC day billed the month the hostel had
+ * already left; and the month itself was Gregorian, so "this month's rent" meant
+ * a span no hostel's books recognise.
+ *
+ * Delegated rather than reimplemented. There is one answer to "which month is
+ * this" in this product and it lives in `lib/hostel-day.ts`.
+ */
 export function periodOf(now: Date): string {
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  return hostelPeriodOf(now);
 }
 
 /**

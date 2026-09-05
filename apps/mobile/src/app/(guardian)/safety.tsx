@@ -1,25 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback } from "react";
 import { Linking, View } from "react-native";
 
-import { GuardianNotShared, GuardianWardCard } from "@/components/guardian-ward-card";
+import { GuardianNotShared } from "@/components/guardian-not-shared";
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
-import { Badge, StatusPill } from "@/components/ui/badge";
+import { StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
-import { Chip } from "@/components/ui/layout";
+import { Chip, FactRow } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { canSee } from "@/lib/guardian";
-import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api";
+import type { GuardianDashboard } from "@/lib/guardian-api";
+import { guardianQuery } from "@/lib/guardian-queries";
 
 /**
- * Night status, and the promise that comes with it.
+ * Night status, the promise that comes with it, and how to reach the office.
  *
  * ## Two things this screen deliberately does not show
  *
@@ -35,6 +36,15 @@ import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api
  * is no emergency without having asked is the one thing this screen must never
  * do, so the tile is gone rather than reworded.
  *
+ * ## Notices moved to Home
+ *
+ * This screen used to end with a "Guardian-visible notices" section, under the
+ * night status and the hostel's phone number. A notice is not a safety record —
+ * it is the hostel talking to the household — and putting it here meant Home,
+ * Safety and this tab all listed the same rows. Home keeps them now; this screen
+ * is night status, the promise, the office, and what the ward has open with the
+ * hostel, which is one subject.
+ *
  * ## One contact card, not the web's two (§5.2)
  *
  * The web has a "Warden / Hostel In-charge" section and a "Hostel Emergency
@@ -45,17 +55,29 @@ import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api
  */
 export default function GuardianSafetyScreen() {
   const { colors } = useAppTheme();
-  const guardian = useResource<GuardianDashboard>(
-    useCallback(() => getGuardianDashboard(), []),
-    { topics: [REALTIME_TOPIC.SAFETY, REALTIME_TOPIC.COMPLAINTS, REALTIME_TOPIC.NOTICES] },
-  );
+  // The portal's one key — see `lib/guardian-queries.ts`. This screen used to
+  // name three topics of its own, which with a shared cache entry would have
+  // made the payload's freshness depend on which tab happened to be mounted.
+  const query = guardianQuery.dashboard();
+  const guardian = useResource<GuardianDashboard>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
-  const header = <AppBar title="Safety" />;
+  const header = <AppBar actions={<NotificationBell />} large title="Safety" />;
 
   if (guardian.loading) {
     return (
       <Screen header={header} insideTabs>
-        <LoadingState label="Loading safety summary" />
+        {/* Status card, promise card, then the contact block. */}
+        <View className="gap-5">
+          <Skeleton height={130} radius={16} />
+          <Skeleton height={96} radius={16} />
+          <View className="gap-3">
+            <Skeleton height={18} width="42%" />
+            <SkeletonCard rows={3} />
+          </View>
+        </View>
       </Screen>
     );
   }
@@ -92,22 +114,29 @@ export default function GuardianSafetyScreen() {
       scroll
     >
       <View className="gap-5 pt-1">
-        <GuardianWardCard dashboard={dashboard} showCall={false} />
-
         {safety ? (
           <Card className="gap-3">
             <View className="flex-row items-center justify-between gap-3">
               <Text variant="label">Current status</Text>
               <StatusPill status={safety.status} />
             </View>
-            <View className="flex-row items-center justify-between gap-3 border-t border-border pt-3">
-              <Text variant="muted">Last update</Text>
-              {/* Day only. Never derive a time from this. */}
-              <Text variant="label">{safety.asOf ?? "Not verified"}</Text>
+            {/*
+              `<FactRow>`, which is the kit's label/value pair (`NOTES.md` §8) —
+              this card drew it by hand, without the wrap that component exists
+              for. Day only. Never derive a time from this.
+            */}
+            <View className="border-t border-border pt-3">
+              <FactRow label="Last update" value={safety.asOf ?? "Not verified"} />
             </View>
             <Text variant="caption">Marked by the hostel. Day only, never a time.</Text>
           </Card>
         ) : (
+          /*
+            The ward card that used to sit above this went to Home, where it is
+            the hero. Repeating an identity block over a "not shared" notice
+            makes the refusal read as one section of a working screen rather than
+            as the whole answer.
+          */
           <GuardianNotShared
             subject="night status"
             wardName={dashboard.resident.fullName}
@@ -184,12 +213,13 @@ export default function GuardianSafetyScreen() {
               subtitle="Status only — never what they wrote"
               title="Open with the hostel"
             />
-            <Card>
+            <Card padding="px-4 py-1">
               {dashboard.complaints.length === 0 ? (
-                <EmptyState
-                  description={`${dashboard.resident.fullName} has not raised anything.`}
-                  title="Nothing open"
-                />
+                <View className="py-3">
+                  <Text variant="muted">
+                    {`${dashboard.resident.fullName} has not raised anything with the hostel.`}
+                  </Text>
+                </View>
               ) : (
                 dashboard.complaints.map((complaint, index) => (
                   <View key={complaint.id}>
@@ -197,33 +227,6 @@ export default function GuardianSafetyScreen() {
                     <ListRow
                       right={<StatusPill status={complaint.status} />}
                       title={complaint.title}
-                    />
-                  </View>
-                ))
-              )}
-            </Card>
-          </View>
-        ) : null}
-
-        {canSee(dashboard, "canViewNotices") ? (
-          <View>
-            <SectionHeader title="Guardian-visible notices" />
-            <Card>
-              {dashboard.notices.length === 0 ? (
-                <EmptyState
-                  description="Notices addressed to guardians appear here."
-                  title="No notices"
-                />
-              ) : (
-                dashboard.notices.map((notice, index) => (
-                  <View key={notice.id}>
-                    {index > 0 ? <RowDivider /> : null}
-                    <ListRow
-                      right={
-                        notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : undefined
-                      }
-                      subtitle={notice.content}
-                      title={notice.title}
                     />
                   </View>
                 ))

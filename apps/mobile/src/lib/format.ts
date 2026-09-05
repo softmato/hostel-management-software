@@ -22,6 +22,16 @@
 
 import NepaliDate from "nepali-date-converter";
 
+import {
+  bsPeriodOf,
+  formatBsPeriod,
+  formatBsPeriodMonth,
+  formatBsPeriodYear,
+  fromBs,
+  isBsPeriod,
+  periodParts as bsPeriodParts,
+} from "@hostel/calendar/bs";
+
 /**
  * Nepal is UTC+05:45 year-round, with no daylight saving.
  *
@@ -54,6 +64,16 @@ export const MONTHS_SHORT = [
   "Nov",
   "Dec",
 ] as const;
+
+/**
+ * The era marker that ends every Bikram Sambat string this app prints.
+ *
+ * A bare `2083` is ambiguous in a product that shows both calendars — often on
+ * the same card — and `BS` is the two characters that remove the ambiguity for
+ * the cost of two characters. Never `B.S.`: the app writes `NPR`, `QR` and
+ * `SOS` without stops and this is the same kind of word.
+ */
+const BS_ERA = "BS";
 
 /** The long forms — `August`. Same rule as {@link MONTHS_SHORT}. */
 export const MONTHS_LONG = [
@@ -101,7 +121,7 @@ function group(digits: string) {
 /**
  * Renders paisa only when there are any.
  *
- * Rent is whole rupees, so `NPR 8,500.00` is noise on every row; a settlement
+ * Rent is whole rupees, so `Rs 8,500.00` is noise on every row; a settlement
  * that genuinely lands on `1200.5` must not be shown as `1,200`, because a
  * balance that does not add up is the one thing a resident will call about.
  */
@@ -123,24 +143,86 @@ export function formatAmount(value: number | null | undefined): string {
   return negative ? `-${body}` : body;
 }
 
-/** `NPR 8,500`. The currency code, not `रु` — the web and the receipts say NPR. */
+/**
+ * `Rs 8,500`.
+ *
+ * The symbol every Nepali banking app our users already have prints — eSewa,
+ * Khalti and EBL Touch all write `Rs`, and so do the payment screens' designs.
+ * It was `NPR` until 2026-09-05, which is the ISO code rather than the thing
+ * people read on a receipt; the server-side PDFs still say `NPR`, and that is
+ * the one place the two differ.
+ *
+ * `<Money>` splits on this prefix to draw the currency smaller than its digits,
+ * so the two have to agree on the exact string.
+ */
 export function formatMoney(value: number | null | undefined): string {
   const amount = formatAmount(value);
 
-  return amount === "—" ? amount : `NPR ${amount}`;
+  return amount === "—" ? amount : `Rs ${amount}`;
 }
 
 /**
  * The shape a hidden amount takes on the hostel hero.
  *
- * A fixed string, not the real figure with its digits swapped: `NPR 74,000`
- * masked character for character still prints `NPR XX,XXX`, which tells anyone
+ * A fixed string, not the real figure with its digits swapped: `Rs 74,000`
+ * masked character for character still prints `Rs XX,XXX`, which tells anyone
  * reading over the owner's shoulder the order of magnitude — the one thing the
  * eye toggle exists to withhold. `—` stays `—`, because the absence of a figure
  * is not a secret.
  */
 export function maskMoney(value: string): string {
-  return value === "—" ? value : "NPR XXX.xx";
+  return value === "—" ? value : "Rs XXX.xx";
+}
+
+/**
+ * The hero headline's font size, stepped down by how long the string is.
+ *
+ * The headline is one line by construction — a rupee figure that wraps is not a
+ * figure any more, it is two — so something has to give when the number is long,
+ * and the choice is between shrinking the text and ellipsing it. Ellipsing a
+ * *total* is the worst possible truncation: `NPR 12,84,…` is not a smaller
+ * version of the number, it is a different number.
+ *
+ * ## Why not `adjustsFontSizeToFit`
+ *
+ * React Native only implements it on iOS. On Android the prop is accepted and
+ * ignored, which is the failure mode that gets shipped — it looks right on the
+ * simulator the developer has open and clips on every phone in Nepal.
+ *
+ * So the size comes from the character count instead. Approximate by design: the
+ * steps are wide enough that being a character or two out cannot push a string
+ * past the edge, and the arithmetic holds for the only alphabet this string is
+ * ever in (`Rs`, digits, commas, a possible minus).
+ */
+export function heroAmountSize(amount: string): number {
+  const length = amount.length;
+
+  /*
+   * Each step is one character tighter than it was, because the prefix lost one
+   * when `NPR` became `Rs`.
+   *
+   * The counts are a proxy for *width*, and the same rupee figure is now a
+   * character shorter than the string these numbers were calibrated against —
+   * so leaving them alone would have let a nine-digit total sit at 34 points
+   * where the old calibration said it must step down. `Rs` renders at 0.72
+   * scale, so it buys back rather less than a full digit of room; taking the
+   * conservative reading keeps every existing figure at exactly the size it
+   * had, and the one failure this function exists to prevent is a total that
+   * clips.
+   */
+  if (length <= 13) {
+    return 34;
+  }
+
+  if (length <= 16) {
+    return 29;
+  }
+
+  if (length <= 19) {
+    return 24;
+  }
+
+  return 20;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -200,18 +282,23 @@ export function nepalDayKey(date: Date): string {
 }
 
 /**
- * The month an instant belongs to, in Nepal time — `2026-08`.
+ * The month an instant belongs to, in the hostel's calendar — `2083-05`.
  *
- * The invoice period format, and the same offset as `nepalDayKey` rather than a
- * second copy of it. A phone left on UTC is an hour and a quarter behind
- * Kathmandu at worst, which matters for exactly two hours of the month — the
- * two where it would put an owner on the wrong month's chip on the first of the
- * month, the busiest rent day there is.
+ * **An identity, not a label.** This is the key the app sends the server — the
+ * month chip on the admin Money screen becomes `adminQuery.money(...)` and then
+ * a `period` on the wire — so it has to be the same string the server keys
+ * invoices by, character for character. It used to assemble a Gregorian
+ * `2026-08` by hand, which stopped being that string the moment billing moved
+ * to Bikram Sambat: the app would have asked for a month the server has no
+ * invoices in and drawn an empty screen with no error on it.
+ *
+ * Delegated to the shared calendar rather than reimplemented here for exactly
+ * that reason. The offset is the same one `nepalDayKey` uses — a phone left on
+ * UTC is 5h45m behind Kathmandu, which matters for the last quarter of every
+ * day, and on a month boundary that is a different month.
  */
 export function nepalPeriodKey(date: Date = new Date()): string {
-  const { month, year } = nepalParts(date);
-
-  return `${year}-${String(month + 1).padStart(2, "0")}`;
+  return bsPeriodOf(date);
 }
 
 /**
@@ -230,17 +317,91 @@ export function nepalPeriodKey(date: Date = new Date()): string {
 export function periodParts(
   period: string | null | undefined,
 ): { monthIndex: number; year: number } | null {
-  const match = /^(\d{4})-(\d{2})$/.exec(period?.trim() ?? "");
+  const parts = bsPeriodParts(period);
 
-  if (!match) {
+  return parts ? { monthIndex: parts.month - 1, year: parts.year } : null;
+}
+
+/**
+ * The Gregorian month a Bikram Sambat period mostly falls in.
+ *
+ * ## The direction of this conversion is the whole change
+ *
+ * A period used to be a Gregorian month and the BS label was the derived,
+ * approximate half. It is the other way round now: `2083-05` is Bhadra, the
+ * month the hostel bills, and *Gregorian* is what has to be rounded — Bhadra
+ * 2083 runs 17 August to 16 September 2026, so it is genuinely in two Gregorian
+ * months and neither one names it.
+ *
+ * It names the one covering more of the period, which is the same rounding
+ * anybody makes calling Bhadra's rent "September's rent" in English. The exact
+ * span is never lost: it is on the invoice, and `formatPeriodBoth` prints both
+ * calendars where there is room.
+ *
+ * The majority is counted day by day rather than guessed from the 1st, because
+ * BS month lengths vary from 29 to 32 days per year and the boundary does not
+ * sit in the same place twice.
+ *
+ * ## Rows written before the calendar changed
+ *
+ * A stored `2026-09` is a Gregorian key from before the migration, and reading
+ * it as Bikram Sambat would date it to 1969. `isBsPeriod` tells them apart —
+ * the two calendars are 57 years apart and nothing this product bills sits near
+ * the boundary — and a legacy key is returned as the Gregorian month it always
+ * was.
+ */
+function periodGregorianParts(
+  period: string | null | undefined,
+): { monthIndex: number; year: number } | null {
+  const parts = bsPeriodParts(period);
+
+  if (!parts) {
     return null;
   }
 
-  const monthIndex = Number(match[2]) - 1;
+  if (!isBsPeriod(period)) {
+    // A Gregorian key the migration has not reached. Already what it claims.
+    return { monthIndex: parts.month - 1, year: parts.year };
+  }
 
-  return monthIndex >= 0 && monthIndex < 12
-    ? { monthIndex, year: Number(match[1]) }
-    : null;
+  try {
+    const tally = new Map<string, { count: number; monthIndex: number; year: number }>();
+
+    for (let day = 1; day <= 32; day += 1) {
+      const instant = fromBs({ day, month: parts.month, year: parts.year });
+
+      // BS months are 29 to 32 days; past the end the converter rolls into the
+      // next month, and those days are not this period's to count.
+      if (bsPeriodOf(instant) !== period!.trim()) {
+        break;
+      }
+
+      const monthIndex = instant.getUTCMonth();
+      const year = instant.getUTCFullYear();
+      const key = `${year}-${monthIndex}`;
+      const seen = tally.get(key);
+
+      if (seen) {
+        seen.count += 1;
+      } else {
+        tally.set(key, { count: 1, monthIndex, year });
+      }
+    }
+
+    let winner: { count: number; monthIndex: number; year: number } | null = null;
+
+    // Strict comparison, so a period split exactly down the middle keeps the
+    // month it started in rather than flipping on a Map iteration detail.
+    for (const entry of tally.values()) {
+      if (!winner || entry.count > winner.count) {
+        winner = entry;
+      }
+    }
+
+    return winner ? { monthIndex: winner.monthIndex, year: winner.year } : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -292,7 +453,20 @@ export function formatDate(value: Date | string | null | undefined): string {
 }
 
 /**
- * The same instant in Bikram Sambat — `2 Bhadra 2083`.
+ * The same instant in Bikram Sambat — `Bhadra 2, 2083 BS`.
+ *
+ * ## Why the month leads, and why the era is spelled out
+ *
+ * `D MMMM YYYY` (`2 Bhadra 2083`) is how the converter formats by default and
+ * it is not how a Nepali date is written down. A notice board, a receipt book
+ * and a government form all put the month first and the year last — `Shrawan
+ * 26, 2083` — and they all say **BS**, because `2083` on its own is a number
+ * that could be a Gregorian year somebody mistyped.
+ *
+ * The marker matters more here than it would in a Nepali-only product: this app
+ * prints both calendars on the same card in several places, and a reader
+ * scanning a column of dates needs to know which one they are in without
+ * working it out from the magnitude of the year.
  *
  * ## Why both calendars, everywhere a date is money
  *
@@ -327,7 +501,7 @@ export function formatDateBs(value: Date | string | null | undefined): string {
   const { day, month, year } = nepalParts(date);
 
   try {
-    return toNepaliDate(year, month, day).format("D MMMM YYYY");
+    return `${toNepaliDate(year, month, day).format("MMMM D, YYYY")} ${BS_ERA}`;
   } catch {
     // The table does not cover every year for ever. A date outside it falls back
     // to Gregorian rather than showing a wrong Nepali date — being silently
@@ -337,7 +511,7 @@ export function formatDateBs(value: Date | string | null | undefined): string {
 }
 
 /**
- * Both calendars, BS first — `2 Bhadra 2083 · 18 Aug 2026`.
+ * Both calendars, BS first — `Bhadra 2, 2083 BS · 18 Aug 2026`.
  *
  * BS leads because it is the one the hostel quotes; AD follows because it is the
  * one the bank and the phone agree on. Falls back to the Gregorian date alone
@@ -420,7 +594,7 @@ export function formatRelativeDay(
 
 /** `"2026-08"` → `August 2026`. The invoice `month` field's format. */
 export function formatPeriod(period: string | null | undefined): string {
-  const parts = periodParts(period);
+  const parts = periodGregorianParts(period);
 
   return parts
     ? `${MONTHS_LONG[parts.monthIndex]} ${parts.year}`
@@ -428,7 +602,7 @@ export function formatPeriod(period: string | null | undefined): string {
 }
 
 /**
- * A period in Bikram Sambat — `Bhadra 2083`.
+ * A period in Bikram Sambat — `Bhadra 2083 BS`.
  *
  * ## One month, named after the one the period mostly is
  *
@@ -453,46 +627,108 @@ export function formatPeriod(period: string | null | undefined): string {
  * that is confidently wrong. Same rule as `formatDateBs`.
  */
 export function formatPeriodBs(period: string | null | undefined): string {
-  const parts = periodParts(period);
+  return formatBsPeriod(period);
+}
 
-  if (!parts) {
+/**
+ * A period's month with the year left off — `August`, or `Bhadra`.
+ *
+ * For a row inside a section whose heading already names the year. The Payments
+ * list printed `Bhadra 2083 BS` under a heading that said `2083 BS` over a
+ * subtitle that said `Aswin 15, 2083 BS`, which is the year three times in one
+ * row of a card — and the repetition is what made the two genuinely different
+ * dates on that row look like a glitch instead of a billing month and a due
+ * date.
+ *
+ * Never use it where the year is not already on screen: an undated month is a
+ * month in some year the reader now has to guess.
+ */
+export function formatPeriodMonth(period: string | null | undefined): string {
+  const parts = periodGregorianParts(period);
+
+  return parts ? MONTHS_LONG[parts.monthIndex] : period?.trim() || "—";
+}
+
+/** The same, in Bikram Sambat — `Bhadra`. Read straight off the period key. */
+export function formatPeriodMonthBs(period: string | null | undefined): string {
+  return formatBsPeriodMonth(period);
+}
+
+/** A period's year alone — `2026`. The heading a grouped invoice list sits under. */
+export function formatPeriodYear(period: string | null | undefined): string {
+  const parts = periodGregorianParts(period);
+
+  return parts ? String(parts.year) : "";
+}
+
+/**
+ * The same, in Bikram Sambat — `2083 BS`.
+ *
+ * The two calendars do not share year boundaries: a Gregorian year straddles
+ * two BS ones, so a list grouped by `2026` and then *labelled* `2083 BS` would
+ * be lying about half its rows. A caller grouping for a BS reader must group by
+ * this, not relabel a Gregorian grouping.
+ */
+export function formatPeriodYearBs(period: string | null | undefined): string {
+  return formatBsPeriodYear(period);
+}
+
+/** An instant's year in Nepal time — `2026`. */
+export function formatYear(value: Date | string | null | undefined): string {
+  const date = parseDate(value);
+
+  return date ? String(nepalParts(date).year) : "";
+}
+
+/** The same, in Bikram Sambat — `2083 BS`. `""` off the table. */
+export function formatYearBs(value: Date | string | null | undefined): string {
+  const date = parseDate(value);
+
+  if (!date) {
     return "";
   }
 
-  const { monthIndex, year } = parts;
+  const { day, month, year } = nepalParts(date);
 
   try {
-    // Day 0 of the next month is the last day of this one, whatever its length.
-    const days = new Date(Date.UTC(year, monthIndex + 1, 0, 12)).getUTCDate();
-    const tally = new Map<string, number>();
-
-    for (let day = 1; day <= days; day += 1) {
-      const label = toNepaliDate(year, monthIndex, day).format("MMMM YYYY");
-
-      tally.set(label, (tally.get(label) ?? 0) + 1);
-    }
-
-    let winner = "";
-    let best = 0;
-
-    // Insertion order is the order the days ran in, so a period split exactly
-    // down the middle keeps the month it started in rather than flipping on a
-    // Map iteration detail.
-    for (const [label, count] of tally) {
-      if (count > best) {
-        best = count;
-        winner = label;
-      }
-    }
-
-    return winner;
+    return `${toNepaliDate(year, month, day).format("YYYY")} ${BS_ERA}`;
   } catch {
     return "";
   }
 }
 
+/** `16 Aug` — a day inside a section that already names the year. */
+export function formatDayMonth(value: Date | string | null | undefined): string {
+  const date = parseDate(value);
+
+  if (!date) {
+    return "—";
+  }
+
+  const { day, month } = nepalParts(date);
+
+  return `${day} ${MONTHS_SHORT[month]}`;
+}
+
+/** The same, in Bikram Sambat — `Aswin 15`. Falls back to Gregorian off the table. */
+export function formatDayMonthBs(value: Date | string | null | undefined): string {
+  const date = parseDate(value);
+
+  if (!date) {
+    return "—";
+  }
+
+  const { day, month, year } = nepalParts(date);
+
+  try {
+    return toNepaliDate(year, month, day).format("MMMM D");
+  } catch {
+    return formatDayMonth(date);
+  }
+}
+
 /**
- * Both calendars for a period — `August 2026 · Shrawan 2083`.
+ * Both calendars for a period — `August 2026 · Shrawan 2083 BS`.
  *
  * The month-picker counterpart of `formatDateBoth`, and AD-first for the
  * opposite reason that one is BS-first: this label sits under a strip of

@@ -67,7 +67,7 @@ export const roleAccent = {
    * signed in with more powers. A cyan chrome under a green brand read as a
    * second app, and the owner asked for the public palette here. What tells the
    * portals apart is now the *shape* of each screen, which is where that job
-   * belonged all along — see `admin-shared.tsx`.
+   * belonged all along — see `portal-shared.tsx`.
    */
   ADMIN: { light: "#0a8a4b", dark: "#12a95d", soft: "role-admin-soft", token: "role-admin" },
   COOK: { light: "#ea580c", dark: "#fb923c", soft: "role-cook-soft", token: "role-cook" },

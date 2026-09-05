@@ -1,6 +1,6 @@
 import { View } from "react-native";
 
-import { NightStrip } from "@/components/admin-shared";
+import { NightStrip } from "@/components/portal-shared";
 import {
   AdminHomeHeader,
   EarningsTrend,

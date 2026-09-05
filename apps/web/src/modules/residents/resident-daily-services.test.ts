@@ -405,6 +405,12 @@ describe("resident daily-use services", () => {
     serviceMocks.bedFindOne.mockReturnValueOnce(
       leanResult({ _id: objectId(bedId), bedNumber: "B", status: "OCCUPIED" }),
     );
+    /*
+      Two ledger reads per dashboard, in this order: the six rows of history
+      `loadResidentBase` shows, then the unbounded unsettled read `feeStatus`
+      does its arithmetic over. See `buildFeeSummary`.
+    */
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([invoiceRow()]);
     serviceMocks.invoiceAggregate.mockResolvedValueOnce([invoiceRow()]);
     serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
     serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
@@ -439,6 +445,7 @@ describe("resident daily-use services", () => {
       leanResult(residentRecord({ userId: objectId(userId) })),
     );
     serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
     serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
     serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
     serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
@@ -494,6 +501,7 @@ describe("resident daily-use services", () => {
     );
     serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(null));
     serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
     serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
     serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
     serviceMocks.nightStatusFindOne.mockReturnValueOnce(leanResult(null));
@@ -508,6 +516,77 @@ describe("resident daily-use services", () => {
       checkedAt: null,
       status: "NOT_VERIFIED",
     });
+  });
+
+  it("dates the dues from the earliest unsettled invoice, not the newest one", async () => {
+    /*
+     * The bug this pins, as it reached a device: the resident card printed
+     * "Across 2 unpaid invoices · Due in 27 days".
+     *
+     * `latestPayment` is `payments[0]` out of a `dueDate: -1` sort with no
+     * unpaid filter — the invoice due *furthest in the future*, settled ones
+     * included — and its date was being shown beside a total summed across every
+     * unpaid invoice. A resident two months behind was told they had 27 days
+     * while the older invoice sat a month overdue. Wrong in the reassuring
+     * direction, on the one line of this payload that costs money.
+     *
+     * `feeStatus.nextDue` is the earliest unsettled one, which is the invoice
+     * anybody reading that line would act on.
+     */
+    const overdue = invoiceRow({
+      _id: objectId("64f0f0f0f0f0f0f0f0f0f0c1"),
+      dueDate: new Date("2030-01-10T00:00:00.000Z"),
+      period: "2030-01",
+      totalAmount: 8500,
+    });
+    const upcoming = invoiceRow({
+      _id: objectId("64f0f0f0f0f0f0f0f0f0f0c2"),
+      dueDate: new Date("2030-03-10T00:00:00.000Z"),
+      period: "2030-03",
+      totalAmount: 10300,
+    });
+
+    serviceMocks.residentFindOne.mockReturnValueOnce(
+      leanResult(residentRecord({ userId: objectId(userId) })),
+    );
+    serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(null));
+    // History, newest first — which is exactly why its head is the wrong row.
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([upcoming, overdue]);
+    // The unsettled read, in the same order the pipeline returns it.
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([upcoming, overdue]);
+    serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
+    serviceMocks.nightStatusFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.complaintFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.complaintCountDocuments.mockResolvedValueOnce(0);
+
+    const { feeStatus } = (await getResidentDashboard(residentPrincipal)).dashboard;
+
+    expect(feeStatus.nextDue).toMatchObject({
+      dueDate: "2030-01-10T00:00:00.000Z",
+      month: "2030-01",
+    });
+    // Still the newest, because the screens use it for "Falgun 2086 · PAID".
+    expect(feeStatus.latestPayment).toMatchObject({ month: "2030-03" });
+    expect(feeStatus.dueAmount).toBe(18800);
+    expect(feeStatus.unpaidCount).toBe(2);
+
+    /*
+     * The second read is the unbounded one. `dueAmount` and `unpaidCount` were
+     * computed over `loadResidentBase`'s `{ limit: 6 }` history, so a resident
+     * eight months behind was under-billed on their own dashboard and the count
+     * stopped at six.
+     */
+    const [unsettledStages] = serviceMocks.invoiceAggregate.mock.calls[1];
+
+    expect(unsettledStages[0].$match).toMatchObject({
+      hostelId: objectId(hostelId),
+      residentId: objectId(residentId),
+      status: { $in: ["OPEN", "PARTIAL", "OVERDUE"] },
+    });
+    expect(unsettledStages.some((stage: { $limit?: number }) => stage.$limit)).toBe(
+      false,
+    );
   });
 
   it("enforces food tenant isolation and accepts feedback for the current hostel", async () => {

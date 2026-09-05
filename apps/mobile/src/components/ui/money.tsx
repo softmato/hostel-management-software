@@ -2,7 +2,7 @@ import { Text } from "@/components/ui/text";
 import { formatMoney } from "@/lib/format";
 
 /**
- * How much smaller the `NPR` is than the digits it prefixes.
+ * How much smaller the `Rs` is than the digits it prefixes.
  *
  * Every banking app our users already have does this — see
  * `ui_inspiration_folder/app_recordings/NOTES.md` §4. The reason it matters is
@@ -72,8 +72,13 @@ export function Money({
   size?: keyof typeof VARIANTS;
   /**
    * Colour by what *kind* of money this is, for a caller that already knows the
-   * direction — the statement's rows are credits by construction, so there is
-   * nothing about the value for `owed` to decide.
+   * direction — a statement's rows are credits or debits by construction, so
+   * there is nothing about the value for `owed` to decide.
+   *
+   * `debit` is red and it is not an alarm. It is the wallet vocabulary the
+   * reference apps use for money out (`NOTES.md`), read against the green of the
+   * hostel's own statement, and the resident's screen labels every one of these
+   * rows `Paid` — the colour says which way it went, not that anything is wrong.
    *
    * A separate prop rather than a third `owed` state because the two answer
    * different questions: `owed` reads the *balance* and colours by whether any
@@ -86,7 +91,7 @@ export function Money({
    * order rather than by where it sat in the string — the trap `<AppBar>`'s
    * `ink` and `<Card>`'s `padding` both document. One slot, one value.
    */
-  tone?: "credit" | "default";
+  tone?: "credit" | "debit" | "default";
   value: number | null | undefined;
 }) {
   const inkClass = owed
@@ -95,16 +100,18 @@ export function Money({
       : "text-success"
     : tone === "credit"
       ? "text-success"
-      : "text-foreground";
+      : tone === "debit"
+        ? "text-destructive"
+        : "text-foreground";
 
   const text = formatMoney(value);
 
   /*
    * A dash is not an amount — it is the absence of one — so it keeps the plain
-   * treatment. Splitting on the first space would otherwise give it a `NPR`
+   * treatment. Splitting on the first space would otherwise give it a `Rs`
    * prefix it never had and a nested `Text` with nothing in it.
    */
-  const prefix = text.startsWith("NPR ") ? "NPR" : null;
+  const prefix = text.startsWith("Rs ") ? "Rs" : null;
 
   return (
     <Text className={`${inkClass} ${className}`} variant={VARIANTS[size]}>
@@ -118,7 +125,7 @@ export function Money({
             number here to write a class against.
           */}
           <Text style={{ fontSize: SIZE_PT[size] * CURRENCY_SCALE }}>{prefix} </Text>
-          {text.slice(4)}
+          {text.slice(3)}
         </>
       ) : (
         text

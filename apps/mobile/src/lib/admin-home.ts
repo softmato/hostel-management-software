@@ -61,44 +61,6 @@ export function collectionRate(collected: number, due: number): number | null {
   return Math.min(100, Math.round((collected / due) * 100));
 }
 
-/**
- * The hero headline's font size, stepped down by how long the string is.
- *
- * The headline is one line by construction — a rupee figure that wraps is not a
- * figure any more, it is two — so something has to give when the number is long,
- * and the choice is between shrinking the text and ellipsing it. Ellipsing a
- * *total* is the worst possible truncation: `NPR 12,84,…` is not a smaller
- * version of the number, it is a different number.
- *
- * ## Why not `adjustsFontSizeToFit`
- *
- * React Native only implements it on iOS. On Android the prop is accepted and
- * ignored, which is the failure mode that gets shipped — it looks right on the
- * simulator the developer has open and clips on every phone in Nepal.
- *
- * So the size comes from the character count instead. Approximate by design: the
- * steps are wide enough that being a character or two out cannot push a string
- * past the edge, and the arithmetic holds for the only alphabet this string is
- * ever in (`NPR`, digits, commas, a possible minus).
- */
-export function heroAmountSize(amount: string): number {
-  const length = amount.length;
-
-  if (length <= 14) {
-    return 34;
-  }
-
-  if (length <= 17) {
-    return 29;
-  }
-
-  if (length <= 20) {
-    return 24;
-  }
-
-  return 20;
-}
-
 export type TrendBar = {
   collected: number;
   due: number;

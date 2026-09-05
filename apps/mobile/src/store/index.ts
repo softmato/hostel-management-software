@@ -33,9 +33,9 @@ import uiReducer from "@/store/slices/uiSlice";
  * Bump `PERSIST_VERSION` and add an entry here whenever a persisted default
  * changes meaning.
  */
-const PERSIST_VERSION = 2;
+export const PERSIST_VERSION = 3;
 
-const migrations = {
+export const migrations = {
   /** Theme default moved from "system" to "light" — see uiSlice. */
   2: (state: unknown) => {
     const previous = state as { ui?: { themePreference?: string } } | undefined;
@@ -43,6 +43,24 @@ const migrations = {
     if (!previous) return previous;
 
     return { ...previous, ui: { ...previous.ui, themePreference: "light" } };
+  },
+  /**
+   * Calendar default moved from "AD" to "BS" — see uiSlice.
+   *
+   * This overwrites the stored value, which means it also overwrites an owner
+   * who had deliberately chosen "AD" while the setting was admin-only. That is
+   * the deliberate trade and it is the same one migration 2 made for the theme:
+   * a stored value that only ever came from the old default is indistinguishable
+   * from one somebody picked, and leaving every existing install on Gregorian
+   * would mean the new default reached only phones installing the app for the
+   * first time. The setting is one tap away in Settings › Appearance.
+   */
+  3: (state: unknown) => {
+    const previous = state as { ui?: { calendarPreference?: string } } | undefined;
+
+    if (!previous) return previous;
+
+    return { ...previous, ui: { ...previous.ui, calendarPreference: "BS" } };
   },
 };
 
@@ -118,11 +136,36 @@ const persistedReducer = persistReducer<AppState>(
   rootReducer,
 );
 
+/**
+ * How long a dev-only state scan may take before Redux Toolkit calls it a
+ * problem.
+ *
+ * The default is 32ms, and rehydration blows through it on a cold start: the
+ * whole persisted tree — account, favourites, preferences — lands in one
+ * `REHYDRATE`, and both the serializable and immutable checks walk every node of
+ * it on a JS thread that is also mounting the first screen. The 35ms this prints
+ * on a debug build is the check itself being slow, not the store, and both
+ * middlewares are stripped from production entirely, so the number describes
+ * nothing a user will ever experience.
+ *
+ * Raised rather than switched off, because the checks are worth keeping: a
+ * `Date` or a class instance smuggled into a slice is a real bug and this is
+ * what catches it. 128ms is far enough above the rehydration spike to stay
+ * quiet and still low enough that a genuinely pathological state tree trips it.
+ *
+ * `ignoredActions` below is a different lever and does not help here — it
+ * exempts redux-persist's own action *payloads*, not the state scan that
+ * follows them.
+ */
+const DEV_CHECK_WARN_AFTER_MS = 128;
+
 export const store = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
+      immutableCheck: { warnAfter: DEV_CHECK_WARN_AFTER_MS },
       serializableCheck: {
         ignoredActions: [FLUSH, PAUSE, PERSIST, PURGE, REGISTER, REHYDRATE],
+        warnAfter: DEV_CHECK_WARN_AFTER_MS,
       },
     }),
   reducer: persistedReducer,

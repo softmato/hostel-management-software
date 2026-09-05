@@ -2,7 +2,13 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
-import { hostelCalendarDay, hostelPeriodOf, hostelToday } from "@/lib/hostel-day";
+import {
+  bsPeriodBounds,
+  formatBsDayRange,
+  hostelCalendarDay,
+  hostelPeriodOf,
+  hostelToday,
+} from "@/lib/hostel-day";
 import { normalizeBedType } from "@/modules/finance/bed-type";
 import {
   computeInvoiceAmount,
@@ -84,9 +90,17 @@ export type FirstMonthCharge = {
   amount: number;
   /** Days they are actually resident for, inclusive of the move-in day. */
   billableDays: number;
-  /** Length of the move-in month, so the screen can say "12 of 31 days". */
+  /** Length of the BS move-in month, so the screen can say "13 of 31 days". */
   daysInMonth: number;
-  /** `2026-08` — the period the invoice will carry. */
+  /**
+   * `Bhadra 19-31` — which days of the month are being charged for.
+   *
+   * Null when the BS conversion cannot name them. The count is still true in
+   * that case; only the words are missing, and a guessed Nepali date on a quote
+   * somebody is about to agree to is worse than no date.
+   */
+  dayRange: string | null;
+  /** `2083-05` — the BS period the invoice will carry. */
   period: string;
   /** False when they arrive on the 1st and owe the full month. */
   prorated: boolean;
@@ -261,13 +275,20 @@ function quoteFirstMonth(
 
   try {
     const charge = computeInvoiceAmount(monthlyRent, start, null, period);
+    // The BS month's own length and closing day. Gregorian arithmetic on the
+    // period key used to supply the denominator, so a Bhadra quote was divided
+    // by September's 30 days while the invoice divided by Bhadra's 31.
+    const { daysInMonth, lastDay } = bsPeriodBounds(period);
 
     return {
       amount: charge.amount,
       billableDays: charge.billableDays,
-      // `prorationBasis` is `"12/31 days"` or null; the denominator is the one
-      // number the screen needs that the charge does not carry on its own.
-      daysInMonth: daysInPeriod(period),
+      // The denominator is the one number the screen needs that the charge does
+      // not carry on its own.
+      daysInMonth,
+      // `Bhadra 19-31` — the days the first month actually covers, so the
+      // warden reading the quote out loud can name them.
+      dayRange: formatBsDayRange(start, lastDay) || null,
       period,
       prorated: charge.prorationBasis !== null,
     };
@@ -279,12 +300,7 @@ function quoteFirstMonth(
   }
 }
 
-/** Days in a `YYYY-MM`, without reaching for the finance module's bounds type. */
-function daysInPeriod(period: string) {
-  const [year, month] = period.split("-").map(Number);
 
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
-}
 
 /**
  * The sentence printed under the referral field.
@@ -351,23 +367,50 @@ export type AdmissionInvoiceResult =
   | { amount: number; invoiceId: string; raised: true; referenceCode: string };
 
 /**
- * The admission fee as an actual obligation on the resident's ledger.
+ * What a resident owes to join: the admission fee **and** the security deposit,
+ * on one invoice, under one reference code.
  *
- * `period: null`, because an admission fee belongs to no month — the invoice's
- * unique double-billing index excludes null periods for exactly this shape of
- * one-off charge, and `receipt.service` already knows a receipt for one covers
- * no span.
+ * ## Why they are one invoice and not two
  *
- * The discount is a **negative line, not a smaller fee**. Both numbers survive
- * on the invoice that way, so a resident asking why they paid less than the
- * advertised admission fee is answered by their own invoice rather than by
- * somebody's memory of a conversation at the desk.
+ * They are one payment. A resident hands over admission and deposit together at
+ * the desk, in one transfer, on the day they arrive — so two invoices would mean
+ * two reference codes for one bank transaction, and a transfer quoting one of
+ * them settles half of what was paid while the other stays open and ages towards
+ * a dunning notice. The deposit was not invoiced at all before this: it sat on
+ * the rate card and on the resident record, was quoted at the door, and then
+ * appeared on nobody's ledger. The resident's Payments screen showed an
+ * admission fee, the hostel collected admission plus deposit, and nothing in the
+ * product could explain the difference.
+ *
+ * So: one invoice, one reference code, one number to transfer.
+ *
+ * ## And exactly one of them, ever
+ *
+ * `period: null`, because joining belongs to no month — the invoice's unique
+ * double-billing index excludes null periods for exactly this shape of one-off
+ * charge, and `receipt.service` already knows a receipt for one covers no span.
+ *
+ * But that index is therefore *not* protecting this invoice, and joining is the
+ * one charge that must never be raised twice: it is not a month that can be
+ * re-billed, it is a fee somebody already paid. Both the re-registration and the
+ * activation paths reach this. So the check is explicit — an existing non-void
+ * joining invoice is returned as it stands, with its original reference code,
+ * rather than a second one being written beside it.
+ *
+ * ## The discount is a negative line, not a smaller fee
+ *
+ * Both numbers survive on the invoice that way, so a resident asking why they
+ * paid less than the advertised admission fee is answered by their own invoice
+ * rather than by somebody's memory of a conversation at the desk. Same reason
+ * the deposit is its own line rather than folded into a total: a deposit is
+ * refundable and a fee is not, and a resident moving out needs to see which half
+ * of what they paid is coming back.
  *
  * **Nothing here may fail the registration.** The resident exists, their bed is
  * spent and their referral is linked by the time this runs; throwing would leave
  * a registered resident behind an error message saying they were not registered.
  * A hostel with no reference prefix — the one real failure — gets a reason back
- * and the fee is collected the way it was before this existed.
+ * and the money is collected the way it was before this existed.
  */
 export async function raiseAdmissionInvoice(input: {
   dueDate: Date;
@@ -376,11 +419,46 @@ export async function raiseAdmissionInvoice(input: {
   quote: IntakeQuote;
   residentId: Types.ObjectId;
 }): Promise<AdmissionInvoiceResult> {
-  if (input.quote.admissionFee <= 0) {
+  const deposit = Math.max(input.quote.depositAmount, 0);
+  const payable = joiningPayable(input.quote);
+
+  /*
+   * A hostel that charges neither raises nothing. Tested on the *pair*, not on
+   * the admission fee alone: a hostel that takes only a deposit is a real
+   * configuration, and it used to fall through this guard and invoice nobody.
+   */
+  if (payable <= 0) {
     return { raised: false, reason: "NO_ADMISSION_FEE" };
   }
 
   try {
+    /*
+     * Raised once per resident, and this is what enforces it — the unique
+     * `(hostelId, residentId, period, kind)` index skips null periods, so
+     * nothing below the application layer would stop a second one. A resident
+     * re-activated, or registered again after a failed attempt, gets back the
+     * invoice and the reference code they were already given.
+     */
+    const existing = await InvoiceModel.findOne({
+      hostelId: input.hostelId,
+      kind: "ADMISSION_FEE",
+      residentId: input.residentId,
+      status: { $ne: "VOID" },
+    }).lean<{
+      _id: Types.ObjectId;
+      referenceCode?: string;
+      totalAmount: number;
+    } | null>();
+
+    if (existing) {
+      return {
+        amount: existing.totalAmount,
+        invoiceId: existing._id.toString(),
+        raised: true,
+        referenceCode: existing.referenceCode ?? "",
+      };
+    }
+
     const hostel = await HostelModel.findById(input.hostelId)
       .select("referencePrefix")
       .lean<HostelPricing | null>();
@@ -390,28 +468,47 @@ export async function raiseAdmissionInvoice(input: {
       hostel?.referencePrefix,
     );
 
+    // A charge taken from the rate card is SCHEDULE; one falling back to the
+    // hostel's listed pricing is MANUAL, because no schedule stands behind it
+    // and the invoice should not claim one does.
+    const basis = input.quote.feeScheduleId ? "SCHEDULE" : "MANUAL";
+
     const lines: {
       amount: number;
       basis: string;
       description: string;
       feeScheduleId?: string;
-    }[] = [
-      {
+    }[] = [];
+
+    if (input.quote.admissionFee > 0) {
+      lines.push({
         amount: input.quote.admissionFee,
-        // A fee taken from the rate card is SCHEDULE; one falling back to the
-        // hostel's listed pricing is MANUAL, because no schedule stands behind
-        // it and the invoice should not claim one does.
-        basis: input.quote.feeScheduleId ? "SCHEDULE" : "MANUAL",
+        basis,
         description: "Admission fee",
         feeScheduleId: input.quote.feeScheduleId ?? undefined,
-      },
-    ];
+      });
+    }
 
     if (input.quote.referral.discount > 0) {
       lines.push({
         amount: -input.quote.referral.discount,
         basis: "CREDIT",
         description: `Referral discount — code ${input.quote.referral.code}`,
+      });
+    }
+
+    /*
+     * After the discount, deliberately. A referral comes off the admission fee
+     * and never off the deposit — a deposit is the resident's own money held
+     * back, so discounting it would mean handing back less than was taken. The
+     * order the lines are written in is the order they are read in.
+     */
+    if (deposit > 0) {
+      lines.push({
+        amount: deposit,
+        basis,
+        description: "Security deposit",
+        feeScheduleId: input.quote.feeScheduleId ?? undefined,
       });
     }
 
@@ -426,11 +523,11 @@ export async function raiseAdmissionInvoice(input: {
       referenceCode,
       residentId: input.residentId,
       status: "OPEN",
-      totalAmount: input.quote.admissionPayable,
+      totalAmount: payable,
     })) as unknown as { _id: Types.ObjectId };
 
     return {
-      amount: input.quote.admissionPayable,
+      amount: payable,
       invoiceId: invoice._id.toString(),
       raised: true,
       referenceCode,
@@ -441,4 +538,17 @@ export async function raiseAdmissionInvoice(input: {
       reason: error instanceof Error ? error.message : "ADMISSION_INVOICE_FAILED",
     };
   }
+}
+
+/**
+ * The one number a joining resident transfers: admission after any referral
+ * discount, plus the deposit.
+ *
+ * Exported because the intake screen, the registration email and the invoice all
+ * have to say the same figure, and three additions of the same two fields is
+ * three chances for one of them to forget the deposit — which is exactly how the
+ * deposit came to be quoted everywhere and invoiced nowhere.
+ */
+export function joiningPayable(quote: IntakeQuote): number {
+  return Math.max(quote.admissionPayable, 0) + Math.max(quote.depositAmount, 0);
 }

@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 
 import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { formatBsPeriod } from "@/lib/hostel-day";
 import { periodBounds } from "@/modules/finance/fee-schedule.service";
 import {
   appUrl,
@@ -116,7 +117,7 @@ async function notifyTheResident(input: {
 
   await createInAppNotification({
     body: input.firstMonth
-      ? `You are registered at ${input.hostelName}. Your rent for ${input.firstMonth.period} is NPR ${input.firstMonth.amount.toLocaleString("en-US")}.`
+      ? `You are registered at ${input.hostelName}. Your rent for ${formatBsPeriod(input.firstMonth.period) || input.firstMonth.period} is NPR ${input.firstMonth.amount.toLocaleString("en-US")}.`
       : `You are registered at ${input.hostelName}.`,
     category: input.firstMonth ? "PAYMENT" : "ACCOUNT",
     data: input.firstMonth ? { invoiceId: input.firstMonth.invoiceId } : undefined,
@@ -232,8 +233,10 @@ async function emailTheResident(input: {
           amount: input.firstMonth.amount,
           // The billing run dates a month's invoice to the last day of that
           // month, so this is derived rather than passed — one answer to "when
-          // is it due", in the module that decides it.
-          dueDate: periodBounds(input.firstMonth.period).end,
+          // is it due", in the module that decides it. `lastDay`, not `end`:
+          // `end` is 23:59:59.999 UTC, which Nepal has already carried into the
+          // next morning, so a Bhadra invoice would be emailed as due in Aswin.
+          dueDate: periodBounds(input.firstMonth.period).lastDay,
           period: input.firstMonth.period,
           prorated: input.firstMonth.prorated,
           referenceCode: input.firstMonth.referenceCode,

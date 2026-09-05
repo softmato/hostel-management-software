@@ -12,6 +12,8 @@
 import { Types } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { fromBs } from "@hostel/shared/calendar/bs";
+
 const mocks = vi.hoisted(() => ({
   allocateReferenceCode: vi.fn(),
   audit: vi.fn(),
@@ -121,11 +123,22 @@ beforeEach(() => {
   mocks.audit.mockResolvedValue(undefined);
 });
 
+/**
+ * Bhadra 2083 — 17 August to 16 September 2026, 31 days.
+ *
+ * The month every case below bills. It is a Bikram Sambat month because that is
+ * what a billing period now is; the Gregorian dates in the assertions are the
+ * instants it actually spans, and they are deliberately not the 1st and the
+ * 31st of anything.
+ */
+const BHADRA = "2083-05";
+const bhadra = (day: number) => fromBs({ day, month: 5, year: 2083 });
+
 describe("who is billable", () => {
   it("bills active residents and anyone who left during the period", async () => {
     // The current system only looks at who is here today, so a resident who left
     // on the 8th is never charged for those eight days.
-    await findBillableResidents(hostelId, "2026-08");
+    await findBillableResidents(hostelId, BHADRA);
 
     const filter = mocks.residentFind.mock.calls[0]![0] as {
       $or: Record<string, unknown>[];
@@ -134,7 +147,8 @@ describe("who is billable", () => {
     expect(filter.$or).toEqual([
       { status: "ACTIVE" },
       {
-        moveOutDate: { $gte: new Date("2026-08-01T00:00:00.000Z") },
+        // The BS month opens on 17 August, not the 1st.
+        moveOutDate: { $gte: bhadra(1) },
         status: "MOVED_OUT",
       },
     ]);
@@ -143,7 +157,7 @@ describe("who is billable", () => {
   it("does not bill PENDING residents", async () => {
     // A1 billed them, A2 did not. Resolved in A2's favour: a pending resident
     // has not been admitted, and an invoice for them enters their dunning queue.
-    await findBillableResidents(hostelId, "2026-08");
+    await findBillableResidents(hostelId, BHADRA);
 
     expect(JSON.stringify(mocks.residentFind.mock.calls[0]![0])).not.toContain("PENDING");
   });
@@ -151,7 +165,7 @@ describe("who is billable", () => {
 
 describe("issuing invoices", () => {
   it("issues one invoice per resident, with a reference code", async () => {
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(result.billed).toHaveLength(1);
     expect(result.totalBilled).toBe(12000);
@@ -161,49 +175,48 @@ describe("issuing invoices", () => {
 
     expect(created).toMatchObject({
       kind: "MONTHLY_RENT",
-      period: "2026-08",
+      period: BHADRA,
       status: "OPEN",
       totalAmount: 12000,
     });
+    // Named on the line, because `2083-05` is storage and not something a
+    // resident reads on their own bill.
+    expect(created.lines[0].description).toBe("Monthly rent — Bhadra 2083 BS");
     expect(created.lines[0]).toMatchObject({ basis: "SCHEDULE", feeScheduleId: scheduleId });
   });
 
-  it("defaults the due date to the end of the period", async () => {
-    await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+  /*
+   * The closing *day*, not the closing instant. `end` is 23:59:59.999 UTC and
+   * Nepal is 5h45m ahead of it, so stamping that on the invoice dated a Bhadra
+   * invoice due on a moment every BS reader in the product names Aswin 1.
+   */
+  it("defaults the due date to the last day of the period", async () => {
+    await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
-    expect(mocks.invoiceCreate.mock.calls[0]![0].dueDate).toEqual(
-      new Date("2026-08-31T23:59:59.999Z"),
-    );
+    expect(mocks.invoiceCreate.mock.calls[0]![0].dueDate).toEqual(bhadra(31));
   });
 
   it("prorates a mid-month move-in, which the bulk fee run never did", async () => {
-    mocks.residentFind.mockReturnValue(
-      lean([resident({ moveInDate: new Date("2026-08-17T00:00:00.000Z") })]),
-    );
+    mocks.residentFind.mockReturnValue(lean([resident({ moveInDate: bhadra(17) })]));
 
-    await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
-    // 15 of 31 days: 12000 / 31 * 15, rounded once.
+    // Bhadra 17 to Bhadra 31 is 15 of 31 days: 12000 / 31 * 15, rounded once.
     expect(mocks.invoiceCreate.mock.calls[0]![0].totalAmount).toBe(5806);
     expect(mocks.invoiceCreate.mock.calls[0]![0].lines[0].prorationBasis).toBe(
-      "15/31 days",
+      "Bhadra 17–31 · 15 of 31 days",
     );
   });
 
   it("prorates a move-out, which no current path does at all", async () => {
     mocks.residentFind.mockReturnValue(
-      lean([
-        resident({
-          moveOutDate: new Date("2026-08-08T00:00:00.000Z"),
-          status: "MOVED_OUT",
-        }),
-      ]),
+      lean([resident({ moveOutDate: bhadra(8), status: "MOVED_OUT" })]),
     );
 
-    await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(mocks.invoiceCreate.mock.calls[0]![0].lines[0].prorationBasis).toBe(
-      "8/31 days",
+      "Bhadra 1–8 · 8 of 31 days",
     );
   });
 });
@@ -215,7 +228,7 @@ describe("credit from an earlier overpayment", () => {
     // than an unexplained smaller total.
     mocks.applyCredit.mockResolvedValue(3000);
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     const update = mocks.invoiceUpdateOne.mock.calls[0]![1];
 
@@ -226,7 +239,7 @@ describe("credit from an earlier overpayment", () => {
   });
 
   it("touches nothing when the resident has no credit", async () => {
-    await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(mocks.invoiceUpdateOne).not.toHaveBeenCalled();
   });
@@ -234,7 +247,7 @@ describe("credit from an earlier overpayment", () => {
   it("consumes the credit before discounting, so a crash cannot give a free discount", async () => {
     mocks.applyCredit.mockResolvedValue(3000);
 
-    await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(mocks.applyCredit).toHaveBeenCalledBefore(mocks.invoiceUpdateOne);
   });
@@ -248,7 +261,7 @@ describe("skips and failures are returned, never swallowed", () => {
       lean([resident({ bedType: "SINGLE", roomType: "Single" })]),
     );
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(mocks.invoiceCreate).not.toHaveBeenCalled();
     // Named by room type, because that is the key an owner fixes it under — the
@@ -267,7 +280,7 @@ describe("skips and failures are returned, never swallowed", () => {
       lean([resident({ bedType: null, roomType: "Shared" })]),
     );
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     // "Shared" does not say how many people share. §7.3: report, do not guess.
     expect(result.failures[0]!.errorCode).toBe("BED_TYPE_NOT_PRICED");
@@ -278,13 +291,14 @@ describe("skips and failures are returned, never swallowed", () => {
     mocks.residentFind.mockReturnValue(
       lean([
         resident({
-          moveOutDate: new Date("2026-07-04T00:00:00.000Z"),
+          // Shrawan 20 — before Bhadra opened.
+          moveOutDate: fromBs({ day: 20, month: 4, year: 2083 }),
           status: "MOVED_OUT",
         }),
       ]),
     );
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(result.skipped).toEqual([
       {
@@ -300,7 +314,7 @@ describe("skips and failures are returned, never swallowed", () => {
     // with a reason, not a zero-rupee invoice and not a silent omission.
     mocks.residentFind.mockReturnValue(lean([resident({ monthlyFee: 0 })]));
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(result.skipped[0]!.reason).toBe("ZERO_CHARGE");
     expect(mocks.invoiceCreate).not.toHaveBeenCalled();
@@ -311,7 +325,7 @@ describe("skips and failures are returned, never swallowed", () => {
       lean([resident(), resident({ _id: residentB, bedType: "SINGLE" })]),
     );
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(result.billed).toHaveLength(1);
     expect(result.failures).toHaveLength(1);
@@ -322,7 +336,7 @@ describe("re-running", () => {
   it("is a no-op when every resident is already billed", async () => {
     mocks.invoiceFind.mockReturnValue(lean([{ residentId: residentA }]));
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(mocks.invoiceCreate).not.toHaveBeenCalled();
     expect(result.billed).toHaveLength(0);
@@ -334,7 +348,7 @@ describe("re-running", () => {
     // every re-run would leave gaps that look like deleted invoices.
     mocks.invoiceFind.mockReturnValue(lean([{ residentId: residentA }]));
 
-    await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(mocks.allocateReferenceCode).not.toHaveBeenCalled();
   });
@@ -345,7 +359,7 @@ describe("re-running", () => {
     // what was wanted.
     mocks.invoiceCreate.mockRejectedValue({ code: 11000 });
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(result.skipped[0]!.reason).toBe("ALREADY_BILLED");
     expect(result.billed).toHaveLength(0);
@@ -360,7 +374,7 @@ describe("a missing fee schedule", () => {
     );
 
     await expect(
-      runBillingCycle({ hostelId, period: "2026-08" }, principal),
+      runBillingCycle({ hostelId, period: BHADRA }, principal),
     ).rejects.toMatchObject({ errorCode: "FEE_SCHEDULE_MISSING" });
 
     // Not even the resident with an override, who could have been priced: half a
@@ -385,7 +399,7 @@ describe("a missing fee schedule", () => {
     mocks.scheduleFindOne.mockReturnValue(lean(null));
     mocks.residentFind.mockReturnValue(lean([resident({ roomType: "DOUBLE_SHARING" })]));
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(result.billed).toHaveLength(1);
     expect(result.totalBilled).toBe(12000);
@@ -413,7 +427,7 @@ describe("a missing fee schedule", () => {
       lean([resident({ bedType: null, roomType: "Shared" })]),
     );
 
-    const result = await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    const result = await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(result.billed[0]!.amount).toBe(7000);
     expect(result.failures).toHaveLength(0);
@@ -432,7 +446,7 @@ describe("a missing fee schedule", () => {
     );
 
     await expect(
-      runBillingCycle({ hostelId, period: "2026-08" }, principal),
+      runBillingCycle({ hostelId, period: BHADRA }, principal),
     ).rejects.toMatchObject({ errorCode: "FEE_SCHEDULE_MISSING" });
 
     expect(mocks.invoiceCreate).not.toHaveBeenCalled();
@@ -445,7 +459,7 @@ describe("a missing fee schedule", () => {
     );
 
     await expect(
-      runBillingCycle({ hostelId, period: "2026-08" }, principal),
+      runBillingCycle({ hostelId, period: BHADRA }, principal),
     ).rejects.toMatchObject({ errorCode: "REFERENCE_PREFIX_MISSING" });
   });
 });
@@ -470,7 +484,7 @@ describe("the monthly run across every hostel", () => {
       .mockReturnValueOnce(lean(schedule))
       .mockReturnValueOnce(lean(null));
 
-    const outcomes = await runBillingCycleForAllHostels("2026-08");
+    const outcomes = await runBillingCycleForAllHostels(BHADRA);
 
     expect(outcomes).toHaveLength(2);
     expect(outcomes[0]).toMatchObject({ billedCount: 1, totalBilled: 12000 });
@@ -485,14 +499,21 @@ describe("the monthly run across every hostel", () => {
     // `AuditLog.actorId` is required, and attributing a scheduled run to a real
     // person who did not perform it is worse than the gap. Block 5's
     // `ReconciliationRun` is where scheduled runs get recorded.
-    await runBillingCycleForAllHostels("2026-08");
+    await runBillingCycleForAllHostels(BHADRA);
 
     expect(mocks.audit).not.toHaveBeenCalled();
   });
 
-  it("derives the current period in UTC", () => {
-    expect(periodOf(new Date("2026-08-07T18:30:00.000Z"))).toBe("2026-08");
-    expect(periodOf(new Date("2026-01-01T00:00:00.000Z"))).toBe("2026-01");
+  /*
+   * Both halves of what `periodOf` used to get wrong: it sliced the Gregorian
+   * month out of a UTC instant, so a run fired in the last quarter of a UTC day
+   * billed the month Nepal had already left, and the month itself was one no
+   * hostel's books recognise.
+   */
+  it("derives the current period as the Nepal day's BS month", () => {
+    // 18:30 UTC on 16 September is already 17 September in Kathmandu — Aswin 1.
+    expect(periodOf(new Date("2026-09-16T18:30:00.000Z"))).toBe("2083-06");
+    expect(periodOf(new Date("2026-09-16T12:00:00.000Z"))).toBe("2083-05");
   });
 });
 
@@ -575,7 +596,7 @@ describe("voiding an invoice", () => {
 
 describe("auditing", () => {
   it("records the run with the amount it billed", async () => {
-    await runBillingCycle({ hostelId, period: "2026-08" }, principal);
+    await runBillingCycle({ hostelId, period: BHADRA }, principal);
 
     expect(mocks.audit).toHaveBeenCalledWith(
       principal,

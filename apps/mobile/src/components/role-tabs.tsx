@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { useEffect } from "react";
-import { type ColorValue, InteractionManager, View } from "react-native";
+import { type ColorValue, View } from "react-native";
 
 import { AnimatedTabBar } from "@/components/tab-bar";
 import { Avatar } from "@/components/ui/avatar";
@@ -10,6 +10,7 @@ import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { API_BASE_URL } from "@/lib/api";
 import { prefetchCommunity } from "@/lib/community-queries";
+import { runWhenIdle } from "@/lib/idle";
 import { absoluteMediaUrl } from "@/lib/media";
 
 /**
@@ -102,19 +103,18 @@ export function RoleTabs({
       return undefined;
     }
 
-    let task: ReturnType<typeof InteractionManager.runAfterInteractions> | null =
-      null;
+    let cancelIdle: (() => void) | null = null;
 
     const warm = setTimeout(() => {
-      // After the interactions as well as after the delay: a shell whose home
-      // is still settling gets the network back before this takes any of it.
-      task = InteractionManager.runAfterInteractions(prefetchCommunity);
+      // Idle as well as delayed: a shell whose home is still settling gets the
+      // network back before this takes any of it.
+      cancelIdle = runWhenIdle(prefetchCommunity);
     }, COMMUNITY_WARM_MS);
 
     // Cancelled on the way out, so signing straight back out never fires it.
     return () => {
       clearTimeout(warm);
-      task?.cancel();
+      cancelIdle?.();
     };
   }, [hasCommunity]);
 

@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { complaintCategoryLabel, complaintStanding } from "@/lib/complaints";
 import {
@@ -19,7 +20,6 @@ import {
   type ComplaintList,
   getResidentComplaints,
 } from "@/lib/complaints-api";
-import { formatRelativeDay } from "@/lib/format";
 
 /**
  * Everything this resident has raised.
@@ -198,6 +198,8 @@ function FilterChip({
 }
 
 function ComplaintCard({ complaint }: { complaint: Complaint }) {
+  const dates = useDates();
+
   const { colors } = useAppTheme();
   const standing = complaintStanding(complaint);
 
@@ -247,7 +249,7 @@ function ComplaintCard({ complaint }: { complaint: Complaint }) {
           ) : null}
 
           <View className="flex-1" />
-          <Text variant="caption">{formatRelativeDay(complaint.createdAt)}</Text>
+          <Text variant="caption">{dates.relativeDay(complaint.createdAt)}</Text>
         </View>
       </Card>
     </Pressable>

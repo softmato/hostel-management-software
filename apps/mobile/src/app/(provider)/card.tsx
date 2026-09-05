@@ -9,8 +9,9 @@ import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
 
 /**
@@ -52,6 +53,7 @@ const STATUS_NOTE: Record<ProviderApplication["status"], string> = {
 };
 
 export default function ProviderCardScreen() {
+  const dates = useDates();
   const provider = useResource<ProviderApplication | null>(
     useCallback(() => getOwnProvider(), []),
   );
@@ -144,7 +146,7 @@ export default function ProviderCardScreen() {
             {record.submittedAt ? (
               <>
                 <RowDivider />
-                <ListRow title="Applied" value={formatDate(record.submittedAt)} />
+                <ListRow title="Applied" value={dates.date(record.submittedAt)} />
               </>
             ) : null}
           </Card>

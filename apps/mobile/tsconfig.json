@@ -4,9 +4,15 @@
     "strict": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@/assets/*": ["./assets/*"]
+      "@/assets/*": ["./assets/*"],
+      "@hostel/calendar/*": ["../../packages/shared/src/calendar/*"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", "nativewind-env.d.ts"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "nativewind-env.d.ts",
+    "../../packages/shared/src/calendar/**/*.ts"
+  ],
   "exclude": ["node_modules", "dist", ".expo", "android", "ios"]
 }

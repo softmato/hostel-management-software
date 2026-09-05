@@ -11,8 +11,9 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { formatRelativeDay, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import {
   type AppNotification,
   type NotificationFeed,
@@ -261,6 +262,8 @@ function NotificationCard({
   notification: AppNotification;
   onOpen: (notification: AppNotification) => void;
 }) {
+  const dates = useDates();
+
   const { colors } = useAppTheme();
   const [expanded, setExpanded] = useState(false);
 
@@ -316,7 +319,7 @@ function NotificationCard({
           {notification.category ? (
             <Badge label={humanizeEnum(notification.category)} />
           ) : null}
-          <Text variant="caption">{formatRelativeDay(notification.createdAt)}</Text>
+          <Text variant="caption">{dates.relativeDay(notification.createdAt)}</Text>
         </View>
 
         {/*

@@ -723,6 +723,127 @@ Two things follow that the code must enforce rather than merely promise:
 
 ---
 
+## §11 The tab-shape pass — organisation, not features
+
+**Opened by the owner 2026-09-04:** *"the other tabs screen ui of resident portal
+app is not well organized... see the warden for inspiration"*, then *"the
+homescreen ui is good do the work for others"* and *"like main paymt screen
+invoice more and other notices etc need super rework"*.
+
+So: **Home is out of scope and stays exactly as it is.** Everything else in the
+resident surface gets read against the admin portal's shape and against
+`NOTES.md`, and rearranged where it does not hold up. No new features — every
+fact on these screens was already on them.
+
+- [x] **11.1 Tab titles (closes §5.3).** *(2026-09-04)* The admin tabs set
+      `large` on the `AppBar` and the resident tabs did not, so the same job was
+      titled at 22 points in one role and 16 in the other. Every resident tab
+      that *is* a tab now sets it. **Notices deliberately does not** — it carries
+      a back arrow, and `large`'s own doc draws the line at "a destination, not a
+      strip you are passing through". That is the rule, written down: `large`
+      where there is no back arrow.
+- [x] **11.2 More was sixteen rows of sentences in three boxes.** *(2026-09-04)*
+      `NOTES.md` section 3 is the reference set's most repeated rule — a menu of
+      destinations is never full-width rows carrying a sentence each — and
+      `(admin)/more.tsx` had already fixed the same problem with `<CardRow>`: one
+      card per door, a tinted glyph square in front of it, air between them. The
+      resident's eleven doors (`Your stay`, `Discover`) are now that shelf.
+      <br>**App stayed a hairline group**, and that is the split: a menu goes on
+      the shelf, settings go in a box. Those four rows really are one switch and
+      three views of one account's preferences.
+      <br>Two things fell out of the read: the `App` and sign-out cards were
+      using the default `p-4` around rows that carry their own `py-3`, so the
+      same group stood 32 points taller than admin's; and the Night status row
+      now prints tonight's actual answer as its subtitle instead of a standing
+      invitation.
+      <br>**Not** converted to a tile grid, though section 3 would allow it:
+      `<ResidentServiceGrid>`'s own doc says Home's grid and this menu are the
+      same list with and without the explanations, and collapsing More into tiles
+      would delete that distinction rather than improve it.
+- [x] **11.3 Payments opened with two money cards.** *(2026-09-04)* A bordered
+      `Total outstanding` box, then a bordered `Due next` box carrying its own
+      amount, due label, reference code and both buttons — two figures in the
+      first two hundred points, one of which *contains* the other — then a
+      navigation row wedged between the money and the metric strip explaining it.
+      <br>It is one object now: **`<ResidentDuesCard>`**, at `<AdminMoneyCard>`'s
+      geometry rather than `<PortalHeroCard>`'s, deliberately. Home is a
+      full-bleed hero with the building behind it; Payments is a card inset on
+      all four sides with a shadow under it. That is the same Home/Money split
+      the admin portal already draws, and `portal-shared.tsx` records why: five
+      screens whose top two hundred points are identical stop saying where you
+      are. The balance rides the paint, and the month to act on — code, `Pay
+      now`, `I've paid` — rides a themed footer inside the same corners
+      (`NOTES.md` section 11, two registers in one card).
+      <br>The three `<StatTile>`s went. `Next due` and `Last paid` are the card's
+      two-up; `Settled 4 of 7` became the invoice list's subheading, because it
+      was a metric *about* that list.
+      <br>The filter is a **`<Segmented>`**: All / Open / Settled are exclusive
+      views, and a chip row promises you could tick two. Same control admin Money
+      filters with.
+      <br>The list **groups by year**, heading outside the card (`NOTES.md`
+      section 5) — a resident in their second year had `Jan` twice in one flat
+      column. `groupInvoicesByYear` + **4 tests**; an admission fee carries
+      `period: null` and is filed by its due date rather than dropped.
+- [x] **11.4 The invoice screens were a plain bar over a stack of identical
+      boxes.** *(2026-09-04)* All three of `invoice/[id]/{index,pay,claim}` now
+      carry the house chrome for a pushed screen — `<AppBar accent straddle>`
+      with the screen's one summary card pulled up half onto the paint on
+      `FLOAT_SHADOW` (`NOTES.md` section 1). They share one `STRADDLE`, because a
+      step of a flow that changes its chrome reads as a different app.
+      <br>Also on those three:
+  - **Skeletons replaced three `<LoadingState>` spinners.** The house rule was
+        being broken on the screens a resident waits on with money in hand.
+  - **`<ReferenceStrip>`** is now one shared component. The detail screen had
+        the code in 24-point tracked type with a `Copy reference` **`<ListRow>`**
+        under it — a list row standing in for a button, under a value that looked
+        like a heading — while the tab made the whole strip copy on tap. It is
+        hidden once nothing is owed: a settled month's code is a code for a
+        transfer nobody will make.
+  - **Four `<Ionicons>` on `pay.tsx` carried no `color`,** which renders black —
+        the primary method's icon, the "Other ways to pay" chevron, each folded
+        method's icon and the copy glyph were invisible on a dark card in dark
+        mode. Same fault the statement button had in section 2.1.
+  - **`claim.tsx`'s "How you paid" was six hand-rolled filled pills** wrapping
+        to two rows between two `<Input>`s. It is a `<Select>` — not a
+        `<Segmented>`, whose own doc caps at five and names the sheet as where to
+        go instead. The form is three fields of one shape now.
+  - **`checkout/[reference].tsx`** drew `<FactRow>` three times by hand, without
+        the wrap that component exists for — so a long reference was truncated on
+        the screen someone reads while chasing a payment.
+- [x] **11.5 Notices had two questions fighting over one control.**
+      *(2026-09-04)* One scroller held `All`, `Unread`, `Urgent` **and** every
+      category, so tapping `Maintenance` cleared `Unread` and *unread maintenance
+      notices* could not be asked for at all. Status is a `<Segmented>` with the
+      counts on the labels; category is a chip row under it that composes with
+      the view.
+      <br>The list **groups by day**, heading outside the card, and the rows lost
+      their individual `3 days ago` line — eleven timestamps down a column, none
+      adjacent, was the flat shape `NOTES.md` section 5 exists to replace. The
+      heading goes through `useDates()` so it follows the resident's BS/AD
+      preference; the pure module (`lib/notice-list.ts`, **9 tests**) returns the
+      instant and formats nothing.
+- [x] **11.6 Food's rating form grew the card it was launched from.**
+      *(2026-09-04)* "Rate this meal" was a bare `text-primary` link whose tap
+      swapped it for the whole form **inside that meal's card** — five stars, a
+      comment box, a checkbox and two buttons — so rating breakfast pushed the
+      other three meals ~200 points down the page while the resident typed. It is
+      a `<Sheet>` now (`NOTES.md` section 6), one for all four cards, its draft
+      keyed on which meal opened it so a half-rated breakfast cannot paint its
+      stars onto dinner.
+      <br>Three re-implementations went with it: the five hand-rolled stars
+      became `<StarRating>` (which `review.tsx` was already using), the
+      hand-rolled checkbox became a `<ListRow>` + `<Toggle>` like every other
+      switch in the app, and `Add photo` became `<SectionLink>`.
+      <br>The bar lost `subtitle="This week's routine"` — chrome describing the
+      band directly under it, on a tab whose name is now a page heading.
+- [ ] **11.7 [device]** The whole pass on a handset, light and dark: the painted
+      dues card at 320dp, the straddle on all three invoice screens, the notices
+      day headings, the food sheet over the keyboard, and More's shelf.
+
+**Verified after 11.1-11.6: `tsc` clean, lint clean, 1148 tests / 76 files.**
+
+---
+
 ## Progress log
 
 | When | What | Next |
@@ -734,3 +855,4 @@ Two things follow that the code must enforce rather than merely promise:
 | 2026-09-04 | §5.2 `lib/resident-queries.ts` — seven descriptors, six screens rewired, one-wave warm-up. Found and fixed that **no resident screen had a `cacheKey`**, so every tab switch was a cold reload. | §3.1 |
 | 2026-09-04 | §10 added: the public-vs-resident location policy, as a **release gate**. Found `docs/PRIVACY_POLICY.md` §3.6 is wrong against shipped code and has no public-user distinction. `night_presence_research_prompt.md` written for the owner's cloud assistant. | §4 |
 | 2026-09-04 | Owner reset the priority: automatic night presence is what the hostel is buying. §3.1 rewritten as that design, and **Phase 1 built** — the UTC day-bucket bug fixed server-side (an existing test had pinned the bug), `lib/attendance{,-api}.ts` + 14 tests, and `app/attendance.tsx`. **Mobile 1117 / 73, web 2123 / 148, lint and tsc clean.** | §4, then §3.1 Phase 2 — and a device pass on everything so far |
+| 2026-09-04 | Owner: the other tabs are not well organised — rework them against the warden's portal, Home excepted. **Section 11 opened and 11.1-11.6 built**: More onto `<CardRow>`, Payments onto one painted `<ResidentDuesCard>` with a year-grouped list and a `<Segmented>` filter, all three invoice screens onto the accent/straddle chrome with skeletons and a shared `<ReferenceStrip>`, Notices split into two composing filters with day grouping, Food's rating into a `<Sheet>`. Two pure modules + 13 tests. Four invisible glyphs and five re-implemented primitives fixed on the way. **Mobile 1148 / 76, lint and tsc clean.** | The guardian portal (see `guardian_app_portal.md`), then 11.7 [device] |

@@ -15,9 +15,9 @@ import { describe, expect, it } from "vitest";
  *
  * ## Why a test that reads the source tree
  *
- * `uiSlice.calendarPreference` decides whether the hostel portal spells dates in
- * Bikram Sambat or Gregorian. It reaches screens through `useDates()`, which is
- * the *only* correct way to render a date on an admin surface — and nothing
+ * `uiSlice.calendarPreference` decides whether the app spells dates in Bikram
+ * Sambat or Gregorian. It reaches screens through `useDates()`, which is the
+ * *only* correct way to render a date anywhere under `app/` — and nothing
  * stopped a screen from importing `formatDate` from `lib/format.ts` instead,
  * which silently prints Gregorian for ever.
  *
@@ -33,8 +33,29 @@ import { describe, expect, it } from "vitest";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 
-/** Where the calendar preference is in force: the hostel portal's own screens. */
-const ADMIN_DIRS = ["app/(admin)", "app/manage"];
+/**
+ * Where the calendar preference is in force: **the whole UI layer**.
+ *
+ * This was `["app/(admin)", "app/manage"]` while the setting was the hostel
+ * owner's alone. Now the default is Bikram Sambat for everybody, so a resident's
+ * Payments screen, a cook's photo log and a guardian's dashboard are all bound by
+ * the same rule — see `hooks/use-dates.ts`.
+ *
+ * `components/` is walked too, and not as an afterthought: a shared card is the
+ * one place a Gregorian date would leak into every role at once.
+ */
+const SCREEN_DIRS = ["app", "components"];
+
+/**
+ * Screens allowed to reach past `useDates()`, and why.
+ *
+ * Empty, and it should stay that way. Each entry is a date the reader cannot
+ * change the calendar of, so think hard before adding one: the two real cases so
+ * far — a `YYYY-MM-DD` field someone types into and a six-bar chart axis — both
+ * live in `lib/`, which this check does not walk, precisely because neither is a
+ * date being *read*.
+ */
+const ALLOWED: Record<string, readonly string[]> = {};
 
 /**
  * Date formatters that pick a calendar for you, and therefore ignore the
@@ -50,9 +71,17 @@ const CALENDAR_BLIND = [
   "formatDate",
   "formatDateBs",
   "formatDateTime",
+  "formatDayMonth",
+  "formatDayMonthBs",
   "formatPeriod",
   "formatPeriodBs",
+  "formatPeriodMonth",
+  "formatPeriodMonthBs",
+  "formatPeriodYear",
+  "formatPeriodYearBs",
   "formatRelativeDay",
+  "formatYear",
+  "formatYearBs",
 ];
 
 /** Repo-relative and forward-slashed, so a failure reads the same on any OS. */
@@ -109,14 +138,15 @@ function importedFrom(source: string, module: string): string[] {
     .filter(Boolean);
 }
 
-describe("the hostel portal has one source of truth for dates", () => {
-  it("has no admin screen formatting a date behind the setting's back", () => {
+describe("the app has one source of truth for dates", () => {
+  it("has no screen formatting a date behind the setting's back", () => {
     const offenders: string[] = [];
 
-    for (const dir of ADMIN_DIRS) {
+    for (const dir of SCREEN_DIRS) {
       for (const file of sourceFiles(dir)) {
+        const allowed = ALLOWED[label(file)] ?? [];
         const blind = importedFrom(readFileSync(file, "utf8"), "@/lib/format").filter(
-          (name) => CALENDAR_BLIND.includes(name),
+          (name) => CALENDAR_BLIND.includes(name) && !allowed.includes(name),
         );
 
         if (blind.length > 0) {
@@ -125,10 +155,26 @@ describe("the hostel portal has one source of truth for dates", () => {
       }
     }
 
-    // The fix is `useDates()` and `dates.date` / `dates.dateTime` / `dates.period`.
-    // If a date on one of these screens genuinely must be Gregarian, say why in a
-    // comment and widen this list rather than working around it.
+    // The fix is `useDates()` and `dates.date` / `dates.dateTime` / `dates.period`
+    // / `dates.relativeDay` / `dates.ago`. If a date on one of these screens
+    // genuinely must be Gregorian, say why in a comment and add it to `ALLOWED`
+    // rather than working around it.
     expect(offenders).toEqual([]);
+  });
+
+  it("offers the calendar setting to every role, not just the owner", () => {
+    // The default is Bikram Sambat for everybody, so everybody needs the switch
+    // back. `app/manage/settings.tsx` is the owner's own settings screen and
+    // `app/settings.tsx` is the one every other role reaches from their More tab;
+    // both render the same card, off the same slice.
+    const screens = ["app/settings.tsx", "app/manage/settings.tsx"];
+
+    const missing = screens.filter(
+      (screen) =>
+        !readFileSync(join(SRC, screen), "utf8").includes("<CalendarPreferenceCard />"),
+    );
+
+    expect(missing).toEqual([]);
   });
 
   it("converts to Bikram Sambat in exactly one place", () => {

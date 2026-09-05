@@ -13,6 +13,7 @@ import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import {
@@ -29,7 +30,6 @@ import {
   getResidentAttendance,
   setLocationConsent,
 } from "@/lib/attendance-api";
-import { formatDate, formatPeriod } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -69,6 +69,7 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * being tracked silently destroyed their own record — or the reverse.
  */
 export default function AttendanceScreen() {
+  const dates = useDates();
   const attendance = useResource<ResidentAttendance>(
     useCallback(() => getResidentAttendance(), []),
     { topics: [REALTIME_TOPIC.ATTENDANCE] },
@@ -236,7 +237,7 @@ export default function AttendanceScreen() {
           months.map((month) => (
             <View key={month.period}>
               {/* Heading outside the card — NOTES §5. */}
-              <SectionHeader title={formatPeriod(month.period)} />
+              <SectionHeader title={dates.period(month.period)} />
               <Card>
                 {month.days.map((entry, index) => (
                   <View key={entry.day}>
@@ -264,6 +265,8 @@ export default function AttendanceScreen() {
 }
 
 function DayRow({ entry }: { entry: AttendanceDay }) {
+  const dates = useDates();
+
   const note = sourceNote(entry.source);
   const tone = zoneTone(entry.zone);
 
@@ -290,7 +293,7 @@ function DayRow({ entry }: { entry: AttendanceDay }) {
         )
       }
       subtitle={note ?? undefined}
-      title={formatDate(entry.day)}
+      title={dates.dateLong(entry.day)}
       value={tone === "neutral" ? zoneLabel(entry.zone) : undefined}
     />
   );

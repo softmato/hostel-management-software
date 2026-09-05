@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Role } from "@/lib/roles";
+import { fromBs } from "@hostel/shared/calendar/bs";
 
 /**
  * When a rate card may be written, replaced or dropped.
@@ -66,14 +67,33 @@ const principal = {
   userId: "64f0f0f0f0f0f0f0f0f0f0c1",
 };
 
-/** "Today" for every case: 3 September 2026, the day this was reported. */
+/**
+ * "Today" for every case: 3 September 2026, the day this was reported — which
+ * in the calendar the hostel keeps its books in is **Bhadra 18, 2083**.
+ *
+ * Every month below is therefore a Bikram Sambat month, because that is what a
+ * rate card now starts on. Bhadra 2083 is the running month (17 Aug - 16 Sep
+ * 2026), Aswin is next (17 Sep - 17 Oct), Kartik the one after. Writing them as
+ * `bs(...)` rather than as Gregorian literals is the point: an owner setting
+ * rates picks "from Aswin", not "from 17 September".
+ */
 const NOW = new Date("2026-09-03T04:00:00.000Z");
+
+/** A day of a Bikram Sambat month of 2083, as the instant it opens. */
+const bs = (month: number, day: number) => fromBs({ day, month, year: 2083 });
+
+const BHADRA = 5;
+const ASWIN = 6;
+const KARTIK = 7;
+const MANGSIR = 8;
+const SHRAWAN = 4;
 
 function card(overrides: Record<string, unknown> = {}) {
   return {
     _id: currentId,
     admissionFee: 2000,
-    effectiveFrom: new Date("2026-08-01T00:00:00.000Z"),
+    // Bhadra 1 — the month that is billing right now.
+    effectiveFrom: bs(BHADRA, 1),
     effectiveTo: null,
     hostelId,
     rates: [{ bedType: "SINGLE", monthlyAmount: 18000, roomType: "Single Room" }],
@@ -98,29 +118,20 @@ describe("scheduleStanding", () => {
     // The bug on the screen: `effectiveTo: null` was read as "in force", so a
     // card starting 3 October was badged Active on 3 September.
     expect(
-      scheduleStanding(
-        { effectiveFrom: new Date("2026-10-01T00:00:00.000Z"), effectiveTo: null },
-        NOW,
-      ),
+      scheduleStanding({ effectiveFrom: bs(ASWIN, 1), effectiveTo: null }, NOW),
     ).toBe("upcoming");
   });
 
   it("calls the open card current once its month has started", () => {
     expect(
-      scheduleStanding(
-        { effectiveFrom: new Date("2026-09-01T00:00:00.000Z"), effectiveTo: null },
-        NOW,
-      ),
+      scheduleStanding({ effectiveFrom: bs(BHADRA, 1), effectiveTo: null }, NOW),
     ).toBe("current");
   });
 
   it("calls a closed card past", () => {
     expect(
       scheduleStanding(
-        {
-          effectiveFrom: new Date("2026-07-01T00:00:00.000Z"),
-          effectiveTo: new Date("2026-07-31T00:00:00.000Z"),
-        },
+        { effectiveFrom: bs(SHRAWAN, 1), effectiveTo: bs(SHRAWAN, 31) },
         NOW,
       ),
     ).toBe("past");
@@ -145,16 +156,16 @@ describe("createFeeSchedule — when rates may change", () => {
     // billing run gives a whole month to one card.
     mocks.scheduleFindOne.mockReturnValue(lean(card()));
 
-    await createFeeSchedule(hostelId, input("2026-10-17T00:00:00.000Z"), principal);
+    await createFeeSchedule(hostelId, input(bs(ASWIN, 17).toISOString()), principal);
 
-    expect(created().effectiveFrom.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+    expect(created().effectiveFrom.toISOString()).toBe(bs(ASWIN, 1).toISOString());
   });
 
   it("refuses to change the month that is already billing", async () => {
     mocks.scheduleFindOne.mockReturnValue(lean(card()));
 
     await expect(
-      createFeeSchedule(hostelId, input("2026-09-01T00:00:00.000Z"), principal),
+      createFeeSchedule(hostelId, input(bs(BHADRA, 1).toISOString()), principal),
     ).rejects.toMatchObject({ errorCode: "FEE_SCHEDULE_MONTH_LOCKED" });
     expect(mocks.scheduleCreate).not.toHaveBeenCalled();
   });
@@ -163,9 +174,9 @@ describe("createFeeSchedule — when rates may change", () => {
     // Until one exists nobody can be billed, so the first card is the exception.
     mocks.scheduleFindOne.mockReturnValue(lean(null));
 
-    await createFeeSchedule(hostelId, input("2026-09-14T00:00:00.000Z"), principal);
+    await createFeeSchedule(hostelId, input(bs(BHADRA, 14).toISOString()), principal);
 
-    expect(created().effectiveFrom.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+    expect(created().effectiveFrom.toISOString()).toBe(bs(BHADRA, 1).toISOString());
   });
 
   it("replaces an upcoming card rather than refusing a second one", async () => {
@@ -174,24 +185,20 @@ describe("createFeeSchedule — when rates may change", () => {
      * October, because the guard only asked whether the new date was later. A
      * card that has priced nothing is not history.
      */
-    mocks.scheduleFindOne.mockReturnValue(
-      lean(card({ effectiveFrom: new Date("2026-10-01T00:00:00.000Z") })),
-    );
+    mocks.scheduleFindOne.mockReturnValue(lean(card({ effectiveFrom: bs(ASWIN, 1) })));
 
-    await createFeeSchedule(hostelId, input("2026-10-01T00:00:00.000Z"), principal);
+    await createFeeSchedule(hostelId, input(bs(ASWIN, 1).toISOString()), principal);
 
     expect(mocks.scheduleDeleteOne).toHaveBeenCalledWith({ _id: currentId });
     expect(mocks.scheduleUpdateOne).not.toHaveBeenCalled();
-    expect(created().effectiveFrom.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+    expect(created().effectiveFrom.toISOString()).toBe(bs(ASWIN, 1).toISOString());
   });
 
   it("replaces it however the owner spelled the date", async () => {
-    // 17 October and 1 October are the same card.
-    mocks.scheduleFindOne.mockReturnValue(
-      lean(card({ effectiveFrom: new Date("2026-10-01T00:00:00.000Z") })),
-    );
+    // Aswin 22 and Aswin 1 are the same card.
+    mocks.scheduleFindOne.mockReturnValue(lean(card({ effectiveFrom: bs(ASWIN, 1) })));
 
-    await createFeeSchedule(hostelId, input("2026-10-22T00:00:00.000Z"), principal);
+    await createFeeSchedule(hostelId, input(bs(ASWIN, 22).toISOString()), principal);
 
     expect(mocks.scheduleDeleteOne).toHaveBeenCalledWith({ _id: currentId });
   });
@@ -200,7 +207,7 @@ describe("createFeeSchedule — when rates may change", () => {
     // This one is billing residents and an invoice may carry its id.
     mocks.scheduleFindOne.mockReturnValue(lean(card()));
 
-    await createFeeSchedule(hostelId, input("2026-11-01T00:00:00.000Z"), principal);
+    await createFeeSchedule(hostelId, input(bs(KARTIK, 1).toISOString()), principal);
 
     expect(mocks.scheduleDeleteOne).not.toHaveBeenCalled();
     expect(mocks.scheduleUpdateOne).toHaveBeenCalledWith(
@@ -210,19 +217,17 @@ describe("createFeeSchedule — when rates may change", () => {
   });
 
   it("refuses a month earlier than one already scheduled", async () => {
-    mocks.scheduleFindOne.mockReturnValue(
-      lean(card({ effectiveFrom: new Date("2026-12-01T00:00:00.000Z") })),
-    );
+    mocks.scheduleFindOne.mockReturnValue(lean(card({ effectiveFrom: bs(MANGSIR, 1) })));
 
     await expect(
-      createFeeSchedule(hostelId, input("2026-11-01T00:00:00.000Z"), principal),
+      createFeeSchedule(hostelId, input(bs(KARTIK, 1).toISOString()), principal),
     ).rejects.toMatchObject({ errorCode: "FEE_SCHEDULE_MISSING" });
   });
 
   it("writes the new rents onto the public listing", async () => {
     mocks.scheduleFindOne.mockReturnValue(lean(card()));
 
-    await createFeeSchedule(hostelId, input("2026-10-01T00:00:00.000Z"), principal);
+    await createFeeSchedule(hostelId, input(bs(ASWIN, 1).toISOString()), principal);
 
     expect(mocks.projectScheduleOntoListing).toHaveBeenCalled();
   });
@@ -245,15 +250,13 @@ describe("deleteFeeSchedule", () => {
      * the hostel with no open card and stops billing for everybody.
      */
     mocks.scheduleFindOne
-      .mockReturnValueOnce(
-        lean(card({ effectiveFrom: new Date("2026-10-01T00:00:00.000Z") })),
-      )
+      .mockReturnValueOnce(lean(card({ effectiveFrom: bs(ASWIN, 1) })))
       .mockReturnValueOnce(
         lean(
           card({
             _id: previousId,
-            effectiveFrom: new Date("2026-08-01T00:00:00.000Z"),
-            effectiveTo: new Date("2026-09-30T00:00:00.000Z"),
+            effectiveFrom: bs(BHADRA, 1),
+            effectiveTo: bs(BHADRA, 31),
           }),
         ),
       );
@@ -270,9 +273,7 @@ describe("deleteFeeSchedule", () => {
 
   it("puts the listing back to the rates that are running again", async () => {
     mocks.scheduleFindOne
-      .mockReturnValueOnce(
-        lean(card({ effectiveFrom: new Date("2026-10-01T00:00:00.000Z") })),
-      )
+      .mockReturnValueOnce(lean(card({ effectiveFrom: bs(ASWIN, 1) })))
       .mockReturnValueOnce(lean(card({ _id: previousId })));
 
     await deleteFeeSchedule(hostelId, currentId.toString(), principal);
@@ -292,9 +293,7 @@ describe("deleteFeeSchedule", () => {
   it("refuses rates that have priced an invoice, whatever their dates say", async () => {
     // An orphaned `feeScheduleId` makes "what was this resident's rent in
     // March?" unanswerable, which is the question versioning exists to answer.
-    mocks.scheduleFindOne.mockReturnValue(
-      lean(card({ effectiveFrom: new Date("2026-10-01T00:00:00.000Z") })),
-    );
+    mocks.scheduleFindOne.mockReturnValue(lean(card({ effectiveFrom: bs(ASWIN, 1) })));
     mocks.invoiceCountDocuments.mockResolvedValue(2);
 
     await expect(
@@ -323,54 +322,59 @@ describe("deleteFeeSchedule", () => {
  * residents were invoiced at 180,000 from the card filed under history.
  */
 describe("labelSchedules", () => {
-  const september = {
+  /** Bhadra's card: closed to make room for Aswin's, and still the live one. */
+  const bhadra = {
     _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e1"),
-    effectiveFrom: new Date("2026-08-31T00:00:00.000Z"),
-    effectiveTo: new Date("2026-10-01T18:15:00.000Z"),
+    effectiveFrom: bs(BHADRA, 15),
+    effectiveTo: bs(ASWIN, 1),
   };
-  const october = {
+  /** Aswin's: open, and not yet pricing anybody. */
+  const aswin = {
     _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e2"),
-    effectiveFrom: new Date("2026-10-02T18:15:00.000Z"),
+    effectiveFrom: bs(ASWIN, 1),
     effectiveTo: null,
   };
-  const july = {
+  /** Shrawan's: finished before this month began. */
+  const shrawan = {
     _id: new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e3"),
-    effectiveFrom: new Date("2026-07-01T00:00:00.000Z"),
-    effectiveTo: new Date("2026-08-20T18:15:00.000Z"),
+    effectiveFrom: bs(SHRAWAN, 1),
+    effectiveTo: bs(SHRAWAN, 31),
   };
 
   const standings = (now: Date) =>
     Object.fromEntries(
-      labelSchedules([october, september, july], now).map((schedule) => [
+      labelSchedules([aswin, bhadra, shrawan], now).map((schedule) => [
         schedule._id.toString(),
         schedule.standing,
       ]),
     );
 
   it("calls a closed card current when it is the one billing this month", () => {
-    // Closed on 1 October, but on 3 September it is what residents are paying.
-    expect(standings(NOW)[september._id.toString()]).toBe("current");
+    // Closed at the start of Aswin, but on Bhadra 18 it is what residents pay.
+    expect(standings(NOW)[bhadra._id.toString()]).toBe("current");
   });
 
   it("does not call an open card current before its month arrives", () => {
-    expect(standings(NOW)[october._id.toString()]).toBe("upcoming");
+    expect(standings(NOW)[aswin._id.toString()]).toBe("upcoming");
   });
 
   it("calls a card that ended before this month past", () => {
-    expect(standings(NOW)[july._id.toString()]).toBe("past");
+    expect(standings(NOW)[shrawan._id.toString()]).toBe("past");
   });
 
   it("hands over on the first of the month the new card starts", () => {
-    const inOctober = standings(new Date("2026-10-05T04:00:00.000Z"));
+    // 5 October 2026 is Aswin 19 — inside Aswin, a fortnight before the
+    // Gregorian month the old arithmetic would have handed over on.
+    const inAswin = standings(new Date("2026-10-05T04:00:00.000Z"));
 
-    expect(inOctober[october._id.toString()]).toBe("current");
-    expect(inOctober[september._id.toString()]).toBe("past");
+    expect(inAswin[aswin._id.toString()]).toBe("current");
+    expect(inAswin[bhadra._id.toString()]).toBe("past");
   });
 
   it("names exactly one card current", () => {
     // Two overlapping cards is the ambiguity the open-row index exists to
     // prevent; the label must not reintroduce it.
-    const labelled = labelSchedules([october, september, july], NOW);
+    const labelled = labelSchedules([aswin, bhadra, shrawan], NOW);
 
     expect(labelled.filter((schedule) => schedule.standing === "current")).toHaveLength(1);
   });
@@ -378,7 +382,7 @@ describe("labelSchedules", () => {
   it("names none current when nothing covers this month", () => {
     // A real and reportable state: rates booked for the future, nobody billable
     // now. The old screen could not show it at all.
-    const labelled = labelSchedules([october], NOW);
+    const labelled = labelSchedules([aswin], NOW);
 
     expect(labelled[0]!.standing).toBe("upcoming");
   });

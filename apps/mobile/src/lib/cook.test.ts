@@ -6,7 +6,9 @@ import {
   mealButtonLabel,
   mealButtons,
   mealSubtitle,
+  nextUnannounced,
   reachedNobody,
+  searchCookResidents,
 } from "@/lib/cook";
 import type { RoutineMeal } from "@/lib/resident-api";
 
@@ -130,5 +132,69 @@ describe("reachedNobody", () => {
   it("catches an announcement that notified no one", () => {
     expect(reachedNobody(announcement({ notifiedCount: 0 }))).toBe(true);
     expect(reachedNobody(announcement({ notifiedCount: 1 }))).toBe(false);
+  });
+});
+
+describe("nextUnannounced", () => {
+  it("is the first meal in serving order with nothing sent against it", () => {
+    const buttons = mealButtons(
+      [meal({ mealType: "BREAKFAST" }), meal({ mealType: "LUNCH" })],
+      [announcement({ mealType: "BREAKFAST" })],
+    );
+
+    expect(nextUnannounced(buttons)?.mealType).toBe("LUNCH");
+  });
+
+  it("does not skip a meal the routine left blank", () => {
+    // A kitchen serving an unplanned snack still has to call it, so a blank
+    // routine cell must not remove the meal from the queue — the same rule
+    // `mealButtons` holds about always returning four.
+    const buttons = mealButtons([], []);
+
+    expect(nextUnannounced(buttons)?.mealType).toBe("BREAKFAST");
+  });
+
+  it("returns null once all four are out", () => {
+    const buttons = mealButtons(
+      [],
+      [
+        announcement({ mealType: "BREAKFAST" }),
+        announcement({ mealType: "LUNCH" }),
+        announcement({ mealType: "SNACKS" }),
+        announcement({ mealType: "DINNER" }),
+      ],
+    );
+
+    expect(nextUnannounced(buttons)).toBeNull();
+  });
+});
+
+describe("searchCookResidents", () => {
+  const roster = [
+    { fullName: "Sita Sharma", id: "r-1", roomType: "DOUBLE_SHARING" },
+    { fullName: "Hari Thapa", id: "r-2", roomType: "SINGLE" },
+  ];
+
+  it("returns everything for an empty or whitespace query", () => {
+    expect(searchCookResidents(roster, "")).toHaveLength(2);
+    expect(searchCookResidents(roster, "   ")).toHaveLength(2);
+  });
+
+  it("matches a name case-insensitively", () => {
+    expect(searchCookResidents(roster, "sita").map((row) => row.id)).toEqual(["r-1"]);
+  });
+
+  it("matches the room type as it is written on screen, not as the enum", () => {
+    // The row reads `Double sharing` after `humanizeEnum`, so a cook types that.
+    // Matching only `DOUBLE_SHARING` would be a filter nobody can use.
+    expect(searchCookResidents(roster, "double sharing").map((row) => row.id)).toEqual([
+      "r-1",
+    ]);
+  });
+
+  it("returns a copy, so a caller sorting the result cannot reorder the roster", () => {
+    const result = searchCookResidents(roster, "");
+
+    expect(result).not.toBe(roster);
   });
 });

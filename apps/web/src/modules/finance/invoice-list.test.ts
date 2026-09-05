@@ -15,6 +15,21 @@
 import { Types } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { fromBs } from "@hostel/shared/calendar/bs";
+
+/**
+ * Bhadra 2083 — the Bikram Sambat month every case here is about.
+ *
+ * A period key is a BS month now, so `2026-08` in a fixture is not a month this
+ * product can bill; where a fixture needs a *day* of that month it says which,
+ * because 17 August is Bhadra 1 and 3 September is Bhadra 18 and the difference
+ * is what turns a full month into a part one.
+ */
+const BHADRA = "2083-05";
+const SHRAWAN = "2083-04";
+const bhadra = (day: number) => fromBs({ day, month: 5, year: 2083 });
+
+
 const mocks = vi.hoisted(() => ({
   findCurrentResident: vi.fn(),
   hostelFindById: vi.fn(),
@@ -91,7 +106,7 @@ const ledgerInvoice = {
   method: "BANK_TRANSFER",
   paidAmount: 5000,
   paidDate: new Date("2026-08-10T00:00:00.000Z"),
-  period: "2026-08",
+  period: BHADRA,
   residentId: residentId.toString(),
   status: "PARTIAL",
 };
@@ -121,7 +136,7 @@ describe("toPortalInvoice — the screens' field names", () => {
   it("renames period to month", () => {
     // The facade says `period`; every screen has said `month` since it was
     // built, and each of the older consumers renames it in its own serializer.
-    expect(toPortalInvoice(ledgerInvoice).month).toBe("2026-08");
+    expect(toPortalInvoice(ledgerInvoice).month).toBe(BHADRA);
   });
 
   it("keeps the amounts under the names the screens read", () => {
@@ -144,7 +159,7 @@ describe("the resident's view", () => {
   it("returns invoices and claims under the keys the page reads", async () => {
     const view = await getResidentFinanceView({} as never);
 
-    expect(view.invoices[0]!.month).toBe("2026-08");
+    expect(view.invoices[0]!.month).toBe(BHADRA);
     expect(Array.isArray(view.claims)).toBe(true);
   });
 
@@ -338,7 +353,9 @@ describe("the admin matrix", () => {
           _id: residentId,
           firstName: "Asha",
           lastName: "Rai",
-          moveInDate: new Date("2026-08-17T00:00:00.000Z"),
+          // Bhadra 17 — mid-month, which is the point of the fixture. The old
+          // literal 17 August is Bhadra *1*, a full month in this calendar.
+          moveInDate: bhadra(17),
           phone: "9800000000",
           roomNumber: "201",
         },
@@ -348,30 +365,30 @@ describe("the admin matrix", () => {
 
   it("names the row fields the way the screen renders them", async () => {
     mocks.invoiceFind.mockReturnValue(
-      lean([{ _id: invoiceId, period: "2026-08", residentId, status: "PARTIAL" }]),
+      lean([{ _id: invoiceId, period: BHADRA, residentId, status: "PARTIAL" }]),
     );
 
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
     // `payment` and `resident`, not `invoice` and `residentId`.
     expect(matrix.rows[0]).toMatchObject({
       displayStatus: "PARTIAL",
-      payment: { dueAmount: 12000, month: "2026-08" },
+      payment: { dueAmount: 12000, month: BHADRA },
       resident: { fullName: "Asha Rai", phone: "9800000000" },
     });
-    expect(matrix.month).toBe("2026-08");
+    expect(matrix.month).toBe(BHADRA);
   });
 
   it("gives moveInDate as an ISO string, which the pro-rated flag compares", async () => {
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
-    // The screen does `moveInDate.startsWith(month)`, so a Date here would throw.
-    expect(matrix.rows[0]!.resident.moveInDate).toBe("2026-08-17T00:00:00.000Z");
+    // The screen compares this as a string, so a Date here would throw.
+    expect(matrix.rows[0]!.resident.moveInDate).toBe(bhadra(17).toISOString());
   });
 
   it("shows a resident with no invoice as NOT_BILLED rather than inventing one", async () => {
     // The predecessor of this function billed them instead (item 2.5).
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(matrix.rows[0]).toMatchObject({ displayStatus: "NOT_BILLED", payment: null });
     expect(matrix.totals.notBilled).toBe(1);
@@ -400,13 +417,13 @@ describe("the admin matrix", () => {
           bedType: "DOUBLE_SHARING",
           firstName: "Asha",
           lastName: "Rai",
-          moveInDate: new Date("2026-08-17T00:00:00.000Z"),
+          moveInDate: bhadra(17),
           phone: "9800000000",
         },
       ]),
     );
 
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(matrix.rows[0]!.notBilled).toEqual({ amount: 5806, reason: "NOT_YET_RUN" });
     expect(matrix.rows[0]!.payment).toBeNull();
@@ -416,7 +433,7 @@ describe("the admin matrix", () => {
     // No rate card and no listed rent for the room type. The amount is null
     // rather than zero — nobody knows what this costs, and a zero would read as
     // "they owe nothing", which is a different and false claim.
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(matrix.rows[0]!.notBilled).toEqual({
       amount: null,
@@ -434,13 +451,13 @@ describe("the admin matrix", () => {
           _id: residentId,
           firstName: "Asha",
           lastName: "Rai",
-          moveInDate: new Date("2026-08-01T00:00:00.000Z"),
+          moveInDate: bhadra(1),
           roomType: "Shared",
         },
       ]),
     );
 
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(matrix.rows[0]!.notBilled).toEqual({ amount: 6200, reason: "NOT_YET_RUN" });
   });
@@ -448,10 +465,10 @@ describe("the admin matrix", () => {
   it("carries no projection on a row that already has an invoice", async () => {
     // `notBilled` answers "why is there no invoice". There is one.
     mocks.invoiceFind.mockReturnValue(
-      lean([{ _id: invoiceId, period: "2026-08", residentId, status: "PARTIAL" }]),
+      lean([{ _id: invoiceId, period: BHADRA, residentId, status: "PARTIAL" }]),
     );
 
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(matrix.rows[0]!.notBilled).toBeNull();
   });
@@ -467,12 +484,15 @@ describe("the admin matrix", () => {
      * instant, and an explicit allowance for a resident whose start date is
      * simply unknown.
      */
-    await getInvoiceMatrix(hostelId, "2026-07");
+    await getInvoiceMatrix(hostelId, SHRAWAN);
 
     expect(mocks.residentFind).toHaveBeenCalledWith(
       expect.objectContaining({
         $or: [
-          { moveInDate: { $lte: new Date("2026-07-31T23:59:59.999Z") } },
+          // Shrawan 2083 closes on 16 August 2026, not on the 31st of a
+          // Gregorian July — which is the fortnight a resident could be listed
+          // as owing for a month they had not moved into.
+          { moveInDate: { $lte: new Date("2026-08-16T23:59:59.999Z") } },
           { moveInDate: null },
           { moveInDate: { $exists: false } },
         ],
@@ -489,7 +509,7 @@ describe("the admin matrix", () => {
      *
      * The filter is Mongo's, so what is asserted is the query.
      */
-    await getInvoiceMatrix(hostelId, "2026-08");
+    await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(mocks.residentFind).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ACTIVE" }),
@@ -498,10 +518,10 @@ describe("the admin matrix", () => {
 
   it("totals under `due` and `collected`, which the metric cards read", async () => {
     mocks.invoiceFind.mockReturnValue(
-      lean([{ _id: invoiceId, period: "2026-08", residentId, status: "PARTIAL" }]),
+      lean([{ _id: invoiceId, period: BHADRA, residentId, status: "PARTIAL" }]),
     );
 
-    const matrix = await getInvoiceMatrix(hostelId, "2026-08");
+    const matrix = await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(matrix.totals).toMatchObject({ collected: 5000, due: 12000 });
   });
@@ -524,7 +544,7 @@ describe("the matrix and soft-deleted residents", () => {
       lean([
         {
           _id: invoiceId,
-          period: "2026-08",
+          period: BHADRA,
           residentId: goneId,
           status: "OPEN",
           totalAmount: 16839,
@@ -533,7 +553,7 @@ describe("the matrix and soft-deleted residents", () => {
     );
     mocks.listRecentInvoices.mockResolvedValue([]);
 
-    await getInvoiceMatrix(hostelId, "2026-08");
+    await getInvoiceMatrix(hostelId, BHADRA);
 
     expect(mocks.residentFind).toHaveBeenLastCalledWith(
       expect.objectContaining({ isDeleted: { $ne: true } }),

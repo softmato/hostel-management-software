@@ -41,7 +41,7 @@ function input(overrides: Record<string, unknown> = {}) {
     firstMonth: {
       amount: 2322,
       invoiceId: "inv-1",
-      period: "2026-08",
+      period: "2083-05",
       prorated: true,
       referenceCode: "HH-0007",
     },
@@ -52,7 +52,7 @@ function input(overrides: Record<string, unknown> = {}) {
       email: "asha@example.test",
       firstName: "Asha",
       lastName: "Rai",
-      moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+      moveInDate: new Date("2026-09-04T00:00:00.000Z"),
       roomNumber: "201",
       roomType: "FOUR_SHARING",
     },

@@ -16,6 +16,7 @@ import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { WalletMark } from "@/components/ui/wallet-mark";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -97,21 +98,16 @@ const PROVIDER_LABEL: Record<string, string> = {
   KHALTI: "Khalti",
 };
 
-/**
- * The lettermark each provider is known by — eSewa's `e`, Khalti's `K`.
+/*
+ * `PROVIDER_MARK` stood here — a lettermark table, `e` for eSewa and `K` for
+ * Khalti, set in the hostel's own green.
  *
- * A brand's actual logo would be better and there is nowhere in this repo to
- * take one from: `assets/images` has none, and no other screen renders one
- * either — `invoice/[id]/pay` names its wallets in words. A letter in the
- * hostel's own green is the honest middle: it identifies the row at a glance
- * the way a logo would, without copying a wordmark's colour, which is the one
- * thing `CLAUDE.md` says never to take from a reference.
+ * Its comment said a brand's actual logo would be better and that "there is
+ * nowhere in this repo to take one from". There is now: the owner supplied the
+ * three marks on 2026-09-05 and they live in `assets/images/wallets/`, behind
+ * `<WalletMark>`. A `BANK` import still gets a glyph, because a bank statement
+ * is not a brand.
  */
-const PROVIDER_MARK: Record<string, string> = {
-  BANK: "B",
-  ESEWA: "e",
-  KHALTI: "K",
-};
 
 function providerLabel(provider: string) {
   return PROVIDER_LABEL[provider] ?? humanizeEnum(provider);
@@ -544,19 +540,7 @@ export default function ManageStatementsScreen() {
               return (
                 <Card className="gap-3" key={entry.statementImportId}>
                   <View className="flex-row items-start gap-3">
-                    <View className="h-10 w-10 items-center justify-center rounded-full bg-brand-soft">
-                      {PROVIDER_MARK[entry.provider] ? (
-                        <Text className="text-lg font-semibold text-primary">
-                          {PROVIDER_MARK[entry.provider]}
-                        </Text>
-                      ) : (
-                        <Ionicons
-                          color={colors.primary}
-                          name="document-outline"
-                          size={20}
-                        />
-                      )}
-                    </View>
+                    <WalletMark name={entry.provider} size={40} />
 
                     <View className="flex-1">
                       <Text variant="label">

@@ -13,10 +13,10 @@ import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { readApiError } from "@/lib/api-contract";
-import { formatDateTime } from "@/lib/format";
 import { cancelStoreOrder, getStoreOrder, type StoreOrder } from "@/lib/store-api";
 import { orderTone, rupees } from "@/lib/store-format";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -40,6 +40,8 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * call, and the screen says so instead of offering a tap that would 409.
  */
 export default function StoreOrderScreen() {
+  const dates = useDates();
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useAppTheme();
   const [cancelling, setCancelling] = useState(false);
@@ -133,7 +135,7 @@ export default function StoreOrderScreen() {
             <View className="flex-1">
               <Text variant="subtitle">{order.orderNumber}</Text>
               <Text variant="caption">
-                {order.createdAt ? formatDateTime(order.createdAt) : ""}
+                {order.createdAt ? dates.dateTime(order.createdAt) : ""}
               </Text>
             </View>
             <Badge label={order.statusLabel} tone={orderTone(order.status)} />
@@ -256,6 +258,8 @@ function TimelineRow({
   entry: StoreOrder["timeline"][number];
   latest: boolean;
 }) {
+  const dates = useDates();
+
   const { colors } = useAppTheme();
 
   return (
@@ -273,7 +277,7 @@ function TimelineRow({
           {entry.statusLabel}
         </Text>
         <Text variant="caption">
-          {entry.at ? formatDateTime(entry.at) : ""}
+          {entry.at ? dates.dateTime(entry.at) : ""}
           {entry.note ? ` · ${entry.note}` : ""}
         </Text>
       </View>

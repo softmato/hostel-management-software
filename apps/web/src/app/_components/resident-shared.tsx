@@ -28,9 +28,23 @@ export type ResidentDashboard = {
     openCount: number;
   };
   feeStatus: {
+    /** Summed over **every** unsettled invoice, not the last six. */
     dueAmount: number;
+    /**
+     * The most recent invoice, whatever its state — for "Bhadra 2083 · PAID".
+     *
+     * **Not the invoice a resident has to act on.** It is `payments[0]` out of a
+     * `dueDate: -1` sort with no unpaid filter, so it is the invoice due
+     * furthest in the future and may well be settled. Use `nextDue` for a date.
+     */
     latestPayment?: Payment | null;
+    /**
+     * The **earliest unsettled** invoice — the one whose due date belongs beside
+     * an outstanding total. `null` when nothing is owed.
+     */
+    nextDue?: Payment | null;
     pendingProofs: number;
+    /** Every unsettled invoice, not the unsettled ones among the last six. */
     unpaidCount: number;
   };
   foodMenu: FoodMenu[];

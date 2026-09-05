@@ -13,8 +13,8 @@ import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { formatDate } from "@/lib/format";
 import { listStoreOrders, type StoreOrder } from "@/lib/store-api";
 import { orderTone, rupees } from "@/lib/store-format";
 
@@ -36,6 +36,8 @@ import { orderTone, rupees } from "@/lib/store-format";
  * other five answers are one tap away on the order itself.
  */
 export default function StoreOrdersScreen() {
+  const dates = useDates();
+
   const [filter, setFilter] = useState<"open" | "all">("open");
 
   const orders = useResource(
@@ -88,7 +90,7 @@ export default function StoreOrdersScreen() {
 
         {groups.map((group) => (
           <View key={group.key}>
-            <SectionHeader title={group.label} />
+            <SectionHeader title={group.day ? dates.date(group.day) : "Earlier"} />
 
             <Card padding="px-4 py-1">
               {group.orders.map((order) => (
@@ -148,8 +150,13 @@ function summarise(order: StoreOrder) {
  *
  * Keyed on the ISO date rather than on the rendered label, so two orders on the
  * same day cannot land in different groups because one of them formatted at
- * 23:59 and the other at 00:01 in a different timezone. `formatDate` is the
- * app's Nepal-time formatter and is used only for the heading a person reads.
+ * 23:59 and the other at 00:01 in a different timezone.
+ *
+ * It hands back the group's `day` instant rather than a formatted heading. The
+ * heading is written in whichever calendar the reader chose, and that lives in a
+ * hook — so formatting here would mean either passing the whole `useDates()`
+ * bundle into a pure grouping function or freezing the heading into Gregorian.
+ * The screen formats it at render instead.
  */
 function groupByDay(orders: readonly StoreOrder[]) {
   const buckets = new Map<string, StoreOrder[]>();
@@ -163,8 +170,8 @@ function groupByDay(orders: readonly StoreOrder[]) {
   return [...buckets.entries()]
     .sort((left, right) => right[0].localeCompare(left[0]))
     .map(([key, group]) => ({
+      day: group[0]?.createdAt ?? null,
       key,
-      label: group[0]?.createdAt ? formatDate(group[0].createdAt) : "Earlier",
       orders: group,
     }));
 }

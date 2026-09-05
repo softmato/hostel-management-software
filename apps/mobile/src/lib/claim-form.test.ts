@@ -5,6 +5,7 @@ import { hasErrors, parseClaimAmount, validateClaim } from "@/lib/claim-form";
 function draft(overrides: Partial<Parameters<typeof validateClaim>[0]> = {}) {
   return {
     amount: "8500",
+    method: "ESEWA",
     proofAssetId: "asset-1",
     transactionCode: "",
     ...overrides,
@@ -52,6 +53,10 @@ describe("validateClaim", () => {
   it("distinguishes a missing amount from an unparseable one", () => {
     expect(validateClaim(draft({ amount: "" })).amount).toBe("Enter the amount you paid.");
     expect(validateClaim(draft({ amount: "1200.5" })).amount).toContain("whole rupee");
+  });
+
+  it("requires a method — a defaulted one is a wrong fact in the evidence", () => {
+    expect(validateClaim(draft({ method: null })).method).toBeTruthy();
   });
 
   it("caps the transaction code at the server's limit", () => {

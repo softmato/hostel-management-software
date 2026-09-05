@@ -97,3 +97,51 @@ export function reachedNobody(announcement: FoodReadyAnnouncement): boolean {
 export function announcedCount(buttons: MealButton[]): number {
   return buttons.filter((button) => button.sent).length;
 }
+
+/**
+ * The next meal the kitchen has not called yet, in serving order.
+ *
+ * What the shift card leads with, and it is a *plan* rather than a clock: the
+ * first of breakfast, lunch, snacks, dinner with no announcement against it
+ * today. Deriving it from the time instead would be worse in both directions —
+ * a kitchen running an hour late would be told to announce the meal it has
+ * already served, and one that served snacks early would be pointed at dinner
+ * with the snack button still unpressed.
+ *
+ * `null` once all four are out, which the card reads as "the shift is done"
+ * rather than drawing a fifth meal that does not exist.
+ */
+export function nextUnannounced(buttons: MealButton[]): MealButton | null {
+  return buttons.find((button) => button.sent === null) ?? null;
+}
+
+/**
+ * The roster, filtered by what the cook typed.
+ *
+ * Name and room type, because those are the only two fields the cook payload
+ * carries — `CookResident` is deliberately three fields with nothing
+ * contactable in it.
+ *
+ * Case- and space-insensitive on both sides. A cook types `sita` for
+ * `Sita Sharma` and `double` for `DOUBLE_SHARING`, and a filter that made them
+ * match the server's enum spelling would be a filter nobody uses. An empty or
+ * whitespace-only query returns the list untouched rather than nothing.
+ */
+export function searchCookResidents<T extends { fullName: string; roomType: string }>(
+  residents: readonly T[],
+  query: string,
+): T[] {
+  const needle = query.trim().toLowerCase();
+
+  if (!needle) {
+    return [...residents];
+  }
+
+  return residents.filter((resident) =>
+    // `_` → ` ` so `double sharing` matches `DOUBLE_SHARING`, which is what the
+    // row on screen actually reads after `humanizeEnum`.
+    `${resident.fullName} ${resident.roomType.replace(/_/g, " ")}`
+      .toLowerCase()
+      .includes(needle),
+  );
+}

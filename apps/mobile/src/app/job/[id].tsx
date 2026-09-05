@@ -12,9 +12,10 @@ import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
-import { formatDate, formatRelativeDay, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import {
   listProviderJobs,
   type ProviderJob,
@@ -46,6 +47,7 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * verbatim — the server's messages say what to do next.
  */
 export default function ProviderJobScreen() {
+  const dates = useDates();
   const params = useLocalSearchParams<{ id: string }>();
   const jobId = params.id ?? "";
 
@@ -216,12 +218,12 @@ export default function ProviderJobScreen() {
           <Card>
             <ListRow
               title="Scheduled"
-              value={job.scheduledFor ? formatDate(job.scheduledFor) : "Not scheduled"}
+              value={job.scheduledFor ? dates.date(job.scheduledFor) : "Not scheduled"}
             />
             <RowDivider />
             <ListRow
               title="Assigned"
-              value={job.createdAt ? formatRelativeDay(job.createdAt) : "—"}
+              value={job.createdAt ? dates.relativeDay(job.createdAt) : "—"}
             />
           </Card>
           {!actions.canComplete ? (

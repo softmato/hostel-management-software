@@ -3,6 +3,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 
+import { CalendarPreferenceCard } from "@/components/calendar-preference";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
@@ -14,6 +15,7 @@ import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
   type DeletionStatus,
@@ -28,7 +30,6 @@ import {
 } from "@/lib/account-pathways";
 import { readApiError } from "@/lib/api-contract";
 import { endSession } from "@/lib/auth-session";
-import { formatDate } from "@/lib/format";
 import {
   describePreference,
   formatMinutes,
@@ -56,10 +57,13 @@ import { setThemePreference, type ThemePreference } from "@/store/slices/uiSlice
  * `AccountDeletionPanel` inside it, including its four pathways and their copy
  * verbatim — see `lib/account-pathways.ts` for why that copy is not paraphrased.
  *
- * ## Theme is local; notifications are not
+ * ## Theme and calendar are local; notifications are not
  *
- * **Theme** is local by design: it lives in `uiSlice` and nothing is sent
- * anywhere, because it describes this phone rather than this person.
+ * **Theme** and **dates** are local by design: both live in `uiSlice` and
+ * nothing is sent anywhere, because they describe this phone rather than this
+ * person. The calendar picker is shared with the hostel portal's own settings
+ * screen — see `components/calendar-preference.tsx` for why it is reachable
+ * from both.
  * **Notification preferences** are the opposite — they decide what the *server*
  * sends, so they live on the server (`NotificationPreference`, read by
  * `push.service.ts` before every send). This section was a paragraph explaining
@@ -167,6 +171,16 @@ export default function SettingsScreen() {
           </Card>
         </View>
         ) : null}
+
+        {/*
+          Dates sit under Appearance rather than in their own section: the
+          calendar is a display preference in exactly the way the theme is —
+          stored on this phone, sent nowhere, changing only what is drawn — and
+          burying it under a heading of its own would put the app's one Nepali-vs-
+          English control below the fold on a screen most people open looking for
+          notifications.
+        */}
+        {showAll ? <CalendarPreferenceCard /> : null}
 
         {showNotifications ? <NotificationSettings /> : null}
 
@@ -556,6 +570,8 @@ function DeletionPanel({
   onChanged: () => void;
   status: DeletionStatus;
 }) {
+  const dates = useDates();
+
   const { colors } = useAppTheme();
   const copy = PATHWAY_COPY[status.pathway];
 
@@ -659,7 +675,7 @@ function DeletionPanel({
               <Text variant="muted">
                 Your account is closed and will be erased on{" "}
                 {open.scheduledDeletionAt
-                  ? formatDate(open.scheduledDeletionAt)
+                  ? dates.date(open.scheduledDeletionAt)
                   : "the scheduled date"}
                 . Use the link in your email to undo it.
               </Text>

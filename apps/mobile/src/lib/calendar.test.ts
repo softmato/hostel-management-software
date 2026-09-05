@@ -4,6 +4,7 @@ import {
   calendarExample,
   formatAgoIn,
   formatDateIn,
+  formatDateLongIn,
   formatDateTimeIn,
   formatPeriodIn,
   formatRelativeDayIn,
@@ -23,7 +24,7 @@ const NOON_NPT = "2026-08-18T06:00:00.000Z";
 describe("formatDateIn", () => {
   it("writes the same instant in either calendar", () => {
     expect(formatDateIn("AD", NOON_NPT)).toBe("18 Aug 2026");
-    expect(formatDateIn("BS", NOON_NPT)).toBe("2 Bhadra 2083");
+    expect(formatDateIn("BS", NOON_NPT)).toBe("Bhadra 2, 2083 BS");
   });
 
   it("keeps the em dash for a missing date in both", () => {
@@ -32,12 +33,35 @@ describe("formatDateIn", () => {
   });
 });
 
+describe("formatDateLongIn", () => {
+  it("names the weekday after the date, in either calendar", () => {
+    // 18 Aug 2026 was a Tuesday. Bikram Sambat renumbers the days; it does not
+    // reorder them, so both calendars must agree on the weekday.
+    expect(formatDateLongIn("BS", NOON_NPT)).toBe("Bhadra 2, 2083 BS · Tuesday");
+    expect(formatDateLongIn("AD", NOON_NPT)).toBe("18 Aug 2026 · Tuesday");
+  });
+
+  it("reads the weekday off the Nepal day, not the device's", () => {
+    // 18:30 UTC on a Tuesday is already Wednesday in Kathmandu (UTC+05:45), and
+    // the date half says so — the weekday must move with it rather than being
+    // taken from the phone's own idea of the day.
+    expect(formatDateLongIn("BS", "2026-08-18T18:30:00.000Z")).toBe(
+      "Bhadra 3, 2083 BS · Wednesday",
+    );
+  });
+
+  it("stays one em dash for a date it cannot parse", () => {
+    expect(formatDateLongIn("BS", null)).toBe("—");
+    expect(formatDateLongIn("AD", "not-a-date")).toBe("—");
+  });
+});
+
 describe("formatDateTimeIn", () => {
   it("changes the calendar and leaves the clock alone", () => {
     // Bikram Sambat is a calendar, not a way of telling the time — the same
     // 12-hour clock is read in both, so only the half before the comma moves.
     expect(formatDateTimeIn("AD", NOON_NPT)).toBe("18 Aug 2026, 11:45 am");
-    expect(formatDateTimeIn("BS", NOON_NPT)).toBe("2 Bhadra 2083, 11:45 am");
+    expect(formatDateTimeIn("BS", NOON_NPT)).toBe("Bhadra 2, 2083 BS, 11:45 am");
   });
 
   it("does not staple a time onto a missing date", () => {
@@ -46,9 +70,12 @@ describe("formatDateTimeIn", () => {
 });
 
 describe("formatPeriodIn", () => {
-  it("names a Gregorian month by the Nepali one it mostly falls in", () => {
-    expect(formatPeriodIn("AD", "2026-08")).toBe("August 2026");
-    expect(formatPeriodIn("BS", "2026-08")).toBe("Shrawan 2083");
+  it("names the billing month in whichever calendar the portal is set to", () => {
+    // `2083-04` is Shrawan, the month the invoice is keyed by. The Gregorian
+    // side is the rounded one now — Shrawan 2083 is 17 July to 16 August 2026,
+    // and August covers more of it.
+    expect(formatPeriodIn("BS", "2083-04")).toBe("Shrawan 2083 BS");
+    expect(formatPeriodIn("AD", "2083-04")).toBe("August 2026");
   });
 
   it("falls back to the Gregorian name rather than printing nothing", () => {
@@ -73,7 +100,7 @@ describe("formatRelativeDayIn", () => {
     const old = "2026-08-01T06:00:00.000Z";
 
     expect(formatRelativeDayIn("AD", old, now)).toBe("1 Aug 2026");
-    expect(formatRelativeDayIn("BS", old, now)).toBe("16 Shrawan 2083");
+    expect(formatRelativeDayIn("BS", old, now)).toBe("Shrawan 16, 2083 BS");
   });
 });
 
@@ -91,7 +118,7 @@ describe("formatAgoIn", () => {
     const lastMonth = "2026-07-20T06:00:00.000Z";
 
     expect(formatAgoIn("AD", lastMonth, now)).toBe("20 Jul 2026");
-    expect(formatAgoIn("BS", lastMonth, now)).toBe("4 Shrawan 2083");
+    expect(formatAgoIn("BS", lastMonth, now)).toBe("Shrawan 4, 2083 BS");
   });
 
   it("does not mistake a six-day-old row for a date", () => {
@@ -110,11 +137,11 @@ describe("calendarExample", () => {
     // and the Dates section went on offering "18 Aug 2026" all the way into
     // Bhadra.
     expect(calendarExample("AD", new Date(NOON_NPT))).toBe("18 Aug 2026");
-    expect(calendarExample("BS", new Date(NOON_NPT))).toBe("2 Bhadra 2083");
+    expect(calendarExample("BS", new Date(NOON_NPT))).toBe("Bhadra 2, 2083 BS");
 
     const later = new Date("2026-09-02T06:00:00.000Z");
 
     expect(calendarExample("AD", later)).toBe("2 Sep 2026");
-    expect(calendarExample("BS", later)).toBe("17 Bhadra 2083");
+    expect(calendarExample("BS", later)).toBe("Bhadra 17, 2083 BS");
   });
 });

@@ -3,7 +3,13 @@ import { Types } from "mongoose";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
-import { hostelMonthStart } from "@/lib/hostel-day";
+import {
+  bsPeriodBounds,
+  bsPeriodOf,
+  formatBsDayRange,
+  formatBsPeriod,
+  hostelMonthStart,
+} from "@/lib/hostel-day";
 import { normalizeBedType } from "@/modules/finance/bed-type";
 import { projectScheduleOntoListing } from "@/modules/finance/listing-projection.service";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
@@ -110,22 +116,29 @@ export function listedRoomRates(
   return rates;
 }
 
-/** UTC bounds so a billing run gives the same answer wherever it executes. */
+/**
+ * The Gregorian instants a **Bikram Sambat** period spans.
+ *
+ * One line of delegation, and the whole point of it: the month a hostel bills is
+ * a BS month, its length is 29 to 32 days depending on the year, and there is
+ * exactly one table that knows which. This used to compute Gregorian bounds with
+ * `Date.UTC(year, month, 0)` and hand a 30-day September to a run that called
+ * the result Bhadra.
+ *
+ * `FinanceServiceError` rather than the shared module's `RangeError`, because
+ * every caller here already handles the finance error and reports it per hostel.
+ * A Gregorian period key reaching this — a row the migration missed — is the
+ * case worth failing loudly on rather than silently dating to 1969.
+ */
 export function periodBounds(period: string) {
-  const [year, month] = period.split("-").map(Number);
-
-  if (!year || !month || month < 1 || month > 12) {
+  try {
+    return bsPeriodBounds(period);
+  } catch (error) {
     throw new FinanceServiceError(
-      `Period must be YYYY-MM, received ${period}.`,
+      error instanceof Error ? error.message : `Period must be YYYY-MM, received ${period}.`,
       "FEE_SCHEDULE_MISSING",
     );
   }
-
-  return {
-    daysInMonth: new Date(Date.UTC(year, month, 0)).getUTCDate(),
-    end: new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)),
-    start: new Date(Date.UTC(year, month - 1, 1)),
-  };
 }
 
 /**
@@ -318,15 +331,29 @@ export type InvoiceAmount = {
 };
 
 /**
- * The one proration rule (target §3.5).
+ * The one proration rule (target §3.5), run across a Bikram Sambat month.
  *
- * Days are counted inclusively in UTC. Note this prorates **move-out** as well,
- * which the current system does not do at all — a resident leaving on the 8th is
- * currently charged the whole month.
+ * Days are counted inclusively in UTC over the span `periodBounds` gives, which
+ * is now the BS month's real extent — 17 Aug to 16 Sep 2026 for Bhadra 2083, 31
+ * days — rather than a Gregorian month wearing its name. Note this prorates
+ * **move-out** as well, which the system it replaced did not do at all: a
+ * resident leaving on the 8th was charged the whole month.
  *
- * `prorationBasis` is the human explanation carried onto the invoice line, so a
- * resident asking "why is this less than usual?" is answered by the invoice
- * rather than by the hostel owner.
+ * ## `prorationBasis` names the days, not just how many
+ *
+ * It is the explanation carried onto the invoice line, so a resident asking "why
+ * is this less than usual?" is answered by the invoice rather than by the hostel
+ * owner. `"13/31 days"` did not answer it: a fraction says how much was charged
+ * and nothing about *which* days, so a resident checking a mid-month move-in
+ * against their own memory had nothing to check it against. `"Bhadra 19-31 · 13
+ * of 31 days"` is the same arithmetic with the span in front of it.
+ *
+ * Snapshotted onto the line at issue time like every other figure here, so it
+ * stays true after the rate card it came from is closed.
+ *
+ * The span is dropped rather than guessed if the BS conversion cannot name the
+ * days — the fraction alone is still correct, and a confidently wrong Nepali
+ * date on a bill is the one outcome worth avoiding.
  */
 export function computeInvoiceAmount(
   monthlyCharge: number,
@@ -336,7 +363,7 @@ export function computeInvoiceAmount(
 ): InvoiceAmount {
   assertWholeRupees(monthlyCharge, "monthly charge");
 
-  const { daysInMonth, end, start } = periodBounds(period);
+  const { daysInMonth, end, lastDay, start } = periodBounds(period);
 
   if (moveInDate && moveInDate > end) {
     return { amount: 0, billableDays: 0, prorationBasis: "not yet resident" };
@@ -347,7 +374,14 @@ export function computeInvoiceAmount(
   }
 
   const billableStart = moveInDate && moveInDate > start ? moveInDate : start;
-  const billableEnd = moveOutDate && moveOutDate < end ? moveOutDate : end;
+
+  /*
+   * Clamped to `lastDay`, not `end`. `end` is 23:59:59.999 UTC, which Kathmandu
+   * has already carried into the following morning — so naming the range from it
+   * would print a Bhadra invoice as covering days up to "Aswin 1". The day count
+   * is unaffected either way; only the words are.
+   */
+  const billableEnd = moveOutDate && moveOutDate < end ? moveOutDate : lastDay;
 
   if (billableEnd < billableStart) {
     return { amount: 0, billableDays: 0, prorationBasis: "no billable days" };
@@ -360,10 +394,13 @@ export function computeInvoiceAmount(
     return { amount, billableDays, prorationBasis: null };
   }
 
+  const span = formatBsDayRange(billableStart, billableEnd);
+  const fraction = `${billableDays} of ${daysInMonth} days`;
+
   return {
     amount,
     billableDays,
-    prorationBasis: `${billableDays}/${daysInMonth} days`,
+    prorationBasis: span ? `${span} · ${fraction}` : fraction,
   };
 }
 
@@ -483,7 +520,7 @@ export async function createFeeSchedule(
       await FeeScheduleModel.deleteOne({ _id: current._id });
     } else if (effectiveFrom < current.effectiveFrom) {
       throw new FinanceServiceError(
-        `The rate card already changes on ${current.effectiveFrom.toISOString().slice(0, 10)}. Replace that one, or pick a later month.`,
+        `The rate card already changes in ${formatBsPeriod(bsPeriodOf(current.effectiveFrom)) || current.effectiveFrom.toISOString().slice(0, 10)}. Replace that one, or pick a later month.`,
         "FEE_SCHEDULE_MISSING",
       );
     } else {
@@ -565,10 +602,16 @@ export type ScheduleStanding = "current" | "past" | "upcoming";
 export function labelSchedules<
   T extends Pick<FeeScheduleRecord, "effectiveFrom" | "effectiveTo">,
 >(schedules: T[], now: Date = new Date()): (T & { standing: ScheduleStanding })[] {
+  /*
+   * The running month's own bounds, taken from the BS calendar rather than
+   * stepped forward with `Date.UTC(..., month + 1, 0)`. That Gregorian step read
+   * the first day of a BS month and then added a *Gregorian* month to it, so the
+   * window it produced covered neither month: mid-Bhadra to mid-Aswin, which put
+   * an Aswin card and a Bhadra card inside the same "current" span and let
+   * whichever started later win.
+   */
   const monthStart = hostelMonthStart(now);
-  const monthEnd = new Date(
-    Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0, 23, 59, 59, 999),
-  );
+  const monthEnd = bsPeriodBounds(bsPeriodOf(now)).end;
 
   const covers = (schedule: T) =>
     schedule.effectiveFrom <= monthEnd &&

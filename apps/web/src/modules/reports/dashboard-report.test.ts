@@ -12,6 +12,8 @@
  * lived.
  */
 import { Types } from "mongoose";
+
+import { bsPeriodOf } from "@hostel/shared/calendar/bs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
@@ -146,10 +148,16 @@ const principal = {
   userId: new Types.ObjectId().toString(),
 } as ApiPrincipal;
 
+/**
+ * "This month" the way the product means it — the Bikram Sambat one.
+ *
+ * Re-derived from the shared calendar rather than assembled from `getMonth()`.
+ * A local copy of the arithmetic would have been Gregorian, which is exactly the
+ * disagreement between "the month the card totals" and "the month the invoices
+ * are keyed by" that this test exists to catch.
+ */
 function currentPeriod() {
-  const now = new Date();
-
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return bsPeriodOf(new Date());
 }
 
 beforeEach(() => {

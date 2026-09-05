@@ -8,14 +8,23 @@ import {
   formatDateBoth,
   formatDateBs,
   formatDateTime,
+  formatDayMonth,
+  formatDayMonthBs,
   formatDueLabel,
   formatMoney,
   formatPeriod,
   formatPeriodBoth,
   formatPeriodBs,
+  formatPeriodMonth,
+  formatPeriodMonthBs,
+  formatPeriodYear,
+  formatPeriodYearBs,
   formatRelativeDay,
   formatTime,
+  formatYear,
+  formatYearBs,
   greetingFor,
+  heroAmountSize,
   humanizeEnum,
 } from "@/lib/format";
 
@@ -30,18 +39,18 @@ describe("money", () => {
   it("groups thousands and drops empty paisa", () => {
     expect(formatAmount(8500)).toBe("8,500");
     expect(formatAmount(1234567)).toBe("1,234,567");
-    expect(formatMoney(8500)).toBe("NPR 8,500");
+    expect(formatMoney(8500)).toBe("Rs 8,500");
   });
 
   it("keeps paisa when the amount actually has some", () => {
     // A balance that does not add up is what a resident calls about.
     expect(formatAmount(1200.5)).toBe("1,200.50");
-    expect(formatMoney(0.05)).toBe("NPR 0.05");
+    expect(formatMoney(0.05)).toBe("Rs 0.05");
   });
 
   it("renders zero and negatives rather than hiding them", () => {
     expect(formatAmount(0)).toBe("0");
-    expect(formatMoney(-450)).toBe("NPR -450");
+    expect(formatMoney(-450)).toBe("Rs -450");
   });
 
   it("shows a dash for missing or non-finite values, not NaN", () => {
@@ -123,23 +132,23 @@ describe("formatDateBs / formatDateBoth", () => {
     // The five dates the library was adopted on. BS month lengths vary per year
     // and are tabulated data, so these are the checks that say the table is the
     // real one rather than something that merely looks plausible.
-    expect(formatDateBs("2013-04-14T06:00:00.000Z")).toBe("1 Baisakh 2070");
-    expect(formatDateBs("2023-04-14T06:00:00.000Z")).toBe("1 Baisakh 2080");
-    expect(formatDateBs("2024-04-13T06:00:00.000Z")).toBe("1 Baisakh 2081");
-    expect(formatDateBs("2025-04-14T06:00:00.000Z")).toBe("1 Baisakh 2082");
-    expect(formatDateBs("2026-04-14T06:00:00.000Z")).toBe("1 Baisakh 2083");
+    expect(formatDateBs("2013-04-14T06:00:00.000Z")).toBe("Baisakh 1, 2070 BS");
+    expect(formatDateBs("2023-04-14T06:00:00.000Z")).toBe("Baisakh 1, 2080 BS");
+    expect(formatDateBs("2024-04-13T06:00:00.000Z")).toBe("Baisakh 1, 2081 BS");
+    expect(formatDateBs("2025-04-14T06:00:00.000Z")).toBe("Baisakh 1, 2082 BS");
+    expect(formatDateBs("2026-04-14T06:00:00.000Z")).toBe("Baisakh 1, 2083 BS");
   });
 
   it("shows both calendars, BS first", () => {
     // BS leads because it is the calendar the hostel quotes; AD follows because
     // it is the one the bank statement and the phone agree on.
-    expect(formatDateBoth("2026-08-18T06:00:00.000Z")).toBe("2 Bhadra 2083 · 18 Aug 2026");
+    expect(formatDateBoth("2026-08-18T06:00:00.000Z")).toBe("Bhadra 2, 2083 BS · 18 Aug 2026");
   });
 
   it("converts on the Nepal day, not the device's", () => {
     // 18:30 UTC is already the next day in Kathmandu (+05:45). A phone left on
     // another timezone must still read the date the hostel means.
-    expect(formatDateBs("2026-08-18T18:30:00.000Z")).toBe("3 Bhadra 2083");
+    expect(formatDateBs("2026-08-18T18:30:00.000Z")).toBe("Bhadra 3, 2083 BS");
   });
 
   it("returns an em dash for nothing, like every other formatter here", () => {
@@ -178,13 +187,13 @@ describe("formatDateBs / formatDateBoth", () => {
         process.env.TZ = timezone;
 
         expect(formatDateBoth("2026-08-18T06:00:00.000Z")).toBe(
-          "2 Bhadra 2083 · 18 Aug 2026",
+          "Bhadra 2, 2083 BS · 18 Aug 2026",
         );
         // And across the Nepal midnight, where the AD side moves too.
         expect(formatDateBoth("2026-08-18T18:30:00.000Z")).toBe(
-          "3 Bhadra 2083 · 19 Aug 2026",
+          "Bhadra 3, 2083 BS · 19 Aug 2026",
         );
-        expect(formatPeriodBs("2026-09")).toBe("Bhadra 2083");
+        expect(formatPeriodBs("2083-05")).toBe("Bhadra 2083 BS");
       }
     } finally {
       process.env.TZ = original;
@@ -192,29 +201,115 @@ describe("formatDateBs / formatDateBoth", () => {
   });
 });
 
+/**
+ * A period key is a **Bikram Sambat** month now, and this is where that shows.
+ *
+ * These cases used to feed `2026-08` in and check which BS month covered most
+ * of it. The rounding runs the other way today: `2083-05` is Bhadra, the month
+ * the hostel actually bills, and Gregorian is the approximation — Bhadra 2083 is
+ * 17 August to 16 September 2026, so no single English month names it.
+ */
 describe("formatPeriodBs", () => {
-  it("names the one BS month the period mostly falls in", () => {
-    // August 2026 is 16 days of Shrawan and 15 of Bhadra, so it is Shrawan's.
-    expect(formatPeriodBs("2026-08")).toBe("Shrawan 2083");
-    // September 2026 is 16 days of Bhadra and 14 of Aswin.
-    expect(formatPeriodBs("2026-09")).toBe("Bhadra 2083");
-  });
-
-  it("crosses the Nepali new year with the year of the winning month", () => {
-    // Baisakh 1 2083 is 14 April 2026, so April is 13 days of Chaitra 2082 and
-    // 17 of Baisakh 2083 — the new year takes it.
-    expect(formatPeriodBs("2026-04")).toBe("Baisakh 2083");
+  it("names the BS month straight off the key, with no conversion at all", () => {
+    expect(formatPeriodBs("2083-05")).toBe("Bhadra 2083 BS");
+    expect(formatPeriodBs("2083-04")).toBe("Shrawan 2083 BS");
+    expect(formatPeriodBs("2083-01")).toBe("Baisakh 2083 BS");
   });
 
   it("is empty for a period it cannot convert, never a guess", () => {
     expect(formatPeriodBs("not-a-period")).toBe("");
     expect(formatPeriodBs(null)).toBe("");
-    expect(formatPeriodBs("2026-13")).toBe("");
+    expect(formatPeriodBs("2083-13")).toBe("");
   });
 
-  it("drops the BS half rather than printing nothing when it is unavailable", () => {
-    expect(formatPeriodBoth("2026-08")).toBe("August 2026 · Shrawan 2083");
+  /*
+   * A row written before the calendar changed. Reading `2026-08` as Bikram
+   * Sambat would date it to 1969, so the BS half is dropped and the Gregorian
+   * month it always was is what shows.
+   */
+  it("leaves a legacy Gregorian key as the Gregorian month it always was", () => {
+    expect(formatPeriodBs("2026-08")).toBe("");
+    expect(formatPeriod("2026-08")).toBe("August 2026");
+  });
+
+  it("names the Gregorian month a BS period mostly falls in", () => {
+    // Bhadra 2083 is 15 days of August and 16 of September, so September wins.
+    expect(formatPeriod("2083-05")).toBe("September 2026");
+    // Shrawan 2083 is 17 Jul to 16 Aug — 15 days of July, 16 of August.
+    expect(formatPeriod("2083-04")).toBe("August 2026");
+  });
+
+  it("prints both calendars, with the BS half leading the arithmetic", () => {
+    expect(formatPeriodBoth("2083-05")).toBe("September 2026 · Bhadra 2083 BS");
     expect(formatPeriodBoth("not-a-period")).toBe("not-a-period");
+  });
+});
+
+/**
+ * The year-less forms, for a row inside a section that already names the year.
+ *
+ * The invoice list is what they exist for. Under a `2083 BS` heading, a row
+ * reading `Bhadra 2083 BS` over `Aswin 15, 2083 BS` prints the year three times,
+ * and the repetition is what made a billing month over a due date read as a
+ * glitch rather than as two different true facts.
+ */
+describe("the year-less date forms", () => {
+  it("names a period's month alone, in either calendar", () => {
+    expect(formatPeriodMonthBs("2083-05")).toBe("Bhadra");
+    expect(formatPeriodMonth("2083-05")).toBe("September");
+  });
+
+  it("names a day without its year, in either calendar", () => {
+    // Bhadra 3 2083 — the same instant `formatDateBs` is checked against above.
+    expect(formatDayMonth("2026-08-18T18:30:00.000Z")).toBe("19 Aug");
+    expect(formatDayMonthBs("2026-08-18T18:30:00.000Z")).toBe("Bhadra 3");
+  });
+
+  it("falls back rather than guessing, exactly as the full forms do", () => {
+    expect(formatPeriodMonth("not-a-period")).toBe("not-a-period");
+    expect(formatPeriodMonthBs("not-a-period")).toBe("");
+    // And a legacy Gregorian key keeps its own month rather than shifting 57
+    // years, which is what reading it as Bikram Sambat would do.
+    expect(formatPeriodMonth("2026-09")).toBe("September");
+    expect(formatPeriodMonthBs("2026-09")).toBe("");
+    expect(formatDayMonth(null)).toBe("—");
+    expect(formatDayMonthBs(null)).toBe("—");
+  });
+});
+
+/**
+ * The group heading a list of months sits under.
+ *
+ * The two calendars do not share year boundaries, which is the whole reason
+ * these exist: the Payments screen grouped on `dueDate.slice(0, 4)` and drew a
+ * `2026` heading over a card whose every row said `2083 BS`. Relabelling that
+ * grouping would have been just as wrong — `2026` genuinely holds two BS years.
+ */
+describe("year headings", () => {
+  it("answers the two calendars' different years for one instant", () => {
+    expect(formatYear("2026-09-05T06:00:00.000Z")).toBe("2026");
+    expect(formatYearBs("2026-09-05T06:00:00.000Z")).toBe("2083 BS");
+  });
+
+  it("splits one BS year across the two Gregorian years it spans", () => {
+    /*
+     * The heading question, in the direction it now runs. Baisakh 1 2083 falls
+     * on 14 April 2026 and Chaitra 2083 ends in April 2027, so a single BS year
+     * genuinely holds two Gregorian ones — which is why a list for a BS reader
+     * has to be *grouped* on this and not merely relabelled.
+     */
+    expect(formatPeriodYearBs("2083-01")).toBe("2083 BS");
+    expect(formatPeriodYear("2083-01")).toBe("2026");
+
+    expect(formatPeriodYearBs("2083-12")).toBe("2083 BS");
+    expect(formatPeriodYear("2083-12")).toBe("2027");
+  });
+
+  it("is empty rather than a guess when it cannot answer", () => {
+    expect(formatPeriodYear("not-a-period")).toBe("");
+    expect(formatPeriodYearBs("not-a-period")).toBe("");
+    expect(formatYear(null)).toBe("");
+    expect(formatYearBs(null)).toBe("");
   });
 });
 
@@ -236,5 +331,30 @@ describe("formatAgo", () => {
 
   it("never reports the future for a clock a few minutes fast", () => {
     expect(formatAgo("2026-08-25T12:02:00.000Z", now)).toBe("just now");
+  });
+});
+
+describe("heroAmountSize", () => {
+  it("leaves an ordinary hostel's total at full size", () => {
+    expect(heroAmountSize("Rs 1,284,000")).toBe(34);
+  });
+
+  it("steps down rather than letting a long total ellipse", () => {
+    // `Rs 12,84,…` is not a smaller version of the number, it is a different
+    // number — the one truncation a total must never take.
+    //
+    // The same figures step down at the same sizes they did when the prefix was
+    // `NPR`: the thresholds moved with it, deliberately. See the note there.
+    expect(heroAmountSize("Rs 128,400,000")).toBe(29);
+    expect(heroAmountSize("Rs 1,284,000,000")).toBe(29);
+    expect(heroAmountSize("Rs 12,840,000,000")).toBe(24);
+  });
+
+  it("has a floor for something absurd", () => {
+    expect(heroAmountSize("Rs 1,284,000,000,000")).toBe(20);
+  });
+
+  it("does not shrink a dash", () => {
+    expect(heroAmountSize("—")).toBe(34);
   });
 });

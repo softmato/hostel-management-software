@@ -3,20 +3,30 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
+import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { FactRow } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
+import { useResource } from "@/hooks/use-resource";
 import { endSession } from "@/lib/auth-session";
+import type { FoodReadyAnnouncement } from "@/lib/cook-api";
+import { cookQuery } from "@/lib/cook-queries";
 import { collectDeviceInfo } from "@/lib/device-info";
+import { humanizeEnum } from "@/lib/format";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
 /**
- * The kitchen's account settings, and the one thing a shared login has to be
- * honest about.
+ * The kitchen's account, the handset it is signed in on, and what it has called.
  *
  * ## This device, named
  *
@@ -31,14 +41,50 @@ import { setThemePreference } from "@/store/slices/uiSlice";
  * There is no cook-side device registration endpoint to call — the fingerprint
  * is written by the first announcement — so this reads the same
  * `collectDeviceInfo()` the announce call sends rather than fetching anything.
+ *
+ * ## The announcement history came here from the Photos tab
+ *
+ * It sat under the photo feed, on a tab named "Photos", and it is the list that
+ * grows: a hostel serving four meals a day adds a hundred and twenty rows a
+ * month underneath the control a cook opens that tab to press.
+ *
+ * It belongs here because it is the **same subject as the block above it**. The
+ * device section says which handset is stamped on an announcement; this says
+ * which announcements were stamped. Together they are the whole of what a shared
+ * kitchen login can be held to, which is the one thing this screen exists to be
+ * honest about.
+ *
+ * "Did I already announce lunch?" is not this list's question — that is answered
+ * on Today, on the meal's own card, which carries `Sent 12:04`.
+ *
+ * ## No privacy or account-deletion row, deliberately
+ *
+ * Every other portal's More has one into `settings?section=privacy`, whose
+ * pathways include closing the account. This login is **the hostel's**, shared
+ * by whoever is on shift, and the person holding the phone at 6am is not the
+ * person entitled to delete it — the hostel office switches the cook portal off
+ * from `manage/settings`, which is where that decision has an owner.
  */
 export default function CookMoreScreen() {
+  const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
   const [device, setDevice] = useState<Record<string, unknown> | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+
+  /*
+   * Under the portal's own key, warmed on entry — see `lib/cook-queries.ts`.
+   * It is the one read on this screen and it is allowed to fail on its own: a
+   * kitchen whose log errors must still be able to read its device details and
+   * sign out.
+   */
+  const query = cookQuery.announcements();
+  const logs = useResource<FoodReadyAnnouncement[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -75,16 +121,35 @@ export default function CookMoreScreen() {
   const nextTheme = preference === "dark" ? "light" : "dark";
   const deviceName = [device?.brand, device?.model].filter(Boolean).join(" ");
   const fingerprint = typeof device?.fingerprint === "string" ? device.fingerprint : "";
+  const announcements = logs.data ?? [];
 
   return (
-    <Screen header={<AppBar title="More" />} insideTabs scroll>
+    <Screen
+      header={<AppBar actions={<NotificationBell />} large title="More" />}
+      insideTabs
+      onRefresh={logs.refresh}
+      refreshing={logs.refreshing}
+      scroll
+    >
       <View className="gap-5 pt-1">
-        <Card className="gap-1">
-          <Text variant="subtitle">{account?.name ?? "Kitchen"}</Text>
-          <Text variant="caption">
-            This login is shared by the whole kitchen. Announcements are traced to the
-            device that sent them, not to a person.
-          </Text>
+        {/*
+          An `<Avatar>`, as every other More screen in the app opens with — and
+          this one is the only place in the product where the initial is
+          deliberately *not* a person. It is the kitchen, and the caption under
+          it says so in the same breath.
+        */}
+        <Card className="flex-row items-center gap-3">
+          <Avatar name={account?.name ?? "Kitchen"} size="lg" />
+
+          <View className="flex-1 gap-0.5">
+            <Text numberOfLines={1} variant="subtitle">
+              {account?.name ?? "Kitchen"}
+            </Text>
+            <Text variant="caption">
+              Shared by the whole kitchen. Announcements are traced to the device that
+              sent them, not to a person.
+            </Text>
+          </View>
         </Card>
 
         <View>
@@ -92,24 +157,74 @@ export default function CookMoreScreen() {
             subtitle="Stamped on every announcement sent from here"
             title="This device"
           />
-          <Card>
-            <ListRow title="Handset" value={deviceName || "Unknown"} />
-            <RowDivider />
-            <ListRow
-              title="Fingerprint"
+          {/*
+            `<FactRow>` rather than three `<ListRow>`s with a `value`. These are
+            read-only facts, not rows you can press — and a fingerprint is
+            exactly the string `NOTES.md` §8's label/value pair exists to let
+            wrap, instead of being squeezed into the ~150dp a 320dp phone leaves
+            a right-hand column.
+          */}
+          <Card className="gap-2">
+            <FactRow label="Handset" value={deviceName || "Unknown"} />
+            <FactRow
+              label="Fingerprint"
               value={fingerprint ? `${fingerprint.slice(0, 8)}…` : "Not available"}
             />
-            <RowDivider />
-            <ListRow
-              title="App version"
-              value={String(device?.appVersion ?? "—")}
-            />
+            <FactRow label="App version" value={String(device?.appVersion ?? "—")} />
           </Card>
         </View>
 
         <View>
+          <SectionHeader
+            subtitle="Everything this kitchen has called, newest first"
+            title="Announcement history"
+          />
+
+          {logs.error ? (
+            <Card>
+              <ErrorState message={logs.error} onRetry={logs.reload} />
+            </Card>
+          ) : logs.loading ? (
+            <SkeletonRows rows={5} />
+          ) : announcements.length === 0 ? (
+            <Card>
+              <Text variant="muted">
+                Announce a meal from the Today tab and it appears here.
+              </Text>
+            </Card>
+          ) : (
+            <Card padding="px-4 py-1">
+              {announcements.map((log, index) => (
+                <View key={log.id}>
+                  {index > 0 ? <RowDivider /> : null}
+                  <ListRow
+                    right={
+                      /*
+                        `notifiedCount`, and amber when it is zero. The fan-out
+                        returns 201 once the log row is written whether or not a
+                        single resident had an account — so a green pill on a
+                        zero would tell a kitchen the hostel had been called to
+                        dinner when nobody was told.
+                      */
+                      <Badge
+                        label={`${log.notifiedCount} notified`}
+                        tone={log.notifiedCount > 0 ? "success" : "warning"}
+                      />
+                    }
+                    subtitle={log.message || undefined}
+                    title={`${humanizeEnum(log.mealType)} · ${dates.dateTime(
+                      log.announcedAt,
+                    )}`}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
+        </View>
+
+        <View>
           <SectionHeader title="App" />
-          <Card>
+          <Card padding="px-4 py-1">
             <ListRow
               icon={preference === "dark" ? "moon-outline" : "sunny-outline"}
               onPress={() => dispatch(setThemePreference(nextTheme))}
@@ -127,7 +242,7 @@ export default function CookMoreScreen() {
           </Card>
         </View>
 
-        <Card>
+        <Card padding="px-4 py-1">
           <ListRow
             icon="log-out-outline"
             onPress={signOut}

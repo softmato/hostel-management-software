@@ -12,9 +12,9 @@ import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
-import { formatDateTime } from "@/lib/format";
 import {
   NIGHT_STATUS_OPTIONS,
   nightNote,
@@ -104,6 +104,8 @@ function NightStatusForm({
   refreshing: boolean;
   status: NightStatus;
 }) {
+  const dates = useDates();
+
   const { colors } = useAppTheme();
   const standing = nightStanding(status);
   const [choice, setChoice] = useState<SelfReportableStatus | null>(
@@ -166,7 +168,7 @@ function NightStatusForm({
 
           {status.checkedAt ? (
             <Text variant="caption">
-              Last set {formatDateTime(status.checkedAt)}
+              Last set {dates.dateTime(status.checkedAt)}
               {standing.answered ? "" : " — that was an earlier night"}
             </Text>
           ) : null}

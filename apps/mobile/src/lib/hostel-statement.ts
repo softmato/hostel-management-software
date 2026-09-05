@@ -22,6 +22,15 @@
  * still owes", this answers "what was received". Neither is a filter over the
  * other.
  *
+ * ## The resident reads the same rows from the other side
+ *
+ * `lib/resident-statement.ts` builds **debits** — the same settled invoices, read
+ * by the person who paid them — and every function here that filters, searches,
+ * groups, ranges or totals is shared with it through {@link StatementRow}. Only
+ * the row-building and the words are per-side. The alternative was a second copy
+ * of the filter logic, which would have drifted from this one the first time a
+ * date range was fixed in only one of them.
+ *
  * ## One invoice is one credit, not one payment
  *
  * The ledger route serves invoices, so a resident who paid a month in two
@@ -79,9 +88,27 @@ import { endOfDayIso, startOfDayIso, toDayInput } from "@/lib/manage-dates";
  */
 export const UNKNOWN_METHOD = "OTHER";
 
-/** One credit on the statement. */
-export type StatementCredit = {
-  /** What arrived. Always `> 0` — that is what makes it a credit. */
+/**
+ * One settled row on a statement, whichever way the money went.
+ *
+ * The half of a statement row that has nothing to do with *whose* statement it
+ * is: an amount against what was billed, when it moved, how, what for, and the
+ * cumulative position. Everything the filtering, grouping, searching and
+ * totalling below needs, and nothing else.
+ *
+ * It exists because the resident portal shows the same statement from the other
+ * side — see `lib/resident-statement.ts`. Their rows are **debits**: the same
+ * invoices, read by the person who paid them. Two screens over one set of pure
+ * functions, rather than a second copy of the filter sheet's logic that would
+ * drift from this one the first time a range was fixed in only one place.
+ *
+ * The direction is not a field. It is a property of the *statement*, not of the
+ * row — a hostel does not spend through this product and a resident does not
+ * collect, so neither list is ever mixed, and a per-row sign would be a constant
+ * every reader had to check anyway.
+ */
+export type StatementRow = {
+  /** What moved. Always `> 0` — that is what makes it a settled row. */
   amount: number;
   /** What the invoice asked for. Larger than `amount` on a part payment. */
   billed: number;
@@ -93,16 +120,13 @@ export type StatementCredit = {
   period: string | null;
   /** ISO, or `null` when the server recorded neither a paid nor a raised date. */
   receivedAt: string | null;
-  remarks: string;
-  residentId: string;
-  residentName: string;
   /**
-   * Everything this hostel had taken up to and including this row.
+   * Everything on this side of the ledger up to and including this row.
    *
    * The `BALANCE` line the reference frames put under every transaction, which
-   * on a wallet is the balance *after* it. A hostel has no wallet, so the
-   * honest analogue is the cumulative total — the figure an owner would get by
-   * adding the column up from the bottom.
+   * on a wallet is the balance *after* it. Neither party has a wallet here, so
+   * the honest analogue is the cumulative total — the figure a reader would get
+   * by adding the column up from the bottom.
    *
    * `null` when the ledger came back truncated: the rows before the cap are
    * missing, so every total computed from these ones is short by an unknown
@@ -110,7 +134,27 @@ export type StatementCredit = {
    * screen says which it is rather than printing a number nobody can reconcile.
    */
   runningTotal: number | null;
+  /**
+   * The words this row can be found by that are not already on it.
+   *
+   * A resident's name and a remark on the hostel's side, a reference code on the
+   * resident's. The alternative was a per-field test in {@link filterCredits},
+   * which is exactly what the search box must not be — see {@link haystack} —
+   * and a second alternative was for the shared filter to know about fields only
+   * one of its two callers has.
+   *
+   * Blank members are allowed and cost nothing; the whole thing is joined and
+   * lowercased once.
+   */
+  searchTerms: string[];
   status: string;
+};
+
+/** One credit on the hostel's statement — a settled row, read by the payee. */
+export type StatementCredit = StatementRow & {
+  remarks: string;
+  residentId: string;
+  residentName: string;
 };
 
 /**
@@ -130,19 +174,26 @@ export function statementCredits(ledger: AdminLedger | null | undefined): Statem
     .map(toCredit)
     .sort(byNewestFirst);
 
-  if (ledger?.truncated) {
-    return credits;
-  }
+  return ledger?.truncated ? credits : withRunningTotals(credits);
+}
 
+/**
+ * Fills in {@link StatementRow.runningTotal} on a list already sorted newest
+ * first, in place, and hands the same array back.
+ *
+ * Called only when the whole history is present. A caller holding a truncated
+ * ledger must skip it and leave every total `null` — see the field's own note.
+ */
+export function withRunningTotals<T extends StatementRow>(rows: T[]): T[] {
   let total = 0;
 
   // Oldest first, so each row's total includes itself and everything under it.
-  for (let index = credits.length - 1; index >= 0; index -= 1) {
-    total += credits[index].amount;
-    credits[index].runningTotal = total;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    total += rows[index].amount;
+    rows[index].runningTotal = total;
   }
 
-  return credits;
+  return rows;
 }
 
 function toCredit(entry: AdminLedgerEntry): StatementCredit {
@@ -165,16 +216,17 @@ function toCredit(entry: AdminLedgerEntry): StatementCredit {
     residentId: entry.residentId,
     residentName: entry.residentName.trim(),
     runningTotal: null,
+    searchTerms: [entry.residentName.trim(), entry.remarks?.trim() ?? ""],
     status: entry.status,
   };
 }
 
-function timeOf(credit: StatementCredit): number {
-  if (!credit.receivedAt) {
+function timeOf(row: StatementRow): number {
+  if (!row.receivedAt) {
     return Number.NEGATIVE_INFINITY;
   }
 
-  const millis = new Date(credit.receivedAt).getTime();
+  const millis = new Date(row.receivedAt).getTime();
 
   return Number.isNaN(millis) ? Number.NEGATIVE_INFINITY : millis;
 }
@@ -187,7 +239,7 @@ function timeOf(credit: StatementCredit): number {
  * row somebody was reaching for moves under their thumb. Same reasoning as the
  * name tiebreak in `outstandingRows`.
  */
-function byNewestFirst(left: StatementCredit, right: StatementCredit): number {
+export function byNewestFirst(left: StatementRow, right: StatementRow): number {
   return timeOf(right) - timeOf(left) || left.id.localeCompare(right.id);
 }
 
@@ -302,30 +354,29 @@ export function activeFilterCount(filter: StatementFilter): number {
  * owner typing "kartik esewa" is describing one row, not composing a query, and
  * a per-field match would find nothing for them.
  */
-function haystack(credit: StatementCredit): string {
+function haystack(row: StatementRow): string {
   return [
-    credit.residentName,
-    humanizeEnum(credit.method),
-    credit.remarks,
+    ...row.searchTerms,
+    humanizeEnum(row.method),
     // **Both** month spellings, always, whatever the calendar preference says.
     // The row is *displayed* in one calendar; it is *searched* in either, so an
     // owner who reads Nepali dates and types "bhadra" finds the same row as one
     // who types "september". Indexing only the displayed spelling would make the
     // search box quietly change what it can find when the setting is flipped.
-    credit.period ? formatPeriod(credit.period) : "one-off",
-    credit.period ? formatPeriodBs(credit.period) : "",
-    humanizeEnum(credit.status),
-    formatAmount(credit.amount),
+    row.period ? formatPeriod(row.period) : "one-off",
+    row.period ? formatPeriodBs(row.period) : "",
+    humanizeEnum(row.status),
+    formatAmount(row.amount),
   ]
     .join(" ")
     .toLowerCase();
 }
 
-/** The credits a filter admits, in the order they came in. */
-export function filterCredits(
-  credits: readonly StatementCredit[],
+/** The rows a filter admits, in the order they came in. */
+export function filterCredits<T extends StatementRow>(
+  credits: readonly T[],
   filter: StatementFilter,
-): StatementCredit[] {
+): T[] {
   const query = filter.query.trim().toLowerCase();
   const floor = amountFloor(filter.minAmount);
   const from = filter.from ? startOfDayIso(filter.from) : null;
@@ -381,14 +432,14 @@ export function filterCredits(
  * Alphabetical on the humanised word, so the list does not reorder itself when
  * a new method first appears.
  */
-export function methodOptions(credits: readonly StatementCredit[]): string[] {
+export function methodOptions(credits: readonly StatementRow[]): string[] {
   return [...new Set(credits.map((credit) => credit.method))].sort((left, right) =>
     humanizeEnum(left).localeCompare(humanizeEnum(right)),
   );
 }
 
 /** The status chips, on the same argument as {@link methodOptions}. */
-export function statusOptions(credits: readonly StatementCredit[]): string[] {
+export function statusOptions(credits: readonly StatementRow[]): string[] {
   return [...new Set(credits.map((credit) => credit.status))].sort((left, right) =>
     humanizeEnum(left).localeCompare(humanizeEnum(right)),
   );
@@ -398,12 +449,13 @@ export function statusOptions(credits: readonly StatementCredit[]): string[] {
 /* Grouping                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/** One day's credits, with the heading that sits **outside** the card. */
-export type StatementDay = {
-  credits: StatementCredit[];
+/** One day's rows, with the heading that sits **outside** the card. */
+export type StatementDay<T extends StatementRow = StatementCredit> = {
   key: string;
   label: string;
-  /** What the hostel took that day. */
+  /** The day's rows, in the order they were given. */
+  rows: T[];
+  /** What moved that day — taken on the hostel's side, paid on the resident's. */
   total: number;
 };
 
@@ -440,9 +492,9 @@ function dayLabel(iso: string): string {
  * collect into one trailing group instead of being dropped: they are money that
  * arrived, and a statement that silently omits a row does not add up.
  */
-export function groupByDay(credits: readonly StatementCredit[]): StatementDay[] {
-  const days: StatementDay[] = [];
-  const byKey = new Map<string, StatementDay>();
+export function groupByDay<T extends StatementRow>(credits: readonly T[]): StatementDay<T>[] {
+  const days: StatementDay<T>[] = [];
+  const byKey = new Map<string, StatementDay<T>>();
 
   for (const credit of credits) {
     const date = credit.receivedAt ? new Date(credit.receivedAt) : null;
@@ -453,16 +505,16 @@ export function groupByDay(credits: readonly StatementCredit[]): StatementDay[] 
 
     if (!day) {
       day = {
-        credits: [],
         key,
         label: dated ? dayLabel(credit.receivedAt as string) : "Date not recorded",
+        rows: [],
         total: 0,
       };
       byKey.set(key, day);
       days.push(day);
     }
 
-    day.credits.push(credit);
+    day.rows.push(credit);
     day.total += credit.amount;
   }
 
@@ -500,7 +552,7 @@ export type StatementSummary = {
  * the figure the owner is going to compare against their own cash box.
  */
 export function statementSummary(
-  credits: readonly StatementCredit[],
+  credits: readonly StatementRow[],
   calendar: CalendarSystem,
   now: Date = new Date(),
 ): StatementSummary {
@@ -518,7 +570,7 @@ export function statementSummary(
 }
 
 /** What a filtered list adds up to — the line under the search field. */
-export function visibleTotal(credits: readonly StatementCredit[]): number {
+export function visibleTotal(credits: readonly StatementRow[]): number {
   return credits.reduce((sum, credit) => sum + credit.amount, 0);
 }
 
@@ -545,8 +597,8 @@ export function creditTitle(
   return `${what} from ${credit.residentName || "a resident"}`;
 }
 
-/** Whether the invoice this credit sits on is still short. */
-export function isPartial(credit: StatementCredit): boolean {
+/** Whether the invoice this row sits on is still short. */
+export function isPartial(credit: StatementRow): boolean {
   return credit.amount < credit.billed;
 }
 
@@ -565,7 +617,16 @@ export function rangeLabel(
   const to = filter.to ? formatDateIn(calendar, endOfDayIso(filter.to)) : "";
 
   if (from && to) {
-    return from === to ? from : `${from} to ${to}`;
+    if (from === to) {
+      return from;
+    }
+
+    // `Bhadra 4, 2083 BS to Bhadra 10, 2083 BS` says which calendar it is twice
+    // in one line. The era marker earns its place on a date standing alone; on
+    // the left half of a range the right half has already answered it.
+    const lead = to.endsWith(" BS") && from.endsWith(" BS") ? from.slice(0, -3) : from;
+
+    return `${lead} to ${to}`;
   }
 
   if (from) {

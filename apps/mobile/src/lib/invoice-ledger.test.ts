@@ -3,11 +3,27 @@ import { describe, expect, it } from "vitest";
 import type { ResidentInvoice } from "@/lib/finance-api";
 import {
   filterInvoices,
+  groupInvoicesByYear,
   invoiceLedger,
+  invoiceRowCopy,
+  oneOffLabel,
   outstanding,
   paymentStats,
   totalOutstanding,
 } from "@/lib/invoice-ledger";
+
+function line(
+  overrides: Partial<ResidentInvoice["lines"][number]> = {},
+): ResidentInvoice["lines"][number] {
+  return {
+    amount: 0,
+    basis: "SCHEDULE",
+    bedType: null,
+    description: "",
+    prorationBasis: null,
+    ...overrides,
+  };
+}
 
 function invoice(overrides: Partial<ResidentInvoice> = {}): ResidentInvoice {
   return {
@@ -17,7 +33,7 @@ function invoice(overrides: Partial<ResidentInvoice> = {}): ResidentInvoice {
     // a paid invoice's lines still sum to the full charge, so adding them in
     // would double the opening balance.
     lines: [],
-    month: "2026-08",
+    month: "2083-05",
     paidAmount: 0,
     receipts: [],
     referenceCode: "HH-AUG-01",
@@ -225,5 +241,246 @@ describe("filterInvoices", () => {
 
   it("returns only closed months for settled", () => {
     expect(filterInvoices(ledger, "settled").map((row) => row.id)).toEqual(["settled"]);
+  });
+});
+
+describe("groupInvoicesByYear", () => {
+  it("keeps the server's order and does not re-sort the groups", () => {
+    const groups = groupInvoicesByYear([
+      invoice({ id: "a", month: "2026-01" }),
+      invoice({ id: "b", month: "2025-12" }),
+      invoice({ id: "c", month: "2026-02" }),
+    ]);
+
+    // Three rows, two years, and `2026` first because that is where the list
+    // started — not because 2026 sorts above 2025.
+    expect(groups.map((group) => group.year)).toEqual(["2026", "2025"]);
+    expect(groups[0].invoices.map((row) => row.id)).toEqual(["a", "c"]);
+  });
+
+  it("files a one-off invoice by its due date", () => {
+    // An admission fee has `period: null`, so a month-keyed grouping would drop
+    // the first invoice of every tenancy out of the list it belongs in.
+    const groups = groupInvoicesByYear([
+      invoice({ dueDate: "2026-03-01T00:00:00.000Z", id: "admission", month: null }),
+    ]);
+
+    expect(groups).toEqual([
+      { invoices: [expect.objectContaining({ id: "admission" })], year: "2026" },
+    ]);
+  });
+
+  it("puts an invoice with no date at all in its own trailing group", () => {
+    const groups = groupInvoicesByYear([
+      invoice({ id: "dated", month: "2026-01" }),
+      invoice({ dueDate: undefined, id: "undated", month: null }),
+    ]);
+
+    expect(groups.map((group) => group.year)).toEqual(["2026", null]);
+  });
+
+  it("does not merge an undated row into a real year", () => {
+    // The bucket key for `null` is deliberately not a year string; if it were
+    // `""` a future `slice` returning `""` would land two unrelated rows in one
+    // section.
+    const groups = groupInvoicesByYear([
+      invoice({ dueDate: undefined, id: "undated", month: null }),
+      invoice({ id: "dated", month: "2026-01" }),
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0].year).toBeNull();
+  });
+
+  /*
+   * The bug the `yearOf` parameter exists for. Grouping sliced `"2026"` off the
+   * period key while every row under the heading was formatted in Bikram Sambat,
+   * so the Payments screen drew `2026` over a card of `2083 BS` rows.
+   *
+   * Relabelling would not have been enough: one Gregorian year holds two BS
+   * ones, which is what the second case here pins down.
+   */
+  it("groups by whatever year the caller resolves, not the period key", () => {
+    const groups = groupInvoicesByYear(
+      [
+        invoice({ id: "bhadra", month: "2026-09" }),
+        invoice({ id: "aswin", month: "2026-10" }),
+      ],
+      () => "2083 BS",
+    );
+
+    expect(groups.map((group) => group.year)).toEqual(["2083 BS"]);
+    expect(groups[0].invoices.map((row) => row.id)).toEqual(["bhadra", "aswin"]);
+  });
+
+  it("splits one Gregorian year across the two Nepali years it spans", () => {
+    const groups = groupInvoicesByYear(
+      [
+        invoice({ id: "magh", month: "2026-02" }),
+        invoice({ id: "bhadra", month: "2026-09" }),
+      ],
+      (row) => (row.month === "2026-02" ? "2082 BS" : "2083 BS"),
+    );
+
+    expect(groups.map((group) => group.year)).toEqual(["2082 BS", "2083 BS"]);
+  });
+
+  it("files a row its resolver could not name with the undated ones", () => {
+    // `formatPeriodYearIn` answers `""` for a date outside the converter's
+    // table. An empty heading is not a heading, so the row goes where the other
+    // rows nobody can date go.
+    const groups = groupInvoicesByYear(
+      [invoice({ id: "offTable", month: "2200-01" })],
+      () => "",
+    );
+
+    expect(groups.map((group) => group.year)).toEqual([null]);
+  });
+});
+
+/*
+ * An admission fee carries `period: null`, and it is the first invoice every
+ * resident in this product ever sees. `formatPeriod(null)` is a dash, so every
+ * screen that titled a row by its month titled that one `—`.
+ */
+describe("oneOffLabel", () => {
+  it("names a monthless invoice from its own first line", () => {
+    expect(
+      oneOffLabel(
+        invoice({
+          lines: [
+            {
+              amount: 3000,
+              basis: "SCHEDULE",
+              bedType: null,
+              description: "Admission fee",
+              prorationBasis: null,
+            },
+          ],
+          month: null,
+        }),
+      ),
+    ).toBe("Admission fee");
+  });
+
+  it("falls back to a noun for migrated history, which has no lines", () => {
+    expect(oneOffLabel(invoice({ lines: [], month: null }))).toBe("One-off invoice");
+  });
+
+  it("returns null when there is a month, so the caller uses it", () => {
+    expect(oneOffLabel(invoice({ month: "2083-05" }))).toBeNull();
+  });
+
+  /*
+   * The deposit was never invoiced before this — it sat on the rate card, was
+   * quoted at the door, and appeared on nobody's ledger. It is a line on the
+   * joining invoice now, and a label reading only the first line would
+   * understate what one reference code settles by the size of it.
+   */
+  it("names every charge on a joining invoice, not just the first", () => {
+    expect(
+      oneOffLabel(
+        invoice({
+          lines: [
+            line({ amount: 2000, description: "Admission fee" }),
+            line({ amount: 10000, description: "Security deposit" }),
+          ],
+          month: null,
+        }),
+      ),
+    ).toBe("Admission fee + Security deposit");
+  });
+
+  it("leaves a credit out, because a discount is not a thing being paid for", () => {
+    expect(
+      oneOffLabel(
+        invoice({
+          lines: [
+            line({ amount: 2000, description: "Admission fee" }),
+            line({
+              amount: -500,
+              basis: "CREDIT",
+              description: "Referral discount — code ASHA5",
+            }),
+            line({ amount: 10000, description: "Security deposit" }),
+          ],
+          month: null,
+        }),
+      ),
+    ).toBe("Admission fee + Security deposit");
+  });
+});
+
+/**
+ * What a list row says.
+ *
+ * The row used to be the month as a title over the due date as a subtitle —
+ * `Bhadra` over `Due Aswin 15` — which is two month names, nothing saying which
+ * is which, and neither of them saying what the row is *for*.
+ */
+describe("invoiceRowCopy", () => {
+  const monthLabel = (period: string | null) =>
+    period === "2083-05" ? "Bhadra" : String(period);
+  const dateLabel = (date: string | null | undefined) =>
+    date ? "Bhadra 19, 2083 BS" : "—";
+
+  const copy = (value: ResidentInvoice) => invoiceRowCopy(value, monthLabel, dateLabel);
+
+  it("leads with the charge and explains it with the month", () => {
+    expect(copy(invoice())).toMatchObject({
+      proration: null,
+      subtitle: "Due Bhadra",
+      title: "Monthly rent",
+    });
+  });
+
+  /*
+   * A part month replaces the due line rather than joining it: the span already
+   * names the month, so `Due Bhadra · Bhadra 19–31 · 13 of 31 days` says Bhadra
+   * twice to fit less in. And the smaller figure on the right is the one thing
+   * on this screen somebody is most likely to query, so it is what gets the row.
+   */
+  it("says which days a mid-month move-in is charged for", () => {
+    const row = copy(
+      invoice({
+        lines: [
+          line({
+            amount: 7548,
+            description: "Monthly rent — Bhadra 2083 BS",
+            prorationBasis: "Bhadra 19–31 · 13 of 31 days",
+          }),
+        ],
+      }),
+    );
+
+    expect(row).toMatchObject({
+      proration: "Bhadra 19–31 · 13 of 31 days",
+      subtitle: "Bhadra 19–31 · 13 of 31 days",
+      title: "Monthly rent",
+    });
+  });
+
+  it("titles a joining invoice by both its charges", () => {
+    expect(
+      copy(
+        invoice({
+          dueDate: "2026-09-04T00:00:00.000Z",
+          lines: [
+            line({ amount: 2000, description: "Admission fee" }),
+            line({ amount: 10000, description: "Security deposit" }),
+          ],
+          month: null,
+        }),
+      ),
+    ).toMatchObject({
+      subtitle: "Due Bhadra 19, 2083 BS",
+      title: "Admission fee + Security deposit",
+    });
+  });
+
+  it("says a one-off with no due date is payable now, not that it has no date", () => {
+    expect(copy(invoice({ dueDate: undefined, lines: [], month: null })).subtitle).toBe(
+      "Payable now",
+    );
   });
 });

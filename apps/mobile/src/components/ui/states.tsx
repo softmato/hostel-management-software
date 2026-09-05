@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
 import { ActivityIndicator, View } from "react-native";
 
@@ -5,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { isOfflineError } from "@/lib/api-contract";
 
 /**
  * The states every list and detail view has to handle — DESIGN.md §5.
@@ -25,11 +27,61 @@ export function LoadingState({ label }: { label?: string }) {
   );
 }
 
+/**
+ * The tinted disc every state in this file leads with.
+ *
+ * ## Why an icon at all
+ *
+ * These states used to be two lines of centred text, and three of them —
+ * "nothing here", "that failed", "you are offline" — read as the same object
+ * at a glance. A reader scanning a screen that has just replaced its content
+ * needs to know *which kind of nothing* this is before reading a word, and the
+ * only channel fast enough for that is shape and colour.
+ *
+ * Kept to one disc, one glyph, one tone: the reference apps
+ * (`NOTES.md` §9) draw an illustration and a pill, and an illustration is a
+ * per-state asset nobody will maintain. A tinted circle is the same signal at
+ * the cost of a token.
+ *
+ * The tone classes are literals in a table rather than composed at the call
+ * site, for the reason `<Badge>` documents — a `bg-${tone}-soft` template never
+ * reaches the compiled NativeWind stylesheet.
+ */
+const STATE_TONES = {
+  danger: { background: "bg-destructive/10", ink: "destructive" },
+  muted: { background: "bg-muted", ink: "mutedForeground" },
+  success: { background: "bg-success-soft", ink: "success" },
+  warning: { background: "bg-warning-soft", ink: "warning" },
+} as const;
+
+export type StateTone = keyof typeof STATE_TONES;
+
+function StateIcon({
+  name,
+  tone,
+}: {
+  name: keyof typeof Ionicons.glyphMap;
+  tone: StateTone;
+}) {
+  const { colors } = useAppTheme();
+  const { background, ink } = STATE_TONES[tone];
+
+  return (
+    <View
+      className={`h-14 w-14 items-center justify-center rounded-full ${background}`}
+    >
+      <Ionicons color={colors[ink]} name={name} size={26} />
+    </View>
+  );
+}
+
 export function EmptyState({
   action,
   compact = false,
   description,
+  icon,
   title,
+  tone = "muted",
 }: {
   action?: ReactNode;
   /**
@@ -44,7 +96,14 @@ export function EmptyState({
    */
   compact?: boolean;
   description?: string;
+  /**
+   * The disc's glyph. Omitted deliberately by the compact callers that sit
+   * inside a card of rows, where a 56-point circle is taller than the section
+   * it is apologising for.
+   */
+  icon?: keyof typeof Ionicons.glyphMap;
   title: string;
+  tone?: StateTone;
 }) {
   return (
     <View
@@ -52,6 +111,11 @@ export function EmptyState({
         compact ? "py-6" : "flex-1 py-16"
       }`}
     >
+      {icon ? (
+        <View className="pb-1">
+          <StateIcon name={icon} tone={tone} />
+        </View>
+      ) : null}
       <Text className="text-center" variant="subtitle">
         {title}
       </Text>
@@ -66,16 +130,28 @@ export function EmptyState({
 }
 
 export function ErrorState({
+  icon = "close-circle-outline",
   message,
   onRetry,
+  title = "Something went wrong",
 }: {
+  icon?: keyof typeof Ionicons.glyphMap;
   message: string;
   onRetry?: () => void;
+  /**
+   * Overridable so a screen can name the thing that failed — "Couldn’t load
+   * methods" tells a resident which half of the screen is missing, where a
+   * generic heading makes them re-read the body to find out.
+   */
+  title?: string;
 }) {
   return (
-    <View className="flex-1 items-center justify-center gap-3 px-8 py-16">
+    <View className="flex-1 items-center justify-center gap-2 px-8 py-16">
+      <View className="pb-1">
+        <StateIcon name={icon} tone="danger" />
+      </View>
       <Text className="text-center" variant="subtitle">
-        That didn&apos;t load
+        {title}
       </Text>
       <Text className="text-center" variant="muted">
         {message}
@@ -85,6 +161,64 @@ export function ErrorState({
       ) : null}
     </View>
   );
+}
+
+/**
+ * No network — a different fact from a failed request, and it must not be
+ * dressed as one.
+ *
+ * "Something went wrong" next to a red cross tells a resident on a train that
+ * their hostel’s server is broken and invites them to phone about it. The
+ * cause is their signal, the fix is theirs, and the only honest control is a
+ * retry — so the tone is muted rather than destructive and the heading names
+ * the actual condition.
+ *
+ * Chosen by `isOfflineError()` reading the message `readApiError` produced,
+ * rather than by a connectivity listener: there is no NetInfo in this app, and
+ * a request that could not reach the server is a stronger signal than a radio
+ * that claims to be up. The two cases it catches are a timeout and a request
+ * that got no response at all.
+ */
+export function OfflineState({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <View className="flex-1 items-center justify-center gap-2 px-8 py-16">
+      <View className="pb-1">
+        <StateIcon name="cloud-offline-outline" tone="muted" />
+      </View>
+      <Text className="text-center" variant="subtitle">
+        You&apos;re offline
+      </Text>
+      <Text className="text-center" variant="muted">
+        Check your connection and try again.
+      </Text>
+      {onRetry ? (
+        <Button className="mt-2" label="Retry" onPress={onRetry} variant="outline" />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The failure branch every screen in this app writes, as one component.
+ *
+ * Five payments screens each had `error ? <ErrorState/> : …` and none of them
+ * could tell a dead server from a dead radio. Routing both through here means a
+ * screen names its failure once and gets the right one of the two.
+ */
+export function FailureState({
+  message,
+  onRetry,
+  title,
+}: {
+  message: string;
+  onRetry?: () => void;
+  title?: string;
+}) {
+  if (isOfflineError(message)) {
+    return <OfflineState onRetry={onRetry} />;
+  }
+
+  return <ErrorState message={message} onRetry={onRetry} title={title} />;
 }
 
 /**

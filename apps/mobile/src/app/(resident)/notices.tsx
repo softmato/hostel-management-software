@@ -8,14 +8,23 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Chip } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
+import { Segmented } from "@/components/ui/segmented";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { residentQuery } from "@/lib/resident-queries";
-import { formatRelativeDay, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
+import {
+  filterNotices,
+  groupNoticesByDay,
+  noticeCategories,
+  type NoticeStatus,
+} from "@/lib/notice-list";
 import {
   getResidentNotices,
   markNoticeRead,
@@ -25,6 +34,39 @@ import {
 
 /**
  * Notices from the hostel.
+ *
+ * ## Two controls, because there were two questions in one
+ *
+ * The filter used to be a single horizontal scroller carrying `All`, `Unread`,
+ * `Urgent` and then every category the hostel posts under. Two different kinds
+ * of question sharing one row, which meant they clobbered each other: tapping
+ * `Maintenance` cleared `Unread`, so *unread maintenance notices* — the query
+ * somebody opening this screen on a Monday actually has — could not be asked at
+ * all.
+ *
+ * So the status is a `<Segmented>` (three exclusive views of one list, with the
+ * counts on the labels, which is exactly what that component is for) and the
+ * category is a chip row **under** it that composes with the view instead of
+ * replacing it. The chips appear only when the hostel uses more than one
+ * category; a lone chip is a control that does nothing.
+ *
+ * The rules that survived the split, both in `lib/notice-list.ts`: the
+ * categories come from the rows in hand rather than from an enum, so a hostel
+ * that never posts a maintenance notice has no maintenance chip; and `urgent`
+ * does not imply unread, so an urgent notice already read still appears under
+ * `Urgent`, which is the one somebody is most likely to be looking for again.
+ *
+ * ## The list is grouped by day
+ *
+ * `NOTES.md` §5 — the heading on the page background, the day's cards under it.
+ * Every notice used to print its own `3 days ago` on its own bottom row, which
+ * is the flat-list shape that rule exists to replace: eleven timestamps down a
+ * column, none of them adjacent to each other, and no way to see that four of
+ * them are the same day. The date moved up to the heading and off the rows.
+ *
+ * The heading is drawn through `useDates()` rather than by the pure module, so
+ * it follows the resident's **calendar preference** — a heading in AD above
+ * rows a BS reader is counting from is worse than no heading.
  *
  * ## Read is marked on expand, not on scroll-past
  *
@@ -43,20 +85,19 @@ import {
  * ## Against `resident-notices-page.tsx` (§5.1)
  *
  * The web filters by **status** — All / Unread / Urgent, with counts — and this
- * screen filtered by **category**. Both are worth having and two chip rows is
- * one too many on a phone, so they share a single scroller: the three status
- * filters first, then whatever categories the hostel actually uses.
+ * screen filtered by **category**. Both are worth having and both are here now,
+ * on the two controls above rather than fighting over one.
  *
  * Also fixed here rather than ported: the screen fetched page 1 and dropped
  * `pagination.hasMore` on the floor, so a hostel that posts often had older
  * notices that no resident could reach on the phone at all.
  */
 
-const ALL = "ALL";
-const UNREAD = "UNREAD";
-const URGENT = "URGENT";
+const STATUS_ALL: NoticeStatus = "all";
 
 export default function ResidentNoticesScreen() {
+  const dates = useDates();
+
   // Published by `notice.service.ts` to the whole hostel the moment a notice
   // goes out — "everyone in the hostel gets the notice board refreshed" is its
   // own comment. This is the screen it meant.
@@ -65,43 +106,23 @@ export default function ResidentNoticesScreen() {
     cacheKey: query.key,
     topics: query.topics,
   });
-  const [filter, setFilter] = useState<string>(ALL);
+  const [status, setStatus] = useState<NoticeStatus>(STATUS_ALL);
+  const [category, setCategory] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Memoised because the `?? []` on the next line would otherwise be a new
   // array identity every render, re-deriving the category list each time.
   const rows = useMemo(() => notices.data?.notices ?? [], [notices.data]);
 
-  const categories = useMemo(() => {
-    const found = new Set(rows.map((notice) => notice.category).filter(Boolean));
-
-    return [...found].sort();
-  }, [rows]);
+  const categories = useMemo(() => noticeCategories(rows), [rows]);
 
   const unread = rows.filter((notice) => !notice.isRead).length;
   const urgent = rows.filter((notice) => notice.isUrgent).length;
 
-  const visible =
-    filter === ALL
-      ? rows
-      : filter === UNREAD
-        ? rows.filter((notice) => !notice.isRead)
-        : filter === URGENT
-          ? rows.filter((notice) => notice.isUrgent)
-          : rows.filter((notice) => notice.category === filter);
-
-  /*
-   * Counts are on the status chips only. A category chip reading "Maintenance
-   * 3" would be counting the page in hand rather than the category, because
-   * paging is server-side — and a number that shrinks when you scroll is worse
-   * than no number.
-   */
-  const chips = [
-    { key: ALL, label: "All" },
-    ...(unread > 0 ? [{ key: UNREAD, label: `Unread ${unread}` }] : []),
-    ...(urgent > 0 ? [{ key: URGENT, label: `Urgent ${urgent}` }] : []),
-    ...categories.map((option) => ({ key: option, label: humanizeEnum(option) })),
-  ];
+  const days = useMemo(
+    () => groupNoticesByDay(filterNotices(rows, status, category)),
+    [category, rows, status],
+  );
 
   const pagination = notices.data?.pagination;
 
@@ -161,6 +182,9 @@ export default function ResidentNoticesScreen() {
        * `router.back()`, because this is still a screen *inside* the tab
        * navigator and a bottom-tab navigator's default `backBehavior` is
        * `firstRoute`, not `history`.
+       *
+       * No `large`: that prop marks a tab, and this screen carries a back arrow.
+       * See its own note in `components/ui/app-bar.tsx`.
        */
       actions={<NotificationBell />}
       onBack={() => router.navigate("/(resident)")}
@@ -173,13 +197,14 @@ export default function ResidentNoticesScreen() {
   if (notices.loading) {
     return (
       <Screen header={header} insideTabs>
-        {/* Filter chips, then a stack of notice cards. See Home's note. */}
+        {/* The segmented track, the chip row, then a stack of notice cards. */}
         <View className="gap-4">
+          <Skeleton height={38} radius={19} />
+
           <View className="flex-row gap-2">
-            <Skeleton height={30} radius={15} width={56} />
-            <Skeleton height={30} radius={15} width={76} />
-            <Skeleton height={30} radius={15} width={68} />
-            <Skeleton height={30} radius={15} width={84} />
+            <Skeleton height={28} radius={8} width={76} />
+            <Skeleton height={28} radius={8} width={68} />
+            <Skeleton height={28} radius={8} width={84} />
           </View>
 
           <SkeletonRows rows={6} />
@@ -208,66 +233,94 @@ export default function ResidentNoticesScreen() {
       scroll
     >
       <View className="gap-4 pt-1">
-        {/* Only worth showing once there is something to filter. A lone "All"
-            chip is a control that does nothing. */}
-        {chips.length > 1 ? (
+        {/*
+          The counts are the whole reason these are segments rather than three
+          words: "is it worth tapping" gets answered before it is tapped. They
+          are omitted when zero — `Unread 0` is a segment offering an empty list.
+        */}
+        <Segmented
+          onChange={setStatus}
+          options={[
+            { label: "All", value: "all" },
+            { count: unread > 0 ? unread : undefined, label: "Unread", value: "unread" },
+            { count: urgent > 0 ? urgent : undefined, label: "Urgent", value: "urgent" },
+          ]}
+          value={status}
+        />
+
+        {categories.length > 1 ? (
           <ScrollView
             contentContainerClassName="gap-2"
             horizontal
             showsHorizontalScrollIndicator={false}
           >
-            {chips.map((chip) => {
-              const active = chip.key === filter;
-
-              return (
-                <Pressable
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}
-                  className={`rounded-full border px-3.5 py-2 active:opacity-70 ${
-                    active ? "border-primary bg-primary" : "border-border"
-                  }`}
-                  key={chip.key}
-                  onPress={() => setFilter(chip.key)}
-                >
-                  <Text
-                    className={`text-sm font-medium ${
-                      active ? "text-primary-foreground" : "text-foreground"
-                    }`}
-                  >
-                    {chip.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            {/*
+              `All` is a chip like the others rather than a cleared state with no
+              control, because a chip row with nothing lit looks like a row
+              nobody has touched yet — and a resident who has filtered to
+              `Maintenance` needs an obvious way back that is not "tap the lit
+              one again".
+            */}
+            <Chip
+              label="All"
+              onPress={() => setCategory(null)}
+              tone={category === null ? "brand" : "neutral"}
+            />
+            {categories.map((option) => (
+              <Chip
+                key={option}
+                label={humanizeEnum(option)}
+                onPress={() => setCategory(option)}
+                tone={category === option ? "brand" : "neutral"}
+              />
+            ))}
           </ScrollView>
         ) : null}
 
-        {visible.length === 0 ? (
+        {days.length === 0 ? (
           <EmptyState
             description={
-              filter === ALL
-                ? "Your hostel has not posted anything yet."
-                : filter === UNREAD
-                  ? "You have read everything."
-                  : "Nothing in this view."
+              category !== null
+                ? "Nothing in this category yet."
+                : status === "all"
+                  ? "Your hostel has not posted anything yet."
+                  : status === "unread"
+                    ? "You have read everything."
+                    : "Nothing urgent right now."
             }
             title="No notices"
           />
         ) : (
-          <View className="gap-3">
-            {visible.map((notice) => (
-              <NoticeCard key={notice.id} notice={notice} onOpen={markRead} />
+          <View className="gap-5">
+            {days.map((day) => (
+              <View className="gap-2" key={day.key || "undated"}>
+                {/*
+                  Outside the cards, on the page background — `NOTES.md` §5. The
+                  rows underneath no longer carry a timestamp of their own, so
+                  this heading is the only place the date is stated and it has to
+                  be here.
+                */}
+                <Text className="px-1" variant="label">
+                  {day.iso ? dates.relativeDay(day.iso) : "Date not recorded"}
+                </Text>
+
+                <View className="gap-3">
+                  {day.notices.map((notice) => (
+                    <NoticeCard key={notice.id} notice={notice} onOpen={markRead} />
+                  ))}
+                </View>
+              </View>
             ))}
           </View>
         )}
 
         {/*
           Older notices were unreachable before this: the screen asked for page
-          one and never looked at `hasMore`. Hidden while a filter is applied —
-          the filter runs over what has been fetched, so "load more" under an
+          one and never looked at `hasMore`. Hidden while anything is filtered —
+          the filters run over what has been fetched, so "load more" under an
           empty filtered view would look like it had failed.
         */}
-        {pagination?.hasMore && filter === ALL ? (
+        {pagination?.hasMore && status === STATUS_ALL && category === null ? (
           <Button
             label={loadingMore ? "Loading…" : "Load older notices"}
             loading={loadingMore}
@@ -280,6 +333,14 @@ export default function ResidentNoticesScreen() {
   );
 }
 
+/**
+ * One notice, collapsed to two lines until it is opened.
+ *
+ * The published date is **not** on it. It is on the day heading above the group
+ * this card is in, which is the whole of what the grouping bought — see the
+ * screen's note. What stays on the row is what varies *within* a day: whether it
+ * is urgent, what it is about, and whether this resident has read it.
+ */
 function NoticeCard({
   notice,
   onOpen,
@@ -355,11 +416,12 @@ function NoticeCard({
               {notice.content}
             </Text>
 
-            <View className="flex-row flex-wrap items-center gap-2">
-              {notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : null}
-              {notice.category ? <Badge label={humanizeEnum(notice.category)} /> : null}
-              <Text variant="caption">{formatRelativeDay(notice.publishedAt)}</Text>
-            </View>
+            {notice.isUrgent || notice.category ? (
+              <View className="flex-row flex-wrap items-center gap-2">
+                {notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : null}
+                {notice.category ? <Badge label={humanizeEnum(notice.category)} /> : null}
+              </View>
+            ) : null}
           </View>
         </View>
       </Card>

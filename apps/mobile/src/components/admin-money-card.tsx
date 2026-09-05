@@ -2,10 +2,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { View } from "react-native";
 
-import { FLOAT_SHADOW, PaintedAmount, useAdminPaint } from "@/components/admin-shared";
+import { FLOAT_SHADOW, PaintedAmount, usePortalPaint } from "@/components/portal-shared";
 import { Text } from "@/components/ui/text";
-import { collectionRate, heroAmountSize } from "@/lib/admin-home";
-import { formatMoney } from "@/lib/format";
+import { collectionRate } from "@/lib/admin-home";
+import { formatMoney, heroAmountSize } from "@/lib/format";
 
 /**
  * The month's collections, as a card object rather than as a painted band.
@@ -46,7 +46,7 @@ export function AdminMoneyCard({
   /** Claims still waiting on a person — the one live thing on the card. */
   proofs: number;
 }) {
-  const paint = useAdminPaint();
+  const paint = usePortalPaint();
 
   const amount = formatMoney(collected);
   const percent = collectionRate(collected, billed);

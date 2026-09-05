@@ -12,8 +12,9 @@ import { Screen } from "@/components/ui/screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { listProviderJobs, type ProviderJob } from "@/lib/provider-api";
 import {
   completedJobCount,
@@ -63,6 +64,7 @@ const PRIORITY_TONE = {
 } as const;
 
 export default function ProviderJobsScreen() {
+  const dates = useDates();
   const jobs = useResource<ProviderJob[]>(useCallback(() => listProviderJobs(), []), {
     topics: [REALTIME_TOPIC.MAINTENANCE],
   });
@@ -181,7 +183,7 @@ export default function ProviderJobsScreen() {
                     }
                     subtitle={[
                       jobAddress(job),
-                      job.scheduledFor ? `Due ${formatDate(job.scheduledFor)}` : null,
+                      job.scheduledFor ? `Due ${dates.date(job.scheduledFor)}` : null,
                     ]
                       .filter(Boolean)
                       .join(" · ")}

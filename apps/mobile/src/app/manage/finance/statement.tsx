@@ -16,6 +16,7 @@ import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { WalletMark } from "@/components/ui/wallet-mark";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import type { CalendarSystem } from "@/lib/calendar";
@@ -109,26 +110,19 @@ const PILL = 30;
 /** The search field's height. A style, not `h-[46px]` — see `<AdminSearchBar>`. */
 const FIELD_HEIGHT = 46;
 
-/**
- * The glyph on a row, by how the money arrived.
+/*
+ * `METHOD_ICONS` and `methodIcon` stood here.
  *
- * The reference draws the merchant's own logo here, which we have no licence to
- * and no asset for. A glyph per channel is the same information — an owner
- * scanning for "the cash ones" reads the column rather than the labels — and it
- * degrades honestly: an unmapped method gets the generic wallet rather than a
- * wrong brand.
+ * Its comment read: "the reference draws the merchant's own logo here, which we
+ * have no licence to and no asset for." The assets arrived on 2026-09-05, so
+ * the row draws the mark the reference draws. The table it replaced also gave
+ * **eSewa and Khalti the same glyph**, which defeated the point it was making —
+ * an owner scanning for "the eSewa ones" was reading a column of identical
+ * pictures.
+ *
+ * `<WalletMark>` keeps the tinted glyph tile for bank and cash, so the column
+ * still says which way the money went.
  */
-const METHOD_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  BANK_TRANSFER: "business-outline",
-  CASH: "cash-outline",
-  ESEWA: "phone-portrait-outline",
-  FONEPAY: "qr-code-outline",
-  KHALTI: "phone-portrait-outline",
-};
-
-function methodIcon(method: string): keyof typeof Ionicons.glyphMap {
-  return METHOD_ICONS[method] ?? "wallet-outline";
-}
 
 /**
  * A chip that is a **choice**, not a fact.
@@ -284,9 +278,9 @@ function CreditRow({
     >
       <Card className="gap-3">
         <View className="flex-row items-start gap-3">
-          <View className="h-10 w-10 items-center justify-center rounded-2xl bg-success-soft">
-            <Ionicons color={colors.success} name={methodIcon(credit.method)} size={18} />
-          </View>
+          {/* See the resident statement's note: eSewa and Khalti drew the
+              same glyph until the real marks arrived. */}
+          <WalletMark name={credit.method} size={40} square tone="success" />
 
           <View className="flex-1 gap-1">
             <Text numberOfLines={2} variant="label">
@@ -805,7 +799,7 @@ export default function ManageStatementScreen() {
                 </Text>
               </View>
 
-              {day.credits.map((credit) => (
+              {day.rows.map((credit) => (
                 <CreditRow
                   calendar={dates.calendar}
                   credit={credit}
@@ -889,9 +883,7 @@ export default function ManageStatementScreen() {
         {open ? (
           <View className="gap-4 pb-2">
             <View className="flex-row items-start gap-3">
-              <View className="h-11 w-11 items-center justify-center rounded-2xl bg-success-soft">
-                <Ionicons color={colors.success} name={methodIcon(open.method)} size={20} />
-              </View>
+              <WalletMark name={open.method} size={44} square tone="success" />
 
               <View className="flex-1 gap-1">
                 <Text variant="subtitle">{creditTitle(open, dates.calendar)}</Text>

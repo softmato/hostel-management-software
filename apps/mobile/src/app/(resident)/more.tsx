@@ -9,20 +9,53 @@ import { Avatar } from "@/components/ui/avatar";
 import { StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Chip } from "@/components/ui/layout";
-import { ListRow, RowDivider } from "@/components/ui/list-row";
+import { CardRow, ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { type ResidentMore, residentQuery } from "@/lib/resident-queries";
+import {
+  prefetchResidentRoute,
+  type ResidentMore,
+  residentQuery,
+} from "@/lib/resident-queries";
 import { endSession } from "@/lib/auth-session";
 import { prefetchCommunity } from "@/lib/community-queries";
-import { formatDate, humanizeEnum } from "@/lib/format";
+import { humanizeEnum } from "@/lib/format";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
 /**
  * Everything that is not a tab.
+ *
+ * ## The menus are a shelf of cards, not a table of rows
+ *
+ * This screen used to draw sixteen `<ListRow>`s inside three `<Card>`s, seven of
+ * them in the first one. A bordered box around a list is a claim that the things
+ * inside it belong together, and Profile, Night status, Complaints and the Offer
+ * Program do not — they share a screen and nothing else. Inside one card with
+ * hairlines between them they read as a table to be worked down in order, and
+ * `NOTES.md` §3 is blunt about it: a menu of destinations is never full-width
+ * rows of sentences.
+ *
+ * `(admin)/more.tsx` had the same problem and fixed it first, so the fix here is
+ * that one rather than a second invention: **`<CardRow>`** — each door its own
+ * card, a tinted glyph square in front of it, air in between. That component's
+ * own doc comment carries the argument in full. The two portals' More screens
+ * are now the same object with different doors on it, which is the whole of what
+ * "the resident app should read as clean as the hostel-admin app" asks for.
+ *
+ * The tint is the same brand green on every one of them, as it is on admin's.
+ * The glyph tells them apart, and a colour per door would be inventing eleven
+ * meanings the app does not otherwise have — the four *tones* it does have are
+ * spent on Home's queue cells, where a colour genuinely carries a state.
+ *
+ * ## What stayed a hairline group, and why
+ *
+ * **App**. Those four are not doors — they are one switch and three views of
+ * this account's preferences, and a card around them is a true claim rather than
+ * a false one. Same split as admin: the menu on a shelf, the settings in a box.
  *
  * ## Every row opens a real screen, as of M5.9
  *
@@ -42,7 +75,133 @@ import { setThemePreference } from "@/store/slices/uiSlice";
  * rent, meals or notices.
  */
 
+/**
+ * The doors, in the order Home's `<ResidentServiceGrid>` draws them.
+ *
+ * That grid's own doc comment is explicit that the two lists are the same list —
+ * "More is the exhaustive list with a sentence of explanation on each; this is
+ * the same list with the explanations off" — so a tile added there is a row
+ * added here in the same breath, or a resident ends up learning two maps of one
+ * product. The three More has that the grid does not (Night status, Complaints,
+ * Digital ID) are on Home too, as cells of the queue row and the shortcut row:
+ * doors here, queues there, which is the difference between the two screens
+ * rather than a divergence between the two lists.
+ */
+const STAY_ROWS: {
+  href: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  subtitle: string;
+  title: string;
+}[] = [
+  {
+    href: "/profile",
+    icon: "person-outline",
+    subtitle: "Personal details, guardians, emergency contacts",
+    title: "Profile",
+  },
+  {
+    href: "/night-status",
+    icon: "moon-outline",
+    // Replaced at render by tonight's actual answer when there is one — see
+    // `nightSubtitle`. A menu row that can state a fact should state it.
+    subtitle: "Tell your hostel you're in for the night",
+    title: "Night status",
+  },
+  {
+    /*
+      Directly under Night status, because they are the same subject from
+      opposite ends: what the resident *says* about their night, and what their
+      phone *reported*. A resident who wonders "how does my hostel know?" is
+      looking at one of these two rows when the question occurs to them, and the
+      answer should be the next one down.
+    */
+    href: "/attendance",
+    icon: "location-outline",
+    subtitle: "What has been recorded, and switching it off",
+    title: "Location & attendance",
+  },
+  {
+    /*
+      Its own row rather than only a link inside Profile. Sharing your record
+      with a parent is a decision people revisit — after a fee goes unpaid, after
+      an argument — and having to remember it lives two screens deep under
+      "Profile" is how a resident ends up leaving access switched on for somebody
+      they meant to remove.
+    */
+    href: "/guardians",
+    icon: "shield-outline",
+    subtitle: "Who can see your record, and exactly what they see",
+    title: "Guardians",
+  },
+  {
+    href: "/complaints",
+    icon: "chatbox-ellipses-outline",
+    subtitle: "Raise an issue and follow it to resolution",
+    title: "Complaints",
+  },
+  {
+    href: "/id-card",
+    icon: "card-outline",
+    subtitle: "Your hostel identity card",
+    title: "Digital ID",
+  },
+  {
+    /*
+      Under "Your stay" rather than "Discover": the programme is something a
+      resident is already in, not something to go and find. `/offer-program` —
+      the public explainer — stays where it is, on the Profile tab, because that
+      one is written for somebody who has not signed in.
+    */
+    href: "/offer-program/mine",
+    icon: "ribbon-outline",
+    subtitle: "Your reference codes and certified receipts",
+    title: "Offer Program",
+  },
+];
+
+const DISCOVER_ROWS: {
+  href: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  subtitle: string;
+  title: string;
+}[] = [
+  {
+    /*
+      Discovery lives here, not in a tab (agreed 2026-08-16): someone who already
+      has a bed opens the app to pay rent or read a notice.
+    */
+    href: "/hostels",
+    icon: "search-outline",
+    subtitle: "Browse and compare hostels across Nepal",
+    title: "Explore hostels",
+  },
+  {
+    /*
+      One community for everyone — signed out, public account, resident, staff —
+      which is why it is a root-stack screen rather than something inside a
+      role's tabs. See `community.service.ts`.
+    */
+    href: "/community",
+    icon: "people-outline",
+    subtitle: "Ask, answer and see what other residents are saying",
+    title: "Community",
+  },
+  {
+    href: "/referrals",
+    icon: "gift-outline",
+    subtitle: "Share your code with a friend",
+    title: "Refer a friend",
+  },
+  {
+    href: "/review",
+    icon: "star-outline",
+    subtitle: "Rate food, cleanliness and safety",
+    title: "Review your hostel",
+  },
+];
+
 export default function ResidentMoreScreen() {
+  const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
@@ -80,9 +239,23 @@ export default function ResidentMoreScreen() {
 
   const nextTheme = preference === "dark" ? "light" : "dark";
 
+  const nightSubtitle = more.data?.nightStatus
+    ? humanizeEnum(more.data.nightStatus.status)
+    : null;
+
   return (
     <Screen
-      header={<AppBar actions={<NotificationBell />} title="More" />}
+      header={
+        /*
+          `large`, which the resident tabs did not set and the admin tabs did —
+          so the same job was titled at 16 points in one role and 22 in the
+          other. A tab is a destination and its name is a page heading; see the
+          prop's own note. Notices keeps the 16-point bar because it is reached
+          by a push and carries a back arrow, which is the distinction the prop
+          is actually drawing.
+        */
+        <AppBar actions={<NotificationBell />} large title="More" />
+      }
       insideTabs
       onRefresh={more.refresh}
       refreshing={more.refreshing}
@@ -129,7 +302,7 @@ export default function ResidentMoreScreen() {
                 {resident ? (
                   <Chip
                     icon="calendar-outline"
-                    label={`Since ${formatDate(resident.moveInDate)}`}
+                    label={`Since ${dates.date(resident.moveInDate)}`}
                   />
                 ) : null}
                 {profile.hostel.contact.phone ? (
@@ -148,133 +321,72 @@ export default function ResidentMoreScreen() {
         </Card>
 
         <View>
-          <SectionHeader title="Your stay" />
-          <Card>
-            <ListRow
-              icon="person-outline"
-              onPress={() => router.push("/profile")}
-              subtitle="Personal details, guardians, emergency contacts"
-              title="Profile"
-            />
-            <RowDivider inset />
-            <ListRow
-              icon="moon-outline"
-              onPress={() => router.push("/night-status")}
-              subtitle={
-                more.data?.nightStatus
-                  ? humanizeEnum(more.data.nightStatus.status)
-                  : "Tell your hostel you're in for the night"
-              }
-              title="Night status"
-            />
-            <RowDivider inset />
-            {/*
-              Directly under Night status, because they are the same subject from
-              opposite ends: what the resident *says* about their night, and what
-              their phone *reported*. A resident who wonders "how does my hostel
-              know?" is looking at one of these two rows when the question occurs
-              to them, and the answer should be the next one down.
-            */}
-            <ListRow
-              icon="location-outline"
-              onPress={() => router.push("/attendance")}
-              subtitle="What has been recorded, and switching it off"
-              title="Location & attendance"
-            />
-            <RowDivider inset />
-            {/*
-              Its own row rather than only a link inside Profile. Sharing your
-              record with a parent is a decision people revisit — after a fee
-              goes unpaid, after an argument — and having to remember it lives
-              two screens deep under "Profile" is how a resident ends up leaving
-              access switched on for somebody they meant to remove.
-            */}
-            <ListRow
-              icon="shield-outline"
-              onPress={() => router.push("/guardians")}
-              subtitle="Who can see your record, and exactly what they see"
-              title="Guardians"
-            />
-            <RowDivider inset />
-            <ListRow
-              icon="chatbox-ellipses-outline"
-              onPress={() => router.push("/complaints")}
-              subtitle="Raise an issue and follow it to resolution"
-              title="Complaints"
-            />
-            <RowDivider inset />
-            <ListRow
-              icon="card-outline"
-              onPress={() => router.push("/id-card")}
-              subtitle="Your hostel identity card"
-              title="Digital ID"
-            />
-            <RowDivider inset />
-            {/*
-              Under "Your stay" rather than "Discover": the programme is
-              something a resident is already in, not something to go and find.
-              `/offer-program` — the public explainer — stays where it is, on the
-              Profile tab, because that one is written for somebody who has not
-              signed in.
-            */}
-            <ListRow
-              icon="ribbon-outline"
-              onPress={() => router.push("/offer-program/mine")}
-              subtitle="Your reference codes and certified receipts"
-              title="Offer Program"
-            />
-          </Card>
+          <SectionHeader
+            subtitle="Your record, and who else can see it"
+            title="Your stay"
+          />
+          <View className="gap-3">
+            {STAY_ROWS.map((row) => (
+              <CardRow
+                icon={row.icon}
+                key={row.href}
+                onPress={() => router.push(row.href)}
+                // Same trigger as Home's `Your stay` grid, pointed at the same
+                // registry — see `prefetchResidentRoute`. A row it does not know
+                // simply loads the way it always did.
+                onPressIn={() => prefetchResidentRoute(row.href)}
+                subtitle={
+                  row.href === "/night-status"
+                    ? (nightSubtitle ?? row.subtitle)
+                    : row.subtitle
+                }
+                title={row.title}
+              />
+            ))}
+          </View>
         </View>
 
         <View>
-          <SectionHeader title="Discover" />
-          <Card>
-            {/*
-              Discovery lives here, not in a tab (agreed 2026-08-16): someone
-              who already has a bed opens the app to pay rent or read a notice.
-            */}
-            <ListRow
-              icon="search-outline"
-              onPress={() => router.push("/hostels")}
-              subtitle="Browse and compare hostels across Nepal"
-              title="Explore hostels"
-            />
-            <RowDivider inset />
-            {/*
-              One community for everyone — signed out, public account, resident,
-              staff — which is why it is a root-stack screen rather than something
-              inside a role's tabs. See `community.service.ts`.
-            */}
-            <ListRow
-              icon="people-outline"
-              onPress={() => router.push("/community")}
-              // Touch-down warms the feed and the spaces rail — see
-              // `prefetchCommunity`. The tab shells warm it a few seconds after
-              // launch; this covers the roles that reach it by a push instead.
-              onPressIn={prefetchCommunity}
-              subtitle="Ask, answer and see what other residents are saying"
-              title="Community"
-            />
-            <RowDivider inset />
-            <ListRow
-              icon="gift-outline"
-              onPress={() => router.push("/referrals")}
-              subtitle="Share your code with a friend"
-              title="Refer a friend"
-            />
-            <RowDivider inset />
-            <ListRow
-              icon="star-outline"
-              onPress={() => router.push("/review")}
-              subtitle="Rate food, cleanliness and safety"
-              title="Review your hostel"
-            />
-          </Card>
+          <SectionHeader
+            subtitle="The rest of the platform, from inside your stay"
+            title="Discover"
+          />
+          <View className="gap-3">
+            {DISCOVER_ROWS.map((row) => (
+              <CardRow
+                icon={row.icon}
+                key={row.href}
+                onPress={() => router.push(row.href)}
+                /*
+                  Community is the one destination here with a warm-up, and it is
+                  deliberately not in `prefetchResidentRoute`: the board is
+                  platform-wide, so it belongs to `lib/community-queries.ts`
+                  rather than to any one role's registry. Same divergence
+                  `(admin)/more.tsx` carries.
+                */
+                onPressIn={
+                  row.href === "/community"
+                    ? prefetchCommunity
+                    : () => prefetchResidentRoute(row.href)
+                }
+                subtitle={row.subtitle}
+                title={row.title}
+              />
+            ))}
+          </View>
         </View>
 
         <View>
           <SectionHeader title="App" />
-          <Card>
+          {/*
+            `px-4 py-1`, which this screen did not pass and admin's does. The
+            default `p-4` on a card whose rows already carry their own `py-3`
+            adds 16 points of inset above the first row and below the last, so
+            the same group of settings stood 32 points taller in this portal than
+            in the other one — see `<Card>`'s note on why the padding is one slot
+            rather than something `className` can override.
+          */}
+          <Card padding="px-4 py-1">
             <ListRow
               icon={preference === "dark" ? "moon-outline" : "sunny-outline"}
               onPress={() => dispatch(setThemePreference(nextTheme))}
@@ -333,7 +445,7 @@ export default function ResidentMoreScreen() {
           </Card>
         </View>
 
-        <Card>
+        <Card padding="px-4 py-1">
           <ListRow
             icon="log-out-outline"
             onPress={signOut}

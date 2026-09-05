@@ -3,29 +3,25 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Grid } from "@/components/ui/layout";
-import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { openAssetViewer } from "@/lib/asset-viewer";
-import {
-  type CookPhotoDay,
-  type FoodReadyAnnouncement,
-  listCookFoodPhotos,
-  listFoodReadyLogs,
-  uploadCookFoodPhoto,
-} from "@/lib/cook-api";
-import { formatDate, formatDateTime, formatTime, humanizeEnum } from "@/lib/format";
+import { type CookPhotoDay, uploadCookFoodPhoto } from "@/lib/cook-api";
+import { cookQuery } from "@/lib/cook-queries";
+import { formatTime, humanizeEnum } from "@/lib/format";
 import { mealTypeNow } from "@/lib/food-week";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { privateAssetSource, uploadAsset } from "@/lib/uploads";
@@ -69,22 +65,32 @@ import { privateAssetSource, uploadAsset } from "@/lib/uploads";
  * The **meals covered** count per day is the number the kitchen is actually
  * judged on: four photos of dinner is not the same as one of each meal, and a
  * photo count cannot tell those apart.
+ *
+ * ## The announcement history left this tab
+ *
+ * It used to sit under the photo feed: every meal this kitchen has ever called,
+ * on a tab named "Photos". Two subjects on one screen, and the wrong one was
+ * growing — a hostel serving four meals a day fills that list with a hundred and
+ * twenty rows a month, under the control a cook opens this tab to press.
+ *
+ * "Did I already announce lunch?" is answered on **Today**, on the meal's own
+ * card, which carries `Sent 12:04`. "What has this kitchen called, and from
+ * which handset?" is a record, asked rarely, and it is now on **More**, beside
+ * the device fingerprint that is stamped on every one of those rows. Two
+ * questions, two homes, and this tab is one subject again.
  */
 type PhotoFeed = { days: CookPhotoDay[]; hasMore: boolean; total: number };
 
 export default function CookPhotosScreen() {
-  const logs = useResource<FoodReadyAnnouncement[]>(
-    useCallback(() => listFoodReadyLogs(), []),
-    { topics: [REALTIME_TOPIC.FOOD] },
-  );
-
   /*
-   * Its own resource rather than one combined load: the two answer different
-   * questions and fail independently, and a kitchen whose announcement log
-   * errors should still be able to see its photos.
+   * One read now, under the portal's own key — the announcement log that used to
+   * be fetched alongside it moved to More with the section that drew it. See
+   * `lib/cook-queries.ts`.
    */
-  const feed = useResource<PhotoFeed>(useCallback(() => listCookFoodPhotos(), []), {
-    topics: [REALTIME_TOPIC.FOOD],
+  const query = cookQuery.photos();
+  const feed = useResource<PhotoFeed>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
   });
 
   const [busy, setBusy] = useState(false);
@@ -148,14 +154,14 @@ export default function CookPhotosScreen() {
     [feed],
   );
 
-  const header = <AppBar title="Photos" />;
+  const header = <AppBar actions={<NotificationBell />} large title="Photos" />;
 
   return (
     <Screen
       header={header}
       insideTabs
-      onRefresh={logs.refresh}
-      refreshing={logs.refreshing}
+      onRefresh={feed.refresh}
+      refreshing={feed.refreshing}
       scroll
     >
       <View className="gap-5 pt-1">
@@ -181,46 +187,6 @@ export default function CookPhotosScreen() {
         </Card>
 
         <PhotoFeedSection feed={feed} />
-
-        <View>
-          <SectionHeader
-            subtitle="Everything this kitchen has announced"
-            title="Announcement history"
-          />
-
-          {logs.loading ? (
-            <LoadingState label="Loading announcements" />
-          ) : logs.error ? (
-            <ErrorState message={logs.error} onRetry={logs.reload} />
-          ) : (
-            <Card>
-              {(logs.data ?? []).length === 0 ? (
-                <EmptyState
-                  description="Announce a meal from the Today tab and it appears here."
-                  title="Nothing announced yet"
-                />
-              ) : (
-                (logs.data ?? []).map((log, index) => (
-                  <View key={log.id}>
-                    {index > 0 ? <RowDivider /> : null}
-                    <ListRow
-                      right={
-                        <Badge
-                          label={`${log.notifiedCount} notified`}
-                          tone={log.notifiedCount > 0 ? "success" : "warning"}
-                        />
-                      }
-                      subtitle={log.message || undefined}
-                      title={`${humanizeEnum(log.mealType)} · ${formatDateTime(
-                        log.announcedAt,
-                      )}`}
-                    />
-                  </View>
-                ))
-              )}
-            </Card>
-          )}
-        </View>
       </View>
     </Screen>
   );
@@ -251,7 +217,21 @@ function PhotoFeedSection({ feed }: { feed: ReturnType<typeof useResource<PhotoF
       />
 
       {feed.loading ? (
-        <LoadingState label="Loading your photos" />
+        /* Two day cards, each a heading over a row of four tiles — the shape
+           this section lands in. `CLAUDE.md` and `NOTES.md` §9: loading is
+           skeletons. */
+        <View className="gap-4">
+          {Array.from({ length: 2 }, (_, index) => (
+            <View className="gap-2 rounded-2xl border border-border bg-card p-4" key={index}>
+              <Skeleton height={16} width="52%" />
+              <View className="flex-row gap-2 pt-1">
+                {Array.from({ length: 4 }, (_, tile) => (
+                  <Skeleton height={84} key={tile} radius={10} width="23%" />
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
       ) : feed.error ? (
         <ErrorState message={feed.error} onRetry={feed.reload} />
       ) : days.length === 0 ? (
@@ -273,6 +253,7 @@ function PhotoFeedSection({ feed }: { feed: ReturnType<typeof useResource<PhotoF
 }
 
 function PhotoDayCard({ day }: { day: CookPhotoDay }) {
+  const dates = useDates();
   const token = useAppSelector((state) => state.auth.accessToken);
   const { colors } = useAppTheme();
 
@@ -286,14 +267,14 @@ function PhotoDayCard({ day }: { day: CookPhotoDay }) {
     ]
       .filter(Boolean)
       .join(" · "),
-    title: formatDate(day.day),
+    title: dates.date(day.day),
   }));
 
   return (
     <Card className="gap-3">
       <View className="flex-row items-center justify-between gap-2">
         <View className="flex-1">
-          <Text variant="label">{formatDate(day.day)}</Text>
+          <Text variant="label">{dates.dateLong(day.day)}</Text>
           <Text variant="caption">
             {`${day.photos.length} photo${day.photos.length === 1 ? "" : "s"}`}
           </Text>

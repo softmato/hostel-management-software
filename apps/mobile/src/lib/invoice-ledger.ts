@@ -91,6 +91,122 @@ export function invoiceLedger(invoice: ResidentInvoice): LedgerLine[] {
 }
 
 /** What the headline shows: never negative, because an overpayment is credit. */
+/**
+ * What to call an invoice that belongs to no month.
+ *
+ * `Invoice.period` is nullable and one-off invoices have no month — an
+ * admission fee is the one every resident gets. Every screen renders the month
+ * through `formatPeriod`, which correctly answers `—` for a null, and a list row
+ * titled `—` over a due date is a row that names nothing. On the Payments tab
+ * that dash was also the *focus* invoice's name on the painted card, so a new
+ * resident whose only open bill was their admission fee opened the screen to
+ * `Next due: —`.
+ *
+ * The invoice already knows what it is: its first line's description is the
+ * charge itself ("Admission fee", "Security deposit"), snapshotted when the
+ * invoice was issued and therefore still right after the fee schedule it came
+ * from is closed. Migrated history has no lines, so the fallback is a plain
+ * noun rather than a dash.
+ *
+ * Returns `null` for an invoice that *does* have a month, so a caller can write
+ * `oneOffLabel(invoice) ?? dates.period(invoice.month)` and get the month
+ * whenever there is one.
+ */
+export function oneOffLabel(invoice: ResidentInvoice): string | null {
+  if (invoice.month) {
+    return null;
+  }
+
+  const charges = chargeDescriptions(invoice);
+
+  return charges.length > 0 ? charges.join(" + ") : "One-off invoice";
+}
+
+/**
+ * The charges on a one-off invoice, in the order they were written.
+ *
+ * Credits are left out — a referral discount is not a thing the resident is
+ * being asked to pay for, and "Admission fee + Referral discount" reads as two
+ * charges. Positive lines only, so the label lists what the money is *for*.
+ *
+ * This is why joining reads `Admission fee + Security deposit` rather than
+ * `Admission fee`: both are on one invoice under one reference code, and a
+ * label naming only the first understates what is owed by the size of the
+ * deposit — which is usually the larger half.
+ */
+function chargeDescriptions(invoice: ResidentInvoice): string[] {
+  return invoice.lines
+    .filter((line) => line.amount > 0 && line.description.trim().length > 0)
+    .map((line) => line.description.trim());
+}
+
+/**
+ * What a list row calls an invoice, and what it says underneath.
+ *
+ * ## Why the month was the wrong title
+ *
+ * The row used to be titled `Bhadra` over `Due Aswin 15`. Two month names, one
+ * row, nothing saying which was which — and neither of them says what the row
+ * *is*. A resident scanning their payments wants to know "rent" before they want
+ * to know "Bhadra"; the month is which rent, not what.
+ *
+ * So the charge leads and the month explains it: **Monthly rent** over **Due
+ * Bhadra**. The one-off invoice already had a charge to lead with — its lines —
+ * and now names both of them.
+ *
+ * ## And a part month says which days instead
+ *
+ * A resident admitted mid-month owes part of it, and a row reading `Monthly
+ * rent` over `Due Bhadra` leaves the smaller figure beside it unexplained —
+ * which is the one thing on this screen somebody is most likely to query.
+ * `prorationBasis` is snapshotted on the line at issue time and already reads
+ * `Bhadra 19–31 · 13 of 31 days`, so the row carries it verbatim rather than
+ * re-deriving a span from dates the client would have to convert itself.
+ *
+ * It **replaces** the due line rather than joining it. Both would be three
+ * facts on one row of a list, and the span already names the month — so `Due
+ * Bhadra · Bhadra 19–31 · 13 of 31 days` says "Bhadra" twice to fit less in.
+ *
+ * Pure, and tested, because this is the sentence a resident reads before
+ * deciding whether their bill is right.
+ */
+export type InvoiceRowCopy = {
+  /** The days a part month covers, or null when the whole month is charged. */
+  proration: string | null;
+  /** `Due Bhadra`, or the days a part month covers, or a one-off's due date. */
+  subtitle: string;
+  /** `Monthly rent`, or `Admission fee + Security deposit`. */
+  title: string;
+};
+
+export function invoiceRowCopy(
+  invoice: ResidentInvoice,
+  monthLabel: (period: string | null) => string,
+  dateLabel: (date: string | null | undefined) => string,
+): InvoiceRowCopy {
+  const proration =
+    invoice.lines.find((line) => line.prorationBasis)?.prorationBasis?.trim() || null;
+
+  if (!invoice.month) {
+    return {
+      proration,
+      subtitle: invoice.dueDate ? `Due ${dateLabel(invoice.dueDate)}` : "Payable now",
+      title: oneOffLabel(invoice) ?? "One-off invoice",
+    };
+  }
+
+  return {
+    proration,
+    /*
+     * The billing month, not the due date. Those are different facts — Bhadra's
+     * rent falls due on Bhadra 31 — and the row used to show only the second,
+     * in a title that read like a date.
+     */
+    subtitle: proration ?? `Due ${monthLabel(invoice.month)}`,
+    title: "Monthly rent",
+  };
+}
+
 export function outstanding(invoice: ResidentInvoice): number {
   return Math.max(invoice.dueAmount - invoice.paidAmount, 0);
 }
@@ -180,4 +296,103 @@ export function paymentStats(invoices: ResidentInvoice[]): PaymentStats {
     overdueCount: invoices.filter((invoice) => invoice.status === "OVERDUE").length,
     settledCount: invoices.filter((invoice) => !isOpenInvoice(invoice)).length,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Grouping                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export type InvoiceYear = {
+  invoices: ResidentInvoice[];
+  /** `"2026"` / `"2083 BS"`, or `null` for the rows that carry no date at all. */
+  year: string | null;
+};
+
+/**
+ * The Gregorian year an invoice belongs to, straight off its date strings.
+ *
+ * `slice(0, 4)` on both: `month` is `YYYY-MM` and `dueDate` is an ISO instant,
+ * and the year is the first four characters of each. Parsing the instant would
+ * move a January due date into the previous year for a phone west of UTC, which
+ * is a row in the wrong section for no gain.
+ *
+ * The default, and correct only for a reader on the Gregorian calendar — see
+ * {@link groupInvoicesByYear}.
+ */
+export function gregorianInvoiceYear(invoice: ResidentInvoice): string | null {
+  return invoice.month?.slice(0, 4) ?? invoice.dueDate?.slice(0, 4) ?? null;
+}
+
+/**
+ * The invoice list, cut into years.
+ *
+ * `NOTES.md` §5 — "lists are grouped by date, headings outside the cards" — is
+ * the reference set's most repeated list rule, and it is what the payments
+ * screen was missing: a flat card of twenty rows, each one a month, with the
+ * year written nowhere. A resident in their second year had `Jan` twice in one
+ * column with nothing to tell the two apart.
+ *
+ * ## Where the year comes from when there is no month
+ *
+ * `month` is `null` on a one-off invoice — the admission fee every resident
+ * gets is the common case — so it cannot be the only source or the first
+ * invoice of every tenancy falls out of the list's ordering. `dueDate` is the
+ * fallback, which puts an admission fee in the year it was actually charged.
+ *
+ * An invoice with **neither** goes into a trailing `year: null` group rather
+ * than being filed under a guess. Screens draw that one under a plain heading;
+ * inventing a year for it would put a row in a section a resident could then
+ * not find it in.
+ *
+ * ## The year is the caller's, because the reader has a calendar
+ *
+ * This used to slice `"2026"` off the period key and call that the heading. On a
+ * phone set to Bikram Sambat — the default, and what a resident in Nepal
+ * actually reads — that printed a `2026` heading over a card whose every row
+ * said `2083 BS`. Two calendars in one list, with nothing saying so.
+ *
+ * Relabelling the group would not have fixed it either: a Gregorian year spans
+ * two BS ones, so `2026` genuinely holds both `2082 BS` and `2083 BS`, and a
+ * single BS heading over it would be wrong for the rows on one side of Baisakh
+ * 1. The **grouping itself** has to happen in the reader's calendar, which is
+ * why `yearOf` is a parameter and `useDates()` supplies it.
+ *
+ * {@link gregorianInvoiceYear} stays the default, so a caller with no reader —
+ * a test, an export — still gets the calendar-free answer.
+ *
+ * ## Order is the caller's, and is preserved
+ *
+ * The server sends newest-first and `filterInvoices` keeps that, so this walks
+ * the list once and appends. It does not sort — a group order derived from the
+ * key would silently disagree with the row order inside it the day the server
+ * changes its mind about direction.
+ */
+export function groupInvoicesByYear(
+  invoices: ResidentInvoice[],
+  yearOf: (invoice: ResidentInvoice) => string | null = gregorianInvoiceYear,
+): InvoiceYear[] {
+  const groups: InvoiceYear[] = [];
+  const index = new Map<string, InvoiceYear>();
+
+  for (const invoice of invoices) {
+    // An empty string is a resolver that could not answer — a date outside the
+    // BS converter's table — and is filed with the undated rows rather than
+    // under a heading with no name on it.
+    const year = yearOf(invoice) || null;
+    const key = year ?? "\u0000undated";
+
+    const existing = index.get(key);
+
+    if (existing) {
+      existing.invoices.push(invoice);
+      continue;
+    }
+
+    const group: InvoiceYear = { invoices: [invoice], year };
+
+    index.set(key, group);
+    groups.push(group);
+  }
+
+  return groups;
 }

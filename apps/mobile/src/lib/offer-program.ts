@@ -82,11 +82,26 @@ export function certifiedReceipts(invoices: ResidentInvoice[]): CertifiedReceipt
 }
 
 export type OfferProgramStats = {
-  /** Total value of every certified receipt. */
+  /** Total value of every certified receipt — matched *and* verified. */
   certifiedAmount: number;
   certifiedCount: number;
   /** Proofs the hostel has not decided on yet. */
   pendingCount: number;
+  /**
+   * Everything the ledger has recorded against this resident's invoices,
+   * verified or not.
+   *
+   * The pair `certifiedAmount` / `totalPaid` is the whole point of the screen's
+   * summary: the gap between them is money the resident has handed over that
+   * has no receipt behind it yet, and it is the only figure that tells them
+   * whether the difference is one pending claim or six months of unmatched
+   * transfers. Showing the certified figure alone reads as "this is what you
+   * have paid", which understates it every time a claim is in review.
+   *
+   * Read from `paidAmount`, not from the receipts: a payment the hostel has
+   * reconciled but not yet receipted counts as paid, because it is.
+   */
+  totalPaid: number;
 };
 
 export function offerProgramStats(view: ResidentFinanceView): OfferProgramStats {
@@ -96,6 +111,7 @@ export function offerProgramStats(view: ResidentFinanceView): OfferProgramStats 
     certifiedAmount: receipts.reduce((sum, receipt) => sum + receipt.amount, 0),
     certifiedCount: receipts.length,
     pendingCount: view.claims.filter((claim) => claim.status === "PENDING").length,
+    totalPaid: view.invoices.reduce((sum, invoice) => sum + invoice.paidAmount, 0),
   };
 }
 

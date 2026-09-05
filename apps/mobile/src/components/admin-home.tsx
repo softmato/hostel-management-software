@@ -1,13 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
-import type { ReactNode } from "react";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { FLOAT_SHADOW, PaintedAmount, useAdminPaint } from "@/components/admin-shared";
+import {
+  FLOAT_SHADOW,
+  HERO_AMOUNT_LEAD_TRIM,
+  HERO_LINE_GAP,
+  PaintedAmount,
+  PortalHeroCard,
+} from "@/components/portal-shared";
 import { NotificationBell } from "@/components/notification-bell";
+import {
+  ActionCard,
+  ActionCell,
+  type ActionTile,
+  ActionTiles,
+} from "@/components/ui/action-grid";
 import { IconButton } from "@/components/ui/icon-button";
 import { Text } from "@/components/ui/text";
 import { APP_NAME, APP_NAME_PARTS, logo } from "@/constants/branding";
@@ -17,7 +27,6 @@ import { useSystemInsets } from "@/hooks/use-system-insets";
 import type { AdminHostel } from "@/lib/admin-api";
 import {
   type EarningsSummary,
-  heroAmountSize,
   heroPhotoUrl,
   hostelCode,
   type MonthDelta,
@@ -29,7 +38,7 @@ import {
   type TrendBar,
 } from "@/lib/admin-home";
 import { API_BASE_URL } from "@/lib/api";
-import { formatMoney, maskMoney } from "@/lib/format";
+import { formatMoney, heroAmountSize, maskMoney } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 
 /**
@@ -276,101 +285,6 @@ function HeroSosStrip({ count, onPress }: { count: number; onPress: () => void }
 }
 
 /**
- * How much of the hostel's own photograph shows through the colour.
- *
- * Low on purpose. This is a *ground*, not a picture: white text at five sizes
- * sits on top of it, and every one of them stops being legible over a
- * photograph with its own bright and dark areas.
- *
- * It was 0.24, and on a device that is not texture — the windows are countable,
- * and the two-up figures land on whichever part of the facade happens to be
- * dark. `ebl-01` is the calibration: its mountain is a *ghost*, the card reads
- * as flat colour everywhere text sits, and you notice the photograph second. At
- * 0.11 you can still tell it is your building, which is the whole of what it is
- * there to do.
- */
-const PHOTO_WEIGHT = 0.11;
-
-/**
- * The card's geometry, measured off `ebl-01` rather than guessed.
- *
- * The reference screenshot is 576px wide, so every number in it converts by
- * `× 0.625` to points on a 360dp phone. What it gives:
- *
- * | | reference | here |
- * | --- | --- | --- |
- * | side margin | 23px → 14dp (4.0% of the screen) | `CARD_INSET` |
- * | card width | 529px → 331dp (92% of the screen) | whatever is left |
- * | corner | ~15px → 9dp | `CARD_RADIUS`, rounded up |
- * | padding | 24px → 15dp, 29px top, 23px bottom | `CARD_PAD` |
- * | height | 304px → 190dp | falls out of the content |
- *
- * The card was inset 20 and cornered at 26 — narrower than the reference and
- * twice as round, which is what made it read as a lozenge rather than as a bank
- * card. `AdminMoneyCard` keeps 26 for now; if these two ever need to match, this
- * is the measured one.
- */
-const CARD_INSET = 14;
-
-const CARD_RADIUS = 18;
-
-const CARD_PAD = { paddingBottom: 18, paddingHorizontal: 16, paddingTop: 20 } as const;
-
-/**
- * The gaps, and why they are this big.
- *
- * The first cut of this card was correct and unreadable: every row was right and
- * the whole thing was a brick. Measuring `ebl-01` says why — its rows sit **19,
- * 14, 28 and 27 points apart** ink to ink, and ours were between four and
- * twelve. A bank card is mostly air; that is the difference between a card you
- * glance at and a paragraph you parse.
- *
- * These are the CSS gaps that land on those ink gaps once line-height slack is
- * accounted for, so they read a few points tighter than the numbers above.
- */
-const BLOCK_GAP = 20;
-
-const LINE_GAP = 10;
-
-/**
- * Pulls the money block up under the identity block.
- *
- * `PaintedAmount` runs a 1.45 line box so the device font's glyphs are not
- * clipped, and about half of that slack lands *above* the digits — so a 20-point
- * block gap measures 20 and reads as nearly 30. This cancels the leading rather
- * than shrinking `BLOCK_GAP`, which would also close up the gap above the rule,
- * where the space is doing its job.
- */
-const AMOUNT_LEAD_TRIM = -9;
-
-/**
- * Two soft discs bled off the edges — the fallback texture.
- *
- * A flat ramp behind six elements reads as a coloured rectangle, and every
- * payment card and banking home this screen is modelled on breaks that up
- * somehow. When the hostel has a photograph, the photograph does that job and
- * these would be competing with it, so they are drawn **only** when it has none.
- *
- * `pointerEvents: "none"` and outside the content flow, so nothing above them
- * moves; clipped by the card's `overflow: hidden`, which is also what keeps them
- * inside the rounded corners.
- */
-function HeroOrnament() {
-  return (
-    <View className="absolute inset-0" style={{ pointerEvents: "none" }}>
-      <View
-        className="absolute rounded-full bg-white/10"
-        style={{ height: 190, right: -60, top: -70, width: 190 }}
-      />
-      <View
-        className="absolute rounded-full bg-white/5"
-        style={{ bottom: -40, height: 130, left: -30, width: 130 }}
-      />
-    </View>
-  );
-}
-
-/**
  * The listing's state, in the corner the account card keeps for it.
  *
  * `ebl-01` puts `Active` hard against the card's top-right, and it is the first
@@ -424,10 +338,9 @@ function ListingPill({ listing }: { listing: { live: boolean; note: string } }) 
  * | `SIDDHANT YADAV` | residents, free beds, how full |
  * | `Actual` / `Available Balance` | `Since opening` / `This month` |
  *
- * Inset on all four sides with a shadow under it, `CARD_RADIUS` on every corner,
- * on a page background the header no longer paints over. The building's own
- * photograph is the card's ground at `PHOTO_WEIGHT`, which is the one thing EBL
- * does that this screen was already doing.
+ * Inset on all four sides with a shadow under it, cornered, lifted, and with the
+ * building's own photograph as its ground: all of that is `<PortalHeroCard>`,
+ * which the resident Home draws too. What is below is only this card's content.
  *
  * ## Why the money still leads
  *
@@ -468,7 +381,6 @@ export function HostelHero({
   sosCount: number;
   vacantBeds: number;
 }) {
-  const paint = useAdminPaint();
   const photo = absoluteMediaUrl(heroPhotoUrl(hostel), API_BASE_URL);
   const code = hostelCode(hostel);
   const lifetimeKnown = earnings.lifetime !== null;
@@ -496,210 +408,163 @@ export function HostelHero({
   };
 
   return (
-    <View style={{ paddingHorizontal: CARD_INSET }}>
-      <LinearGradient
-        /*
-          Three stops, holding `from` flat for the first 45%: no colour travel at
-          all over the half of the card the eye actually lands on — the name and
-          the total — so the ramp supports the content instead of competing with
-          it.
-        */
-        colors={[paint.from, paint.from, paint.to]}
-        end={{ x: 0, y: 1 }}
-        locations={[0, 0.45, 1]}
-        start={{ x: 0, y: 0 }}
-        style={[FLOAT_SHADOW, { borderRadius: CARD_RADIUS, overflow: "hidden" }]}
-      >
-        {/*
-          The hostel's own building, under the colour rather than beside it, and
-          only when there is one — `HeroOrnament` is the alternative texture,
-          never both.
-        */}
-        {photo ? (
-          <>
-            <Image
-              contentFit="cover"
-              source={{ uri: photo }}
-              style={[StyleSheet.absoluteFill, { opacity: PHOTO_WEIGHT }]}
-              transition={300}
+    <PortalHeroCard photoUrl={photo}>
+      {/* Lines one and two: the account's name, its number, and its state. */}
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1" style={{ gap: HERO_LINE_GAP }}>
+          <Text
+            className="font-semibold text-white"
+            numberOfLines={1}
+            style={{ fontSize: 16 }}
+          >
+            {/*
+              A warden scoped to several hostels has no single profile to
+              name, and the figures below still cover all of them — so the
+              line widens rather than showing an empty one.
+            */}
+            {hostel?.name ?? "Your hostels"}
+          </Text>
+
+          <View className="flex-row items-center gap-1.5">
+            <Ionicons
+              color="rgba(255,255,255,0.75)"
+              name={code ? "id-card-outline" : "albums-outline"}
+              size={12}
             />
             {/*
-              A darkening wash, faint at the top and strongest at the bottom
-              where the smallest text on the card is. A photograph with a bright
-              sky in its lower half is what takes a white 10-point label below
-              the contrast floor, and it is not a case anybody would think to
-              test for.
+              The account-number line. Tracked out a little, the way every
+              card prints the one string on it that a person has to read
+              aloud or copy by hand.
             */}
-            <LinearGradient
-              colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0.34)"]}
-              end={{ x: 0, y: 1 }}
-              start={{ x: 0, y: 0 }}
-              style={StyleSheet.absoluteFill}
-            />
-          </>
-        ) : (
-          <HeroOrnament />
-        )}
-
-        <View style={[CARD_PAD, { gap: BLOCK_GAP }]}>
-          {/* Lines one and two: the account's name, its number, and its state. */}
-          <View className="flex-row items-start justify-between gap-3">
-            <View className="flex-1" style={{ gap: LINE_GAP }}>
-              <Text
-                className="font-semibold text-white"
-                numberOfLines={1}
-                style={{ fontSize: 16 }}
-              >
-                {/*
-                  A warden scoped to several hostels has no single profile to
-                  name, and the figures below still cover all of them — so the
-                  line widens rather than showing an empty one.
-                */}
-                {hostel?.name ?? "Your hostels"}
-              </Text>
-
-              <View className="flex-row items-center gap-1.5">
-                <Ionicons
-                  color="rgba(255,255,255,0.75)"
-                  name={code ? "id-card-outline" : "albums-outline"}
-                  size={12}
-                />
-                {/*
-                  The account-number line. Tracked out a little, the way every
-                  card prints the one string on it that a person has to read
-                  aloud or copy by hand.
-                */}
-                <Text
-                  className="flex-1 text-white/80"
-                  numberOfLines={1}
-                  style={{ fontSize: 13, letterSpacing: 0.5 }}
-                >
-                  {code ?? "Every hostel you manage"}
-                </Text>
-              </View>
-            </View>
-
-            <ListingPill listing={listing} />
-          </View>
-
-          {/*
-            The one thing allowed to interrupt the card, and it sits above the
-            money: the cost of scrolling past this one is somebody's safety, so
-            it may not be below anything. It is an alarm, not the control —
-            acknowledging happens on the card in the body below, which carries
-            the resident, the message and the button.
-          */}
-          {sosCount > 0 ? <HeroSosStrip count={sosCount} onPress={onSos} /> : null}
-
-          <View style={{ gap: LINE_GAP, marginTop: AMOUNT_LEAD_TRIM }}>
-            <View className="flex-row items-end justify-between gap-2">
-              {/*
-                Sized from the string it is about to draw, with `NPR` a little
-                under three-quarters of the digits — the treatment every balance
-                in `ebl-01` and `ebl-02` gets. `PaintedAmount` owns that ratio
-                and the Android `lineHeight` guard a figure this size needs.
-              */}
-              <View className="flex-1 flex-row items-center gap-2">
-                <PaintedAmount size={size} value={amount} />
-
-                {/*
-                  Beside the figure, not in the card's corner: it is the control
-                  *for this number*, and an owner who cannot find it reads a row
-                  of Xs as a bug.
-                */}
-                <Pressable
-                  accessibilityLabel={shown ? "Hide the amounts" : "Show the amounts"}
-                  accessibilityRole="button"
-                  className="-m-2 p-2 active:opacity-60"
-                  hitSlop={8}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setShown((current) => !current);
-                  }}
-                >
-                  <Ionicons
-                    color="rgba(255,255,255,0.9)"
-                    name={shown ? "eye-outline" : "eye-off-outline"}
-                    size={17}
-                  />
-                </Pressable>
-              </View>
-
-              {/*
-                Only when there is a comparison to make. A first month, and a
-                month following a blank one, both return null rather than a
-                percentage computed against zero.
-              */}
-              {delta ? <DeltaPill delta={delta} /> : null}
-            </View>
-
-            {/*
-              The quiet line, in the slot the account holder's name occupies on
-              `ebl-01`: three counts set as a caption rather than as figures,
-              because not one of them is a thing to act on and all three were
-              competing with the amount for the same glance. `occupancyLine`
-              drops occupancy rather than printing `0%` for a hostel that has
-              never configured its rooms.
-            */}
-            <View className="flex-row items-center gap-1.5">
-              <Ionicons color="rgba(255,255,255,0.8)" name="people-outline" size={13} />
-              <Text className="flex-1 text-white/80" numberOfLines={1} style={{ fontSize: 12 }}>
-                {occupancyLine({ occupancy, residents, vacantBeds })}
-              </Text>
-            </View>
-          </View>
-
-          {/*
-            **Fixed halves, never sized to content.** `flex-1` on both, not
-            `shrink`: a wrapping row of content-sized chips gives width away to
-            its neighbours until every one of them ellipses, which is how
-            `NPR 74,000` became `NPR 74,0…` in an earlier cut. `AdminMoneyCard`
-            draws the same pattern and carries the same note.
-          */}
-          {/*
-            A drawn hairline, not `border-t border-white/15`.
-
-            That class pair shipped a **black** rule across the card: NativeWind
-            compiles its stylesheet from a build-time scan, the slashed border
-            colour resolved to nothing, and what was left was a border width with
-            React Native's default colour behind it. A `bg-white/20` view is the
-            same hairline through the path that demonstrably works on this
-            surface — the two-up's own divider is drawn the same way.
-          */}
-          <View style={{ gap: 14 }}>
-            <View className="h-px w-full bg-white/20" />
-
-            <View className="flex-row items-center">
-              {[
-                /*
-                  Masked with the headline, by the same switch. The left half is
-                  the same lifetime total the headline draws, so covering only
-                  the big figure and printing it again in 16-point type two rows
-                  below would hide nothing at all.
-                */
-                { label: "Since opening", value: money(earnings.lifetime) },
-                { label: "This month", value: money(earnings.thisMonth) },
-              ].map((fact, index) => (
-                <View className="flex-1 flex-row items-center" key={fact.label}>
-                  {index > 0 ? <View className="mr-3 h-9 w-px bg-white/25" /> : null}
-
-                  <View className="flex-1 gap-1">
-                    <Text
-                      className="font-semibold uppercase tracking-wider text-white/75"
-                      numberOfLines={1}
-                      style={{ fontSize: 11 }}
-                    >
-                      {fact.label}
-                    </Text>
-                    <PaintedAmount size={16} value={fact.value} />
-                  </View>
-                </View>
-              ))}
-            </View>
+            <Text
+              className="flex-1 text-white/80"
+              numberOfLines={1}
+              style={{ fontSize: 13, letterSpacing: 0.5 }}
+            >
+              {code ?? "Every hostel you manage"}
+            </Text>
           </View>
         </View>
-      </LinearGradient>
-    </View>
+
+        <ListingPill listing={listing} />
+      </View>
+
+      {/*
+        The one thing allowed to interrupt the card, and it sits above the
+        money: the cost of scrolling past this one is somebody's safety, so
+        it may not be below anything. It is an alarm, not the control —
+        acknowledging happens on the card in the body below, which carries
+        the resident, the message and the button.
+      */}
+      {sosCount > 0 ? <HeroSosStrip count={sosCount} onPress={onSos} /> : null}
+
+      <View style={{ gap: HERO_LINE_GAP, marginTop: HERO_AMOUNT_LEAD_TRIM }}>
+        <View className="flex-row items-end justify-between gap-2">
+          {/*
+            Sized from the string it is about to draw, with `NPR` a little
+            under three-quarters of the digits — the treatment every balance
+            in `ebl-01` and `ebl-02` gets. `PaintedAmount` owns that ratio
+            and the Android `lineHeight` guard a figure this size needs.
+          */}
+          <View className="flex-1 flex-row items-center gap-2">
+            <PaintedAmount size={size} value={amount} />
+
+            {/*
+              Beside the figure, not in the card's corner: it is the control
+              *for this number*, and an owner who cannot find it reads a row
+              of Xs as a bug.
+            */}
+            <Pressable
+              accessibilityLabel={shown ? "Hide the amounts" : "Show the amounts"}
+              accessibilityRole="button"
+              className="-m-2 p-2 active:opacity-60"
+              hitSlop={8}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setShown((current) => !current);
+              }}
+            >
+              <Ionicons
+                color="rgba(255,255,255,0.9)"
+                name={shown ? "eye-outline" : "eye-off-outline"}
+                size={17}
+              />
+            </Pressable>
+          </View>
+
+          {/*
+            Only when there is a comparison to make. A first month, and a
+            month following a blank one, both return null rather than a
+            percentage computed against zero.
+          */}
+          {delta ? <DeltaPill delta={delta} /> : null}
+        </View>
+
+        {/*
+          The quiet line, in the slot the account holder's name occupies on
+          `ebl-01`: three counts set as a caption rather than as figures,
+          because not one of them is a thing to act on and all three were
+          competing with the amount for the same glance. `occupancyLine`
+          drops occupancy rather than printing `0%` for a hostel that has
+          never configured its rooms.
+        */}
+        <View className="flex-row items-center gap-1.5">
+          <Ionicons color="rgba(255,255,255,0.8)" name="people-outline" size={13} />
+          <Text className="flex-1 text-white/80" numberOfLines={1} style={{ fontSize: 12 }}>
+            {occupancyLine({ occupancy, residents, vacantBeds })}
+          </Text>
+        </View>
+      </View>
+
+      {/*
+        **Fixed halves, never sized to content.** `flex-1` on both, not
+        `shrink`: a wrapping row of content-sized chips gives width away to
+        its neighbours until every one of them ellipses, which is how
+        `NPR 74,000` became `NPR 74,0…` in an earlier cut. `AdminMoneyCard`
+        draws the same pattern and carries the same note.
+      */}
+      {/*
+        A drawn hairline, not `border-t border-white/15`.
+
+        That class pair shipped a **black** rule across the card: NativeWind
+        compiles its stylesheet from a build-time scan, the slashed border
+        colour resolved to nothing, and what was left was a border width with
+        React Native's default colour behind it. A `bg-white/20` view is the
+        same hairline through the path that demonstrably works on this
+        surface — the two-up's own divider is drawn the same way.
+      */}
+      <View style={{ gap: 14 }}>
+        <View className="h-px w-full bg-white/20" />
+
+        <View className="flex-row items-center">
+          {[
+            /*
+              Masked with the headline, by the same switch. The left half is
+              the same lifetime total the headline draws, so covering only
+              the big figure and printing it again in 16-point type two rows
+              below would hide nothing at all.
+            */
+            { label: "Since opening", value: money(earnings.lifetime) },
+            { label: "This month", value: money(earnings.thisMonth) },
+          ].map((fact, index) => (
+            <View className="flex-1 flex-row items-center" key={fact.label}>
+              {index > 0 ? <View className="mr-3 h-9 w-px bg-white/25" /> : null}
+
+              <View className="flex-1 gap-1">
+                <Text
+                  className="font-semibold uppercase tracking-wider text-white/75"
+                  numberOfLines={1}
+                  style={{ fontSize: 11 }}
+                >
+                  {fact.label}
+                </Text>
+                <PaintedAmount size={16} value={fact.value} />
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    </PortalHeroCard>
   );
 }
 
@@ -707,155 +572,17 @@ export function HostelHero({
 /* Quick actions                                                              */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The four tints, one per action.
+/*
+ * `ACTION_TONES`, `ActionCard`, `ActionRow` and the cell itself moved to
+ * `ui/action-grid.tsx` when the resident Home was taken to this same shape.
  *
- * A row of four identically-coloured tiles is read word by word; four colours
- * are recognised by position after about two uses, which is the entire point of
- * a shortcut row. They are the app's existing semantic tones rather than four
- * decorative ones — money is the money colour, the night roster is the warning
- * colour — so nothing here invents a fifth meaning for a colour used elsewhere.
+ * Nothing about them was admin-specific — a cell is a glyph, a label, an
+ * optional count and a destination — and the alternative was a second portal
+ * growing a near-identical copy, which is the mistake this codebase keeps
+ * warning about. The three rules the cell carries (a zero count goes grey, a
+ * door carries no count, rows are chunked and never wrapped) moved with it and
+ * are written down there.
  */
-const ACTION_TONES = {
-  admin: "bg-role-admin-soft",
-  brand: "bg-brand-soft",
-  danger: "bg-destructive-soft",
-  success: "bg-success-soft",
-  warning: "bg-warning-soft",
-} as const;
-
-/**
- * The white card both four-up rows sit in.
- *
- * There are two of them on Home now — the shortcuts and the queues — and they
- * are deliberately the same object: one bordered card, four evenly-spaced icon
- * cells, no dividers. It replaced a grid of four *separate* bordered tiles under
- * "Waiting for you", which put four card edges on the screen where the row above
- * had one, so two things that behave identically looked like different kinds of
- * thing.
- *
- * No padding of its own — the shortcut row supplies its own inset because it
- * sits outside the page's padded body, and the queue row is inside it.
- */
-/** The card's own surface, shared by the single-row and multi-row shells. */
-const ACTION_CARD = "rounded-3xl border border-border bg-card px-2 py-4";
-
-/**
- * Cells per row, for every one of the three cards.
- *
- * Written once because it is one decision: the shortcut row, the queue row and
- * the Manage grid are the same object at three lengths, and a grid that quietly
- * used a different pitch from the rows above it would read as a second design.
- */
-const COLUMNS = 4;
-
-function ActionCard({ children }: { children: ReactNode }) {
-  return (
-    <View className={`flex-row items-start gap-1 ${ACTION_CARD}`} style={FLOAT_SHADOW}>
-      {children}
-    </View>
-  );
-}
-
-/** Four evenly-spaced cells. `flex-1` each, so they shrink to fit the gap. */
-function ActionRow({ children }: { children: ReactNode }) {
-  return <View className="flex-row items-start gap-1">{children}</View>;
-}
-
-function QuickAction({
-  badge,
-  glyph,
-  icon,
-  label,
-  onPress,
-  onPressIn,
-  tone,
-}: {
-  /**
-   * A count on the glyph. Omit entirely for a cell that is a door rather than a
-   * queue — `Today` has no single number meaning "how much of that is waiting",
-   * and a cell with a count and a cell without read as different kinds of thing
-   * at a glance, which is exactly what they are.
-   */
-  badge?: number;
-  glyph: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-  /**
-   * Touch-down, before the press resolves.
-   *
-   * Used for one thing only: starting the fetch the destination is about to
-   * make. A finger resting on a tile is 100–300ms of head start, which is most
-   * of the gap between tapping a tile and reading the screen behind it — and
-   * unlike a launch-time warm-up it costs nothing for the tiles nobody touches.
-   *
-   * It must stay side-effect-free beyond that. This fires on a press that is
-   * then dragged off and cancelled, so anything that *changes* something here
-   * would happen without the user ever having chosen it.
-   */
-  onPressIn?: () => void;
-  tone: keyof typeof ACTION_TONES;
-}) {
-  const quiet = badge === 0;
-
-  return (
-    <Pressable
-      accessibilityLabel={[label, badge === undefined ? null : `${badge} waiting`]
-        .filter(Boolean)
-        .join(", ")}
-      accessibilityRole="button"
-      className="flex-1 items-center gap-2 active:opacity-70"
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
-      }}
-      onPressIn={onPressIn}
-    >
-      <View className={`h-12 w-12 items-center justify-center rounded-2xl ${ACTION_TONES[tone]}`}>
-        <Ionicons color={glyph} name={icon} size={21} />
-
-        {/*
-          On the glyph's shoulder, where every phone home screen has trained
-          people to look for "how many" — and a zero goes grey whatever the tone,
-          because a row of coloured pills reading `0` teaches people to ignore
-          the colour on the day one of them is not.
-        */}
-        {badge === undefined ? null : (
-          <View
-            className={`absolute -right-1.5 -top-1.5 h-5 items-center justify-center rounded-full px-1.5 ${
-              quiet ? "bg-muted" : "bg-destructive"
-            }`}
-            // A style rather than `min-w-[20px]` — see the note in `<CardRow>`.
-            style={{ minWidth: 20 }}
-          >
-            <Text
-              className={`font-bold ${quiet ? "text-muted-foreground" : "text-white"}`}
-              style={{ fontSize: 11 }}
-            >
-              {badge}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/*
-        Two lines are allowed and they are set tight. `Payments to check` does
-        not fit one line in a quarter of the card, and at the class default's
-        leading the wrapped word floated so far below the first line that the
-        cell stopped reading as one label — 14 points closes it up and keeps
-        every cell in the row the same height.
-      */}
-      <Text
-        className="text-center font-medium text-foreground"
-        numberOfLines={2}
-        style={{ fontSize: 11, lineHeight: 14 }}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
 
 /**
  * Everything else the hostel is run from, as one grid of doors.
@@ -949,53 +676,21 @@ export function ServiceGrid({
   } as const;
 
   /*
-    Rows of four, chunked and written out — not `flex-wrap` over the whole list.
-
-    Wrapping was the obvious construction and it shipped a card with its second
-    row hanging *outside* the white surface: React Native's wrap does not grow
-    the container to the height of the lines it created, so the card drew itself
-    around the first four and the rest fell onto the page below it. Explicit rows
-    are also the same construction as the shortcut and queue cards above, which
-    is what keeps all three in step — and it is why the count is four here
-    whatever length the list happens to be.
+    The chunking into rows of four, and the spacers that keep the last row's
+    column pitch, are `<ActionTiles>`'s job — see the note there for why this
+    may never become a `flex-wrap`.
   */
-  const rows: (typeof services)[number][][] = [];
+  const tiles: ActionTile[] = services.map((service) => ({
+    glyph: glyph[service.tone],
+    icon: service.icon,
+    key: service.href,
+    label: service.label,
+    onPress: () => onOpen(service.href),
+    onPressIn: onPrefetch ? () => onPrefetch(service.href) : undefined,
+    tone: service.tone,
+  }));
 
-  for (let index = 0; index < services.length; index += COLUMNS) {
-    rows.push(services.slice(index, index + COLUMNS));
-  }
-
-  return (
-    <View className={`gap-5 ${ACTION_CARD}`} style={FLOAT_SHADOW}>
-      {rows.map((row) => (
-        <ActionRow key={row[0].href}>
-          {row.map((service) => (
-            <QuickAction
-              glyph={glyph[service.tone]}
-              icon={service.icon}
-              key={service.href}
-              label={service.label}
-              onPress={() => onOpen(service.href)}
-              onPressIn={onPrefetch ? () => onPrefetch(service.href) : undefined}
-              tone={service.tone}
-            />
-          ))}
-
-          {/*
-            Empty cells padding the short last row.
-
-            Every cell is `flex-1`, so a row of one would draw a single tile
-            stretched across the whole card — three times the width of the eight
-            above it, and reading as a different kind of control rather than as
-            the last item in a grid. The spacers keep the column pitch.
-          */}
-          {Array.from({ length: COLUMNS - row.length }, (_, index) => (
-            <View className="flex-1" key={`gap-${index}`} />
-          ))}
-        </ActionRow>
-      ))}
-    </View>
-  );
+  return <ActionTiles tiles={tiles} />;
 }
 
 /**
@@ -1109,7 +804,7 @@ export function QuickActions({
     <View className="px-5">
       <ActionCard>
         {onStore ? (
-          <QuickAction
+          <ActionCell
             glyph={colors.primary}
             icon="storefront-outline"
             label="Store"
@@ -1117,7 +812,7 @@ export function QuickActions({
             tone="brand"
           />
         ) : (
-          <QuickAction
+          <ActionCell
             glyph={colors.warning}
             icon="moon-outline"
             label="Roll call"
@@ -1125,14 +820,14 @@ export function QuickActions({
             tone="warning"
           />
         )}
-        <QuickAction
+        <ActionCell
           glyph={roleAccent.ADMIN[scheme]}
           icon="person-add-outline"
           label="Add resident"
           onPress={onNewResident}
           tone="admin"
         />
-        <QuickAction
+        <ActionCell
           glyph={colors.warning}
           icon="scan-outline"
           label="Scan resident"
@@ -1207,7 +902,7 @@ export function WaitingActions({
         before it came off — an owner who learnt the receipt in green finds the
         same object one section higher rather than a new one.
       */}
-      <QuickAction
+      <ActionCell
         glyph={colors.success}
         icon="receipt-outline"
         label="Statement"
@@ -1222,14 +917,14 @@ export function WaitingActions({
         beside it used to have, so the row still reads left-to-right as "the
         money paperwork, then the people, then the day".
       */}
-      <QuickAction
+      <ActionCell
         glyph={colors.warning}
         icon="git-compare-outline"
         label="Reconcile"
         onPress={onReconcile}
         tone="warning"
       />
-      <QuickAction
+      <ActionCell
         badge={inquiries}
         glyph={roleAccent.ADMIN[scheme]}
         icon="mail-outline"
@@ -1237,7 +932,7 @@ export function WaitingActions({
         onPress={onInquiries}
         tone="admin"
       />
-      <QuickAction
+      <ActionCell
         glyph={colors.success}
         icon="today-outline"
         label="Today"

@@ -5,7 +5,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback } from "react";
 import { Linking, Pressable, View } from "react-native";
 
-import { FLOAT_SHADOW, useAdminPaint } from "@/components/admin-shared";
+import { FLOAT_SHADOW, usePortalPaint } from "@/components/portal-shared";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge, StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
@@ -245,7 +245,7 @@ function IdentityBlock({
   status: string | null;
   subtitle: string;
 }) {
-  const paint = useAdminPaint();
+  const paint = usePortalPaint();
 
   return (
     <LinearGradient

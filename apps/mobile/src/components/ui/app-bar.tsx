@@ -18,7 +18,7 @@ type AppBarProps = {
    * for a **pushed** screen: something you opened from somewhere else, that has
    * a back arrow, and whose title names one subject. The tab screens keep the
    * plain bar, because five tabs whose top two hundred points are identical stop
-   * saying where you are (`admin-shared.tsx` has the long version of that
+   * saying where you are (`portal-shared.tsx` has the long version of that
    * argument, and it was learnt on a device).
    */
   accent?: boolean;

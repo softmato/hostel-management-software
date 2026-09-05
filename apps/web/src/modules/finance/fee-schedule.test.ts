@@ -16,6 +16,7 @@
 import { Types } from "mongoose";
 import { describe, expect, it } from "vitest";
 
+import { fromBs } from "@hostel/shared/calendar/bs";
 import {
   computeInvoiceAmount,
   periodBounds,
@@ -156,52 +157,91 @@ describe("resolveBedType", () => {
 });
 
 describe("periodBounds", () => {
+  /*
+   * The lengths are the conversion table's, not this file's. A Bikram Sambat
+   * month is 29 to 32 days depending on the *year*, which is the whole reason
+   * the arithmetic cannot be a formula — Jestha is 31 days in 2083 and 32 in
+   * 2084, and any hard-coded denominator is wrong in one of them.
+   */
   it.each([
-    ["2026-01", 31],
-    ["2026-02", 28],
-    ["2028-02", 29],
-    ["2026-04", 30],
-    ["2026-12", 31],
+    ["2083-03", 32], // Asar — the long one
+    ["2083-05", 31], // Bhadra
+    ["2083-07", 30], // Kartik
+    ["2083-08", 29], // Mangsir — the short one
   ] as const)("counts the days in %s as %s", (period, days) => {
     expect(periodBounds(period).daysInMonth).toBe(days);
   });
 
-  it("bounds the month in UTC so a run gives the same answer anywhere", () => {
-    const { end, start } = periodBounds("2026-08");
+  it("gives the same month a different length in a different year", () => {
+    expect(periodBounds("2083-02").daysInMonth).toBe(31);
+    expect(periodBounds("2084-02").daysInMonth).toBe(32);
+  });
 
-    expect(start.toISOString()).toBe("2026-08-01T00:00:00.000Z");
-    expect(end.toISOString()).toBe("2026-08-31T23:59:59.999Z");
+  it("bounds the month in UTC so a run gives the same answer anywhere", () => {
+    const { end, lastDay, start } = periodBounds("2083-05");
+
+    // Bhadra 2083 is 17 Aug to 16 Sep 2026. Neither end is the 1st or the 30th
+    // of anything, which is exactly what the Gregorian bounds got wrong.
+    expect(start.toISOString()).toBe("2026-08-17T00:00:00.000Z");
+    expect(lastDay.toISOString()).toBe("2026-09-16T00:00:00.000Z");
+    expect(end.toISOString()).toBe("2026-09-16T23:59:59.999Z");
   });
 
   it("rejects a malformed period", () => {
-    expect(() => periodBounds("2026-13")).toThrow(/YYYY-MM/);
+    expect(() => periodBounds("2083-13")).toThrow(/YYYY-MM/);
+  });
+
+  it("rejects a Gregorian period rather than dating it to 1969", () => {
+    expect(() => periodBounds("2026-08")).toThrow(/Bikram Sambat/);
   });
 });
 
-const AUG = "2026-08"; // 31 days
+/**
+ * Bhadra 2083 — 17 August to 16 September 2026, 31 days.
+ *
+ * The month the resident whose bill started this change was actually living in.
+ * Move-ins are written as BS days, because that is what they are: a warden does
+ * not think "the resident arrived on 4 September", they think "Bhadra 19".
+ */
+const BHADRA = "2083-05";
+const bhadra = (day: number) => fromBs({ day, month: 5, year: 2083 });
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
 describe("computeInvoiceAmount — proration, target §3.5", () => {
   it("charges the full month for a resident present throughout", () => {
-    expect(computeInvoiceAmount(12000, d("2025-01-01"), null, AUG)).toMatchObject({
+    expect(computeInvoiceAmount(12000, d("2025-01-01"), null, BHADRA)).toMatchObject({
       amount: 12000,
       prorationBasis: null,
     });
   });
 
   it("charges the full month for a move-in on the 1st", () => {
-    expect(computeInvoiceAmount(12000, d("2026-08-01"), null, AUG)).toMatchObject({
+    expect(computeInvoiceAmount(12000, bhadra(1), null, BHADRA)).toMatchObject({
       amount: 12000,
       billableDays: 31,
     });
   });
 
   it("prorates a mid-month move-in", () => {
-    // 14 Aug → 18 of 31 days. 12000 / 31 * 18 = 6967.74 → 6968.
-    expect(computeInvoiceAmount(12000, d("2026-08-14"), null, AUG)).toMatchObject({
+    // Bhadra 14 → 18 of 31 days. 12000 / 31 * 18 = 6967.74 → 6968.
+    expect(computeInvoiceAmount(12000, bhadra(14), null, BHADRA)).toMatchObject({
       amount: 6968,
       billableDays: 18,
-      prorationBasis: "18/31 days",
+      prorationBasis: "Bhadra 14–31 · 18 of 31 days",
+    });
+  });
+
+  /*
+   * The bill this whole change came out of: a resident admitted 4 September
+   * 2026 on NPR 18,000. The Gregorian path billed 28 of September's 30 days —
+   * NPR 16,800 — and printed "Bhadra" over it. Bhadra 19 to Bhadra 31 is 13 of
+   * 31 days, which is less than half of what was charged.
+   */
+  it("bills the move-in that exposed the Gregorian month", () => {
+    expect(computeInvoiceAmount(18000, bhadra(19), null, BHADRA)).toMatchObject({
+      amount: 7548,
+      billableDays: 13,
+      prorationBasis: "Bhadra 19–31 · 13 of 31 days",
     });
   });
 
@@ -209,83 +249,113 @@ describe("computeInvoiceAmount — proration, target §3.5", () => {
   // 8th is charged the whole month.
   it("prorates a mid-month move-out", () => {
     expect(
-      computeInvoiceAmount(12000, d("2025-01-01"), d("2026-08-08"), AUG),
-    ).toMatchObject({ amount: 3097, billableDays: 8, prorationBasis: "8/31 days" });
+      computeInvoiceAmount(12000, d("2025-01-01"), bhadra(8), BHADRA),
+    ).toMatchObject({
+      amount: 3097,
+      billableDays: 8,
+      prorationBasis: "Bhadra 1–8 · 8 of 31 days",
+    });
   });
 
   it("prorates a move-in and move-out in the same month", () => {
-    // 10 Aug to 20 Aug inclusive → 11 days.
-    expect(
-      computeInvoiceAmount(12000, d("2026-08-10"), d("2026-08-20"), AUG),
-    ).toMatchObject({ amount: 4258, billableDays: 11 });
+    // Bhadra 10 to Bhadra 20 inclusive → 11 days.
+    expect(computeInvoiceAmount(12000, bhadra(10), bhadra(20), BHADRA)).toMatchObject({
+      amount: 4258,
+      billableDays: 11,
+    });
   });
 
   it("charges a single day of tenancy", () => {
-    expect(
-      computeInvoiceAmount(12000, d("2026-08-31"), d("2026-08-31"), AUG),
-    ).toMatchObject({ amount: 387, billableDays: 1, prorationBasis: "1/31 days" });
+    expect(computeInvoiceAmount(12000, bhadra(31), bhadra(31), BHADRA)).toMatchObject({
+      amount: 387,
+      billableDays: 1,
+      prorationBasis: "Bhadra 31 · 1 of 31 days",
+    });
   });
 
   it("charges nothing before the resident arrives", () => {
-    expect(computeInvoiceAmount(12000, d("2026-09-05"), null, AUG)).toMatchObject({
-      amount: 0,
-      prorationBasis: "not yet resident",
-    });
+    // Aswin 1 — the day after Bhadra ends, which the Gregorian bounds would
+    // have counted as still inside "September".
+    expect(
+      computeInvoiceAmount(12000, fromBs({ day: 1, month: 6, year: 2083 }), null, BHADRA),
+    ).toMatchObject({ amount: 0, prorationBasis: "not yet resident" });
   });
 
   it("charges nothing after the resident has left", () => {
     expect(
-      computeInvoiceAmount(12000, d("2025-01-01"), d("2026-07-20"), AUG),
+      computeInvoiceAmount(
+        12000,
+        d("2025-01-01"),
+        fromBs({ day: 20, month: 4, year: 2083 }),
+        BHADRA,
+      ),
     ).toMatchObject({ amount: 0, prorationBasis: "already moved out" });
   });
 
   it("charges the full month when tenancy spans it entirely", () => {
     expect(
-      computeInvoiceAmount(12000, d("2026-07-01"), d("2026-09-30"), AUG),
+      computeInvoiceAmount(
+        12000,
+        fromBs({ day: 1, month: 4, year: 2083 }),
+        fromBs({ day: 30, month: 6, year: 2083 }),
+        BHADRA,
+      ),
     ).toMatchObject({ amount: 12000, billableDays: 31, prorationBasis: null });
   });
 
-  it("handles a 28-day February", () => {
-    // 1–14 Feb inclusive is exactly half of 28 days.
-    expect(
-      computeInvoiceAmount(12000, d("2026-02-01"), d("2026-02-14"), "2026-02"),
-    ).toMatchObject({ amount: 6000, billableDays: 14, prorationBasis: "14/28 days" });
+  it("handles a 29-day month", () => {
+    // Mangsir 2083 is 29 days, so 14 of them is 5793.10… — not half, and not
+    // rounded to half.
+    const mangsir = (day: number) => fromBs({ day, month: 8, year: 2083 });
+
+    expect(computeInvoiceAmount(12000, mangsir(1), mangsir(14), "2083-08")).toMatchObject(
+      { amount: 5793, billableDays: 14, prorationBasis: "Mangsir 1–14 · 14 of 29 days" },
+    );
   });
 
-  it("handles a leap February", () => {
-    // 29 days, so 14 of them is 5793.10… — not half, and not rounded to half.
-    expect(
-      computeInvoiceAmount(12000, d("2028-02-01"), d("2028-02-14"), "2028-02"),
-    ).toMatchObject({ amount: 5793, billableDays: 14, prorationBasis: "14/29 days" });
+  it("handles a 32-day month", () => {
+    // Asar 2083. No Gregorian month is this long, and a denominator carried
+    // over from one would overcharge every day of it.
+    const asar = (day: number) => fromBs({ day, month: 3, year: 2083 });
+
+    expect(computeInvoiceAmount(12000, asar(1), asar(16), "2083-03")).toMatchObject({
+      amount: 6000,
+      billableDays: 16,
+      prorationBasis: "Asar 1–16 · 16 of 32 days",
+    });
   });
 
-  it("charges the full month for all 29 days of a leap February", () => {
+  it("charges the full month for all 29 days of a short month", () => {
     expect(
-      computeInvoiceAmount(12000, d("2028-02-01"), d("2028-02-29"), "2028-02"),
+      computeInvoiceAmount(
+        12000,
+        fromBs({ day: 1, month: 8, year: 2083 }),
+        fromBs({ day: 29, month: 8, year: 2083 }),
+        "2083-08",
+      ),
     ).toMatchObject({ amount: 12000, prorationBasis: null });
   });
 
   it("leaves no proration basis on a full month, so invoices stay uncluttered", () => {
-    expect(computeInvoiceAmount(12000, null, null, AUG).prorationBasis).toBeNull();
+    expect(computeInvoiceAmount(12000, null, null, BHADRA).prorationBasis).toBeNull();
   });
 
-  it("carries the day count for the resident-facing explanation", () => {
-    expect(computeInvoiceAmount(12000, d("2026-08-14"), null, AUG).prorationBasis).toBe(
-      "18/31 days",
+  it("names the days charged, not just how many", () => {
+    expect(computeInvoiceAmount(12000, bhadra(14), null, BHADRA).prorationBasis).toBe(
+      "Bhadra 14–31 · 18 of 31 days",
     );
   });
 
   it("always produces a whole amount", () => {
     for (let day = 1; day <= 31; day += 1) {
-      const iso = `2026-08-${String(day).padStart(2, "0")}`;
-      const { amount } = computeInvoiceAmount(12345, d(iso), null, AUG);
+      const { amount } = computeInvoiceAmount(12345, bhadra(day), null, BHADRA);
 
       expect(Number.isInteger(amount)).toBe(true);
     }
   });
 
   it("rejects a fractional monthly charge", () => {
-    expect(() => computeInvoiceAmount(12000.5, null, null, AUG)).toThrow(
+    expect(() => computeInvoiceAmount(12000.5, null, null, BHADRA)).toThrow(
       /whole number of rupees/,
     );
   });
@@ -293,9 +363,9 @@ describe("computeInvoiceAmount — proration, target §3.5", () => {
   // The move-out-before-move-in case can only arise from bad data, but it must
   // bill zero rather than a negative amount.
   it("charges nothing when move-out precedes move-in", () => {
-    expect(
-      computeInvoiceAmount(12000, d("2026-08-20"), d("2026-08-10"), AUG),
-    ).toMatchObject({ amount: 0 });
+    expect(computeInvoiceAmount(12000, bhadra(20), bhadra(10), BHADRA)).toMatchObject({
+      amount: 0,
+    });
   });
 });
 

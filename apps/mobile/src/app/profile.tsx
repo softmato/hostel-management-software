@@ -12,8 +12,9 @@ import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { formatDate, formatMoney, humanizeEnum } from "@/lib/format";
+import { formatMoney, humanizeEnum } from "@/lib/format";
 import { getResidentProfile, type ResidentProfile } from "@/lib/resident-api";
 
 /**
@@ -40,6 +41,7 @@ import { getResidentProfile, type ResidentProfile } from "@/lib/resident-api";
  */
 
 export default function ProfileScreen() {
+  const dates = useDates();
   const profile = useResource<ResidentProfile>(
     useCallback(() => getResidentProfile(), []),
     /*
@@ -106,7 +108,7 @@ export default function ProfileScreen() {
           <Card>
             <ListRow title="Room type" value={humanizeEnum(accommodation.roomType)} />
             <RowDivider />
-            <ListRow title="Moved in" value={formatDate(resident.moveInDate)} />
+            <ListRow title="Moved in" value={dates.date(resident.moveInDate)} />
             <RowDivider />
             {/*
               The deposit is shown because a resident cannot otherwise find out

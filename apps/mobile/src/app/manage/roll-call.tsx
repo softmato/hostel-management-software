@@ -147,7 +147,13 @@ export default function ManageRollCallScreen() {
   }, []);
 
   const header = (
-    <AppBar accent centerTitle showBack subtitle={dates.date(new Date())} title="Roll call" />
+    <AppBar
+      accent
+      centerTitle
+      showBack
+      subtitle={dates.dateLong(new Date())}
+      title="Roll call"
+    />
   );
 
   if (roll.loading) {
@@ -187,7 +193,7 @@ export default function ManageRollCallScreen() {
     <>
       <Screen header={header} onRefresh={roll.refresh} refreshing={roll.refreshing} scroll>
         <View className="gap-4 pt-1">
-          <AdminRollCallCard date={dates.date(new Date())} summary={night.summary} />
+          <AdminRollCallCard date={dates.dateLong(new Date())} summary={night.summary} />
 
           <Segmented
             onChange={setSegment}

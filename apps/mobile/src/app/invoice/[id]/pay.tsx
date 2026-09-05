@@ -5,16 +5,21 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 
+import { Sheet } from "@/components/ui/sheet";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, SectionHeader } from "@/components/ui/card";
+import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState, FailureState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { hasWalletLogo, WalletMark } from "@/components/ui/wallet-mark";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { openAssetViewer } from "@/lib/asset-viewer";
 import { API_BASE_URL } from "@/lib/api";
@@ -28,7 +33,7 @@ import {
   type PayMethod,
   startCheckout,
 } from "@/lib/finance-api";
-import { formatDateBoth, formatDueLabel, formatMoney, formatPeriod } from "@/lib/format";
+import { formatDueLabel, formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { openPaymentUrl } from "@/lib/wallet";
 
@@ -38,11 +43,29 @@ import { openPaymentUrl } from "@/lib/wallet";
  * **One method at a time.** Six panels of account numbers open at once is how
  * somebody pays the right hostel from the wrong app. The server sends the
  * methods already ordered — live checkouts first, then QR, then wallet ids,
- * then bank — so the primary is simply `methods[0]` and the rest fold away. No
- * client-side opinion about which method is best can drift out of step with the
- * server's.
+ * then bank — so the primary is simply `methods[0]` and the rest are a list of
+ * rows. No client-side opinion about which method is best can drift out of step
+ * with the server's.
  *
- * **The reference code keeps the strongest treatment on the screen.**
+ * ## The fold became a list of rows, and that is the whole redesign
+ *
+ * The alternatives lived behind a **disclosure** — a card whose header said
+ * "Other ways to pay" with a chevron, which expanded into a column of every
+ * remaining method's full panel: bank name, account name, account number, wallet
+ * ids, QR, all at once, stacked. Two failures in one control. Closed, it hid the
+ * existence of the methods a resident actually uses, so somebody with only a
+ * bank account saw one eSewa button and a chevron. Open, it was the six-panels
+ * problem the primary card exists to avoid, just one tap deeper.
+ *
+ * They are `<ListRow>`s now — name, one-line description, chevron — and tapping
+ * one opens a **bottom sheet** with that method's details and nothing else.
+ * `NOTES.md` §3 is explicit that a menu of destinations is rows or tiles rather
+ * than expanded panels, and §6 is explicit that the thing a row opens is a
+ * sheet. A resident scanning the list sees every way they *could* pay in one
+ * screenful, and reads account numbers for exactly one of them.
+ *
+ * ## The reference code keeps the strongest treatment on the screen
+ *
  * Statement matching, auto-settlement and the owner's review queue staying
  * empty all depend on the resident typing it into a banking app on another
  * device — so it is large, spaced, and one tap to copy.
@@ -50,6 +73,24 @@ import { openPaymentUrl } from "@/lib/wallet";
  * The instruction to submit proof afterwards is scoped to the *manual* methods:
  * a gateway payment settles itself, and telling a resident who just paid
  * through one to wait for approval is how they pay twice.
+ *
+ * ## No sticky footer
+ *
+ * It had one saying "I've paid — submit proof", which is a button asserting the
+ * past tense on a screen the resident has not acted on yet. Worse, it was the
+ * heaviest control on a screen whose actual primary action is the accented
+ * button inside the recommended card — two filled greens, one of them wrong.
+ * The claim form is reached from the Payments tab and from the invoice's own
+ * footer, both of which are screens where "I have already paid" is a true thing
+ * to be saying. Here the last word is the note that says when proof is needed.
+ *
+ * ## Every glyph on this screen is coloured
+ *
+ * Four `<Ionicons>` here carried **no `color`**, which renders black — so the
+ * method icon on the primary card, the disclosure chevron, each folded method's
+ * icon and the copy glyph were all invisible on a dark card in dark mode. It is
+ * the same fault the Payments tab's statement button had, and the same fix: read
+ * the resolved token.
  */
 
 const PROVIDER_LABEL: Record<GatewayProvider, string> = {
@@ -69,7 +110,7 @@ function methodLabel(method: PayMethod) {
     case "BANK":
       return "Bank transfer";
     case "QR":
-      return "Scan QR";
+      return "QR payment";
     case "ESEWA":
       return "eSewa";
     default:
@@ -77,33 +118,79 @@ function methodLabel(method: PayMethod) {
   }
 }
 
-function methodIcon(method: PayMethod): keyof typeof Ionicons.glyphMap {
-  if (method.kind === "BANK") return "business-outline";
-  if (method.kind === "QR") return "qr-code-outline";
+/**
+ * The one line under a method's name in the list.
+ *
+ * Says what the resident will *do*, not what the method is — "Scan QR to pay"
+ * rather than "QR". A row whose subtitle restates its title is a row with an
+ * empty second line, and the reference apps (`NOTES.md` §3) caption every tile
+ * with the action rather than the category.
+ */
+function methodCaption(method: PayMethod) {
+  switch (method.kind) {
+    case "GATEWAY":
+      return `Pay in the ${PROVIDER_LABEL[method.provider]} app`;
+    case "BANK":
+      return method.bankName ?? "Pay via bank account";
+    case "QR":
+      return "Scan QR to pay";
+    case "ESEWA":
+      return "Send to the hostel's eSewa ID";
+    default:
+      return "Send to the hostel's Khalti ID";
+  }
+}
 
-  return "phone-portrait-outline";
+/**
+ * What `<WalletMark>` should try to find a logo for.
+ *
+ * A `GATEWAY` carries its provider explicitly and the two wallet-id kinds *are*
+ * their provider, so those are enums. A `BANK` hands over **the bank's own
+ * name** — `bankName` is free text the owner typed, and matching it is exactly
+ * what `resolvePaymentLogoKey` is for; a hostel banking with Everest gets
+ * Everest's mark rather than a generic building glyph.
+ *
+ * `QR` has no brand of its own — a hostel's static QR is whatever their bank or
+ * wallet printed — so it keeps its kind and gets the glyph.
+ */
+function methodProvider(method: PayMethod): string {
+  if (method.kind === "GATEWAY") {
+    return method.provider;
+  }
+
+  if (method.kind === "BANK") {
+    return method.bankName ?? method.kind;
+  }
+
+  return method.kind;
 }
 
 export default function PayInvoiceScreen() {
+  const { colors } = useAppTheme();
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const instructions = useResource<PayInstructions>(
     useCallback(() => getPayInstructions(id), [id]),
   );
-  const [showOthers, setShowOthers] = useState(false);
+
+  /** Which alternative method's sheet is up, by `methodKey`. */
+  const [openMethod, setOpenMethod] = useState<string | null>(null);
 
   const data = instructions.data;
-  const header = (
-    <AppBar
-      showBack
-      subtitle={data?.period ? `Rent for ${formatPeriod(data.period)}` : undefined}
-      title="Complete your payment"
-    />
-  );
+  const header = <AppBar showBack title="Pay now" />;
 
   if (instructions.loading) {
     return (
-      <Screen header={header}>
-        <LoadingState label="Loading payment details" />
+      /* The amount card, the reference, then the recommended and other panels. */
+      <Screen header={header} scroll>
+        <View className="gap-4 pt-1">
+          <Skeleton height={106} radius={16} />
+          <Skeleton height={86} radius={16} />
+          <Skeleton height={18} width="40%" />
+          <Skeleton height={140} radius={16} />
+          <Skeleton height={18} width="46%" />
+          <Skeleton height={200} radius={16} />
+        </View>
       </Screen>
     );
   }
@@ -111,9 +198,10 @@ export default function PayInvoiceScreen() {
   if (instructions.error || !data) {
     return (
       <Screen header={header}>
-        <ErrorState
-          message={instructions.error ?? "Payment instructions could not be loaded."}
+        <FailureState
+          message={instructions.error ?? "Payment methods could not be loaded."}
           onRetry={instructions.reload}
+          title="Couldn't load methods"
         />
       </Screen>
     );
@@ -121,21 +209,14 @@ export default function PayInvoiceScreen() {
 
   const primary = data.methods[0] ?? null;
   const others = data.methods.slice(1);
-  // Scoped to the whole list, not to the primary: a resident who opened the
-  // fold and paid by bank transfer is exactly the case where a missing
+  // Scoped to the whole list, not to the primary: a resident who opened a
+  // sheet and paid by bank transfer is exactly the case where a missing
   // reference costs the owner a manual match.
   const needsReference = data.methods.some((method) => method.kind !== "GATEWAY");
+  const sheetMethod = others.find((method) => methodKey(method) === openMethod) ?? null;
 
   return (
     <Screen
-      footer={
-        needsReference ? (
-          <Button
-            label="I've paid — submit proof"
-            onPress={() => router.push(`/invoice/${id}/claim`)}
-          />
-        ) : undefined
-      }
       header={header}
       onRefresh={instructions.refresh}
       refreshing={instructions.refreshing}
@@ -149,55 +230,73 @@ export default function PayInvoiceScreen() {
         ) : null}
 
         {data.usable && primary ? (
-          <View className="gap-3">
-            <Text variant="label">
-              {data.displayName ? `Paying ${data.displayName}` : "Pay with"}
-            </Text>
-
-            <Card className="gap-3 border-2 border-primary/40">
-              <View className="flex-row items-center gap-2">
-                <Ionicons name={methodIcon(primary)} size={16} />
-                <Text variant="label">{methodLabel(primary)}</Text>
-              </View>
-              <MethodPanel invoiceId={id} method={primary} />
-            </Card>
+          <>
+            <View>
+              <SectionHeader title="Recommended" />
+              <Card className="gap-3">
+                {/*
+                  The provider's own mark where a generic glyph used to be. On a
+                  card whose whole job is "this is who you are about to pay", a
+                  `phone-portrait-outline` in our green identified nothing —
+                  eSewa and Khalti drew the *same* glyph. `<WalletMark>` falls
+                  back to one for a method that has no logo (bank, QR).
+                */}
+                <View className="flex-row items-center gap-2.5">
+                  <WalletMark name={methodProvider(primary)} size={32} />
+                  <Text variant="label">{methodLabel(primary)}</Text>
+                </View>
+                <MethodPanel invoiceId={id} method={primary} />
+              </Card>
+            </View>
 
             {others.length > 0 ? (
-              <Card>
-                <Pressable
-                  accessibilityRole="button"
-                  className="min-h-12 flex-row items-center justify-between active:opacity-70"
-                  onPress={() => setShowOthers((value) => !value)}
-                >
-                  <Text variant="label">Other ways to pay</Text>
-                  <Ionicons name={showOthers ? "chevron-up" : "chevron-down"} size={18} />
-                </Pressable>
+              <View>
+                <SectionHeader title="Other ways to pay" />
 
-                {showOthers ? (
-                  <View className="gap-5 border-t border-border pt-4">
-                    {others.map((method) => (
-                      <View className="gap-2" key={methodKey(method)}>
-                        <View className="flex-row items-center gap-2">
-                          <Ionicons name={methodIcon(method)} size={14} />
-                          <Text variant="caption">{methodLabel(method)}</Text>
-                        </View>
-                        <MethodPanel invoiceId={id} method={method} />
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-              </Card>
+                {/*
+                  Rows, not an accordion. Each opens a sheet holding one
+                  method's details — `NOTES.md` §3 and §6, and the argument in
+                  this file's header comment.
+                */}
+                <Card padding="px-4 py-1">
+                  {others.map((method, index) => (
+                    <View key={methodKey(method)}>
+                      {index > 0 ? <RowDivider /> : null}
+                      <ListRow
+                        left={<WalletMark name={methodProvider(method)} size={36} />}
+                        onPress={() => setOpenMethod(methodKey(method))}
+                        subtitle={methodCaption(method)}
+                        title={methodLabel(method)}
+                      />
+                    </View>
+                  ))}
+                </Card>
+              </View>
             ) : null}
-          </View>
+          </>
         ) : (
-          <Card className="gap-1 bg-warning-soft">
-            <Text className="text-warning" variant="label">
-              Your hostel has not set up online payment details yet.
-            </Text>
-            <Text variant="muted">
-              Ask them how to pay, then submit your payment screenshot so it still
-              reaches your record.
-            </Text>
+          /*
+            `usable: false` means the hostel has configured no way to be paid at
+            all. Not an error and not an empty list — a fact about their setup,
+            and the resident's rent is still due. So it says what to do next
+            rather than only what is missing, and the claim route stays open:
+            money paid in cash at the office still has to reach the record.
+          */
+          <Card>
+            <EmptyState
+              action={
+                <Button
+                  label="I've paid — submit proof"
+                  onPress={() => router.push(`/invoice/${id}/claim`)}
+                  variant="outline"
+                />
+              }
+              compact
+              description="Your hostel has not set up any payment method yet. Ask them how to pay, then submit your receipt so it still reaches your record."
+              icon="card-outline"
+              title="No payment methods"
+              tone="warning"
+            />
           </Card>
         )}
 
@@ -206,16 +305,58 @@ export default function PayInvoiceScreen() {
             <Text variant="muted">{data.instructions}</Text>
           </Card>
         ) : null}
+
+        {/*
+          The last word on the screen, and scoped. A gateway checkout settles
+          itself; telling somebody who just paid through one to submit a
+          screenshot and wait is how they end up paying twice.
+        */}
+        {needsReference ? (
+          <Card className="flex-row items-start gap-2.5">
+            <Ionicons color={colors.mutedForeground} name="information-circle-outline" size={16} />
+            <Text className="flex-1" variant="caption">
+              After payment, submit proof only for manual methods.
+            </Text>
+          </Card>
+        ) : null}
       </View>
+
+      <Sheet
+        onClose={() => setOpenMethod(null)}
+        open={Boolean(sheetMethod)}
+        title={sheetMethod ? methodLabel(sheetMethod) : undefined}
+      >
+        {sheetMethod ? (
+          <View className="gap-3 pb-2">
+            {hasWalletLogo(methodProvider(sheetMethod)) ? (
+              <WalletMark name={methodProvider(sheetMethod)} size={44} />
+            ) : null}
+            <MethodPanel invoiceId={id} method={sheetMethod} />
+          </View>
+        ) : null}
+      </Sheet>
     </Screen>
   );
 }
 
+/**
+ * What is being paid.
+ *
+ * The screen's whole first question — *how much, for what, and by when* — in the
+ * object the eye lands on. A plain card on the page rather than a straddling one
+ * on paint: this screen's bar is not accented any more (see `index.tsx` for why
+ * a pushed screen's bar says what the screen is rather than what the record is),
+ * and a card pulled up onto nothing is a card with a negative margin bug.
+ */
 function AmountCard({ instructions }: { instructions: PayInstructions }) {
+  const dates = useDates();
+  const { colors } = useAppTheme();
+
   const dueLabel = formatDueLabel(instructions.dueDate);
+  const late = Boolean(dueLabel?.includes("overdue"));
 
   return (
-    <Card className="gap-2">
+    <Card className="gap-1">
       {/*
         Above the amount, never below it. A credit that surfaces after the
         resident has read the number is a credit they have already ignored.
@@ -224,7 +365,7 @@ function AmountCard({ instructions }: { instructions: PayInstructions }) {
         <Badge label={`${formatMoney(instructions.credit)} credit applied`} tone="success" />
       ) : null}
 
-      <Text variant="caption">Amount to pay</Text>
+      <Text variant="caption">Amount due</Text>
       <Money size="display" value={instructions.amountDue} />
 
       {/* So they can sanity-check their own bill: "is this the right rent" is
@@ -233,9 +374,23 @@ function AmountCard({ instructions }: { instructions: PayInstructions }) {
         <Text variant="muted">{instructions.bedLabel}</Text>
       ) : null}
 
+      {/*
+        The overdue tone is a resolved colour, not `text-destructive` through
+        `className`.
+
+        `variant="caption"` already carries `text-muted-foreground`; both rules
+        reach the compiled stylesheet and which one wins is decided by
+        generation order, not by where it sat in the string. The caption won, so
+        "1 day overdue" shipped in the same grey as the date beside it — the
+        same trap `<AppBar>`'s `ink` and `<Card>`'s `padding` document, and the
+        reason this file's own glyphs read `colors.*`.
+      */}
       {instructions.dueDate ? (
-        <Text variant="caption">
-          {`Due ${formatDateBoth(instructions.dueDate)}${dueLabel ? ` · ${dueLabel}` : ""}`}
+        <Text
+          style={late ? { color: colors.destructive } : undefined}
+          variant="caption"
+        >
+          {`Due date: ${dates.dateBoth(instructions.dueDate)}${dueLabel ? ` · ${dueLabel}` : ""}`}
         </Text>
       ) : null}
     </Card>
@@ -250,7 +405,7 @@ function ReferenceCard({
   needsReference: boolean;
 }) {
   return (
-    <Card className={`gap-2 ${needsReference ? "border-2 border-primary/50" : ""}`}>
+    <Card className="gap-2">
       <Text variant="caption">
         {needsReference ? "PUT THIS IN THE REMARKS" : "YOUR REFERENCE"}
       </Text>
@@ -272,6 +427,8 @@ function ReferenceCard({
 }
 
 function CopyButton({ label, value }: { label: string; value: string }) {
+  const { colors } = useAppTheme();
+
   return (
     <Pressable
       accessibilityLabel={`Copy ${label}`}
@@ -282,7 +439,7 @@ function CopyButton({ label, value }: { label: string; value: string }) {
         toastSuccess("Copied");
       }}
     >
-      <Ionicons name="copy-outline" size={14} />
+      <Ionicons color={colors.mutedForeground} name="copy-outline" size={14} />
       <Text variant="caption">Copy</Text>
     </Pressable>
   );
@@ -454,11 +611,14 @@ function GatewayPanel({
 
   return (
     <View className="gap-2">
+      <Text variant="muted">{`Pay securely via ${label}.`}</Text>
+
       <Button
         label={busy ? `Opening ${label}…` : `Pay with ${label}`}
         loading={busy}
         onPress={() => void start()}
       />
+
       <Text className="text-center" variant="caption">
         Opens the {label} app if you have it. Confirms automatically — no screenshot
         needed.

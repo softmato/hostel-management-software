@@ -5,7 +5,6 @@ import {
   collectionRate,
   earningsSummary,
   earningsTrend,
-  heroAmountSize,
   heroPhotoUrl,
   hostelAreaLabel,
   listingState,
@@ -329,28 +328,6 @@ describe("earningsSummary", () => {
     });
 
     expect(summary.outstanding).toBe(0);
-  });
-});
-
-describe("heroAmountSize", () => {
-  it("leaves an ordinary hostel's total at full size", () => {
-    expect(heroAmountSize("NPR 1,284,000")).toBe(34);
-  });
-
-  it("steps down rather than letting a long total ellipse", () => {
-    // `NPR 12,84,…` is not a smaller version of the number, it is a different
-    // number — the one truncation a total must never take.
-    expect(heroAmountSize("NPR 128,400,000")).toBe(29);
-    expect(heroAmountSize("NPR 1,284,000,000")).toBe(29);
-    expect(heroAmountSize("NPR 12,840,000,000")).toBe(24);
-  });
-
-  it("has a floor for something absurd", () => {
-    expect(heroAmountSize("NPR 1,284,000,000,000")).toBe(20);
-  });
-
-  it("does not shrink a dash", () => {
-    expect(heroAmountSize("—")).toBe(34);
   });
 });
 

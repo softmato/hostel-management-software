@@ -10,9 +10,10 @@ import { Screen } from "@/components/ui/screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { API_BASE_URL } from "@/lib/api";
-import { formatMoney, formatRelativeDay, humanizeEnum } from "@/lib/format";
+import { formatMoney, humanizeEnum } from "@/lib/format";
 import {
   type Referral,
   type ResidentReferral,
@@ -254,6 +255,8 @@ function ReferralBody({
 }
 
 function ReferralRow({ referral }: { referral: Referral }) {
+  const dates = useDates();
+
   const reward = referral.reward;
 
   return (
@@ -278,7 +281,7 @@ function ReferralRow({ referral }: { referral: Referral }) {
       <View className="flex-row items-center gap-2">
         <Text variant="caption">{referralStatusLabel(referral.status)}</Text>
         <View className="flex-1" />
-        <Text variant="caption">{formatRelativeDay(referral.createdAt)}</Text>
+        <Text variant="caption">{dates.relativeDay(referral.createdAt)}</Text>
       </View>
 
       {reward && reward.amount > 0 ? (

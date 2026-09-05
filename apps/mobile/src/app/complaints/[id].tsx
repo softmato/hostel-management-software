@@ -15,6 +15,7 @@ import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError, readApiErrorCode } from "@/lib/api-contract";
 import { openAssetViewer } from "@/lib/asset-viewer";
@@ -29,7 +30,7 @@ import {
   confirmComplaintResolution,
   getResidentComplaints,
 } from "@/lib/complaints-api";
-import { formatDateTime, formatDueLabel } from "@/lib/format";
+import { formatDueLabel } from "@/lib/format";
 import { toastSuccess } from "@/lib/toast";
 import { privateAssetSource } from "@/lib/uploads";
 
@@ -115,6 +116,8 @@ function ComplaintDetail({
   onRefresh: () => void;
   refreshing: boolean;
 }) {
+  const dates = useDates();
+
   const standing = complaintStanding(complaint);
   const entries = threadEntries(complaint);
   const [confirming, setConfirming] = useState(false);
@@ -156,7 +159,7 @@ function ComplaintDetail({
           <View className="gap-1 border-t border-border pt-3">
             <Text variant="label">{standing.headline}</Text>
             <Text variant="caption">
-              Raised {formatDateTime(complaint.createdAt)}
+              Raised {dates.dateTime(complaint.createdAt)}
               {due ? ` · ${due}` : ""}
             </Text>
           </View>
@@ -183,7 +186,7 @@ function ComplaintDetail({
                     {entry.actor}
                   </Text>
                   <View className="flex-1" />
-                  <Text variant="caption">{formatDateTime(entry.at)}</Text>
+                  <Text variant="caption">{dates.dateTime(entry.at)}</Text>
                 </View>
 
                 <Text>{entry.body}</Text>
@@ -213,6 +216,7 @@ function ComplaintDetail({
  * see its comment for what R2 does if the header reaches *it*.
  */
 function AttachmentGallery({ complaint }: { complaint: Complaint }) {
+  const dates = useDates();
   const token = useAppSelector((state) => state.auth.accessToken);
   const { colors } = useAppTheme();
 
@@ -223,7 +227,7 @@ function AttachmentGallery({ complaint }: { complaint: Complaint }) {
    */
   const items = complaint.attachments.map((attachment) => ({
     assetId: attachment.fileAssetId,
-    caption: formatDateTime(complaint.createdAt),
+    caption: dates.dateTime(complaint.createdAt),
     title: complaint.title,
   }));
 

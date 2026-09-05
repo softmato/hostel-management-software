@@ -57,6 +57,17 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
   const unreadNotices = dashboard?.notices.filter((notice) => !notice.isRead).length ?? 0;
   const bedTypeLabel = dashboard?.accommodation.roomType?.replaceAll("_", " ") || "—";
   const latestPayment = dashboard?.feeStatus.latestPayment;
+  /*
+   * The invoice the "Payment Due" card is actually about.
+   *
+   * That card pairs `feeStatus.dueAmount` — the total across every unpaid
+   * invoice — with a month and a due date, and both of those used to come from
+   * `latestPayment`, which is the invoice due *furthest in the future*, settled
+   * ones included. A resident two months behind was shown their whole debt under
+   * next month's due date. `nextDue` is the earliest unsettled one; it falls
+   * back only when there is nothing unsettled to point at.
+   */
+  const nextDue = dashboard?.feeStatus.nextDue ?? latestPayment;
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
@@ -297,11 +308,13 @@ export const ResidentDashboardPageContent = memo(function ResidentDashboardPageC
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-foreground">
-                        {latestPayment?.month ?? "Current dues"}
+                        {dashboard.feeStatus.unpaidCount > 1
+                          ? `Oldest of ${dashboard.feeStatus.unpaidCount} unpaid`
+                          : (nextDue?.month ?? "Current dues")}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {latestPayment?.dueDate
-                          ? `Due ${new Date(latestPayment.dueDate).toLocaleDateString()}`
+                        {nextDue?.dueDate
+                          ? `Due ${new Date(nextDue.dueDate).toLocaleDateString()}`
                           : "Check payments for schedule"}
                       </p>
                     </div>

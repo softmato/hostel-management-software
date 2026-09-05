@@ -2,7 +2,18 @@ import { Types } from "mongoose";
 import { describe, expect, it } from "vitest";
 
 import type { FeeScheduleRecord } from "@/modules/finance/fee-schedule.service";
+import { fromBs } from "@hostel/shared/calendar/bs";
 import { periodOfDate, quoteIntake } from "@/modules/residents/resident-intake.service";
+
+/**
+ * Bhadra 2083 — 17 August to 16 September 2026, 31 days.
+ *
+ * Move-ins are written as BS days because that is what a period is now. The
+ * previous fixtures said "20 August", which is Bhadra *4* — so keeping the
+ * literal would have quietly changed every expected figure while looking like it
+ * had not moved.
+ */
+const bhadra = (day: number) => fromBs({ day, month: 5, year: 2083 });
 
 /**
  * The intake quote, as arithmetic.
@@ -164,13 +175,13 @@ describe("intake quote", () => {
   });
 
   it("prices the move-in month from the move-in day, not as a whole month", () => {
-    // 6000 a month, arriving on 20 August: twelve days of a thirty-one-day
+    // 6000 a month, arriving on Bhadra 20: twelve days of a thirty-one-day
     // month. The figure the warden reads out at the desk has to be the one the
     // invoice raises seconds later, which is why both come from
     // `computeInvoiceAmount`.
     const result = quoteIntake({
       hostel,
-      moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+      moveInDate: bhadra(20),
       referralCodeActive: false,
       roomType: "Four Sharing",
       schedule: schedule(),
@@ -179,8 +190,9 @@ describe("intake quote", () => {
     expect(result.firstMonth).toEqual({
       amount: 2323,
       billableDays: 12,
+      dayRange: "Bhadra 20–31",
       daysInMonth: 31,
-      period: "2026-08",
+      period: "2083-05",
       prorated: true,
     });
   });
@@ -190,7 +202,7 @@ describe("intake quote", () => {
     // that is true for them is a caption nobody can explain.
     const result = quoteIntake({
       hostel,
-      moveInDate: new Date("2026-08-01T00:00:00.000Z"),
+      moveInDate: bhadra(1),
       referralCodeActive: false,
       roomType: "Four Sharing",
       schedule: schedule(),
@@ -208,7 +220,7 @@ describe("intake quote", () => {
     // `monthlyRent` gives, and the screen already knows how to draw it.
     const result = quoteIntake({
       hostel: { pricing: {}, roomConfigurations: [] },
-      moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+      moveInDate: bhadra(20),
       referralCodeActive: false,
       roomType: "Nobody Priced This",
       schedule: schedule(),
@@ -221,27 +233,34 @@ describe("intake quote", () => {
   it("reads the move-in month in the hostel's own day, not in UTC", () => {
     /*
      * This asserted UTC, and UTC is the bug. Nepal is UTC+05:45, so the last
-     * five and three-quarter hours of every UTC month are already the next month
-     * on the wall of the hostel doing the admitting: 23:30 UTC on 31 January is
-     * 05:15 on 1 February in Kathmandu. Reading it as January priced the intake
-     * off the previous rate card and put the first invoice in a month that had
-     * already ended — prorated to its final day.
+     * five and three-quarter hours of every UTC day are already the next day on
+     * the wall of the hostel doing the admitting. Reading it as the day before
+     * priced the intake off the previous rate card and put the first invoice in
+     * a month that had already ended — prorated to its final day.
+     *
+     * The boundary is now Bhadra 31 to Aswin 1, which is 16/17 September 2026 —
+     * a month boundary the Gregorian calendar does not have anywhere near.
      */
-    expect(periodOfDate(new Date("2026-01-31T23:30:00.000Z"))).toBe("2026-02");
+    expect(periodOfDate(new Date("2026-09-16T23:30:00.000Z"))).toBe("2083-06");
 
     // And the ordinary midnight-local move-in, which is what a date picker in
-    // Nepal actually sends for "1 February".
-    expect(periodOfDate(new Date("2026-01-31T18:15:00.000Z"))).toBe("2026-02");
+    // Nepal actually sends for "Aswin 1".
+    expect(periodOfDate(new Date("2026-09-16T18:15:00.000Z"))).toBe("2083-06");
 
-    // Still January right up to the local rollover.
-    expect(periodOfDate(new Date("2026-01-31T18:14:00.000Z"))).toBe("2026-01");
+    // Still Bhadra right up to the local rollover.
+    expect(periodOfDate(new Date("2026-09-16T18:14:00.000Z"))).toBe("2083-05");
   });
 
   it("prices the move-in month from the day the resident arrived, not the day before", () => {
     /*
      * The number this was reported as: a resident who moved in on 3 September
-     * was billed 29 of 30 days rather than 28, because "3 September" reaches the
-     * server as `2026-09-02T18:15:00.000Z` and every reader counts UTC days.
+     * was billed a day too many, because "3 September" reaches the server as
+     * `2026-09-02T18:15:00.000Z` and every reader counts UTC days.
+     *
+     * 3 September 2026 is **Bhadra 18, 2083**. Bhadra 18 to Bhadra 31 is 14 of
+     * 31 days, so at 18,000 a month the first bill is 8,129 — not the 16,800
+     * this used to assert, which was 28 of September's 30 days against a month
+     * the hostel's books do not keep.
      */
     const result = quoteIntake({
       hostel: { pricing: {}, roomConfigurations: [] },
@@ -252,11 +271,16 @@ describe("intake quote", () => {
     });
 
     expect(result.firstMonth).toMatchObject({
-      amount: 16800,
-      billableDays: 28,
-      daysInMonth: 30,
-      period: "2026-09",
+      amount: 8129,
+      billableDays: 14,
+      dayRange: "Bhadra 18–31",
+      daysInMonth: 31,
+      period: "2083-05",
       prorated: true,
     });
+
+    // Fifteen days would be the off-by-one this whole normalisation exists to
+    // stop: it would read the instant as Bhadra 17 and charge a day too many.
+    expect(result.firstMonth!.billableDays).not.toBe(15);
   });
 });

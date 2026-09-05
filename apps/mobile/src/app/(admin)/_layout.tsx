@@ -1,9 +1,9 @@
 import { useEffect, useMemo } from "react";
-import { InteractionManager } from "react-native";
 
 import { AdminAlertsProvider, useAdminAlerts } from "@/components/admin-alerts";
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
 import { prefetchAdminManage, prefetchAdminPortal } from "@/lib/admin-queries";
+import { runWhenIdle } from "@/lib/idle";
 
 /**
  * The five, and why they are these five.
@@ -95,21 +95,21 @@ export default function RoleLayout() {
    * tab — and the tab a warden lands on is Home, which is the only one of the
    * five that is *not* in the list.
    *
-   * ## After the interactions, not during them
+   * ## On an idle frame, not during the first one
    *
    * Home is mounting in the same frame and doing its own three requests behind a
    * spinner the user is watching. Seven more issued alongside them would compete
    * for the same connections on the handsets this app is aimed at, and the
    * screen someone is actually looking at would get slower so that four they are
-   * not looking at could get faster. `runAfterInteractions` puts them after the
-   * navigation settles, where the network is idle.
+   * not looking at could get faster. `runWhenIdle` puts them on the first idle
+   * frame, where the network is free.
    *
    * Nothing is awaited and nothing can throw: `prefetchQuery` swallows failures
    * by design, because half of these are refused for a warden whose grants are
    * narrow and a speculative 403 is not news.
    */
   useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(prefetchAdminPortal);
+    const cancelPortal = runWhenIdle(prefetchAdminPortal);
 
     /*
      * The second wave, once Home has had the network to itself.
@@ -126,7 +126,7 @@ export default function RoleLayout() {
     const doors = setTimeout(prefetchAdminManage, 3_000);
 
     return () => {
-      task.cancel();
+      cancelPortal();
       clearTimeout(doors);
     };
   }, []);

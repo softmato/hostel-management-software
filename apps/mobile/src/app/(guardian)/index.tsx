@@ -1,38 +1,53 @@
 import { router } from "expo-router";
-import { useCallback } from "react";
-import { View } from "react-native";
+import { Linking, View } from "react-native";
 
-import { GuardianWardCard } from "@/components/guardian-ward-card";
-import { AppBar } from "@/components/ui/app-bar";
-import { Badge, StatusPill } from "@/components/ui/badge";
-import { MealRow } from "@/components/meal-row";
-import { Card, SectionHeader } from "@/components/ui/card";
-import { Grid, StatTile } from "@/components/ui/layout";
-import { ListRow, RowDivider } from "@/components/ui/list-row";
-import { Money } from "@/components/ui/money";
-import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
-import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
-import { useResource } from "@/hooks/use-resource";
-import { formatMoney, formatPeriod, humanizeEnum } from "@/lib/format";
 import {
-  canSee,
-  guardianDueAmount,
-  guardianPaidAmount,
-  sharesNothing,
-} from "@/lib/guardian";
-import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api";
+  GuardianCallRegister,
+  GuardianWardHero,
+} from "@/components/guardian-home";
+import { MealRow } from "@/components/meal-row";
+import { NotificationBell } from "@/components/notification-bell";
+import { AppBar } from "@/components/ui/app-bar";
+import { Badge } from "@/components/ui/badge";
+import { Card, SectionHeader } from "@/components/ui/card";
+import { CardRow } from "@/components/ui/list-row";
+import { Screen } from "@/components/ui/screen";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
+import { Text } from "@/components/ui/text";
+import { useDates } from "@/hooks/use-dates";
+import { useResource } from "@/hooks/use-resource";
+import { humanizeEnum } from "@/lib/format";
+import { canSee, sharesNothing } from "@/lib/guardian";
+import type { GuardianDashboard } from "@/lib/guardian-api";
+import { guardianQuery } from "@/lib/guardian-queries";
 
 /**
  * A guardian's home: their ward, and only what the resident chose to share.
  *
- * ## One request, not five
+ * ## It had become a longer copy of the two tabs beside it
  *
- * `/guardian/payments`, `/notices`, `/food` and `/safety-summary` each call
- * `getGuardianDashboard` on the server and return a slice of it, so fetching
- * them per tab would be four identical database round trips. Every guardian
- * screen loads the dashboard and slices it locally.
+ * This screen drew the night status, the outstanding figure, a metric strip,
+ * today's meals, the notices, the complaint list **and** a row into Payments.
+ * The Safety tab drew night status, complaints and notices; the Payments tab
+ * drew the outstanding figure, the dues and the receipts. So a guardian with
+ * everything shared read the same four sections three times, and Home — whose
+ * job is to say where to go — was the longest scroll in the portal.
+ *
+ * That is the failure the admin and resident homes were rebuilt to fix, and the
+ * fix is the same one: **a home screen keeps what lives nowhere else, and points
+ * at the rest.**
+ *
+ * | | |
+ * | --- | --- |
+ * | **The hero** | who, where, tonight's word, what is owed — and the office's number in its second register |
+ * | **Today's meals** | Food is not a tab in this portal, so this is the one place it exists |
+ * | **From the hostel** | the guardian-visible notices, moved off the Safety tab where they never belonged |
+ * | **Two doors** | Safety and Payments, subtitled with the fact that would otherwise have been a whole section |
+ *
+ * The metric strip went with the duplication. `Due` repeated the hero's own
+ * figure, `Night` repeated its pill, and `Paid` is a fact about the dues list —
+ * it is on the Payments tab, on the card above the rows it sums.
  *
  * ## Sections are absent, not empty
  *
@@ -45,12 +60,6 @@ import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api
  *
  * ## Against `guardian-dashboard-page.tsx` (§5.2)
  *
- * The web's metric row is ported, with the same permission gating: the tiles
- * are built from what is shared, so this row can legitimately hold one tile or
- * three. **"Paid" is new to mobile** — every row it sums was already on screen,
- * but a parent looking at an outstanding figure with no sense of what has been
- * settled reads a debt rather than a rhythm.
- *
  * Still not ported, and still deliberate: the web's **"Make a Payment" button**
  * (there is no guardian payment route anywhere in `apps/web`, so it did
  * nothing), and its **"Emergency Status: Normal"** tile on the safety page (the
@@ -59,24 +68,51 @@ import { type GuardianDashboard, getGuardianDashboard } from "@/lib/guardian-api
  * thing these screens must never do.
  */
 export default function GuardianHomeScreen() {
-  const guardian = useResource<GuardianDashboard>(
-    useCallback(() => getGuardianDashboard(), []),
-    {
-      topics: [
-        REALTIME_TOPIC.PAYMENTS,
-        REALTIME_TOPIC.NOTICES,
-        REALTIME_TOPIC.FOOD,
-        REALTIME_TOPIC.SAFETY,
-      ],
-    },
-  );
+  const dates = useDates();
+  /*
+   * One key for the whole portal. All four guardian tabs read this same
+   * descriptor, so switching between them paints from cache instead of
+   * refetching one payload four times — see `lib/guardian-queries.ts` for what
+   * was actually broken here.
+   */
+  const query = guardianQuery.dashboard();
+  const guardian = useResource<GuardianDashboard>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
-  const header = <AppBar title="Home" />;
+  /*
+   * The bell, which no guardian screen had.
+   *
+   * `/notifications` is scoped to `principal.userId` with no role branch, so a
+   * guardian has always had a feed — and nothing in these five tabs opened it.
+   * Exactly the fault the resident group had at §2.1, and the same fix: the bell
+   * on every tab so the control does not vanish when you change tab, plus a row
+   * on More.
+   */
+  const header = <AppBar actions={<NotificationBell />} large title="Home" />;
 
   if (guardian.loading) {
     return (
-      <Screen header={header} insideTabs>
-        <LoadingState label="Loading your ward's summary" />
+      /* The hero, then the meal card, then the notices — see Home's note in the
+         resident portal on why this is a skeleton and not a spinner. */
+      <Screen header={header} insideTabs padded={false} scroll>
+        {/* `px-3.5` is 14 points — `HERO_INSET`, so the card lands where it will. */}
+        <View className="px-3.5">
+          <Skeleton height={230} radius={18} />
+        </View>
+
+        <View className="gap-6 px-5 pt-6">
+          <View className="gap-3">
+            <Skeleton height={18} width="42%" />
+            <SkeletonCard rows={3} />
+          </View>
+
+          <View className="gap-3">
+            <Skeleton height={18} width="38%" />
+            <SkeletonCard rows={2} />
+          </View>
+        </View>
       </Screen>
     );
   }
@@ -94,18 +130,44 @@ export default function GuardianHomeScreen() {
 
   const dashboard = guardian.data;
   const wardName = dashboard.resident.fullName;
+  const phone = dashboard.hostel?.contact.phone ?? "";
+  const safety = canSee(dashboard, "canViewSafety") ? dashboard.safety : null;
+  const seesPayments = canSee(dashboard, "canViewPayments");
+  const unpaid = dashboard.summary?.unpaidCount ?? 0;
 
   return (
     <Screen
       header={header}
       insideTabs
       onRefresh={guardian.refresh}
+      padded={false}
       refreshing={guardian.refreshing}
       scroll
     >
-      <View className="gap-5 pt-1">
-        <GuardianWardCard dashboard={dashboard} />
+      <GuardianWardHero
+        /*
+          `null`, not `0`, when fees are not shared — the card drops the whole
+          money block rather than showing a parent a zero they would read as
+          "nothing is owed". `summary` is null for the same reason on the server.
+        */
+        dueAmount={seesPayments ? (dashboard.summary?.dueAmount ?? 0) : null}
+        footer={
+          phone ? (
+            <GuardianCallRegister
+              hostelName={dashboard.hostel?.name ?? null}
+              onCall={() => void Linking.openURL(`tel:${phone}`)}
+            />
+          ) : undefined
+        }
+        hostelName={dashboard.hostel?.name ?? null}
+        nightLabel={safety ? humanizeEnum(safety.status) : null}
+        relation={dashboard.guardian.relation.toLowerCase()}
+        roomLabel={humanizeEnum(dashboard.resident.roomType)}
+        unpaidCount={unpaid}
+        wardName={wardName}
+      />
 
+      <View className="gap-6 px-5 pt-6">
         {sharesNothing(dashboard) ? (
           <Card className="gap-2">
             <Text variant="subtitle">Nothing is shared yet</Text>
@@ -115,62 +177,14 @@ export default function GuardianHomeScreen() {
           </Card>
         ) : null}
 
-        {canSee(dashboard, "canViewSafety") && dashboard.safety ? (
-          <Card className="gap-2">
-            <View className="flex-row items-center justify-between gap-3">
-              <Text variant="label">Night status</Text>
-              <StatusPill status={dashboard.safety.status} />
-            </View>
-            {/*
-              A date, never a time. `asOf` is truncated by the serializer on
-              purpose — the exact minute a resident was checked is the
-              surveillance detail PHASES.md §4.1 rules out showing a guardian.
-            */}
-            <Text variant="caption">
-              {dashboard.safety.asOf
-                ? `As of ${dashboard.safety.asOf}`
-                : "Not verified recently"}
-            </Text>
-          </Card>
-        ) : null}
-
-        {canSee(dashboard, "canViewPayments") ? (
-          <Card className="gap-2">
-            <Text variant="caption">Outstanding</Text>
-            <Money owed size="display" value={dashboard.summary?.dueAmount ?? 0} />
-            <View className="flex-row items-center gap-2">
-              <Badge
-                label={
-                  (dashboard.summary?.unpaidCount ?? 0) > 0
-                    ? `${dashboard.summary?.unpaidCount} unpaid`
-                    : "All settled"
-                }
-                tone={(dashboard.summary?.unpaidCount ?? 0) > 0 ? "warning" : "success"}
-              />
-              {/*
-                Read-only, and said so rather than left implied. There is no
-                guardian payment endpoint — the web's dashboard had a "Make a
-                Payment" button with nothing behind it, which is worse than no
-                button at all.
-              */}
-              <Text className="flex-1" variant="caption">
-                Payment is made from the resident&apos;s portal
-              </Text>
-            </View>
-          </Card>
-        ) : null}
-
-        <GuardianMetrics dashboard={dashboard} />
-
         {canSee(dashboard, "canViewFood") ? (
           <View>
             <SectionHeader subtitle="What the kitchen is serving" title="Today's meals" />
             <Card className="gap-2">
               {dashboard.food.length === 0 ? (
-                <EmptyState
-                  description="The hostel has not published a routine for today."
-                  title="No menu today"
-                />
+                <Text variant="muted">
+                  The hostel has not published a routine for today.
+                </Text>
               ) : (
                 /*
                  * The same meal block the resident's own screens use. A parent
@@ -193,22 +207,43 @@ export default function GuardianHomeScreen() {
 
         {canSee(dashboard, "canViewNotices") ? (
           <View>
+            {/*
+              Moved here off the Safety tab, which drew them under a heading
+              about night status and hostel contact. A notice is not a safety
+              record — it is the hostel talking to the household, which is what a
+              home screen is for.
+            */}
+            {/*
+              Every one of them, with no "See all" and nowhere for one to go.
+              A guardian's notice list is what the hostel addressed to guardians
+              — a handful, not a feed — and there is no `/guardian/notices`
+              screen to link to. A `<SectionLink>` pointing at Safety, which is
+              where these used to live, would have been a door onto a section
+              that had just moved out from under it.
+            */}
             <SectionHeader title="From the hostel" />
-            <Card>
+            <Card className="gap-2">
               {dashboard.notices.length === 0 ? (
-                <EmptyState
-                  description="Notices addressed to guardians appear here."
-                  title="No notices"
-                />
+                <Text variant="muted">
+                  Notices addressed to guardians appear here.
+                </Text>
               ) : (
-                dashboard.notices.map((notice, index) => (
-                  <View key={notice.id}>
-                    {index > 0 ? <RowDivider /> : null}
-                    <ListRow
-                      right={notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : undefined}
-                      subtitle={notice.content}
-                      title={notice.title}
-                    />
+                dashboard.notices.map((notice) => (
+                  <View
+                    className="gap-1 rounded-xl border border-border px-3 py-2.5"
+                    key={notice.id}
+                  >
+                    <View className="flex-row items-start justify-between gap-2">
+                      <Text className="flex-1" numberOfLines={2} variant="label">
+                        {notice.title}
+                      </Text>
+                      {notice.isUrgent ? <Badge label="Urgent" tone="danger" /> : null}
+                    </View>
+                    {notice.content ? (
+                      <Text numberOfLines={2} variant="muted">
+                        {notice.content}
+                      </Text>
+                    ) : null}
                   </View>
                 ))
               )}
@@ -216,119 +251,51 @@ export default function GuardianHomeScreen() {
           </View>
         ) : null}
 
-        {canSee(dashboard, "canViewComplaintStatus") ? (
+        {/*
+          The two tabs this screen used to reproduce, as doors — the shelf shape
+          the whole app now uses for a menu (`<CardRow>`, `NOTES.md` §3). Each
+          subtitle carries the one fact that would otherwise have justified a
+          section of its own here, which is what makes them worth a tap.
+
+          Only when something is behind them. A door onto a screen that will
+          say "not shared with you" is a door that wastes the tap.
+        */}
+        {safety || seesPayments ? (
           <View>
-            <SectionHeader
-              subtitle="Status only — never the text of what they wrote"
-              title="Complaints"
-            />
-            <Card>
-              {dashboard.complaints.length === 0 ? (
-                <EmptyState
-                  description={`${wardName} has not raised anything with the hostel.`}
-                  title="Nothing open"
+            <SectionHeader title="Their record" />
+            <View className="gap-3">
+              {safety ? (
+                <CardRow
+                  icon="shield-checkmark-outline"
+                  onPress={() => router.push("/(guardian)/safety")}
+                  // A day, never a time — `asOf` is truncated by the serializer
+                  // and deriving a time from it is the surveillance detail
+                  // PHASES.md §4.1 rules out showing a guardian.
+                  subtitle={
+                    safety.asOf
+                      ? `Marked ${humanizeEnum(safety.status).toLowerCase()} as of ${safety.asOf}`
+                      : "Night status, hostel contact and open complaints"
+                  }
+                  title="Safety"
                 />
-              ) : (
-                dashboard.complaints.map((complaint, index) => (
-                  <View key={complaint.id}>
-                    {index > 0 ? <RowDivider /> : null}
-                    <ListRow
-                      right={<StatusPill status={complaint.status} />}
-                      title={complaint.title}
-                    />
-                  </View>
-                ))
-              )}
-            </Card>
-          </View>
-        ) : null}
+              ) : null}
 
-        {canSee(dashboard, "canViewPayments") ? (
-          <Card>
-            <ListRow
-              icon="card-outline"
-              onPress={() => router.push("/(guardian)/payments")}
-              subtitle={
-                dashboard.payments.length > 0
-                  ? `Latest: ${formatPeriod(dashboard.payments[0]?.month)}`
-                  : "Every month the hostel has billed"
-              }
-              title="See all dues"
-            />
-          </Card>
+              {seesPayments ? (
+                <CardRow
+                  icon="card-outline"
+                  onPress={() => router.push("/(guardian)/payments")}
+                  subtitle={
+                    dashboard.payments.length > 0
+                      ? `${unpaid > 0 ? `${unpaid} unpaid · ` : ""}latest ${dates.period(dashboard.payments[0]?.month)}`
+                      : "Every month the hostel has billed"
+                  }
+                  title="Fees & receipts"
+                />
+              ) : null}
+            </View>
+          </View>
         ) : null}
       </View>
     </Screen>
-  );
-}
-
-/**
- * The web's metric row, gated the same way everything else on this screen is.
- *
- * The tiles are **collected**, not rendered with `null` holes: a guardian who
- * shared only night status gets one tile filling the row rather than one tile
- * and two gaps where the finances would have been. `<Grid>` then fits whatever
- * survived to the width of the phone.
- */
-function GuardianMetrics({ dashboard }: { dashboard: GuardianDashboard }) {
-  const paid = guardianPaidAmount(dashboard);
-  const due = guardianDueAmount(dashboard);
-  const tiles = [];
-
-  if (due !== null) {
-    tiles.push(
-      <StatTile
-        icon="wallet-outline"
-        key="due"
-        label="Due"
-        tone={due > 0 ? "warning" : "success"}
-        trend={
-          (dashboard.summary?.unpaidCount ?? 0) > 0
-            ? `${dashboard.summary?.unpaidCount} unpaid`
-            : "Nothing owed"
-        }
-        value={formatMoney(due)}
-      />,
-    );
-  }
-
-  if (paid !== null) {
-    tiles.push(
-      <StatTile
-        icon="receipt-outline"
-        key="paid"
-        label="Paid"
-        tone="success"
-        // The qualifier matters: the guardian sees the invoices the resident
-        // shared and no others, so this is not a lifetime total.
-        trend="Across shared invoices"
-        value={formatMoney(paid)}
-      />,
-    );
-  }
-
-  if (canSee(dashboard, "canViewSafety") && dashboard.safety) {
-    tiles.push(
-      <StatTile
-        icon="moon-outline"
-        key="safety"
-        label="Night"
-        tone={dashboard.safety.status === "VERIFIED" ? "success" : "neutral"}
-        // A date, never a time — `asOf` is truncated by the serializer and
-        // deriving a time from it is the surveillance detail §4.1 rules out.
-        trend={dashboard.safety.asOf ? `As of ${dashboard.safety.asOf}` : "Not verified"}
-        value={humanizeEnum(dashboard.safety.status)}
-      />,
-    );
-  }
-
-  if (tiles.length === 0) {
-    return null;
-  }
-
-  return (
-    <Grid gap={10} maxColumns={3} minCellWidth={104}>
-      {tiles}
-    </Grid>
   );
 }

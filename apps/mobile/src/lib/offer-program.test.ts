@@ -1,11 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import type { ResidentInvoice } from "@/lib/finance-api";
+import type { ResidentClaim, ResidentInvoice } from "@/lib/finance-api";
 import {
   activeCodes,
   certifiedReceipts,
   offerProgramStats,
 } from "@/lib/offer-program";
+
+/**
+ * The claim shape the route actually returns — a `ReviewQueueRow`, keyed
+ * `eventId` and dated `occurredAt`. These fixtures said `id` until 2026-09-05
+ * and so agreed with a client type that had never matched the wire.
+ */
+function claim(eventId: string, status: string): ResidentClaim {
+  return {
+    amount: 1,
+    eventId,
+    invoiceId: null,
+    method: "ESEWA",
+    period: null,
+    rejectionReason: null,
+    status,
+    transactionCode: null,
+  };
+}
 
 function invoice(overrides: Partial<ResidentInvoice> = {}): ResidentInvoice {
   return {
@@ -129,18 +147,19 @@ describe("certified receipts", () => {
   });
 });
 
-describe("the three figures at the top", () => {
+describe("the summary figures", () => {
   it("counts and totals the receipts, and counts only pending claims", () => {
     expect(
       offerProgramStats({
         claims: [
-          { amount: 1, id: "c1", status: "PENDING" },
-          { amount: 1, id: "c2", status: "APPROVED" },
-          { amount: 1, id: "c3", status: "PENDING" },
+          claim("c1", "PENDING"),
+          claim("c2", "APPROVED"),
+          claim("c3", "PENDING"),
         ],
         credit: 0,
         invoices: [
           invoice({
+            paidAmount: 11_200,
             receipts: [
               { amount: 6_000, id: "r1", issuedAt: null, number: "R-1" },
               { amount: 4_000, id: "r2", issuedAt: null, number: "R-2" },
@@ -148,7 +167,29 @@ describe("the three figures at the top", () => {
           }),
         ],
       }),
-    ).toEqual({ certifiedAmount: 10_000, certifiedCount: 2, pendingCount: 2 });
+    ).toEqual({
+      certifiedAmount: 10_000,
+      certifiedCount: 2,
+      pendingCount: 2,
+      totalPaid: 11_200,
+    });
+  });
+
+  /*
+   * The gap between the two totals is the screen's whole reason for showing
+   * both: 1,200 of what this resident paid has been reconciled but not yet
+   * receipted, and a screen printing only the certified figure would tell them
+   * they had paid 10,000.
+   */
+  it("counts money that is paid but not yet receipted", () => {
+    const stats = offerProgramStats({
+      claims: [],
+      credit: 0,
+      invoices: [invoice({ paidAmount: 11_200 })],
+    });
+
+    expect(stats.totalPaid).toBe(11_200);
+    expect(stats.certifiedAmount).toBe(0);
   });
 
   it("is all zeroes for a resident with nothing yet", () => {
@@ -156,6 +197,7 @@ describe("the three figures at the top", () => {
       certifiedAmount: 0,
       certifiedCount: 0,
       pendingCount: 0,
+      totalPaid: 0,
     });
   });
 });

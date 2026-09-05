@@ -141,7 +141,7 @@ describe("describeRewards", () => {
       3,
     );
 
-    expect(line).toContain("NPR 2,000");
+    expect(line).toContain("Rs 2,000");
     expect(line).toContain("3 referrals");
   });
 

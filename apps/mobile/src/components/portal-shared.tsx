@@ -1,4 +1,7 @@
-import { View } from "react-native";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import type { ReactNode } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { CURRENCY_SCALE } from "@/components/ui/money";
 import { Text } from "@/components/ui/text";
@@ -58,7 +61,7 @@ export const FLOAT_SHADOW = {
  * edges, Money insets it into a card — which is exactly why the *colour* is
  * shared and the geometry is not.
  */
-export function useAdminPaint() {
+export function usePortalPaint() {
   const { isDark } = useAppTheme();
 
   return isDark ? adminHero.dark : adminHero.light;
@@ -125,13 +128,16 @@ export function PaintedAmount({
     <Text className={className} numberOfLines={1} style={{ fontSize: size, lineHeight }}>
       {/*
         A dash is not an amount, it is the absence of one, so it keeps the plain
-        treatment rather than being given an `NPR` prefix it never had.
+        treatment rather than being given an `Rs` prefix it never had.
+
+        The prefix is `formatMoney`'s, so the two have to agree on the exact
+        string — it was `NPR ` until 2026-09-05.
       */}
-      {value.startsWith("NPR ") ? (
+      {value.startsWith("Rs ") ? (
         <>
           {/*
             `text-white` is not redundant, and leaving it off is what shipped a
-            card with a near-black `NPR` in front of white digits. React Native
+            card with a near-black currency prefix in front of white digits. React Native
             would inherit the parent's colour — but the parent here is our own
             `<Text>`, which defaults to `variant="body"`, and that variant paints
             `text-foreground` on every instance that does not override it. The
@@ -142,9 +148,9 @@ export function PaintedAmount({
             className="text-white"
             style={{ fontSize: Math.round(size * CURRENCY_SCALE), lineHeight }}
           >
-            NPR{" "}
+            Rs{" "}
           </Text>
-          {value.slice(4)}
+          {value.slice(3)}
         </>
       ) : (
         value
@@ -259,6 +265,209 @@ export function NightStrip({ chips }: { chips: readonly NightChip[] }) {
           </View>
         );
       })}
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* The hero card                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How much of the building's own photograph shows through the colour.
+ *
+ * Low on purpose. This is a *ground*, not a picture: white text at five sizes
+ * sits on top of it, and every one of them stops being legible over a
+ * photograph with its own bright and dark areas.
+ *
+ * It was 0.24, and on a device that is not texture — the windows are countable,
+ * and the two-up figures land on whichever part of the facade happens to be
+ * dark. `ebl-01` is the calibration: its mountain is a *ghost*, the card reads
+ * as flat colour everywhere text sits, and you notice the photograph second. At
+ * 0.11 you can still tell it is your building, which is the whole of what it is
+ * there to do.
+ */
+const PHOTO_WEIGHT = 0.11;
+
+/**
+ * The card's geometry, measured off `ebl-01` rather than guessed.
+ *
+ * The reference screenshot is 576px wide, so every number in it converts by
+ * `× 0.625` to points on a 360dp phone. What it gives:
+ *
+ * | | reference | here |
+ * | --- | --- | --- |
+ * | side margin | 23px → 14dp (4.0% of the screen) | `HERO_INSET` |
+ * | card width | 529px → 331dp (92% of the screen) | whatever is left |
+ * | corner | ~15px → 9dp | `HERO_RADIUS`, rounded up |
+ * | padding | 24px → 15dp, 29px top, 23px bottom | `HERO_PAD` |
+ * | height | 304px → 190dp | falls out of the content |
+ *
+ * The card was inset 20 and cornered at 26 — narrower than the reference and
+ * twice as round, which is what made it read as a lozenge rather than as a bank
+ * card. `AdminMoneyCard` keeps 26 for now; if these two ever need to match, this
+ * is the measured one.
+ */
+const HERO_INSET = 14;
+
+const HERO_RADIUS = 18;
+
+const HERO_PAD = { paddingBottom: 18, paddingHorizontal: 16, paddingTop: 20 } as const;
+
+/**
+ * The gaps, and why they are this big.
+ *
+ * The first cut of this card was correct and unreadable: every row was right and
+ * the whole thing was a brick. Measuring `ebl-01` says why — its rows sit **19,
+ * 14, 28 and 27 points apart** ink to ink, and ours were between four and
+ * twelve. A bank card is mostly air; that is the difference between a card you
+ * glance at and a paragraph you parse.
+ *
+ * These are the CSS gaps that land on those ink gaps once line-height slack is
+ * accounted for, so they read a few points tighter than the numbers above.
+ */
+export const HERO_BLOCK_GAP = 20;
+
+export const HERO_LINE_GAP = 10;
+
+/**
+ * Pulls the money block up under the identity block.
+ *
+ * `PaintedAmount` runs a 1.45 line box so the device font's glyphs are not
+ * clipped, and about half of that slack lands *above* the digits — so a 20-point
+ * block gap measures 20 and reads as nearly 30. This cancels the leading rather
+ * than shrinking `HERO_BLOCK_GAP`, which would also close up the gap above the
+ * rule, where the space is doing its job.
+ */
+export const HERO_AMOUNT_LEAD_TRIM = -9;
+
+/**
+ * Two soft discs bled off the edges — the fallback texture.
+ *
+ * A flat ramp behind six elements reads as a coloured rectangle, and every
+ * payment card and banking home this screen is modelled on breaks that up
+ * somehow. When there is a photograph, the photograph does that job and these
+ * would be competing with it, so they are drawn **only** when there is none.
+ *
+ * `pointerEvents: "none"` and outside the content flow, so nothing above them
+ * moves; clipped by the card's `overflow: hidden`, which is also what keeps them
+ * inside the rounded corners.
+ */
+function HeroOrnament() {
+  return (
+    <View className="absolute inset-0" style={{ pointerEvents: "none" }}>
+      <View
+        className="absolute rounded-full bg-white/10"
+        style={{ height: 190, right: -60, top: -70, width: 190 }}
+      />
+      <View
+        className="absolute rounded-full bg-white/5"
+        style={{ bottom: -40, height: 130, left: -30, width: 130 }}
+      />
+    </View>
+  );
+}
+
+/**
+ * The painted card both home screens lead with: paint, texture, corners, lift.
+ *
+ * The admin's hostel and the resident's stay are the *same object* — `ebl-01`'s
+ * account card — carrying different content: an identity block, a state pill, a
+ * big figure, a quiet line and a two-up. Only the content differs, so only the
+ * content lives with each portal and everything measured lives here.
+ *
+ * It was `HostelHero`'s own body until the resident Home was taken to this
+ * shape. Duplicating the geometry would have meant two files disagreeing about
+ * a corner radius the moment either was touched, and the whole reason these
+ * numbers carry a table of measurements is that they are not guesses to be
+ * re-guessed.
+ *
+ * ## The white on it is white, in both schemes
+ *
+ * This is a painted surface, not a themed one: its foreground is white in light
+ * and dark mode alike, and a themed `text-foreground` on it renders near-black
+ * on the accent and disappears. `<PaintedAmount>` exists for that reason and
+ * every caller's literals should be checked against Tailwind's actual opacity
+ * scale — `/15` and `/85` are not on it and silently resolve to nothing.
+ */
+export function PortalHeroCard({
+  children,
+  /**
+   * A second register, on a themed surface, inside the same corners.
+   *
+   * `NOTES.md` §11: the reference statement card carries the transaction on
+   * paint and the running position below a rule, and "two registers of
+   * information in one card" is what stops the lower half needing a sentence of
+   * prose to explain itself. It bleeds to the card's edges — outside the padded
+   * content above, inside the gradient's `overflow: hidden`, so the bottom
+   * corners clip themselves.
+   *
+   * `bg-card` rather than white: this half is a **themed** surface and inverts
+   * with the phone, which is the point of having two registers at all. Anything
+   * drawn in here uses ordinary tokens, not the paint's white literals.
+   *
+   * The admin's hostel card passes none — it is paint top to bottom, and that is
+   * now one of the things telling the two home screens apart.
+   */
+  footer,
+  /** The building, as the card's ground. `null` swaps in `HeroOrnament`. */
+  photoUrl,
+}: {
+  children: ReactNode;
+  footer?: ReactNode;
+  photoUrl: string | null;
+}) {
+  const paint = usePortalPaint();
+
+  return (
+    <View style={{ paddingHorizontal: HERO_INSET }}>
+      <LinearGradient
+        /*
+          Three stops, holding `from` flat for the first 45%: no colour travel at
+          all over the half of the card the eye actually lands on — the name and
+          the total — so the ramp supports the content instead of competing with
+          it.
+        */
+        colors={[paint.from, paint.from, paint.to]}
+        end={{ x: 0, y: 1 }}
+        locations={[0, 0.45, 1]}
+        start={{ x: 0, y: 0 }}
+        style={[FLOAT_SHADOW, { borderRadius: HERO_RADIUS, overflow: "hidden" }]}
+      >
+        {/*
+          The building, under the colour rather than beside it, and only when
+          there is one — `HeroOrnament` is the alternative texture, never both.
+        */}
+        {photoUrl ? (
+          <>
+            <Image
+              contentFit="cover"
+              source={{ uri: photoUrl }}
+              style={[StyleSheet.absoluteFill, { opacity: PHOTO_WEIGHT }]}
+              transition={300}
+            />
+            {/*
+              A darkening wash, faint at the top and strongest at the bottom
+              where the smallest text on the card is. A photograph with a bright
+              sky in its lower half is what takes a white 10-point label below
+              the contrast floor, and it is not a case anybody would think to
+              test for.
+            */}
+            <LinearGradient
+              colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0.34)"]}
+              end={{ x: 0, y: 1 }}
+              start={{ x: 0, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </>
+        ) : (
+          <HeroOrnament />
+        )}
+
+        <View style={[HERO_PAD, { gap: HERO_BLOCK_GAP }]}>{children}</View>
+
+        {footer ? <View className="bg-card">{footer}</View> : null}
+      </LinearGradient>
     </View>
   );
 }

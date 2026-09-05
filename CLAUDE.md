@@ -1,3 +1,34 @@
+## Never quote a schedule, and never treat the repo as a ceiling
+
+Two rules that apply to every plan, review, estimate and answer in this project.
+
+### No day counts
+Do not write "1 week", "2–3 days", "add a few days", "one sprint" or any other
+duration for engineering work — not in plans, not in phase headings, not in
+review notes, not in chat. Real production work takes as long as it takes, and a
+number pulled out of the air only becomes a stick to be beaten with later.
+
+Say what has to happen and in what order instead. **Sequence and dependency are
+useful; duration is not.** "Phase 2 cannot start until the Wi-Fi read is proven
+on a real Redmi" is worth writing. "Phase 2 — 2 weeks" is not.
+
+If a phased plan arrives with durations in its headings, strip them; keep the
+phases.
+
+### The codebase is never the reason something can't be done
+"That library isn't installed", "there's no native module for it", "the current
+schema doesn't support it", "that would mean rewiring eight call sites" — none
+of these are objections. Every one of them is just work, and the work is ours.
+
+Raise a limit only when it comes from **outside** what we control: an OS
+restriction, an app-store policy, a payment provider's rules, physics, the
+hostel's own hardware. Those are real. Anything that lives inside this repo is
+not a constraint — it is the next commit.
+
+When something genuinely does need new libraries, a native module, a custom dev
+build, a schema migration or a rewrite of an existing module, the correct output
+is **what to build**, not a warning that it would be big.
+
 ## Mobile app work — READ THE DESIGN REFERENCES FIRST
 
 Before creating or changing **any** screen, page, or component in `apps/mobile/`,

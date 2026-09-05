@@ -13,6 +13,14 @@
 
 export type ClaimDraft = {
   amount: string;
+  /**
+   * One of `CLAIM_METHODS`, or `null` when the resident has not chosen yet.
+   *
+   * Typed as a bare string rather than importing `PaymentMethod` from
+   * `finance-api`: that module pulls in the axios client, and this one has to
+   * stay node-testable. The values are the same six, listed below.
+   */
+  method: string | null;
   proofAssetId: string | null;
   transactionCode: string;
 };
@@ -56,6 +64,19 @@ export function validateClaim(draft: ClaimDraft): ClaimErrors {
     errors.amount = "Enter the amount you paid.";
   } else if (parseClaimAmount(draft.amount) === null) {
     errors.amount = "Enter a whole rupee amount, with no paisa.";
+  }
+
+  /*
+   * No default.
+   *
+   * The field used to initialise to `BANK_TRANSFER`, so a resident who paid by
+   * eSewa and never opened the select filed a claim asserting a bank transfer.
+   * That is a wrong fact inside the evidence record — it sends the hostel
+   * looking for the payment in the wrong statement, and OCR on the screenshot
+   * then disagrees with the claim it is supposed to be corroborating.
+   */
+  if (!draft.method) {
+    errors.method = "Choose how you paid.";
   }
 
   if (!draft.proofAssetId) {

@@ -1,17 +1,26 @@
-import * as Clipboard from "expo-clipboard";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { View } from "react-native";
 
+import {
+  FLOAT_SHADOW,
+  PaintedAmount,
+  usePortalPaint,
+} from "@/components/portal-shared";
+import { ReferenceStrip } from "@/components/resident-payments";
 import { AppBar } from "@/components/ui/app-bar";
-import { StatusPill } from "@/components/ui/badge";
+import { StatusText } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState, FailureState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { WalletMark, walletLabel } from "@/components/ui/wallet-mark";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
@@ -22,9 +31,9 @@ import {
   type ResidentFinanceView,
   type ResidentInvoice,
 } from "@/lib/finance-api";
-import { formatDate, formatDateBoth, formatDueLabel, formatMoney, formatPeriod, humanizeEnum } from "@/lib/format";
-import { invoiceLedger, outstanding } from "@/lib/invoice-ledger";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { formatMoney, humanizeEnum } from "@/lib/format";
+import { invoiceLedger, oneOffLabel, outstanding } from "@/lib/invoice-ledger";
+import { toastError } from "@/lib/toast";
 
 /**
  * One invoice, as a statement.
@@ -49,7 +58,50 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * The breakdown was blocked server-side until 2026-08-17: `Invoice.lines` had
  * always existed and `toPortalInvoice()` dropped it, so a resident could see
  * what they owed and never why.
+ *
+ * ## The identity is painted; the money is not
+ *
+ * The bar was `<AppBar accent>` — the whole strip painted, carrying the month as
+ * its title — with a white summary card pulled up onto it. That put the month in
+ * the same 44-point row as the back chevron, at the same size the tab bar writes
+ * "Payments", which is not the treatment the *subject of the screen* deserves.
+ *
+ * It is two objects now. The bar is plain and says only `Invoice detail`, which
+ * is what a pushed screen's bar is for. Under it sits a **painted block**
+ * carrying the month large, its due date, and the status — the invoice's
+ * identity — and the summary card straddles *that* block's bottom edge rather
+ * than the bar's. `NOTES.md` §1: an accent header is a block with rounded bottom
+ * corners with something sitting half on the colour and half on the page below.
+ * A pushed screen gets to have both a bar and a header; conflating them is what
+ * made the month look like a breadcrumb.
+ *
+ * ## The summary is a four-fact ledger, not one big number
+ *
+ * It showed `Still owed` in display type with a status pill beside it. That is
+ * the right lead for the *pay* screen, where the only question is how much to
+ * transfer. Here the question is arithmetic — a resident opening an invoice
+ * after a part payment wants to see the subtraction — so the card carries
+ * **total due** and **paid** as a two-up, and the outstanding figure under a
+ * rule as the result. Three numbers that add up beat one number that has to be
+ * taken on trust.
+ *
+ * ## The reference code is `<ReferenceStrip>`, shared with the pay screen
+ *
+ * It used to be a card of its own here: the code in 24-point tracked type, a
+ * sentence under it, and then a `Copy reference` **`<ListRow>`** — a list row
+ * standing in for a button, under a value that looked like a heading. One code,
+ * one object, one gesture; the component's own note has the rest.
  */
+
+/**
+ * How far the summary card is pulled up onto the painted block, in points.
+ *
+ * Shared with `pay.tsx` and `claim.tsx`, which straddle their own blocks by the
+ * same amount — the three screens are one flow, and a step that changes its
+ * chrome reads as a different app.
+ */
+const STRADDLE = 26;
+
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const finance = useResource<ResidentFinanceView>(
@@ -58,18 +110,36 @@ export default function InvoiceDetailScreen() {
 
   const invoice = finance.data?.invoices.find((row) => row.id === id) ?? null;
 
-  const header = (
-    <AppBar
-      showBack
-      subtitle={invoice ? humanizeEnum(invoice.status) : undefined}
-      title={invoice ? formatPeriod(invoice.month) : "Invoice"}
-    />
-  );
+  const header = <AppBar showBack title="Invoice detail" />;
 
   if (finance.loading) {
     return (
-      <Screen header={header}>
-        <LoadingState label="Loading this invoice" />
+      /*
+        The painted block with its straddling card, then the breakdown and the
+        statement — the shape this screen lands in, drawn at the size it lands
+        at. It replaced a centred spinner, which is the one thing `CLAUDE.md`
+        and `NOTES.md` §9 are both explicit about: loading is skeletons.
+      */
+      <Screen header={header} padded={false} scroll>
+        <View className="px-5">
+          <Skeleton height={104} radius={20} />
+        </View>
+
+        <View className="px-5" style={{ marginTop: -STRADDLE }}>
+          <Skeleton height={158} radius={18} />
+        </View>
+
+        <View className="gap-5 px-5 pt-6">
+          <View className="gap-3">
+            <Skeleton height={18} width="45%" />
+            <Skeleton height={170} radius={16} />
+          </View>
+
+          <View className="gap-3">
+            <Skeleton height={18} width="35%" />
+            <Skeleton height={120} radius={16} />
+          </View>
+        </View>
       </Screen>
     );
   }
@@ -77,7 +147,11 @@ export default function InvoiceDetailScreen() {
   if (finance.error) {
     return (
       <Screen header={header}>
-        <ErrorState message={finance.error} onRetry={finance.reload} />
+        <FailureState
+          message={finance.error}
+          onRetry={finance.reload}
+          title="Couldn't load this invoice"
+        />
       </Screen>
     );
   }
@@ -86,7 +160,9 @@ export default function InvoiceDetailScreen() {
     return (
       <Screen header={header}>
         <EmptyState
-          description="It may have been voided, or it belongs to a different account."
+          action={<Button label="Go back" onPress={() => router.back()} variant="outline" />}
+          description="This invoice does not exist or has been removed."
+          icon="document-outline"
           title="Invoice not found"
         />
       </Screen>
@@ -101,94 +177,206 @@ export default function InvoiceDetailScreen() {
   return (
     <Screen
       /*
-       * The pay CTA is a sticky footer, not a card in the scroll.
+       * Both actions are a sticky footer, not cards in the scroll.
        *
-       * A resident opening an unpaid invoice came to pay it, and the statement
-       * below can run to a dozen rows — a button at the end of that is a button
-       * most of them never reach. It disappears once nothing is owed rather
-       * than greying out: "pay" on a settled month is a question, not a
-       * disabled control.
+       * A resident opening an unpaid invoice came to settle it, and the
+       * breakdown, the statement and the receipts below can run to twenty rows
+       * — a button at the end of that is a button most of them never reach.
+       * They disappear once nothing is owed rather than greying out: "pay" on a
+       * settled month is a question, not a disabled control.
+       *
+       * The pair matches the Payments tab's, at the same widths and in the same
+       * order, because they settle the same invoice and a resident should not
+       * have to re-find them one screen deeper.
        */
       footer={
         owed > 0 ? (
-          <Button label="Pay now" onPress={() => router.push(`/invoice/${id}/pay`)} />
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <Button label="Pay now" onPress={() => router.push(`/invoice/${id}/pay`)} />
+            </View>
+            <View className="flex-1">
+              <Button
+                label="I've paid"
+                onPress={() => router.push(`/invoice/${id}/claim`)}
+                variant="outline"
+              />
+            </View>
+          </View>
         ) : undefined
       }
       header={header}
       onRefresh={finance.refresh}
+      padded={false}
       refreshing={finance.refreshing}
       scroll
     >
-      <View className="gap-4 pt-1">
-        <SummaryCard invoice={invoice} owed={owed} />
+      <InvoiceHeaderBlock invoice={invoice} />
 
-        <ReferenceCard invoice={invoice} />
+      <SummaryCard invoice={invoice} owed={owed} />
 
+      <View className="gap-5 px-5 pt-6">
         <BreakdownCard invoice={invoice} />
 
-        <LedgerCard invoice={invoice} />
+        <LedgerCard invoice={invoice} owed={owed} />
 
         {claims.length > 0 ? <ClaimsCard claims={claims} /> : null}
 
-        {invoice.receipts.length > 0 ? <ReceiptsCard invoice={invoice} /> : null}
+        <ReceiptsCard invoice={invoice} />
       </View>
+
+      {/* Room for the straddling card under the last section, above the footer. */}
+      <View style={{ height: 8 }} />
     </Screen>
   );
 }
 
-function SummaryCard({ invoice, owed }: { invoice: ResidentInvoice; owed: number }) {
-  const dueLabel = formatDueLabel(invoice.dueDate);
+/**
+ * The invoice's identity, painted.
+ *
+ * The month is the subject of this screen, so it is set at display size on the
+ * accent with the due date under it and the status on its shoulder — the "hero
+ * is an account card" shape from `NOTES.md` §2, reduced to the three facts that
+ * identify one bill.
+ *
+ * Cornered only at the bottom and bled to the page edges: this is a *header*,
+ * not a card. A block that is rounded on all four sides and inset from the
+ * margins would be a second card above the summary card, which is exactly the
+ * "two stacked cards saying overlapping things" the Payments tab was rebuilt to
+ * stop doing.
+ *
+ * Bottom padding is `STRADDLE` plus the card's own inset, because the card is
+ * about to be pulled back up over it — without it the paint ends where the card
+ * begins and the straddle has nothing to straddle.
+ */
+function InvoiceHeaderBlock({ invoice }: { invoice: ResidentInvoice }) {
+  const dates = useDates();
+  const paint = usePortalPaint();
 
   return (
-    <Card className="gap-3">
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="flex-1 gap-1">
-          <Text variant="caption">{owed > 0 ? "Still owed" : "Settled"}</Text>
-          <Money owed size="display" value={owed} />
-        </View>
-        <StatusPill status={invoice.status} />
+    <LinearGradient
+      colors={[paint.from, paint.to]}
+      end={{ x: 1, y: 1 }}
+      start={{ x: 0, y: 0 }}
+      style={{
+        borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24,
+        overflow: "hidden",
+      }}
+    >
+      <View className="absolute inset-0" style={{ pointerEvents: "none" }}>
+        <View
+          className="absolute rounded-full bg-white/10"
+          style={{ height: 140, right: -50, top: -70, width: 140 }}
+        />
       </View>
 
-      {invoice.dueDate ? (
-        <Text variant="muted">
-          {`Due ${formatDateBoth(invoice.dueDate)}${owed > 0 && dueLabel ? ` · ${dueLabel}` : ""}`}
+      <View
+        className="gap-1.5 px-5 pt-4"
+        style={{ paddingBottom: STRADDLE + 14 }}
+      >
+        <PaintedAmount
+          size={26}
+          value={oneOffLabel(invoice) ?? dates.period(invoice.month)}
+        />
+
+        <Text
+          numberOfLines={1}
+          style={{ color: "rgba(255,255,255,0.78)", fontSize: 12 }}
+        >
+          {invoice.dueDate ? dates.dateBoth(invoice.dueDate) : "No due date recorded"}
         </Text>
-      ) : null}
-    </Card>
+
+        {/*
+          A white pill with the status in it, rather than `<StatusPill>`: that
+          component's tones are themed tokens, and `text-warning` on paint
+          resolves to a colour chosen to sit on the page background. On the
+          accent it is either invisible or wrong. The ink is a literal for the
+          reason `<PaintPill>` documents.
+        */}
+        <View className="mt-1 self-start rounded-full bg-white/95 px-2.5 py-1">
+          <Text
+            className="font-bold uppercase tracking-wider"
+            style={{ color: STATUS_ON_PAINT[invoice.status] ?? "#1f2937", fontSize: 10 }}
+          >
+            {humanizeEnum(invoice.status)}
+          </Text>
+        </View>
+      </View>
+    </LinearGradient>
   );
 }
 
 /**
- * The code that connects a bank transfer back to this invoice.
+ * Status ink for a pill sitting on the accent.
  *
- * Copyable, because the alternative is retyping it into a banking app and
- * mistyping one character — and a payment carrying a wrong code arrives as an
- * orphan that somebody has to match to a person by hand.
+ * The light-mode values of `--destructive`, `--warning` and `--success`, copied
+ * rather than read: the pill is white in both schemes, so reading the themed
+ * token would give the dark-mode colour on a surface that never goes dark. Same
+ * trade `<PaintPill>` makes, same reason. An unmapped status falls through to a
+ * near-black, which is correct rather than confidently wrong.
  */
-function ReferenceCard({ invoice }: { invoice: ResidentInvoice }) {
-  if (!invoice.referenceCode) {
-    return null;
-  }
+const STATUS_ON_PAINT: Record<string, string> = {
+  CANCELLED: "#4b5563",
+  OPEN: "#b45309",
+  OVERDUE: "#b91c1c",
+  PAID: "#0a8a4b",
+  PARTIAL: "#b45309",
+  PENDING_PROOF: "#b45309",
+  UNPAID: "#b45309",
+};
 
+/**
+ * The arithmetic, straddling the painted block.
+ *
+ * Total due and paid as a two-up, their difference under a rule, and the code to
+ * quote below that. Everything a resident needs before deciding whether to tap
+ * `Pay now`; the sections underneath are the *explanation*, which is a different
+ * job and is why each of them is separated from this by a heading.
+ *
+ * A themed card on paint rather than more paint: the block above is already the
+ * accent, and a coloured card on a coloured block has no edge. `bg-card` gives
+ * it one in both schemes, and `FLOAT_SHADOW` carries both halves — `elevation`
+ * is the only thing Android draws and the `shadow*` trio is the only thing iOS
+ * reads, and a card overlapping paint with no shadow reads as a hole cut in it.
+ */
+function SummaryCard({ invoice, owed }: { invoice: ResidentInvoice; owed: number }) {
   return (
-    <Card className="gap-2">
-      <Text variant="label">Payment reference</Text>
-      <Text className="text-2xl font-semibold tracking-widest text-foreground">
-        {invoice.referenceCode}
-      </Text>
-      <Text variant="caption">
-        Put this in the remarks of your transfer so the hostel can match it to this
-        month.
-      </Text>
-      <ListRow
-        icon="copy-outline"
-        onPress={() => {
-          void Clipboard.setStringAsync(invoice.referenceCode ?? "");
-          toastSuccess("Reference copied");
-        }}
-        title="Copy reference"
-      />
-    </Card>
+    <View className="px-5" style={{ marginTop: -STRADDLE }}>
+      <View
+        className="gap-3 rounded-[18px] border border-border bg-card p-4"
+        style={FLOAT_SHADOW}
+      >
+        <View className="flex-row items-start gap-3">
+          <View className="flex-1 gap-0.5">
+            <Text variant="caption">Total due</Text>
+            <Text variant="label">{formatMoney(invoice.dueAmount)}</Text>
+          </View>
+
+          <View className="h-8 w-px bg-border" />
+
+          <View className="flex-1 gap-0.5">
+            <Text variant="caption">Paid</Text>
+            <Text variant="label">{formatMoney(invoice.paidAmount)}</Text>
+          </View>
+        </View>
+
+        <View className="gap-0.5 border-t border-border pt-3">
+          <Text variant="caption">{owed > 0 ? "Outstanding" : "Settled"}</Text>
+          <Money owed size="large" value={owed} />
+        </View>
+
+        {/*
+          Only while something is owed. A settled invoice's reference code is a
+          code for a transfer nobody is going to make, and putting it on the card
+          keeps a call to action alive on a month that is finished — the same
+          reason the Payments card drops its actions once there is nothing open.
+        */}
+        {owed > 0 ? (
+          <ReferenceStrip code={invoice.referenceCode} hint="Reference code" />
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -198,9 +386,9 @@ function ReferenceCard({ invoice }: { invoice: ResidentInvoice }) {
  * ## Rendered only when the server has lines
  *
  * Migrated history has none — invoices that came from the old `Payment` rows
- * predate the breakdown — so an empty card would appear on exactly the oldest
- * months, where a resident is most likely to be checking something. No lines,
- * no section.
+ * predate the breakdown — so an always-drawn card would be empty on exactly the
+ * oldest months, where a resident is most likely to be checking something. No
+ * lines, no card of rows; the section keeps its heading and says why.
  *
  * ## The sign is the meaning
  *
@@ -219,36 +407,96 @@ function ReferenceCard({ invoice }: { invoice: ResidentInvoice }) {
  * summary above prints `dueAmount`; a mismatch is visible instead of hidden.
  */
 function BreakdownCard({ invoice }: { invoice: ResidentInvoice }) {
-  if (invoice.lines.length === 0) {
-    return null;
-  }
-
   const total = invoice.lines.reduce((sum, line) => sum + line.amount, 0);
 
   return (
     <View>
-      <SectionHeader
-        subtitle="Why this month costs what it does"
-        title="Breakdown"
-      />
+      <SectionHeader subtitle="Why this month costs what it does" title="Breakdown" />
 
-      <Card>
-        {invoice.lines.map((line, index) => (
-          <View key={`${line.description}-${index}`}>
+      {invoice.lines.length === 0 ? (
+        <Card>
+          <EmptyState
+            compact
+            description="This invoice predates itemised billing, so only its total was recorded."
+            title="No invoice lines"
+          />
+        </Card>
+      ) : (
+        <Card padding="px-4 py-1">
+          {invoice.lines.map((line, index) => (
+            <View key={`${line.description}-${index}`}>
+              {index > 0 ? <RowDivider /> : null}
+              <View className="min-h-14 flex-row items-center gap-3 py-3">
+                <View className="flex-1">
+                  <Text variant="label">{line.description}</Text>
+                  {/*
+                    The proration basis is the whole explanation of a part month
+                    — "18/31 days" turns an odd number into an obviously correct
+                    one — so it leads. The bed type is the fallback context.
+                  */}
+                  {line.prorationBasis ? (
+                    <Text variant="caption">{line.prorationBasis}</Text>
+                  ) : line.bedType ? (
+                    <Text variant="caption">{humanizeEnum(line.bedType)}</Text>
+                  ) : null}
+                </View>
+
+                <Text
+                  className={line.amount < 0 ? "text-success" : "text-foreground"}
+                  variant="label"
+                >
+                  {`${line.amount < 0 ? "−" : ""}${formatMoney(Math.abs(line.amount))}`}
+                </Text>
+              </View>
+            </View>
+          ))}
+
+          <RowDivider />
+
+          <View className="flex-row items-center justify-between gap-3 py-3.5">
+            <Text variant="label">Total due</Text>
+            <Text variant="label">{formatMoney(total)}</Text>
+          </View>
+        </Card>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Charges and payments in order, ending on where that leaves the month.
+ *
+ * The running balance used to ride under every row as `Balance Rs 4,500` in
+ * caption type — five rows, five balances, and the only one anybody reads is
+ * the last. It is a footer row now, under a rule and in the outstanding figure's
+ * own tone, which is the `NOTES.md` §11 shape: the transactions in the upper
+ * register, the resulting position in the lower one.
+ *
+ * The date leads each row rather than trailing the label. A ledger is read
+ * chronologically, and putting the date in caption type *under* the description
+ * meant scanning the second line of every row to find the order.
+ */
+function LedgerCard({ invoice, owed }: { invoice: ResidentInvoice; owed: number }) {
+  const dates = useDates();
+
+  const lines = invoiceLedger(invoice);
+
+  return (
+    <View>
+      <SectionHeader subtitle="Charges and payments, in order" title="Statement" />
+
+      <Card padding="px-4 py-1">
+        {lines.map((line, index) => (
+          <View key={`${line.kind}-${line.label}-${index}`}>
             {index > 0 ? <RowDivider /> : null}
             <View className="min-h-14 flex-row items-center gap-3 py-3">
-              <View className="flex-1">
-                <Text variant="label">{line.description}</Text>
-                {/*
-                  The proration basis is the whole explanation of a part month
-                  — "18/31 days" turns an odd number into an obviously correct
-                  one — so it leads. The bed type is the fallback context.
-                */}
-                {line.prorationBasis ? (
-                  <Text variant="caption">{line.prorationBasis}</Text>
-                ) : line.bedType ? (
-                  <Text variant="caption">{humanizeEnum(line.bedType)}</Text>
-                ) : null}
+              <View className="flex-1 gap-0.5">
+                <Text variant="caption">
+                  {line.date ? dates.date(line.date) : "Date not recorded"}
+                </Text>
+                <Text numberOfLines={1} variant="label">
+                  {line.label}
+                </Text>
               </View>
 
               <Text
@@ -263,69 +511,55 @@ function BreakdownCard({ invoice }: { invoice: ResidentInvoice }) {
 
         <RowDivider />
 
-        <View className="flex-row items-center justify-between gap-3 py-3">
-          <Text variant="label">Total charged</Text>
-          <Text variant="label">{formatMoney(total)}</Text>
+        <View className="flex-row items-center justify-between gap-3 py-3.5">
+          <Text variant="label">{owed > 0 ? "Outstanding" : "Settled"}</Text>
+          <Money className="font-semibold" owed value={owed} />
         </View>
       </Card>
     </View>
   );
 }
 
-function LedgerCard({ invoice }: { invoice: ResidentInvoice }) {
-  const lines = invoiceLedger(invoice);
-
-  return (
-    <View>
-      <SectionHeader subtitle="Charges and payments, in order" title="Statement" />
-
-      <Card>
-        {lines.map((line, index) => (
-          <View key={`${line.kind}-${line.label}-${index}`}>
-            {index > 0 ? <RowDivider /> : null}
-            <View className="min-h-14 flex-row items-center gap-3 py-3">
-              <View className="flex-1">
-                <Text numberOfLines={1} variant="label">
-                  {line.label}
-                </Text>
-                <Text variant="caption">
-                  {line.date ? formatDate(line.date) : "Date not recorded"}
-                </Text>
-              </View>
-
-              <View className="items-end">
-                <Text
-                  className={line.amount < 0 ? "text-success" : "text-foreground"}
-                  variant="label"
-                >
-                  {`${line.amount < 0 ? "−" : "+"}${formatMoney(Math.abs(line.amount))}`}
-                </Text>
-                <Text variant="caption">{`Balance ${formatMoney(line.balance)}`}</Text>
-              </View>
-            </View>
-          </View>
-        ))}
-      </Card>
-    </View>
-  );
-}
-
 function ClaimsCard({ claims }: { claims: ResidentClaim[] }) {
+  const dates = useDates();
+
   return (
     <View>
       <SectionHeader
         subtitle="What you told the hostel you have paid"
         title="Your claims"
       />
-      <Card>
+      <Card padding="px-4 py-1">
         {claims.map((claim, index) => (
-          <View key={claim.id}>
+          <View key={claim.eventId}>
             {index > 0 ? <RowDivider /> : null}
             <ListRow
-              right={<StatusPill status={claim.status} />}
-              subtitle={claim.createdAt ? formatDate(claim.createdAt) : undefined}
+              left={<WalletMark name={claim.method} size={36} />}
+              right={<StatusText status={claim.status} />}
+              subtitle={
+                [
+                  walletLabel(claim.method),
+                  claim.occurredAt ? dates.dateBoth(claim.occurredAt) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
               title={formatMoney(claim.amount)}
             />
+
+            {/*
+              The reason, when there is one. See the Payments tab's `ClaimRow`:
+              the server has sent this since the review queue was built and no
+              client read it, so a rejected resident saw a red word and no
+              instruction.
+            */}
+            {claim.status === "REJECTED" && claim.rejectionReason ? (
+              <View className="pb-3 pl-12">
+                <Text className="text-destructive" variant="caption">
+                  {claim.rejectionReason}
+                </Text>
+              </View>
+            ) : null}
           </View>
         ))}
       </Card>
@@ -334,6 +568,14 @@ function ClaimsCard({ claims }: { claims: ResidentClaim[] }) {
 }
 
 /**
+ * The receipts for this month, and the sentence that explains their absence.
+ *
+ * Always drawn, which it was not: the section only appeared once a receipt
+ * existed, so an unpaid invoice gave a resident no indication that a receipt is
+ * a thing this product will eventually hand them. A named empty state is the
+ * cheaper answer to "where is my receipt" than the support message that follows
+ * from a screen that never mentions receipts at all.
+ *
  * Voided receipts are already excluded by the server — a receipt voided with a
  * reversed payment must not stay downloadable, or the resident keeps a document
  * asserting a payment the ledger no longer counts.
@@ -345,9 +587,11 @@ function ClaimsCard({ claims }: { claims: ResidentClaim[] }) {
  * sheet that has to be re-opened later.
  */
 function ReceiptsCard({ invoice }: { invoice: ResidentInvoice }) {
+  const dates = useDates();
+
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const share = useCallback(async (receipt: ResidentInvoice["receipts"][number]) => {
+  const save = useCallback(async (receipt: ResidentInvoice["receipts"][number]) => {
     setBusyId(receipt.id);
 
     try {
@@ -368,20 +612,37 @@ function ReceiptsCard({ invoice }: { invoice: ResidentInvoice }) {
   return (
     <View>
       <SectionHeader title="Receipts" />
-      <Card>
-        {invoice.receipts.map((receipt, index) => (
-          <View key={receipt.id}>
-            {index > 0 ? <RowDivider /> : null}
-            <ListRow
-              icon={busyId === receipt.id ? "hourglass-outline" : "document-text-outline"}
-              onPress={() => void share(receipt)}
-              subtitle={receipt.issuedAt ? formatDate(receipt.issuedAt) : undefined}
-              title={receipt.number}
-              value={formatMoney(receipt.amount)}
-            />
-          </View>
-        ))}
-      </Card>
+
+      {invoice.receipts.length === 0 ? (
+        <Card>
+          <EmptyState
+            compact
+            description="Once a payment is matched, receipts will appear here."
+            title="No receipts yet"
+          />
+        </Card>
+      ) : (
+        <Card padding="px-4 py-1">
+          {invoice.receipts.map((receipt, index) => (
+            <View key={receipt.id}>
+              {index > 0 ? <RowDivider /> : null}
+              <ListRow
+                icon={busyId === receipt.id ? "hourglass-outline" : "download-outline"}
+                onPress={() => void save(receipt)}
+                subtitle={
+                  [
+                    formatMoney(receipt.amount),
+                    receipt.issuedAt ? dates.date(receipt.issuedAt) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
+                title={receipt.number}
+              />
+            </View>
+          ))}
+        </Card>
+      )}
     </View>
   );
 }

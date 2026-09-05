@@ -164,7 +164,44 @@ export function prefetchResidentQuery<T>(query: ResidentQuery<T>) {
  * failure properly, on a surface with somewhere to put the message.
  */
 export function prefetchResidentPortal() {
+  /*
+   * One read, two tabs. Payments and Statement are the same invoices asked two
+   * questions — what is open, and what has been paid — so they share
+   * `resident:finance` and this warms both.
+   */
   prefetchResidentQuery(residentQuery.finance());
-  prefetchResidentQuery(residentQuery.food());
   prefetchResidentQuery(residentQuery.notices());
+}
+
+/**
+ * The href a tile is about to push → the question that screen will ask.
+ *
+ * The resident half of {@link prefetchAdminRoute}, and deliberately short. Most
+ * of what the `Your stay` grid opens has nothing to warm — `id-card` draws from
+ * the dashboard the caller already holds, `hostels` and `review` open their own
+ * search and form — so only the two screens that lead with a read of their own
+ * are listed.
+ *
+ * Unknown hrefs are a no-op rather than a throw. This is called from press
+ * handlers on a grid whose contents change, and a tile added without an entry
+ * here must cost a hundred milliseconds, not a crash.
+ */
+export function prefetchResidentRoute(href: string) {
+  switch (href) {
+    /*
+     * Food stopped being a tab when Statement took its slot, so it stopped being
+     * warmed at the door with the ones a resident is certain to reach. It is a
+     * push from Home now, and this is where a push gets its warm-up.
+     */
+    case "/(resident)/food":
+      prefetchResidentQuery(residentQuery.food());
+      return;
+    case "/guardians":
+      prefetchResidentQuery(residentQuery.guardians());
+      return;
+    case "/profile":
+      prefetchResidentQuery(residentQuery.profile());
+      return;
+    default:
+  }
 }

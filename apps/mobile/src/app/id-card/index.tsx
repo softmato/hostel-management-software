@@ -17,10 +17,10 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { shareDataUrlImage, shareLocalImage } from "@/lib/documents";
-import { formatDateTime } from "@/lib/format";
 import { buildIdCard, hasIdCard, idCardNoun } from "@/lib/id-card";
 import {
   clearIdentityPhoto,
@@ -141,6 +141,8 @@ function IdCardDetail({
   refreshing: boolean;
   response: IdentityResponse;
 }) {
+  const dates = useDates();
+
   const { colors } = useAppTheme();
   const token = useAppSelector((state) => state.auth.accessToken);
   const { identity, profile } = response;
@@ -498,7 +500,7 @@ function IdCardDetail({
               ? "Opened once"
               : `Opened ${identity.shareCount} times`}
             {identity.lastSharedAt
-              ? ` · last ${formatDateTime(identity.lastSharedAt)}`
+              ? ` · last ${dates.dateTime(identity.lastSharedAt)}`
               : ""}
           </Text>
         ) : null}

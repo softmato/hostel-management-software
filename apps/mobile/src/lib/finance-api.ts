@@ -81,12 +81,58 @@ export type ResidentInvoice = {
   status: string;
 };
 
+/**
+ * One proof the resident has submitted, as the server actually sends it.
+ *
+ * ## This type was wrong about two of its five fields
+ *
+ * It declared `id` and `createdAt`. The route returns a `ReviewQueueRow` —
+ * `listResidentClaims` filters the *admin* review queue down to this resident
+ * and hands the rows straight through — and that row calls them **`eventId`**
+ * and **`occurredAt`**. Neither `id` nor `createdAt` has ever been on the wire.
+ *
+ * So every claim row in the app was keyed on `undefined`, and every claim's date
+ * rendered as nothing: the Payments tab printed "Date not recorded" under a
+ * claim submitted ten seconds earlier, and the invoice screen printed no date at
+ * all. `(admin)/alerts.tsx` reads `claim.eventId` off the same shape and was
+ * right the whole time, which is what makes the mismatch findable.
+ *
+ * This is the failure mode this codebase keeps hitting — **read the service, not
+ * the hand-written type**. The three fields below the fold were already being
+ * sent too, and dropping them cost the resident the one thing they most needed
+ * to be told.
+ */
 export type ResidentClaim = {
   amount: number;
-  createdAt?: string;
-  id: string;
-  invoiceId?: string;
+  /** The `PaymentEvent`'s id. Named `id` in this type until 2026-09-05. */
+  eventId: string;
+  invoiceId: string | null;
+  /**
+   * How the resident said they paid — `ESEWA`, `BANK_TRANSFER`, `CASH`…
+   *
+   * Server-side it is `METHOD_BY_PROVIDER[event.provider]`, so it is the claim's
+   * own assertion rather than anything verified. Worth showing regardless: a
+   * resident scanning their pending claims identifies them by what they did, not
+   * by an amount that is the same every month.
+   */
+  method: string;
+  /** Named `createdAt` in this type until 2026-09-05. */
+  occurredAt?: string;
+  /** `YYYY-MM` of the invoice claimed against, or `null` for a one-off. */
+  period: string | null;
+  /**
+   * Why a `REJECTED` claim was turned down. `null` on every other status.
+   *
+   * The server's own comment on this field says it exists *for this screen*:
+   * "without the reason a rejection is invisible to them: their card kept saying
+   * 'your hostel is checking it' forever, so the one person who has to act on
+   * the decision was the only one not told about it." The field shipped; the
+   * client never read it, so the bug it was written to fix stayed open.
+   */
+  rejectionReason: string | null;
   status: string;
+  /** What the resident typed into the transaction-code field, if anything. */
+  transactionCode: string | null;
 };
 
 export type ResidentFinanceView = {

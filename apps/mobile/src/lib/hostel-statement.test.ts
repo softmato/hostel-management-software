@@ -25,7 +25,8 @@ function entry(overrides: Partial<AdminLedgerEntry> = {}): AdminLedgerEntry {
   return {
     dueAmount: 5000,
     id: "inv-1",
-    month: "2026-08",
+    // Shrawan 2083 — 17 July to 16 August 2026, which August covers most of.
+    month: "2083-04",
     paidAmount: 5000,
     paidDate: "2026-08-24T07:53:00.000Z",
     paymentMethod: "ESEWA",
@@ -245,7 +246,7 @@ describe("groupByDay", () => {
     const days = groupByDay(credits);
 
     expect(days).toHaveLength(2);
-    expect(days[0].credits.map((row) => row.id)).toEqual(["b", "a"]);
+    expect(days[0].rows.map((row) => row.id)).toEqual(["b", "a"]);
     expect(days[0].total).toBe(300);
     expect(days[1].total).toBe(300);
   });
@@ -289,9 +290,16 @@ describe("statementSummary", () => {
       ]),
     );
 
+    /*
+     * `periodLabel` names the **BS** month the money landed in, translated for
+     * an AD reader. 26 August 2026 is Bhadra 10, and Bhadra runs 17 Aug to 16
+     * Sep — so September covers more of it and is what an English label says.
+     * The two calendars genuinely disagree here; the BS one is the collection
+     * month the owner's books use, and this is its translation.
+     */
     expect(statementSummary(credits, "AD", now)).toEqual({
       count: 2,
-      periodLabel: "August 2026",
+      periodLabel: "September 2026",
       total: 9000,
     });
   });
@@ -333,9 +341,9 @@ describe("row copy", () => {
   it("spells the month in the calendar the portal is set to", () => {
     const [credit] = statementCredits(ledger([entry()]));
 
-    expect(creditTitle(credit, "BS")).toBe("Shrawan 2083 rent from Kartik Adhikari");
+    expect(creditTitle(credit, "BS")).toBe("Shrawan 2083 BS rent from Kartik Adhikari");
     expect(rangeLabel(filter({ from: "2026-08-20", to: "2026-08-26" }), "BS")).toBe(
-      "4 Bhadra 2083 to 10 Bhadra 2083",
+      "Bhadra 4, 2083 to Bhadra 10, 2083 BS",
     );
     expect(
       statementSummary(
@@ -343,7 +351,8 @@ describe("row copy", () => {
         "BS",
         new Date("2026-08-26T06:00:00.000Z"),
       ).periodLabel,
-    ).toBe("Shrawan 2083");
+      // 26 August is Bhadra 10 — the month collections are being counted in.
+    ).toBe("Bhadra 2083 BS");
   });
 
   it("finds a row by either calendar's month name, whatever is on screen", () => {
@@ -403,7 +412,7 @@ describe("statementShareText", () => {
       [
         "Green View Hostel — statement",
         "20 Aug 2026 to 26 Aug 2026",
-        "2 payments · NPR 8,000 received",
+        "2 payments · Rs 8,000 received",
       ].join("\n"),
     );
   });
@@ -411,7 +420,7 @@ describe("statementShareText", () => {
   it("falls back to a generic first line for a warden with no single hostel", () => {
     expect(
       statementShareText({ calendar: "AD", credits: [], filter: NO_FILTER, hostelName: "" }),
-    ).toBe(["Hostel statement", "All time", "0 payments · NPR 0 received"].join("\n"));
+    ).toBe(["Hostel statement", "All time", "0 payments · Rs 0 received"].join("\n"));
   });
 
   it("says payment, singular, when there is one", () => {
