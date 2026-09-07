@@ -74,6 +74,13 @@ const KNOWN_PATHS = new Set([
   "/(resident)/notices",
   "/(resident)/payments",
   "/notifications",
+  /*
+   * Where a refused provider application lands. `notifyServiceProviderDecision`
+   * sends it as the `actionUrl` because that screen is the only one that offers
+   * a corrected application, and it is the same path the website's bell links
+   * to — so the two surfaces agree without a rewrite.
+   */
+  "/service-providers",
 ]);
 
 /**
@@ -92,6 +99,14 @@ const REWRITES: { prefix: string; to: string }[] = [
    * notification list instead of the roster they were told about.
    */
   { prefix: "/hostel-admin/residents", to: "/(admin)/residents" },
+  /*
+   * The website's provider job feed. An approval notification carries `/jobs` as
+   * its `actionUrl` because that is the provider's only screen on the web, and
+   * `deepLinkForNotification` prefers an `actionUrl` over the category's own
+   * path — so without this the one notification that *converts the app into the
+   * provider app* would land on the notification list.
+   */
+  { prefix: "/jobs", to: "/(provider)" },
   /*
    * Built in M5.4, and on the root stack for the usual reason. First in the list
    * because the generic `/(resident)/more/` rule below would otherwise swallow it
@@ -202,9 +217,10 @@ export function resolvePushPath(path: unknown): string {
  * The push that means "your account is a resident account now".
  *
  * Sent by `notifyResidentRegistered` on the server when a hostel registers
- * somebody whose platform account it managed to link. It is the only
- * notification in the product that is about the *recipient's own role* rather
- * than about a thing they can go and look at.
+ * somebody whose platform account it managed to link, and by
+ * `notifyServiceProviderDecision` when platform staff approve a provider. These
+ * are the only notifications in the product that are about the *recipient's own
+ * role* rather than about a thing they can go and look at.
  *
  * ## Why the app cannot just route it and be done
  *
@@ -217,13 +233,30 @@ export function resolvePushPath(path: unknown): string {
  *
  * ## Kept as a literal string on both sides
  *
- * The server writes the same word in `resident-registered-notify.ts`. It is
+ * The server writes the same words in `resident-registered-notify.ts` and
+ * `service-provider-notify.ts`. It is
  * deliberately not a shared package constant: the API and an installed app ship
  * on different clocks, a phone can be a month behind, and a value both sides
  * must agree on forever is clearer frozen in two places with a comment than
  * imported from one that looks safe to rename.
  */
-const ROLE_CHANGE_TYPES = new Set(["RESIDENT_REGISTERED"]);
+const ROLE_CHANGE_TYPES = new Set([
+  "RESIDENT_REGISTERED",
+  /*
+   * A provider application approved by platform staff.
+   *
+   * Same shape as the registration above and the same failure without it: the
+   * decision happens in the database, this phone's access token and cached
+   * account still say "an ordinary public account", and `resolveHome` routes on
+   * exactly that flag — so the app stays the hostel-shopping shell until it is
+   * killed and cold-started. A tradesperson who has just been told by email that
+   * they are verified opens the app and finds nothing has changed.
+   *
+   * Written by `notifyServiceProviderDecision` on the server, where the same
+   * literal is frozen with the same reasoning.
+   */
+  "SERVICE_PROVIDER_APPROVED",
+]);
 
 /**
  * Does this payload say the recipient's own role has changed?

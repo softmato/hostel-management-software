@@ -9,6 +9,7 @@ import {
 } from "@/lib/uploads/image-integrity";
 import { UploadVerificationError, verifyUploadedObject } from "@/lib/uploads/verify";
 import { computePerceptualHash, systemDocumentKind } from "@/modules/finance/evidence";
+import { readEvidenceProvenance } from "@/modules/finance/evidence-provenance";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
 export const runtime = "nodejs";
@@ -121,6 +122,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     }
 
+    // What the file says about how it was made. A container walk, so unlike
+    // every other measurement here it needs no decoder and has no failure mode
+    // that could cost the resident their upload.
+    fileAsset.provenance = readEvidenceProvenance(verified.bytes) ?? undefined;
     fileAsset.contentHash = verified.contentHash;
     // Best-effort: a non-image, or anything sharp cannot decode, simply gets no
     // similarity check. The content hash is the one that has to be there.

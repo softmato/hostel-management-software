@@ -108,23 +108,6 @@ export const facilitiesSchema = z
   )
   .max(60);
 
-export const pricingSchema = z
-  .array(
-    z.object({
-      ctaHref: trimmed.max(200).default("/register-hostel"),
-      ctaLabel: trimmed.max(40).default("Get Started"),
-      description: trimmed.max(200).default(""),
-      /** Off plans stay saved but are dropped from every public projection. */
-      enabled: z.boolean().default(true),
-      features: z.array(trimmed.min(1).max(120)).max(20).default([]),
-      highlighted: z.boolean().default(false),
-      name: trimmed.min(1).max(60),
-      period: trimmed.max(30).default("per month"),
-      price: trimmed.min(1).max(30),
-    }),
-  )
-  .max(8);
-
 export const announcementSchema = z.object({
   enabled: z.boolean().default(false),
   link: optionalUrl,
@@ -249,6 +232,161 @@ export const featuresSchema = z.object({
   serviceProviderSignup: z.boolean().default(true),
 });
 
+/**
+ * ## Plans & Pricing, as configuration
+ *
+ * The `/plans-pricing` page — its three tiers, the modules the product is sold
+ * in, every service inside a module, and the what/how/why written for each one.
+ *
+ * This used to be two hardcoded files (`plans-catalog.ts` and
+ * `plans-explainers.ts`), and the catalogue's own doc comment said what had to
+ * happen when the owner needed to change a tier without a deploy: *the config
+ * section grows to hold this shape — plans keyed by id, services keyed by slug*.
+ * This is that section. The shipped catalogue is now its **default value**, so a
+ * fresh database renders the same page it always did and the admin screen opens
+ * pre-filled with the real thing rather than an empty form.
+ *
+ * It is deliberately not the older `pricing` section next door. That one is
+ * three flat cards of free text serving `/pricing` and the app's Pricing screen;
+ * nothing in it has a service identity, so nothing in it can be linked to,
+ * compared across tiers, or given a detail page.
+ *
+ * ### Prices are set monthly, and the longer cycles are discounts off it
+ *
+ * A tier stores one price — `monthly` — plus a percentage off for each longer
+ * commitment. The six-month and annual totals are *derived* from those, never
+ * stored, which is what keeps the figure on the card and the "Save 17%" badge
+ * beside it from ever disagreeing. An owner types the discount they mean to
+ * advertise and the arithmetic follows.
+ *
+ * ### Icons are slugs, `{siteName}` is substituted
+ *
+ * Same two rules as `content` above, for the same two reasons: a React
+ * component cannot be stored in Mongo, and a platform that renames itself must
+ * rename itself in sentences nobody edited.
+ */
+const planListingTierSchema = z.object({
+  label: trimmed.min(1).max(60),
+  note: trimmed.max(240).default(""),
+  slug: trimmed.min(1).max(60),
+  /** The metal the directory badge is struck in — not a brand colour. */
+  tone: z.enum(["gold", "platinum"]).default("platinum"),
+});
+
+/** `null` means "no ceiling", which is a different fact from a cap of zero. */
+const cap = z.number().int().min(0).max(1_000_000).nullable().default(null);
+
+const planTierSchema = z.object({
+  /** Percent off twelve months bought one month at a time. */
+  annualDiscountPercent: z.number().min(0).max(90).default(0),
+  ctaHref: trimmed.max(200).default("/register-hostel"),
+  ctaLabel: trimmed.min(1, "A plan's button needs a label.").max(40),
+  description: trimmed.max(240).default(""),
+  /** The highlighted card. One only — the admin screen enforces it. */
+  featured: z.boolean().default(false),
+  /** Percent off six months bought one month at a time. */
+  halfYearlyDiscountPercent: z.number().min(0).max(90).default(0),
+  id: trimmed.min(1).max(40),
+  /** The badge this plan wears in the public directory. `null` on free tiers. */
+  listingTier: planListingTierSchema.nullable().default(null),
+  maxResidents: cap,
+  /** Rupees per month when billed monthly. Every other figure derives from it. */
+  monthly: z.number().min(0).max(10_000_000).default(0),
+  name: trimmed.min(1, "Every plan needs a name.").max(40),
+  /** Staff seats. Residents are absent: their ceiling is `maxResidents`. */
+  portalAccess: z
+    .object({ cooks: cap, wardens: cap })
+    .default({ cooks: null, wardens: null }),
+});
+
+const planModuleSchema = z.object({
+  description: trimmed.max(240).default(""),
+  icon: trimmed.max(40).default("sparkles"),
+  id: trimmed.min(1).max(60),
+  name: trimmed.min(1, "Every module needs a name.").max(80),
+});
+
+/**
+ * A written section. Blank paragraphs are dropped rather than refused: the
+ * admin screen adds an empty one when the owner clicks "Add paragraph", and
+ * saving before they type into it should lose the empty box, not the save.
+ */
+const prose = z
+  .array(trimmed.max(1200))
+  .max(12)
+  .default([])
+  .transform((paragraphs) => paragraphs.filter(Boolean));
+
+const planServiceSchema = z.object({
+  /** Who touches this day to day. Shown on the detail page, not on the cards. */
+  audience: z.array(trimmed.min(1).max(40)).max(8).default([]),
+  /** One line, sentence case. What it does — not why it is wonderful. */
+  blurb: trimmed.max(300).default(""),
+  /**
+   * The walkthrough, one clip per surface: a landscape one for the website and
+   * a portrait one for the phone. `FileAsset` ids, uploaded PUBLIC, so the
+   * detail page can play them without a signed URL. Blank means the page keeps
+   * its "a walkthrough goes here" frame rather than showing a dead player.
+   */
+  demo: z
+    .object({
+      mobileAssetId: trimmed.max(60).default(""),
+      webAssetId: trimmed.max(60).default(""),
+    })
+    .default({ mobileAssetId: "", webAssetId: "" }),
+  how: prose,
+  module: trimmed.min(1).max(60),
+  name: trimmed.min(1, "Every service needs a name.").max(80),
+  /** The lowest plan that carries it. Every plan above carries it too. */
+  plan: trimmed.min(1).max(40),
+  slug: trimmed.min(1).max(80),
+  what: prose,
+  why: prose,
+});
+
+export const plansSchema = z.object({
+  /** What the billing toggle calls each cycle. */
+  cycleLabels: z
+    .object({
+      annual: trimmed.min(1).max(30).default("Annual"),
+      halfYearly: trimmed.min(1).max(30).default("6 months"),
+      monthly: trimmed.min(1).max(30).default("Monthly"),
+    })
+    .default({ annual: "Annual", halfYearly: "6 months", monthly: "Monthly" }),
+  modules: z.array(planModuleSchema).max(24).default([]),
+  /** The page's own headings and closing call to action. */
+  page: z
+    .object({
+      ctaBody: trimmed.max(400).default(""),
+      ctaHref: trimmed.max(200).default("/contact"),
+      ctaLabel: trimmed.max(60).default("Talk to us"),
+      ctaTitle: trimmed.max(120).default(""),
+      featuredBadge: trimmed.max(30).default("Most chosen"),
+      footnote: trimmed.max(400).default(""),
+      subtitle: trimmed.max(300).default(""),
+      title: trimmed.min(1).max(80).default("Plans & Pricing"),
+    })
+    .default({
+      ctaBody: "",
+      ctaHref: "/contact",
+      ctaLabel: "Talk to us",
+      ctaTitle: "",
+      featuredBadge: "Most chosen",
+      footnote: "",
+      subtitle: "",
+      title: "Plans & Pricing",
+    }),
+  /** Cheapest first. Card order and "everything in X" chaining both follow it. */
+  plans: z.array(planTierSchema).max(6).default([]),
+  services: z.array(planServiceSchema).max(200).default([]),
+});
+
+export type PlanListingTier = z.infer<typeof planListingTierSchema>;
+export type PlanModule = z.infer<typeof planModuleSchema>;
+export type PlanService = z.infer<typeof planServiceSchema>;
+export type PlanTier = z.infer<typeof planTierSchema>;
+export type PlansConfig = z.infer<typeof plansSchema>;
+
 export const siteConfigSectionSchemas = {
   announcement: announcementSchema,
   content: contentSchema,
@@ -259,7 +397,7 @@ export const siteConfigSectionSchemas = {
   identity: identitySchema,
   legal: legalSchema,
   locations: locationsSchema,
-  pricing: pricingSchema,
+  plans: plansSchema,
   social: socialSchema,
   stats: statsSchema,
   trustPoints: trustPointsSchema,

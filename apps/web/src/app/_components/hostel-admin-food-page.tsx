@@ -3,7 +3,6 @@
 import {
   CalendarDays,
   ChefHat,
-  ChevronDown,
   Cookie,
   Moon,
   Pencil,
@@ -28,15 +27,8 @@ import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
 
+import { HostelAdminCooksPanel } from "./hostel-admin-cooks-panel";
 import { field, optionalField, PageHeader } from "./hostel-admin-shared";
-
-type CookPortalSettings = {
-  cookEmail: string;
-  cookName: string;
-  cookPortalEnabled: boolean;
-  credentialIssuedAt?: string;
-  initialPasswordPending: boolean;
-};
 
 type MealType = "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
 type DayOfWeek =
@@ -63,12 +55,6 @@ type FoodRoutine = {
   timings: Partial<Record<MealType, string>>;
 };
 
-const COOK_PORTAL_DEFAULTS: CookPortalSettings = {
-  cookEmail: "",
-  cookName: "",
-  cookPortalEnabled: false,
-  initialPasswordPending: false,
-};
 
 /** Sunday-first: Nepal's week starts on Sunday. */
 const DAYS: DayOfWeek[] = [
@@ -135,10 +121,9 @@ function splitItems(value: FormDataEntryValue | null) {
 
 export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
   const [actionMessage, setActionMessage] = useState("");
-  const [busyForm, setBusyForm] = useState<"" | "cook" | "routine">("");
+  const [busyForm, setBusyForm] = useState<"" | "routine">("");
   const [tab, setTab] = useState<RoutineTab>("weekly");
   const [isEditing, setIsEditing] = useState(false);
-  const [showCookPortal, setShowCookPortal] = useState(false);
   const invalidate = useInvalidateResources();
 
   // One routine per hostel, no week to pick: it repeats until it is changed.
@@ -146,16 +131,10 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
     hostelAdminEndpoints.foodRoutine,
     { errorMessage: "Could not load the food routine." },
   );
-  // Non-critical panel: its own errors stay off the page banner, so a failed
-  // read just leaves the toggle in its default (disabled) state.
-  const cookPortalResource = usePortalResource<{ settings: CookPortalSettings }>(
-    hostelAdminEndpoints.cookPortal,
-  );
 
   const routine = routineResource.data?.routine;
   const state = routineResource.state;
   const message = actionMessage || routineResource.message;
-  const cookPortal = cookPortalResource.data?.settings ?? COOK_PORTAL_DEFAULTS;
 
   // (day, meal) -> meal, so the grid and the editor both read a cell by key.
   const cells = useMemo(() => {
@@ -175,56 +154,6 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
   const monthEndSpecial = routine?.monthEndSpecial ?? null;
   const hasRoutine = cells.size > 0;
 
-  // Held in memory only, never persisted: shown once right after issuing.
-  const [cookPassword, setCookPassword] = useState("");
-
-  const submitCookPortal = useCallback(
-    async (enabled: boolean, cookName?: string, rotate = false) => {
-      setBusyForm("cook");
-      try {
-        const result = await browserApi<{
-          credentials?: { email: string; temporaryPassword: string };
-          settings: CookPortalSettings;
-        }>(hostelAdminEndpoints.cookPortal, {
-          body: JSON.stringify({ cookName, enabled }),
-          method: "PATCH",
-        });
-
-        invalidate(hostelAdminEndpoints.cookPortal);
-        setCookPassword(result.credentials?.temporaryPassword ?? "");
-        setActionMessage(
-          result.credentials
-            ? `${rotate ? "New cook password issued" : "Cook portal enabled"} — also emailed to you. Any previous password no longer works.`
-            : "Cook portal disabled.",
-        );
-      } catch (error) {
-        setActionMessage(
-          error instanceof Error ? error.message : "Could not update the cook portal.",
-        );
-      } finally {
-        setBusyForm("");
-      }
-    },
-    [invalidate],
-  );
-
-  const handleCookPortal = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const form = new FormData(event.currentTarget);
-
-      await submitCookPortal(
-        !cookPortal.cookPortalEnabled,
-        optionalField(form, "cookName"),
-      );
-    },
-    [cookPortal.cookPortalEnabled, submitCookPortal],
-  );
-
-  // Rotating re-runs the enable path, which always issues a fresh password.
-  const handleRotateCookPassword = useCallback(async () => {
-    await submitCookPortal(true, undefined, true);
-  }, [submitCookPortal]);
 
   /**
    * The routine is one document, so saving it is one PUT that replaces it.
@@ -675,104 +604,16 @@ export const HostelAdminFoodPage = memo(function HostelAdminFoodPage() {
         </div>
       ) : null}
 
-      <Panel className="p-0">
-        <button
-          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-          onClick={() => setShowCookPortal((open) => !open)}
-          type="button"
-        >
-          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <ChefHat className="size-4 text-role-admin" />
-            See cook credentials
-            {cookPortal.cookPortalEnabled ? null : (
-              <span className="text-xs font-normal text-muted-foreground">
-                (portal off)
-              </span>
-            )}
-          </span>
-          <ChevronDown
-            className={cn(
-              "size-4 text-muted-foreground transition-transform",
-              showCookPortal && "rotate-180",
-            )}
-          />
-        </button>
+      {/*
+        The roster, not a collapsed credentials drawer.
 
-        {showCookPortal ? (
-          <form
-            className="grid gap-3 border-t border-border p-4"
-            onSubmit={handleCookPortal}
-          >
-            {cookPortal.cookPortalEnabled ? (
-              <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
-                <div className="grid gap-0.5">
-                  <span className="text-xs font-semibold uppercase text-muted-foreground">
-                    Login
-                  </span>
-                  <code className="break-all font-mono text-sm text-foreground">
-                    {cookPortal.cookEmail || "—"}
-                  </code>
-                </div>
-
-                <div className="grid gap-0.5">
-                  <span className="text-xs font-semibold uppercase text-muted-foreground">
-                    Password
-                  </span>
-                  {cookPassword ? (
-                    <code className="break-all font-mono text-sm font-bold text-foreground">
-                      {cookPassword}
-                    </code>
-                  ) : (
-                    <span className="text-muted-foreground">
-                      {cookPortal.initialPasswordPending
-                        ? "Emailed to you, not used yet."
-                        : "Set by your cook, stored encrypted."}{" "}
-                      Rotate to issue a new one.
-                    </span>
-                  )}
-                </div>
-
-                {cookPortal.credentialIssuedAt ? (
-                  <p className="text-xs text-muted-foreground">
-                    Last issued{" "}
-                    {new Date(cookPortal.credentialIssuedAt).toLocaleDateString()}
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  A shared kitchen login that can only announce meals.
-                </p>
-                <Input
-                  defaultValue={cookPortal.cookName}
-                  label="Cook name"
-                  name="cookName"
-                />
-              </>
-            )}
-
-            <div className="flex flex-wrap gap-3">
-              <Button
-                className="h-11 bg-role-admin px-5 text-sm font-semibold text-white hover:bg-role-admin/85"
-                loading={busyForm === "cook"}
-                type="submit"
-              >
-                {cookPortal.cookPortalEnabled ? "Disable" : "Enable Cook Portal"}
-              </Button>
-              {cookPortal.cookPortalEnabled ? (
-                <button
-                  className="h-11 rounded-md border border-border px-5 text-sm font-semibold text-foreground hover:bg-muted/50"
-                  onClick={() => void handleRotateCookPassword()}
-                  type="button"
-                >
-                  Rotate Password
-                </button>
-              ) : null}
-            </div>
-          </form>
-        ) : null}
-      </Panel>
+        Deciding what the kitchen serves and deciding who may say it is ready
+        are the same person's decisions, so the section stays on this page — but
+        it is now a list with two ways in, a rotation and a removal, and that is
+        `HostelAdminCooksPanel`'s job rather than four more pieces of state on
+        the menu editor.
+      */}
+      <HostelAdminCooksPanel />
 
       {renderRoutineCard()}
     </div>

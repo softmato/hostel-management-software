@@ -299,6 +299,14 @@ function NotificationSettings() {
     }, []),
   );
 
+  /*
+   * Registering the token is a round trip — the OS prompt, then our own
+   * `POST /notifications/token` — and the button said nothing for either. On a
+   * phone that takes its time about the permission dialogue that reads as a
+   * button that did not register the tap.
+   */
+  const [enabling, setEnabling] = useState(false);
+
   const enablePush = useCallback(async () => {
     if (permission === "blocked") {
       // The dialogue will never appear again, so the only route left is the
@@ -307,12 +315,18 @@ function NotificationSettings() {
       return;
     }
 
-    const result = await registerPushToken({ ask: true, force: true });
+    setEnabling(true);
 
-    setPermission(result.permission);
+    try {
+      const result = await registerPushToken({ ask: true, force: true });
 
-    if (result.permission === "granted") {
-      toastSuccess("Notifications on", "This phone will get alerts from now on.");
+      setPermission(result.permission);
+
+      if (result.permission === "granted") {
+        toastSuccess("Notifications on", "This phone will get alerts from now on.");
+      }
+    } finally {
+      setEnabling(false);
     }
   }, [permission]);
 
@@ -394,6 +408,7 @@ function NotificationSettings() {
             </Text>
             <Button
               label={permission === "blocked" ? "Open phone settings" : "Turn on notifications"}
+              loading={enabling}
               onPress={() => void enablePush()}
               variant="outline"
             />

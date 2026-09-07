@@ -16,11 +16,15 @@ import {
   readEvidenceDirection,
 } from "@/modules/finance/evidence-direction";
 import {
+  type EvidenceProvenance,
+  provenanceFlags,
+} from "@/modules/finance/evidence-provenance";
+import {
   evidenceTextFlags,
   isDefinitelyNotPaymentEvidence,
   isEvidenceOcrEnabled,
   isPdfEvidence,
-  readEvidenceText,
+  readEvidence,
   type ClaimFacts,
 } from "@/modules/finance/evidence-ocr";
 import {
@@ -44,6 +48,7 @@ import {
   transactionCodeProblem,
   transactionCodeRequired,
 } from "@/modules/finance/transaction-code";
+import { txnIdFlags } from "@/modules/finance/txn-id-rules";
 import { findCurrentResident } from "@/modules/residents/resident-access";
 import type { ResidentRecord } from "@/modules/residents/resident-access";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
@@ -82,6 +87,12 @@ type UsableAsset = {
   key: string;
   mimeType?: string;
   perceptualHash?: string;
+  /**
+   * What the file's own container says about how it was made, measured at
+   * upload. Absent on every asset stored before that measurement existed — and
+   * absent means unknown, never clean.
+   */
+  provenance?: EvidenceProvenance;
   sizeBytes?: number;
   /** Set when the file is one this system generated — a receipt or statement. */
   systemDocumentKind?: "RECEIPT" | "STATEMENT";
@@ -732,6 +743,32 @@ async function evidenceFlags(
   notPayment: boolean;
   systemDocument: "RECEIPT" | "STATEMENT" | null;
 }> {
+  /**
+   * What the file says about itself, and it is asked *first* for a reason.
+   *
+   * Every other signal in this function depends on the recogniser: it needs a
+   * measured image, an enabled engine, a successful fetch and a successful read,
+   * and each of those has a return path below that gives up. Provenance needs
+   * none of them — it is a walk over bytes already in hand, computed at upload
+   * and simply read back here.
+   *
+   * So it survives exactly the failure that has been costing this pipeline every
+   * signal it had. When the recogniser returns nothing, a claim used to carry
+   * `EVIDENCE_NOT_MACHINE_CHECKED` and not one other fact; now it still carries
+   * whatever the file admits about how it was made. That is the whole argument
+   * for phase 5 shipping ahead of the engine swap.
+   */
+  const fileFlags = [
+    ...provenanceFlags(asset.provenance),
+    /*
+     * The transaction id's shape, which is the other signal that survives a
+     * failed read: it looks at a string the resident typed, not at the image.
+     * Grouped with the file flags for exactly that reason — everything in this
+     * list is available whether or not anything could be recognised.
+     */
+    ...txnIdFlags(paymentMethod, facts.transactionCode),
+  ];
+
   const readable =
     isPdfEvidence(asset.mimeType) ||
     (asset.imageInsight?.width !== undefined &&
@@ -741,7 +778,7 @@ async function evidenceFlags(
     // An image stored before gap fix 2 measured one, so nothing is known about it
     // and there is nothing safe to hand a recogniser.
     return {
-      flags: ["EVIDENCE_NOT_MACHINE_CHECKED"],
+      flags: ["EVIDENCE_NOT_MACHINE_CHECKED", ...fileFlags],
       notPayment: false,
       refusal: null,
       systemDocument: null,
@@ -752,18 +789,37 @@ async function evidenceFlags(
   // carries no evidence flags and `Approve all` behaves as it did before the
   // feature existed — flagging every claim in the hostel would make the switch
   // unusable, which is how a safety feature gets turned off permanently.
+  //
+  // The file flags stay: they are not the recogniser's output and turning the
+  // recogniser off was never a request to stop reading the file.
   if (!isEvidenceOcrEnabled()) {
-    return { flags: [], notPayment: false, refusal: null, systemDocument: null };
+    return { flags: fileFlags, notPayment: false, refusal: null, systemDocument: null };
   }
 
   const bytes = await readStoredObject({ bucket: asset.bucket, key: asset.key });
-  const text = bytes ? await readEvidenceText(bytes, asset.mimeType) : null;
+  const read = bytes
+    ? await readEvidence(bytes, asset.mimeType)
+    : { failure: "unknown" as const, result: null };
+  const text = read.result?.text ?? null;
+
+  if (text === null) {
+    // The one place a claim records *why* it carries no read.
+    //
+    // Not on the event and not shown to anybody: it is a server log line,
+    // because the question it answers is operational. A pipeline where every
+    // failure looks like "the resident uploaded a bad photo" is a pipeline that
+    // can be entirely broken without anyone noticing, and that is not a
+    // hypothetical here — it is what happened.
+    console.warn(
+      `[evidence-claim] no text for asset ${asset._id.toString()}: ${read.failure}`,
+    );
+  }
 
   // No text and no flags means the recogniser never ran — disabled, unavailable,
   // or timed out. That is unread evidence, not vouched-for evidence.
   if (text === null) {
     return {
-      flags: ["EVIDENCE_NOT_MACHINE_CHECKED"],
+      flags: ["EVIDENCE_NOT_MACHINE_CHECKED", ...fileFlags],
       notPayment: false,
       refusal: null,
       systemDocument: null,
@@ -787,6 +843,7 @@ async function evidenceFlags(
       ...directionFlags(direction, payee, receipt),
       ...payeeFlags(payee),
       ...documentFlags(receipt, text, paymentMethod),
+      ...fileFlags,
     ],
     notPayment: isDefinitelyNotPaymentEvidence(text),
     // Ordered by how certain each refusal is. A failed transaction is the most

@@ -413,7 +413,7 @@ export function PublicShell({
     | "jobs"
     | "map"
     | "offer-program"
-    | "pricing"
+    | "plans-pricing"
     | "privacy"
     | "providers"
     | "register-hostel"

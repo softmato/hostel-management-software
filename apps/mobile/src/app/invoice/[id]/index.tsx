@@ -627,7 +627,8 @@ function ReceiptsCard({ invoice }: { invoice: ResidentInvoice }) {
             <View key={receipt.id}>
               {index > 0 ? <RowDivider /> : null}
               <ListRow
-                icon={busyId === receipt.id ? "hourglass-outline" : "download-outline"}
+                busy={busyId === receipt.id}
+                icon="download-outline"
                 onPress={() => void save(receipt)}
                 subtitle={
                   [

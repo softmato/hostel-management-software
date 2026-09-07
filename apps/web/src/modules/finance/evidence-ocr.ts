@@ -1,6 +1,13 @@
 import path from "node:path";
 
 import { loadSharp } from "@/lib/sharp";
+import {
+  type EvidenceReadFailure,
+  evidenceEngineMode,
+  type OcrResult,
+} from "@/modules/finance/evidence-engine";
+import { readWithGemini } from "@/modules/finance/evidence-gemini";
+import { readWithVision } from "@/modules/finance/evidence-vision";
 import { extractReferenceCodes } from "@/modules/finance/reference-code";
 import { transactionCodeProblem } from "@/modules/finance/transaction-code";
 
@@ -267,24 +274,227 @@ export function isPdfEvidence(mimeType: string | undefined): boolean {
 }
 
 /**
+ * Upright, right-sized, and otherwise left alone.
+ *
+ * **The opposite of {@link prepare}, and deliberately so.** That chain was tuned
+ * for Tesseract, which reads a high-contrast bitonal image best; every step in
+ * it actively hurts a document recogniser. Greyscale throws away the colour
+ * Vision uses to segment a receipt card from the page behind it. `normalise()`
+ * stretches the histogram and distorts the anti-aliasing that mobile text is
+ * drawn with. Downscaling to 1600 discards resolution the recogniser can use.
+ *
+ * So the chain here does the two things that are unambiguously useful and
+ * nothing else: apply the EXIF orientation a phone camera leaves behind — a
+ * sideways photo of a bank slip reads as nothing without it — and cap the size
+ * so a 12-megapixel photograph is not sent over the wire in full. Almost every
+ * wallet screenshot is already under the cap and passes through untouched, which
+ * is the point: Vision performs best on the original pixels.
+ */
+async function prepareForVision(bytes: Buffer | Uint8Array): Promise<Buffer | null> {
+  const sharp = await loadSharp();
+
+  if (!sharp) return null;
+
+  try {
+    return await sharp(bytes)
+      .rotate()
+      .resize({
+        fit: "inside",
+        height: VISION_MAX_EDGE,
+        width: VISION_MAX_EDGE,
+        // Never upscale. Enlarging a 460px crop invents pixels and gives the
+        // recogniser interpolation artifacts to read.
+        withoutEnlargement: true,
+      })
+      .png({ compressionLevel: 6 })
+      .toBuffer();
+  } catch {
+    return null;
+  }
+}
+
+/** Longest edge sent to Vision. Above this, size costs bandwidth, not accuracy. */
+const VISION_MAX_EDGE = 2400;
+
+export type EvidenceRead = {
+  /** Null when the read succeeded. Diagnostic only — nothing branches on it. */
+  failure: EvidenceReadFailure | null;
+  result: OcrResult;
+};
+
+/**
+ * The evidence, read.
+ *
+ * Dispatches twice: on the format, because a PDF carries its text and an image
+ * has to be recognised; and then on the configured engine.
+ *
+ * **Why the failure reason is returned rather than swallowed.** For the life of
+ * this feature every failure collapsed into `null`, and `null` reached the
+ * resident as a single sentence: "We could not read this one". The recogniser
+ * was then dead in production for weeks — worker files a serverless bundler
+ * could not trace — and the only visible symptom was residents being told their
+ * receipts were unreadable, on files that read perfectly on any developer's
+ * machine. One undifferentiated failure value is how a feature dies quietly.
+ * Nothing acts on the reason; it is there so somebody can see it.
+ */
+export async function readEvidence(
+  bytes: Buffer | Uint8Array,
+  mimeType?: string,
+): Promise<EvidenceRead> {
+  if (!isEvidenceOcrEnabled()) return { failure: "disabled", result: null };
+
+  if (isPdfEvidence(mimeType)) {
+    const startedAt = Date.now();
+    const text = await readPdfText(bytes);
+
+    return text === null
+      ? { failure: "empty", result: null }
+      : {
+          failure: null,
+          result: {
+            engine: "pdf-text",
+            ms: Date.now() - startedAt,
+            text,
+            // A text layer has coordinates, but extracting them is a different
+            // operation from extracting the text and nothing consumes them yet.
+            words: [],
+            },
+        };
+  }
+
+  const mode = evidenceEngineMode();
+
+  if (mode === "vision") {
+    const prepared = await prepareForVision(bytes);
+
+    // No decoder on this deployment. Distinct from a Vision failure, and worth
+    // saying so: it means `sharp` is missing, which breaks far more than this.
+    if (!prepared) return { failure: "unknown", result: null };
+
+    return readWithVision(prepared);
+  }
+
+  if (mode === "gemini") {
+    /*
+     * The same preparation Vision gets.
+     *
+     * Not because the model needs it — it reads a raw phone screenshot fine —
+     * but because it bounds what is sent. `prepareForVision` downscales and
+     * re-encodes, and every byte here becomes base64 in a JSON body on a free
+     * tier with a request-size limit. It also keeps the two remote engines
+     * reading pixel-for-pixel the same image, which is the only way a shadow
+     * comparison between them means anything.
+     */
+    const prepared = await prepareForVision(bytes);
+
+    if (!prepared) return { failure: "unknown", result: null };
+
+    // `prepareForVision` re-encodes to PNG, and the mime type has to say so —
+    // Vision sniffs the bytes, but this endpoint is told what it is being given.
+    return readWithGemini(prepared, "image/png");
+  }
+
+  if (mode === "shadow") {
+    return readShadowed(bytes);
+  }
+
+  const text = await readWithTesseract(bytes);
+
+  return text === null
+    ? { failure: "unknown", result: null }
+    : {
+        failure: null,
+        result: { engine: "tesseract", ms: 0, text, words: [] },
+      };
+}
+
+/**
+ * Runs both engines, lets the old one decide, and records where they disagree.
+ *
+ * The rollout lever. Behaviour is identical to `tesseract` mode — every flag,
+ * every refusal, every autofilled field comes from the same read it does today —
+ * so switching this on changes nothing a resident or a warden can see. What it
+ * produces is the evidence for the cutover: real files, both engines, and a log
+ * of every case where the answers differ on something that matters.
+ *
+ * **Deliberately not a fallback.** Both results exist here and it would be easy
+ * to return whichever one is non-null. That is exactly the mistake the engine
+ * contract forbids: a Vision read standing in for a failed Tesseract read (or
+ * the reverse) is a confirmation signal produced by an engine nobody chose, and
+ * a false confirmation is worse than no signal.
+ */
+async function readShadowed(bytes: Buffer | Uint8Array): Promise<EvidenceRead> {
+  const prepared = await prepareForVision(bytes);
+  const [tesseractText, vision] = await Promise.all([
+    readWithTesseract(bytes),
+    prepared
+      ? readWithVision(prepared)
+      : Promise.resolve({ failure: "unknown" as const, result: null }),
+  ]);
+
+  logDivergence(tesseractText, vision.result);
+
+  return tesseractText === null
+    ? { failure: "unknown", result: null }
+    : {
+        failure: null,
+        result: { engine: "tesseract", ms: 0, text: tesseractText, words: [] },
+      };
+}
+
+/**
+ * One line per file where the two engines would fill the form differently.
+ *
+ * **Fields, not text.** Character-level similarity is the wrong measure: an
+ * engine can get 95% of a receipt right and corrupt the one transaction id the
+ * claim turns on, and it can also differ on whitespace across the whole page
+ * while agreeing on every fact. What matters is whether the resident would end
+ * up submitting a different number, so that is what is compared.
+ *
+ * No text is logged — a payment screenshot's text is account numbers and
+ * balances, and this module's third rule is that none of it is stored.
+ */
+function logDivergence(tesseractText: string | null, vision: OcrResult) {
+  const mine = tesseractText ? extractClaimFields(tesseractText) : {};
+  const theirs = vision ? extractClaimFields(vision.text) : {};
+  const differences = (["amount", "transactionCode", "method"] as const).filter(
+    (field) => mine[field] !== theirs[field],
+  );
+
+  if (differences.length === 0 && Boolean(tesseractText) === Boolean(vision)) {
+    return;
+  }
+
+  console.info(
+    "[evidence-shadow]",
+    JSON.stringify({
+      differences,
+      tesseractRead: tesseractText !== null,
+      visionMs: vision?.ms ?? null,
+      visionRead: vision !== null,
+      visionWords: vision?.words.length ?? 0,
+    }),
+  );
+}
+
+/**
  * The text on the evidence, or null when there is none to be had.
  *
- * Dispatches on the format, because the two are not the same operation: a PDF
- * carries its text and an image has to be guessed at. Null covers every failure
- * mode on purpose — disabled, not installed, not decodable, timed out. The caller
- * cannot act differently on any of them: all it can say is that the file was not
- * machine-read.
+ * The narrow contract every existing caller was written against, kept as a thin
+ * wrapper so the engine swap is invisible to all of them. New callers that want
+ * the word boxes or the failure reason should use {@link readEvidence}.
  */
 export async function readEvidenceText(
   bytes: Buffer | Uint8Array,
   mimeType?: string,
 ): Promise<string | null> {
-  if (!isEvidenceOcrEnabled()) return null;
+  return (await readEvidence(bytes, mimeType)).result?.text ?? null;
+}
 
-  if (isPdfEvidence(mimeType)) {
-    return readPdfText(bytes);
-  }
-
+/** The old engine. Kept whole, and reached only when it is the chosen one. */
+async function readWithTesseract(
+  bytes: Buffer | Uint8Array,
+): Promise<string | null> {
   const prepared = await prepare(bytes);
 
   if (!prepared) return null;

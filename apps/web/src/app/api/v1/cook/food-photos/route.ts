@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
     assertApiRoles(principal, ALLOWED_ROLES);
 
     const hostelId = request.nextUrl.searchParams.get("hostelId") ?? undefined;
-    const result = await listCookFoodPhotos(principal, hostelId);
+    // Opaque, and handed straight back to the service — see `encodePhotoCursor`.
+    const cursor = request.nextUrl.searchParams.get("cursor") ?? undefined;
+    const result = await listCookFoodPhotos(principal, hostelId, cursor);
 
     return successResponse(result, "Food photos loaded");
   } catch (error) {

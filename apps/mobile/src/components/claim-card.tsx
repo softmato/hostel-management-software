@@ -58,6 +58,9 @@ import { useAppSelector } from "@/hooks/redux";
 const CHECK_LABEL: Record<AdminClaimCheck["key"], string> = {
   AMOUNT: "Amount",
   EVIDENCE: "Screenshot",
+  // Deliberately distinct from `Screenshot`: that one is about what the receipt
+  // says, this one is about whether the file is what it looks like.
+  FILE: "File",
   INVOICE_OPEN: "Invoice",
   PAYEE: "Paid to you",
   REFERENCE: "Reference",

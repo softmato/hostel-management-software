@@ -1,6 +1,8 @@
 import type { MetadataRoute } from "next";
 
+import { listingTiers } from "@/app/_components/plans-catalog";
 import { siteUrl } from "@/lib/site";
+import { loadSiteConfig } from "@/lib/site-config-server";
 import { listPublishedHostelSlugs } from "@/modules/hostels/hostel.service";
 
 export const runtime = "nodejs";
@@ -19,7 +21,7 @@ const STATIC_ROUTES: {
   { path: "/service-providers", priority: 0.6, changeFrequency: "weekly" },
   { path: "/about", priority: 0.4, changeFrequency: "monthly" },
   { path: "/contact", priority: 0.4, changeFrequency: "monthly" },
-  { path: "/pricing", priority: 0.5, changeFrequency: "monthly" },
+  { path: "/plans-pricing", priority: 0.7, changeFrequency: "monthly" },
   { path: "/privacy", priority: 0.3, changeFrequency: "monthly" },
   { path: "/terms", priority: 0.3, changeFrequency: "monthly" },
 ];
@@ -34,6 +36,31 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: route.changeFrequency,
     priority: route.priority,
   }));
+
+  /*
+   * Every service in the plans catalogue is its own indexable page, and so is
+   * each directory badge — but the catalogue is owner-editable now, so the list
+   * is read at generation time rather than imported as a constant. A service
+   * the owner adds is in the sitemap on the next revalidation; one they remove
+   * leaves it the same way. `loadSiteConfig` never throws, so an unreachable
+   * database costs the sitemap these rows rather than the whole file.
+   */
+  const { plans: catalog } = await loadSiteConfig();
+
+  const planEntries: MetadataRoute.Sitemap = [
+    ...catalog.services.map((service) => ({
+      url: `${base}/plans-pricing/${service.slug}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.5,
+    })),
+    ...listingTiers(catalog).map(({ tier }) => ({
+      url: `${base}/plans-pricing/badge/${tier.slug}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.4,
+    })),
+  ];
 
   let hostelEntries: MetadataRoute.Sitemap = [];
 
@@ -50,5 +77,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     hostelEntries = [];
   }
 
-  return [...staticEntries, ...hostelEntries];
+  return [...staticEntries, ...planEntries, ...hostelEntries];
 }

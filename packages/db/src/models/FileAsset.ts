@@ -99,6 +99,31 @@ const fileAssetSchema = new Schema(
       nearBlank: Boolean,
       width: Number,
     },
+    /**
+     * What the *file* says about how it was made — editor signatures, JPEG
+     * quantization tables, camera EXIF, screen-shaped dimensions.
+     *
+     * The counterpart to `imageInsight`, and the division is the same one as
+     * above: measured here at upload, judged by the finance module. Every field
+     * has an innocent explanation on its own, so none of it may ever refuse an
+     * upload — a resident who cropped their bank balance out of a screenshot
+     * before sending it is behaving well, and this records that they did, not
+     * that they should be stopped.
+     *
+     * Computed at upload rather than at claim because the bytes are already in
+     * hand, the claim path is the one a resident waits on, and holding the
+     * signal for unclaimed assets is what makes it possible to notice the same
+     * doctored file being tried against three different invoices.
+     */
+    provenance: {
+      container: String,
+      editorSignature: String,
+      hasCameraExif: Boolean,
+      jpegQuality: Number,
+      quantTablesStandard: Boolean,
+      screenshotShape: Boolean,
+      softwareTag: String,
+    },
     variants: { type: [variantSchema], default: [] },
     status: { type: String, enum: ["ACTIVE", "DELETED"], default: "ACTIVE" },
     createdBy: { ref: "User", type: Schema.Types.ObjectId },

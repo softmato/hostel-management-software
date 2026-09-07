@@ -153,7 +153,9 @@ export async function getPublicSiteConfig() {
     identity: config.identity,
     legal: config.legal,
     locations: config.locations.filter((location) => location.enabled),
-    pricing: config.pricing.filter((plan) => plan.enabled),
+    // The whole Plans & Pricing catalogue. Public by definition — it is the
+    // page — and read by the website's pricing, service and badge routes.
+    plans: config.plans,
     social: config.social,
     stats: config.stats,
     trustPoints: config.trustPoints,

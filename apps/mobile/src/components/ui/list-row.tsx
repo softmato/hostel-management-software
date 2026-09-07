@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import type { ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -15,6 +15,7 @@ import { useAppTheme } from "@/hooks/use-app-theme";
  * 48dp Android minimum with room for the divider.
  */
 export function ListRow({
+  busy = false,
   className = "",
   icon,
   left,
@@ -25,6 +26,16 @@ export function ListRow({
   title,
   value,
 }: {
+  /**
+   * This row's own action is at the server.
+   *
+   * A row is a button here as often as a `<Button>` is — saving a card photo,
+   * removing one, acknowledging an alert — and a row that fires a request and
+   * then looks exactly as it did before is the complaint this prop answers. The
+   * chevron becomes a spinner, so the row keeps its shape, and the press is
+   * refused until the answer lands.
+   */
+  busy?: boolean;
   className?: string;
   icon?: keyof typeof Ionicons.glyphMap;
   /**
@@ -77,13 +88,17 @@ export function ListRow({
         ) : null}
       </View>
 
-      {right ?? (
-        <View className="flex-row items-center gap-1">
-          {value ? <Text variant="muted">{value}</Text> : null}
-          {onPress ? (
-            <Ionicons color={colors.mutedForeground} name="chevron-forward" size={18} />
-          ) : null}
-        </View>
+      {busy ? (
+        <ActivityIndicator color={colors.mutedForeground} size="small" />
+      ) : (
+        (right ?? (
+          <View className="flex-row items-center gap-1">
+            {value ? <Text variant="muted">{value}</Text> : null}
+            {onPress ? (
+              <Ionicons color={colors.mutedForeground} name="chevron-forward" size={18} />
+            ) : null}
+          </View>
+        ))
       )}
     </View>
   );
@@ -95,7 +110,9 @@ export function ListRow({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ busy, disabled: busy }}
       className="active:opacity-70"
+      disabled={busy}
       onPress={() => {
         void Haptics.selectionAsync();
         onPress();

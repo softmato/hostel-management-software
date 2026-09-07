@@ -52,21 +52,25 @@ files.**
 | **Tabs** | Today · Menu · Community · Photos · More |
 | **Reads** | `GET /cook/today` (today's meals, today's announcements, the head count **and the whole week's routine**), the roster, the photo feed, the announcement log |
 | **Writes** | Two, and only two: announce a meal, post a photo |
-| **The account** | **One login per hostel.** `provisionCookAccount` creates a single account the whole kitchen shares; per-announcement attribution comes from `FoodReadyLog.deviceInfo`, not from separate users (PHASES.md §3.1) |
+| **The account** | **A roster, not a single login.** `CookAccount` rows, managed from `manage/cook`: a generated short sign-in (`sunr@cook.local`) that a kitchen sharing one phone passes around, or an invitation to a cook's own email that turns their account into the cook account. Removing one deletes a generated account outright and drops an invited person back to `PUBLIC`, keeping the row so their past work reads `Previous <hostel> cook` |
 | **Palette** | black / white / green, `roleAccent.COOK` for the tab bar. Never a literal hex from a reference image |
 
-Three rules that follow from the shared login and must not be softened:
+Three rules that follow from a login the hostel owns, and must not be softened:
 
-- **"Signed in as" is not a person.** More names the *handset*, because that is
-  the thing actually stamped on an announcement. An account name up there would
-  imply an accountability the system does not have.
+- **"Signed in as" is not necessarily a person.** More names the *handset*,
+  because a generated sign-in is passed around a kitchen and the device
+  fingerprint is the thing actually stamped on an announcement. The
+  announcement history does carry a name now — resolved through the roster, so
+  a departed cook reads as `Previous Sunrise cook` — but that is the roster
+  speaking, not the session.
 - **The roster is a noticeboard.** `CookResident` is three fields with nothing
   contactable in it, because a shared, effectively static password makes this the
   list most exposed by a leak.
-- **No account-deletion pathway.** Every other portal's More has one; this login
-  is the hostel's, and the person holding the phone at 6am is not the person
-  entitled to close it. The office switches the cook portal off from
-  `manage/settings`, which is where that decision has an owner.
+- **No account-deletion pathway.** Every other portal's More has one; a cook
+  login belongs to the hostel — a generated one outright, an invited one for as
+  long as the hostel says so — and the person holding the phone at 6am is not
+  the person entitled to close it. The office removes a cook from
+  `manage/cook`, which is where that decision has an owner.
 
 And one about the product itself: **nothing on this portal is editable.**
 `PUT /hostel-admin/food/routine` sits behind `manageFood`, which a COOK does not
@@ -160,26 +164,139 @@ it silently is how a hostel serves something other than what it advertised.
 
 ---
 
+## §6 Push, the office, and the state the portal was refetching
+
+**Opened 2026-09-07**, on the owner's ask: *"make sure this is push notification
+to resident super important, and also warden should get notified with its
+personal message as cook have marked as food is ready. polish the ui of cook
+portal app as we do for guardian resident, add state management."*
+
+The push half turned out not to be a missing feature. It was a fan-out shaped so
+that the notification most likely to matter was the one most likely not to
+arrive.
+
+- [x] **6.1 [server] Food-ready push was one Expo round trip per resident, at
+      default priority.** *(2026-09-07)* `announceFoodReady` looped over
+      residents awaiting `createInAppNotification`, and every one of those fires
+      its own `dispatchPush([oneUser])` — a preference query, a token query and
+      an HTTP call to Expo, each handed to `after()`. A hostel of forty scheduled
+      forty of them for one announcement. `after()` keeps the invocation alive
+      but not without limit, so **the residents at the end of the list were the
+      ones whose phones stayed silent**, and nothing reported it: the request
+      that wrote their notification row had already returned 201.
+      <br>`modules/food/food-ready-notify.ts` takes the whole audience,
+      `sendPushToUsers` filters preferences once, looks tokens up once and posts
+      to Expo in batches of a hundred. The durable bell rows are still per
+      recipient; only the buzz is batched.
+      <br>**Priority is `HIGH` now.** Food goes cold — `isHighPriority` is what
+      puts `priority: "high"` on the Expo message, which is what wakes a dozing
+      Android handset instead of leaving it until its next maintenance window. It
+      was going out at the same priority as a monthly statement. Deliberately not
+      `URGENT`: quiet hours still apply, and a resident who set 22:00–07:00 has
+      asked not to be woken for breakfast. That exemption is for safety.
+      <br>**And the audience was wrong.** The fan-out ran through
+      `resolveActiveResidentRecipients`, which is an *email* resolver — it
+      returns `null` for a resident with no address on their record and none on
+      their account, and its own doc says why: "residents can be registered
+      phone-only". Here that is the common case, not the edge. A resident with
+      the app installed, signed in and holding a live device token was dropped
+      because the hostel had never taken an email off them. The audience is now
+      every ACTIVE resident with an account.
+- [x] **6.2 [server] The office was told nothing.** *(2026-09-07)* A warden's
+      question is not "is there food" — they are not queuing for it. It is *did
+      the kitchen call the meal, when, and did it reach anybody*, which is the
+      one thing about this portal an office cannot otherwise see: the login is
+      shared, effectively static, and its only attribution is the handset on the
+      log row (§0).
+      <br>Owner, hostel admins and wardens now get their own notification —
+      `Kitchen announced lunch`, then the hostel, the clock time, the reach, the
+      handset it came from, and the line residents were sent. `NORMAL` priority
+      and an explicit `kind: "NORMAL"`, because staff are being kept informed
+      rather than summoned, and this must not sit in a warden's bell as an
+      unresolved ACTION row.
+      <br>Routed by `data.audience === "STAFF"` in `push-routing.ts` rather than
+      by an `actionUrl`: `actionUrl` is also what the **web** bell links to, and
+      `(admin)/today` is a mobile route group, not a URL.
+      <br>**One shared-service fix rides along.** `push: false` on
+      `createInAppNotification` used to gate the whole of
+      `publishNewNotification`, so a caller batching its own push was also
+      silently turning off that recipient's live bell and topic fan-out. It gates
+      the Expo send and nothing else now, which also repairs `notifyOrderPlaced`.
+- [x] **6.3 [mobile] Announcing refetched the payload it had just been
+      handed.** *(2026-09-07)* The button called `today.refresh()` — a whole
+      `GET /cook/today`, the week's routine and the hostel and the head count —
+      to learn one fact the POST response already carried. On a kitchen handset
+      that is a visible pause between the press and `Sent 12:04` appearing, which
+      is exactly when a cook presses again because nothing happened, and the
+      second press is the one that hits the cooldown 429.
+      <br>`recordCookAnnouncement` (+4 tests) writes the server's own reply into
+      `cook:today` and `cook:announcements`. Nothing is invented — this is not an
+      optimistic update needing a rollback, it is the response, and the line is
+      not reached if the announce threw. More's record and Today's buttons
+      therefore cannot disagree about a meal announced thirty seconds ago.
+      <br>The toast is `announcementSummary` (+3 tests), because there are two
+      audiences now and each can be empty. "Only the office was told" is worth
+      distinguishing from "nobody was told": it says the app works and the gap is
+      residents not having installed it, which an admin can fix and a cook
+      cannot.
+- [x] **6.4 [server+mobile] The photo feed pages now.** *(2026-09-07)* §2.3.
+      `listCookFoodPhotos` returned `hasMore` and nothing read it; there was also
+      no parameter to ask for the next page with. The server takes a `cursor`
+      that is the feed's own sort key (`date`, then `uploadedAt`) rather than a
+      `skip` — a photo posted while a cook is paging would otherwise shuffle a
+      row into or out of the next page, which on this feed is most of the time.
+      <br>The screen gets a **Load older photos** button, not infinite scroll:
+      this is a record somebody consults, not a feed they browse, and a thumb
+      drag should not pull a fortnight of images over hostel wifi.
+      <br>`mergePhotoDays` (+3 tests) folds a day that straddles a page boundary
+      into one card and recomputes its `mealsCovered` — each page counts only its
+      own half's coverage, so trusting either would tell a kitchen it documented
+      two meals on a day it documented four.
+- [x] **6.5 [mobile] The Today tab carries the count.** *(2026-09-07)* §2.2.
+      A kitchen leaves Today constantly — to photograph the meal, to check the
+      week, to look somebody up — and the shift is not a list of things read but
+      four things *done*. The badge is the only thing in this portal that says
+      the shift is unfinished from a tab that is not Today.
+      <br>`hooks/use-query-value.ts` is the new piece and it is deliberately not
+      a `useResource`: it **watches** `cook:today` and never asks for it. Today
+      is the tab this group lands on and already loads that key, so the count is
+      free; before it lands the badge is absent, and no request was made to find
+      that out. The admin group solves the same problem the other way, with a
+      provider owning the fetch, and that is right for *it* — its alert counts
+      belong to no single tab. This is for when a tab already owns the data.
+      <br>Zero draws nothing, so a finished shift is silent rather than showing a
+      `0` in a dot, which reads as a fault.
+- [x] **6.6 [mobile] The head count and the roster move together.**
+      *(2026-09-07)* §2.4 guessed at deriving the count from the roster or
+      folding both into one read. Neither was the cause. `cook:today` carries
+      `residentCount` but was subscribed to `food` alone, so a resident moving in
+      fired `residents`, invalidated `cook:residents` and left the head count
+      sitting stale — the two numbers diverged *precisely* when the roster
+      changed. `cook:today` is on both topics now.
+      <br>Separately: the comment in `getCookToday` claiming its count matched
+      the announcement fan-out's was never true, and is now wrong in a documented
+      direction. The count is **plates** — every ACTIVE resident. The fan-out is
+      every ACTIVE resident *with an account*. They are meant to differ, and the
+      gap between them is how many residents have not installed the app.
+
+**Verified after 6.1-6.6:** web `tsc` clean, 2266 tests / 154 files; mobile `tsc`
+clean, lint clean, 1342 tests / 83 files.
+
+---
+
 ## §2 Still open
 
 - [ ] **2.1 [device]** The whole pass on a handset, light and dark: the shift
       card at 320dp with a three-digit head count and a long hostel name, the
       "all called" state, the four announce cards with wet hands, the roster
       search over forty, and the photo grid's skeleton throttled to 3G.
-- [ ] **2.2 The Today tab has no badge on the tab bar.** `N of 4 still to call`
-      is the one count in this portal worth surfacing from another tab, and
-      `(admin)`'s custom bar already knows how to draw badges. Decide whether a
-      kitchen wants that nag or would learn to ignore it.
-- [ ] **2.3 The photo feed pages and the screen does not.**
-      `listCookFoodPhotos` returns `hasMore` and nothing reads it — the same
-      fault the resident notices screen had before §11.5. A kitchen posting daily
-      loses last month off the bottom.
-- [ ] **2.4 `Menu`'s roster and `Today`'s head count can disagree.**
-      `residentCount` comes from `GET /cook/today` and the roster from
-      `GET /cook/residents`, under two keys with two lifetimes. They are the same
-      population, so a stale one of either shows two different numbers for one
-      hostel on two tabs. Probably wants the count derived from the roster, or
-      both from one read.
+- [x] **2.2 The Today tab has no badge on the tab bar.** *(2026-09-07)* Done in
+      §6.5 — see there for why it costs no request.
+- [x] **2.3 The photo feed pages and the screen does not.** *(2026-09-07)* Done
+      in §6.4, server and client.
+- [x] **2.4 `Menu`'s roster and `Today`'s head count can disagree.**
+      *(2026-09-07)* Done in §6.6, and the cause was neither of the two guesses
+      recorded here — see there.
 
 ---
 
@@ -189,6 +306,10 @@ it silently is how a hostel serves something other than what it advertised.
       first announcement, so More reads `collectDeviceInfo()` locally rather than
       showing what the server has on file. A kitchen cannot see, or revoke, the
       other handsets signed into the shared login.
+      <br>*Half of this closed in §6.2*: the office's copy of every announcement
+      names the handset it came from, so a warden can at least **see** an
+      unfamiliar phone announcing meals. Revoking one is still not possible, and
+      that is the half that needs the endpoint.
 - [ ] **3.2 The cook cannot see a meal's feedback.** Residents rate per meal per
       day and the aggregate is the only thing that tells a kitchen Tuesday dinner
       is the problem — which is what the rating exists for. There is no
@@ -229,3 +350,4 @@ it silently is how a hostel serves something other than what it advertised.
 | When | What | Next |
 |---|---|---|
 | 2026-09-04 | Portal read against `(admin)`, `(resident)` and `(guardian)` after both earlier passes. Found Today and Menu refetching one payload with no cache, no bell on any tab, five spinners, no painted lead, a third copy of the week's routine, and the announcement log growing on the Photos tab. §1 built whole. **1162 tests / 76 files, lint and tsc clean.** | §2.1 [device] |
+| 2026-09-07 | Owner asked for push to residents, a warden-facing message, UI polish and state management. The push was already firing — once per resident, at default priority, over an email-shaped audience that dropped phone-only residents. §6 rebuilt the fan-out, added the office's own notification, and cleared §2.2, §2.3 and §2.4. **web 2266 / 154, mobile 1342 / 83, lint and tsc clean.** | §2.1 [device] |

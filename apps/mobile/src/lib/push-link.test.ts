@@ -109,6 +109,21 @@ describe("resolvePushPath", () => {
   it("does not mistake a payments path with extra segments for an invoice", () => {
     expect(resolvePushPath("/(resident)/payments/abc/def")).toBe(PUSH_FALLBACK_PATH);
   });
+
+  /*
+   * `/jobs` is the provider's only screen on the website, and the approval
+   * notification carries it as an `actionUrl`. Unrewritten it is not a route in
+   * this build, so the one push that converts the app into the provider app
+   * would land on the notification list.
+   */
+  it("sends the web provider job feed to the provider tabs", () => {
+    expect(resolvePushPath("/jobs")).toBe("/(provider)");
+  });
+
+  /* Where a refused applicant can send a corrected application. */
+  it("routes a provider rejection to the landing screen", () => {
+    expect(resolvePushPath("/service-providers")).toBe("/service-providers");
+  });
 });
 
 /**
@@ -126,6 +141,22 @@ describe("marksRoleChange", () => {
     expect(marksRoleChange({ invoiceId: "inv-1", type: "RESIDENT_REGISTERED" })).toBe(
       true,
     );
+  });
+
+  /*
+   * Without this, an approved provider keeps the hostel-shopping shell until the
+   * app is killed and cold-started — the whole reason the server sends it.
+   */
+  it("recognises the provider approval push", () => {
+    expect(marksRoleChange({ type: "SERVICE_PROVIDER_APPROVED" })).toBe(true);
+    expect(
+      marksRoleChange({ providerId: "p-1", type: "SERVICE_PROVIDER_APPROVED" }),
+    ).toBe(true);
+  });
+
+  /* A refusal changes no role, so it must not rotate the token or re-route. */
+  it("does not treat a rejection as a role change", () => {
+    expect(marksRoleChange({ type: "SERVICE_PROVIDER_REJECTED" })).toBe(false);
   });
 
   it("ignores every other notification", () => {

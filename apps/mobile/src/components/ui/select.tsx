@@ -46,6 +46,16 @@ export type SelectOption<T extends string> = {
   value: T;
 };
 
+/**
+ * The borders {@link Select.tone} can ask for — the same three `Input` draws,
+ * because the trigger has to be indistinguishable from the field above it.
+ */
+const FIELD_TONES = {
+  danger: "border-destructive",
+  success: "border-success",
+  warning: "border-warning",
+} as const;
+
 type SelectProps<T extends string> = {
   disabled?: boolean;
   error?: string | null;
@@ -56,6 +66,8 @@ type SelectProps<T extends string> = {
   placeholder?: string;
   /** Sheet heading. Defaults to `label`. */
   sheetTitle?: string;
+  /** Border-only emphasis, said by the screen rather than by a validator. See `Input`. */
+  tone?: keyof typeof FIELD_TONES;
   value: T | null | undefined;
 };
 
@@ -68,6 +80,7 @@ export function Select<T extends string>({
   options,
   placeholder = "Select",
   sheetTitle,
+  tone,
   value,
 }: SelectProps<T>) {
   const { colors } = useAppTheme();
@@ -85,7 +98,11 @@ export function Select<T extends string>({
     [onChange],
   );
 
-  const borderTone = error ? "border-destructive" : "border-border";
+  const borderTone = error
+    ? "border-destructive"
+    : tone
+      ? FIELD_TONES[tone]
+      : "border-border";
 
   return (
     <View className="gap-1.5">

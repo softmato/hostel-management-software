@@ -60,10 +60,11 @@ import { setThemePreference } from "@/store/slices/uiSlice";
  * ## No privacy or account-deletion row, deliberately
  *
  * Every other portal's More has one into `settings?section=privacy`, whose
- * pathways include closing the account. This login is **the hostel's**, shared
- * by whoever is on shift, and the person holding the phone at 6am is not the
- * person entitled to delete it — the hostel office switches the cook portal off
- * from `manage/settings`, which is where that decision has an owner.
+ * pathways include closing the account. A cook login belongs to **the hostel**
+ * — a generated one outright, an invited one for as long as the hostel says so
+ * — and the person holding the phone at 6am is not the person entitled to
+ * close it. The office removes a cook from `manage/cook`, which is where that
+ * decision has an owner.
  */
 export default function CookMoreScreen() {
   const dates = useDates();
@@ -103,7 +104,7 @@ export default function CookMoreScreen() {
   const signOut = useCallback(() => {
     Alert.alert(
       "Sign out?",
-      "This login is shared by the whole kitchen. You'll need the hostel's cook password to get back in.",
+      "You'll need your cook sign-in to get back in — the hostel office can issue a new password if it has been lost.",
       [
         { style: "cancel", text: "Cancel" },
         {
@@ -211,7 +212,18 @@ export default function CookMoreScreen() {
                         tone={log.notifiedCount > 0 ? "success" : "warning"}
                       />
                     }
-                    subtitle={log.message || undefined}
+                    /*
+                      Who called it, under what was said. This is where a
+                      removed cook shows up as "Previous Sunrise cook" — the
+                      whole point of keeping their roster row after their
+                      account is gone. Rows from before the roster carry no
+                      name and simply show the message, which is what they
+                      always showed.
+                    */
+                    subtitle={
+                      [log.announcedBy, log.message].filter(Boolean).join(" · ") ||
+                      undefined
+                    }
                     title={`${humanizeEnum(log.mealType)} · ${dates.dateTime(
                       log.announcedAt,
                     )}`}

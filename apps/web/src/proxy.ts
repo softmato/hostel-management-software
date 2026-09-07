@@ -17,8 +17,16 @@ const routeAliases: Record<string, string> = {
   "/privacy-policy": "/privacy",
   "/data-policy": "/privacy",
   "/hostel": "/hostels",
-  "/pricings": "/pricing",
-  "/faq": "/pricing",
+  /*
+   * `/pricing` was the first pricing page — three cards of free text from a
+   * `pricing` config section, with no service identity behind them, so nothing
+   * on it could be linked to, compared across tiers or given a detail page.
+   * `/plans-pricing` replaced it and that section is gone, so the old path is
+   * an alias rather than a second page quietly showing older prices.
+   */
+  "/pricing": "/plans-pricing",
+  "/pricings": "/plans-pricing",
+  "/faq": "/plans-pricing",
 };
 
 function accessSecret() {

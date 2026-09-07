@@ -9,6 +9,7 @@ import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
 import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
+import { providerStatusPanelFor } from "@/lib/provider-status";
 
 /**
  * "Become a service provider" — the app's version of `/service-providers`.
@@ -71,6 +72,13 @@ export default function ServiceProvidersScreen() {
  * to tell them is different: they are waiting, not finished. Only a rejected
  * applicant may apply again, which is `isApplicationOpen` on the website and the
  * `ACTIVE_APPLICATION_STATUSES` check in the service.
+ *
+ * All four sentences come from `lib/provider-status.ts`, which is also what the
+ * Profile tab's banner and the provider's own card tab read. They used to be
+ * written out here, and this copy was the one that drifted: it promised jobs
+ * "broadcast by hostels in your trades and area" to somebody deciding whether to
+ * apply, and there is no broadcast anywhere in the product — a hostel admin
+ * assigns a provider by name, which is the whole of the marketplace.
  */
 function ApplyBlock({
   application,
@@ -83,26 +91,6 @@ function ApplyBlock({
   isSignedIn: boolean;
   loading: boolean;
 }) {
-  if (isApproved) {
-    /*
-     * The website has no provider dashboard by design — this app is it — so the
-     * honest thing to show is not "apply" but where the work is.
-     */
-    return (
-      <InfoNote title="You are an approved provider" tone="accent">
-        <Text className="leading-6" variant="muted">
-          Jobs broadcast by hostels in your trades and area arrive in this app.
-          There is nothing else to apply for.
-        </Text>
-        <Button
-          className="mt-1"
-          label="Go to your jobs"
-          onPress={() => router.push("/(provider)")}
-        />
-      </InfoNote>
-    );
-  }
-
   if (isSignedIn && loading) {
     // Inert rather than absent. The lookup resolves a beat after the first
     // frame, and a card that appears late shifts the page under whoever was
@@ -114,51 +102,45 @@ function ApplyBlock({
     );
   }
 
-  if (application && application.status !== "REJECTED") {
-    return (
-      <InfoNote title={PENDING_TITLE[application.status]} tone="accent">
-        <Text className="leading-6" variant="muted">
-          {PENDING_BODY[application.status]}
-        </Text>
-      </InfoNote>
-    );
-  }
+  /*
+   * The record when there is one, the token's flag when there is not.
+   * `/auth/me` says whether this account is an approved provider on every
+   * launch; the record lookup can be a beat behind it or have failed outright,
+   * and offering the form in that gap is how somebody sends a second
+   * application the server refuses.
+   */
+  const panel = providerStatusPanelFor(
+    application?.status ?? (isApproved ? "APPROVED" : null),
+    application?.rejectionReason,
+  );
 
   return (
     <InfoNote
-      title={application ? "Apply again" : "Apply to join"}
+      title={panel.canApply && application ? "Apply again" : panel.title}
       tone="accent"
     >
       <Text className="leading-6" variant="muted">
-        {application?.rejectionReason
-          ? `Your last application wasn't approved: ${application.rejectionReason} Correct it and send it again.`
-          : "Five short steps, right here in the app — your trades, where you work, and a photo of yourself for your provider ID card."}
+        {panel.body}
       </Text>
-      <View className="mt-1 gap-2">
+
+      {panel.showJobs ? (
         <Button
-          label={application ? "Start a new application" : "Apply as a service provider"}
-          onPress={() => router.push("/service-providers/apply")}
+          className="mt-1"
+          label="Go to your jobs"
+          onPress={() => router.push("/(provider)")}
         />
-      </View>
+      ) : null}
+
+      {panel.canApply ? (
+        <View className="mt-1 gap-2">
+          <Button
+            label={
+              application ? "Start a new application" : "Apply as a service provider"
+            }
+            onPress={() => router.push("/service-providers/apply")}
+          />
+        </View>
+      ) : null}
     </InfoNote>
   );
 }
-
-/** The three statuses that mean "there is nothing for you to do here". */
-const PENDING_TITLE: Record<string, string> = {
-  APPROVED: "You're approved",
-  HIDDEN: "Your listing is hidden",
-  INACTIVE: "Your listing is inactive",
-  PENDING_APPROVAL: "Your application is under review",
-};
-
-const PENDING_BODY: Record<string, string> = {
-  APPROVED:
-    "Your listing is live. Jobs broadcast by hostels in your trades and area arrive in this app.",
-  HIDDEN:
-    "The platform has temporarily hidden your listing, so no new jobs are being broadcast to you. Contact support if that is unexpected.",
-  INACTIVE:
-    "Your listing is marked inactive and is not receiving new jobs. Contact support to reactivate it.",
-  PENDING_APPROVAL:
-    "The platform team is checking your details and documents. It usually takes about two days, and you'll be emailed either way.",
-};

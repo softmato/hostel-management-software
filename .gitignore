@@ -58,3 +58,13 @@ apps/web/public/uploads/activation-qr/
 # read hangs. See apps/web/src/modules/finance/evidence-ocr.ts.
 *.traineddata
 !apps/web/tessdata/*.traineddata
+
+# The evidence golden set (evidence pipeline, phase 0).
+#
+# The manifest is the artefact worth versioning — it is the hand-written ground
+# truth, and a change to it is a change to what "correct" means. The images are
+# not: the synthetic ones are reproducible with `npm run web:evidence:fixtures`,
+# and the real ones are residents' payment screenshots, which must never enter
+# git history. Keep those in a private R2 prefix.
+fixtures/evidence-golden/*
+!fixtures/evidence-golden/manifest.json

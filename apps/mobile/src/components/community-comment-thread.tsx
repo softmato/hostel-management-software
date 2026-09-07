@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -101,6 +102,13 @@ export function CommentThread({
     [canPost, localVotes, postId],
   );
 
+  /*
+   * The reply button had no state at all: no spinner, and nothing stopping a
+   * second tap posting the same reply twice while the first was still in the
+   * air. Both are the same flag.
+   */
+  const [replying, setReplying] = useState(false);
+
   const submitReply = useCallback(
     async (parentId: string) => {
       const body = replyDraft.trim();
@@ -109,6 +117,8 @@ export function CommentThread({
         return;
       }
 
+      setReplying(true);
+
       try {
         await addPostComment(postId, { body, parentId });
         setReplyDraft("");
@@ -116,6 +126,8 @@ export function CommentThread({
         onChanged();
       } catch (caught) {
         toastError("Could not reply", readApiError(caught));
+      } finally {
+        setReplying(false);
       }
     },
     [onChanged, postId, replyDraft],
@@ -255,19 +267,14 @@ export function CommentThread({
                             }}
                             value={replyDraft}
                           />
-                          <Pressable
-                            accessibilityRole="button"
-                            className="h-8 items-center justify-center self-end rounded-lg px-3.5 active:opacity-80"
+                          <Button
+                            className="self-end"
+                            disabled={!replyDraft.trim()}
+                            label="Reply"
+                            loading={replying}
                             onPress={() => void submitReply(comment.id)}
-                            style={{ backgroundColor: colors.primary }}
-                          >
-                            <Text
-                              className="text-xs font-semibold"
-                              style={{ color: colors.primaryForeground }}
-                            >
-                              Reply
-                            </Text>
-                          </Pressable>
+                            size="sm"
+                          />
                         </View>
                       ) : null}
                     </>

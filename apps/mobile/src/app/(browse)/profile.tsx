@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 
+import { ProviderStatusCard } from "@/components/provider-status-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -14,10 +15,13 @@ import { Text } from "@/components/ui/text";
 import { readableRole } from "@/constants/roles";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useResource } from "@/hooks/use-resource";
 import { useSiteConfig } from "@/hooks/use-site-config";
 import { API_BASE_URL } from "@/lib/api";
 import { endSession } from "@/lib/auth-session";
 import { absoluteMediaUrl } from "@/lib/media";
+import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
+import { isApplicationInFlight } from "@/lib/provider-status";
 import { toastInfo } from "@/lib/toast";
 import { setThemePreference } from "@/store/slices/uiSlice";
 
@@ -71,6 +75,21 @@ export default function BrowseProfileScreen() {
   const { colors } = useAppTheme();
   const { config, refresh, refreshing } = useSiteConfig();
   const [signingOut, setSigningOut] = useState(false);
+
+  /*
+   * Whether this account has a service provider application in motion.
+   *
+   * Asked only with a session — the route reads the caller's own `userId`, so
+   * there is nothing to ask signed out — and a failure answers `null`, which is
+   * also what "never applied" answers. Both mean "draw nothing", so a flaky
+   * lookup costs a banner rather than an error on a menu screen.
+   */
+  const application = useResource<ProviderApplication | null>(
+    useCallback(
+      () => (account ? getOwnProvider().catch(() => null) : Promise.resolve(null)),
+      [account],
+    ),
+  );
 
   const { features, identity, social } = config;
 
@@ -176,6 +195,28 @@ export default function BrowseProfileScreen() {
             </View>
           </Card>
         )}
+
+        {/*
+          A service provider application in motion, reported on the screen the
+          applicant is actually holding.
+
+          A pending applicant is a `PUBLIC` account, so the app around them is
+          this browsing shell — and until this card the only screen that knew
+          about their application was "Become a service provider", which is the
+          last page somebody who has already applied would open. They had handed
+          over five steps of documents and a photograph of their face and the app
+          looked exactly as it had before.
+
+          Drawn only for a record that is *in motion*: an approved provider never
+          reaches this screen (`resolveHome` routes them to their own tabs), and
+          an account that never applied has nothing to be told. That is also why
+          there is no skeleton — a placeholder on every browsing user's Profile
+          tab, for a card almost none of them will ever see, is a worse trade
+          than the late insert this one occasionally causes.
+        */}
+        {!application.loading && isApplicationInFlight(application.data) ? (
+          <ProviderStatusCard application={application.data} />
+        ) : null}
 
         <View>
           <SectionHeader title="Your search" />

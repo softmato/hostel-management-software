@@ -67,7 +67,24 @@ vi.mock("@/lib/uploads/verify", () => ({
  */
 vi.mock("@/modules/finance/evidence-ocr", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./evidence-ocr")>()),
-  readEvidenceText: mocks.readEvidenceText,
+  /**
+   * The engine dispatcher, faked in terms of the text these tests already
+   * describe.
+   *
+   * `readEvidence` returns the richer result — word boxes and a failure reason —
+   * but not one assertion in this file is about either of those: they are all
+   * about what the claim pipeline does with the *text*. So the mock stays a
+   * string-in, and this adapter puts it in the shape the caller now expects.
+   * Faking the richer type directly at twenty call sites would obscure what each
+   * test is actually saying.
+   */
+  readEvidence: async (bytes: unknown, mimeType?: string) => {
+    const text: string | null = await mocks.readEvidenceText(bytes, mimeType);
+
+    return text === null
+      ? { failure: "unknown", result: null }
+      : { failure: null, result: { engine: "tesseract", ms: 0, text, words: [] } };
+  },
 }));
 
 vi.mock("@hostel/db/models/FileAsset", () => ({
@@ -149,7 +166,12 @@ const input = {
   proofImageAssetId: assetId.toString(),
   // Required since gap fix 3: a wallet claim with no id cannot ever be
   // reconciled against the provider's statement, so it is refused at submit.
-  transactionCode: "8823119471",
+  // A real eSewa transaction code, seven uppercase alphanumerics. The fixture
+  // used to carry a ten-digit number, which eSewa has never issued — and once
+  // `txn-id-rules` learned the real shape from sixteen genuine ids, every test
+  // in this file started carrying an `EVIDENCE_TXN_ID_MALFORMED` flag. The
+  // fixture was wrong, not the rule.
+  transactionCode: "1QAXP2M",
 };
 
 /** Nothing entered the owner's queue: invariant 9, asserted the same way each time. */
@@ -198,7 +220,7 @@ beforeEach(() => {
       "eSewa",
       "Payment Successful",
       "Rs. 10,000.00",
-      "Transaction Code 8823119471",
+      "Transaction Code 1QAXP2M",
       "Sent to: Sunrise Boys Hostel",
       "Debited from: 98XXXXXX21",
     ].join("\n"),
@@ -383,7 +405,7 @@ describe("submitClaim — duplicate transaction id", () => {
     await expect(
       submitClaim(invoiceId.toString(), withCode, principal),
     ).rejects.toMatchObject({
-      details: { priorPeriod: "2026-07", transactionCode: "8823119471" },
+      details: { priorPeriod: "2026-07", transactionCode: "1QAXP2M" },
       errorCode: "TXN_ID_ALREADY_CLAIMED",
     });
 
@@ -598,7 +620,7 @@ describe("submitClaim — the right numbers on the wrong transaction", () => {
         "eSewa",
         "Payment Successful",
         "Rs. 10,000.00",
-        "Transaction Code 8823119471",
+        "Transaction Code 1QAXP2M",
         "Sent to: Ramesh Shrestha",
         "Remarks: EDU-0001-F",
       ].join("\n"),
@@ -630,7 +652,7 @@ describe("submitClaim — the right numbers on the wrong transaction", () => {
         "eSewa",
         "Transaction Successful",
         "Rs. 10,000.00",
-        "Transaction Code 8823119471",
+        "Transaction Code 1QAXP2M",
         "Received from: Ramesh Shrestha",
         "Amount credited to your account",
       ].join("\n"),
@@ -649,7 +671,7 @@ describe("submitClaim — the right numbers on the wrong transaction", () => {
         "eSewa",
         "Transaction Failed",
         "Rs. 10,000.00",
-        "Transaction Code 8823119471",
+        "Transaction Code 1QAXP2M",
         "Sent to: Sunrise Boys Hostel",
       ].join("\n"),
     );
@@ -670,7 +692,7 @@ describe("submitClaim — the right numbers on the wrong transaction", () => {
         "Global IME Bank",
         "Transfer Pending",
         "NPR 10,000.00",
-        "Transaction Code 8823119471",
+        "Transaction Code 1QAXP2M",
         "Credited to: Sunrise Boys Hostel",
       ].join("\n"),
     );
@@ -712,7 +734,7 @@ describe("submitClaim — the right numbers on the wrong transaction", () => {
       [
         "EBL EVEREST BANK",
         "Payment Receipt",
-        "Reference Code 8823119471",
+        "Reference Code 1QAXP2M",
         "Channel Online",
         "Amount (NPR) 10,000.00",
         "Initiator 9709155982",
@@ -768,7 +790,7 @@ describe("submitClaim — the right numbers on the wrong transaction", () => {
         "Transaction Statement",
         "Date | Reference Code | Description | Cr. | Dr. | Balance",
         "01 Aug | 8823110001 | Fund Transferred by Ramesh Shrestha | 2,000.0 | 0.0 | 5,400",
-        "04 Aug | 8823119471 | Fund Transferred to Sunrise Boys Hostel | 0.0 | 10,000.0 | 1,900",
+        "04 Aug | 1QAXP2M | Fund Transferred to Sunrise Boys Hostel | 0.0 | 10,000.0 | 1,900",
       ].join("\n"),
     );
 
@@ -809,7 +831,7 @@ describe("submitClaim — the right numbers on the wrong transaction", () => {
         "Date | Description | Debit | Credit | Balance",
         "04/08 | Transfer to SUNRISE BOYS HOSTEL | 10,000 | | 43,500",
         "01/08 | Received from RAMESH | | 2,000 | 53,500",
-        "Transaction Code 8823119471",
+        "Transaction Code 1QAXP2M",
       ].join("\n"),
     );
 
@@ -862,6 +884,10 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
       // unanswered is amber rather than green — the row stays out of a sweep.
       "EVIDENCE_DIRECTION_UNVERIFIED",
       "EVIDENCE_PAYEE_UNVERIFIED",
+      // The typed id is the shape eSewa issues. A true statement about the
+      // *claim*, on a file that is not a receipt — which is exactly why a
+      // positive shape flag is never on its own a reason to trust anything.
+      "EVIDENCE_TXN_ID_SHAPE_OK",
     ]);
   });
 
@@ -908,13 +934,14 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
       "EVIDENCE_NO_TEXT_FOUND",
       "EVIDENCE_DIRECTION_UNVERIFIED",
       "EVIDENCE_PAYEE_UNVERIFIED",
+      "EVIDENCE_TXN_ID_SHAPE_OK",
     ]);
   });
 
   it("flags a screenshot for a different amount", async () => {
     // Right receipt, wrong month — or a real receipt for a smaller transfer.
     mocks.readEvidenceText.mockResolvedValue(
-      "eSewa\nRs. 1,000.00\nTransaction Code 8823119471",
+      "eSewa\nRs. 1,000.00\nTransaction Code 1QAXP2M",
     );
 
     await submitClaim(invoiceId.toString(), input, principal);
@@ -923,6 +950,7 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
       "EVIDENCE_AMOUNT_NOT_ON_IMAGE",
       "EVIDENCE_DIRECTION_UNVERIFIED",
       "EVIDENCE_PAYEE_UNVERIFIED",
+      "EVIDENCE_TXN_ID_SHAPE_OK",
     ]);
   });
 
@@ -935,6 +963,7 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
       "EVIDENCE_ID_NOT_ON_IMAGE",
       "EVIDENCE_DIRECTION_UNVERIFIED",
       "EVIDENCE_PAYEE_UNVERIFIED",
+      "EVIDENCE_TXN_ID_SHAPE_OK",
     ]);
   });
 
@@ -959,6 +988,9 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
 
     expect(mocks.appendEvent.mock.calls[0][0].reviewFlags).toEqual([
       "EVIDENCE_NOT_MACHINE_CHECKED",
+      // Survives the failed read, which is the point of it: the shape check
+      // looks at a string the resident typed, not at the image.
+      "EVIDENCE_TXN_ID_SHAPE_OK",
     ]);
   });
 
@@ -970,7 +1002,12 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
 
     await submitClaim(invoiceId.toString(), input, principal);
 
-    expect(mocks.appendEvent.mock.calls[0][0].reviewFlags).toEqual([]);
+    // Not empty any more, and deliberately: the recogniser is off, so no
+    // evidence flag is raised, but the transaction id the resident typed is
+    // still the shape eSewa issues and saying so costs no read.
+    expect(mocks.appendEvent.mock.calls[0][0].reviewFlags).toEqual([
+      "EVIDENCE_TXN_ID_SHAPE_OK",
+    ]);
     expect(mocks.readStoredObject).not.toHaveBeenCalled();
 
     vi.unstubAllEnvs();
@@ -995,6 +1032,9 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
 
     expect(mocks.appendEvent.mock.calls[0][0].reviewFlags).toEqual([
       "EVIDENCE_NOT_MACHINE_CHECKED",
+      // Survives the failed read, which is the point of it: the shape check
+      // looks at a string the resident typed, not at the image.
+      "EVIDENCE_TXN_ID_SHAPE_OK",
     ]);
   });
 
@@ -1024,6 +1064,7 @@ describe("submitClaim — evidence that cannot be a payment screenshot", () => {
     expect(mocks.appendEvent.mock.calls[0][0].reviewFlags).toEqual([
       "EVIDENCE_TEXT_MATCHES_CLAIM",
       "EVIDENCE_PAYEE_VERIFIED",
+      "EVIDENCE_TXN_ID_SHAPE_OK",
     ]);
   });
 });
@@ -1237,7 +1278,7 @@ describe("claimSubmitSchema — the payment date", () => {
     amount: 12000,
     paymentMethod: "ESEWA" as const,
     proofImageAssetId: "asset-1",
-    transactionCode: "8823119471",
+    transactionCode: "1QAXP2M",
   };
 
   it("accepts a payment made today", () => {

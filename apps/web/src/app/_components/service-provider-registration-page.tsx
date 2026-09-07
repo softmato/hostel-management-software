@@ -388,12 +388,28 @@ function HeroStats({ stats }: { stats?: ProviderStats }) {
   );
 }
 
+/**
+ * How long review takes, stated once on this surface.
+ *
+ * Its twin is `PROVIDER_REVIEW_WINDOW` in
+ * `apps/mobile/src/lib/provider-status.ts`. Copied rather than imported for the
+ * reason `admin-manage-api.ts` copies the pricing vocabulary: `@hostel/shared`
+ * does not resolve inside the phone bundle — Metro aliases exactly one file out
+ * of it — so a value the two surfaces must agree on is written in both with a
+ * pointer, not hoisted into a package one of them cannot reach.
+ *
+ * It is a promise made to a tradesperson who has handed over their documents
+ * and their face, and it is the one question they have while waiting. If it
+ * changes, it changes in both.
+ */
+const PROVIDER_REVIEW_WINDOW = "1–2 business days";
+
 const STATUS_PANEL: Record<
   ProviderStatus,
   { body: string; heading: string; tone: "info" | "success" | "warning" }
 > = {
   APPROVED: {
-    body: "You're listed as a verified provider. Hostels can now send you jobs. They arrive in the Provider mobile app — sign in there with the credentials we emailed you.",
+    body: "You're listed as a verified provider. Hostels can now send you jobs, and they arrive in the mobile app — signed in with this same account, which becomes a provider account on its own. There are no separate credentials.",
     heading: "Approved",
     tone: "success",
   },
@@ -408,7 +424,7 @@ const STATUS_PANEL: Record<
     tone: "warning",
   },
   PENDING_APPROVAL: {
-    body: "Our team is checking your details and documents. This usually takes about two days — we'll email you the moment there's a decision.",
+    body: `We're verifying your details and documents. It usually takes ${PROVIDER_REVIEW_WINDOW} — we'll email you the moment there's a decision.`,
     heading: "Under review",
     tone: "info",
   },
@@ -1394,7 +1410,7 @@ function SubmittedStep({ email }: { email: string | null }) {
           Registration submitted
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Our team reviews new providers within about two days.
+          We verify your details and documents in {PROVIDER_REVIEW_WINDOW}.
           {email ? (
             <>
               {" "}

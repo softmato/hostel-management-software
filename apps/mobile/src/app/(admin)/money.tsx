@@ -343,7 +343,13 @@ export default function AdminMoneyScreen() {
   const [open, setOpen] = useState<AdminInvoiceRow | null>(null);
   const [cash, setCash] = useState<Record<string, string>>({});
   const [voidReason, setVoidReason] = useState("");
-  const [busy, setBusy] = useState(false);
+  /*
+   * Which of the sheet's two actions is at the server. They are stacked in the
+   * same sheet — take the cash, or void the invoice — and one boolean spun both
+   * buttons at once, so the sheet reported that it was voiding an invoice while
+   * it was banking a payment.
+   */
+  const [busy, setBusy] = useState<"cash" | "void" | null>(null);
 
   const openRow = useCallback((row: AdminInvoiceRow) => {
     setOpen(row);
@@ -390,7 +396,7 @@ export default function AdminMoneyScreen() {
       return;
     }
 
-    setBusy(true);
+    setBusy("cash");
 
     try {
       await recordCashPayment(open.payment.id, {
@@ -405,7 +411,7 @@ export default function AdminMoneyScreen() {
     } catch (error) {
       toastError("Could not record it", readApiError(error));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [cash, money, open]);
 
@@ -422,7 +428,7 @@ export default function AdminMoneyScreen() {
       return;
     }
 
-    setBusy(true);
+    setBusy("void");
 
     try {
       await voidInvoice(open.payment.id, voidReason.trim());
@@ -432,7 +438,7 @@ export default function AdminMoneyScreen() {
     } catch (error) {
       toastError("Could not void it", readApiError(error));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [money, open, voidReason]);
 
@@ -960,8 +966,9 @@ export default function AdminMoneyScreen() {
                     value={cash.note ?? ""}
                   />
                   <Button
+                    disabled={busy === "void"}
                     label="Record the cash"
-                    loading={busy}
+                    loading={busy === "cash"}
                     onPress={() => void takeCash()}
                   />
                 </View>
@@ -978,8 +985,9 @@ export default function AdminMoneyScreen() {
                     value={voidReason}
                   />
                   <Button
+                    disabled={busy === "cash"}
                     label="Void it"
-                    loading={busy}
+                    loading={busy === "void"}
                     onPress={() => void voidIt()}
                     variant="danger"
                   />

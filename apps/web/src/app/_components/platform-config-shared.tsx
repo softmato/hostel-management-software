@@ -8,6 +8,7 @@ import {
   PortalPageHeader,
   RoleButton,
   SoftBadge,
+  type BreadcrumbItem,
 } from "@/app/_components/portal-dashboard-ui";
 import { browserApi } from "@/lib/browser-api";
 import { platformEndpoints } from "@/lib/platform-endpoints";
@@ -33,8 +34,8 @@ export function useSiteConfigDraft() {
   const [saveError, setSaveError] = useState("");
 
   const invalidate = useInvalidateResources();
-  // One cache entry shared by all six config screens and the Fee Plans page, so
-  // moving between them no longer refetches the whole config each time.
+  // One cache entry shared by every config screen, so moving between them no
+  // longer refetches the whole config each time.
   const configResource = usePortalResource<{ config: SiteConfig }>(
     platformEndpoints.siteConfig,
     { errorMessage: "Could not load site configuration." },
@@ -127,7 +128,7 @@ export function ConfigPage({
   state,
   title,
 }: {
-  breadcrumb: string[];
+  breadcrumb: BreadcrumbItem[];
   children: ReactNode;
   description: string;
   error?: string;
@@ -396,4 +397,151 @@ export function parseListField(value: string) {
     .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+/**
+ * A numeric field. `nullable` makes an empty box mean "no ceiling" rather than
+ * zero — the difference between a plan that houses nobody and one that houses
+ * everybody, which is not a distinction a number input makes on its own.
+ *
+ * The value is held as the string the admin typed, so a half-typed "1" on the
+ * way to "150" does not get parsed, rounded and written back under the caret.
+ */
+export function NumberField({
+  hint,
+  label,
+  max,
+  min = 0,
+  nullable = false,
+  nullLabel = "No limit",
+  onChange,
+  prefix,
+  suffix,
+  value,
+}: {
+  hint?: string;
+  label: string;
+  max?: number;
+  min?: number;
+  nullable?: boolean;
+  nullLabel?: string;
+  onChange: (value: number | null) => void;
+  prefix?: string;
+  suffix?: string;
+  value: number | null;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11.5px] font-semibold text-foreground">
+        {label}
+      </span>
+      <span className="flex h-9 items-center gap-1 rounded-lg border border-border bg-background px-2.5 transition focus-within:border-role-platform focus-within:ring-2 focus-within:ring-role-platform/15">
+        {prefix ? (
+          <span className="text-[11px] font-semibold text-muted-foreground">{prefix}</span>
+        ) : null}
+        <input
+          className="w-full bg-transparent text-[12.5px] outline-none"
+          inputMode="decimal"
+          max={max}
+          min={min}
+          onChange={(event) => {
+            const raw = event.target.value.trim();
+
+            if (raw === "") {
+              onChange(nullable ? null : 0);
+              return;
+            }
+
+            const parsed = Number(raw);
+
+            if (Number.isFinite(parsed)) {
+              onChange(parsed);
+            }
+          }}
+          placeholder={nullable ? nullLabel : "0"}
+          type="number"
+          value={value ?? ""}
+        />
+        {suffix ? (
+          <span className="text-[11px] font-semibold text-muted-foreground">{suffix}</span>
+        ) : null}
+      </span>
+      {hint ? (
+        <span className="mt-1 block text-[10.5px] text-muted-foreground">{hint}</span>
+      ) : null}
+    </label>
+  );
+}
+
+/**
+ * One Save for the whole screen, pinned to the top of it.
+ *
+ * The alternative — a save button per card, as the other config screens have —
+ * makes no sense here: every control on this page writes into the same `plans`
+ * document, so three buttons would be three ways to send the same payload.
+ */
+export function ConfigSaveBar({
+  dirty,
+  onReset,
+  onSave,
+  saving,
+}: {
+  dirty: boolean;
+  onReset: () => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card/95 px-3.5 py-2.5 shadow-sm backdrop-blur">
+      <div className="flex items-center gap-2">
+        <span className="text-[12.5px] font-semibold text-foreground">
+          {dirty ? "Unsaved changes" : "Everything saved"}
+        </span>
+        {dirty ? <SoftBadge tone="amber">Draft</SoftBadge> : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {dirty ? (
+          <button
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:bg-muted"
+            onClick={onReset}
+            type="button"
+          >
+            <RotateCcw className="size-3" />
+            Revert
+          </button>
+        ) : null}
+        <RoleButton disabled={!dirty || saving} onClick={onSave} tone="platform">
+          {saving ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Check className="size-3.5" />
+          )}
+          Save
+        </RoleButton>
+      </div>
+    </div>
+  );
+}
+
+/** A titled card with no save controls of its own — the page owns the Save. */
+export function ConfigPanel({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description?: string;
+  title: string;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <header className="border-b border-border/60 px-3.5 py-2.5">
+        <h2 className="font-heading text-[13.5px] font-bold text-foreground">{title}</h2>
+        {description ? (
+          <p className="mt-0.5 text-[11.5px] text-muted-foreground">{description}</p>
+        ) : null}
+      </header>
+      <div className="space-y-3 p-3.5">{children}</div>
+    </section>
+  );
 }

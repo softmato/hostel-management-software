@@ -90,7 +90,24 @@ export type ReviewQueueRow = {
  */
 export type ClaimCheck = {
   detail: string;
-  key: "EVIDENCE" | "AMOUNT" | "INVOICE_OPEN" | "PAYEE" | "REFERENCE" | "SIMILARITY";
+  key:
+    | "EVIDENCE"
+    | "AMOUNT"
+    /**
+     * Whether the file is what it claims to be, as opposed to what it says.
+     *
+     * Its own key rather than more `EVIDENCE` detail, because the two answer
+     * different questions and a reviewer acts on them differently. `EVIDENCE`
+     * amber means *open the image and read it* — the numbers may be fine. `FILE`
+     * amber means *the image may not be what it looks like*, and reading it
+     * harder will not settle that; the thing to do is ask the resident for the
+     * original, or check the account.
+     */
+    | "FILE"
+    | "INVOICE_OPEN"
+    | "PAYEE"
+    | "REFERENCE"
+    | "SIMILARITY";
   ok: boolean;
 };
 
@@ -343,6 +360,19 @@ function evidenceCheck(event: {
     return directionCheck(event);
   }
 
+  // Asked before the confirmation, because it outranks it. An id that is not
+  // the shape this provider issues is worth a human's eye even when the same id
+  // is legible on the screenshot — the two agreeing only means the resident
+  // copied what the image said, and the image may be somebody else's receipt or
+  // a different provider's entirely.
+  if (flags.includes("EVIDENCE_TXN_ID_MALFORMED")) {
+    return {
+      detail: "The transaction ID is not the shape this provider issues — open it",
+      key: "EVIDENCE",
+      ok: false,
+    };
+  }
+
   if (flags.includes("EVIDENCE_TEXT_MATCHES_CLAIM")) {
     return {
       // The two are worth distinguishing. Since the claim form fills the amount
@@ -352,7 +382,9 @@ function evidenceCheck(event: {
       // copying off the receipt could produce.
       detail: flags.includes("EVIDENCE_REFERENCE_ON_IMAGE")
         ? "The screenshot carries this invoice's reference code and the amount"
-        : "The amount and ID on the screenshot match this claim",
+        : flags.includes("EVIDENCE_TXN_ID_SHAPE_OK")
+          ? "The amount and ID match, and the ID is the shape this provider issues"
+          : "The amount and ID on the screenshot match this claim",
       key: "EVIDENCE",
       ok: true,
     };
@@ -501,6 +533,49 @@ function directionCheck(event: { reviewFlags?: string[] }): ClaimCheck {
 }
 
 /**
+ * What the *file* looks like, as distinct from what it says.
+ *
+ * **Counted, not listed, and that is the design.** Each of the four provenance
+ * flags has an ordinary explanation on its own — a crop hides a bank balance, an
+ * editor signature comes from drawing an arrow on the amount, camera EXIF means
+ * a photographed paper voucher, non-standard quantization means the resident's
+ * phone ships Photoshop-derived tables. Reporting any single one as a problem
+ * would put an amber check on a large share of honest claims, and a check that
+ * is amber on honest claims is a check reviewers learn to click past.
+ *
+ * Two together is where it starts to mean something, so two is the threshold.
+ * One is reported in words and stays green: the reviewer can see it if they care
+ * and `Approve all` is not blocked by it.
+ *
+ * **Never a rejection, at any count.** Four flags is a claim worth five minutes,
+ * not a claim to refuse — the resident who triggers all four may simply have
+ * photographed a printed voucher and cropped it in Snapseed.
+ */
+function fileCheck(event: { reviewFlags?: string[] }): ClaimCheck {
+  const flags = event.reviewFlags ?? [];
+  const observations = [
+    flags.includes("EVIDENCE_EDITOR_SIGNATURE") ? "saved by an image editor" : null,
+    flags.includes("EVIDENCE_FILE_RE_ENCODED") ? "re-encoded outside a phone" : null,
+    flags.includes("EVIDENCE_NOT_A_SCREENSHOT") ? "a photo, not a screenshot" : null,
+    flags.includes("EVIDENCE_DIMENSIONS_UNUSUAL") ? "cropped or resized" : null,
+  ].filter((observation): observation is string => observation !== null);
+
+  if (observations.length === 0) {
+    return { detail: "Nothing unusual about the file itself", key: "FILE", ok: true };
+  }
+
+  if (observations.length === 1) {
+    return { detail: `File is ${observations[0]}`, key: "FILE", ok: true };
+  }
+
+  return {
+    detail: `File is ${observations.join(", ")} — ask for the original`,
+    key: "FILE",
+    ok: false,
+  };
+}
+
+/**
  * The checks, in the order a reviewer reads them (target §11.4).
  *
  * All five are things a careful owner does by eye today: is there a screenshot,
@@ -537,7 +612,13 @@ export function claimChecks(
     // is the row keeping itself out of a bulk sweep so that the decision happens
     // in front of the image.
     evidenceCheck(event),
-    // Second, and it is the one that carries the queue. Everything above and
+    // Directly beneath the read, because it is the same file seen from the other
+    // side: `EVIDENCE` is what the receipt says, `FILE` is whether the receipt
+    // is a receipt. It also survives when the read does not — provenance is
+    // measured at upload from bytes rather than pixels, so a claim whose
+    // recogniser returned nothing still carries this one.
+    fileCheck(event),
+    // Then the one that carries the queue. Everything above and
     // below it verifies the payer's own assertions; this verifies where the
     // money landed, which is the only thing that makes a claim worth believing.
     payeeCheck(event),

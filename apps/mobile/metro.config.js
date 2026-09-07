@@ -35,9 +35,21 @@ const netinfoShim = path.resolve(__dirname, "src/shims/netinfo.js");
  * September's arithmetic.
  */
 const calendarRoot = path.resolve(__dirname, "../../packages/shared/src/calendar");
+
+/*
+ * `@hostel/plans/*` — the same trick, for the plans-and-pricing arithmetic.
+ *
+ * A price the Pricing screen quotes and a price `/plans-pricing` quotes are the
+ * same price, computed from one monthly figure and one discount percentage. Two
+ * implementations of that is two prices, so there is one file and both ends
+ * import it. Unlike the calendar it pulls in nothing at all — see the note at
+ * the top of `packages/shared/src/plans/catalog.ts` — so it needs no
+ * `extraNodeModules` entry.
+ */
+const plansRoot = path.resolve(__dirname, "../../packages/shared/src/plans");
 const baseResolveRequest = config.resolver.resolveRequest;
 
-config.watchFolders = [...(config.watchFolders ?? []), calendarRoot];
+config.watchFolders = [...(config.watchFolders ?? []), calendarRoot, plansRoot];
 
 /*
  * And the one package that file imports, resolved from *this* app's tree.
@@ -61,6 +73,13 @@ config.resolver.extraNodeModules = {
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === "@react-native-community/netinfo") {
     return { filePath: netinfoShim, type: "sourceFile" };
+  }
+
+  if (moduleName.startsWith("@hostel/plans/")) {
+    return {
+      filePath: path.join(plansRoot, `${moduleName.slice("@hostel/plans/".length)}.ts`),
+      type: "sourceFile",
+    };
   }
 
   if (moduleName.startsWith("@hostel/calendar/")) {

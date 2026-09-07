@@ -133,29 +133,45 @@ function asRecord(document: unknown): NotificationRecord {
  * a dead Expo endpoint — is allowed to propagate. The worst case is that the
  * recipient sees the row on their next poll instead of instantly.
  */
+/**
+ * The two deliveries a fresh row makes, and why only one of them is optional.
+ *
+ * `push` gates the Expo send **and nothing else**. It used to gate this whole
+ * function, which meant a caller batching its own push — `notifyOrderPlaced`,
+ * `announceFoodReady` — was also, silently, turning off that recipient's live
+ * bell and the topic invalidation behind it. The bell then sat at its old count
+ * until something unrelated refreshed it, for exactly the events important
+ * enough to have been given a hand-written payload.
+ *
+ * So the socket and the topic fan-out always run. The push is skipped only when
+ * a caller has said it will send a better one, for the whole audience at once.
+ */
 async function publishNewNotification(
   userId: string,
   document: unknown,
   category: string,
   imageUrl?: string,
+  options: { push?: boolean } = {},
 ) {
   const record = asRecord(document);
 
-  // Not awaited — but not abandoned either. An Expo round trip can take
-  // seconds and a user is waiting on the request that created this row, so
-  // `dispatchPush` hands the send to `after()`: off the response's critical
-  // path, and still alive once the response has gone.
-  dispatchPush([userId], {
-    actionUrl: record.actionUrl,
-    body: record.body,
-    category,
-    data: record.data,
-    hostelId: record.hostelId?.toString(),
-    imageUrl,
-    notificationId: record._id?.toString(),
-    priority: record.priority,
-    title: record.title,
-  });
+  if (options.push !== false) {
+    // Not awaited — but not abandoned either. An Expo round trip can take
+    // seconds and a user is waiting on the request that created this row, so
+    // `dispatchPush` hands the send to `after()`: off the response's critical
+    // path, and still alive once the response has gone.
+    dispatchPush([userId], {
+      actionUrl: record.actionUrl,
+      body: record.body,
+      category,
+      data: record.data,
+      hostelId: record.hostelId?.toString(),
+      imageUrl,
+      notificationId: record._id?.toString(),
+      priority: record.priority,
+      title: record.title,
+    });
+  }
 
   try {
     await publishNotification(userId, serializeNotification(record));
@@ -182,7 +198,12 @@ export async function createInAppNotification(input: {
   hostelId?: string;
   imageUrl?: string;
   kind?: NotificationKind;
-  /** Let a caller pair the durable bell row with its own richer push payload. */
+  /**
+   * Let a caller pair the durable bell row with its own richer push payload.
+   * `false` suppresses **only** the per-row Expo send — the live bell and the
+   * topic fan-out still happen, because a caller batching a push has not asked
+   * to go quiet everywhere else.
+   */
   push?: boolean;
   priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   title: string;
@@ -212,14 +233,13 @@ export async function createInAppNotification(input: {
     userId: input.userId,
   });
 
-  if (input.push !== false) {
-    await publishNewNotification(
-      input.userId,
-      notification,
-      input.category,
-      input.imageUrl,
-    );
-  }
+  await publishNewNotification(
+    input.userId,
+    notification,
+    input.category,
+    input.imageUrl,
+    { push: input.push },
+  );
 
   return notification;
 }

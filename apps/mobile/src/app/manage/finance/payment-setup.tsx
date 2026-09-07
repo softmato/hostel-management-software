@@ -57,7 +57,14 @@ export default function ManagePaymentSetupScreen() {
   const token = useAppSelector((state) => state.auth.accessToken);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  /*
+   * Which of the two QR actions is at the server, not just "something is".
+   *
+   * One shared boolean put the spinner on Replace while Remove was the button
+   * that had been pressed, which is the reading of progress that is worse than
+   * none: it names the wrong action as the one in flight.
+   */
+  const [qrBusy, setQrBusy] = useState<"remove" | "upload" | null>(null);
 
   const query = adminQuery.paymentProfile();
   const resource = useResource<PaymentProfile>(query.load, {
@@ -114,7 +121,7 @@ export default function ManagePaymentSetupScreen() {
       return;
     }
 
-    setUploading(true);
+    setQrBusy("upload");
 
     try {
       const assetId = await uploadAsset(picked, {
@@ -128,12 +135,12 @@ export default function ManagePaymentSetupScreen() {
     } catch (error) {
       toastError("That QR did not upload", readApiError(error));
     } finally {
-      setUploading(false);
+      setQrBusy(null);
     }
   }, [reload]);
 
   const removeQr = useCallback(async () => {
-    setUploading(true);
+    setQrBusy("remove");
 
     try {
       await updatePaymentProfile({ staticQrAssetId: null });
@@ -142,7 +149,7 @@ export default function ManagePaymentSetupScreen() {
     } catch (error) {
       toastError("Could not remove it", readApiError(error));
     } finally {
-      setUploading(false);
+      setQrBusy(null);
     }
   }, [reload]);
 
@@ -228,7 +235,7 @@ export default function ManagePaymentSetupScreen() {
                   accessibilityLabel="Replace the QR"
                   accessibilityRole="imagebutton"
                   className="active:opacity-70"
-                  disabled={uploading}
+                  disabled={qrBusy !== null}
                   onPress={() => void pickQr()}
                 >
                   <Image
@@ -251,15 +258,18 @@ export default function ManagePaymentSetupScreen() {
 
               <View className="flex-1 gap-2">
                 <Button
+                  disabled={qrBusy === "remove"}
                   label={qrSource ? "Replace" : "Upload a QR"}
-                  loading={uploading}
+                  loading={qrBusy === "upload"}
                   onPress={() => void pickQr()}
                   size="sm"
                   variant={qrSource ? "outline" : "primary"}
                 />
                 {qrSource ? (
                   <Button
+                    disabled={qrBusy === "upload"}
                     label="Remove"
+                    loading={qrBusy === "remove"}
                     onPress={() => void removeQr()}
                     size="sm"
                     variant="ghost"

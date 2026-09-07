@@ -211,13 +211,6 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
           },
           {
             description:
-              "Subscription tiers charged to hostels — price, billing cycle, limits, and features.",
-            href: "/platform/fee-plans",
-            keywords: ["plans", "subscription", "tier", "pricing", "billing", "quota"],
-            label: "Fee Plans",
-          },
-          {
-            description:
               "Immutable ledger of every platform transaction with method, reference, and status.",
             href: "/platform/transactions",
             keywords: ["ledger", "txn", "refund", "settlement", "invoice", "history"],
@@ -306,11 +299,29 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         label: "Facilities",
       },
       {
-        description: "Public pricing page plans — price, features, and highlighted tier.",
-        href: "/platform/config/pricing",
+        /**
+         * The `/plans-pricing` catalogue, edited on a rendering of the page
+         * itself. Distinct from "Pricing Cards" below it, which is the older,
+         * flat three-card `pricing` section still serving `/pricing` and the
+         * app's Pricing screen.
+         */
+        description:
+          "The Plans & Pricing catalogue — tiers, prices and discounts, every module and service, and the walkthrough clips on their pages.",
+        href: "/platform/config/plans",
         icon: "tag",
-        keywords: ["pricing", "plans", "packages", "public", "tiers"],
-        label: "Pricing Plans",
+        keywords: [
+          "plans",
+          "pricing",
+          "tiers",
+          "discount",
+          "annual",
+          "modules",
+          "services",
+          "catalogue",
+          "walkthrough",
+          "video",
+        ],
+        label: "Plans & Pricing",
       },
       {
         description: "Site-wide announcement banner shown above the public header.",
@@ -831,7 +842,6 @@ export const PLATFORM_SEARCH_ENTRIES = searchEntriesFromNav(PLATFORM_NAV);
 const SUPERADMIN_ONLY_PREFIXES = [
   "/platform/account-deletions",
   "/platform/config",
-  "/platform/fee-plans",
   "/platform/settings",
 ];
 

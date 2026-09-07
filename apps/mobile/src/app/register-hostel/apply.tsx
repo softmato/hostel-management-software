@@ -92,6 +92,23 @@ import { toastError } from "@/lib/toast";
  * to abandon the form, and the platform can request any of them afterwards
  * through `requestedDocuments`, which is a flow that already exists.
  */
+
+/**
+ * The one attachment currently on its way to the server.
+ *
+ * Six buttons on the Documents step upload, and a caller has to be able to ask
+ * "is it *this* one" rather than "is anything happening" — that is the whole
+ * difference between a spinner on the button that was pressed and a form that
+ * greys out with no explanation.
+ */
+type UploadJob =
+  | "id-camera"
+  | "id-library"
+  | "photo-camera"
+  | "photo-library"
+  | "rules-file"
+  | "rules-text";
+
 export default function RegisterHostelApplyScreen() {
   const account = useAppSelector((state) => state.auth.account);
   const { colors } = useAppTheme();
@@ -114,7 +131,16 @@ export default function RegisterHostelApplyScreen() {
   }));
   const [step, setStep] = useState<HostelStepKey>("basics");
   const [errors, setErrors] = useState<HostelErrors>({});
-  const [busy, setBusy] = useState(false);
+  /*
+   * Which attachment is at the server, not just that one is.
+   *
+   * Six buttons on this step shared one boolean, so photographing an ID greyed
+   * out the gallery, the rules and both photo buttons and drew progress on none
+   * of them: the form looked frozen rather than busy. Naming the job means the
+   * button that was pressed is the button that spins, and the rest are merely
+   * inert while it does.
+   */
+  const [busy, setBusy] = useState<UploadJob | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submittedName, setSubmittedName] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -197,7 +223,7 @@ export default function RegisterHostelApplyScreen() {
         return;
       }
 
-      setBusy(true);
+      setBusy(source === "camera" ? "id-camera" : "id-library");
 
       try {
         const uploaded = await uploadPublicFile(asset, { label: "ID proof" });
@@ -206,7 +232,7 @@ export default function RegisterHostelApplyScreen() {
       } catch (caught) {
         toastError("That didn't upload", readApiError(caught));
       } finally {
-        setBusy(false);
+        setBusy(null);
       }
     },
     [patch, pickImage],
@@ -220,7 +246,7 @@ export default function RegisterHostelApplyScreen() {
       return;
     }
 
-    setBusy(true);
+    setBusy("rules-text");
 
     try {
       const uploaded = await uploadPublicText(body, {
@@ -234,7 +260,7 @@ export default function RegisterHostelApplyScreen() {
     } catch (caught) {
       toastError("Those rules didn't attach", readApiError(caught));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [form.rules, patch]);
 
@@ -245,7 +271,7 @@ export default function RegisterHostelApplyScreen() {
       return;
     }
 
-    setBusy(true);
+    setBusy("rules-file");
 
     try {
       const uploaded = await uploadPublicFile(asset, { label: "House rules" });
@@ -254,7 +280,7 @@ export default function RegisterHostelApplyScreen() {
     } catch (caught) {
       toastError("That didn't upload", readApiError(caught));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [patch, pickImage]);
 
@@ -266,7 +292,7 @@ export default function RegisterHostelApplyScreen() {
         return;
       }
 
-      setBusy(true);
+      setBusy(source === "camera" ? "photo-camera" : "photo-library");
 
       try {
         const uploaded = await uploadPublicFile(asset, { label: "Hostel photo" });
@@ -282,7 +308,7 @@ export default function RegisterHostelApplyScreen() {
       } catch (caught) {
         toastError("That photo didn't upload", readApiError(caught));
       } finally {
-        setBusy(false);
+        setBusy(null);
       }
     },
     [pickImage],
@@ -640,15 +666,17 @@ export default function RegisterHostelApplyScreen() {
                 <View className="flex-row gap-2">
                   <View style={{ flex: 1 }}>
                     <Button
-                      disabled={busy}
+                      disabled={busy !== null}
                       label="Photograph it"
+                      loading={busy === "id-camera"}
                       onPress={() => void attachIdProof("camera")}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Button
-                      disabled={busy}
+                      disabled={busy !== null}
                       label="Choose a file"
+                      loading={busy === "id-library"}
                       onPress={() => void attachIdProof("library")}
                       variant="outline"
                     />
@@ -690,16 +718,18 @@ export default function RegisterHostelApplyScreen() {
               <View className="flex-row gap-2">
                 <View style={{ flex: 1 }}>
                   <Button
-                    disabled={busy || form.photos.length >= 20}
+                    disabled={busy !== null || form.photos.length >= 20}
                     label="Take a photo"
+                    loading={busy === "photo-camera"}
                     onPress={() => void addPhoto("camera")}
                     variant="outline"
                   />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Button
-                    disabled={busy || form.photos.length >= 20}
+                    disabled={busy !== null || form.photos.length >= 20}
                     label="From gallery"
+                    loading={busy === "photo-library"}
                     onPress={() => void addPhoto("library")}
                     variant="outline"
                   />
@@ -937,7 +967,7 @@ function RulesDocumentField({
   onRemove,
   rules,
 }: {
-  busy: boolean;
+  busy: UploadJob | null;
   document: { fileName: string; url: string } | null;
   error?: string;
   onAttachFile: () => void;
@@ -1001,13 +1031,15 @@ function RulesDocumentField({
       ) : null}
 
       <Button
-        disabled={busy}
-        label={busy ? "Attaching…" : "Attach these rules"}
+        disabled={busy !== null}
+        label="Attach these rules"
+        loading={busy === "rules-text"}
         onPress={onAttachText}
       />
       <Button
-        disabled={busy}
+        disabled={busy !== null}
         label="Attach a file instead"
+        loading={busy === "rules-file"}
         onPress={onAttachFile}
         variant="ghost"
       />

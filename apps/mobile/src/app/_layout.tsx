@@ -21,6 +21,7 @@ import { useAppDispatch } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { usePush } from "@/hooks/use-push";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useRoleSync } from "@/hooks/use-role-sync";
 import { useUploads } from "@/hooks/use-uploads";
 import { resolveHome } from "@/constants/roles";
 import { bootstrapSession, revalidateSession } from "@/lib/auth-session";
@@ -61,6 +62,14 @@ function RootShell() {
    */
   usePush();
   useRealtime();
+
+  /*
+   * And the third way an account catches up with itself: the app coming back to
+   * the front. Cold start is handled by the boot effect below and a delivered
+   * push by `usePush`; this is the resume in between, which is where most
+   * approvals actually land. See `useRoleSync`.
+   */
+  useRoleSync();
 
   /*
    * The shade's half of the universal uploader.
@@ -463,6 +472,12 @@ function RootShell() {
           `hostelhub://guardian-invite?token=…` already does.
         */}
         <Stack.Screen name="guardian-invite" />
+        {/*
+          The cook invitation deep link, on the same rule and for the same
+          reason — `cook-roster.service.ts` builds
+          `{siteUrl}/cook-invite?token=…`.
+        */}
+        <Stack.Screen name="cook-invite" />
       </Stack>
 
       {/*

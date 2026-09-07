@@ -38,7 +38,9 @@
     "seed:store:clean": "node scripts/seed-store-catalogue.mjs --clean",
     "rotate:finance-key": "node scripts/rotate-finance-master-key.mjs",
     "send:test-emails": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/send-test-emails.ts",
-    "migrate:bs-periods": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/migrate-periods-to-bikram-sambat.mjs"
+    "migrate:bs-periods": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/migrate-periods-to-bikram-sambat.mjs",
+    "evidence:fixtures": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/make-evidence-fixtures.ts",
+    "evidence:score": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/score-evidence-engines.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",

@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import type { FoodReadyAnnouncement } from "@/lib/cook-api";
+import type {
+  CookFoodPhoto,
+  CookPhotoDay,
+  FoodReadyAnnouncement,
+  FoodReadySent,
+} from "@/lib/cook-api";
 import {
   announcedCount,
+  announcementSummary,
   mealButtonLabel,
   mealButtons,
   mealSubtitle,
+  mealsToCall,
+  mergePhotoDays,
   nextUnannounced,
-  reachedNobody,
   searchCookResidents,
 } from "@/lib/cook";
 import type { RoutineMeal } from "@/lib/resident-api";
@@ -123,15 +130,130 @@ describe("mealSubtitle", () => {
   });
 });
 
-describe("reachedNobody", () => {
+describe("announcementSummary", () => {
+  function sent(overrides: Partial<FoodReadySent> = {}): FoodReadySent {
+    return { ...announcement(), staffNotifiedCount: 0, ...overrides };
+  }
+
   /*
    * A 201 means the announcement was recorded, not that anyone heard it — the
    * same trap as the SOS fan-out. A hostel whose residents have no accounts
    * gets zero.
    */
-  it("catches an announcement that notified no one", () => {
-    expect(reachedNobody(announcement({ notifiedCount: 0 }))).toBe(true);
-    expect(reachedNobody(announcement({ notifiedCount: 1 }))).toBe(false);
+  it("says so plainly when the announcement reached nobody at all", () => {
+    const summary = announcementSummary(sent({ notifiedCount: 0 }));
+
+    expect(summary.reached).toBe(false);
+    expect(summary.body).toBe(
+      "This announcement was recorded, but nobody was notified.",
+    );
+  });
+
+  /*
+   * Worth distinguishing: the app is working, and the gap is that residents
+   * have not installed it — which an admin can fix and a cook cannot.
+   */
+  it("distinguishes reaching only the office from reaching nobody", () => {
+    const summary = announcementSummary(sent({ notifiedCount: 0, staffNotifiedCount: 2 }));
+
+    expect(summary.reached).toBe(false);
+    expect(summary.body).toBe(
+      "No resident here has an app account yet. The hostel office was notified as well.",
+    );
+  });
+
+  it("leads with the resident count, and mentions the office when there is one", () => {
+    expect(announcementSummary(sent({ notifiedCount: 38, staffNotifiedCount: 3 })).body).toBe(
+      "38 resident(s) notified. The hostel office was notified as well.",
+    );
+    expect(announcementSummary(sent({ notifiedCount: 38 })).body).toBe(
+      "38 resident(s) notified.",
+    );
+  });
+});
+
+describe("mealsToCall", () => {
+  it("counts what is left, and is zero once the shift is done", () => {
+    const buttons = mealButtons(
+      [meal({ mealType: "BREAKFAST" }), meal({ mealType: "LUNCH" })],
+      [announcement({ mealType: "BREAKFAST" })],
+    );
+
+    // Four buttons always, one of them sent.
+    expect(mealsToCall(buttons)).toBe(3);
+    expect(
+      mealsToCall(
+        mealButtons(
+          [],
+          ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"].map((mealType) =>
+            announcement({ mealType }),
+          ),
+        ),
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("mergePhotoDays", () => {
+  function photo(overrides: Partial<CookFoodPhoto> = {}): CookFoodPhoto {
+    return {
+      caption: "",
+      date: "2026-09-05T00:00:00.000Z",
+      id: "p1",
+      mealType: "LUNCH",
+      photoAssetId: "a1",
+      source: "KITCHEN",
+      uploadedAt: "2026-09-05T06:30:00.000Z",
+      ...overrides,
+    };
+  }
+
+  function day(overrides: Partial<CookPhotoDay> = {}): CookPhotoDay {
+    return { day: "2026-09-05", mealsCovered: 1, photos: [photo()], ...overrides };
+  }
+
+  it("appends days the next page has not already shown", () => {
+    const merged = mergePhotoDays(
+      [day({ day: "2026-09-05" })],
+      [day({ day: "2026-09-04", photos: [photo({ id: "p9" })] })],
+    );
+
+    expect(merged.map((entry) => entry.day)).toEqual(["2026-09-05", "2026-09-04"]);
+  });
+
+  /*
+   * The whole reason this exists: a day of 130 photos straddles the 120-photo
+   * page boundary and arrives in both halves. Two cards for one date is the one
+   * thing a day-grouped feed must not do.
+   */
+  it("folds a day that straddles the page boundary into one card", () => {
+    const merged = mergePhotoDays(
+      [day({ mealsCovered: 1, photos: [photo({ id: "p1", mealType: "LUNCH" })] })],
+      [
+        day({
+          mealsCovered: 1,
+          photos: [
+            photo({ id: "p1", mealType: "LUNCH" }),
+            photo({ id: "p2", mealType: "DINNER" }),
+          ],
+        }),
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    // The duplicate is dropped, not drawn twice.
+    expect(merged[0].photos.map((entry) => entry.id)).toEqual(["p1", "p2"]);
+    // Recomputed: each page counted only its own half's coverage.
+    expect(merged[0].mealsCovered).toBe(2);
+  });
+
+  it("leaves the page it was given alone", () => {
+    const first = [day()];
+
+    mergePhotoDays(first, [day({ photos: [photo({ id: "p2", mealType: "DINNER" })] })]);
+
+    expect(first[0].photos).toHaveLength(1);
+    expect(first[0].mealsCovered).toBe(1);
   });
 });
 

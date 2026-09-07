@@ -301,8 +301,8 @@ export function AttachmentRow({
         </View>
       ) : (
         <Button
-          disabled={busy}
-          label={busy ? "Uploading…" : pickLabel}
+          label={pickLabel}
+          loading={busy}
           onPress={onPick}
           variant="outline"
         />

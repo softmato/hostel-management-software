@@ -5,18 +5,18 @@ import { router } from "expo-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   ScrollView,
   TextInput,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { CommunityPostCard } from "@/components/community-post-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Card } from "@/components/ui/card";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
-import { Screen } from "@/components/ui/screen";
+import { Screen, useOwnScroll } from "@/components/ui/screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
@@ -141,6 +141,14 @@ export function CommunityBoard({
   showBack = false,
 }: CommunityBoardProps) {
   const { colors } = useAppTheme();
+
+  /*
+   * The feed hides and restores the tab bar like every other screen does.
+   * `<Screen scroll>` wires that up on its own and this screen cannot use it,
+   * so the list asks for the same handler — and for the bottom clearance it now
+   * has to reserve for itself.
+   */
+  const feedScroll = useOwnScroll(insideTabs);
 
   /*
    * Both reads go through `lib/community-queries.ts` rather than through a
@@ -499,14 +507,23 @@ export function CommunityBoard({
   }
 
   return (
-    <Screen header={appBar} insideTabs={insideTabs} padded={false}>
+    <Screen header={appBar} insideTabs={insideTabs} ownScroll padded={false}>
       {/*
         A `FlatList` rather than `<Screen scroll>`: this is the one screen with an
         unbounded list, so rows have to be recycled and `onEndReached` is what
         drives paging. The header travels with the list so search and the chips
         scroll away instead of eating a third of the viewport.
+
+        Reanimated's list, because the handler behind the tab bar animation is a
+        worklet: on a plain `FlatList` it would run on the JS thread, which is
+        the thread already busy rendering these rows.
+
+        Its content padding is a style rather than the `contentContainerClassName`
+        the rest of the app writes, because NativeWind only styles components it
+        has an interop for and an animated list is not one of them — a class here
+        would be dropped without a word.
       */}
-      <FlatList
+      <Animated.FlatList<CommunityPost>
         ListEmptyComponent={
           <EmptyState description={emptyFeedMessage(query)} title="Nothing here" />
         }
@@ -518,17 +535,24 @@ export function CommunityBoard({
           ) : null
         }
         ListHeaderComponent={header}
-        contentContainerClassName="px-5 pb-8 pt-2 gap-3"
+        contentContainerStyle={{
+          gap: 12,
+          paddingBottom: feedScroll.scrollPaddingBottom,
+          paddingHorizontal: 20,
+          paddingTop: 8,
+        }}
         data={posts}
         keyExtractor={(post) => post.id}
         keyboardShouldPersistTaps="handled"
         onEndReached={loadMore}
         onEndReachedThreshold={0.6}
         onRefresh={refresh}
+        onScroll={feedScroll.onScroll}
         refreshing={firstPage.refreshing}
         renderItem={({ item }) => (
           <CommunityPostCard canPost={canPost} onChanged={afterPost} post={item} />
         )}
+        scrollEventThrottle={feedScroll.scrollEventThrottle}
       />
 
       {picker}
@@ -900,11 +924,21 @@ function Composer({
           onPress={() => void publish()}
           style={{ backgroundColor: ready ? colors.primary : colors.muted }}
         >
-          <Ionicons
-            color={ready ? colors.primaryForeground : colors.mutedForeground}
-            name="send"
-            size={14}
-          />
+          {/*
+            The send arrow becomes the spinner while the post is at the server,
+            in the button's own ink. Swapping the label to "Posting…" on its own
+            left nothing on the screen moving, which on a slow hostel connection
+            is indistinguishable from a tap that missed.
+          */}
+          {posting ? (
+            <ActivityIndicator color={colors.primaryForeground} size="small" />
+          ) : (
+            <Ionicons
+              color={ready ? colors.primaryForeground : colors.mutedForeground}
+              name="send"
+              size={14}
+            />
+          )}
           <Text
             className="text-sm font-semibold"
             style={{ color: ready ? colors.primaryForeground : colors.mutedForeground }}

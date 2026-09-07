@@ -78,6 +78,7 @@ import {
   type AttendanceAnalytics,
   type AttendanceSettings,
   type CommunitySettings,
+  type CookAccount,
   type CookPortalSettings,
   type FeeSchedule,
   type FeeScheduleData,
@@ -87,6 +88,7 @@ import {
   getAttendanceSettings,
   getCommunitySettings,
   getCookPortal,
+  getCookRoster,
   getFoodAnalytics,
   getMaintenanceSettings,
   getManagedHostel,
@@ -443,6 +445,9 @@ async function loadFinance(): Promise<AdminFinanceData> {
  * that changes the answer must change the key — that is the whole contract
  * between a screen and a prefetch.
  */
+/** `GET /hostel-admin/cooks` — the roster plus the portal switch it drives. */
+export type CookRoster = { cooks: CookAccount[]; portalEnabled: boolean };
+
 export const adminQuery = {
   /**
    * The group's shared queue — claims, complaints, inquiries, SOS.
@@ -602,6 +607,11 @@ export const adminQuery = {
       ],
       loadToday,
     ),
+  /**
+   * The kitchen roster. No realtime topic: cooks change when an admin changes
+   * them, on this screen, and the screen reloads itself after each write.
+   */
+  cooks: (): AdminQuery<CookRoster> => define("admin:cooks", [], () => getCookRoster()),
   wardens: (): AdminQuery<ManagedWarden[]> =>
     define("admin:wardens", [], () => listWardens()),
 } as const;
@@ -721,6 +731,9 @@ export function prefetchAdminRoute(href: string) {
     case "/manage/finance/statement":
       prefetchAdminQuery(adminQuery.ledger());
       prefetchAdminQuery(adminQuery.hostel());
+      return;
+    case "/manage/cook":
+      prefetchAdminQuery(adminQuery.cooks());
       return;
     case "/manage/food":
       prefetchAdminQuery(adminQuery.food());

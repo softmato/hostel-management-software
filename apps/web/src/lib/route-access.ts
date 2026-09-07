@@ -32,10 +32,6 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     roles: [Role.SUPERADMIN],
   },
   {
-    prefix: "/platform/fee-plans",
-    roles: [Role.SUPERADMIN],
-  },
-  {
     prefix: "/platform/settings",
     roles: [Role.SUPERADMIN],
   },

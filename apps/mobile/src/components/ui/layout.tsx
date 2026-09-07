@@ -1,7 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { type ReactNode, useState } from "react";
-import { type LayoutChangeEvent, Pressable, View } from "react-native";
+import {
+  ActivityIndicator,
+  type LayoutChangeEvent,
+  Pressable,
+  View,
+} from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -337,11 +342,22 @@ export function StatTile({
  * the exception.
  */
 export function Chip({
+  busy = false,
   icon,
   label,
   onPress,
   tone = "neutral",
 }: {
+  /**
+   * This chip's own action is at the server.
+   *
+   * A chip is a small control, but a pressable one can still be the thing that
+   * assigns a plumber to a job — `manage/maintenance`'s provider list is a row
+   * of them — and a control that hits the network has to say so. The icon slot
+   * becomes the spinner, which keeps the chip the same width it was, and the
+   * press is refused while it spins.
+   */
+  busy?: boolean;
   icon?: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress?: () => void;
@@ -356,7 +372,15 @@ export function Chip({
         brand ? "border-primary/30 bg-brand-soft" : "border-border bg-card"
       }`}
     >
-      {icon ? (
+      {busy ? (
+        <ActivityIndicator
+          color={brand ? colors.primary : colors.mutedForeground}
+          // Sized down to the icon it stands in for: an untamed `small`
+          // indicator is 20dp and would make the chip grow as it starts.
+          size="small"
+          style={{ height: 13, transform: [{ scale: 0.62 }], width: 13 }}
+        />
+      ) : icon ? (
         <Ionicons
           color={brand ? colors.primary : colors.mutedForeground}
           name={icon}
@@ -379,9 +403,12 @@ export function Chip({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ busy, disabled: busy }}
       className="shrink active:opacity-70"
+      disabled={busy}
       hitSlop={4}
       onPress={onPress}
+      style={busy ? { opacity: 0.7 } : undefined}
     >
       {body}
     </Pressable>

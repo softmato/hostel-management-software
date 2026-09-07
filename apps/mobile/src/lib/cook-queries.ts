@@ -1,15 +1,22 @@
 import { REALTIME_TOPIC } from "@/constants/topics";
 import {
-  type CookPhotoDay,
+  type CookPhotoFeed,
   type CookResident,
   type CookToday,
   type FoodReadyAnnouncement,
+  type FoodReadySent,
   getCookToday,
   listCookFoodPhotos,
   listCookResidents,
   listFoodReadyLogs,
 } from "@/lib/cook-api";
-import { defineQuery, prefetchQuery, type Query } from "@/lib/query-cache";
+import {
+  defineQuery,
+  prefetchQuery,
+  type Query,
+  readQuery,
+  writeQuery,
+} from "@/lib/query-cache";
 
 /**
  * Every read the cook portal makes, named once.
@@ -56,7 +63,7 @@ export const cookQuery = {
   announcements: (): CookQuery<FoodReadyAnnouncement[]> =>
     defineQuery("cook:announcements", [REALTIME_TOPIC.FOOD], () => listFoodReadyLogs()),
 
-  photos: (): CookQuery<{ days: CookPhotoDay[]; hasMore: boolean; total: number }> =>
+  photos: (): CookQuery<CookPhotoFeed> =>
     defineQuery("cook:photos", [REALTIME_TOPIC.FOOD], () => listCookFoodPhotos()),
 
   /**
@@ -73,10 +80,68 @@ export const cookQuery = {
    * Today's meals, today's announcements, the head count **and the whole week's
    * routine** — which is why the Menu tab reads this key rather than one of its
    * own.
+   *
+   * On **both** topics, and the second one is not decoration. The payload
+   * carries `residentCount`, so a resident moving in changes this answer — and
+   * a `residents` event used to invalidate `cook:residents` while leaving this
+   * one alone. The head count on Today and the roster on Menu are the same
+   * population, so the portal showed two different numbers for one hostel on two
+   * tabs, for as long as the stale one survived. They move together now.
    */
   today: (): CookQuery<CookToday> =>
-    defineQuery("cook:today", [REALTIME_TOPIC.FOOD], () => getCookToday()),
+    defineQuery("cook:today", [REALTIME_TOPIC.FOOD, REALTIME_TOPIC.RESIDENTS], () =>
+      getCookToday(),
+    ),
 } as const;
+
+/**
+ * Fold a just-sent announcement into what the portal already has on screen.
+ *
+ * The announce button used to call `today.refresh()`, which is a full round trip
+ * for `GET /cook/today` — the whole week's routine, the hostel, the head count —
+ * to learn one fact the server has just handed back in the POST response. On a
+ * kitchen handset over hostel wifi that is the gap between pressing the button
+ * and the card saying `Sent 12:04`, and it is the moment a cook is most likely
+ * to press again because nothing happened.
+ *
+ * So the response is written straight into the two keys that hold it. Nothing is
+ * *invented* here — every field comes off the server's own reply — which is what
+ * separates this from an optimistic update that has to be rolled back when the
+ * write turns out to have failed. The cooldown 429 throws before this is
+ * reached.
+ *
+ * Both keys are written because both are already drawn: `cook:today` feeds the
+ * four buttons and the shift card, and `cook:announcements` is the record on
+ * More. A key that has never been loaded is left alone — `readQuery` returns
+ * `null` and the tab that eventually asks for it gets the row from the server
+ * anyway.
+ */
+export function recordCookAnnouncement(sent: FoodReadySent) {
+  const today = readQuery<CookToday>(cookQuery.today().key);
+
+  if (today) {
+    writeQuery(
+      cookQuery.today().key,
+      {
+        ...today.data,
+        // Newest first, which is the order `mealButtons` reads to find the
+        // latest announcement for a meal.
+        announced: [sent, ...today.data.announced],
+      },
+      cookQuery.today().topics,
+    );
+  }
+
+  const announcements = readQuery<FoodReadyAnnouncement[]>(cookQuery.announcements().key);
+
+  if (announcements) {
+    writeQuery(
+      cookQuery.announcements().key,
+      [sent, ...announcements.data],
+      cookQuery.announcements().topics,
+    );
+  }
+}
 
 /** Warms one descriptor. Never throws, never re-asks something already fresh. */
 export function prefetchCookQuery<T>(query: CookQuery<T>) {

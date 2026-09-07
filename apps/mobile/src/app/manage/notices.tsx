@@ -188,6 +188,12 @@ export default function ManageNoticesScreen() {
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState<Draft>(BLANK_DRAFT);
   const [saving, setSaving] = useState(false);
+  /*
+   * Expiring is per notice, not per screen: "Expire now" is drawn once for every
+   * live notice on the board, so a shared boolean spins all of them at whichever
+   * one was tapped.
+   */
+  const [expiring, setExpiring] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
 
   /*
@@ -287,7 +293,7 @@ export default function ManageNoticesScreen() {
 
   const expireNow = useCallback(
     async (notice: ManagedNotice) => {
-      setSaving(true);
+      setExpiring(notice.id);
 
       try {
         // Yesterday rather than this instant: `expiresAt` is compared against
@@ -302,7 +308,7 @@ export default function ManageNoticesScreen() {
       } catch (error) {
         toastError("Could not expire", readApiError(error));
       } finally {
-        setSaving(false);
+        setExpiring(null);
       }
     },
     [reload],
@@ -451,6 +457,7 @@ export default function ManageNoticesScreen() {
                   <Button
                     className="flex-1"
                     label="Expire now"
+                    loading={expiring === notice.id}
                     onPress={() => void expireNow(notice)}
                     size="sm"
                     variant="ghost"

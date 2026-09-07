@@ -41,6 +41,7 @@ import {
   type ProviderForm,
   type ProviderStepKey,
 } from "@/lib/provider-registration";
+import { PROVIDER_REVIEW_WINDOW } from "@/lib/provider-status";
 import { uploadPublicFile } from "@/lib/public-uploads";
 import { registerServiceProvider } from "@/lib/registration-api";
 import { toastError } from "@/lib/toast";
@@ -93,7 +94,12 @@ export default function ServiceProviderApplyScreen() {
   }));
   const [step, setStep] = useState<ProviderStepKey>("you");
   const [errors, setErrors] = useState<ProviderErrors>({});
-  const [busy, setBusy] = useState(false);
+  /*
+   * Which upload is running, not merely that one is: the selfie button and the
+   * document button shared a boolean, so both said "Uploading…" for whichever
+   * of them had been pressed.
+   */
+  const [busy, setBusy] = useState<"document" | "selfie" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -169,7 +175,7 @@ export default function ServiceProviderApplyScreen() {
       return;
     }
 
-    setBusy(true);
+    setBusy("selfie");
 
     try {
       const uploaded = await uploadPublicFile(asset, { label: "Your photo" });
@@ -178,7 +184,7 @@ export default function ServiceProviderApplyScreen() {
     } catch (caught) {
       toastError("That photo didn't upload", readApiError(caught));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [patch]);
 
@@ -201,7 +207,7 @@ export default function ServiceProviderApplyScreen() {
       return;
     }
 
-    setBusy(true);
+    setBusy("document");
 
     try {
       const uploaded = await uploadPublicFile(asset, { label: "Supporting document" });
@@ -220,7 +226,7 @@ export default function ServiceProviderApplyScreen() {
     } catch (caught) {
       toastError("That file didn't upload", readApiError(caught));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, []);
 
@@ -367,7 +373,7 @@ export default function ServiceProviderApplyScreen() {
 
         {step === "area" ? (
           <FormSection
-            subtitle="Jobs are broadcast to providers in the area they are raised in."
+            subtitle="Hostels search the provider list by area, so this is how they find you."
             title="Where you work"
           >
             <Input
@@ -435,10 +441,9 @@ export default function ServiceProviderApplyScreen() {
               </View>
 
               <Button
-                disabled={busy}
-                label={
-                  busy ? "Uploading…" : form.selfie ? "Take it again" : "Take your photo"
-                }
+                disabled={busy !== null}
+                label={form.selfie ? "Take it again" : "Take your photo"}
+                loading={busy === "selfie"}
                 onPress={() => void takeSelfie()}
                 variant={form.selfie ? "outline" : "primary"}
               />
@@ -459,8 +464,9 @@ export default function ServiceProviderApplyScreen() {
                 but an application carrying proof of trade clears review faster.
               </Text>
               <Button
-                disabled={busy || form.documents.length >= 7}
-                label={busy ? "Uploading…" : "Add a document"}
+                disabled={busy !== null || form.documents.length >= 7}
+                label="Add a document"
+                loading={busy === "document"}
                 onPress={() => void pickDocument()}
                 variant="outline"
               />
@@ -501,7 +507,7 @@ export default function ServiceProviderApplyScreen() {
 
         {step === "review" ? (
           <FormSection
-            subtitle="The platform team reviews new providers in about two days, and emails you either way."
+            subtitle={`We verify your details and documents in ${PROVIDER_REVIEW_WINDOW}, and email you either way.`}
             title="Check it over"
           >
             <Card>
@@ -530,9 +536,9 @@ export default function ServiceProviderApplyScreen() {
             </Card>
 
             <Text variant="caption">
-              By submitting you agree this account is used to receive job offers
-              from hostels in your trades and area. Once approved, every job
-              arrives in this app — there is no separate provider website.
+              By submitting you agree this account is used to receive the work
+              hostels assign you. Once approved, every job arrives in this app —
+              there is no separate provider website.
             </Text>
           </FormSection>
         ) : null}
@@ -563,15 +569,15 @@ function SubmittedView({ email }: { email: string | null }) {
 
         <Text className="text-center leading-6" variant="muted">
           {email
-            ? `The platform team reviews new providers in about two days. We'll email ${email} the moment there's a decision.`
-            : "The platform team reviews new providers in about two days, and you'll be notified the moment there's a decision."}
+            ? `We verify your details and documents in ${PROVIDER_REVIEW_WINDOW}. We'll email ${email} the moment there's a decision, and you'll see it here too.`
+            : `We verify your details and documents in ${PROVIDER_REVIEW_WINDOW}, and you'll be notified the moment there's a decision.`}
         </Text>
 
         <Card className="mt-2 w-full gap-2">
           <Text variant="label">What happens after approval</Text>
           <Text className="leading-6" variant="muted">
-            Your account becomes a provider account and this app changes with it:
-            a Jobs tab, work broadcast by hostels in your trades and area, and a
+            This app becomes your provider app on its own — you do not sign in
+            again. A Jobs tab holding the work hostels assign you by name, and a
             provider ID card carrying the photo you just took.
           </Text>
         </Card>

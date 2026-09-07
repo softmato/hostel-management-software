@@ -11,7 +11,7 @@ import {
   isEvidenceOcrEnabled,
   isPdfEvidence,
   looksLikePaymentReceipt,
-  readEvidenceText,
+  readEvidence,
   referenceOnEvidence,
 } from "@/modules/finance/evidence-ocr";
 import {
@@ -112,6 +112,25 @@ type Stage =
        * and do something.
        */
       reference: { code: string; found: boolean } | null;
+      /**
+       * Why nothing was read, when nothing was read. Null on a successful read.
+       *
+       * **Diagnostic, and it exists because the absence of one hid a dead
+       * recogniser for weeks.** Every failure mode in this pipeline degrades to
+       * "no text", and "no text" reached the resident as one sentence — "We
+       * could not read this one" — whether the engine was switched off,
+       * unconfigured, over its budget, timed out, or genuinely handed an
+       * unreadable photograph. Production sat in one of those states while every
+       * local run stayed green, and nothing on any screen or in any log told the
+       * two apart.
+       *
+       * **Nothing branches on it.** No flag is derived from it and the resident
+       * is never shown it: the sentence they read stays the same, because the
+       * action they should take is the same. It is here so that a developer with
+       * the network tab open, and the server log beside it, can see which
+       * failure this is.
+       */
+      reason: string | null;
       /**
        * The sentence the submit path is certain to refuse this file with, or
        * null.
@@ -259,6 +278,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
           controller.close();
         };
 
+        /**
+         * Why this read produced nothing, filled in on the way out.
+         *
+         * A single mutable local rather than a value threaded through four
+         * returns: the payloads below are identical apart from this, and
+         * duplicating the shape a fifth time to carry one string is how they
+         * drift apart.
+         */
+        let reason: string | null = null;
+
         try {
           // A PDF reads *better* than a screenshot — its text is text — so it
           // takes the same path. What cannot be read is an image nothing measured
@@ -271,10 +300,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
                 asset.imageInsight?.nearBlank === false));
 
           if (!readable) {
+            // Two different things, and worth distinguishing in the log: the
+            // hostel switched reading off, or the file was never measured at
+            // upload and there is nothing safe to hand a recogniser.
+            reason = isEvidenceOcrEnabled() ? "not-measured" : "disabled";
+
             finish({
               fields: {},
               looksLikeReceipt: true,
               notPayment: false,
+              reason,
               reference: null,
               refusal: null,
               statementGuidance: null,
@@ -294,10 +329,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
           });
 
           if (!bytes) {
+            // The object did not come back from storage. Nothing to do with
+            // reading at all, and it used to be reported as an unreadable
+            // receipt.
+            reason = "fetch-failed";
+
             finish({
               fields: {},
               looksLikeReceipt: true,
               notPayment: false,
+              reason,
               reference: null,
               refusal: null,
               statementGuidance: null,
@@ -311,13 +352,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
           send({ stage: "reading" });
 
-          const text = await readEvidenceText(bytes, asset.mimeType);
+          const read = await readEvidence(bytes, asset.mimeType);
+          const text = read.result?.text ?? null;
 
           if (text === null) {
+            reason = read.failure;
+
+            // Loud on the server, because this is the line that would have shown
+            // a dead recogniser on the first claim rather than the hundredth.
+            console.warn(
+              `[evidence-read] no text for asset ${assetId}: ${read.failure}`,
+            );
+
             finish({
               fields: {},
               looksLikeReceipt: true,
               notPayment: false,
+              reason,
               reference: null,
               refusal: null,
               statementGuidance: null,
@@ -369,6 +420,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
                 : {}),
             },
             looksLikeReceipt: looksLikePaymentReceipt(text),
+            reason: null,
             notPayment: isDefinitelyNotPaymentEvidence(text),
             // Suppressed when the file is ours. The code genuinely *is* on it —
             // we printed it — so answering the question honestly here would put
@@ -395,10 +447,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
         } catch {
           // Autofill is a convenience. Every failure mode ends the same way: no
           // fields, an empty form, and a resident who types them as before.
+          //
+          // `reason` keeps whatever the failing step set, and falls back to the
+          // catch-all only when something threw before any step claimed it.
+          reason ??= "unknown";
+
           finish({
               fields: {},
               looksLikeReceipt: true,
               notPayment: false,
+              reason,
               reference: null,
               refusal: null,
               statementGuidance: null,

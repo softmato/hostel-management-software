@@ -5,14 +5,16 @@
     "paths": {
       "@/*": ["./src/*"],
       "@/assets/*": ["./assets/*"],
-      "@hostel/calendar/*": ["../../packages/shared/src/calendar/*"]
+      "@hostel/calendar/*": ["../../packages/shared/src/calendar/*"],
+      "@hostel/plans/*": ["../../packages/shared/src/plans/*"]
     }
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     "nativewind-env.d.ts",
-    "../../packages/shared/src/calendar/**/*.ts"
+    "../../packages/shared/src/calendar/**/*.ts",
+    "../../packages/shared/src/plans/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", ".expo", "android", "ios"]
 }

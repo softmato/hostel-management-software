@@ -26,13 +26,12 @@ describe("route access", () => {
     ]);
   });
 
-  it("keeps platform config, fee plans and settings superadmin-only", () => {
+  it("keeps platform config and settings superadmin-only", () => {
     // A moderator moderates content; configuration and billing are not theirs
     // (PHASES.md §5.1). The narrow rules must win over the broad /platform one.
     for (const path of [
       "/platform/config/site",
       "/platform/config",
-      "/platform/fee-plans",
       "/platform/settings",
     ]) {
       expect(protectedRouteRuleForPath(path)?.roles).toEqual([Role.SUPERADMIN]);

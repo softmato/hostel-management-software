@@ -155,7 +155,13 @@ function IdCardDetail({
   const qr = useResource<IdentityQr>(useCallback(() => getIdentityQr(), []));
 
   const [face, setFace] = useState<"back" | "front">("front");
-  const [busy, setBusy] = useState(false);
+  /*
+   * Which row is waiting on the server — the photo upload, its removal or the
+   * sharing switch. One boolean across the three of them put "Working…" under a
+   * row nobody had touched, and left the row that had been tapped looking
+   * exactly as it did before the tap.
+   */
+  const [busy, setBusy] = useState<"photo" | "remove" | "sharing" | null>(null);
 
   const card = buildIdCard(identity, profile);
   const photo = identityPhotoSource(identity, token);
@@ -171,10 +177,11 @@ function IdCardDetail({
 
   const run = useCallback(
     async (
+      job: "remove" | "sharing",
       action: () => Promise<IdentityResponse>,
       { failure, success }: { failure: string; success: string },
     ) => {
-      setBusy(true);
+      setBusy(job);
 
       try {
         onChanged(await action());
@@ -182,7 +189,7 @@ function IdCardDetail({
       } catch (caught) {
         toastError(failure, readApiError(caught));
       } finally {
-        setBusy(false);
+        setBusy(null);
       }
     },
     [onChanged],
@@ -351,7 +358,7 @@ function IdCardDetail({
       return;
     }
 
-    setBusy(true);
+    setBusy("photo");
 
     try {
       const assetId = await uploadAsset(picked, {
@@ -364,7 +371,7 @@ function IdCardDetail({
     } catch (caught) {
       toastError("Could not set that photo", readApiError(caught));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [onChanged]);
 
@@ -373,7 +380,7 @@ function IdCardDetail({
       { style: "cancel", text: "Cancel" },
       {
         onPress: () =>
-          void run(clearIdentityPhoto, {
+          void run("remove", clearIdentityPhoto, {
             failure: "Could not remove that photo",
             success: "Photo removed",
           }),
@@ -515,15 +522,17 @@ function IdCardDetail({
           <SectionHeader title="Card photo" />
           <Card>
             <ListRow
+              busy={busy === "photo"}
               icon="camera-outline"
               onPress={() => void pickPhoto()}
-              subtitle={busy ? "Working…" : "Square, and cropped before it uploads"}
+              subtitle="Square, and cropped before it uploads"
               title={identity.hasPhoto ? "Replace photo" : "Add a photo"}
             />
             {identity.hasPhoto ? (
               <>
                 <RowDivider inset />
                 <ListRow
+                  busy={busy === "remove"}
                   icon="trash-outline"
                   onPress={removePhoto}
                   subtitle="Your card falls back to your initial"
@@ -544,9 +553,9 @@ function IdCardDetail({
               icon="qr-code-outline"
               right={
                 <Switch
-                  disabled={busy}
+                  disabled={busy !== null}
                   onValueChange={(next) =>
-                    void run(() => setIdentitySharing(next), {
+                    void run("sharing", () => setIdentitySharing(next), {
                       failure: "Could not change sharing",
                       success: next ? "Sharing is on" : "Sharing is off",
                     })

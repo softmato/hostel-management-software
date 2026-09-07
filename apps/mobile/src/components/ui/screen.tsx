@@ -51,6 +51,51 @@ const MIN_BOTTOM_PAD = 16;
  */
 const FLOATING_CLEARANCE = 56 + 20;
 
+/**
+ * The one piece of `<Screen scroll>` that a screen bringing its own scroller
+ * still needs: the handler that drives the bottom chrome.
+ *
+ * A worklet, so it runs on the UI thread — see `BottomChromeProvider`.
+ */
+function useChromeScroll() {
+  const chrome = useBottomChrome();
+
+  return useAnimatedScrollHandler({
+    onScroll: (event) => {
+      chrome?.onScroll(event.contentOffset.y);
+    },
+  });
+}
+
+/**
+ * For a screen that scrolls with a list of its own instead of `<Screen scroll>`
+ * — a `FlatList` recycling an unbounded feed, which a ScrollView cannot do.
+ * Gives that list the same hide-on-scroll behaviour and the same bottom
+ * clearance every other screen gets, so the tab bar slides away on the
+ * community feed exactly as it does on Home.
+ *
+ * Spread onto a **Reanimated** list (`Animated.FlatList`): the handler is a
+ * worklet, and a plain list would run it on the JS thread, which is busy
+ * rendering rows at exactly the moment someone is scrolling.
+ *
+ * `scrollPaddingBottom` belongs on the list's `contentContainerStyle`, and the
+ * screen around it wants `<Screen ownScroll>` — the list has to run the full
+ * height of the page and reserve the bar's height inside its *content*. Cutting
+ * that space off its viewport instead would end the list above the bar, and the
+ * moment the bar slid away it would leave a band of bare background behind it.
+ */
+export function useOwnScroll(insideTabs = false) {
+  const insets = useSystemInsets();
+  const onScroll = useChromeScroll();
+
+  return {
+    onScroll,
+    scrollEventThrottle: 16,
+    scrollPaddingBottom:
+      (insideTabs ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) + MIN_BOTTOM_PAD,
+  };
+}
+
 type ScreenProps = {
   /**
    * Drop the gutter between the header and the content, for a screen whose
@@ -88,6 +133,12 @@ type ScreenProps = {
    */
   insideTabs?: boolean;
   onRefresh?: () => void;
+  /**
+   * The child brings its own scroller — see `useOwnScroll`. The bottom edge is
+   * then the list's to reserve, so this screen leaves its content area running
+   * to the physical edge and lets the rows scroll under the tab bar.
+   */
+  ownScroll?: boolean;
   /** Horizontal padding on the content. Off for full-bleed lists. */
   padded?: boolean;
   refreshing?: boolean;
@@ -104,6 +155,7 @@ export function Screen({
   header,
   insideTabs = false,
   onRefresh,
+  ownScroll = false,
   padded = true,
   refreshing = false,
   scroll = false,
@@ -118,11 +170,7 @@ export function Screen({
    * so the signed-out home with its Log in pill behaves exactly like a tabbed
    * screen.
    */
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      chrome?.onScroll(event.contentOffset.y);
-    },
-  });
+  const scrollHandler = useChromeScroll();
 
   const reset = chrome?.reset;
 
@@ -193,7 +241,7 @@ export function Screen({
   ) : (
     <View
       className={`flex-1 ${paddingClass} ${contentClassName}`}
-      style={{ paddingBottom: contentBottomPad }}
+      style={{ paddingBottom: ownScroll ? 0 : contentBottomPad }}
     >
       {children}
     </View>

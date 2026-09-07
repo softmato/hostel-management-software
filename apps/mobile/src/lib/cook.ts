@@ -8,7 +8,11 @@
  */
 
 import { MEAL_TYPES, type MealType } from "@/lib/food-week";
-import type { FoodReadyAnnouncement } from "@/lib/cook-api";
+import type {
+  CookPhotoDay,
+  FoodReadyAnnouncement,
+  FoodReadySent,
+} from "@/lib/cook-api";
 import type { RoutineMeal } from "@/lib/resident-api";
 
 export type MealButton = {
@@ -81,21 +85,63 @@ export function mealSubtitle(button: MealButton): string {
   return button.items.length > 0 ? button.items.join(", ") : "Nothing planned for today";
 }
 
-/**
- * Whether an announcement actually reached anyone.
- *
- * `fanOutSOSAlert`'s cousin: `announceFoodReady` returns 201 once the log row is
- * written, whether or not a single resident had an account to notify. A hostel
- * with no linked resident accounts gets zero, and the cook should be told that
- * rather than left believing the kitchen has been called.
- */
-export function reachedNobody(announcement: FoodReadyAnnouncement): boolean {
-  return announcement.notifiedCount === 0;
-}
-
 /** How many of the four have gone out today. Drives the header line. */
 export function announcedCount(buttons: MealButton[]): number {
   return buttons.filter((button) => button.sent).length;
+}
+
+/**
+ * How many are left, which is the one number on this portal worth carrying to
+ * another tab.
+ *
+ * Drawn as a badge on the Today tab so a cook who wandered off to the photo
+ * feed can see the shift is unfinished without opening it. `0` draws nothing —
+ * `RoleTabs` treats it that way — so a finished shift is silent rather than
+ * showing a zero, which reads as a fault.
+ */
+export function mealsToCall(buttons: MealButton[]): number {
+  return buttons.length - announcedCount(buttons);
+}
+
+/**
+ * What the toast says after an announcement, as a decision rather than a
+ * ternary buried in an `onPress`.
+ *
+ * `announceFoodReady` returns 201 once the log row is written, whether or not a
+ * single person was reachable — so success is the counts, never the status code.
+ * Two audiences can each be empty and the sentence has to stay true in every
+ * combination:
+ *
+ *  - **Nobody at all.** The row is written, no resident holds an account and
+ *    the hostel has no staff on file. Said plainly, because a cook who believes
+ *    the hostel has been called to dinner when nothing left the building is the
+ *    failure this whole screen is written around.
+ *  - **Only the office.** Worth saying: it tells the cook the app is working
+ *    and that the gap is residents not having installed it, which is a thing an
+ *    admin can fix and a cook cannot.
+ *  - **Residents, and usually the office too.** The count leads, because that is
+ *    what the cook pressed the button for.
+ */
+export function announcementSummary(sent: FoodReadySent): {
+  body: string;
+  reached: boolean;
+} {
+  const staff =
+    sent.staffNotifiedCount > 0 ? "The hostel office was notified as well." : "";
+
+  if (sent.notifiedCount === 0) {
+    return {
+      body: staff
+        ? `No resident here has an app account yet. ${staff}`
+        : "This announcement was recorded, but nobody was notified.",
+      reached: false,
+    };
+  }
+
+  return {
+    body: `${sent.notifiedCount} resident(s) notified.${staff ? ` ${staff}` : ""}`,
+    reached: true,
+  };
 }
 
 /**
@@ -144,4 +190,50 @@ export function searchCookResidents<T extends { fullName: string; roomType: stri
       .toLowerCase()
       .includes(needle),
   );
+}
+
+/**
+ * Two pages of the photo feed, as one list of days.
+ *
+ * The feed is paged 120 photos at a time and grouped into days by the server, so
+ * a day that straddles a page boundary arrives **twice** — the tail of it on one
+ * page and the head of it on the next. Concatenating the pages would draw that
+ * date as two cards, which is the one thing a day-grouped feed must not do.
+ *
+ * `later` is strictly older than `earlier` (the cursor is the sort key), so only
+ * the last day of one page can collide with the first of the next, and order is
+ * preserved by appending. Photos are de-duplicated by id anyway: a page fetched
+ * while the kitchen is posting is the case a keyset cursor is chosen to survive,
+ * and surviving it means never showing one photo twice.
+ *
+ * `mealsCovered` is **recomputed** for a merged day rather than taken from
+ * either page. The server counts distinct meals in the rows it sent, so each
+ * half of a split day reports its own half's coverage — trusting either would
+ * tell a kitchen it had documented two meals on a day it documented four.
+ */
+export function mergePhotoDays(
+  earlier: readonly CookPhotoDay[],
+  later: readonly CookPhotoDay[],
+): CookPhotoDay[] {
+  const merged = earlier.map((day) => ({ ...day }));
+
+  for (const day of later) {
+    const existing = merged.find((candidate) => candidate.day === day.day);
+
+    if (!existing) {
+      merged.push({ ...day });
+      continue;
+    }
+
+    const seen = new Set(existing.photos.map((photo) => photo.id));
+    const photos = [
+      ...existing.photos,
+      ...day.photos.filter((photo) => !seen.has(photo.id)),
+    ];
+
+    existing.photos = photos;
+    existing.mealsCovered = new Set(photos.map((photo) => photo.mealType)).size;
+  }
+
+  return merged;
 }

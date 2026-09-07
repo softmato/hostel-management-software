@@ -202,6 +202,7 @@ export function useAlertActions() {
   /** The id currently in flight — disables just that row, not the whole list. */
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  /** Resolves to whether the server took it, so a caller can close on success. */
   const run = useCallback(
     async (id: string, action: () => Promise<void>, success: string) => {
       setBusyId(id);
@@ -213,8 +214,12 @@ export function useAlertActions() {
         // splicing it out locally, because approving a claim also moves the
         // invoice and the dashboard's counters.
         refresh();
+
+        return true;
       } catch (caught) {
         toastError("That didn't go through", readApiError(caught));
+
+        return false;
       } finally {
         setBusyId(null);
       }
@@ -243,14 +248,25 @@ export function useAlertActions() {
       return;
     }
 
-    setPending(null);
-    setNote("");
-
-    await run(
+    /*
+     * The sheet stays up until the server answers.
+     *
+     * It used to close on the tap and send the request behind it, which left the
+     * card underneath as the only place the work was reported — and a rejection
+     * that failed came back as a toast over a sheet that had already thrown the
+     * typed reason away. Closing on the answer means the button carries the
+     * wait, and a 422 leaves the words where they were typed.
+     */
+    const ok = await run(
       row.id,
       () => (mode === "reject" ? rejectClaim(row.id, text) : replyToComplaint(row.id, text)),
       mode === "reject" ? "Claim rejected" : "Reply sent",
     );
+
+    if (ok) {
+      setPending(null);
+      setNote("");
+    }
   }, [note, pending, run]);
 
   const ask = useCallback((mode: "reject" | "reply", row: AlertRow) => {
@@ -323,6 +339,7 @@ export function useAlertActions() {
       footer={
         <Button
           label={pending?.mode === "reject" ? "Reject claim" : "Send reply"}
+          loading={pending !== null && busyId === pending.row.id}
           onPress={() => void submitNote()}
         />
       }

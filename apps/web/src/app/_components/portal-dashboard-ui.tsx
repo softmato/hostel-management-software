@@ -766,12 +766,38 @@ export function FilterSelect({
   defaultLabel: string;
   label?: string;
   onChange?: (value: string) => void;
-  options?: Array<string | { label: string; value: string }>;
+  /** Derived lists arrive with holes in them; see `normalized` below. */
+  options?: Array<string | { label: string; value: string } | null | undefined>;
   value?: string;
 }) {
-  const normalized = options.map((option) =>
-    typeof option === "string" ? { label: option, value: option } : option,
-  );
+  /*
+   * Options are almost always derived — `Array.from(new Set(rows.map((row) =>
+   * row.hostelName)))` and its thirty siblings — and a row whose field is null
+   * puts a null in that list however the type reads. Rendering it threw, which
+   * took the whole page down: `/platform/transactions` and `/platform/payments`
+   * both crashed on open for exactly one unnamed hostel in the ledger.
+   *
+   * A filter option with no value cannot filter anything, so it is dropped
+   * rather than defended against further down. Values are stringified for the
+   * same reason: a numeric id is a perfectly reasonable thing for a caller to
+   * pass, and `<option value={7}>` compares unequal to the string the change
+   * event hands back.
+   */
+  const normalized = options.flatMap((option) => {
+    if (option == null) {
+      return [];
+    }
+
+    if (typeof option === "object") {
+      return option.value == null || option.value === ""
+        ? []
+        : [{ label: option.label ?? String(option.value), value: String(option.value) }];
+    }
+
+    const value = String(option);
+
+    return value ? [{ label: value, value }] : [];
+  });
 
   return (
     <div className={cn("min-w-0", className)}>

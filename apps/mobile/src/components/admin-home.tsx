@@ -590,6 +590,14 @@ export function ServiceGrid({
     { href: "/manage/rooms", icon: "bed-outline", label: "Rooms", tone: "brand" },
     { href: "/manage/notices", icon: "megaphone-outline", label: "Notices", tone: "warning" },
     { href: "/manage/food", icon: "restaurant-outline", label: "Food", tone: "warning" },
+    /*
+      Beside Food, not inside it. Who is allowed to say a meal is ready used to
+      be a card at the bottom of the menu editor, which was fine while it was a
+      name and a switch — it is now a roster with two kinds of access, a rotate
+      and a removal that renames a departed cook's history, and that is a door
+      of its own. `manage/food.tsx` keeps a single row pointing here.
+    */
+    { href: "/manage/cook", icon: "flame-outline", label: "Cooks", tone: "warning" },
     { href: "/manage/maintenance", icon: "construct-outline", label: "Repairs", tone: "danger" },
     { href: "/manage/reports", icon: "bar-chart-outline", label: "Reports", tone: "admin" },
     { href: "/manage/settings", icon: "settings-outline", label: "Settings", tone: "brand" },

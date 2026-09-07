@@ -5,7 +5,7 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
-import { type ReactNode, useCallback, useEffect, useRef } from "react";
+import { Component, type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Pressable, useWindowDimensions, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
@@ -279,63 +279,131 @@ export function Sheet({
       // the sheet instead of running under the clock.
       topInset={insets.top}
     >
-      {title ? (
-        /*
-         * The title row carries an explicit close.
-         *
-         * The sheet has always been draggable and that is still its main exit —
-         * but "drag the panel down" is knowledge, not an affordance, and the
-         * people this app is for do not have it. Every caller already passes
-         * `onClose`, so the button costs nothing and no sheet has to opt in.
-         */
-        <View className="flex-row items-start gap-3 border-b border-border px-5 pb-3">
-          <View className="flex-1">
-            <Text variant="subtitle">{title}</Text>
-          </View>
+      <LastFrame frame={{ children, footer, title }} open={open}>
+        {(frame) => (
+          <>
+            {frame.title ? (
+              /*
+               * The title row carries an explicit close.
+               *
+               * The sheet has always been draggable and that is still its main exit —
+               * but "drag the panel down" is knowledge, not an affordance, and the
+               * people this app is for do not have it. Every caller already passes
+               * `onClose`, so the button costs nothing and no sheet has to opt in.
+               */
+              <View className="flex-row items-start gap-3 border-b border-border px-5 pb-3">
+                <View className="flex-1">
+                  <Text variant="subtitle">{frame.title}</Text>
+                </View>
 
-          <Pressable
-            accessibilityLabel="Close"
-            accessibilityRole="button"
-            className="-mt-1 h-8 w-8 items-center justify-center rounded-full bg-muted active:opacity-70"
-            hitSlop={8}
-            onPress={onClose}
-          >
-            <Ionicons color={colors.mutedForeground} name="close" size={18} />
-          </Pressable>
-        </View>
-      ) : null}
+                <Pressable
+                  accessibilityLabel="Close"
+                  accessibilityRole="button"
+                  className="-mt-1 h-8 w-8 items-center justify-center rounded-full bg-muted active:opacity-70"
+                  hitSlop={8}
+                  onPress={onClose}
+                >
+                  <Ionicons color={colors.mutedForeground} name="close" size={18} />
+                </Pressable>
+              </View>
+            ) : null}
 
-      <BottomSheetScrollView
-        contentContainerStyle={{
-          minHeight:
-            window.height *
-            (tall
-              ? MIN_BODY_FRACTION_TALL
-              : footer
-                ? MIN_BODY_FRACTION_WITH_FOOTER
-                : MIN_BODY_FRACTION),
-          // 16, not 8: the last field ends clear of the footer's hairline rather
-          // than against it once a long form does scroll.
-          paddingBottom: footer ? 16 : Math.max(insets.bottom, 16),
-          paddingHorizontal: bare ? 0 : GUTTER,
-          // A title draws its own hairline; without one the content would
-          // otherwise start against the drag handle.
-          paddingTop: bare ? 0 : title ? 12 : 4,
-        }}
-      >
-        {children}
-      </BottomSheetScrollView>
+            <BottomSheetScrollView
+              contentContainerStyle={{
+                minHeight:
+                  window.height *
+                  (tall
+                    ? MIN_BODY_FRACTION_TALL
+                    : frame.footer
+                      ? MIN_BODY_FRACTION_WITH_FOOTER
+                      : MIN_BODY_FRACTION),
+                // 16, not 8: the last field ends clear of the footer's hairline rather
+                // than against it once a long form does scroll.
+                paddingBottom: frame.footer ? 16 : Math.max(insets.bottom, 16),
+                paddingHorizontal: bare ? 0 : GUTTER,
+                // A title draws its own hairline; without one the content would
+                // otherwise start against the drag handle.
+                paddingTop: bare ? 0 : frame.title ? 12 : 4,
+              }}
+            >
+              {frame.children}
+            </BottomSheetScrollView>
 
-      {footer ? (
-        <View
-          className="border-t border-border px-5 pt-3"
-          style={{ paddingBottom: Math.max(insets.bottom, 16) }}
-        >
-          {footer}
-        </View>
-      ) : null}
+            {frame.footer ? (
+              <View
+                className="border-t border-border px-5 pt-3"
+                style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+              >
+                {frame.footer}
+              </View>
+            ) : null}
+          </>
+        )}
+      </LastFrame>
     </BottomSheetModal>
   );
+}
+
+/** Everything a sheet draws that comes from the caller's own state. */
+type SheetFrame = {
+  children: ReactNode;
+  footer?: ReactNode;
+  title?: string;
+};
+
+/**
+ * Draws the sheet's frame, and keeps drawing the last one through the close.
+ *
+ * ## The bug
+ *
+ * Nearly every caller mounts its body on the same state the `open` boolean is
+ * read from — `open={pending !== null}` outside and `{pending ? <form/> : null}`
+ * inside, with the title and the footer built from `pending` too. So the instant
+ * a submit lands and clears that state, all three unmount while gorhom is still
+ * animating the card down. What is left for those few hundred milliseconds is
+ * the sheet at the height {@link MIN_BODY_FRACTION} gave it with nothing drawn
+ * in it: a slab of blank white sliding away, which reads as the screen having
+ * broken rather than as the work having landed.
+ *
+ * Holding the last frame costs nothing — the modal drops its children once it is
+ * really down — and it is not a licence to close early. A request in flight
+ * belongs on the button that started it (`Button`'s `loading`), and the sheet
+ * should be closed by the server's answer rather than by the tap.
+ *
+ * ## Why a class, in a codebase with none
+ *
+ * This is "remember the previous props", and both hook shapes for it are banned
+ * here for reasons that are good on their own terms: a ref written every render
+ * and read during the next one trips `react-hooks/refs`, and a `useState` fed
+ * from an effect trips `react-hooks/set-state-in-effect`. The remaining hook
+ * option — adjusting state during render — re-renders the sheet on every
+ * keystroke into a form inside it, to hold a value it needs twice in a screen's
+ * life.
+ *
+ * `getDerivedStateFromProps` is the API for precisely this and it costs nothing:
+ * the assignment happens inside the render that is already running. The frame is
+ * kept whole rather than field by field so the title, the body and the footer
+ * can never come from two different moments.
+ */
+class LastFrame extends Component<
+  {
+    children: (frame: SheetFrame) => ReactNode;
+    frame: SheetFrame;
+    open: boolean;
+  },
+  { kept: SheetFrame }
+> {
+  static getDerivedStateFromProps(props: { frame: SheetFrame; open: boolean }) {
+    // Only while it is up: once `open` is false the kept frame is the answer,
+    // and overwriting it with the caller's now-empty one is the bug itself.
+    return props.open ? { kept: props.frame } : null;
+  }
+
+  state = { kept: this.props.frame };
+
+  render() {
+    return this.props.children(this.props.open ? this.props.frame : this.state.kept);
+  }
 }
 
 /**

@@ -67,6 +67,23 @@ export type ParsedReceipt = {
  * The value may also sit on the *next* line, which is what a two-column table
  * becomes when the columns are narrow enough to wrap.
  */
+/**
+ * Where a value stops when the line carries more than one field.
+ *
+ * A PDF text layer has no columns. eSewa's receipt prints `Reference Code` and
+ * `Date` side by side, and the extractor hands them over as the single line
+ * `Reference Code : 1PD5FB9 Date : 2026-08-24 01:38 PM NPT` — one space where the
+ * page had an inch of white. Reading to the end of the line then makes the
+ * transaction code `1PD5FB9 Date : 2026-08-24 01:38 PM NPT`, which matches
+ * nothing and, worse, matches nothing *quietly*.
+ *
+ * The space before the colon is what makes this safe to cut on. A label a human
+ * typed is spaced off its colon; a value that merely contains one is not —
+ * `Spider-Man: Brand New Day` is a film, not two fields, and it survives because
+ * nobody puts a space in front of that colon.
+ */
+const NEXT_LABEL_ON_LINE = /\s+[A-Za-z][A-Za-z.]*(?:\s+[A-Za-z][A-Za-z.]*){0,2}\s+[:\-–]\s/;
+
 export function labelledValue(text: string, label: RegExp): string | null {
   const source = label.source;
   const punctuated = new RegExp(
@@ -83,7 +100,15 @@ export function labelledValue(text: string, label: RegExp): string | null {
   );
 
   for (const pattern of [punctuated, tabular, wrapped]) {
-    const value = pattern.exec(text)?.[1]?.trim().replace(/[|]+$/, "").trim();
+    const raw = pattern.exec(text)?.[1];
+
+    if (raw === undefined) continue;
+
+    const cut = raw.search(NEXT_LABEL_ON_LINE);
+    const value = (cut === -1 ? raw : raw.slice(0, cut))
+      .trim()
+      .replace(/[|]+$/, "")
+      .trim();
 
     if (value) return value;
   }
@@ -130,10 +155,42 @@ function headlineAmount(text: string): string | null {
 function toName(raw: string | null): string | null {
   if (!raw) return null;
 
-  const cleaned = raw.replace(/\s{2,}/g, " ").replace(/[.,;|]+$/, "").trim();
+  const cleaned = raw
+    .replace(/\s{2,}/g, " ")
+    /*
+     * Khalti prints the counterparty's contact detail glued to their name:
+     * `Qfx-central Cinemas(payments.central@qfxcinemas.com)`, `Siddhant
+     * Yadav(9709155982)`. The payee check compares this against the name the
+     * hostel registered, which is the name and nothing else.
+     *
+     * Only an email or a phone number is stripped, never any parenthetical —
+     * `Acme (Nepal) Pvt Ltd` is a company, and a rule that ate it would break
+     * the payee check on exactly the businesses most likely to be a hostel's
+     * registered payee.
+     */
+    .replace(/\s*\(\s*(?:[^\s()@]+@[^\s()]+|\+?[\d\s-]{6,})\s*\)\s*$/, "")
+    .replace(/[.,;|]+$/, "")
+    .trim();
 
   if (!/[A-Za-zऀ-ॿ]/.test(cleaned)) return null;
   if (/^(?:n\/?a|null|none|-{1,})$/i.test(cleaned)) return null;
+
+  /*
+   * A masked name is not a name.
+   *
+   * `real/banks-04.jpeg` prints its counterparty as `*********** Yadav`, and
+   * NCHL's own API specification says the same thing for the rails behind it —
+   * `acctName` is documented as returned masked. So this is the norm on a
+   * wallet load or an account-to-account transfer, not a damaged read.
+   *
+   * Null rather than the masked string, because the two are not equally honest.
+   * Handed `*********** Yadav`, the payee check compares it against the name the
+   * hostel registered, fails, and reports that the payee could not be verified —
+   * the right answer arrived at by accident, and it would read on the claim as
+   * though we had found a payee and it was the wrong one. Null says the document
+   * did not disclose a payee, which is what happened.
+   */
+  if (/[*•]{3,}/.test(cleaned)) return null;
 
   return cleaned;
 }
@@ -171,8 +228,23 @@ const TEMPLATES: Template[] = [
     // why the same label reads both.
     amount: /amount(?:\s*\(?npr\)?)?|total\s*amount|paid\s*amount/,
     brand: /\be-?sewa\b/i,
-    payee: /(?:sent\s*to|paid\s*to|receiver|recipient|merchant(?:\s*name)?|service\s*name|to)/,
-    payer: /(?:from|sender|paid\s*by|initiator|debited\s*from)/,
+    /*
+     * `Service Name` is deliberately **not** here, though it reads like a payee
+     * label and used to be.
+     *
+     * On `real/banks-04.jpeg` — an Everest Bank screen for a wallet top-up,
+     * carrying eSewa's logo, which is why this template claims it — the rows run
+     * `Service Name: Load eSewa` and, further down, `Receiver Name: ***********
+     * Yadav`. `labelledValue` returns the first match by *position*, so
+     * `Service Name` won and the payee came back as `Load eSewa`: the name of
+     * the service, presented to the payee check as the party who was paid. A
+     * confidently wrong payee is the one outcome this module's own header warns
+     * against.
+     */
+    payee:
+      /(?:sent\s*to|paid\s*to|receiver(?:'s)?(?:\s*name)?|recipient(?:\s*name)?|q\.?r\.?\s*merchant(?:\s*name)?|merchant(?:\s*name)?|to)/,
+    payer:
+      /(?:from|sender(?:'s)?(?:\s*name)?|paid\s*by|initiator(?:\s*name)?|debited\s*from)/,
     provider: "ESEWA",
     remarks: /(?:remarks?|purpose|description|particulars)/,
     txnId: /(?:transaction\s*code|reference\s*code|transaction\s*id|txn\s*id)/,
@@ -182,26 +254,50 @@ const TEMPLATES: Template[] = [
     // `Transaction ID` on a wallet transfer. Both appear on real screenshots.
     amount: /amount(?:\s*\(?(?:npr|rs\.?)\)?)?|total|paid/,
     brand: /\bkhalti\b/i,
-    payee: /(?:paid\s*to|sent\s*to|receiver|recipient|merchant(?:\s*name)?|product\s*name|to)/,
-    payer: /(?:from|sender|paid\s*by|mobile|customer(?:\s*name)?)/,
+    payee:
+      /(?:paid\s*to|sent\s*to|receiver(?:'s)?(?:\s*name)?|recipient(?:\s*name)?|merchant(?:\s*name)?|product\s*name|to)/,
+    payer:
+      /(?:from|sender(?:'s)?(?:\s*name)?|paid\s*by|mobile|customer(?:\s*name)?)/,
     provider: "KHALTI",
     remarks: /(?:remarks?|purpose|reference|detail|product\s*name)/,
     txnId: /(?:purchase\s*order\s*id|transaction\s*id|txn\s*id|idx|transaction\s*code)/,
   },
   {
+    /*
+     * Fonepay does not issue a receipt to the payer, and this template exists to
+     * read the document that stands in for one.
+     *
+     * A customer scanning a Fonepay QR does it inside their **own bank's app**
+     * (fonepay.com/faqs), so what a resident can screenshot is the bank's own
+     * payment screen with Fonepay's logo on it. `real/banks-08.jpeg` is exactly
+     * that: Everest Bank's `Payment Details`, the Fonepay logo at the top, and
+     * — critically — the bank's name nowhere on the screen, so the `BANK`
+     * template below can never claim it. This one does, on the logo alone.
+     *
+     * Which is why the labels here are Everest Bank's, not Fonepay's. Before
+     * they were added this template took `banks-08` and returned a null payee
+     * *and* a null transaction id: `Reference Code` was absent from `txnId`, and
+     * `Qr Merchant Name` could not match a `merchant` alternative anchored to
+     * the start of the line.
+     */
     amount: /amount(?:\s*\(?(?:npr|rs\.?)\)?)?|total\s*amount/,
     brand: /\bfone\s?pay\b/i,
-    payee: /(?:merchant(?:\s*name)?|paid\s*to|sent\s*to|receiver|recipient|to)/,
-    payer: /(?:from|sender|payer|initiator|debited\s*from)/,
+    payee:
+      /(?:q\.?r\.?\s*merchant(?:\s*name)?|merchant(?:\s*name)?|paid\s*to|sent\s*to|receiver(?:'s)?(?:\s*name)?|recipient(?:\s*name)?|to)/,
+    payer:
+      /(?:from|sender(?:'s)?(?:\s*name)?|payer(?:\s*name)?|initiator(?:\s*name)?|debited\s*from)/,
     provider: "FONEPAY",
     remarks: /(?:remarks?|purpose|reference|narration)/,
-    txnId: /(?:trace\s*(?:id|no\.?)|transaction\s*id|txn\s*id|reference\s*(?:no\.?|id))/,
+    txnId:
+      /(?:trace\s*(?:id|no\.?)|reference\s*code|transaction\s*id|txn\s*id|reference\s*(?:no\.?|id))/,
   },
   {
     amount: /amount(?:\s*\(?(?:npr|rs\.?)\)?)?|total\s*amount|transfer\s*amount/,
     brand: /\bconnect\s?ips\b/i,
-    payee: /(?:beneficiary(?:\s*name)?|credited\s*to|receiver|payee|to\s*account|to)/,
-    payer: /(?:debited\s*from|from\s*account|sender|payer|initiator)/,
+    payee:
+      /(?:beneficiary(?:\s*name)?|credited\s*to|receiver(?:'s)?(?:\s*name)?|payee(?:\s*name)?|to\s*account|to)/,
+    payer:
+      /(?:debited\s*from|from\s*account|sender(?:'s)?(?:\s*name)?|payer(?:\s*name)?|initiator(?:\s*name)?)/,
     provider: "CONNECTIPS",
     remarks: /(?:remarks?|purpose|narration|particulars)/,
     txnId: /(?:transaction\s*id|reference\s*(?:no\.?|id)|rrn|txn\s*id)/,
@@ -210,8 +306,28 @@ const TEMPLATES: Template[] = [
     // The bank catch-all. `Qr Merchant Name` and `Initiator` are Everest Bank's
     // labels on the receipt that proved this module was needed.
     amount: /amount(?:\s*\(?(?:npr|rs\.?)\)?)?|total\s*amount|transaction\s*amount/,
+    /*
+     * A bank's name, **or** the shape of its receipt.
+     *
+     * The name alone is not enough, and the corpus proves it. Everest Bank's
+     * in-app `Payment Details` screen puts the issuer in a logo and nowhere in
+     * the text — the only brand on the page belongs to the rail that carried the
+     * payment, Fonepay or eSewa, drawn as an image. A recogniser that reads
+     * *text* therefore sees no bank at all: `real/banks-08.jpeg` matched no
+     * template whatsoever, so the payee, the amount and the transaction id all
+     * came back null on a receipt that is perfectly legible to a person.
+     *
+     * `Payment Attribute` and `Qr Merchant Name` are that screen's fingerprint.
+     * No wallet in this corpus uses either phrase, and this template is last, so
+     * a document that genuinely belongs to eSewa or Khalti has already been
+     * claimed by its own template before the question reaches here.
+     *
+     * Recognising a document by its label vocabulary rather than its branding is
+     * the more durable idea of the two: branding is a logo away from vanishing,
+     * and the labels are what the parser actually needs to be there.
+     */
     brand:
-      /\b(?:bank|nabil|nic\s*asia|global\s*ime|siddhartha|prabhu|kumari|sanima|machhapuchchhre|nmb|laxmi|everest|ebl|nabil|rastriya\s*banijya|nepal\s*investment)\b/i,
+      /\b(?:bank|nabil|nic\s*asia|global\s*ime|siddhartha|prabhu|kumari|sanima|machhapuchchhre|nmb|laxmi|everest|ebl|nabil|rastriya\s*banijya|nepal\s*investment)\b|payment\s*attribute|q\.?r\.?\s*merchant\s*name/i,
     payee:
       /(?:q\.?r\.?\s*merchant(?:\s*name)?|merchant(?:\s*name)?|beneficiary(?:\s*name)?|credited\s*to|receiver(?:'s)?(?:\s*name)?|payee(?:\s*name)?|to\s*account)/,
     payer:

@@ -2,17 +2,19 @@ import { router } from "expo-router";
 import { useCallback } from "react";
 import { View } from "react-native";
 
+import { ProviderStatusCard } from "@/components/provider-status-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { humanizeEnum } from "@/lib/format";
 import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
+import { providerStatusPanel } from "@/lib/provider-status";
 
 /**
  * The provider's own record, and the door to their platform ID card.
@@ -35,23 +37,6 @@ import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
  * not been reviewed" look identical — the same empty-versus-denied confusion
  * the guardian screens are built to avoid.
  */
-const STATUS_TONE = {
-  APPROVED: "success",
-  HIDDEN: "neutral",
-  INACTIVE: "neutral",
-  PENDING_APPROVAL: "warning",
-  REJECTED: "danger",
-} as const;
-
-const STATUS_NOTE: Record<ProviderApplication["status"], string> = {
-  APPROVED: "Hostels can find you and assign you work.",
-  HIDDEN: "Your listing is hidden from hostels. Contact support to restore it.",
-  INACTIVE: "Your listing is inactive, so no new work will be assigned.",
-  PENDING_APPROVAL:
-    "The platform is reviewing your application. Jobs cannot be assigned to you until it is approved, so an empty Jobs tab is expected until then.",
-  REJECTED: "Your application was not approved.",
-};
-
 export default function ProviderCardScreen() {
   const dates = useDates();
   const provider = useResource<ProviderApplication | null>(
@@ -81,15 +66,26 @@ export default function ProviderCardScreen() {
   if (!record) {
     return (
       <Screen header={header} insideTabs scroll>
-        <Card>
-          <EmptyState
-            description="This account has no service provider application on file. Apply from the website to be listed."
-            title="Not registered as a provider"
-          />
-        </Card>
+        {/*
+          Not an `<EmptyState>` telling somebody to go to a website. The app has
+          taken its own applications since `service-providers/apply` shipped, and
+          this card offers that form — see `provider-status-card.tsx`.
+
+          Reaching this branch at all means the account was routed here as an
+          approved provider and then answered `null`, which is a record deleted
+          underneath a live session. Rare, and the honest recovery is the form.
+        */}
+        <ProviderStatusCard application={null} />
       </Screen>
     );
   }
+
+  /*
+   * The tone and the sentence both come from `lib/provider-status.ts`, so this
+   * screen, the Profile tab's banner and the landing screen cannot describe the
+   * same status three different ways.
+   */
+  const panel = providerStatusPanel(record);
 
   return (
     <Screen
@@ -110,20 +106,17 @@ export default function ProviderCardScreen() {
                   .join(" · ")}
               </Text>
             </View>
-            <Badge
-              label={humanizeEnum(record.status)}
-              tone={STATUS_TONE[record.status]}
-            />
+            <Badge label={humanizeEnum(record.status)} tone={panel.tone} />
           </View>
 
-          <Text variant="muted">{STATUS_NOTE[record.status]}</Text>
-
-          {record.status === "REJECTED" && record.rejectionReason ? (
-            <View className="border-t border-border pt-3">
-              <Text variant="label">Why</Text>
-              <Text variant="muted">{record.rejectionReason}</Text>
-            </View>
-          ) : null}
+          {/*
+            The same sentence the Profile tab and the landing screen show for
+            this status, from `lib/provider-status.ts` — including the rejection
+            reason, which used to be a second block here and nowhere else.
+          */}
+          <Text className="leading-6" variant="muted">
+            {panel.body}
+          </Text>
         </Card>
 
         <View>
@@ -151,8 +144,9 @@ export default function ProviderCardScreen() {
             ) : null}
           </Card>
           <Text className="px-1 pt-2" variant="caption">
-            Changing any of this is done from the website — the application is a
-            reviewed document, not a profile you edit in place.
+            The application is a reviewed document, not a profile you edit in
+            place — there is no edit route for it on any surface. Contact support
+            if something here is wrong.
           </Text>
         </View>
 

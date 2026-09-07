@@ -578,6 +578,95 @@ export async function updateCookPortal(input: { cookName?: string; enabled: bool
 }
 
 /* -------------------------------------------------------------------------- */
+/* Cook roster                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One cook, as `serializeCook` in `cook-roster.service` sends it.
+ *
+ * Never a password and never an invitation token — `initialPasswordPending`
+ * and `invitationPending` are the only things the server will say about either.
+ * A cook who has chosen their own password leaves nothing but a bcrypt hash
+ * behind, so the screen's answer to "what is the password" is a rotation, not
+ * a lookup.
+ */
+export type CookAccount = {
+  acceptedAt?: string;
+  addedAt?: string;
+  credentialIssuedAt?: string;
+  /** `Previous Sunrise cook` — what their past work is filed under once removed. */
+  historicalName?: string;
+  id: string;
+  initialPasswordPending: boolean;
+  invitationExpiresAt?: string;
+  invitationPending: boolean;
+  kind: "CREDENTIAL" | "INVITE";
+  loginEmail: string;
+  name: string;
+  removedAt?: string;
+  status: "INVITED" | "ACTIVE" | "REMOVED";
+  userId?: string;
+};
+
+/** The plaintext password, returned by the one call that ever creates it. */
+export type CookCredentials = { email: string; temporaryPassword: string };
+
+export async function getCookRoster() {
+  const response = await api.get<
+    ApiEnvelope<{ cooks: CookAccount[]; portalEnabled: boolean }>
+  >("/hostel-admin/cooks");
+
+  return unwrap(response);
+}
+
+/**
+ * `POST /hostel-admin/cooks`.
+ *
+ * Two shapes, one endpoint. `CREDENTIAL` mints a short login and comes back
+ * with its first-time password **once** — there is no second call that can
+ * fetch it — so a caller that drops the response has lost it. `INVITE` mails
+ * the address and returns no secret at all.
+ */
+export async function addCook(
+  input:
+    | { kind: "CREDENTIAL"; name: string }
+    | { email: string; kind: "INVITE"; name: string },
+) {
+  const response = await api.post<
+    ApiEnvelope<{ cook: CookAccount; credentials?: CookCredentials }>
+  >("/hostel-admin/cooks", input);
+
+  return unwrap(response);
+}
+
+/** Rename a cook, or issue a fresh first-time password with `rotate: true`. */
+export async function updateCook(
+  cookId: string,
+  input: { name?: string; rotate?: boolean },
+) {
+  const response = await api.patch<
+    ApiEnvelope<{ cook: CookAccount; credentials?: CookCredentials }>
+  >(`/hostel-admin/cooks/${cookId}`, input);
+
+  return unwrap(response);
+}
+
+/**
+ * `DELETE /hostel-admin/cooks/{id}` — removes a cook for good.
+ *
+ * The account goes; the row does not. It comes back with `status: "REMOVED"`
+ * and the `historicalName` everything they already announced or photographed is
+ * attributed to from here on.
+ */
+export async function removeCook(cookId: string) {
+  const response = await api.delete<ApiEnvelope<{ cook: CookAccount }>>(
+    `/hostel-admin/cooks/${cookId}`,
+  );
+
+  return unwrap(response).cook;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Reports                                                                    */
 /* -------------------------------------------------------------------------- */
 

@@ -4,10 +4,15 @@ import type { ProviderJob } from "@/lib/provider-api";
 import {
   completedJobCount,
   isOpenJob,
+  isOverdueJob,
   jobActions,
   jobAddress,
   jobCategoryIcon,
+  jobPlace,
+  jobTone,
+  jobUrgencyLabel,
   openJobCount,
+  overdueJobCount,
   sortProviderJobs,
   urgentJobCount,
 } from "@/lib/provider-jobs";
@@ -209,6 +214,89 @@ describe("completedJobCount", () => {
         job({ id: "b", status: "CANCELLED" }),
         job({ id: "c", status: "PENDING" }),
       ]),
+    ).toBe(1);
+  });
+});
+
+describe("jobTone", () => {
+  it("paints an urgent open job red and a high one amber", () => {
+    expect(jobTone(job({ priority: "URGENT" }))).toBe("danger");
+    expect(jobTone(job({ priority: "HIGH" }))).toBe("warning");
+  });
+
+  it("leaves ordinary open work on the brand", () => {
+    expect(jobTone(job({ priority: "MEDIUM" }))).toBe("brand");
+    expect(jobTone(job({ priority: "LOW" }))).toBe("brand");
+  });
+
+  /* A finished emergency is not an emergency. */
+  it("greys out closed work whatever its priority was", () => {
+    expect(jobTone(job({ priority: "URGENT", status: "COMPLETED" }))).toBe("neutral");
+    expect(jobTone(job({ priority: "URGENT", status: "CANCELLED" }))).toBe("neutral");
+  });
+});
+
+describe("jobUrgencyLabel", () => {
+  it("names only the priorities that are a claim", () => {
+    expect(jobUrgencyLabel(job({ priority: "URGENT" }))).toBe("Urgent");
+    expect(jobUrgencyLabel(job({ priority: "HIGH" }))).toBe("High");
+    expect(jobUrgencyLabel(job({ priority: "MEDIUM" }))).toBeNull();
+    expect(jobUrgencyLabel(job({ priority: "LOW" }))).toBeNull();
+  });
+
+  it("says nothing about a closed job", () => {
+    expect(jobUrgencyLabel(job({ priority: "URGENT", status: "COMPLETED" }))).toBeNull();
+  });
+});
+
+describe("jobPlace", () => {
+  it("is the spot and the building, without the area and the city", () => {
+    expect(jobPlace(job())).toBe("Room 204 · Sunrise Hostel");
+  });
+
+  it("drops an empty location rather than leading with a separator", () => {
+    expect(jobPlace(job({ location: "" }))).toBe("Sunrise Hostel");
+  });
+});
+
+describe("isOverdueJob", () => {
+  const now = new Date("2026-08-17T10:00:00.000Z");
+
+  /*
+   * The hostel wrote a date, not a deadline to the minute — so a job scheduled
+   * for today is not overdue at any hour of today.
+   */
+  it("does not call today's job overdue", () => {
+    expect(
+      isOverdueJob(job({ scheduledFor: "2026-08-17T04:00:00.000Z", status: "SCHEDULED" }), now),
+    ).toBe(false);
+  });
+
+  it("calls a job scheduled before today overdue", () => {
+    expect(
+      isOverdueJob(job({ scheduledFor: "2026-08-14T04:00:00.000Z", status: "SCHEDULED" }), now),
+    ).toBe(true);
+  });
+
+  it("never calls closed or unscheduled work overdue", () => {
+    expect(
+      isOverdueJob(
+        job({ scheduledFor: "2026-08-14T04:00:00.000Z", status: "COMPLETED" }),
+        now,
+      ),
+    ).toBe(false);
+    expect(isOverdueJob(job({ scheduledFor: null }), now)).toBe(false);
+  });
+
+  it("counts the overdue ones", () => {
+    expect(
+      overdueJobCount(
+        [
+          job({ id: "late", scheduledFor: "2026-08-14T04:00:00.000Z", status: "SCHEDULED" }),
+          job({ id: "soon", scheduledFor: "2026-08-19T04:00:00.000Z", status: "SCHEDULED" }),
+        ],
+        now,
+      ),
     ).toBe(1);
   });
 });

@@ -1,30 +1,36 @@
-import { randomBytes } from "node:crypto";
 import { Types } from "mongoose";
 import type { z } from "zod";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
-import { hashPassword } from "@/lib/password";
 import { REALTIME_TOPIC } from "@/lib/realtime/channels";
 import { publishResourceChange } from "@/lib/realtime/server";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
+import {
+  CookServiceError as CookError,
+  resolveAdminHostelId,
+} from "@/modules/food/cook-scope";
+import {
+  issueCredentialCook,
+  resolveCookLabels,
+} from "@/modules/food/cook-roster.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { FoodPhotoModel } from "@hostel/db/models/FoodPhoto";
 import { FoodReadyLogModel } from "@hostel/db/models/FoodReadyLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
+import { CookAccountModel } from "@hostel/db/models/CookAccount";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { UserModel } from "@hostel/db/models/User";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { coveredMealCount, groupPhotosByDay } from "@/modules/food/food-photo-days";
 import { getFoodRoutine, mealsOn } from "@/modules/food/food-routine.service";
 import { uploadFoodPhoto } from "@/modules/food/food.service";
-import { createInAppNotification } from "@/modules/notifications/notification.service";
+import { notifyFoodReady } from "@/modules/food/food-ready-notify";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { normalizeObjectId } from "@/modules/residents/resident-access";
 import {
   appUrl,
-  resolveActiveResidentRecipients,
   resolveHostelAdminContacts,
   sendNotificationEmail,
 } from "@/modules/residents/resident-notify";
@@ -48,19 +54,11 @@ type HostelSettingsRecord = {
   hostelId: Types.ObjectId;
 };
 
-export class CookServiceError extends Error {
-  constructor(
-    message: string,
-    public errorCode = "COOK_ERROR",
-    public status = 400,
-  ) {
-    super(message);
-  }
-}
-
-function generatePassword() {
-  return randomBytes(9).toString("base64url");
-}
+/**
+ * Both live in `cook-scope.ts` now — the roster needs them too, and this file
+ * imports the roster, so leaving them here would have closed the cycle.
+ */
+export { CookServiceError } from "@/modules/food/cook-scope";
 
 function serializeSettings(
   settings: HostelSettingsRecord | null,
@@ -82,41 +80,17 @@ function serializeSettings(
   };
 }
 
-function resolveAdminHostelId(principal: ApiPrincipal, requestedHostelId?: string) {
-  if (requestedHostelId) {
-    assertHostelAccess(principal, requestedHostelId);
-    return normalizeObjectId(requestedHostelId, "hostel id");
-  }
-
-  if (principal.hostelIds.length === 1) {
-    return normalizeObjectId(principal.hostelIds[0], "hostel id");
-  }
-
-  throw new CookServiceError(
-    "A hostelId is required for this hostel admin action.",
-    "HOSTEL_SCOPE_REQUIRED",
-    422,
-  );
-}
-
 /**
- * Cook logins are generated, not owned by a real mailbox: the address is
- * derived from the hostel slug so it is stable and recognisable, and the
- * password is delivered to the hostel admin instead.
- */
-function cookEmailForSlug(slug: string) {
-  return `cook@${slug}.hostelhub.local`;
-}
-
-/**
- * Creates (or rotates) the hostel's single shared cook account and records it on
- * HostelSettings. One account per hostel by design: kitchen staff share a phone,
- * and per-announcement attribution comes from `FoodReadyLog.deviceInfo` rather
- * than separate logins (PHASES.md §3.1).
+ * Issues a hostel its **first** cook login and turns the portal on.
  *
- * Every call issues a **fresh** password, so this doubles as the "rotate
- * credentials" path when a shared password is suspected to have leaked.
- * Returns the plaintext password — the only moment it exists in the clear.
+ * Kept as its own entry point because that is what hostel approval calls: a
+ * hostel that has just been approved has no roster yet, and the owner should
+ * find a working kitchen login in their inbox rather than an empty screen.
+ *
+ * It is no longer the rotate path and no longer upserts by address — adding,
+ * renaming, rotating and removing cooks all live in `cook-roster.service.ts`,
+ * which this delegates the account minting to. Calling it twice mints two
+ * cooks, so `updateCookPortal` checks the roster before it calls.
  */
 export async function provisionCookAccount(input: {
   actorId: string;
@@ -126,50 +100,22 @@ export async function provisionCookAccount(input: {
   hostelSlug: string;
 }) {
   const cookName = input.cookName ?? `${input.hostelName} Cook`;
-  const email = cookEmailForSlug(input.hostelSlug);
-  const temporaryPassword = generatePassword();
-  const passwordHash = await hashPassword(temporaryPassword);
+  const { credentials } = await issueCredentialCook({
+    actorId: input.actorId,
+    cookName,
+    hostelId: input.hostelId,
+    hostelName: input.hostelName,
+    hostelSlug: input.hostelSlug,
+  });
 
-  const cook = await UserModel.findOneAndUpdate(
-    { email },
-    {
-      $addToSet: { hostelIds: input.hostelId },
-      $set: {
-        authProvider: "LOCAL",
-        email,
-        emailVerified: true,
-        // The emailed password is a hand-off credential only: the first cook to
-        // sign in is forced to replace it, and because the account is shared,
-        // the password they choose becomes the kitchen's password. Changing it
-        // revokes every existing session, so the others simply sign in again
-        // with the new one.
-        mustChangePassword: true,
-        name: cookName,
-        passwordHash,
-        role: Role.COOK,
-        status: "ACTIVE",
-        updatedBy: input.actorId,
-      },
-    },
-    { new: true, setDefaultsOnInsert: true, upsert: true },
-  ).lean<{ _id: Types.ObjectId } | null>();
-
-  if (!cook) {
-    throw new CookServiceError(
-      "Cook account could not be created.",
-      "COOK_ACCOUNT_FAILED",
-      500,
-    );
-  }
-
+  // `issueCredentialCook` writes the roster row and re-points the primary; the
+  // portal switch is this function's own business because it is what "provision
+  // a cook" has always meant to its callers.
   const settings = await HostelSettingsModel.findOneAndUpdate(
     { hostelId: input.hostelId },
     {
       $set: {
-        cookCredentialIssuedAt: new Date(),
-        cookName,
         cookPortalEnabled: true,
-        cookUserId: cook._id,
         hostelId: input.hostelId,
         updatedBy: input.actorId,
       },
@@ -177,11 +123,7 @@ export async function provisionCookAccount(input: {
     { new: true, setDefaultsOnInsert: true, upsert: true },
   ).lean<HostelSettingsRecord | null>();
 
-  return {
-    cookName,
-    credentials: { email, temporaryPassword },
-    settings,
-  };
+  return { cookName, credentials, settings };
 }
 
 /** Loads the cook User behind a settings row, for read-only status display. */
@@ -222,7 +164,7 @@ export async function updateCookPortal(
     .lean<{ name?: string; slug?: string } | null>();
 
   if (!hostel) {
-    throw new CookServiceError("Hostel was not found.", "HOSTEL_NOT_FOUND", 404);
+    throw new CookError("Hostel was not found.", "HOSTEL_NOT_FOUND", 404);
   }
 
   const existing = await HostelSettingsModel.findOne({
@@ -230,9 +172,23 @@ export async function updateCookPortal(
   }).lean<HostelSettingsRecord | null>();
 
   if (!input.enabled) {
-    if (existing?.cookUserId) {
-      await UserModel.updateOne(
-        { _id: existing.cookUserId },
+    // Every cook on the roster, not just the one `cookUserId` happens to name.
+    // The switch means "the kitchen is closed"; suspending one of three logins
+    // and leaving the other two working would be a switch that lies.
+    const live = await CookAccountModel.find({
+      hostelId,
+      status: "ACTIVE",
+      userId: { $ne: null },
+    })
+      .select("userId")
+      .lean<{ userId?: Types.ObjectId }[]>();
+    const userIds = live
+      .map((cook) => cook.userId)
+      .filter((userId): userId is Types.ObjectId => Boolean(userId));
+
+    if (userIds.length > 0) {
+      await UserModel.updateMany(
+        { _id: { $in: userIds } },
         { $set: { status: "SUSPENDED", updatedBy: principal.userId } },
       );
     }
@@ -260,8 +216,79 @@ export async function updateCookPortal(
     return { credentialsIssued: false, settings: serializeSettings(settings) };
   }
 
-  // Re-enabling (or an explicit rotate) issues a fresh password, so a shared
-  // credential that has leaked can be retired without deleting the account.
+  // Enabling is a switch, not a mint.
+  //
+  // It used to call `provisionCookAccount` unconditionally, which was safe only
+  // while a hostel could have exactly one cook: the upsert landed on the same
+  // address every time and rotated its password. With a roster, that same call
+  // would add a *new* cook on every toggle — three flips of a switch, three
+  // logins — so a hostel that already has cooks gets its existing ones woken up
+  // instead, and only an empty roster is issued a first login.
+  //
+  // Rotating a password is `PATCH /hostel-admin/cooks/{id}` with `rotate`. This
+  // endpoint no longer does it, because "turn the portal back on" and "the
+  // password leaked" are not the same request.
+  const roster = await CookAccountModel.find({
+    hostelId,
+    status: { $in: ["ACTIVE", "INVITED"] },
+  })
+    .sort({ createdAt: 1 })
+    .lean<{ _id: Types.ObjectId; name: string; userId?: Types.ObjectId }[]>();
+
+  if (roster.length > 0) {
+    const userIds = roster
+      .map((cook) => cook.userId)
+      .filter((userId): userId is Types.ObjectId => Boolean(userId));
+
+    if (userIds.length > 0) {
+      await UserModel.updateMany(
+        { _id: { $in: userIds }, isDeleted: { $ne: true } },
+        { $set: { status: "ACTIVE", updatedBy: principal.userId } },
+      );
+    }
+
+    if (input.cookName && roster[0]) {
+      await CookAccountModel.updateOne(
+        { _id: roster[0]._id },
+        { $set: { name: input.cookName, updatedBy: principal.userId } },
+      );
+
+      if (roster[0].userId) {
+        await UserModel.updateOne(
+          { _id: roster[0].userId },
+          { $set: { name: input.cookName, updatedBy: principal.userId } },
+        );
+      }
+    }
+
+    const settings = await HostelSettingsModel.findOneAndUpdate(
+      { hostelId },
+      {
+        $set: {
+          cookName: input.cookName ?? roster[0]?.name ?? existing?.cookName ?? "",
+          cookPortalEnabled: true,
+          hostelId,
+          updatedBy: principal.userId,
+        },
+      },
+      { new: true, setDefaultsOnInsert: true, upsert: true },
+    ).lean<HostelSettingsRecord | null>();
+
+    await AuditLogModel.create({
+      action: "COOK_PORTAL_ENABLED",
+      actorId: principal.userId,
+      entityId: hostelId.toString(),
+      entityType: "HostelSettings",
+      hostelId,
+      metadata: { cookCount: roster.length, reactivated: true },
+    });
+
+    return {
+      credentialsIssued: false,
+      settings: serializeSettings(settings, await loadCookAccount(settings)),
+    };
+  }
+
   const { cookName, credentials, settings } = await provisionCookAccount({
     actorId: principal.userId,
     cookName: input.cookName ?? existing?.cookName,
@@ -312,7 +339,7 @@ async function resolveCookHostelId(principal: ApiPrincipal, requestedHostelId?: 
     const hostelId = requestedHostelId ?? principal.hostelIds[0];
 
     if (!hostelId) {
-      throw new CookServiceError(
+      throw new CookError(
         "This cook account is not linked to a hostel.",
         "HOSTEL_SCOPE_REQUIRED",
         422,
@@ -334,10 +361,15 @@ function startOfToday() {
 }
 
 /**
- * "Food Ready" announcement (PHASES.md §3.1 Cook Portal). Logs the event and
- * notifies every active resident in the hostel. Push delivery arrives with the
- * mobile app in Phase 6; today the notification lands in the web notification
- * centre.
+ * "Food Ready" announcement (PHASES.md §3.1 Cook Portal).
+ *
+ * Writes the log row, then hands the whole fan-out to `notifyFoodReady`:
+ * residents get the menu at `HIGH` priority in one batched Expo send, and the
+ * hostel's own staff get a separate line naming the time, the reach and the
+ * handset. The comment this replaced said push delivery "arrives with the
+ * mobile app in Phase 6" — the app shipped, and this was still the one
+ * time-critical notification in the product going out at default priority, one
+ * Expo round trip per resident.
  */
 export async function announceFoodReady(input: FoodReadyInput, principal: ApiPrincipal) {
   await connectToDatabase();
@@ -385,7 +417,7 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
         ),
       );
 
-      throw new CookServiceError(
+      throw new CookError(
         `${input.mealType.toLowerCase()} was already announced recently. Try again in ${waitMinutes} minute(s).`,
         "FOOD_READY_COOLDOWN",
         429,
@@ -393,28 +425,25 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
     }
   }
 
-  const recipients = await resolveActiveResidentRecipients(hostelId);
-  let notifiedCount = 0;
+  const announcedAt = new Date();
 
-  for (const recipient of recipients) {
-    if (!recipient.userId) {
-      continue;
-    }
-
-    await createInAppNotification({
-      body,
-      category: "FOOD",
-      createdBy: principal.userId,
-      data: { mealType: input.mealType },
-      hostelId: hostelId.toString(),
-      title: "Food is ready",
-      userId: recipient.userId,
-    });
-    notifiedCount += 1;
-  }
+  /*
+   * Residents and the office, in one call — see `food-ready-notify.ts` for why
+   * the two audiences get different words and different priorities, and why the
+   * push is one batched send rather than one per resident.
+   */
+  const { notifiedCount, staffNotifiedCount } = await notifyFoodReady({
+    announcedAt,
+    createdBy: principal.userId,
+    deviceInfo: input.deviceInfo,
+    hostelId,
+    mealLabel,
+    mealType: input.mealType,
+    message: body,
+  });
 
   const log = await FoodReadyLogModel.create({
-    announcedAt: new Date(),
+    announcedAt,
     announcedBy: principal.userId,
     deviceInfo: input.deviceInfo,
     hostelId,
@@ -429,7 +458,7 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
     entityId: log._id.toString(),
     entityType: "FoodReadyLog",
     hostelId,
-    metadata: { mealType: input.mealType, notifiedCount },
+    metadata: { mealType: input.mealType, notifiedCount, staffNotifiedCount },
   });
 
   // "Food is ready" is time-critical and goes to the whole hostel — including
@@ -447,6 +476,12 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
       mealType: input.mealType,
       message: body,
       notifiedCount,
+      /*
+       * Reported back so the cook's toast can say the office was told as well.
+       * A kitchen that knows the warden got the same ping is a kitchen that
+       * stops phoning the office to check the app worked.
+       */
+      staffNotifiedCount,
     },
   };
 }
@@ -505,8 +540,14 @@ export async function getCookToday(principal: ApiPrincipal, requestedHostelId?: 
         verificationStatus?: string;
       } | null>(),
     getFoodRoutine(hostelId),
-    // The same filter `resolveActiveResidentRecipients` counts for the
-    // announcement fan-out, so "cook for 38" and "38 residents notified" agree.
+    /*
+     * Every ACTIVE resident, which is plates to cook — deliberately a wider
+     * filter than the announcement's audience (`food-ready-notify.ts`), which
+     * additionally requires an account to notify. The two numbers are meant to
+     * differ, and the difference is how many residents have not installed the
+     * app; the comment that used to sit here claimed they agreed, which was
+     * never true.
+     */
     ResidentModel.countDocuments({ hostelId, isDeleted: false, status: "ACTIVE" }),
     FoodReadyLogModel.find({ announcedAt: { $gte: today }, hostelId })
       .sort({ announcedAt: -1 })
@@ -625,6 +666,7 @@ type CookFoodPhotoRecord = {
   photoAssetId: string;
   residentId?: Types.ObjectId;
   uploadedAt: Date;
+  uploadedBy?: Types.ObjectId;
 };
 
 /**
@@ -637,6 +679,35 @@ type CookFoodPhotoRecord = {
  * thirty photos is exactly the case a day-based limit would blow up on.
  */
 const COOK_PHOTO_LIMIT = 120;
+
+/**
+ * The page boundary, as the two fields the feed is actually sorted by.
+ *
+ * Opaque to the client on purpose — it is handed back verbatim and never
+ * constructed — but it is only a sort key, so a malformed or hostile one can do
+ * nothing worse than start the page somewhere else in this hostel's own feed.
+ * `hostelId` is resolved from the principal either way and is never in here.
+ */
+function encodePhotoCursor(photo: { date: Date; uploadedAt: Date }) {
+  return `${photo.date.toISOString()}|${photo.uploadedAt.toISOString()}`;
+}
+
+function decodePhotoCursor(cursor?: string) {
+  if (!cursor) {
+    return null;
+  }
+
+  const [date, uploadedAt] = cursor.split("|");
+  const parsedDate = new Date(date ?? "");
+  const parsedUploadedAt = new Date(uploadedAt ?? "");
+
+  // A cursor that will not parse is treated as no cursor: the cook gets the
+  // first page again, which is a visibly wrong-but-harmless result, rather than
+  // a 500 on a feed they were merely scrolling.
+  return Number.isNaN(parsedDate.getTime()) || Number.isNaN(parsedUploadedAt.getTime())
+    ? null
+    : { date: parsedDate, uploadedAt: parsedUploadedAt };
+}
 
 /**
  * The kitchen's own view of the photo feed, grouped by day.
@@ -665,12 +736,32 @@ const COOK_PHOTO_LIMIT = 120;
 export async function listCookFoodPhotos(
   principal: ApiPrincipal,
   requestedHostelId?: string,
+  cursor?: string,
 ) {
   await connectToDatabase();
 
   const hostelId = await resolveCookHostelId(principal, requestedHostelId);
 
-  const photos = await FoodPhotoModel.find({ hostelId })
+  const after = decodePhotoCursor(cursor);
+
+  const photos = await FoodPhotoModel.find({
+    hostelId,
+    ...(after
+      ? {
+          /*
+           * The sort key, read back as a filter. `date` leads and `uploadedAt`
+           * breaks its ties, so "everything after this row" is "an earlier day,
+           * or the same day posted earlier" — a `skip` would instead re-send or
+           * silently drop a photo whenever the kitchen posts one while a cook is
+           * paging, which on this feed is most of the time.
+           */
+          $or: [
+            { date: { $lt: after.date } },
+            { date: after.date, uploadedAt: { $lt: after.uploadedAt } },
+          ],
+        }
+      : {}),
+  })
     // Same order the resident feed uses: the meal's own date leads, and
     // `uploadedAt` breaks ties within a day so two lunches read in the order
     // they were actually posted.
@@ -678,8 +769,20 @@ export async function listCookFoodPhotos(
     .limit(COOK_PHOTO_LIMIT)
     .lean<CookFoodPhotoRecord[]>();
 
+  // Same roster lookup the announcement log uses. Only kitchen photos carry a
+  // cook name — a resident's photo of their own plate is attributed to nobody,
+  // which is what `source: "RESIDENT"` already says.
+  const labels = await resolveCookLabels(
+    hostelId,
+    photos.filter((photo) => !photo.residentId).map((photo) => photo.uploadedBy),
+  );
+
   const serialized = photos.map((photo) => ({
     caption: photo.caption ?? "",
+    cookName:
+      !photo.residentId && photo.uploadedBy
+        ? (labels.get(photo.uploadedBy.toString()) ?? "")
+        : "",
     date: photo.date,
     id: photo._id.toString(),
     mealType: photo.mealType,
@@ -699,7 +802,14 @@ export async function listCookFoodPhotos(
     })),
   }));
 
+  const last = photos.at(-1);
+
   return {
+    /**
+     * Where the next page starts. `null` at the end of the feed, so a client
+     * asks for another page if and only if the server has said there is one.
+     */
+    cursor: photos.length === COOK_PHOTO_LIMIT && last ? encodePhotoCursor(last) : null,
     days,
     /** Whether the cap was hit, so a client knows the feed is not the whole history. */
     hasMore: photos.length === COOK_PHOTO_LIMIT,
@@ -722,15 +832,30 @@ export async function listFoodReadyLogs(
       {
         _id: Types.ObjectId;
         announcedAt: Date;
+        announcedBy?: Types.ObjectId;
         mealType: string;
         message?: string;
         notifiedCount: number;
       }[]
     >();
 
+  // Who announced it, resolved through the roster rather than joined to
+  // `User.name`. A cook who has left has no account left to join to, and this
+  // is the read where that shows: their announcements keep the name the roster
+  // froze for them ("Previous Sunrise cook") instead of going blank or, worse,
+  // inheriting the name of whoever holds the kitchen login today.
+  const labels = await resolveCookLabels(
+    hostelId,
+    logs.map((log) => log.announcedBy),
+  );
+
   return {
     logs: logs.map((log) => ({
       announcedAt: log.announcedAt.toISOString(),
+      /** Empty when the announcement predates the roster — not a placeholder. */
+      announcedBy: log.announcedBy
+        ? (labels.get(log.announcedBy.toString()) ?? "")
+        : "",
       id: log._id.toString(),
       mealType: log.mealType,
       message: log.message ?? "",

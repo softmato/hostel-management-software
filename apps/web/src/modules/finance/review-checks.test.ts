@@ -373,6 +373,53 @@ describe("claimChecks", () => {
     expect(checks.find((check) => check.key === "SIMILARITY")?.ok).toBe(false);
   });
 
+  it("keeps the FILE check green when the file offers one ordinary explanation", () => {
+    // A crop on its own is the commonest honest thing a resident does — hiding
+    // their bank balance. Amber here would put a warning on a large share of
+    // real claims, and a warning that common is a warning nobody reads.
+    const checks = claimChecks(
+      greenEvent({
+        reviewFlags: ["EVIDENCE_PAYEE_VERIFIED", "EVIDENCE_DIMENSIONS_UNUSUAL"],
+      }),
+      invoice,
+      { settled: 0 },
+    );
+    const file = checks.find((check) => check.key === "FILE");
+
+    expect(file?.ok).toBe(true);
+    expect(file?.detail).toContain("cropped");
+  });
+
+  it("turns the FILE check amber once two things about the file disagree", () => {
+    const checks = claimChecks(
+      greenEvent({
+        reviewFlags: [
+          "EVIDENCE_PAYEE_VERIFIED",
+          "EVIDENCE_EDITOR_SIGNATURE",
+          "EVIDENCE_DIMENSIONS_UNUSUAL",
+        ],
+      }),
+      invoice,
+      { settled: 0 },
+    );
+    const file = checks.find((check) => check.key === "FILE");
+
+    expect(file?.ok).toBe(false);
+    expect(file?.detail).toContain("image editor");
+    // Amber, never a refusal: the resident may have drawn an arrow on the amount
+    // and cropped their balance out, which is two honest acts.
+    expect(file?.detail).toContain("ask for the original");
+  });
+
+  it("says nothing about the file on an asset stored before provenance existed", () => {
+    const checks = claimChecks(greenEvent(), invoice, { settled: 0 });
+    const file = checks.find((check) => check.key === "FILE");
+
+    // Absent measurement is not a clean bill of health, but it is not an
+    // accusation either — and it must not keep the row out of `Approve all`.
+    expect(file?.ok).toBe(true);
+  });
+
   it("flags every check on a claim with no invoice at all", () => {
     const checks = claimChecks(greenEvent({ invoiceId: null }), null, { settled: 0 });
 
@@ -403,7 +450,7 @@ describe("listReviewQueue", () => {
     const [row] = await listReviewQueue(hostelId);
 
     expect(row?.allGreen).toBe(true);
-    expect(row?.checks).toHaveLength(6);
+    expect(row?.checks).toHaveLength(7);
   });
 
   it("does not mark a part payment all-green", async () => {

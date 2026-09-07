@@ -83,6 +83,16 @@ export function deepLinkForNotification(input: DeepLinkInput): string {
       const noticeId = readId(input.data, "noticeId");
       return noticeId ? `/(resident)/notices/${noticeId}` : CATEGORY_PATHS.NOTICE;
     }
+    case "FOOD": {
+      /*
+       * One category, two audiences. A "food is ready" row goes to a resident
+       * and belongs on their Food tab; the copy of it written for the hostel's
+       * own staff (`food-ready-notify.ts`) belongs on the admin Today screen —
+       * `(resident)` is a route group a warden's account cannot open, so the
+       * category default would land them nowhere useful.
+       */
+      return input.data?.audience === "STAFF" ? "/(admin)/today" : CATEGORY_PATHS.FOOD;
+    }
     case "COMMUNITY": {
       const postId = readId(input.data, "postId");
       return postId ? `/community/${postId}` : CATEGORY_PATHS.COMMUNITY;

@@ -304,7 +304,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
         ...(features.serviceProviderSignup
           ? [["Service providers", "/service-providers"]]
           : []),
-        ["Pricing", "/pricing"],
+        ["Plans & Pricing", "/plans-pricing"],
       ],
       title: "Partners",
     },

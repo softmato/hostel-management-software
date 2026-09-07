@@ -1248,3 +1248,96 @@ statement importing needs a rebuilt binary
 the screen being dead. Still unseen: the Rooms photo strip, the reconciliation
 sheet's four segments, and the resident record — the longest sheet stack in the
 app.
+
+---
+
+## §13 — The service provider portal
+
+Asked for on 2026-09-07: what is missing against the web, the verification state
+made visible while an applicant waits, the app converting itself the moment the
+platform approves them, and the Jobs screen brought up to the standard of the
+other four portal homes.
+
+- ☑ **13.1 Approval never reached a running app.** *(2026-09-07)*
+      `updateProviderStatus` sent an **email and nothing else**. `resolveHome`
+      routes on `/auth/me`'s provider flag and nothing re-read it while the app
+      was open, so a provider approved on Tuesday kept the hostel-shopping shell
+      until the app was killed and cold-started — told by email they were
+      verified, holding an app that disagreed.
+      New `notifyServiceProviderDecision` writes an in-app notification carrying
+      `type: "SERVICE_PROVIDER_APPROVED"`, which is the literal `push-link.ts`'s
+      `ROLE_CHANGE_TYPES` keys on — so `usePush` handles it **on arrival** as
+      well as on tap and calls `adoptRoleChange`, which re-reads the session and
+      replaces the shell with the provider's tabs. Nobody signs in again.
+      Rejection is notified too, with the reason and an `actionUrl` onto the
+      landing screen — the one place that offers a corrected application. HIDDEN
+      and INACTIVE stay silent, as the emails already do.
+      The `actionUrl` for approval is the website's `/jobs`, so a new rewrite
+      sends it to `/(provider)`; `/service-providers` joined `KNOWN_PATHS`.
+      Without the rewrite the one notification that converts the app would have
+      landed on the notification list.
+- ☑ **13.2 Push is not a delivery guarantee, so the resume is a signal too.**
+      *(2026-09-07)*
+      New `useRoleSync`, mounted at the root beside `usePush`. Permission can be
+      refused or revoked, an OEM battery saver can hold notifications, and a
+      phone offline at the moment of approval may never get the message — while
+      Android keeps a process alive for days, so "opened it again" is usually a
+      resume and not a launch. `revalidateSession` answers only when something
+      moved, so an ordinary return routes nothing; throttled to one lookup a
+      minute so switching to a camera or an OTP screen is free.
+- ☑ **13.3 A waiting applicant was told nothing on the screen they were
+      holding.** *(2026-09-07)*
+      A pending applicant is a `PUBLIC` account, so the app around them is the
+      browsing shell — and the only screen that knew about their application was
+      "Become a service provider", the last page somebody who has already applied
+      would open. New `<ProviderStatusCard>` on the Profile tab, drawn only for a
+      record **in motion**: what is happening, that it takes **1–2 business
+      days**, and that the email comes either way.
+      The copy behind it is new `lib/provider-status.ts` — one table for the five
+      states, read by the Profile banner, the landing screen and the card tab.
+      Four hand-written copies had already drifted: the landing screen promised
+      jobs "broadcast by hostels in your trades and area" (there is no broadcast
+      — a hostel admin assigns by name, and `provider-api.ts` says so at the top
+      of the file), the card tab told an applicant to "apply from the website"
+      months after §8.3 shipped the native wizard, and the web's approved panel
+      told providers to sign in with "the credentials we emailed you", which are
+      credentials that do not exist. A test asserts no panel promises broadcast.
+      The review window is one string on each side — `PROVIDER_REVIEW_WINDOW`,
+      copied rather than imported for the reason `admin-manage-api.ts` copies the
+      pricing vocabulary: `@hostel/shared` does not resolve in the phone bundle.
+- ☑ **13.4 Jobs was a list with a label, not the front door of a portal.**
+      *(2026-09-07)*
+      It opened on `<AppBar title="Jobs" />` while the resident, guardian, cook
+      and admin homes all open on `<PortalBrandHeader>` — the lockup and the
+      bell. Two things wrong: the app never named itself to the one audience that
+      installs it for work rather than for a room, and **no provider tab had the
+      bell at all**, in a portal the server routes four push categories to.
+      Now the same object the other four lead with (`NOTES.md` §2): `ebl-01`'s
+      account card, carrying the open count, who they are, how many hostels are
+      sending them work, and a themed second register with urgent and completed.
+      Built from the job list the screen already loads — no second request and no
+      second way to fail. Skeletons replace the spinner (§9).
+- ☑ **13.5 The rows had no grid.** *(2026-09-07)*
+      A filled `<StatusPill>` above a filled priority `<Badge>` in `ListRow`'s
+      right slot: two boxes sized by their own words, so `Pending`/`Urgent`,
+      `Completed` and `Scheduled` each ended at a different distance from the
+      edge, and every title started wherever was left over. `<StatusText>`'s own
+      doc argues against exactly that shape.
+      `<ProviderJobRow>`: a 40dp tinted tile tinted by *urgency* (the glyph
+      already carries the trade), title and place in the middle, and a
+      fixed-width right column with the status over the date, both on one margin.
+      The urgency word leads the subtitle in colour rather than sitting in a
+      badge — the tint is never the only cue. `<JobRowDivider>` starts at 52dp
+      rather than `RowDivider`'s `ml-12`, which was measured for a 36dp circle
+      and lands 4dp short of this row's text.
+      Open and Past work are two cards under two headings on the page, per §5,
+      replacing the hairline-and-caption boundary inside one card.
+
+**Verified:** mobile typecheck clean, lint clean, **1342 tests / 83 files**; web
+typecheck clean, lint clean, **2284 tests / 155 files**. New coverage:
+`provider-status.test.ts`, plus the row-anatomy and overdue helpers in
+`provider-jobs.test.ts` and the two new push paths in `push-link.test.ts`.
+**Open — [device]:** no handset was attached, so the hero's metrics, the row grid
+and the approval hand-off have not been seen on hardware. The approval path in
+particular wants a real run: approve a pending provider from the platform portal
+with the app open on `(browse)` and watch it become the provider app.

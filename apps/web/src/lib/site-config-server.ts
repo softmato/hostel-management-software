@@ -23,7 +23,6 @@ export const loadSiteConfig = cache(async (): Promise<PublicSiteConfig> => {
       ...DEFAULT_SITE_CONFIG,
       facilities: DEFAULT_SITE_CONFIG.facilities.filter((facility) => facility.enabled),
       locations: DEFAULT_SITE_CONFIG.locations.filter((location) => location.enabled),
-      pricing: DEFAULT_SITE_CONFIG.pricing.filter((plan) => plan.enabled),
     };
   }
 });

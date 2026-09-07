@@ -510,6 +510,7 @@ export default function ManageStatementsScreen() {
             action={
               <Button
                 label="Refresh"
+                loading={imports.loading}
                 onPress={() => void imports.reload()}
                 size="sm"
                 variant="ghost"

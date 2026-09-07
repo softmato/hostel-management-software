@@ -477,13 +477,20 @@ export default function ManageMaintenanceScreen() {
     }
   }, [costNote, open, reload, scheduledOn, statusDraft, statusNote]);
 
+  /*
+   * Which provider chip was tapped. Not `busy`: that flag draws the footer's
+   * "Apply status" spinner, so assigning a plumber reported that a status change
+   * was being saved — the wrong sentence about the right wait.
+   */
+  const [assigning, setAssigning] = useState<string | null>(null);
+
   const assignProvider = useCallback(
     async (providerId: string) => {
       if (!open) {
         return;
       }
 
-      setBusy(true);
+      setAssigning(providerId);
 
       try {
         await assignMaintenanceProvider(open.id, providerId);
@@ -499,7 +506,7 @@ export default function ManageMaintenanceScreen() {
           readApiError(error, "Somebody may already be on this job."),
         );
       } finally {
-        setBusy(false);
+        setAssigning(null);
       }
     },
     [open, reload],
@@ -1127,6 +1134,7 @@ export default function ManageMaintenanceScreen() {
                   <View className="flex-row flex-wrap gap-2">
                     {assignableProviders.map((provider) => (
                       <Chip
+                        busy={assigning === provider.id}
                         icon="person-add-outline"
                         key={provider.id}
                         label={`${provider.fullName} · ${provider.area}`}

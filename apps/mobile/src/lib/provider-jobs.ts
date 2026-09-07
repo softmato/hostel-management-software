@@ -131,3 +131,98 @@ export function urgentJobCount(jobs: ProviderJob[]): number {
 export function completedJobCount(jobs: ProviderJob[]): number {
   return jobs.filter((job) => job.status === "COMPLETED").length;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Row anatomy                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The tint of a row's leading glyph tile.
+ *
+ * Urgency, not trade: the category is already carried by the *glyph*, and a
+ * tile that is both the trade and the priority is one object saying two things
+ * — which is exactly what the row is for. Closed work goes grey whatever it was,
+ * because a finished emergency is not an emergency.
+ *
+ * Never the only cue. `jobUrgencyLabel` prints the same fact in words on the
+ * line below, because a column of coloured squares is unreadable in greyscale
+ * and to a colour-blind provider.
+ */
+export type JobTone = "brand" | "danger" | "neutral" | "warning";
+
+export function jobTone(job: ProviderJob): JobTone {
+  if (!isOpenJob(job)) {
+    return "neutral";
+  }
+
+  if (job.priority === "URGENT") {
+    return "danger";
+  }
+
+  return job.priority === "HIGH" ? "warning" : "brand";
+}
+
+/**
+ * The word for a priority worth printing, or `null` for the ordinary ones.
+ *
+ * `MEDIUM` and `LOW` are the default and the absence of a claim; printing them
+ * on every row is what teaches people to stop reading the one that says
+ * `Urgent`. Closed work prints nothing at all — see `jobTone`.
+ */
+export function jobUrgencyLabel(job: ProviderJob): string | null {
+  if (!isOpenJob(job)) {
+    return null;
+  }
+
+  if (job.priority === "URGENT") {
+    return "Urgent";
+  }
+
+  return job.priority === "HIGH" ? "High" : null;
+}
+
+/**
+ * Where the job is, in the space a row has for it.
+ *
+ * The short form of `jobAddress` — the free-text spot the admin typed and the
+ * building, without the area and the city. A row is answering "which job is
+ * this"; the detail screen answers "how do I get there", and that is where the
+ * full address and the phone belong.
+ */
+export function jobPlace(job: ProviderJob): string {
+  return [job.location, job.hostelName]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * An open job whose scheduled day has already passed.
+ *
+ * Compared against the start of the local day, not against the instant: a job
+ * scheduled for today at 9am is not overdue at 10am — the hostel wrote a *date*,
+ * and treating it as a deadline to the minute would paint half the list red
+ * every afternoon.
+ */
+export function isOverdueJob(job: ProviderJob, now: Date = new Date()): boolean {
+  if (!isOpenJob(job) || !job.scheduledFor) {
+    return false;
+  }
+
+  const parsed = Date.parse(job.scheduledFor);
+
+  if (Number.isNaN(parsed)) {
+    return false;
+  }
+
+  const dayStart = new Date(now);
+
+  dayStart.setHours(0, 0, 0, 0);
+
+  return parsed < dayStart.getTime();
+}
+
+/** Open jobs whose scheduled day has already gone by. The count worth a tone. */
+export function overdueJobCount(jobs: ProviderJob[], now: Date = new Date()): number {
+  return jobs.filter((job) => isOverdueJob(job, now)).length;
+}

@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { NotificationBell } from "@/components/notification-bell";
@@ -19,7 +19,13 @@ import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { openAssetViewer } from "@/lib/asset-viewer";
-import { type CookPhotoDay, uploadCookFoodPhoto } from "@/lib/cook-api";
+import {
+  type CookPhotoDay,
+  type CookPhotoFeed,
+  listCookFoodPhotos,
+  uploadCookFoodPhoto,
+} from "@/lib/cook-api";
+import { mergePhotoDays } from "@/lib/cook";
 import { cookQuery } from "@/lib/cook-queries";
 import { formatTime, humanizeEnum } from "@/lib/format";
 import { mealTypeNow } from "@/lib/food-week";
@@ -79,8 +85,6 @@ import { privateAssetSource, uploadAsset } from "@/lib/uploads";
  * the device fingerprint that is stamped on every one of those rows. Two
  * questions, two homes, and this tab is one subject again.
  */
-type PhotoFeed = { days: CookPhotoDay[]; hasMore: boolean; total: number };
-
 export default function CookPhotosScreen() {
   /*
    * One read now, under the portal's own key — the announcement log that used to
@@ -88,12 +92,17 @@ export default function CookPhotosScreen() {
    * `lib/cook-queries.ts`.
    */
   const query = cookQuery.photos();
-  const feed = useResource<PhotoFeed>(query.load, {
+  const feed = useResource<CookPhotoFeed>(query.load, {
     cacheKey: query.key,
     topics: query.topics,
   });
 
-  const [busy, setBusy] = useState(false);
+  /*
+   * Which source is uploading, not merely that one is: the two buttons sit on
+   * top of each other and a shared boolean drew the spinner on "Take a photo"
+   * while the picture from the gallery was the one going up.
+   */
+  const [busy, setBusy] = useState<"camera" | "library" | null>(null);
 
   const share = useCallback(
     async (source: "camera" | "library") => {
@@ -125,7 +134,7 @@ export default function CookPhotosScreen() {
         return;
       }
 
-      setBusy(true);
+      setBusy(source);
 
       try {
         // Progress is reported by `<UploadToaster />` at the app root — call
@@ -143,12 +152,15 @@ export default function CookPhotosScreen() {
 
         toastSuccess("Photo shared", "Residents can see it on their food screen.");
         // The photo the cook just took should appear in the grid below without
-        // them having to pull to refresh to believe it worked.
+        // them having to pull to refresh to believe it worked. A refetch rather
+        // than a cache write, unlike the announce button: the POST returns an
+        // id, not the serialized feed row, so there is nothing here to fold in
+        // that would not have to be invented.
         feed.refresh();
       } catch (caught) {
         toastError("Could not share that photo", readApiError(caught));
       } finally {
-        setBusy(false);
+        setBusy(null);
       }
     },
     [feed],
@@ -173,14 +185,16 @@ export default function CookPhotosScreen() {
             ).toLowerCase()} appears on every resident's food screen straight away.`}
           </Text>
           <Button
+            disabled={busy === "library"}
             label="Take a photo"
-            loading={busy}
+            loading={busy === "camera"}
             onPress={() => void share("camera")}
             size="lg"
           />
           <Button
-            disabled={busy}
+            disabled={busy === "camera"}
             label="Choose from gallery"
+            loading={busy === "library"}
             onPress={() => void share("library")}
             variant="outline"
           />
@@ -200,16 +214,76 @@ export default function CookPhotosScreen() {
  * photos, not the whole feed: the day is the unit a cook thinks in, and paging
  * from Tuesday's dinner into last week is not what the tap meant.
  */
-function PhotoFeedSection({ feed }: { feed: ReturnType<typeof useResource<PhotoFeed>> }) {
-  const days = feed.data?.days ?? [];
+function PhotoFeedSection({
+  feed,
+}: {
+  feed: ReturnType<typeof useResource<CookPhotoFeed>>;
+}) {
+  /*
+   * Pages beyond the first, held here rather than in the cache.
+   *
+   * `cook:photos` is the *first* page and stays that: it is what the portal
+   * warms on entry and what a FOOD event invalidates, and writing an
+   * accumulated four-page list back under that key would mean a refresh either
+   * throwing the paging away silently or re-fetching four pages to redraw one
+   * screen. So the cache keeps the answer to "what has this kitchen posted
+   * lately" and the extra pages live for as long as the tab does — which is the
+   * lifetime a scroll position has anyway.
+   */
+  const [older, setOlder] = useState<CookPhotoDay[]>([]);
+  const [cursor, setCursor] = useState<string | null>(feed.data?.cursor ?? null);
+  const [paging, setPaging] = useState(false);
+
+  /*
+   * A new first page resets the paging, adjusted during render rather than in
+   * an effect — the same idiom `useResource` documents for a changed key. An
+   * effect would commit one frame of last-load's older pages sitting under a
+   * freshly refreshed first page, which is the flicker, and worse here because
+   * the two halves would briefly be from different reads.
+   */
+  const [pagedFrom, setPagedFrom] = useState(feed.data);
+
+  if (feed.data !== pagedFrom) {
+    setPagedFrom(feed.data);
+    setOlder([]);
+    setCursor(feed.data?.cursor ?? null);
+  }
+
+  const days = useMemo(
+    () => mergePhotoDays(feed.data?.days ?? [], older),
+    [feed.data, older],
+  );
+
+  const loadOlder = useCallback(async () => {
+    if (!cursor) {
+      return;
+    }
+
+    setPaging(true);
+
+    try {
+      const page = await listCookFoodPhotos(cursor);
+
+      setOlder((current) => mergePhotoDays(current, page.days));
+      // The server's own answer, not a guess: `null` here is the end of the
+      // feed and is what takes the button off the screen.
+      setCursor(page.cursor);
+    } catch (caught) {
+      toastError("Could not load older photos", readApiError(caught));
+    } finally {
+      setPaging(false);
+    }
+  }, [cursor]);
+
+  const total = (feed.data?.total ?? 0) + older.reduce((sum, day) => sum + day.photos.length, 0);
 
   return (
     <View>
       <SectionHeader
         subtitle={
-          feed.data && feed.data.total > 0
-            ? `${feed.data.total} photo${feed.data.total === 1 ? "" : "s"}${
-                feed.data.hasMore ? " · most recent first" : ""
+          total > 0
+            ? `${total} photo${total === 1 ? "" : "s"}${
+                cursor ? " · most recent first" : ""
               }`
             : "Everything this kitchen has shared"
         }
@@ -246,6 +320,26 @@ function PhotoFeedSection({ feed }: { feed: ReturnType<typeof useResource<PhotoF
           {days.map((day) => (
             <PhotoDayCard day={day} key={day.day} />
           ))}
+
+          {/*
+            The feed reaches back a page at a time, and the button is the only
+            thing that says so. `hasMore` was already on the payload and nothing
+            read it, so a kitchen posting daily lost last month off the bottom
+            with no indication there was a bottom — the same fault the resident
+            notices screen had.
+
+            A button rather than infinite scroll on purpose: this is a record
+            somebody consults, not a feed they browse, and an accidental thumb
+            drag should not pull a fortnight of images over hostel wifi.
+          */}
+          {cursor ? (
+            <Button
+              label={paging ? "Loading…" : "Load older photos"}
+              loading={paging}
+              onPress={() => void loadOlder()}
+              variant="outline"
+            />
+          ) : null}
         </View>
       )}
     </View>

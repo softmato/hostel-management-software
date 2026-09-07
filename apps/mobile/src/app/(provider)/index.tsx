@@ -1,27 +1,24 @@
-import type { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback } from "react";
 import { View } from "react-native";
 
-import { AppBar } from "@/components/ui/app-bar";
-import { Badge, StatusPill } from "@/components/ui/badge";
+import { PortalBrandHeader } from "@/components/portal-shared";
+import { JobRowDivider, ProviderHero, ProviderJobRow } from "@/components/provider-home";
 import { Card, SectionHeader } from "@/components/ui/card";
-import { Grid, StatTile } from "@/components/ui/layout";
-import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
+import { useAppSelector } from "@/hooks/redux";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { humanizeEnum } from "@/lib/format";
 import { listProviderJobs, type ProviderJob } from "@/lib/provider-api";
 import {
   completedJobCount,
   isOpenJob,
-  jobAddress,
-  jobCategoryIcon,
   openJobCount,
+  overdueJobCount,
   sortProviderJobs,
   urgentJobCount,
 } from "@/lib/provider-jobs";
@@ -43,157 +40,186 @@ import {
  * `location` string ("Room 204") is free text the admin typed, not a link to
  * anybody.
  *
+ * ## The front door of a portal, not a list with a label on it
+ *
+ * This tab opened on `<AppBar title="Jobs" />` while every other role's home
+ * opened on the platform lockup, the bell and a painted account card. Two things
+ * were actually wrong with that. The app never said what it was to the one
+ * audience that installs it for work rather than for a room — and the bell was
+ * missing from all four provider tabs, in a portal the server routes four push
+ * categories to. `<ProviderHero>` carries the rest; see `provider-home.tsx`.
+ *
  * ## Against `provider-jobs-page.tsx` (§5.4)
  *
  * The web draws each job as a full card — title, hostel, description, category,
  * location, schedule and phone. **The rows stay rows here.** A provider opens
  * this to answer "how much work do I have and where", and eight cards deep
  * enough to hold a description is two jobs per screenful; the detail screen
- * already carries the description and the call button, which is the tap the web
- * card exists to save and a phone does not need saving.
+ * already carries the description, the voice note and the call button, which is
+ * the tap the web card exists to save and a phone does not need saving.
  *
- * What the rows did lack was the trade. Every row looked identical, so a
- * provider scanning for their own work read every title — `jobCategoryIcon`
- * fixes that, and the metric strip answers the "how much" without counting.
+ * What the rows lacked was a grid. Every fact sat wherever its neighbour left
+ * room — see `META_WIDTH` in `provider-home.tsx` for the ragged right edge that
+ * fixed.
  */
-const PRIORITY_TONE = {
-  HIGH: "warning",
-  LOW: "neutral",
-  MEDIUM: "neutral",
-  URGENT: "danger",
-} as const;
-
 export default function ProviderJobsScreen() {
   const dates = useDates();
+  const account = useAppSelector((state) => state.auth.account);
   const jobs = useResource<ProviderJob[]>(useCallback(() => listProviderJobs(), []), {
     topics: [REALTIME_TOPIC.MAINTENANCE],
   });
 
-  const header = <AppBar title="Jobs" />;
+  /*
+   * No hostel page and no SOS: a provider works for several hostels or none, so
+   * there is no one listing for the eye to open — `PortalBrandHeader` hides that
+   * control when no handler is passed.
+   */
+  const header = <PortalBrandHeader />;
 
   if (jobs.loading) {
     return (
-      <Screen header={header} insideTabs>
-        <LoadingState label="Loading your jobs" />
+      /* The hero, then a heading and rows — the shape it lands in (NOTES §9). */
+      <Screen header={header} insideTabs padded={false} scroll>
+        <View className="px-3.5">
+          <Skeleton height={210} radius={18} />
+        </View>
+
+        <View className="gap-3 px-5 pt-6">
+          <Skeleton height={18} width="40%" />
+          <Skeleton height={230} radius={16} />
+        </View>
       </Screen>
     );
   }
 
   if (jobs.error || !jobs.data) {
     return (
-      <Screen header={header} insideTabs>
-        <ErrorState
-          message={jobs.error ?? "Your jobs could not be loaded."}
-          onRetry={jobs.reload}
-        />
+      <Screen header={header} insideTabs padded={false}>
+        <View className="px-5">
+          <ErrorState
+            message={jobs.error ?? "Your jobs could not be loaded."}
+            onRetry={jobs.reload}
+          />
+        </View>
       </Screen>
     );
   }
 
   const sorted = sortProviderJobs(jobs.data);
-  const open = openJobCount(jobs.data);
-  const urgent = urgentJobCount(jobs.data);
-  const completed = completedJobCount(jobs.data);
-  const firstClosedIndex = sorted.findIndex((job) => !isOpenJob(job));
+  const open = sorted.filter(isOpenJob);
+  const closed = sorted.filter((job) => !isOpenJob(job));
+
+  /*
+   * How many buildings this provider is working for, from the list itself. It is
+   * the one fact the hero states that is not a count of jobs, and deriving it
+   * here rather than asking `/service-providers/me` keeps the portal's front
+   * door on a single request with a single way to fail.
+   */
+  const hostelCount = new Set(
+    jobs.data.map((job) => job.hostelName.trim()).filter(Boolean),
+  ).size;
+
+  /**
+   * When a job is wanted, in the reader's own calendar.
+   *
+   * A scheduled day is a commitment and reads as one; without a schedule the
+   * honest thing to show is when the hostel raised it, because that is the only
+   * date the job has. `relativeDay` collapses today and yesterday to words —
+   * which is most of what an open queue contains.
+   */
+  const when = (job: ProviderJob) =>
+    job.scheduledFor
+      ? dates.relativeDay(job.scheduledFor)
+      : job.createdAt
+        ? dates.relativeDay(job.createdAt)
+        : "";
 
   return (
     <Screen
       header={header}
       insideTabs
       onRefresh={jobs.refresh}
+      padded={false}
       refreshing={jobs.refreshing}
       scroll
     >
-      <View className="gap-4 pt-1">
+      <ProviderHero
+        completed={completedJobCount(jobs.data)}
+        hostelCount={hostelCount}
+        name={account?.name || "Your work"}
+        open={openJobCount(jobs.data)}
+        overdue={overdueJobCount(jobs.data)}
+        urgent={urgentJobCount(jobs.data)}
+      />
+
+      <View className="gap-6 px-5 pt-6">
         {sorted.length === 0 ? (
           <Card>
             <EmptyState
-              description="Hostels assign work to you by name. Anything they send appears here."
+              description="Hostels assign work to you by name. Anything they send appears here, and you'll be notified when it does."
               title="No jobs yet"
             />
           </Card>
-        ) : (
-          <>
+        ) : null}
+
+        {open.length > 0 ? (
+          <View>
             {/*
-              The three numbers a provider wants before they read anything:
-              what is waiting, what cannot wait, and what they have finished.
-              `<Grid>` fits them to the phone — three across on any ordinary
-              handset, two on a 320dp screen where "Completed" would truncate.
+              The heading sits on the page, outside the card — NOTES §5. It also
+              carries the count, so the section says how much work it holds
+              before a row of it is read.
             */}
-            <Grid gap={10} maxColumns={3} minCellWidth={104}>
-              <StatTile
-                icon="briefcase-outline"
-                label="Open"
-                tone={open > 0 ? "brand" : "neutral"}
-                trend={open > 0 ? "Soonest first" : "Nothing waiting"}
-                value={String(open)}
-              />
-              <StatTile
-                icon="alert-circle-outline"
-                label="Urgent"
-                tone={urgent > 0 ? "danger" : "success"}
-                trend={urgent > 0 ? "Needs attention" : "None right now"}
-                value={String(urgent)}
-              />
-              <StatTile
-                icon="checkmark-done-outline"
-                label="Done"
-                tone="success"
-                trend={`of ${sorted.length} assigned`}
-                value={String(completed)}
-              />
-            </Grid>
-
-            <SectionHeader
-              subtitle={open > 0 ? "Soonest first" : "Nothing open right now"}
-              title={`${open} open`}
-            />
-
+            <SectionHeader subtitle="Soonest first" title={`Open · ${open.length}`} />
             <Card>
-              {sorted.map((job, index) => (
+              {open.map((job, index) => (
                 <View key={job.id}>
-                  {/*
-                    One divider carries the whole "everything below is history"
-                    boundary — a second Card and header for closed work pushes
-                    the open list off the first screen on a phone.
-                  */}
-                  {index === firstClosedIndex && index > 0 ? (
-                    <View className="border-t border-border pb-2 pt-4">
-                      <Text variant="caption">Closed</Text>
-                    </View>
-                  ) : index > 0 ? (
-                    <RowDivider />
-                  ) : null}
-
-                  <ListRow
-                    // The trade, so a provider scanning for their own work does
-                    // not have to read every title.
-                    icon={jobCategoryIcon(job.category) as keyof typeof Ionicons.glyphMap}
+                  {index > 0 ? <JobRowDivider /> : null}
+                  <ProviderJobRow
+                    job={job}
                     onPress={() => router.push(`/job/${job.id}`)}
-                    right={
-                      <View className="items-end gap-1">
-                        <StatusPill status={job.status} />
-                        {isOpenJob(job) && job.priority !== "MEDIUM" ? (
-                          <Badge
-                            label={humanizeEnum(job.priority)}
-                            tone={PRIORITY_TONE[job.priority]}
-                          />
-                        ) : null}
-                      </View>
-                    }
-                    subtitle={[
-                      jobAddress(job),
-                      job.scheduledFor ? `Due ${dates.date(job.scheduledFor)}` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    title={job.title}
+                    when={when(job)}
                   />
                 </View>
               ))}
             </Card>
-          </>
-        )}
+          </View>
+        ) : null}
+
+        {closed.length > 0 ? (
+          <View>
+            {/*
+              Its own card under its own heading, rather than the hairline-plus-
+              caption divider this list used to draw inside a single card.
+              That was written to keep the open list on the first screenful — but
+              closed work sorts *below* open work, so a heading between them
+              costs the open rows nothing and buys the boundary a shape the rest
+              of the app already uses.
+            */}
+            <SectionHeader
+              subtitle="Completed and cancelled"
+              title={`Past work · ${closed.length}`}
+            />
+            <Card>
+              {closed.map((job, index) => (
+                <View key={job.id}>
+                  {index > 0 ? <JobRowDivider /> : null}
+                  <ProviderJobRow
+                    job={job}
+                    onPress={() => router.push(`/job/${job.id}`)}
+                    when={when(job)}
+                  />
+                </View>
+              ))}
+            </Card>
+          </View>
+        ) : null}
+
+        {open.length === 0 && closed.length > 0 ? (
+          <Text className="px-1" variant="caption">
+            Nothing is open right now. A hostel assigning you work will send you a
+            notification.
+          </Text>
+        ) : null}
       </View>
     </Screen>
   );

@@ -22,7 +22,10 @@ import { serviceProviderRejectedEmail } from "@hostel/shared/email/templates/ser
 import { loadSiteConfig } from "@/lib/site-config-server";
 import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
 import { normalizeProviderCategories } from "@/modules/service-providers/service-provider.validation";
-import { notifyPlatformOfServiceProviderApplication } from "@/modules/service-providers/service-provider-notify";
+import {
+  notifyPlatformOfServiceProviderApplication,
+  notifyServiceProviderDecision,
+} from "@/modules/service-providers/service-provider-notify";
 import type {
   hostelAdminServiceProviderListQuerySchema,
   platformServiceProviderListQuerySchema,
@@ -599,6 +602,25 @@ async function updateProviderStatus(
   // predate the `userId` link have no account to re-issue against.
   if (status === "APPROVED" && provider.userId) {
     await sendIdCardEmail(provider.userId.toString(), "SERVICE_PROVIDER");
+  }
+
+  /*
+   * And tell the applicant *in the app*, which is where they are.
+   *
+   * The email above is the record; this is what actually converts the phone.
+   * `notifyServiceProviderDecision` writes a notification the mobile app reads
+   * as a role change, so an approved provider's shell becomes the provider
+   * portal while they are holding it rather than on their next cold start. See
+   * that function, and `adoptRoleChange` in the app.
+   */
+  if ((status === "APPROVED" || status === "REJECTED") && provider.userId) {
+    await notifyServiceProviderDecision({
+      approved: status === "APPROVED",
+      fullName: provider.fullName,
+      providerId: provider._id.toString(),
+      reason: status === "REJECTED" ? input?.reason : undefined,
+      userId: provider.userId.toString(),
+    });
   }
 
   return providerBundle(provider);

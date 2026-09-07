@@ -133,9 +133,15 @@ describe("the cook's own reads", () => {
     expect(today.hostel.name).toBe("Sunrise");
   });
 
-  it("counts the same residents the announcement fan-out notifies", async () => {
+  it("counts plates, which is every active resident and not only the notifiable ones", async () => {
     await getCookToday(cookPrincipal);
 
+    /*
+     * Deliberately wider than the announcement's audience, which additionally
+     * requires a linked account (`food-ready-notify.ts`). A cook cooks for
+     * everyone living here; the fan-out reaches whoever has installed the app,
+     * and the two numbers are meant to differ.
+     */
     expect(mocks.residentCountDocuments).toHaveBeenCalledWith({
       hostelId: expect.anything(),
       isDeleted: false,

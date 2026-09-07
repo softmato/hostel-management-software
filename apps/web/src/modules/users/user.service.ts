@@ -71,6 +71,11 @@ const ADMIN_ISSUABLE_ROLES = [
   Role.WARDEN,
   Role.RESIDENT,
   Role.GUARDIAN,
+  // A cook invited on their own email arrives through here, so that an address
+  // already belonging to a resident or an admin is refused rather than quietly
+  // turned into a kitchen login. Generated cook logins do not: they mint their
+  // own account on an address no person owns.
+  Role.COOK,
 ] as const;
 
 export type AdminIssuableRole = (typeof ADMIN_ISSUABLE_ROLES)[number];
@@ -88,6 +93,7 @@ const ROLE_LABELS: Record<string, string> = {
   [Role.WARDEN]: "Warden",
   [Role.RESIDENT]: "Resident",
   [Role.GUARDIAN]: "Guardian",
+  [Role.COOK]: "Cook",
 };
 
 function generateTemporaryPassword() {

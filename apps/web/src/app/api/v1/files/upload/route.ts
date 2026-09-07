@@ -21,6 +21,7 @@ import {
 import { contentTypeMismatch } from "@/lib/uploads/sniff";
 import { hashBytes } from "@/lib/uploads/verify";
 import { computePerceptualHash, systemDocumentKind } from "@/modules/finance/evidence";
+import { readEvidenceProvenance } from "@/modules/finance/evidence-provenance";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
 export const runtime = "nodejs";
@@ -140,6 +141,9 @@ export async function POST(request: NextRequest) {
         // measured rather than declared — no separate verification leg needed.
         contentHash: hashBytes(buffer),
         imageInsight: imageInsight ?? undefined,
+        // Reads the container, not the picture, so it needs no decoder and
+        // cannot fail the upload — an unparseable header records nothing.
+        provenance: readEvidenceProvenance(buffer) ?? undefined,
         perceptualHash: (await computePerceptualHash(buffer)) ?? undefined,
         systemDocumentKind: (await systemDocumentKind(buffer)) ?? undefined,
         uploadCompletedAt: new Date(),

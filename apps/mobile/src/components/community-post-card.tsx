@@ -7,6 +7,7 @@ import { Alert, Linking, Pressable, Share, View } from "react-native";
 import { CommentThread } from "@/components/community-comment-thread";
 import { ReactionBar } from "@/components/community-reaction-bar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
@@ -108,6 +109,7 @@ export function CommunityPostCard({
       : null,
   );
   const [draft, setDraft] = useState("");
+  const [commenting, setCommenting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
 
@@ -261,6 +263,13 @@ export function CommunityPostCard({
       return;
     }
 
+    /*
+     * The flag is what stops the same comment being posted twice as much as it
+     * is what draws the spinner: the button had neither, and a thread reloaded
+     * over a slow connection is exactly where a second tap happens.
+     */
+    setCommenting(true);
+
     try {
       await addPostComment(post.id, { body });
       setDraft("");
@@ -268,6 +277,8 @@ export function CommunityPostCard({
       onChanged();
     } catch (caught) {
       toastError("Could not comment", readApiError(caught));
+    } finally {
+      setCommenting(false);
     }
   }, [draft, loadComments, onChanged, post.id]);
 
@@ -424,24 +435,14 @@ export function CommunityPostCard({
                 style={{ height: 64, paddingTop: 10, textAlignVertical: "top" }}
                 value={draft}
               />
-              <Pressable
-                accessibilityRole="button"
-                className="h-9 items-center justify-center self-end rounded-lg px-4 active:opacity-80"
+              <Button
+                className="self-end"
                 disabled={!draft.trim()}
+                label="Comment"
+                loading={commenting}
                 onPress={() => void comment()}
-                style={{
-                  backgroundColor: draft.trim() ? colors.primary : colors.muted,
-                }}
-              >
-                <Text
-                  className="text-sm font-semibold"
-                  style={{
-                    color: draft.trim() ? colors.primaryForeground : colors.mutedForeground,
-                  }}
-                >
-                  Comment
-                </Text>
-              </Pressable>
+                size="sm"
+              />
             </View>
           ) : (
             <Text variant="caption">Sign in to comment.</Text>
@@ -618,7 +619,6 @@ function ReportSheet({
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { colors } = useAppTheme();
 
   const submit = useCallback(async () => {
     const problem = reportReasonError(reason);
@@ -646,21 +646,19 @@ function ReportSheet({
   return (
     <Sheet
       footer={
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ busy }}
-          className="h-12 items-center justify-center rounded-xl active:opacity-85"
-          disabled={busy}
+        /*
+          The kit's button, not a hand-rolled `Pressable` on the destructive
+          fill. The copy of it that used to live here swapped its label for
+          "Reporting…" and drew nothing that moved, so a slow network read as a
+          button that had stopped working — and it had to restate the danger
+          tone and the white ink itself to do it.
+        */
+        <Button
+          label="Report"
+          loading={busy}
           onPress={() => void submit()}
-          style={{ backgroundColor: colors.destructive }}
-        >
-          {/* White on the destructive fill in both themes — the palette has no
-              `destructiveForeground` token, and `#0a8a4b`-style literals are what
-              `button.tsx` falls back to for the same reason. */}
-          <Text className="font-semibold" style={{ color: "#ffffff" }}>
-            {busy ? "Reporting…" : "Report"}
-          </Text>
-        </Pressable>
+          variant="danger"
+        />
       }
       onClose={onClose}
       open={open}

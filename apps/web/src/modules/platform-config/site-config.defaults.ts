@@ -1,3 +1,4 @@
+import { DEFAULT_PLANS } from "./plans.defaults";
 import type { SiteConfig } from "./site-config.validation";
 
 /**
@@ -617,57 +618,13 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
     { areas: ["Bharatpur", "Narayangarh", "Sauraha"], city: "Chitwan", enabled: true },
     { areas: ["Biratnagar"], city: "Biratnagar", enabled: true },
   ],
-  pricing: [
-    {
-      ctaHref: "/register-hostel",
-      ctaLabel: "Start Free",
-      description: "For a single small hostel getting online.",
-      enabled: true,
-      features: [
-        "1 hostel listing",
-        "Up to 25 residents",
-        "Room & bed map",
-        "Payment records",
-      ],
-      highlighted: false,
-      name: "Basic",
-      period: "per month",
-      price: "NPR 5,000",
-    },
-    {
-      ctaHref: "/register-hostel",
-      ctaLabel: "Get Started",
-      description: "For growing hostels that need full operations.",
-      enabled: true,
-      features: [
-        "1 hostel listing",
-        "Unlimited residents",
-        "Food & complaint modules",
-        "Guardian dashboard",
-        "Priority support",
-      ],
-      highlighted: true,
-      name: "Pro",
-      period: "per month",
-      price: "NPR 8,500",
-    },
-    {
-      ctaHref: "/contact",
-      ctaLabel: "Contact Sales",
-      description: "For operators running multiple properties.",
-      enabled: true,
-      features: [
-        "Unlimited hostels",
-        "Multi-property reporting",
-        "Custom onboarding",
-        "Dedicated account manager",
-      ],
-      highlighted: false,
-      name: "Enterprise",
-      period: "per month",
-      price: "NPR 25,000",
-    },
-  ],
+  /**
+   * The whole Plans & Pricing catalogue — tiers, modules, services and the
+   * writing on every service page. Authored in Platform → Website Config →
+   * Plans & Pricing; see `plans.defaults.ts` for why it is data rather than a
+   * component constant.
+   */
+  plans: DEFAULT_PLANS,
   social: {
     facebook: "",
     instagram: "",

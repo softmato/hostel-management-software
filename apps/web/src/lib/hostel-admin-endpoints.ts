@@ -42,6 +42,8 @@ export const hostelAdminEndpoints = {
   /** Prefix form for `useInvalidateResources` — drops every filter combination. */
   complaintsAll: "/api/v1/hostel-admin/complaints*",
   complaintsReport: "/api/v1/hostel-admin/reports/complaints",
+  /** The roster. `cookPortal` remains the master switch and the legacy read. */
+  cooks: "/api/v1/hostel-admin/cooks",
   cookPortal: "/api/v1/hostel-admin/cook-portal",
   /** The rate card, full history newest first. Never edited — only succeeded. */
   feeSchedules: "/api/v1/hostel-admin/finance/fee-schedules",

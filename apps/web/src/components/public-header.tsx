@@ -30,7 +30,7 @@ type PublicHeaderProps = {
     | "jobs"
     | "map"
     | "offer-program"
-    | "pricing"
+    | "plans-pricing"
     | "privacy"
     | "providers"
     | "register-hostel"
@@ -82,6 +82,9 @@ const navItems = [
   { href: "/community", id: "community", label: "Community" },
   { href: "/compare", id: "compare", label: "Compare" },
   { href: "/register-hostel", id: "register-hostel", label: "Register Hostel" },
+  // Top level, next to Register Hostel: it is the question an owner has the
+  // moment after they decide to list, and burying it under More made them hunt.
+  { href: "/plans-pricing", id: "plans-pricing", label: "Plans & Pricing" },
   // Lands on the public directory; registering is the CTA on that page.
   { href: "/service-providers", id: "providers", label: "Service Providers" },
 ] as const;
@@ -212,13 +215,16 @@ export function PublicHeader({ active }: PublicHeaderProps) {
           </span>
         </Link>
 
-        <nav className="hidden h-full items-center gap-6 text-sm font-medium text-foreground md:flex">
+        {/* Tight at md and roomy from lg: eight destinations plus More do not
+            fit a tablet at the desktop gap, and shrinking the gap beats hiding
+            the bar outright on that width. */}
+        <nav className="hidden h-full items-center gap-4 text-[13px] font-medium text-foreground md:flex lg:gap-6 lg:text-sm">
           {items.map((item) => (
             <Link
               key={item.id}
               href={item.href}
               className={cn(
-                "flex h-full items-center border-b-2 border-transparent pt-1 transition hover:text-brand-teal",
+                "flex h-full items-center whitespace-nowrap border-b-2 border-transparent pt-1 transition hover:text-brand-teal",
                 active === item.id && "border-b-2 border-brand-teal text-brand-teal",
               )}
             >

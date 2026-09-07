@@ -2,7 +2,7 @@
  * The platform owner's website configuration, as far as the phone needs it.
  *
  * `GET /public/site-config` returns the whole read-only projection —
- * announcement, hero, pricing, legal and the rest. This app used to type only
+ * announcement, hero, plans, legal and the rest. This app used to type only
  * `locations`, because the only screen reading it was the Popular Cities row on
  * the home page. That stopped being true when the website's header and footer
  * moved into the Profile tab: Pricing, Legal, Company and the contact block are
@@ -18,6 +18,8 @@
  * `publicApi`, not `api`. The route takes no principal and the phone reads it
  * before anyone has signed in, so a 401 interceptor has no business on it.
  */
+
+import type { PlansCatalog } from "@hostel/plans/catalog";
 
 import { publicApi } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
@@ -116,16 +118,29 @@ export type SiteSocial = {
   youtube: string;
 };
 
-/** One enabled plan from Website Config → Pricing Plans, in the owner's order. */
-export type SitePricingPlan = {
-  ctaHref: string;
-  ctaLabel: string;
-  description: string;
-  features: string[];
-  highlighted: boolean;
-  name: string;
-  period: string;
-  price: string;
+/**
+ * Website Config → Plans & Pricing: the whole catalogue, exactly as the website
+ * gets it — the tiers with their monthly price and per-cycle discounts, the
+ * modules, and every service under them.
+ *
+ * `PlansCatalog` is the shared shape the arithmetic in `@hostel/plans/catalog`
+ * reads; `page` is the headings and closing pitch, which only a renderer needs.
+ * This replaced a flat `pricing` array of pre-formatted strings — three cards of
+ * free text with no service identity behind them, which meant the app's Pricing
+ * screen and the website's were two different products described two different
+ * ways from two different sections of the config.
+ */
+export type SitePlans = PlansCatalog & {
+  page: {
+    ctaBody: string;
+    ctaHref: string;
+    ctaLabel: string;
+    ctaTitle: string;
+    featuredBadge: string;
+    footnote: string;
+    subtitle: string;
+    title: string;
+  };
 };
 
 export type MobileSiteConfig = {
@@ -134,7 +149,7 @@ export type MobileSiteConfig = {
   identity: SiteIdentity;
   legal: SiteLegal;
   locations: SiteLocation[];
-  pricing: SitePricingPlan[];
+  plans: SitePlans;
   social: SiteSocial;
 };
 
@@ -200,7 +215,28 @@ export const FALLBACK_SITE_CONFIG: MobileSiteConfig = {
     terms: { body: "", updatedAt: "" },
   },
   locations: [],
-  pricing: [],
+  /*
+   * Empty for the same reason `content` is: the tiers are entirely owner-
+   * authored, and three invented plans printed next to a currency symbol is
+   * fiction. The Pricing screen has a real loading and error state precisely so
+   * it can say nothing until the server answers.
+   */
+  plans: {
+    cycleLabels: { annual: "Annual", halfYearly: "6 months", monthly: "Monthly" },
+    modules: [],
+    page: {
+      ctaBody: "",
+      ctaHref: "/contact",
+      ctaLabel: "",
+      ctaTitle: "",
+      featuredBadge: "Most chosen",
+      footnote: "",
+      subtitle: "",
+      title: "Plans & Pricing",
+    },
+    plans: [],
+    services: [],
+  },
   social: {
     facebook: "",
     instagram: "",
@@ -235,7 +271,7 @@ function withDefaults(config: SiteConfigResponse): MobileSiteConfig {
       terms: { ...FALLBACK_SITE_CONFIG.legal.terms, ...config.legal?.terms },
     },
     locations: config.locations ?? [],
-    pricing: config.pricing ?? [],
+    plans: config.plans ?? FALLBACK_SITE_CONFIG.plans,
     social: { ...FALLBACK_SITE_CONFIG.social, ...config.social },
   };
 }

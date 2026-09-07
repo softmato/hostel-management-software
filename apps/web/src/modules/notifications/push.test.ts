@@ -210,6 +210,17 @@ describe("deepLinkForNotification", () => {
     );
   });
 
+  it("sends the office's copy of a food announcement to the admin screen", () => {
+    // Same category, two audiences. `(resident)` is a route group a warden's
+    // account cannot open, so the FOOD default would land them nowhere.
+    expect(
+      deepLinkForNotification({ category: "FOOD", data: { audience: "STAFF" } }),
+    ).toBe("/(admin)/today");
+    expect(deepLinkForNotification({ category: "FOOD", data: { mealType: "LUNCH" } })).toBe(
+      "/(resident)/food",
+    );
+  });
+
   it("routes store pushes to mobile store paths", () => {
     expect(
       deepLinkForNotification({

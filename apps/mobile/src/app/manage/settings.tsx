@@ -92,6 +92,15 @@ const CHANGE_TYPES = [
 /** Mirrors `PHOTO_LIMITS` for the two gallery kinds in `hostel-profile.service`. */
 const GALLERY_LIMIT = 20;
 
+/**
+ * Which of the three "add a photo" buttons started an upload.
+ *
+ * Not the photo's `kind`: the section header's Add and the strip's "Add outside
+ * shot" both file an `EXTERIOR` shot, and keying on the kind would spin the two
+ * of them for one tap.
+ */
+type PhotoSlot = "header" | "inside" | "outside";
+
 type Panel =
   | "about"
   | "attendance"
@@ -123,7 +132,13 @@ export default function ManageSettingsScreen() {
 
   const [panel, setPanel] = useState<Panel>(null);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  /*
+   * Which photo button was pressed, not merely that a photo is going up. Three
+   * of them are on screen together — the section header's "Add" and the pair
+   * under the strip — and one shared boolean spun all three at whichever was
+   * tapped, so none of them reported the upload that was actually running.
+   */
+  const [uploading, setUploading] = useState<PhotoSlot | null>(null);
 
   // One draft object rather than a state per field: every panel below edits a
   // slice of the same hostel record, and a save sends only the keys it touched.
@@ -254,7 +269,7 @@ export default function ManageSettingsScreen() {
   }, [geoQuery]);
 
   const addGalleryPhoto = useCallback(
-    async (kind: "EXTERIOR" | "INTERIOR") => {
+    async (kind: "EXTERIOR" | "INTERIOR", slot: PhotoSlot) => {
       if (gallery.length >= GALLERY_LIMIT) {
         toastError("Gallery full", `The listing holds at most ${GALLERY_LIMIT} photos.`);
         return;
@@ -278,7 +293,7 @@ export default function ManageSettingsScreen() {
         return;
       }
 
-      setUploading(true);
+      setUploading(slot);
 
       try {
         for (const asset of result.assets) {
@@ -296,7 +311,7 @@ export default function ManageSettingsScreen() {
       } catch (error) {
         toastError("Upload failed", readApiError(error));
       } finally {
-        setUploading(false);
+        setUploading(null);
         await reload();
       }
     },
@@ -508,9 +523,10 @@ export default function ManageSettingsScreen() {
           <SectionHeader
             action={
               <Button
+                disabled={uploading !== null}
                 label="Add"
-                loading={uploading}
-                onPress={() => void addGalleryPhoto("EXTERIOR")}
+                loading={uploading === "header"}
+                onPress={() => void addGalleryPhoto("EXTERIOR", "header")}
                 size="sm"
                 variant="outline"
               />
@@ -584,17 +600,19 @@ export default function ManageSettingsScreen() {
             <View className="flex-row gap-2">
               <Button
                 className="flex-1"
+                disabled={uploading !== null}
                 label="Add outside shot"
-                loading={uploading}
-                onPress={() => void addGalleryPhoto("EXTERIOR")}
+                loading={uploading === "outside"}
+                onPress={() => void addGalleryPhoto("EXTERIOR", "outside")}
                 size="sm"
                 variant="outline"
               />
               <Button
                 className="flex-1"
+                disabled={uploading !== null}
                 label="Add inside shot"
-                loading={uploading}
-                onPress={() => void addGalleryPhoto("INTERIOR")}
+                loading={uploading === "inside"}
+                onPress={() => void addGalleryPhoto("INTERIOR", "inside")}
                 size="sm"
                 variant="outline"
               />

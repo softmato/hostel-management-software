@@ -1,22 +1,25 @@
+import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
 import { DayStrip, MealCard } from "@/components/food-routine";
 import { AppBar } from "@/components/ui/app-bar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Chip, FactRow } from "@/components/ui/layout";
+import { Chip } from "@/components/ui/layout";
+import { ListRow } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { Sheet } from "@/components/ui/sheet";
 import { ErrorState, LoadingState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { Toggle } from "@/components/ui/toggle";
-import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { saveFoodRoutine, updateCookPortal } from "@/lib/admin-manage-api";
-import { type AdminFoodData, adminQuery } from "@/lib/admin-queries";
+import { saveFoodRoutine } from "@/lib/admin-manage-api";
+import {
+  type AdminFoodData,
+  adminQuery,
+  prefetchAdminRoute,
+} from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import { MEAL_TYPES, type MealType, ROUTINE_DAYS, type RoutineDay, todayInNepal } from "@/lib/food-week";
@@ -47,12 +50,14 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * note is already on the meal card you are looking at. So there is no third tab
  * here, and nothing is missing.
  *
- * ## The cook portal is on this screen because it is the same job
+ * ## The kitchen is one row, not a section
  *
- * The web puts it at the bottom of Food, and that is right: deciding what the
- * kitchen serves and deciding who is allowed to say it is ready are the same
- * person's decisions. Enabling it emails the cook a one-time password; nobody,
- * including this screen, can read that password back afterwards.
+ * Deciding what is served and deciding who may say it is ready are the same
+ * person's decisions, so a door to the cooks belongs here. It used to be the
+ * whole control panel — a switch, a name field, a login, a password status —
+ * and that stopped fitting when a hostel could have several cooks, invited as
+ * well as issued, each removable. `manage/cook.tsx` owns that now; this screen
+ * points at it.
  */
 
 const MEAL_HINTS: Record<MealType, string> = {
@@ -104,7 +109,6 @@ function draftFrom(routine: FoodRoutine | null): Draft {
 /* `FoodData` and its loader are `adminQuery.food()` — see `lib/admin-queries.ts`. */
 
 export default function ManageFoodScreen() {
-  const dates = useDates();
   const query = adminQuery.food();
   const food = useResource<AdminFoodData>(query.load, {
     cacheKey: query.key,
@@ -116,15 +120,12 @@ export default function ManageFoodScreen() {
   const [editing, setEditing] = useState<MealType | null>(null);
   const [monthEndOpen, setMonthEndOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [cookName, setCookName] = useState<string | null>(null);
-  const [cookBusy, setCookBusy] = useState(false);
 
   const loaded = useMemo(() => draftFrom(food.data?.routine ?? null), [food.data]);
   const current = draft ?? loaded;
   const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(loaded);
 
   const cook = food.data?.cook ?? null;
-  const cookNameValue = cookName ?? cook?.cookName ?? "";
 
   const setCell = useCallback(
     (mealType: MealType, next: MealDraft) => {
@@ -191,29 +192,6 @@ export default function ManageFoodScreen() {
       setSaving(false);
     }
   }, [current, food]);
-
-  const toggleCookPortal = useCallback(
-    async (enabled: boolean) => {
-      setCookBusy(true);
-
-      try {
-        await updateCookPortal({ cookName: cookNameValue.trim() || undefined, enabled });
-        toastSuccess(
-          enabled ? "Cook portal enabled" : "Cook portal disabled",
-          enabled
-            ? "A one-time password has been emailed to the cook."
-            : "The cook's login is suspended, not deleted.",
-        );
-        setCookName(null);
-        await food.reload();
-      } catch (error) {
-        toastError("Could not change that", readApiError(error));
-      } finally {
-        setCookBusy(false);
-      }
-    },
-    [cookNameValue, food],
-  );
 
   if (food.loading) {
     return (
@@ -362,91 +340,42 @@ export default function ManageFoodScreen() {
 
         <View>
           <SectionHeader
-            subtitle="Lets the kitchen publish photos and say the food is ready"
-            title="Cook portal"
+            subtitle="Who is allowed to say the food is ready"
+            title="The kitchen"
           />
 
+          {/*
+            A door, not a card.
+
+            This section used to be the cook portal itself — a switch, a name
+            field, a login and a password status. That fitted while a hostel had
+            one cook. It now has a roster, two ways of granting access, a
+            password rotation and a removal that renames a departed cook's
+            history, and none of that belongs underneath twenty-eight meal cells
+            on the screen somebody opened to fix Thursday's lunch.
+
+            `PermissionCard` still guards it, because `manageFood` is what the
+            roster routes are gated on and a warden without it should be told so
+            here rather than after the tap.
+          */}
           {cook === null ? (
-            <PermissionCard capability="food" feature="The cook portal" />
+            <PermissionCard capability="food" feature="Cooks" />
           ) : (
-            <Card className="gap-3">
-              <View className="flex-row items-center justify-between gap-3">
-                <View className="flex-1">
-                  <Text variant="label">
-                    {cook.cookPortalEnabled ? "Enabled" : "Not enabled"}
-                  </Text>
-                  <Text variant="caption">
-                    {cook.cookPortalEnabled
-                      ? "The cook can sign in on their own phone."
-                      : "Turn it on and we email the cook a login."}
-                  </Text>
-                </View>
-                <Toggle
-                  accessibilityLabel="Cook portal enabled"
-                  disabled={cookBusy}
-                  onChange={(enabled) => void toggleCookPortal(enabled)}
-                  value={cook.cookPortalEnabled}
-                />
-              </View>
-
-              {cook.cookPortalEnabled ? (
-                <View className="gap-2 border-t border-border pt-3">
-                  <FactRow label="Login" value={cook.cookEmail || "—"} />
-                  {cook.credentialIssuedAt ? (
-                    <FactRow
-                      label="Issued"
-                      value={dates.date(cook.credentialIssuedAt)}
-                    />
-                  ) : null}
-                  <FactRow
-                    label="Password"
-                    value={
-                      <Badge
-                        label={
-                          cook.initialPasswordPending
-                            ? "First password unused"
-                            : "Set by the cook"
-                        }
-                        tone={cook.initialPasswordPending ? "warning" : "success"}
-                      />
-                    }
-                  />
-                  {cook.initialPasswordPending ? null : (
-                    <Text variant="caption">
-                      Only its hash is stored, so it cannot be looked up — if the cook
-                      is locked out, disable and re-enable the portal to issue a new
-                      one.
-                    </Text>
-                  )}
-                </View>
-              ) : null}
-
-              <Input
-                hint={
+            <Card className="p-0">
+              <ListRow
+                icon="flame-outline"
+                onPress={() => router.push("/manage/cook")}
+                onPressIn={() => prefetchAdminRoute("/manage/cook")}
+                subtitle={
                   cook.cookPortalEnabled
-                    ? "Shown to residents next to food photos and the ready announcement."
-                    : "Saved when you enable the portal — the disable path does not write it."
+                    ? cook.cookName
+                      ? `${cook.cookName} can announce meals and post photos`
+                      : "Somebody can announce meals and post photos"
+                    : "Nobody has the kitchen yet"
                 }
-                label="Cook's name"
-                onChangeText={setCookName}
-                placeholder="Who runs the kitchen"
-                value={cookNameValue}
+                title="Cooks"
+                value={cook.cookPortalEnabled ? "Open" : "Set up"}
               />
-
-              {/*
-                Only offered while the portal is on. `updateCookPortal` branches
-                on `enabled` and the **disabled branch never writes `cookName`**
-                — so a Save button here would report success and change nothing,
-                which is worse than not offering it.
-              */}
-              {cook.cookPortalEnabled && cookNameValue.trim() !== (cook.cookName ?? "") ? (
-                <Button
-                  label="Save the name"
-                  loading={cookBusy}
-                  onPress={() => void toggleCookPortal(true)}
-                  size="sm"
-                />
-              ) : null}
             </Card>
           )}
         </View>

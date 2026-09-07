@@ -31,6 +31,8 @@
     "web:migrate:finance-ledger": "npm --prefix apps/web run migrate:finance-ledger",
     "web:verify:finance-ledger": "npm --prefix apps/web run verify:finance-ledger",
     "web:typecheck": "npm --prefix apps/web run typecheck",
+    "web:evidence:fixtures": "npm --prefix apps/web run evidence:fixtures",
+    "web:evidence:score": "npm --prefix apps/web run evidence:score",
     "web:repair:archived-residents": "npm --prefix apps/web run repair:archived-residents",
     "web:deploy:check": "npm --prefix apps/web run deploy:check",
     "mobile:start": "npm --prefix apps/mobile run start",

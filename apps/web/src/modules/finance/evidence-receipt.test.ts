@@ -205,6 +205,216 @@ describe("labelledValue — the layouts a recognised receipt has", () => {
   it("returns null when the label is not there", () => {
     expect(labelledValue("eSewa\nRs. 8,500", /transaction\s*code/)).toBeNull();
   });
+
+  /*
+   * The line below is copied out of `fixtures/evidence-golden/real/esewa-02.pdf`,
+   * where the text layer flattens two printed columns into one line. Before this
+   * stopped at the second label the transaction code read
+   * `1PD5FB9 Date : 2026-08-24 01:38 PM NPT`.
+   */
+  it("stops at the next label when a PDF flattens two columns onto one line", () => {
+    const line = "Reference Code : 1PD5FB9 Date : 2026-08-24 01:38 PM NPT";
+
+    expect(labelledValue(`Send Money\n${line}`, /reference\s*code/)).toBe(
+      "1PD5FB9",
+    );
+  });
+
+  /*
+   * The *first* field on such a line reads cleanly. The second one does not read
+   * at all — a label is anchored to the start of a line, so `Channel` here is
+   * unreachable and comes back null. That is the existing contract and this test
+   * pins it: cutting the value short must not be mistaken for having taught the
+   * reader to find a label mid-line.
+   */
+  it("reads the first field on such a line and leaves the second unread", () => {
+    const line = "Amount : 100.00 Channel : App";
+
+    expect(labelledValue(`Send Money\n${line}`, /amount/)).toBe("100.00");
+    expect(labelledValue(`Send Money\n${line}`, /channel/)).toBeNull();
+  });
+
+  // A colon inside a value is not a second field, and the space in front of the
+  // one that is a label is the whole difference. Khalti prints film titles.
+  it("keeps a colon that belongs to the value", () => {
+    expect(
+      labelledValue("Khalti\nProduct Name  Spider-Man: Brand New Day", /product\s*name/),
+    ).toBe("Spider-Man: Brand New Day");
+  });
+});
+
+/*
+ * Every one of these labels ends in the word `Name`, and every template except
+ * the bank catch-all used to match only the noun in front of it — so the value
+ * came back as `Name : Kartik Adhikari`. That string is what the payee check
+ * compares against the hostel's registered account name, and it never matched:
+ * a receipt that genuinely paid the hostel was read as one that could not be
+ * verified. Found on `real/esewa-02.pdf`, whose own manifest note says it should
+ * score full marks.
+ */
+describe("parseReceipt — a label whose last word is `Name`", () => {
+  it.each([
+    ["eSewa", "Receiver Name : Kartik Adhikari", "Initiator Name : Aadarsh Yadav"],
+    ["Khalti", "Receiver Name : Kartik Adhikari", "Sender Name : Aadarsh Yadav"],
+    ["Fonepay", "Receiver Name : Kartik Adhikari", "Payer Name : Aadarsh Yadav"],
+    ["ConnectIPS", "Receiver Name : Kartik Adhikari", "Sender Name : Aadarsh Yadav"],
+  ])("does not leave `Name` on the value for %s", (brand, payeeLine, payerLine) => {
+    const parsed = parseReceipt(
+      [brand, "PAYMENT RECEIPT", payeeLine, payerLine, "Amount : 100.00"].join(
+        "\n",
+      ),
+    );
+
+    expect(parsed.payee).toBe("Kartik Adhikari");
+    expect(parsed.payer).toBe("Aadarsh Yadav");
+  });
+});
+
+/*
+ * From `fixtures/evidence-golden/real/khalti-01.pdf`, which glues the
+ * counterparty's contact detail to their name. The hostel registers a name, so
+ * a payee carrying an email in brackets never matched one.
+ */
+describe("parseReceipt — a name with contact detail stuck to it", () => {
+  it("drops a bracketed email or phone number", () => {
+    const parsed = parseReceipt(
+      [
+        "Khalti",
+        "PAYMENT RECEIPT",
+        "From Siddhant Yadav(9709155982)",
+        "To Qfx-central Cinemas(payments.central@qfxcinemas.com)",
+        "Amount Rs 600.0",
+      ].join("\n"),
+    );
+
+    expect(parsed.payee).toBe("Qfx-central Cinemas");
+    expect(parsed.payer).toBe("Siddhant Yadav");
+  });
+
+  // The rule is contact detail, not brackets. A company keeps its own.
+  it("keeps a bracketed part of the business name itself", () => {
+    const parsed = parseReceipt(
+      [
+        "Khalti",
+        "PAYMENT RECEIPT",
+        "To Acme (Nepal) Pvt Ltd",
+        "Amount Rs 600.0",
+      ].join("\n"),
+    );
+
+    expect(parsed.payee).toBe("Acme (Nepal) Pvt Ltd");
+  });
+});
+
+/*
+ * Everest Bank's in-app `Payment Details` screen, transcribed off
+ * `fixtures/evidence-golden/real/banks-08.jpeg` and `real/banks-04.jpeg`.
+ *
+ * The bank's name appears **nowhere** on either screen — only the logo of the
+ * rail that carried the payment, Fonepay on one and eSewa on the other. So the
+ * `BANK` template cannot claim these at all, and the rail's template gets a
+ * document written in the bank's label vocabulary. Both of these produced a
+ * wrong answer before that vocabulary was added, and both are real receipts a
+ * resident can send today.
+ */
+describe("parseReceipt — a bank screen wearing a payment rail's logo", () => {
+  const ebl = (rail: string, rows: string[]) =>
+    [
+      "Payment Details",
+      rail,
+      "Reference Code  111903076",
+      "Date/Time  10 Aug 2026,07:10 PM",
+      "Channel  Online",
+      "Service Name  Mobile Convergent",
+      "Amount (NPR)  70.00",
+      "Amount In Words (NPR)  Seventy Rupees Only",
+      "Initiator  9709155982",
+      ...rows,
+      "Status  SUCCESS",
+    ].join("\n");
+
+  /*
+   * The same screen as a text-only recogniser actually sees it.
+   *
+   * The rail's logo is an image, so an engine that transcribes text emits no
+   * brand word at all — and with no bank name on the page either, this document
+   * matched no template and returned null for every field. It is recognised by
+   * its label vocabulary instead.
+   */
+  it("recognises the layout when no brand survives as text", () => {
+    const parsed = parseReceipt(
+      [
+        "Payment For TEA TIME ANYTIME CAFETERIA",
+        "Reference Code 111903076",
+        "Channel Online",
+        "Payment Attribute 2222090020887310/chitya/194011457u4T/TEA TIME",
+        "Service Name Mobile Convergent",
+        "Amount (NPR) 70.00",
+        "Initiator 9709155982",
+        "Qr Merchant Name TEA TIME ANYTIME CAFETERIA",
+        "Status SUCCESS",
+      ].join("\n"),
+    );
+
+    expect(parsed.provider).toBe("BANK");
+    expect(parsed.amount).toBe(70);
+    expect(parsed.payee).toBe("TEA TIME ANYTIME CAFETERIA");
+    expect(parsed.txnId).toBe("111903076");
+  });
+
+  it("reads the merchant and the reference off a Fonepay-branded bank screen", () => {
+    const parsed = parseReceipt(
+      ebl("fonepay", ["Qr Merchant Name  TEA TIME ANYTIME CAFETERIA"]),
+    );
+
+    expect(parsed.provider).toBe("FONEPAY");
+    expect(parsed.payee).toBe("TEA TIME ANYTIME CAFETERIA");
+    expect(parsed.txnId).toBe("111903076");
+    expect(parsed.amount).toBe(70);
+  });
+
+  /*
+   * The regression this pins is subtle and was live: `Service Name` sits above
+   * `Receiver Name` on the screen, and `labelledValue` returns the first match
+   * by position — so a `service name` alternative in the payee pattern made the
+   * payee `Load eSewa`, the name of the service being bought.
+   */
+  it("does not mistake the service being paid for the party being paid", () => {
+    const parsed = parseReceipt(
+      [
+        "Payment Details",
+        "Load eSewa",
+        "Reference Code  112636009",
+        "Service Name  Load eSewa",
+        "Amount (NPR)  70.00",
+        "Initiator  9709155982",
+        "Receiver Name  Kartik Adhikari",
+        "Status  SUCCESS",
+      ].join("\n"),
+    );
+
+    expect(parsed.provider).toBe("ESEWA");
+    expect(parsed.payee).toBe("Kartik Adhikari");
+  });
+
+  // banks-04 as it actually is: the receiver is masked, and the manifest's
+  // ground truth for its payee is null.
+  it("reports no payee when the counterparty is masked", () => {
+    const parsed = parseReceipt(
+      [
+        "Payment Details",
+        "Load eSewa",
+        "Reference Code  112636009",
+        "Service Name  Load eSewa",
+        "Amount (NPR)  70.00",
+        "Receiver Name  *********** Yadav",
+        "Status  SUCCESS",
+      ].join("\n"),
+    );
+
+    expect(parsed.payee).toBeNull();
+    expect(parsed.txnId).toBe("112636009");
+  });
 });
 
 describe("parseReceipt — fields that are not values", () => {

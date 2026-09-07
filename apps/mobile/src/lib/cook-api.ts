@@ -36,6 +36,19 @@ import type { FoodRoutine, MealType, RoutineMeal } from "@/lib/resident-api";
 
 export type FoodReadyAnnouncement = {
   announcedAt: string;
+  /**
+   * Who called it, resolved through the hostel's cook roster rather than joined
+   * to the account's name.
+   *
+   * A cook who has left reads as `Previous Sunrise cook` — the label frozen
+   * when they were removed — because their account is gone and the name of
+   * whoever holds the kitchen login *now* would be a lie about who cooked in
+   * Bhadra. Empty for announcements made before the roster existed, and
+   * **absent entirely** from `/cook/today`, which lists today's announcements
+   * so the four meal buttons can show `Sent 12:04` — who called it is not that
+   * list's question. Only the history on More asks it.
+   */
+  announcedBy?: string;
   id: string;
   mealType: string;
   message: string;
@@ -90,7 +103,19 @@ export async function listCookResidents() {
 /* Announce                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export type FoodReadyResult = { announcement: FoodReadyAnnouncement };
+/**
+ * The announce response, which carries one field the log rows do not.
+ *
+ * The hostel's own staff — owner, hostel admins, wardens — get their own
+ * notification when the kitchen calls a meal, worded for them: the time, the
+ * reach and the handset it came from. `staffNotifiedCount` is how many of them
+ * were told, and it exists so the cook's toast can say the office knows too.
+ * `listFoodReadyLogs` returns plain `FoodReadyAnnouncement` rows, so this is not
+ * on the shared type.
+ */
+export type FoodReadySent = FoodReadyAnnouncement & { staffNotifiedCount: number };
+
+export type FoodReadyResult = { announcement: FoodReadySent };
 
 /**
  * `POST /cook/food-ready`.
@@ -207,11 +232,28 @@ export type CookPhotoDay = {
  * mean the phone's timezone decided which day a meal belonged to, and a cook
  * whose handset is set to anything else would see breakfast filed under
  * yesterday — Nepal is +05:45, so an early meal is the previous UTC day.
+ *
+ * **It pages, and the page boundary is a keyset rather than an offset.** A page
+ * is 120 photos, which is about a fortnight of four meals a day, and a kitchen
+ * posting daily loses last month off the bottom without this. `cursor` is the
+ * last row's own sort key, so a photo posted while a cook is paging cannot
+ * shuffle a row into or out of the next page the way `skip` would.
  */
-export async function listCookFoodPhotos() {
-  const response = await api.get<
-    ApiEnvelope<{ days: CookPhotoDay[]; hasMore: boolean; total: number }>
-  >("/cook/food-photos");
+export type CookPhotoFeed = {
+  /**
+   * Where the next page starts, or `null` at the end of the feed. Opaque — it
+   * is the server's own sort key and is handed straight back, never built here.
+   */
+  cursor: string | null;
+  days: CookPhotoDay[];
+  hasMore: boolean;
+  total: number;
+};
+
+export async function listCookFoodPhotos(cursor?: string) {
+  const response = await api.get<ApiEnvelope<CookPhotoFeed>>("/cook/food-photos", {
+    ...(cursor ? { params: { cursor } } : {}),
+  });
 
   return unwrap(response);
 }

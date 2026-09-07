@@ -13,7 +13,8 @@
     "./email/templates/*": "./src/email/templates/*.ts",
     "./constants/*": "./src/constants/*.ts",
     "./utils/*": "./src/utils/*.ts",
-    "./calendar/*": "./src/calendar/*.ts"
+    "./calendar/*": "./src/calendar/*.ts",
+    "./plans/*": "./src/plans/*.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

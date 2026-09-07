@@ -61,7 +61,12 @@ function roomTypeKey(value: string | null | undefined) {
 
 export default function ManageRatesScreen() {
   const dates = useDates();
-  const [busy, setBusy] = useState(false);
+  /*
+   * Saving and deleting are both on screen at once — the footer's "Save rates"
+   * and the ghost "Delete these upcoming rates" under the card — so the flag has
+   * to say which one is running or the spinner appears on both.
+   */
+  const [busy, setBusy] = useState<"delete" | "save" | null>(null);
   const [ratesDraft, setRatesDraft] = useState<Record<string, string> | null>(null);
   const [formDraft, setFormDraft] = useState<Record<string, string> | null>(null);
 
@@ -195,7 +200,7 @@ export default function ManageRatesScreen() {
       return;
     }
 
-    setBusy(true);
+    setBusy("save");
 
     try {
       await createFeeSchedule({
@@ -212,7 +217,7 @@ export default function ManageRatesScreen() {
     } catch (error) {
       toastError("Could not save", readApiError(error));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [form, rates, roomTypes]);
 
@@ -229,7 +234,7 @@ export default function ManageRatesScreen() {
         {
           onPress: () => {
             void (async () => {
-              setBusy(true);
+              setBusy("delete");
 
               try {
                 await deleteFeeSchedule(upcoming._id);
@@ -238,7 +243,7 @@ export default function ManageRatesScreen() {
               } catch (error) {
                 toastError("Could not delete them", readApiError(error));
               } finally {
-                setBusy(false);
+                setBusy(null);
               }
             })();
           },
@@ -267,7 +272,14 @@ export default function ManageRatesScreen() {
 
   return (
     <Screen
-      footer={<Button label="Save rates" loading={busy} onPress={() => void submit()} />}
+      footer={
+        <Button
+          disabled={busy === "delete"}
+          label="Save rates"
+          loading={busy === "save"}
+          onPress={() => void submit()}
+        />
+      }
       header={
         <AppBar
           accent
@@ -401,8 +413,9 @@ export default function ManageRatesScreen() {
         */}
         {upcoming ? (
           <Button
+            disabled={busy === "save"}
             label="Delete these upcoming rates"
-            loading={busy}
+            loading={busy === "delete"}
             onPress={stop}
             size="sm"
             variant="ghost"

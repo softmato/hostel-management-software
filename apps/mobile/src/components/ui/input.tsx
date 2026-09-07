@@ -46,12 +46,41 @@ const FIELD_HEIGHT = 48;
  * text in a tall box, and every caller that remembered it wanted the same thing.
  * A caller's own `style` is merged last and still wins.
  */
+/**
+ * The borders {@link Input.tone} can ask for.
+ *
+ * One utility per tone and no fill: a tinted *background* on a field reads as a
+ * field that cannot be edited, which is the opposite of what every one of these
+ * means — each of them is asking to be looked at, and two of them are asking to
+ * be typed in.
+ */
+const FIELD_TONES = {
+  danger: "border-destructive",
+  success: "border-success",
+  warning: "border-warning",
+} as const;
+
 type InputProps = Omit<TextInputProps, "className"> & {
   error?: string | null;
   hint?: string;
   label?: string;
   /** Renders the show/hide toggle and starts masked. */
   secure?: boolean;
+  /**
+   * Colours the border without printing a sentence under it.
+   *
+   * For the case `error` cannot express: a field the *screen* has something to
+   * say about, where the sentence is already said once, elsewhere, about the
+   * group. The claim form is the case it exists for — a receipt read fills
+   * three fields and leaves one empty, and the resident has to be shown *which*
+   * of them still wants an answer while a single notice at the top explains
+   * why. Four red captions repeating one banner is not that.
+   *
+   * `error` still wins: a validation failure is about this field alone and has
+   * its own words, and focus wins over both, because a border that will not
+   * follow the caret reads as a field that is not taking input.
+   */
+  tone?: keyof typeof FIELD_TONES;
 };
 
 export function Input({
@@ -63,6 +92,7 @@ export function Input({
   onBlur,
   onFocus,
   style,
+  tone,
   ...props
 }: InputProps) {
   const { colors } = useAppTheme();
@@ -73,7 +103,9 @@ export function Input({
     ? "border-destructive"
     : focused
       ? "border-primary"
-      : "border-border";
+      : tone
+        ? FIELD_TONES[tone]
+        : "border-border";
 
   return (
     <View className="gap-1.5">

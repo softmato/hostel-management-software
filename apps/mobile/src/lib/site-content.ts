@@ -95,6 +95,7 @@ const CONTENT_ICONS: Record<string, IoniconName> = {
   target: "locate-outline",
   "user-check": "person-circle-outline",
   "user-plus": "person-add-outline",
+  "user-round": "person-outline",
   users: "people-outline",
   utensils: "restaurant-outline",
   wallet: "wallet-outline",

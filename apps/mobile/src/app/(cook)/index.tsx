@@ -17,14 +17,14 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { announceFoodReady, type CookToday } from "@/lib/cook-api";
-import { cookQuery } from "@/lib/cook-queries";
+import { cookQuery, recordCookAnnouncement } from "@/lib/cook-queries";
 import {
   announcedCount,
+  announcementSummary,
   mealButtonLabel,
   mealButtons,
   mealSubtitle,
   nextUnannounced,
-  reachedNobody,
 } from "@/lib/cook";
 import { collectDeviceInfo } from "@/lib/device-info";
 import { formatTime, humanizeEnum } from "@/lib/format";
@@ -65,7 +65,17 @@ import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
  * not a single resident had an account to notify. Reporting "residents
  * notified" off the status code would tell a cook the hostel had been called to
  * dinner when nobody was told, so the toast reads the count and says so plainly
- * when it is zero.
+ * when it is zero. `announcementSummary` owns that sentence, because there are
+ * two audiences now and each of them can be empty.
+ *
+ * ## The office hears it too
+ *
+ * The same announcement writes a second, differently worded notification to the
+ * hostel's owner, admins and wardens — the time, the reach and the handset it
+ * came from (`food-ready-notify.ts`). A cook does not have to do anything about
+ * that, but they are told it happened: a kitchen that knows the warden got the
+ * same ping is a kitchen that stops walking to the office to check the app
+ * worked.
  *
  * ## The cooldown belongs to the server
  *
@@ -102,19 +112,30 @@ export default function CookTodayScreen() {
           mealType,
         });
 
-        if (reachedNobody(announcement)) {
-          toastInfo(
-            "Nobody was notified",
-            "This announcement was recorded, but no resident here has an app account yet.",
-          );
+        const summary = announcementSummary(announcement);
+
+        if (summary.reached) {
+          toastSuccess(`${humanizeEnum(mealType)} announced`, summary.body);
         } else {
-          toastSuccess(
-            `${humanizeEnum(mealType)} announced`,
-            `${announcement.notifiedCount} resident(s) notified.`,
-          );
+          toastInfo("Nobody was notified", summary.body);
         }
 
-        today.refresh();
+        /*
+         * The response, written into the cache — not a refetch.
+         *
+         * `today.refresh()` here was a whole `GET /cook/today` (the week's
+         * routine, the hostel, the head count) to learn one fact the POST had
+         * just returned. On a kitchen handset that is a visible pause between
+         * the button and `Sent 12:04` appearing, which is exactly when a cook
+         * presses again because nothing happened — and the second press is the
+         * one that hits the cooldown 429.
+         *
+         * Nothing is guessed: every field comes off the server's own reply, and
+         * this line is not reached at all if the announce threw. The More tab's
+         * record updates from the same call, so the two screens cannot disagree
+         * about a meal that was announced thirty seconds ago.
+         */
+        recordCookAnnouncement(announcement);
       } catch (caught) {
         // Includes the 429 cooldown, whose message names the wait in minutes.
         toastError("Not announced", readApiError(caught));
@@ -122,7 +143,7 @@ export default function CookTodayScreen() {
         setBusy(null);
       }
     },
-    [today],
+    [],
   );
 
   /*
@@ -211,7 +232,7 @@ export default function CookTodayScreen() {
 
       <View className="gap-3 px-5 pt-6">
         <SectionHeader
-          subtitle="Tap when the food is out — every resident gets a notification"
+          subtitle="Tap when the food is out — residents get a notification, and so does the office"
           title="Food ready"
         />
 

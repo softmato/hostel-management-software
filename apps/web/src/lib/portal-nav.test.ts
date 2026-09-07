@@ -22,7 +22,6 @@ describe("platform moderator navigation", () => {
     expect(moderatorHrefs.some((href) => href.startsWith("/platform/config"))).toBe(
       false,
     );
-    expect(moderatorHrefs).not.toContain("/platform/fee-plans");
     expect(moderatorHrefs).not.toContain("/platform/settings");
   });
 

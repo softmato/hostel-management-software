@@ -180,7 +180,14 @@ export type AdminInquiry = {
  */
 export type AdminClaimCheck = {
   detail: string;
-  key: "AMOUNT" | "EVIDENCE" | "INVOICE_OPEN" | "PAYEE" | "REFERENCE" | "SIMILARITY";
+  key:
+    | "AMOUNT"
+    | "EVIDENCE"
+    | "FILE"
+    | "INVOICE_OPEN"
+    | "PAYEE"
+    | "REFERENCE"
+    | "SIMILARITY";
   ok: boolean;
 };
 
