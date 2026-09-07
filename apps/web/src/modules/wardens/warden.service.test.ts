@@ -46,6 +46,14 @@ vi.mock("@/modules/users/user.service", () => ({
   registerOrUpgradeUserByEmail: serviceMocks.registerOrUpgrade,
 }));
 
+// Delivery is its own concern and reaches models this file does not mock.
+// Same convention as `complaint.service.test.ts`: the notifier is stubbed and
+// tested on its own, so a change to who gets told never breaks the service test.
+vi.mock("@/modules/wardens/warden-notify", () => ({
+  notifyWardenAdded: vi.fn(),
+  notifyWardenUpdated: vi.fn(),
+}));
+
 import {
   createHostelWarden,
   deactivateHostelWarden,

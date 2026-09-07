@@ -301,6 +301,7 @@ describe("earningsSummary", () => {
       lifetime: 900000,
       outstanding: 140000,
       outstandingIsLifetime: true,
+      period: "2026-08",
       thisMonth: 70000,
       thisMonthBilled: 110000,
     });
@@ -315,6 +316,8 @@ describe("earningsSummary", () => {
       lifetime: null,
       outstanding: 35000,
       outstandingIsLifetime: false,
+      // Nothing to name: the hero says `This month` rather than `In —`.
+      period: null,
       thisMonth: 65000,
       thisMonthBilled: 100000,
     });

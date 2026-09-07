@@ -19,6 +19,7 @@ import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
 import { NotificationCampaignModel } from "@hostel/db/models/NotificationCampaign";
 import { NotificationModel } from "@hostel/db/models/Notification";
+import { sendPushToUsers } from "@/modules/notifications/push.service";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import type {
   hostelNotificationCampaignSchema,
@@ -228,6 +229,36 @@ export async function dispatchCampaign(campaign: CampaignRecord) {
       body: campaign.body,
       campaignId: campaign._id.toString(),
       category: campaign.category,
+      priority: campaign.priority,
+      title: campaign.title,
+    });
+  }
+
+  /*
+   * And the push, to phones and browsers alike.
+   *
+   * This was missing entirely, and the reason is the `insertMany` above: every
+   * other notification in the product is written through
+   * `createInAppNotification`, which fans out to the socket *and* to the
+   * devices on the way past. Campaigns take the bulk path for the recipient
+   * counts they have to handle, and in doing so skipped the only thing that
+   * reaches somebody who is not currently looking at the app.
+   *
+   * So the deliberate broadcast channel — the one an admin uses precisely when
+   * everybody needs to know something — was the single channel in the product
+   * that could not interrupt anyone. It landed in the bell and waited.
+   *
+   * One call for the whole audience rather than one per recipient:
+   * `sendPushToUsers` already applies preferences and quiet hours in a single
+   * query, batches Expo at its 100-per-request cap and bounds the browser sends,
+   * which is exactly the shape a broadcast needs.
+   */
+  if (recipients.length > 0) {
+    await sendPushToUsers(recipients, {
+      body: campaign.body,
+      category: campaign.category,
+      data: { campaignId: campaign._id.toString() },
+      hostelId: campaign.hostelId?.toString(),
       priority: campaign.priority,
       title: campaign.title,
     });

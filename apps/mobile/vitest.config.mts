@@ -25,6 +25,12 @@ export default defineConfig({
        * conversion instead of a stand-in for it.
        */
       "@hostel/calendar": resolve(root, "../../packages/shared/src/calendar"),
+      /*
+       * The meal-window rule the cook portal's buttons and the server's
+       * announce guard both read. `cook.test.ts` locks the lock/unlock times
+       * against the shipped parser rather than a stand-in for it.
+       */
+      "@hostel/food": resolve(root, "../../packages/shared/src/food"),
     },
   },
   test: {

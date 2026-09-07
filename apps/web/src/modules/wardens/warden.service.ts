@@ -7,6 +7,10 @@ import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { Role } from "@/lib/roles";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
+import {
+  notifyWardenAdded,
+  notifyWardenUpdated,
+} from "@/modules/wardens/warden-notify";
 import { UserModel } from "@hostel/db/models/User";
 import {
   HostelServiceError,
@@ -227,6 +231,18 @@ export async function createHostelWarden(
     userId: userId.toString(),
   });
 
+  /*
+   * An *upgraded* PUBLIC account gets no email — it keeps its own password, so
+   * `registerOrUpgradeUserByEmail` has nothing to send — which meant somebody
+   * could be made staff of a hostel and told nothing at all.
+   */
+  await notifyWardenAdded({
+    actorUserId: principal.userId,
+    hostelId,
+    reactivated: Boolean(existing),
+    userId: userId.toString(),
+  });
+
   const user = await hydrateUser(userId);
 
   return {
@@ -274,6 +290,16 @@ export async function updateHostelWarden(
     status: input.status,
   });
 
+  // Suspension is the one that has to arrive: it does not sign anybody out, it
+  // just makes the next thing they try fail.
+  await notifyWardenUpdated({
+    actorUserId: principal.userId,
+    hostelId: updated.hostelId,
+    permissionsChanged: input.permissions !== undefined,
+    status: input.status,
+    userId: updated.userId.toString(),
+  });
+
   const user = await hydrateUser(updated.userId);
 
   return {
@@ -301,6 +327,14 @@ export async function deactivateHostelWarden(
   }
 
   await auditWardenAction(principal, updated, "WARDEN_DEACTIVATED", {});
+
+  await notifyWardenUpdated({
+    actorUserId: principal.userId,
+    hostelId: updated.hostelId,
+    permissionsChanged: false,
+    status: "SUSPENDED",
+    userId: updated.userId.toString(),
+  });
 
   const user = await hydrateUser(updated.userId);
 

@@ -47,9 +47,25 @@ const calendarRoot = path.resolve(__dirname, "../../packages/shared/src/calendar
  * `extraNodeModules` entry.
  */
 const plansRoot = path.resolve(__dirname, "../../packages/shared/src/plans");
+
+/*
+ * `@hostel/food/*` — the meal-window rule, on the same terms.
+ *
+ * `meal-window.ts` decides when a cook's announce button unlocks, and the
+ * server refuses an early announcement using the identical call. A second copy
+ * of that arithmetic in the app is a button that lights up over an API that
+ * says no, so there is one file and both ends import it. No dependencies at
+ * all, so like the plans catalogue it needs no `extraNodeModules` entry.
+ */
+const foodRoot = path.resolve(__dirname, "../../packages/shared/src/food");
 const baseResolveRequest = config.resolver.resolveRequest;
 
-config.watchFolders = [...(config.watchFolders ?? []), calendarRoot, plansRoot];
+config.watchFolders = [
+  ...(config.watchFolders ?? []),
+  calendarRoot,
+  plansRoot,
+  foodRoot,
+];
 
 /*
  * And the one package that file imports, resolved from *this* app's tree.
@@ -78,6 +94,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName.startsWith("@hostel/plans/")) {
     return {
       filePath: path.join(plansRoot, `${moduleName.slice("@hostel/plans/".length)}.ts`),
+      type: "sourceFile",
+    };
+  }
+
+  if (moduleName.startsWith("@hostel/food/")) {
+    return {
+      filePath: path.join(foodRoot, `${moduleName.slice("@hostel/food/".length)}.ts`),
       type: "sourceFile",
     };
   }

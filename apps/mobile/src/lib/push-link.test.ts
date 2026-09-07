@@ -40,6 +40,26 @@ describe("resolvePushPath", () => {
     );
   });
 
+  /*
+   * The website paths that arrive as an `actionUrl`, which
+   * `deepLinkForNotification` prefers over the category default. Each one is a
+   * real screen in this build under a different name; without the rewrite a
+   * maintenance job, a review or a guardian notification lands on the list the
+   * user just came from.
+   */
+  it("maps the website paths carried by the newer notifications", () => {
+    expect(resolvePushPath("/hostel-admin/maintenance")).toBe("/manage/maintenance");
+    expect(resolvePushPath("/hostel-admin/reports")).toBe("/manage/reports");
+    expect(resolvePushPath("/resident/guardians")).toBe("/guardians");
+    expect(resolvePushPath("/guardian/dashboard")).toBe("/(guardian)");
+  });
+
+  // The resident's own guardian list is a real route, so it passes through
+  // rather than being rewritten.
+  it("passes the guardians list through untouched", () => {
+    expect(resolvePushPath("/guardians")).toBe("/guardians");
+  });
+
   // M5.4. Ordered before the generic `/(resident)/more/` rewrite, which would
   // otherwise send it to the menu that links to it.
   it("moves a profile deep link onto the root stack", () => {

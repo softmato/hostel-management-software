@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   notificationAggregate: vi.fn(),
   notificationInsertMany: vi.fn(),
   residentFind: vi.fn(),
+  sendPushToUsers: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
@@ -44,6 +45,10 @@ vi.mock("@hostel/db/models/Notification", () => ({
 
 vi.mock("@hostel/db/models/Resident", () => ({
   ResidentModel: { find: mocks.residentFind },
+}));
+
+vi.mock("@/modules/notifications/push.service", () => ({
+  sendPushToUsers: mocks.sendPushToUsers,
 }));
 
 import {
@@ -125,6 +130,46 @@ describe("notification campaigns", () => {
         $set: expect.objectContaining({ recipientCount: 2, status: "SENT" }),
       }),
     );
+
+    /*
+     * The bulk write above is why this needs asserting rather than assuming.
+     * Every other notification in the product goes through
+     * `createInAppNotification`, which pushes on the way past; campaigns use
+     * `insertMany` for the recipient counts they have to handle and so
+     * delivered to nobody's phone or browser at all — the one channel built for
+     * "everybody needs to know this" was the one that could not interrupt
+     * anyone.
+     */
+    expect(mocks.sendPushToUsers).toHaveBeenCalledTimes(1);
+
+    const [audience, payload] = mocks.sendPushToUsers.mock.calls[0];
+
+    expect(audience).toHaveLength(2);
+    expect(payload).toMatchObject({
+      body: "Water supply resumes at 6pm.",
+      category: "ANNOUNCEMENT",
+      title: "Water notice",
+    });
+  });
+
+  it("does not push a campaign that reached nobody", async () => {
+    mocks.residentFind.mockReturnValue(queryResult([]));
+
+    await createHostelNotificationCampaign(
+      {
+        audience: "RESIDENTS",
+        body: "Nobody is here to read this.",
+        category: "ANNOUNCEMENT",
+        priority: "NORMAL",
+        residentIds: [],
+        title: "Empty hostel",
+      } as never,
+      principal,
+    );
+
+    // Still marked SENT — an empty audience is a delivered campaign, not a
+    // failed one — but nothing is handed to a transport.
+    expect(mocks.sendPushToUsers).not.toHaveBeenCalled();
   });
 
   it("does not send a scheduled campaign in the same request", async () => {

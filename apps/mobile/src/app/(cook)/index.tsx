@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useMinuteTick } from "@/hooks/use-minute-tick";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { announceFoodReady, type CookToday } from "@/lib/cook-api";
@@ -23,6 +24,7 @@ import {
   announcementSummary,
   mealButtonLabel,
   mealButtons,
+  mealLockNote,
   mealSubtitle,
   nextUnannounced,
 } from "@/lib/cook";
@@ -77,6 +79,22 @@ import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
  * same ping is a kitchen that stops walking to the office to check the app
  * worked.
  *
+ * ## A meal cannot be called before it is cooked
+ *
+ * Each button unlocks half an hour before that meal's serving time and stays
+ * unlocked for the rest of the day. Four cards that differ only by a heading,
+ * used one-handed in a hurry, is the shape that gets dinner's menu pushed to
+ * every resident at seven in the morning — and the cooldown then stands in the
+ * way of the correction.
+ *
+ * The rule is `@hostel/food/meal-window`, the same file `announceFoodReady`
+ * calls before it accepts anything, so the button and the API cannot drift
+ * apart. A routine with no readable clock in it is no gate at all.
+ *
+ * The kitchen is also *told* when a button goes live — `meal-call-reminder`
+ * pushes "Lunch is due" to the hostel's cooks — so this screen does not have to
+ * be watched.
+ *
  * ## The cooldown belongs to the server
  *
  * `foodReadyCooldownMinutes` caps repeat announcements and returns 429 with the
@@ -97,6 +115,14 @@ export default function CookTodayScreen() {
     cacheKey: query.key,
     topics: query.topics,
   });
+
+  /*
+   * The clock, ticking. Every half minute and on every return from the
+   * background, so a button whose meal comes due while this screen is open
+   * unlocks itself — a cook who opened the app at 6:29 must not have to know to
+   * pull it down at 6:30.
+   */
+  const now = useMinuteTick();
 
   const [busy, setBusy] = useState<MealType | null>(null);
 
@@ -210,7 +236,7 @@ export default function CookTodayScreen() {
     );
   }
 
-  const buttons = mealButtons(today.data.meals, today.data.announced);
+  const buttons = mealButtons(today.data.meals, today.data.announced, now);
   const next = nextUnannounced(buttons);
 
   return (
@@ -236,7 +262,10 @@ export default function CookTodayScreen() {
           title="Food ready"
         />
 
-        {buttons.map((button) => (
+        {buttons.map((button) => {
+          const lockNote = mealLockNote(button);
+
+          return (
           <Card
             /*
               The next meal to call is outlined in the brand, which is the only
@@ -245,7 +274,7 @@ export default function CookTodayScreen() {
               carries, and for the same reason: on a screen of equals, the one
               you are here for should not have to be found.
             */
-            className={`gap-3 ${next?.mealType === button.mealType ? "border-primary/40" : ""}`}
+            className={`gap-3 ${next?.mealType === button.mealType && !button.locked ? "border-primary/40" : ""}`}
             key={button.mealType}
           >
             <View className="flex-row items-start gap-3">
@@ -275,11 +304,26 @@ export default function CookTodayScreen() {
                   tone="success"
                 />
               ) : button.timing ? (
-                <Badge label={button.timing} />
+                /*
+                  The routine's own words while the meal is open, and the
+                  unlock hour while it is not: a cook looking at a dead button
+                  is asking one question, and "7:00 PM - 8:45 PM" does not
+                  answer it — the button goes live at 6:30.
+                */
+                <Badge
+                  label={button.locked && button.opensAt ? `From ${button.opensAt}` : button.timing}
+                  tone={button.locked ? "warning" : undefined}
+                />
               ) : null}
             </View>
 
             <Button
+              /*
+                Disabled until the meal is due — see `lib/cook.ts`. The label
+                carries the hour, so the control explains itself without the
+                caption below having to be read.
+              */
+              disabled={button.locked}
               label={mealButtonLabel(button)}
               loading={busy === button.mealType}
               onPress={() => void announce(button.mealType)}
@@ -291,9 +335,12 @@ export default function CookTodayScreen() {
               <Text variant="caption">
                 {`${button.sent.notifiedCount} resident(s) notified.`}
               </Text>
+            ) : lockNote ? (
+              <Text variant="caption">{lockNote}</Text>
             ) : null}
           </Card>
-        ))}
+          );
+        })}
 
         <Text className="px-1 pt-1" variant="caption">
           The message is built from today&apos;s menu automatically. If you have cooked

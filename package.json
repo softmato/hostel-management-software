@@ -21,6 +21,7 @@
     "web:test": "npm --prefix apps/web run test",
     "web:seed:platform-owner": "npm --prefix apps/web run seed:platform-owner",
     "web:seed:demo": "npm --prefix apps/web run seed:demo",
+    "web:generate:vapid": "npm --prefix apps/web run generate:vapid",
     "web:recover:admin": "npm --prefix apps/web run recover:admin",
     "web:check:private-documents": "npm --prefix apps/web run check:private-documents",
     "web:backfill:resident-accounts": "npm --prefix apps/web run backfill:resident-accounts",

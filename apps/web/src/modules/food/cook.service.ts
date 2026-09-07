@@ -34,6 +34,12 @@ import {
   resolveHostelAdminContacts,
   sendNotificationEmail,
 } from "@/modules/residents/resident-notify";
+import {
+  canAnnounceMeal,
+  formatMinuteOfDay,
+  mealOpensAtMinute,
+  nepalMinuteOfDay,
+} from "@hostel/shared/food/meal-window";
 import { cookPortalEnabledEmail } from "@hostel/shared/email/templates/hostel/cook-portal-enabled";
 import type {
   cookPortalUpdateSchema,
@@ -370,6 +376,26 @@ function startOfToday() {
  * mobile app in Phase 6" — the app shipped, and this was still the one
  * time-critical notification in the product going out at default priority, one
  * Expo round trip per resident.
+ *
+ * ## Two guards, and they are different rules
+ *
+ * **Too early** (409). A meal cannot be called before the hostel's own routine
+ * serves it, give or take the half-hour lead
+ * `meal-window.ts` allows for a kitchen running early. The cook's four
+ * cards are identical but for a heading and are used one-handed over a pot, so
+ * a mis-tap pushes dinner's menu to every resident at breakfast — and the
+ * cooldown below then blocks the correction. The app disables the button from
+ * this same `@hostel/shared/food/meal-window` decision, which is why it lives
+ * in a package both ends import rather than being restated here: a gate the
+ * client draws and the server does not enforce is not a gate, and one the
+ * server enforces and the client does not draw is a button that lies.
+ *
+ * It applies to an admin announcing from the web portal too, not just to a cook.
+ * The routine's serving times are the office's own, editable in one screen, and
+ * a rule that a hostel can hold two opinions about is not a rule.
+ *
+ * **Too soon after the last one** (429) is the cooldown, below — a different
+ * concern with a different fix, and the reason this one is a 409.
  */
 export async function announceFoodReady(input: FoodReadyInput, principal: ApiPrincipal) {
   await connectToDatabase();
@@ -377,11 +403,34 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
   const hostelId = await resolveCookHostelId(principal, input.hostelId);
   const today = startOfToday();
 
+  /*
+   * Loaded once, unconditionally. It used to be fetched only to build the
+   * message; the serving times on it now decide whether the announcement is
+   * allowed at all, so the read is no longer optional.
+   */
+  const routine = await getFoodRoutine(hostelId);
+
+  /*
+   * The hostel's clock for this meal — off `timings`, which is per meal for the
+   * whole week, rather than off today's row. A hostel that serves no Friday
+   * snack still has a snack time, and an unplanned Friday snack is still a
+   * snack rather than something announceable at dawn.
+   */
+  const timing = routine.timings[input.mealType] ?? "";
+
+  if (!canAnnounceMeal(timing, nepalMinuteOfDay())) {
+    const opensAt = mealOpensAtMinute(timing);
+
+    throw new CookError(
+      `${input.mealType.toLowerCase()} is not due yet. It can be announced from ${formatMinuteOfDay(opensAt ?? 0)}.`,
+      "MEAL_NOT_DUE",
+      409,
+    );
+  }
+
   // The routine repeats weekly, so today's meal is today's weekday entry.
   const menu = input.useMenuDescription
-    ? mealsOn(await getFoodRoutine(hostelId), today).find(
-        (meal) => meal.mealType === input.mealType,
-      )
+    ? mealsOn(routine, today).find((meal) => meal.mealType === input.mealType)
     : null;
 
   const mealLabel = input.mealType.toLowerCase();

@@ -52,6 +52,15 @@ vi.mock("@hostel/db/models/ServiceProvider", () => ({
   ServiceProviderModel: { findOne: mocks.providerFindOne },
 }));
 
+// This file is about the voice note, not about who is told a job was raised.
+vi.mock("@/modules/maintenance/maintenance-notify", () => ({
+  notifyProviderOfAssignment: vi.fn(),
+  notifyProviderOfMaintenanceNote: vi.fn(),
+  notifyProviderOfStatusChange: vi.fn(),
+  notifyStaffOfJobProgress: vi.fn(),
+  notifyStaffOfNewMaintenanceRequest: vi.fn(),
+}));
+
 import { createMaintenanceRequest } from "@/modules/maintenance/maintenance.service";
 
 const hostelId = "64f0f0f0f0f0f0f0f0f0f0f1";

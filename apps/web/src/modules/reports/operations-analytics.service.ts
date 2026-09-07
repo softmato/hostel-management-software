@@ -7,6 +7,7 @@ import { AttendanceLogModel } from "@hostel/db/models/AttendanceLog";
 import { FoodReadyLogModel } from "@hostel/db/models/FoodReadyLog";
 import { FoodRoutineModel } from "@hostel/db/models/FoodRoutine";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import { parseMealWindow } from "@hostel/shared/food/meal-window";
 
 export class OperationsAnalyticsError extends Error {
   constructor(
@@ -46,11 +47,21 @@ function resolveHostelId(principal: ApiPrincipal, requestedHostelId?: string) {
   );
 }
 
-/** "18:30" → minutes since midnight, or null for anything unparseable. */
+/**
+ * A hostel's serving time as minutes since midnight, or null when it cannot be
+ * read as a clock.
+ *
+ * This used to be a local `^HH:MM$` regex, which matched almost nothing that is
+ * actually in the database: `timings` is free text and the admin form seeds it
+ * as `6:00 AM - 7:00 AM`, so every hostel that never edited the defaults had a
+ * `null` target and therefore no delay figure at all — the report drew an
+ * announcement count and a silent gap where the number it exists for goes.
+ *
+ * `parseMealWindow` is the same parse the cook portal's button gate uses, so
+ * "when was this meal supposed to be served" has one answer across the product.
+ */
 function scheduledMinutes(timing?: string) {
-  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(timing?.trim() ?? "");
-
-  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  return parseMealWindow(timing)?.startMinute ?? null;
 }
 
 /**

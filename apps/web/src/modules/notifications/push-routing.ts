@@ -29,6 +29,7 @@ const CATEGORY_PATHS: Record<string, string> = {
   ELECTRICIAN: "/(provider)",
   FOOD: "/(resident)/food",
   GENERAL: "/notifications",
+  GUARDIAN: "/guardians",
   HOSTEL_APPROVAL: "/notifications",
   INQUIRY: "/(admin)",
   MAINTENANCE: "/(provider)",
@@ -91,11 +92,33 @@ export function deepLinkForNotification(input: DeepLinkInput): string {
        * `(resident)` is a route group a warden's account cannot open, so the
        * category default would land them nowhere useful.
        */
-      return input.data?.audience === "STAFF" ? "/(admin)/today" : CATEGORY_PATHS.FOOD;
+      if (input.data?.audience === "STAFF") {
+        return "/(admin)/today";
+      }
+
+      /*
+       * And a third: the kitchen's own copy — a menu change, or a resident
+       * rating the food — belongs in the cook stack. `(resident)/food` is what
+       * residents are shown and a cook account cannot open it.
+       */
+      if (input.data?.audience === "COOK") {
+        return "/(cook)";
+      }
+
+      return CATEGORY_PATHS.FOOD;
     }
     case "COMMUNITY": {
       const postId = readId(input.data, "postId");
       return postId ? `/community/${postId}` : CATEGORY_PATHS.COMMUNITY;
+    }
+    case "GUARDIAN": {
+      /*
+       * Same two-audience shape as FOOD above. The resident's copy ("your
+       * guardian accepted") belongs on the list they invited from; the
+       * guardian's copy ("your access changed") belongs in the guardian stack,
+       * which a resident account cannot open and vice versa.
+       */
+      return input.data?.audience === "GUARDIAN" ? "/(guardian)" : "/guardians";
     }
     case "STORE_ORDER": {
       const orderId = readId(input.data, "orderId");

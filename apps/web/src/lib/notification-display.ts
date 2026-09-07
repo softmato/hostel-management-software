@@ -49,6 +49,7 @@ const CATEGORY_DISPLAY: Record<string, CategoryDisplay> = {
   ELECTRICIAN: { icon: Wrench, label: "Maintenance", tone: "amber" },
   FOOD: { icon: Utensils, label: "Food", tone: "emerald" },
   GENERAL: { icon: Bell, label: "General", tone: "slate" },
+  GUARDIAN: { icon: UserRound, label: "Guardian", tone: "blue" },
   HOSTEL_APPROVAL: { icon: Building2, label: "Hostel approval", tone: "blue" },
   INQUIRY: { icon: MessageSquare, label: "Inquiry", tone: "blue" },
   MAINTENANCE: { icon: Wrench, label: "Maintenance", tone: "amber" },

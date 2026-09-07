@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, CheckCheck, ChevronRight, Loader2, Zap } from "lucide-react";
+import { Bell, BellOff, BellRing, CheckCheck, ChevronRight, Loader2, Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -21,6 +21,14 @@ import {
   type NotificationItem,
 } from "@/lib/use-notifications";
 import { cn } from "@/lib/utils";
+import {
+  disableBrowserPush,
+  enableBrowserPush,
+  readPushStatus,
+  readPushSupport,
+  resyncBrowserPush,
+} from "@/lib/web-push-client";
+import { toast } from "@/stores/toast-store";
 
 /**
  * Header bell for every authenticated portal (PHASES.md §4.1).
@@ -218,10 +226,87 @@ function NotificationRow({
   );
 }
 
+/**
+ * Desktop notifications: the toggle, and the state it can be in.
+ *
+ * Six states rather than a boolean because five of them need different words.
+ * "Off" invites a click; "denied" must not, since the browser will not re-ask
+ * and the only fix is in site settings — a toggle that silently does nothing is
+ * the worst of the six. `unconfigured` is this deployment having no VAPID pair,
+ * which is an operator problem and not something to show a warden.
+ */
+type PushState =
+  | "loading"
+  | "unsupported"
+  | "unconfigured"
+  | "denied"
+  | "off"
+  | "on"
+  | "working";
+
+function BrowserPushRow({
+  onChange,
+  state,
+}: {
+  onChange: (next: boolean) => void;
+  state: PushState;
+}) {
+  // Nothing to offer, and nothing the person reading it could act on.
+  if (state === "loading" || state === "unsupported" || state === "unconfigured") {
+    return null;
+  }
+
+  if (state === "denied") {
+    return (
+      <div className="flex items-center gap-2 px-2.5 py-2 text-[11px] text-muted-foreground">
+        <BellOff className="size-3.5 shrink-0" />
+        <span>
+          This browser is blocking notifications. Allow them in your site settings to
+          get them with the tab closed.
+        </span>
+      </div>
+    );
+  }
+
+  const on = state === "on";
+  const working = state === "working";
+
+  return (
+    <button
+      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[11px] transition-colors hover:bg-accent"
+      disabled={working}
+      onClick={() => onChange(!on)}
+      type="button"
+    >
+      {working ? (
+        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+      ) : on ? (
+        <BellRing className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      ) : (
+        <BellOff className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
+      <span className="flex-1 text-foreground">
+        {on ? "Desktop notifications are on" : "Get notifications on this device"}
+      </span>
+      <span
+        className={cn(
+          "rounded-full px-1.5 py-px text-[9px] font-bold uppercase",
+          on
+            ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400"
+            : "bg-slate-100 text-slate-500 dark:bg-slate-500/15 dark:text-slate-300",
+        )}
+      >
+        {on ? "On" : "Off"}
+      </span>
+    </button>
+  );
+}
+
 export function NotificationBell({ href }: { href: string }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [busy, setBusy] = useState<string | null>(null);
+  const [pushState, setPushState] = useState<PushState>("loading");
   const router = useRouter();
   const { clearLive, connected, liveNotifications } = useRealtime();
   const {
@@ -242,6 +327,90 @@ export function NotificationBell({ href }: { href: string }) {
       clearLive();
     }
   }, [clearLive, liveNotifications.length, open]);
+
+  /*
+   * Read the real state once on mount, and quietly repair it.
+   *
+   * Both halves matter. The server's row decides whether the toggle reads on —
+   * the browser can hold a subscription this server has already pruned, and a
+   * toggle driven by the browser alone would say "on" while delivering nothing.
+   * `resyncBrowserPush` then re-posts the current subscription when permission
+   * is already granted, which is what survives a new service worker, a pruned
+   * endpoint, and a different account signing in on the same machine.
+   *
+   * Deliberately not re-run on focus or visibility: this is a repair, not a
+   * poll, and a request on every tab switch buys nothing.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const { permission, supported } = readPushSupport();
+
+      if (!supported) {
+        if (!cancelled) setPushState("unsupported");
+        return;
+      }
+
+      const status = await readPushStatus();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (status && !status.configured) {
+        setPushState("unconfigured");
+        return;
+      }
+
+      if (permission === "denied") {
+        setPushState("denied");
+        return;
+      }
+
+      setPushState(status?.enabled && permission === "granted" ? "on" : "off");
+
+      if (permission === "granted") {
+        await resyncBrowserPush();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handlePushToggle(next: boolean) {
+    setPushState("working");
+
+    if (!next) {
+      await disableBrowserPush();
+      setPushState("off");
+      toast.info("Desktop notifications are off for this browser.");
+      return;
+    }
+
+    const result = await enableBrowserPush();
+
+    if (result.ok) {
+      setPushState("on");
+      toast.success("Desktop notifications are on for this browser.");
+      return;
+    }
+
+    if (result.reason === "denied") {
+      setPushState("denied");
+      return;
+    }
+
+    if (result.reason === "unconfigured") {
+      setPushState("unconfigured");
+      return;
+    }
+
+    setPushState("off");
+    toast.error("Could not turn on desktop notifications. Try again.");
+  }
 
   const badge = unreadCount;
 
@@ -388,6 +557,10 @@ export function NotificationBell({ href }: { href: string }) {
         </div>
 
         <div className="shrink-0 border-t border-border p-1.5">
+          <BrowserPushRow
+            onChange={(next) => void handlePushToggle(next)}
+            state={pushState}
+          />
           <Button asChild className="w-full text-[13px] font-semibold" size="sm" variant="ghost">
             <Link href={href} onClick={() => setOpen(false)}>
               View all notifications

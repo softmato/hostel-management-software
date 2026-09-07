@@ -23,6 +23,13 @@ vi.mock("@hostel/db/models/FoodRoutine", () => ({
   },
 }));
 
+// Who gets told the menu changed is `kitchen-notify`'s business, and it reads
+// models this file does not mock. Stubbed here for the same reason
+// `complaint.service.test.ts` stubs its notifier.
+vi.mock("@/modules/food/kitchen-notify", () => ({
+  notifyKitchenOfRoutineChange: vi.fn(),
+}));
+
 import {
   getFoodRoutine,
   isMonthEnd,

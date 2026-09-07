@@ -14,7 +14,8 @@
     "./constants/*": "./src/constants/*.ts",
     "./utils/*": "./src/utils/*.ts",
     "./calendar/*": "./src/calendar/*.ts",
-    "./plans/*": "./src/plans/*.ts"
+    "./plans/*": "./src/plans/*.ts",
+    "./food/*": "./src/food/*.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

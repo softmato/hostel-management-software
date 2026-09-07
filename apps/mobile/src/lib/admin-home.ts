@@ -349,6 +349,15 @@ export function occupancyLine(input: {
 export type EarningsSummary = {
   /** Everything ever collected, or `null` when the periods read was refused. */
   lifetime: number | null;
+  /**
+   * The period the month figures cover — `2083-05`, so the hero can name the
+   * month rather than say `This month`.
+   *
+   * `null` on the degraded path: the report is scoped to whatever month the
+   * server calls current and carries no period key of its own, so there is
+   * nothing to name and the label falls back to the generic one.
+   */
+  period: string | null;
   /** This month, from the period roll-up when available and the report if not. */
   thisMonth: number;
   thisMonthBilled: number;
@@ -390,6 +399,7 @@ export function earningsSummary(input: {
       lifetime: null,
       outstanding: Math.max(0, input.report.monthlyDues - input.report.paidAmount),
       outstandingIsLifetime: false,
+      period: null,
       thisMonth: input.report.paidAmount,
       thisMonthBilled: input.report.monthlyDues,
     };
@@ -399,6 +409,7 @@ export function earningsSummary(input: {
     lifetime: input.overall.collected,
     outstanding: input.overall.outstanding,
     outstandingIsLifetime: true,
+    period: current?.period ?? null,
     thisMonth: current?.collected ?? input.report.paidAmount,
     thisMonthBilled: current?.due ?? input.report.monthlyDues,
   };

@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
+import { useMinuteTick } from "@/hooks/use-minute-tick";
 import { useQueryValue } from "@/hooks/use-query-value";
 import type { CookToday } from "@/lib/cook-api";
 import { mealButtons, mealsToCall } from "@/lib/cook";
@@ -49,11 +50,18 @@ export default function RoleLayout() {
    * flickered 4 → 2 on every entry would be noise on a bar somebody glances at.
    */
   const today = useQueryValue<CookToday>(cookQuery.today());
+  /*
+   * `mealsToCall` counts only the meals that are due, so the badge is a
+   * function of the clock as well as of the payload. Without a tick it would be
+   * frozen at whatever the count was when the cook entered the portal —
+   * silently, since nothing else on this layout re-renders for hours.
+   */
+  const now = useMinuteTick();
 
   const tabs = useMemo<readonly TabDef[]>(
     () => [
       {
-        badge: today ? mealsToCall(mealButtons(today.meals, today.announced)) : 0,
+        badge: today ? mealsToCall(mealButtons(today.meals, today.announced, now)) : 0,
         icon: "today",
         label: "Today",
         name: "index",
@@ -63,7 +71,7 @@ export default function RoleLayout() {
       { icon: "camera", label: "Photos", name: "photos" },
       { icon: "ellipsis-horizontal", label: "More", name: "more" },
     ],
-    [today],
+    [now, today],
   );
 
   return <RoleTabs accent="COOK" tabs={tabs} />;

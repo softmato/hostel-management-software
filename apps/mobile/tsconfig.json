@@ -6,7 +6,8 @@
       "@/*": ["./src/*"],
       "@/assets/*": ["./assets/*"],
       "@hostel/calendar/*": ["../../packages/shared/src/calendar/*"],
-      "@hostel/plans/*": ["../../packages/shared/src/plans/*"]
+      "@hostel/plans/*": ["../../packages/shared/src/plans/*"],
+      "@hostel/food/*": ["../../packages/shared/src/food/*"]
     }
   },
   "include": [
@@ -14,7 +15,8 @@
     "**/*.tsx",
     "nativewind-env.d.ts",
     "../../packages/shared/src/calendar/**/*.ts",
-    "../../packages/shared/src/plans/**/*.ts"
+    "../../packages/shared/src/plans/**/*.ts",
+    "../../packages/shared/src/food/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", ".expo", "android", "ios"]
 }

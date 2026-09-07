@@ -15,6 +15,7 @@ import {
   serializeResidentSummary,
 } from "@/modules/residents/resident-access";
 import { getFoodRoutine } from "@/modules/food/food-routine.service";
+import { notifyKitchenOfFoodFeedback } from "@/modules/food/kitchen-notify";
 import type {
   foodFeedbackSchema,
   foodPhotoUploadSchema,
@@ -216,6 +217,19 @@ export async function submitFoodFeedback(
   await publishResourceChange({
     hostelIds: [resident.hostelId.toString()],
     topics: [REALTIME_TOPIC.FOOD],
+  });
+
+  /*
+   * A bad plate of food reaches the person who cooked it, while they can still
+   * do something about tonight. Only two stars and below — see the notifier for
+   * why a push per rating would be the fastest way to get FOOD muted.
+   */
+  await notifyKitchenOfFoodFeedback({
+    comment: input.comment,
+    hostelId: resident.hostelId,
+    mealType: input.mealType,
+    rating: input.rating,
+    residentName: `${resident.firstName} ${resident.lastName}`.trim(),
   });
 
   return {

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { cn } from "@/lib/utils";
+import { disableBrowserPush } from "@/lib/web-push-client";
 import {
   ResidentIdentityCenter,
   requestResidentProfileForm,
@@ -115,6 +116,18 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
     setError("");
 
     try {
+      /*
+       * Release this browser's push subscription **before** the session goes.
+       * The unsubscribe route is authenticated and scoped to the caller, so
+       * after the logout there is no longer anybody able to revoke it — and a
+       * row left ACTIVE keeps delivering this account's invoices, complaint
+       * replies and SOS alerts to a machine they have signed out of. Same leak
+       * `revokeDeviceToken` closed for phones.
+       *
+       * Never allowed to hold up or fail the sign-out.
+       */
+      await disableBrowserPush().catch(() => false);
+
       await fetch("/api/v1/auth/logout", {
         credentials: "include",
         method: "POST",

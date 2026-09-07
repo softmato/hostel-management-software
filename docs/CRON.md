@@ -251,6 +251,27 @@ Returns `{ dispatched, failed, recipients, scanned }`.
   delay between the time an admin picked and the notification landing, so pick it to taste — the
   job is cheap when nothing is due.
 
+### Meal call reminders
+
+`POST /api/v1/cron/meal-call-reminders`
+
+Tells each hostel's cooks that a meal's **Food ready** button has gone live. The button unlocks
+half an hour before that meal's serving time — the hostel's own `FoodRoutine.timings`, parsed by
+[`packages/shared/src/food/meal-window.ts`](../packages/shared/src/food/meal-window.ts), which the
+mobile cook portal and `announceFoodReady` both read so the button and the API cannot disagree.
+Without this job the kitchen only learns the gate opened by looking at the app.
+
+Skips a meal not on today's weekday routine, one already announced today, and a hostel with nobody
+`ACTIVE` on its cook roster. Idempotent: each send is claimed in `MealCallReminder` under the
+hostel, the meal and the **Nepali** day before it goes out, so overlapping or retried runs cannot
+buzz a kitchen twice. Those rows expire after a week.
+
+Returns `{ due, sent, skipped }`.
+
+- Recommended schedule: every 15 minutes (`*/15 * * * *`). **Not wider than that** — a meal is only
+  reminded about within 45 minutes of coming due, so a slower cadence silently drops meals rather
+  than delivering them late.
+
 ## Every job, and what to register
 
 The full set to create on cron-job.org. All are `POST`, all take the
@@ -262,6 +283,7 @@ The full set to create on cron-job.org. All are `POST`, all take the
 | Payment reminders and chases | `payment-reminders` | `0 2 * * *` | Daily; the ladder is self-healing, so a missed day is not a skipped resident. |
 | Gateway checkout expiry sweep | `gateway-expiry-sweep` | `*/5 * * * *` | Stale checkouts sit on a resident's screen until this runs. |
 | Dispatch scheduled notifications | `notification-dispatch` | `*/15 * * * *` | The interval is the worst-case delay on a scheduled broadcast. |
+| Meal call reminders | `meal-call-reminders` | `*/15 * * * *` | The cook is only reminded within 45 minutes of a meal coming due. |
 | Refresh nearby places | `refresh-nearby-places` | `0 * * * *` | Fills caches a batch at a time inside the Nominatim rate limit. |
 | Purge expired OTPs | `purge-expired-otps` | `0 3 * * *` | Backup for the TTL index. |
 | Account deletion purge | `account-purge` | `0 3 * * *` | Executes 60-day grace periods that have run out. |

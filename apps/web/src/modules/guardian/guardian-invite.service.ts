@@ -6,6 +6,11 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { Role } from "@/lib/roles";
+import {
+  notifyGuardianOfPermissionChange,
+  notifyGuardianOfRevocation,
+  notifyResidentGuardianAccepted,
+} from "@/modules/guardian/guardian-notify";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
 import { GuardianModel } from "@hostel/db/models/Guardian";
@@ -331,6 +336,17 @@ export async function updateGuardianPermissions(
     metadata: { permissions: input },
   });
 
+  /*
+   * The guardian is told, because they are the one this happened to. Without
+   * it a screen quietly stops working on somebody else's device with nothing
+   * anywhere to say why — which is reported as a fault, not as a change.
+   */
+  await notifyGuardianOfPermissionChange({
+    guardianUserId: access.userId?.toString(),
+    hostelId: resident.hostelId,
+    residentName: `${resident.firstName} ${resident.lastName}`.trim(),
+  });
+
   return { permissions: await loadPermissions(access._id) };
 }
 
@@ -350,6 +366,12 @@ export async function revokeGuardianAccess(accessId: string, principal: ApiPrinc
     entityId: access._id.toString(),
     entityType: "GuardianAccess",
     hostelId: resident.hostelId,
+  });
+
+  await notifyGuardianOfRevocation({
+    guardianUserId: access.userId?.toString(),
+    hostelId: resident.hostelId,
+    residentName: `${resident.firstName} ${resident.lastName}`.trim(),
   });
 
   return { accessId: access._id.toString(), status: "REVOKED" as const };
@@ -421,6 +443,17 @@ export async function acceptGuardianInvitation(input: GuardianInvitationAcceptIn
     entityId: access._id.toString(),
     entityType: "GuardianAccess",
     hostelId: access.hostelId,
+  });
+
+  /*
+   * The resident granted this access and is the one person with no way of
+   * knowing it took effect — the guardian got an email, the hostel does not
+   * care, and nothing reaches the account that authorised it.
+   */
+  await notifyResidentGuardianAccepted({
+    guardianName: `${guardian.firstName} ${guardian.lastName}`.trim(),
+    hostelId: access.hostelId,
+    residentId: access.residentId,
   });
 
   return {

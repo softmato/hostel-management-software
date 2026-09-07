@@ -11,8 +11,10 @@ import {
   announcementSummary,
   mealButtonLabel,
   mealButtons,
+  mealLockNote,
   mealSubtitle,
   mealsToCall,
+  openButtons,
   mergePhotoDays,
   nextUnannounced,
   searchCookResidents,
@@ -28,6 +30,18 @@ function meal(overrides: Partial<RoutineMeal> = {}): RoutineMeal {
     timing: "12:30",
     ...overrides,
   };
+}
+
+/**
+ * A UTC instant that is `hh:mm` in Nepal, which is the only clock the meal gate
+ * reads. Every test that cares about time pins one rather than letting
+ * `new Date()` decide — a suite that passes before noon and fails after it is
+ * worse than no suite.
+ */
+function nepalTime(hhmm: string): Date {
+  const [hour, minute] = hhmm.split(":").map(Number);
+
+  return new Date(Date.UTC(2026, 8, 7, hour, minute) - (5 * 60 + 45) * 60_000);
 }
 
 function announcement(
@@ -177,6 +191,8 @@ describe("mealsToCall", () => {
     const buttons = mealButtons(
       [meal({ mealType: "BREAKFAST" }), meal({ mealType: "LUNCH" })],
       [announcement({ mealType: "BREAKFAST" })],
+      // Past every timing in the fixture, so nothing is locked out of the count.
+      nepalTime("13:00"),
     );
 
     // Four buttons always, one of them sent.
@@ -191,6 +207,113 @@ describe("mealsToCall", () => {
         ),
       ),
     ).toBe(0);
+  });
+
+  /*
+   * A badge reading `4` at six in the morning says the kitchen is four jobs
+   * behind when it is exactly on time, and a number that is wrong before
+   * breakfast is one nobody reads by Friday.
+   */
+  it("does not count a meal the kitchen cannot call yet", () => {
+    const buttons = mealButtons(
+      [meal({ mealType: "LUNCH", timing: "12:00 PM - 1:00 PM" })],
+      [],
+      nepalTime("08:00"),
+    );
+
+    // Lunch is locked; the other three have no timing and so no gate.
+    expect(mealsToCall(buttons)).toBe(3);
+    expect(mealsToCall(mealButtons(
+      [meal({ mealType: "LUNCH", timing: "12:00 PM - 1:00 PM" })],
+      [],
+      nepalTime("11:30"),
+    ))).toBe(4);
+  });
+});
+
+/**
+ * The gate itself. It is the same `@hostel/food/meal-window` decision
+ * `announceFoodReady` refuses on, which is the point — these tests are as much
+ * about the button and the API agreeing as about either one.
+ */
+describe("the meal gate", () => {
+  const lunch = () => meal({ mealType: "LUNCH", timing: "12:00 PM - 1:00 PM" });
+  const lunchAt = (hhmm: string) =>
+    mealButtons([lunch()], [], nepalTime(hhmm)).find(
+      (button) => button.mealType === "LUNCH",
+    )!;
+
+  it("locks a meal until half an hour before it is served", () => {
+    expect(lunchAt("11:29").locked).toBe(true);
+    expect(lunchAt("11:30").locked).toBe(false);
+    expect(lunchAt("12:00").locked).toBe(false);
+  });
+
+  /* Food runs late far more often than early. A 2pm lunch still has to go out. */
+  it("never locks again once the meal is due", () => {
+    expect(lunchAt("14:00").locked).toBe(false);
+    expect(lunchAt("23:59").locked).toBe(false);
+  });
+
+  /*
+   * The deliberate default. A hostel that has not filled its routine in, or
+   * that wrote something we cannot read a clock out of, keeps four working
+   * buttons — the app must not break a kitchen over a formatting opinion.
+   */
+  it("does not gate a meal whose timing is not a clock", () => {
+    const buttons = mealButtons(
+      [meal({ mealType: "LUNCH", timing: "after the bell" })],
+      [],
+      nepalTime("04:00"),
+    );
+
+    expect(buttons.every((button) => !button.locked)).toBe(true);
+    expect(buttons.every((button) => button.opensAt === null)).toBe(true);
+  });
+
+  /*
+   * Cannot happen on a clock that only moves forwards — the announcement had to
+   * pass this same gate — but a handset with a wrong clock must not turn
+   * "Announce again" into a dead button.
+   */
+  it("never locks a meal that has already been announced", () => {
+    const buttons = mealButtons(
+      [lunch()],
+      [announcement({ mealType: "LUNCH" })],
+      nepalTime("04:00"),
+    );
+
+    const called = buttons.find((button) => button.mealType === "LUNCH")!;
+
+    expect(called.locked).toBe(false);
+    expect(mealButtonLabel(called)).toBe("Announce again");
+  });
+
+  it("puts the unlock hour on the button and in the note", () => {
+    const locked = lunchAt("09:00");
+
+    expect(locked.opensAt).toBe("11:30 AM");
+    expect(mealButtonLabel(locked)).toBe("Opens 11:30 AM");
+    expect(mealLockNote(locked)).toBe("You can call this meal from 11:30 AM.");
+  });
+
+  it("says nothing about a meal the kitchen can call", () => {
+    expect(mealLockNote(lunchAt("12:30"))).toBeNull();
+  });
+
+  it("lists the meals that are callable now", () => {
+    const buttons = mealButtons(
+      [lunch(), meal({ mealType: "DINNER", timing: "7:00 PM - 8:45 PM" })],
+      [],
+      nepalTime("12:30"),
+    );
+
+    // Breakfast and snacks have no timing in this routine, so no gate.
+    expect(openButtons(buttons).map((button) => button.mealType)).toEqual([
+      "BREAKFAST",
+      "LUNCH",
+      "SNACKS",
+    ]);
   });
 });
 

@@ -6,6 +6,13 @@ import { connectToDatabase } from "@/lib/db";
 import { REALTIME_TOPIC } from "@/lib/realtime/channels";
 import { publishResourceChange } from "@/lib/realtime/server";
 import { assertHostelAccess } from "@/lib/tenant";
+import {
+  notifyProviderOfMaintenanceNote,
+  notifyProviderOfAssignment,
+  notifyProviderOfStatusChange,
+  notifyStaffOfJobProgress,
+  notifyStaffOfNewMaintenanceRequest,
+} from "@/modules/maintenance/maintenance-notify";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { MaintenanceCommentModel } from "@hostel/db/models/MaintenanceComment";
 import { MaintenanceHistoryModel } from "@hostel/db/models/MaintenanceHistory";
@@ -435,6 +442,12 @@ export async function createMaintenanceRequest(
     voiceNote: Boolean(voiceNoteAssetId),
   });
 
+  // Everyone else running this hostel, plus the contractor when the raise sheet
+  // already named one. Not awaited for its result — the row is saved and the
+  // notifier swallows its own failures — but awaited so the serverless
+  // invocation is not frozen out from under it.
+  await notifyStaffOfNewMaintenanceRequest(request, principal.userId);
+
   return {
     request: serializeMaintenanceRequest(request, { history: [history] }),
   };
@@ -552,6 +565,25 @@ export async function updateMaintenanceRequestStatus(
     previousStatus: request.status,
   });
 
+  /*
+   * The contractor is told what the hostel decided. Cancellation is the one
+   * that has to arrive: it means "do not travel", and it is worth nothing after
+   * they already have.
+   *
+   * The rest of the desk is told too, and the actor is excluded inside the
+   * notifier — a warden who just clicked "scheduled" does not need telling.
+   */
+  await notifyProviderOfStatusChange({
+    previousStatus: request.status,
+    request: updatedRequest,
+  });
+  await notifyStaffOfJobProgress({
+    actorUserId: principal.userId,
+    previousStatus: request.status,
+    providerName: "The hostel",
+    request: updatedRequest,
+  });
+
   return {
     request: serializeMaintenanceRequest(updatedRequest, { history: [history] }),
   };
@@ -640,6 +672,14 @@ export async function assignMaintenanceProvider(
     { providerId: providerId?.toString() },
   );
 
+  /*
+   * The point of the whole feature. Until this line a job "sent to a
+   * contractor" sat in a list waiting for that contractor to open the app of
+   * their own accord — which for a trade that schedules its day in the morning
+   * means the leak keeps leaking until they happen to look.
+   */
+  await notifyProviderOfAssignment(updatedRequest);
+
   return {
     request: serializeMaintenanceRequest(updatedRequest, { history: [history] }),
   };
@@ -670,6 +710,16 @@ export async function addMaintenanceComment(
     note: input.message,
   });
   await auditMaintenanceAction(principal, request, "MAINTENANCE_COMMENT_ADDED");
+
+  /*
+   * INTERNAL notes stay inside the hostel. The visibility flag exists precisely
+   * so a desk can talk about a contractor without talking to them, and a
+   * notifier that ignored it would be the fastest possible way to send an
+   * internal remark to its subject.
+   */
+  if (input.visibility !== "INTERNAL") {
+    await notifyProviderOfMaintenanceNote({ body: input.message, request });
+  }
 
   return {
     comment: serializeComment(comment),

@@ -5,6 +5,7 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { REALTIME_TOPIC } from "@/lib/realtime/channels";
 import { publishResourceChange } from "@/lib/realtime/server";
+import { notifyKitchenOfRoutineChange } from "@/modules/food/kitchen-notify";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { FoodRoutineModel } from "@hostel/db/models/FoodRoutine";
 import type { foodRoutineSaveSchema } from "@/modules/food/food.validation";
@@ -199,6 +200,16 @@ export async function saveFoodRoutine(
   await publishResourceChange({
     hostelIds: [hostelId.toString()],
     topics: [REALTIME_TOPIC.FOOD],
+  });
+
+  /*
+   * The routine is the kitchen's instructions, and it was just rewritten by
+   * somebody who is not in the kitchen. The socket only reaches a cook who
+   * already has the app open on that screen.
+   */
+  await notifyKitchenOfRoutineChange({
+    actorUserId: principal.userId,
+    hostelId,
   });
 
   return { routine: serializeRoutine(routine) };

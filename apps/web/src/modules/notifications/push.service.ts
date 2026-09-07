@@ -1,13 +1,25 @@
 /**
- * Expo push delivery.
+ * Push delivery, to every surface a person has registered.
  *
  * Until this file existed, `POST /api/v1/mobile/device-token` wrote a
  * `DeviceToken` row and nothing ever read it — every "push notification"
  * deliverable in PHASES.md §6 was half a feature. This is the other half.
  *
- * Delivery is best-effort by design. The `Notification` row is already
- * committed before we get here, so a dead Expo endpoint costs the recipient a
- * buzz, not the message: they still see it in the bell, and the socket push
+ * ## Two transports, one audience
+ *
+ * A recipient can be holding a phone with the app installed, sitting at a
+ * laptop with the tab closed, or both. Those need different wire protocols —
+ * Expo for the app, Web Push for the browser — but they must never need
+ * different *callers*. Everything upstream (all eighteen notification
+ * producers, the campaign dispatcher, the crons) hands this one audience and
+ * one payload, and the split happens here, once.
+ *
+ * That is the whole reason browser push was a change to this file and not to
+ * eighteen others.
+ *
+ * Delivery is best-effort by design on both sides. The `Notification` row is
+ * already committed before we get here, so a dead endpoint costs the recipient
+ * a buzz, not the message: they still see it in the bell, and the socket push
  * still fired. Nothing in this module is allowed to throw into a caller.
  *
  * Expo's contract (https://docs.expo.dev/push-notifications/sending-notifications):
@@ -16,14 +28,20 @@
  *   - a ticket with `details.error === "DeviceNotRegistered"` means that token
  *     is dead — the app was uninstalled or the token rotated — and Expo will
  *     start rate-limiting us if we keep sending to it.
+ *
+ * The Web Push half lives in `web-push.service.ts`; see there for why a
+ * subscription is encrypted per-endpoint and what `404`/`410` mean.
  */
 
 import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
+import { UserModel } from "@hostel/db/models/User";
 
 import { connectToDatabase } from "@/lib/db";
 import { filterPushRecipients } from "@/modules/notifications/notification-preference.service";
 import { afterResponse } from "@/lib/after-response";
 import { deepLinkForNotification } from "@/modules/notifications/push-routing";
+import { sendWebPush, type WebPushTarget } from "@/modules/notifications/web-push.service";
+import { webLinkForNotification } from "@/modules/notifications/web-routing";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 
@@ -125,20 +143,98 @@ function isHighPriority(payload: PushPayload) {
   );
 }
 
-async function activeTokensFor(userIds: string[]) {
+type DeviceRow = {
+  expirationTime?: number | null;
+  keys?: { auth?: string; p256dh?: string } | null;
+  platform?: string;
+  token: string;
+  userId?: unknown;
+};
+
+/**
+ * Everything registered against this audience, split by transport.
+ *
+ * One query for both, because they live in one collection — see the long note
+ * on the `DeviceToken` model for why that is deliberate rather than lazy.
+ *
+ * A row with no `platform` is treated as a phone. The column is required by the
+ * schema so this should not arise in the database, but the unit tests build
+ * bare `{ token }` rows and, more to the point, "unknown platform" defaulting
+ * to the transport that has existed the whole time is the safe direction: the
+ * worst case is an Expo request that comes back with an error ticket, whereas
+ * the reverse would try to encrypt against keys that were never there.
+ */
+async function activeDevicesFor(userIds: string[]) {
   await connectToDatabase();
 
   const rows = await DeviceTokenModel.find({
     status: "ACTIVE",
     userId: { $in: userIds },
   })
-    .select({ token: 1 })
-    .lean<{ token: string }[]>();
+    .select({ expirationTime: 1, keys: 1, platform: 1, token: 1, userId: 1 })
+    .lean<DeviceRow[]>();
 
   // One person can hold several devices, and a reinstall can leave two rows
   // pointing at the same token before the old one is pruned. De-duplicate, or
   // that phone buzzes twice for one event.
-  return [...new Set(rows.map((row) => row.token).filter(Boolean))];
+  const seen = new Set<string>();
+  const expo: string[] = [];
+  const web: (WebPushTarget & { userId: string })[] = [];
+
+  for (const row of rows ?? []) {
+    if (!row?.token || seen.has(row.token)) {
+      continue;
+    }
+
+    seen.add(row.token);
+
+    if (row.platform === "WEB") {
+      web.push({
+        expirationTime: row.expirationTime,
+        keys: row.keys,
+        token: row.token,
+        userId: String(row.userId ?? ""),
+      });
+      continue;
+    }
+
+    expo.push(row.token);
+  }
+
+  return { expo, web };
+}
+
+/**
+ * Which portal each recipient lives in.
+ *
+ * Needed only by the browser transport: `/resident/payments` and
+ * `/hostel-admin/payments` are two different URLs on the website, and sending
+ * somebody to the other one lands them on a portal guard. The phone app has no
+ * such problem — Expo Router resolves `/(resident)/payments` against whichever
+ * role stack that build is showing — which is why this query is skipped
+ * entirely when nobody in the audience has a browser subscribed.
+ *
+ * Failure returns an empty map rather than throwing: the routing then falls
+ * back to the public destination, which is a worse link but still a link, and a
+ * notification that arrives pointing at the wrong list beats one that never
+ * arrives.
+ */
+async function rolesFor(userIds: string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const rows = await UserModel.find({ _id: { $in: userIds } })
+      .select({ role: 1 })
+      .lean<{ _id: unknown; role?: string }[]>();
+
+    return new Map(
+      (rows ?? []).map((row) => [String(row._id), row.role ?? ""] as const),
+    );
+  } catch {
+    return new Map();
+  }
 }
 
 async function revokeTokens(tokens: string[]) {
@@ -195,10 +291,82 @@ async function postBatch(messages: ExpoPushMessage[]): Promise<ExpoPushTicket[]>
 }
 
 /**
- * Send one notification to every active device of every listed user.
+ * The browser half of the fan-out.
+ *
+ * Grouped by role rather than sent one at a time, because the *only* thing that
+ * varies between two recipients of the same notification is where clicking it
+ * should take them — and on the website that is decided by which portal the
+ * person can open. Everyone in one role shares a payload; the encryption is
+ * per-endpoint regardless, so the grouping costs nothing and saves rebuilding
+ * the JSON per device.
+ *
+ * `tag` collapses repeats in the tray: a second "food is ready" replaces the
+ * first rather than stacking under it. Keyed on the notification id when there
+ * is one — batched rows (`createOrUpdateBatchedNotification`) reuse an id
+ * deliberately, so "5 people reacted" quietly replaces "4 people reacted" on
+ * the desktop exactly as it does in the bell.
+ */
+async function sendToBrowsers(
+  targets: (WebPushTarget & { userId: string })[],
+  payload: PushPayload,
+  high: boolean,
+) {
+  if (targets.length === 0) {
+    return { revoked: [] as string[], sent: 0 };
+  }
+
+  const roles = await rolesFor([...new Set(targets.map((target) => target.userId))]);
+  const byRole = new Map<string, (WebPushTarget & { userId: string })[]>();
+
+  for (const target of targets) {
+    const role = roles.get(target.userId) ?? "";
+    const group = byRole.get(role);
+
+    if (group) {
+      group.push(target);
+    } else {
+      byRole.set(role, [target]);
+    }
+  }
+
+  const revoked: string[] = [];
+  let sent = 0;
+
+  for (const [role, group] of byRole) {
+    const result = await sendWebPush(group, {
+      badge: "/notification-badge.png",
+      body: payload.body,
+      category: payload.category,
+      icon: "/notification-icon.png",
+      ...(payload.imageUrl ? { image: payload.imageUrl } : {}),
+      notificationId: payload.notificationId,
+      tag: payload.notificationId ?? `${payload.category}:${payload.hostelId ?? ""}`,
+      title: payload.title,
+      url: webLinkForNotification({
+        actionUrl: payload.actionUrl,
+        category: payload.category,
+        data: payload.data,
+        role,
+      }),
+      urgent: high,
+    });
+
+    sent += result.sent;
+    revoked.push(...result.revoked);
+  }
+
+  return { revoked, sent };
+}
+
+/**
+ * Send one notification to every active device of every listed user — phones
+ * through Expo, browsers through Web Push, from the same audience and the same
+ * payload.
  *
  * Callers do not await the result for correctness — see `dispatchPush` — but it
- * is returned so tests and the cron can assert on it.
+ * is returned so tests and the cron can assert on it. `sent` and `revoked`
+ * count both transports together: a caller asking "did this reach anybody"
+ * does not care which wire it went down.
  */
 export async function sendPushToUsers(
   userIds: string[],
@@ -235,11 +403,13 @@ export async function sendPushToUsers(
     return EMPTY;
   }
 
-  const tokens = await activeTokensFor(recipients);
+  const devices = await activeDevicesFor(recipients);
 
-  if (tokens.length === 0) {
+  if (devices.expo.length === 0 && devices.web.length === 0) {
     return EMPTY;
   }
+
+  const tokens = devices.expo;
 
   const data = {
     ...payload.data,
@@ -290,6 +460,11 @@ export async function sendPushToUsers(
       }
     });
   }
+
+  const web = await sendToBrowsers(devices.web, payload, high);
+
+  sent += web.sent;
+  dead.push(...web.revoked);
 
   const revoked = await revokeTokens(dead).catch(() => 0);
 

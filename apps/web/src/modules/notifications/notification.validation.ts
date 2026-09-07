@@ -57,6 +57,42 @@ export const deviceTokenRevokeSchema = z.object({
 });
 
 /**
+ * A browser handing over its push subscription.
+ *
+ * The shape is `PushSubscription.toJSON()` verbatim, so the client posts what
+ * the browser gave it without reshaping — a client that has to rearrange the
+ * subscription is a client that can rearrange it wrongly, and the failure shows
+ * up as "push works in Chrome, not in Firefox".
+ *
+ * `endpoint` must be an https URL: it is the address `webpush.sendNotification`
+ * dials, and it arrives from a page. The keys are base64url and fixed-length in
+ * practice (65 bytes for `p256dh`, 16 for `auth`), but their exact encoding is
+ * the browser's business — length bounds only, so a future curve does not need
+ * a deploy here.
+ */
+export const webPushSubscribeSchema = z.object({
+  subscription: z.object({
+    endpoint: z
+      .string()
+      .trim()
+      .min(12)
+      .max(2048)
+      .refine((value) => value.startsWith("https://"), {
+        message: "A push endpoint has to be an https URL.",
+      }),
+    expirationTime: z.number().int().nullable().optional(),
+    keys: z.object({
+      auth: z.string().trim().min(8).max(256),
+      p256dh: z.string().trim().min(8).max(256),
+    }),
+  }),
+});
+
+export const webPushUnsubscribeSchema = z.object({
+  endpoint: z.string().trim().min(12).max(2048),
+});
+
+/**
  * Notification preferences.
  *
  * Every field optional so the client can PATCH one switch without echoing the

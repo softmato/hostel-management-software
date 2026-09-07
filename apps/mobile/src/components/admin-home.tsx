@@ -20,6 +20,7 @@ import {
 import { Text } from "@/components/ui/text";
 import { roleAccent } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDates } from "@/hooks/use-dates";
 import type { AdminHostel } from "@/lib/admin-api";
 import {
   type EarningsSummary,
@@ -264,7 +265,7 @@ function ListingPill({ listing }: { listing: { live: boolean; note: string } }) 
  * | `08500501204444` | `hostelCode` — `HH-6F2A9C41` — and the area |
  * | `NPR 52.43` | everything collected, ever |
  * | `SIDDHANT YADAV` | residents, free beds, how full |
- * | `Actual` / `Available Balance` | `Since opening` / `This month` |
+ * | `Actual` / `Available Balance` | `Since opening` / `In Bhadra` |
  *
  * Inset on all four sides with a shadow under it, cornered, lifted, and with the
  * building's own photograph as its ground: all of that is `<PortalHeroCard>`,
@@ -285,6 +286,20 @@ function ListingPill({ listing }: { listing: { live: boolean; note: string } }) 
  * gets no lifetime figure at all and the headline silently falls back to the
  * month, so `Since opening` reading `—` is the only thing that tells the two
  * cases apart. See `earningsSummary`.
+ *
+ * ## The right half names its month
+ *
+ * `In Bhadra`, not `This month`. A hostel does not bill the month the phone is
+ * in — it bills the period on the invoice, and the two come apart every time a
+ * hostel raises next month's rent early. `This month` beside a figure that
+ * belongs to a different month is the kind of label that only looks correct
+ * until somebody reconciles against it.
+ *
+ * It is the period the figure was actually summed over (`earnings.period`),
+ * spelled in the calendar the reader chose, and it falls back to `This month`
+ * on the degraded path where there is no period key to name. `In September`
+ * is the longest string it produces, which is what keeps it inside its half of
+ * the row — `This month · September` did not fit on a 360dp phone.
  */
 export function HostelHero({
   delta,
@@ -309,6 +324,7 @@ export function HostelHero({
   sosCount: number;
   vacantBeds: number;
 }) {
+  const dates = useDates();
   const photo = absoluteMediaUrl(heroPhotoUrl(hostel), API_BASE_URL);
   const code = hostelCode(hostel);
   const lifetimeKnown = earnings.lifetime !== null;
@@ -334,6 +350,14 @@ export function HostelHero({
 
     return shown ? formatted : maskMoney(formatted);
   };
+  /*
+   * `In Bhadra` — the period the figure beside it was summed over, in the
+   * reader's calendar. `formatPeriodMonth` hands back `—` for a period it
+   * cannot read at all, and `In —` reads as a rendering fault, so that case
+   * takes the generic label with the rest of the degraded path.
+   */
+  const month = earnings.period ? dates.periodMonth(earnings.period) : "";
+  const monthLabel = month && month !== "—" ? `In ${month}` : "This month";
 
   return (
     <PortalHeroCard photoUrl={photo}>
@@ -473,7 +497,7 @@ export function HostelHero({
               below would hide nothing at all.
             */
             { label: "Since opening", value: money(earnings.lifetime) },
-            { label: "This month", value: money(earnings.thisMonth) },
+            { label: monthLabel, value: money(earnings.thisMonth) },
           ].map((fact, index) => (
             <View className="flex-1 flex-row items-center" key={fact.label}>
               {index > 0 ? <View className="mr-3 h-9 w-px bg-white/25" /> : null}

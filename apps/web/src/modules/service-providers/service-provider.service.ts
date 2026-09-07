@@ -22,6 +22,7 @@ import { serviceProviderRejectedEmail } from "@hostel/shared/email/templates/ser
 import { loadSiteConfig } from "@/lib/site-config-server";
 import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
 import { normalizeProviderCategories } from "@/modules/service-providers/service-provider.validation";
+import { notifyStaffOfJobProgress } from "@/modules/maintenance/maintenance-notify";
 import {
   notifyPlatformOfServiceProviderApplication,
   notifyServiceProviderDecision,
@@ -809,6 +810,19 @@ export async function updateOwnServiceProviderJobStatus(
   await publishResourceChange({
     hostelIds: [job.hostelId.toString()],
     topics: [REALTIME_TOPIC.MAINTENANCE],
+  });
+
+  /*
+   * And the half the socket cannot do. `publishResourceChange` updates a
+   * maintenance queue somebody already has open; a hostel whose desk is closed
+   * for the evening learns that the plumber has been and gone whenever it next
+   * opens that screen. This reaches them on their phone and in their browser.
+   */
+  await notifyStaffOfJobProgress({
+    actorUserId: userId,
+    previousStatus: job.status,
+    providerName: provider.fullName ?? "The service provider",
+    request: { ...job, status: updated.status },
   });
 
   return {

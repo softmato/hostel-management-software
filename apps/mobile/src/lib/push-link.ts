@@ -73,6 +73,12 @@ const KNOWN_PATHS = new Set([
   "/(resident)/more",
   "/(resident)/notices",
   "/(resident)/payments",
+  /*
+   * The resident's own guardian list, on the root stack. Added with the
+   * guardian notifications — a resident told "your guardian accepted" has
+   * exactly one screen that shows what that guardian can now see.
+   */
+  "/guardians",
   "/notifications",
   /*
    * Where a refused provider application lands. `notifyServiceProviderDecision`
@@ -99,6 +105,28 @@ const REWRITES: { prefix: string; to: string }[] = [
    * notification list instead of the roster they were told about.
    */
   { prefix: "/hostel-admin/residents", to: "/(admin)/residents" },
+  /*
+   * The web portal's maintenance queue. Carried as the `actionUrl` on every
+   * maintenance notification for the same reason the residents page is: it is
+   * what the website's bell links to, and `deepLinkForNotification` prefers an
+   * `actionUrl` over the category default. `manage/maintenance.tsx` is the
+   * app's own version of that screen.
+   */
+  { prefix: "/hostel-admin/maintenance", to: "/manage/maintenance" },
+  /*
+   * Where a review notification lands. The website puts reviews under reports;
+   * the app has `manage/reports.tsx`, which is the same screen.
+   */
+  { prefix: "/hostel-admin/reports", to: "/manage/reports" },
+  /*
+   * The resident's own guardian list, carried by "your guardian accepted".
+   */
+  { prefix: "/resident/guardians", to: "/guardians" },
+  /*
+   * A guardian being told their access changed. The website sends them to the
+   * guardian dashboard; the app's guardian stack opens on the same thing.
+   */
+  { prefix: "/guardian/dashboard", to: "/(guardian)" },
   /*
    * The website's provider job feed. An approval notification carries `/jobs` as
    * its `actionUrl` because that is the provider's only screen on the web, and

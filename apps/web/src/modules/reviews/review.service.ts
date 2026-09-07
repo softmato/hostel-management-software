@@ -21,6 +21,7 @@ import {
   normalizeObjectId,
   serializeResidentSummary,
 } from "@/modules/residents/resident-access";
+import { notifyHostelOfReview } from "@/modules/reviews/review-notify";
 import type {
   platformReviewListQuerySchema,
   reviewCreateSchema,
@@ -150,6 +151,19 @@ export async function createResidentReview(
     );
   }
 
+  /*
+   * Read before the upsert so the notification can say "updated" rather than
+   * "left" — the same call both creates and rewrites, and a hostel told twice
+   * that somebody "left a review" for one edited row learns to distrust the
+   * message.
+   */
+  const previous = await RatingReviewModel.findOne({
+    hostelId: resident.hostelId,
+    residentId: resident._id,
+  })
+    .select({ _id: 1 })
+    .lean<{ _id: unknown } | null>();
+
   const review = (await RatingReviewModel.findOneAndUpdate(
     {
       hostelId: resident.hostelId,
@@ -179,6 +193,18 @@ export async function createResidentReview(
     hostelIds: [review.hostelId.toString()],
     platform: true,
     topics: [REALTIME_TOPIC.REVIEWS],
+  });
+
+  /*
+   * And the hostel itself, which the socket alone does not reach: the reports
+   * screen has to already be open for a `publishResourceChange` to mean
+   * anything, and a one-star review posted on a Friday evening is answerable on
+   * Friday evening or awkwardly on Monday.
+   */
+  await notifyHostelOfReview({
+    authorName: `${resident.firstName} ${resident.lastName}`.trim(),
+    isUpdate: Boolean(previous),
+    review,
   });
 
   return {
