@@ -35,8 +35,9 @@ import {
   sendNotificationEmail,
 } from "@/modules/residents/resident-notify";
 import {
-  canAnnounceMeal,
   formatMinuteOfDay,
+  mealAnnounceState,
+  mealClosesAtMinute,
   mealOpensAtMinute,
   nepalMinuteOfDay,
 } from "@hostel/shared/food/meal-window";
@@ -379,9 +380,12 @@ function startOfToday() {
  *
  * ## Two guards, and they are different rules
  *
- * **Too early** (409). A meal cannot be called before the hostel's own routine
- * serves it, give or take the half-hour lead
- * `meal-window.ts` allows for a kitchen running early. The cook's four
+ * **Outside its window** (409, two codes). A meal cannot be called before the
+ * hostel's own routine serves it, give or take the half-hour lead
+ * `meal-window.ts` allows for a kitchen running early — nor after an hour past
+ * the end of service, by which point the meal has gone out unannounced and the
+ * honest record is that nobody called it. `MEAL_NOT_DUE` and
+ * `MEAL_WINDOW_CLOSED` are separate codes because they are opposite facts. The cook's four
  * cards are identical but for a heading and are used one-handed over a pot, so
  * a mis-tap pushes dinner's menu to every resident at breakfast — and the
  * cooldown below then blocks the correction. The app disables the button from
@@ -418,12 +422,30 @@ export async function announceFoodReady(input: FoodReadyInput, principal: ApiPri
    */
   const timing = routine.timings[input.mealType] ?? "";
 
-  if (!canAnnounceMeal(timing, nepalMinuteOfDay())) {
+  const state = mealAnnounceState(timing, nepalMinuteOfDay());
+
+  if (state === "EARLY") {
     const opensAt = mealOpensAtMinute(timing);
 
     throw new CookError(
       `${input.mealType.toLowerCase()} is not due yet. It can be announced from ${formatMinuteOfDay(opensAt ?? 0)}.`,
       "MEAL_NOT_DUE",
+      409,
+    );
+  }
+
+  /*
+   * The other end of the same window. Separate from `MEAL_NOT_DUE` because the
+   * two are opposite facts and a client that cannot tell them apart cannot
+   * write the right words on the button — the app draws "Opens 5:30 AM" for one
+   * and "Not announced in time" for the other.
+   */
+  if (state === "MISSED") {
+    const closesAt = mealClosesAtMinute(timing);
+
+    throw new CookError(
+      `${input.mealType.toLowerCase()} was not announced in time — it could be called until ${formatMinuteOfDay(closesAt ?? 0)}. Ask the office to change the serving time if it has moved.`,
+      "MEAL_WINDOW_CLOSED",
       409,
     );
   }

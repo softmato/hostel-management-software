@@ -64,7 +64,7 @@ describe("mealButtons", () => {
    * app least useful exactly when the routine is out of date.
    */
   it("always offers all four meals in serving order", () => {
-    const buttons = mealButtons([], []);
+    const buttons = mealButtons({ announced: [], meals: [] });
 
     expect(buttons.map((button) => button.mealType)).toEqual([
       "BREAKFAST",
@@ -75,14 +75,14 @@ describe("mealButtons", () => {
   });
 
   it("labels an unplanned meal rather than dropping it", () => {
-    const [breakfast] = mealButtons([meal()], []);
+    const [breakfast] = mealButtons({ announced: [], meals: [meal()] });
 
     expect(breakfast?.items).toEqual([]);
     expect(mealSubtitle(breakfast!)).toBe("Nothing planned for today");
   });
 
   it("carries today's items and timing onto the button", () => {
-    const buttons = mealButtons([meal()], []);
+    const buttons = mealButtons({ announced: [], meals: [meal()] });
     const lunch = buttons.find((button) => button.mealType === "LUNCH");
 
     expect(lunch?.items).toEqual(["Dal bhat"]);
@@ -90,7 +90,7 @@ describe("mealButtons", () => {
   });
 
   it("marks a meal that has already gone out", () => {
-    const buttons = mealButtons([meal()], [announcement()]);
+    const buttons = mealButtons({ announced: [announcement()], meals: [meal()] });
     const lunch = buttons.find((button) => button.mealType === "LUNCH");
 
     expect(lunch?.sent?.notifiedCount).toBe(38);
@@ -99,13 +99,13 @@ describe("mealButtons", () => {
 
   it("keeps the latest announcement when a meal was called twice", () => {
     // Server order is newest first.
-    const buttons = mealButtons(
-      [meal()],
-      [
+    const buttons = mealButtons({
+      announced: [
         announcement({ id: "second", message: "Lunch is ready (second sitting)" }),
         announcement({ id: "first" }),
       ],
-    );
+      meals: [meal()],
+    });
 
     expect(buttons.find((button) => button.mealType === "LUNCH")?.sent?.id).toBe("second");
   });
@@ -119,13 +119,13 @@ describe("mealButtonLabel", () => {
    * changes.
    */
   it("offers a second announcement rather than locking the button", () => {
-    const [, lunch] = mealButtons([meal()], [announcement()]);
+    const [, lunch] = mealButtons({ announced: [announcement()], meals: [meal()] });
 
     expect(mealButtonLabel(lunch!)).toBe("Announce again");
   });
 
   it("reads plainly the first time", () => {
-    const [breakfast] = mealButtons([], []);
+    const [breakfast] = mealButtons({ announced: [], meals: [] });
 
     expect(mealButtonLabel(breakfast!)).toBe("Food ready");
   });
@@ -133,10 +133,10 @@ describe("mealButtonLabel", () => {
 
 describe("mealSubtitle", () => {
   it("prefers what was announced over what was planned", () => {
-    const buttons = mealButtons(
-      [meal({ items: ["Dal bhat"] })],
-      [announcement({ message: "Today's lunch: Dal bhat, chicken" })],
-    );
+    const buttons = mealButtons({
+      announced: [announcement({ message: "Today's lunch: Dal bhat, chicken" })],
+      meals: [meal({ items: ["Dal bhat"] })],
+    });
 
     expect(mealSubtitle(buttons.find((button) => button.mealType === "LUNCH")!)).toBe(
       "Today's lunch: Dal bhat, chicken",
@@ -188,23 +188,23 @@ describe("announcementSummary", () => {
 
 describe("mealsToCall", () => {
   it("counts what is left, and is zero once the shift is done", () => {
-    const buttons = mealButtons(
-      [meal({ mealType: "BREAKFAST" }), meal({ mealType: "LUNCH" })],
-      [announcement({ mealType: "BREAKFAST" })],
-      // Past every timing in the fixture, so nothing is locked out of the count.
-      nepalTime("13:00"),
-    );
+    const buttons = mealButtons({
+      announced: [announcement({ mealType: "BREAKFAST" })],
+      meals: [meal({ mealType: "BREAKFAST" }), meal({ mealType: "LUNCH" })],
+      // Inside every window in the fixture, so nothing is locked out of the count.
+      now: nepalTime("13:00"),
+    });
 
     // Four buttons always, one of them sent.
     expect(mealsToCall(buttons)).toBe(3);
     expect(
       mealsToCall(
-        mealButtons(
-          [],
-          ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"].map((mealType) =>
+        mealButtons({
+          announced: ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"].map((mealType) =>
             announcement({ mealType }),
           ),
-        ),
+          meals: [],
+        }),
       ),
     ).toBe(0);
   });
@@ -215,19 +215,20 @@ describe("mealsToCall", () => {
    * breakfast is one nobody reads by Friday.
    */
   it("does not count a meal the kitchen cannot call yet", () => {
-    const buttons = mealButtons(
-      [meal({ mealType: "LUNCH", timing: "12:00 PM - 1:00 PM" })],
-      [],
-      nepalTime("08:00"),
-    );
+    const meals = [meal({ mealType: "LUNCH", timing: "12:00 PM - 1:00 PM" })];
 
     // Lunch is locked; the other three have no timing and so no gate.
-    expect(mealsToCall(buttons)).toBe(3);
-    expect(mealsToCall(mealButtons(
-      [meal({ mealType: "LUNCH", timing: "12:00 PM - 1:00 PM" })],
-      [],
-      nepalTime("11:30"),
-    ))).toBe(4);
+    expect(
+      mealsToCall(mealButtons({ announced: [], meals, now: nepalTime("08:00") })),
+    ).toBe(3);
+    expect(
+      mealsToCall(mealButtons({ announced: [], meals, now: nepalTime("11:30") })),
+    ).toBe(4);
+
+    // And it drops out again once the window has shut unanswered.
+    expect(
+      mealsToCall(mealButtons({ announced: [], meals, now: nepalTime("15:30") })),
+    ).toBe(3);
   });
 });
 
@@ -239,7 +240,7 @@ describe("mealsToCall", () => {
 describe("the meal gate", () => {
   const lunch = () => meal({ mealType: "LUNCH", timing: "12:00 PM - 1:00 PM" });
   const lunchAt = (hhmm: string) =>
-    mealButtons([lunch()], [], nepalTime(hhmm)).find(
+    mealButtons({ announced: [], meals: [lunch()], now: nepalTime(hhmm) }).find(
       (button) => button.mealType === "LUNCH",
     )!;
 
@@ -249,10 +250,48 @@ describe("the meal gate", () => {
     expect(lunchAt("12:00").locked).toBe(false);
   });
 
-  /* Food runs late far more often than early. A 2pm lunch still has to go out. */
-  it("never locks again once the meal is due", () => {
+  /*
+   * Food runs late, so the window does not shut the moment service ends — a
+   * 1:00 PM lunch is still callable at 1:59.
+   */
+  it("stays open for an hour past the end of service", () => {
+    expect(lunchAt("13:30").locked).toBe(false);
     expect(lunchAt("14:00").locked).toBe(false);
-    expect(lunchAt("23:59").locked).toBe(false);
+  });
+
+  /*
+   * And then it shuts. A button left live all evening cannot record the one
+   * thing an office needs off this screen: that the meal went out uncalled.
+   */
+  it("closes the window once the grace has run out", () => {
+    expect(lunchAt("14:00").state).toBe("OPEN");
+    expect(lunchAt("14:01").state).toBe("MISSED");
+    expect(lunchAt("14:01").locked).toBe(true);
+    expect(lunchAt("23:59").state).toBe("MISSED");
+  });
+
+  it("says what happened rather than what the app did", () => {
+    const missed = lunchAt("16:00");
+
+    expect(missed.closesAt).toBe("2:00 PM");
+    expect(mealButtonLabel(missed)).toBe("Not announced in time");
+    expect(mealLockNote(missed)).toBe(
+      "This meal could be called until 2:00 PM. Tell the office if the serving time has changed.",
+    );
+  });
+
+  /* A meal that was called is never missed, whatever the hour. */
+  it("never marks an announced meal as missed", () => {
+    const buttons = mealButtons({
+      announced: [announcement({ mealType: "LUNCH" })],
+      meals: [lunch()],
+      now: nepalTime("23:00"),
+    });
+    const called = buttons.find((button) => button.mealType === "LUNCH")!;
+
+    expect(called.state).toBe("ANY");
+    expect(called.locked).toBe(false);
+    expect(mealButtonLabel(called)).toBe("Announce again");
   });
 
   /*
@@ -261,14 +300,15 @@ describe("the meal gate", () => {
    * buttons — the app must not break a kitchen over a formatting opinion.
    */
   it("does not gate a meal whose timing is not a clock", () => {
-    const buttons = mealButtons(
-      [meal({ mealType: "LUNCH", timing: "after the bell" })],
-      [],
-      nepalTime("04:00"),
-    );
+    const buttons = mealButtons({
+      announced: [],
+      meals: [meal({ mealType: "LUNCH", timing: "after the bell" })],
+      now: nepalTime("04:00"),
+    });
 
     expect(buttons.every((button) => !button.locked)).toBe(true);
     expect(buttons.every((button) => button.opensAt === null)).toBe(true);
+    expect(buttons.every((button) => button.state === "ANY")).toBe(true);
   });
 
   /*
@@ -277,11 +317,11 @@ describe("the meal gate", () => {
    * "Announce again" into a dead button.
    */
   it("never locks a meal that has already been announced", () => {
-    const buttons = mealButtons(
-      [lunch()],
-      [announcement({ mealType: "LUNCH" })],
-      nepalTime("04:00"),
-    );
+    const buttons = mealButtons({
+      announced: [announcement({ mealType: "LUNCH" })],
+      meals: [lunch()],
+      now: nepalTime("04:00"),
+    });
 
     const called = buttons.find((button) => button.mealType === "LUNCH")!;
 
@@ -302,11 +342,11 @@ describe("the meal gate", () => {
   });
 
   it("lists the meals that are callable now", () => {
-    const buttons = mealButtons(
-      [lunch(), meal({ mealType: "DINNER", timing: "7:00 PM - 8:45 PM" })],
-      [],
-      nepalTime("12:30"),
-    );
+    const buttons = mealButtons({
+      announced: [],
+      meals: [lunch(), meal({ mealType: "DINNER", timing: "7:00 PM - 8:45 PM" })],
+      now: nepalTime("12:30"),
+    });
 
     // Breakfast and snacks have no timing in this routine, so no gate.
     expect(openButtons(buttons).map((button) => button.mealType)).toEqual([
@@ -382,10 +422,10 @@ describe("mergePhotoDays", () => {
 
 describe("nextUnannounced", () => {
   it("is the first meal in serving order with nothing sent against it", () => {
-    const buttons = mealButtons(
-      [meal({ mealType: "BREAKFAST" }), meal({ mealType: "LUNCH" })],
-      [announcement({ mealType: "BREAKFAST" })],
-    );
+    const buttons = mealButtons({
+      announced: [announcement({ mealType: "BREAKFAST" })],
+      meals: [meal({ mealType: "BREAKFAST" }), meal({ mealType: "LUNCH" })],
+    });
 
     expect(nextUnannounced(buttons)?.mealType).toBe("LUNCH");
   });
@@ -394,21 +434,21 @@ describe("nextUnannounced", () => {
     // A kitchen serving an unplanned snack still has to call it, so a blank
     // routine cell must not remove the meal from the queue — the same rule
     // `mealButtons` holds about always returning four.
-    const buttons = mealButtons([], []);
+    const buttons = mealButtons({ announced: [], meals: [] });
 
     expect(nextUnannounced(buttons)?.mealType).toBe("BREAKFAST");
   });
 
   it("returns null once all four are out", () => {
-    const buttons = mealButtons(
-      [],
-      [
+    const buttons = mealButtons({
+      announced: [
         announcement({ mealType: "BREAKFAST" }),
         announcement({ mealType: "LUNCH" }),
         announcement({ mealType: "SNACKS" }),
         announcement({ mealType: "DINNER" }),
       ],
-    );
+      meals: [],
+    });
 
     expect(nextUnannounced(buttons)).toBeNull();
   });

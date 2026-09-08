@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Role } from "@/lib/roles";
 
@@ -324,7 +324,18 @@ describe("cook portal setup", () => {
 });
 
 describe("food ready announcements", () => {
+  /*
+   * The clock is pinned, because `announceFoodReady` now gates on it: a meal
+   * can only be called between half an hour before service and an hour after
+   * it ends. The fixture serves lunch at `12 PM`, so 12:30 in Nepal is inside
+   * every window these tests exercise — and without pinning, the whole
+   * describe would pass in the afternoon and fail in the morning.
+   */
+  const noonish = new Date(Date.UTC(2026, 8, 7, 12, 30) - (5 * 60 + 45) * 60_000);
+
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(noonish);
     vi.clearAllMocks();
     mocks.platformSettingFindOne.mockReturnValue(leanResult(null));
     mocks.foodReadyFindOne.mockReturnValue(queryResult(null));
@@ -357,6 +368,50 @@ describe("food ready announcements", () => {
     mocks.foodReadyCreate.mockImplementation((input: Record<string, unknown>) =>
       Promise.resolve({ ...input, _id: new Types.ObjectId() }),
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /*
+   * The gate the cook's four buttons draw, enforced. Both directions are here
+   * because they are opposite facts with opposite fixes: one is a cook who is
+   * early, the other is a meal that went out without the building being told.
+   */
+  it("refuses a meal that is not due yet, and says when it opens", async () => {
+    mocks.routineFindOne.mockReturnValue(routineWithLunch(["Dal"]));
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 7, 8, 0) - (5 * 60 + 45) * 60_000));
+
+    await expect(
+      announceFoodReady({ deviceInfo: {}, mealType: "LUNCH", useMenuDescription: true }, cookPrincipal),
+    ).rejects.toMatchObject({ errorCode: "MEAL_NOT_DUE", status: 409 });
+  });
+
+  it("refuses a meal whose window has closed, under its own error code", async () => {
+    mocks.routineFindOne.mockReturnValue(routineWithLunch(["Dal"]));
+    // Lunch is served at 12 PM, so the window shuts at 2 PM.
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 7, 16, 0) - (5 * 60 + 45) * 60_000));
+
+    await expect(
+      announceFoodReady({ deviceInfo: {}, mealType: "LUNCH", useMenuDescription: true }, cookPrincipal),
+    ).rejects.toMatchObject({ errorCode: "MEAL_WINDOW_CLOSED", status: 409 });
+  });
+
+  /*
+   * The deliberate default, and the reason the gate cannot take a hostel's
+   * kitchen down: an unreadable or absent timing is no gate at all.
+   */
+  it("does not gate a meal whose routine has no readable clock", async () => {
+    mocks.routineFindOne.mockReturnValue(leanResult(null));
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 7, 2, 0) - (5 * 60 + 45) * 60_000));
+
+    const result = await announceFoodReady(
+      { deviceInfo: {}, mealType: "DINNER", useMenuDescription: true },
+      cookPrincipal,
+    );
+
+    expect(result.announcement.message).toBe("Dinner is ready.");
   });
 
   it("builds the announcement from today's menu and notifies active residents", async () => {

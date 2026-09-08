@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_SERVICE_MINUTES,
+  MEAL_ANNOUNCE_LATE_MINUTES,
   MEAL_ANNOUNCE_LEAD_MINUTES,
   canAnnounceMeal,
   formatMinuteOfDay,
+  mealAnnounceState,
+  mealClosesAtMinute,
   mealOpensAtMinute,
   nepalDayKey,
   nepalMinuteOfDay,
@@ -151,17 +155,74 @@ describe("canAnnounceMeal", () => {
   });
 
   /*
-   * No closing time, on purpose. Food runs late far more often than early and a
-   * dinner served at half nine still has to reach the building.
+   * Food runs late far more often than early, so service ending is not the
+   * cut-off — a dinner served at half nine still has to reach the building.
    */
-  it("never closes again once the meal is due", () => {
+  it("stays open for an hour past the end of service", () => {
     expect(canAnnounceMeal(dinner, 21 * 60 + 30)).toBe(true);
-    expect(canAnnounceMeal(dinner, 23 * 60 + 59)).toBe(true);
+    expect(canAnnounceMeal(dinner, 21 * 60 + 45)).toBe(true);
+  });
+
+  /*
+   * And then it shuts. The window closing is what lets the cook's screen say
+   * `Not announced in time` — a button left live all evening records nothing.
+   */
+  it("closes once the grace has run out", () => {
+    expect(canAnnounceMeal(dinner, 21 * 60 + 46)).toBe(false);
+    expect(canAnnounceMeal(dinner, 23 * 60 + 59)).toBe(false);
   });
 
   it("allows anything when the timing cannot be read", () => {
     expect(canAnnounceMeal("", 0)).toBe(true);
     expect(canAnnounceMeal("after evening prayers", 3 * 60)).toBe(true);
+  });
+});
+
+describe("mealClosesAtMinute", () => {
+  it("shuts an hour after service ends", () => {
+    expect(mealClosesAtMinute("7:00 PM - 8:45 PM")).toBe(
+      20 * 60 + 45 + MEAL_ANNOUNCE_LATE_MINUTES,
+    );
+  });
+
+  /* A single written time is a start, so something has to end it. */
+  it("gives a single time a default stretch of service first", () => {
+    expect(mealClosesAtMinute("7 PM")).toBe(
+      19 * 60 + DEFAULT_SERVICE_MINUTES + MEAL_ANNOUNCE_LATE_MINUTES,
+    );
+  });
+
+  /*
+   * A late dinner's grace must not spill into tomorrow, where it would collide
+   * with breakfast and reopen a meal a day after it was missed.
+   */
+  it("never runs past the end of the day", () => {
+    expect(mealClosesAtMinute("11:30 PM")).toBe(24 * 60 - 1);
+  });
+
+  it("is null when there is no gate", () => {
+    expect(mealClosesAtMinute("when the bell rings")).toBeNull();
+  });
+});
+
+describe("mealAnnounceState", () => {
+  const dinner = "7:00 PM - 8:45 PM";
+
+  /*
+   * The three states have to be distinguishable, not just "allowed or not":
+   * the app writes `Opens 6:30 PM` for one and `Not announced in time` for the
+   * other, and the server returns a different error code for each.
+   */
+  it("names which side of the window the meal is on", () => {
+    expect(mealAnnounceState(dinner, 18 * 60 + 29)).toBe("EARLY");
+    expect(mealAnnounceState(dinner, 18 * 60 + 30)).toBe("OPEN");
+    expect(mealAnnounceState(dinner, 21 * 60 + 45)).toBe("OPEN");
+    expect(mealAnnounceState(dinner, 21 * 60 + 46)).toBe("MISSED");
+  });
+
+  it("is ungated when the timing carries no clock", () => {
+    expect(mealAnnounceState("after evening prayers", 3 * 60)).toBe("ANY");
+    expect(mealAnnounceState("", 23 * 60)).toBe("ANY");
   });
 });
 

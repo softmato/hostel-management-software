@@ -76,13 +76,29 @@ export function Button({
   // A button mid-request must not accept a second press — double-submitting a
   // payment claim is a real cost, not a cosmetic one.
   const isBlocked = Boolean(disabled) || loading;
+  /*
+   * Busy is not disabled, and it must not be *painted* as disabled.
+   *
+   * Both used to take `tone.disabled`, which for `primary` is `bg-primary/40`
+   * under a `text-primary-foreground` label — white on 40% green, which is
+   * barely a contrast at all. The button appeared to empty itself the instant
+   * it was pressed: the label went, the spinner is white on the same wash, and
+   * what the cook saw was a pale rectangle. That is the worst possible feedback
+   * for the one press on this screen that costs money to repeat, because the
+   * obvious reading is that nothing happened and it wants pressing again.
+   *
+   * So a busy button keeps its full-strength ground and its readable label, and
+   * the spinner is the only thing that changes. Disabled still dims, because
+   * that one genuinely means "not for you right now".
+   */
+  const isBusy = loading && !disabled;
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ busy: loading, disabled: isBlocked }}
       className={`flex-row items-center justify-center active:opacity-80 ${dimensions.wrapper} ${
-        isBlocked ? tone.disabled : tone.base
+        isBlocked && !isBusy ? tone.disabled : tone.base
       } ${className}`}
       disabled={isBlocked}
       onPress={(event) => {
@@ -96,7 +112,15 @@ export function Button({
     >
       {loading ? (
         <View className="mr-2">
-          <ActivityIndicator color={variant === "primary" ? "#ffffff" : undefined} size="small" />
+          {/*
+            White on the two variants whose ground is a solid colour and whose
+            own label is already white. Left to the platform default elsewhere,
+            where the ground is transparent or muted.
+          */}
+          <ActivityIndicator
+            color={variant === "primary" || variant === "danger" ? "#ffffff" : undefined}
+            size="small"
+          />
         </View>
       ) : null}
 

@@ -61,7 +61,17 @@ export default function RoleLayout() {
   const tabs = useMemo<readonly TabDef[]>(
     () => [
       {
-        badge: today ? mealsToCall(mealButtons(today.meals, today.announced, now)) : 0,
+        badge: today
+          ? mealsToCall(
+              mealButtons({
+                announced: today.announced,
+                meals: today.meals,
+                now,
+                // The hostel's weekly clock, which is what the gate reads.
+                timings: today.routine.timings,
+              }),
+            )
+          : 0,
         icon: "today",
         label: "Today",
         name: "index",

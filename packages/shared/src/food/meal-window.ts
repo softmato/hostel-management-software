@@ -47,12 +47,45 @@ export const NEPAL_OFFSET_MINUTES = 5 * 60 + 45;
  * cook they are wrong about their own worktop. Half an hour is enough to cover
  * running early without making the gate meaningless — at 30 minutes the four
  * windows in the seeded defaults still never overlap.
- *
- * There is deliberately no closing time. Food goes late far more often than it
- * goes early, and a dinner served at 21:30 must still be announceable; the gate
- * exists to stop a 6am tap on the dinner button, not to police lateness.
  */
 export const MEAL_ANNOUNCE_LEAD_MINUTES = 30;
+
+/**
+ * How long after service ends a meal may still be called.
+ *
+ * The window **does** close, and that is a deliberate reversal: an earlier
+ * version left it open all day on the argument that food runs late. It does,
+ * and an hour past the end of service covers that — a 7:00–8:45 PM dinner can
+ * still be announced at 9:45. What it does not cover is a meal nobody ever
+ * called, and leaving those buttons live all evening made the screen unable to
+ * say the one thing an office needs off it: *this meal went out unannounced*.
+ * A greyed-out `Not announced in time` is a record; a live button is not.
+ *
+ * A kitchen genuinely serving two hours late has an admin who can move the
+ * routine's serving time, which is the honest fix — the string is what
+ * residents are shown as well.
+ */
+export const MEAL_ANNOUNCE_LATE_MINUTES = 60;
+
+/**
+ * How long a meal is assumed to be served for when the hostel wrote only one
+ * time.
+ *
+ * `7 PM` is a start, not an instant, and something has to decide when it stops
+ * being dinner time. An hour is the shortest of the four seeded windows, so it
+ * never makes a single-time meal more generous than a written-out one.
+ */
+export const DEFAULT_SERVICE_MINUTES = 60;
+
+/**
+ * Where a meal stands against the clock.
+ *
+ * - `EARLY` — before the lead. The button is disabled and says when it opens.
+ * - `OPEN` — callable now.
+ * - `MISSED` — service and its grace are over and nobody called it.
+ * - `ANY` — the timing carries no clock, so there is no gate at all.
+ */
+export type MealAnnounceState = "ANY" | "EARLY" | "MISSED" | "OPEN";
 
 export type MealWindow = {
   /** Minutes since midnight of the end of service, when one was typed. */
@@ -187,19 +220,67 @@ export function mealOpensAtMinute(timing: string | null | undefined): number | n
 }
 
 /**
+ * The minute of the day the announce button stops accepting a call, or `null`
+ * when there is no gate.
+ *
+ * Service end plus {@link MEAL_ANNOUNCE_LATE_MINUTES}, with a single written
+ * time given {@link DEFAULT_SERVICE_MINUTES} of service first. Clamped to the
+ * last minute of the day: a late dinner's grace must not spill into tomorrow,
+ * where it would collide with breakfast and reopen a meal a day after it was
+ * missed.
+ */
+export function mealClosesAtMinute(timing: string | null | undefined): number | null {
+  const window = parseMealWindow(timing);
+
+  if (!window) {
+    return null;
+  }
+
+  const endsAt = window.endMinute ?? window.startMinute + DEFAULT_SERVICE_MINUTES;
+
+  return Math.min(DAY_MINUTES - 1, endsAt + MEAL_ANNOUNCE_LATE_MINUTES);
+}
+
+/**
+ * Where this meal stands right now.
+ *
+ * The one decision both the cook's button and `announceFoodReady` read, so a
+ * live button and a 409 can never describe the same meal. `ANY` — an unreadable
+ * or absent timing — is the deliberate default: a hostel that has not filled
+ * its routine in still has to be able to call dinner, and the app must not
+ * break a kitchen over a formatting opinion.
+ */
+export function mealAnnounceState(
+  timing: string | null | undefined,
+  minuteOfDay: number,
+): MealAnnounceState {
+  const opensAt = mealOpensAtMinute(timing);
+  const closesAt = mealClosesAtMinute(timing);
+
+  if (opensAt === null || closesAt === null) {
+    return "ANY";
+  }
+
+  if (minuteOfDay < opensAt) {
+    return "EARLY";
+  }
+
+  return minuteOfDay > closesAt ? "MISSED" : "OPEN";
+}
+
+/**
  * May this meal be announced right now?
  *
- * `true` whenever the timing is unreadable or absent, which is the deliberate
- * default: a hostel that has not filled its routine in still has to be able to
- * call dinner.
+ * Both gates in one predicate — too early and too late are equally a refusal,
+ * they just carry different words back to the cook.
  */
 export function canAnnounceMeal(
   timing: string | null | undefined,
   minuteOfDay: number,
 ): boolean {
-  const opensAt = mealOpensAtMinute(timing);
+  const state = mealAnnounceState(timing, minuteOfDay);
 
-  return opensAt === null || minuteOfDay >= opensAt;
+  return state === "ANY" || state === "OPEN";
 }
 
 /**

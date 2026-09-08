@@ -79,17 +79,24 @@ import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
  * same ping is a kitchen that stops walking to the office to check the app
  * worked.
  *
- * ## A meal cannot be called before it is cooked
+ * ## A meal cannot be called outside its own hours
  *
- * Each button unlocks half an hour before that meal's serving time and stays
- * unlocked for the rest of the day. Four cards that differ only by a heading,
- * used one-handed in a hurry, is the shape that gets dinner's menu pushed to
- * every resident at seven in the morning — and the cooldown then stands in the
- * way of the correction.
+ * Each button unlocks half an hour before that meal's serving time and shuts an
+ * hour after it ends. Four cards that differ only by a heading, used one-handed
+ * in a hurry, is the shape that gets dinner's menu pushed to every resident at
+ * seven in the morning — and the cooldown then stands in the way of the
+ * correction.
+ *
+ * The window closing is what lets the screen say `Not announced in time`, which
+ * is the one fact an office cannot otherwise get off this portal: a meal that
+ * went out without the building being told. A button left live all evening
+ * records nothing.
  *
  * The rule is `@hostel/food/meal-window`, the same file `announceFoodReady`
- * calls before it accepts anything, so the button and the API cannot drift
- * apart. A routine with no readable clock in it is no gate at all.
+ * refuses on, so the button and the API cannot drift apart. It reads the
+ * hostel's weekly `timings`, not the day row's — a meal with nothing planned
+ * today has an empty `timing`, and gating on that left every such button live
+ * over an API that refuses it. A routine with no readable clock is no gate.
  *
  * The kitchen is also *told* when a button goes live — `meal-call-reminder`
  * pushes "Lunch is due" to the hostel's cooks — so this screen does not have to
@@ -236,7 +243,18 @@ export default function CookTodayScreen() {
     );
   }
 
-  const buttons = mealButtons(today.data.meals, today.data.announced, now);
+  const buttons = mealButtons({
+    announced: today.data.announced,
+    meals: today.data.meals,
+    now,
+    /*
+     * The hostel's clock per meal for the whole week — the same field
+     * `announceFoodReady` gates on. Passing only `meals` read the day row's
+     * `timing`, which is empty for any meal an admin did not plan today, so
+     * those four buttons stayed live over an API that refuses them.
+     */
+    timings: today.data.routine.timings,
+  });
   const next = nextUnannounced(buttons);
 
   return (
@@ -266,79 +284,106 @@ export default function CookTodayScreen() {
           const lockNote = mealLockNote(button);
 
           return (
-          <Card
-            /*
-              The next meal to call is outlined in the brand, which is the only
-              thing telling four otherwise identical cards apart before a word of
-              them is read. It is the same treatment the resident's focus invoice
-              carries, and for the same reason: on a screen of equals, the one
-              you are here for should not have to be found.
-            */
-            className={`gap-3 ${next?.mealType === button.mealType && !button.locked ? "border-primary/40" : ""}`}
-            key={button.mealType}
-          >
-            <View className="flex-row items-start gap-3">
-              {/*
-                The icon square the rest of the app uses for a meal. A cook
-                works this screen in a hurry with wet hands and picks the card
-                by shape before reading a word of it — four identical cards
-                distinguished only by a heading is the version that gets
-                breakfast announced at dinner.
-              */}
-              <View className="h-11 w-11 items-center justify-center rounded-xl bg-brand-soft">
-                <Ionicons
-                  color={colors.primary}
-                  name={mealIcon(button.mealType)}
-                  size={19}
-                />
+            <Card
+              /*
+                The next meal to call is outlined in the brand, which is the only
+                thing telling four otherwise identical cards apart before a word of
+                them is read. It is the same treatment the resident's focus invoice
+                carries, and for the same reason: on a screen of equals, the one
+                you are here for should not have to be found.
+              */
+              className={`gap-3 ${
+                button.state === "MISSED"
+                  ? "border-warning/40"
+                  : next?.mealType === button.mealType && !button.locked
+                    ? "border-primary/40"
+                    : ""
+              }`}
+              key={button.mealType}
+            >
+              <View className="flex-row items-start gap-3">
+                {/*
+                  The icon square the rest of the app uses for a meal. A cook
+                  works this screen in a hurry with wet hands and picks the card
+                  by shape before reading a word of it — four identical cards
+                  distinguished only by a heading is the version that gets
+                  breakfast announced at dinner.
+                */}
+                <View className="h-11 w-11 items-center justify-center rounded-xl bg-brand-soft">
+                  <Ionicons
+                    color={colors.primary}
+                    name={mealIcon(button.mealType)}
+                    size={19}
+                  />
+                </View>
+
+                <View className="flex-1 gap-1">
+                  <Text variant="subtitle">{humanizeEnum(button.mealType)}</Text>
+                  <Text variant="caption">{mealSubtitle(button)}</Text>
+                </View>
+
+                {button.sent ? (
+                  <Badge
+                    label={`Sent ${formatTime(button.sent.announcedAt)}`}
+                    tone="success"
+                  />
+                ) : button.timing ? (
+                  /*
+                    The routine's own words while the meal is open, and the
+                    clock that matters while it is not. A cook looking at a dead
+                    button is asking one question, and "7:00 PM - 8:45 PM" does
+                    not answer it — the button went live at 6:30 and shut at
+                    9:45.
+                  */
+                  <Badge
+                    label={
+                      button.state === "MISSED"
+                        ? "Missed"
+                        : button.state === "EARLY" && button.opensAt
+                          ? `From ${button.opensAt}`
+                          : button.timing
+                    }
+                    tone={button.locked ? "warning" : undefined}
+                  />
+                ) : null}
               </View>
 
-              <View className="flex-1 gap-1">
-                <Text variant="subtitle">{humanizeEnum(button.mealType)}</Text>
-                <Text variant="caption">{mealSubtitle(button)}</Text>
-              </View>
+              <Button
+                /*
+                  Disabled outside the meal's own hours — see `lib/cook.ts`. The
+                  label carries the reason, so the control explains itself
+                  without the caption below having to be read.
+                */
+                disabled={button.locked}
+                /*
+                  The label says what is happening, not just what the button
+                  does. A spinner beside an unchanged "Food ready" reads as a
+                  button that has not reacted; "Announcing…" is the press being
+                  acknowledged in words, which is what stops the second tap into
+                  the cooldown.
+                */
+                label={
+                  busy === button.mealType ? "Announcing…" : mealButtonLabel(button)
+                }
+                loading={busy === button.mealType}
+                onPress={() => void announce(button.mealType)}
+                size="lg"
+                /*
+                  A missed meal is not an action any more, so it must not keep
+                  wearing the brand: a pale green button is still a button, and
+                  the card would read as something the cook has yet to get to.
+                */
+                variant={button.sent || button.state === "MISSED" ? "outline" : "primary"}
+              />
 
               {button.sent ? (
-                <Badge
-                  label={`Sent ${formatTime(button.sent.announcedAt)}`}
-                  tone="success"
-                />
-              ) : button.timing ? (
-                /*
-                  The routine's own words while the meal is open, and the
-                  unlock hour while it is not: a cook looking at a dead button
-                  is asking one question, and "7:00 PM - 8:45 PM" does not
-                  answer it — the button goes live at 6:30.
-                */
-                <Badge
-                  label={button.locked && button.opensAt ? `From ${button.opensAt}` : button.timing}
-                  tone={button.locked ? "warning" : undefined}
-                />
+                <Text variant="caption">
+                  {`${button.sent.notifiedCount} resident(s) notified.`}
+                </Text>
+              ) : lockNote ? (
+                <Text variant="caption">{lockNote}</Text>
               ) : null}
-            </View>
-
-            <Button
-              /*
-                Disabled until the meal is due — see `lib/cook.ts`. The label
-                carries the hour, so the control explains itself without the
-                caption below having to be read.
-              */
-              disabled={button.locked}
-              label={mealButtonLabel(button)}
-              loading={busy === button.mealType}
-              onPress={() => void announce(button.mealType)}
-              size="lg"
-              variant={button.sent ? "outline" : "primary"}
-            />
-
-            {button.sent ? (
-              <Text variant="caption">
-                {`${button.sent.notifiedCount} resident(s) notified.`}
-              </Text>
-            ) : lockNote ? (
-              <Text variant="caption">{lockNote}</Text>
-            ) : null}
-          </Card>
+            </Card>
           );
         })}
 

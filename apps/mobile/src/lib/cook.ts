@@ -8,8 +8,10 @@
  */
 
 import {
-  canAnnounceMeal,
+  type MealAnnounceState,
   formatMinuteOfDay,
+  mealAnnounceState,
+  mealClosesAtMinute,
   mealOpensAtMinute,
   nepalMinuteOfDay,
 } from "@hostel/food/meal-window";
@@ -26,13 +28,18 @@ export type MealButton = {
   /** Today's items for this meal, joined — or empty when nothing is planned. */
   items: string[];
   /**
-   * Too early to call this meal — the routine puts it later in the day.
+   * The button cannot be pressed: either the meal is not due yet or its window
+   * has closed with nobody calling it. `state` says which.
    *
    * Always `false` for a meal already announced and for one whose timing cannot
    * be read as a clock. See {@link mealButtons}.
    */
   locked: boolean;
   mealType: MealType;
+  /**
+   * When the window shuts — `9:45 PM` — or `null` when this meal has no gate.
+   */
+  closesAt: string | null;
   /**
    * When the button unlocks — `5:30 AM` — or `null` when there is no gate on
    * this meal at all. Present whether or not `locked` is set, because the card
@@ -41,7 +48,41 @@ export type MealButton = {
   opensAt: string | null;
   /** The announcement already sent today, if there is one. */
   sent: FoodReadyAnnouncement | null;
+  /**
+   * Where the meal stands against the clock, straight off the shared rule.
+   *
+   * Kept alongside `locked` rather than replaced by it: `EARLY` and `MISSED`
+   * both disable the button but say opposite things, and a screen that only
+   * knows "locked" has to guess which.
+   */
+  state: MealAnnounceState;
   timing: string;
+};
+
+/**
+ * What {@link mealButtons} needs to decide four buttons.
+ *
+ * An object rather than four positional arguments — `timings` arrived after the
+ * fact and a fourth positional would have been silently skippable at exactly
+ * the call site that must not skip it.
+ */
+export type MealButtonsInput = {
+  /** Today's announcements, newest first, as the server sends them. */
+  announced: FoodReadyAnnouncement[];
+  /** Today's weekday rows off the routine — what is being cooked. */
+  meals: RoutineMeal[];
+  /** Defaults to now. A parameter only so the gate is testable. */
+  now?: Date;
+  /**
+   * `routine.timings` — the hostel's clock per meal for the **whole week**.
+   *
+   * This, and not the day row's own `timing`, is what the gate reads, because
+   * it is what `announceFoodReady` reads. `meals` only carries rows an admin
+   * filled in for today, so a meal with no items today arrives with an empty
+   * `timing` — and gating on that left the button live over an API that
+   * refuses it. Two sources for one rule is the whole bug.
+   */
+  timings?: Partial<Record<MealType, string>>;
 };
 
 /**
@@ -70,19 +111,28 @@ export type MealButton = {
  * breakfast — one mis-tap sending the wrong menu to every resident in the
  * building, with a cooldown then standing in the way of the correction.
  *
- * A meal unlocks {@link MEAL_ANNOUNCE_LEAD_MINUTES} before its serving time and
- * never closes again: food runs late far more often than early, and a dinner
- * called at 21:30 must still go out. A timing that is not a clock — blank, or
- * `after evening prayers` — is no gate at all.
+ * A meal opens half an hour before service and shuts an hour after it ends. It
+ * shuts because a button that stays live all evening cannot say the one thing
+ * an office needs off this screen — *nobody called that meal* — and a cook
+ * genuinely serving two hours late has an admin who can move the routine's
+ * time. A timing that is not a clock — blank, or `after evening prayers` — is
+ * no gate at all.
  *
- * `now` is a parameter because that is the only way the interesting cases here
- * are testable; the screen passes nothing.
+ * ## The clock comes from `timings`, not from the day's row
+ *
+ * `routine.timings` is per meal for the whole week and is what the **server**
+ * gates on. `meals` holds only the weekday rows an admin actually filled in, so
+ * a meal with nothing planned today arrives with an empty `timing` — and
+ * reading that was the bug: every such button stayed live over an API that
+ * refuses it. The day row's `timing` is still carried for display, and still
+ * used as a fallback for a routine saved before `timings` existed.
  */
-export function mealButtons(
-  meals: RoutineMeal[],
-  announced: FoodReadyAnnouncement[],
-  now: Date = new Date(),
-): MealButton[] {
+export function mealButtons({
+  announced,
+  meals,
+  now = new Date(),
+  timings = {},
+}: MealButtonsInput): MealButton[] {
   const sentByMeal = new Map<string, FoodReadyAnnouncement>();
 
   for (const announcement of announced) {
@@ -97,23 +147,28 @@ export function mealButtons(
 
   return MEAL_TYPES.map((mealType) => {
     const planned = meals.find((meal) => meal.mealType === mealType);
-    const timing = planned?.timing ?? "";
+    const timing = timings[mealType]?.trim() || planned?.timing || "";
     const sent = sentByMeal.get(mealType) ?? null;
     const opensAtMinute = mealOpensAtMinute(timing);
+    const closesAtMinute = mealClosesAtMinute(timing);
+    /*
+     * A meal already announced has no state to be in. It cannot be `MISSED` —
+     * it was called — and a row written before this gate existed, or a handset
+     * whose clock is wrong, must not turn "Announce again" into a dead button.
+     */
+    const state: MealAnnounceState = sent
+      ? "ANY"
+      : mealAnnounceState(timing, minuteOfDay);
 
     return {
+      closesAt: closesAtMinute === null ? null : formatMinuteOfDay(closesAtMinute),
       items: planned?.items ?? [],
-      /*
-       * A meal already announced is never locked. It cannot happen on a clock
-       * that only moves forwards — the announcement had to pass this same gate
-       * — but a row written before this gate existed, or a handset whose clock
-       * is wrong, must not turn "Announce again" into a dead button.
-       */
-      locked: sent === null && !canAnnounceMeal(timing, minuteOfDay),
+      locked: state === "EARLY" || state === "MISSED",
       mealType,
       opensAt: opensAtMinute === null ? null : formatMinuteOfDay(opensAtMinute),
       sent,
-      timing,
+      state,
+      timing: planned?.timing || timings[mealType]?.trim() || "",
     };
   });
 }
@@ -133,10 +188,20 @@ export function mealButtons(
  * the hour rather than "Locked" — the cook's next question is always *when*.
  */
 export function mealButtonLabel(button: MealButton): string {
-  if (button.locked) {
-    // The clock, on the button itself. A disabled control with no reason on it
-    // is the version a cook taps four times and then rings the office about.
+  // The clock, on the button itself. A disabled control with no reason on it is
+  // the version a cook taps four times and then rings the office about.
+  if (button.state === "EARLY") {
     return button.opensAt ? `Opens ${button.opensAt}` : "Not yet";
+  }
+
+  /*
+   * Past tense, and it names what happened rather than what the app did. This
+   * button is now a record — the meal went out without the building being told
+   * — and "Not announced in time" is what an admin reading over the cook's
+   * shoulder needs it to say.
+   */
+  if (button.state === "MISSED") {
+    return "Not announced in time";
   }
 
   return button.sent ? "Announce again" : "Food ready";
@@ -166,20 +231,33 @@ export function mealSubtitle(button: MealButton): string {
  * argument with somebody holding a pan.
  */
 export function mealLockNote(button: MealButton): string | null {
-  if (!button.locked) {
-    return null;
+  if (button.state === "EARLY") {
+    return button.opensAt
+      ? `You can call this meal from ${button.opensAt}.`
+      : "This meal is not due yet.";
   }
 
-  return button.opensAt
-    ? `You can call this meal from ${button.opensAt}.`
-    : "This meal is not due yet.";
+  if (button.state === "MISSED") {
+    /*
+     * Says who to go to, because the cook cannot fix this and should not be
+     * left looking for a way to. The office can move the serving time, and
+     * that is the only lever there is.
+     */
+    return button.closesAt
+      ? `This meal could be called until ${button.closesAt}. Tell the office if the serving time has changed.`
+      : "The time to call this meal has passed.";
+  }
+
+  return null;
 }
 
 /**
  * The meals the kitchen may call right now, in serving order.
  *
- * What the shift card counts as work in front of the cook: a breakfast still
- * locked at 4am is not something anybody is behind on.
+ * What the badge counts as work in front of the cook. A breakfast still locked
+ * at 4am is not something anybody is behind on, and a lunch whose window shut
+ * at 2pm is not something anybody can still do — neither belongs in a number
+ * that means "left to call".
  */
 export function openButtons(buttons: MealButton[]): MealButton[] {
   return buttons.filter((button) => !button.locked);
