@@ -26,6 +26,7 @@
 
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
+import type { PayMethod } from "@/lib/finance-api";
 import type { MealType, RoutineDay } from "@/lib/food-week";
 
 /* -------------------------------------------------------------------------- */
@@ -1223,6 +1224,27 @@ export type ResidentIntakeResult = {
         referenceCode: string;
       }
     | { period: string; raised: false; reason: string };
+  /**
+   * How this hostel takes money, resolved server-side at the moment of
+   * registration (`getHostelPayMethods`).
+   *
+   * Returned with the intake rather than fetched afterwards because the desk
+   * is the one moment a reference code is guaranteed to reach the person who
+   * owes it — they are standing there. Sending a warden away to find the
+   * hostel's eSewa id somewhere else is how a transfer arrives with no
+   * reference and lands in the owner's review queue as an unidentifiable
+   * credit.
+   *
+   * `null` when the lookup failed, and `usable: false` when the owner has not
+   * set a payment profile up at all; both are said out loud rather than shown
+   * as an empty list. Optional because this build can be older than the API.
+   */
+  howToPay?: {
+    displayName: string | null;
+    instructions: string | null;
+    methods: PayMethod[];
+    usable: boolean;
+  } | null;
   quote: IntakeQuote;
   referral: { code: string } | null;
   resident: ManagedResident;

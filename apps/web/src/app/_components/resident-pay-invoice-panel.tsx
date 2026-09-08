@@ -3,17 +3,22 @@
 import {
   AlertTriangle,
   Banknote,
-  Building2,
-  Check,
   ChevronDown,
-  Copy,
   Loader2,
-  QrCode,
   Smartphone,
   Sparkles,
 } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 
+import {
+  CopyButton,
+  ManualMethodPanel,
+  MethodIcon,
+  methodKey,
+  methodLabel,
+  type PayMethod,
+  PROVIDER_LABEL,
+} from "@/app/_components/payment-method-ui";
 import { currency, EmptyState, LoadingRows } from "@/app/_components/shared-ui";
 import { browserApi } from "@/lib/browser-api";
 import { dayMonthYearBoth, daysLeftLabel, monthLabel } from "@/lib/format-month";
@@ -58,30 +63,10 @@ import {
  * deciding what counts as a payment method.
  */
 
-type GatewayProviderName = "ESEWA" | "FONEPAY" | "KHALTI";
-
-type PayMethod =
-  | { kind: "GATEWAY"; provider: GatewayProviderName; sandbox: boolean }
-  | {
-      kind: "BANK";
-      accountName: string | null;
-      accountNumber: string;
-      bankName: string | null;
-    }
-  | { kind: "ESEWA"; id: string }
-  | { kind: "KHALTI"; id: string }
-  | { kind: "QR"; assetId: string; notice: string | null };
-
 type IntentHandoff =
   | { kind: "REDIRECT"; url: string }
   | { kind: "FORM_POST"; url: string; fields: Record<string, string> }
   | { kind: "QR"; payload: string };
-
-const PROVIDER_LABEL: Record<GatewayProviderName, string> = {
-  ESEWA: "eSewa",
-  FONEPAY: "Fonepay",
-  KHALTI: "Khalti",
-};
 
 type PayInstructions = {
   amountDue: number;
@@ -98,81 +83,6 @@ type PayInstructions = {
   tier: "TIER_0" | "TIER_1";
   usable: boolean;
 };
-
-/** A stable identity for a method, used as both React key and selection value. */
-function methodKey(method: PayMethod) {
-  return method.kind === "GATEWAY" ? `GATEWAY:${method.provider}` : method.kind;
-}
-
-function methodLabel(method: PayMethod) {
-  switch (method.kind) {
-    case "GATEWAY":
-      return PROVIDER_LABEL[method.provider];
-    case "BANK":
-      return "Bank transfer";
-    case "QR":
-      return "Scan QR";
-    case "ESEWA":
-      return "eSewa";
-    default:
-      return "Khalti";
-  }
-}
-
-function MethodIcon({ method }: { method: PayMethod }) {
-  if (method.kind === "BANK") {
-    return <Building2 aria-hidden className="size-4 shrink-0" />;
-  }
-
-  if (method.kind === "QR") {
-    return <QrCode aria-hidden className="size-4 shrink-0" />;
-  }
-
-  return <Smartphone aria-hidden className="size-4 shrink-0" />;
-}
-
-function CopyButton({
-  label,
-  size = "sm",
-  value,
-}: {
-  label: string;
-  size?: "lg" | "sm";
-  value: string;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = useCallback(() => {
-    // `writeText` rejects on an insecure origin and in some in-app browsers.
-    // Failing silently would leave the resident tapping a button that appears
-    // to do nothing, so the label simply does not flip.
-    void navigator.clipboard
-      ?.writeText(value)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => setCopied(false));
-  }, [value]);
-
-  return (
-    <button
-      aria-label={`Copy ${label}`}
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-lg border font-semibold transition",
-        copied
-          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-          : "border-border hover:bg-muted",
-        size === "lg" ? "px-3 py-2 text-[12.5px]" : "px-2.5 py-1.5 text-xs",
-      )}
-      onClick={copy}
-      type="button"
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
 
 /**
  * Sends the browser to the provider.
@@ -275,22 +185,13 @@ function GatewayPanel({
 }
 
 /** One labelled value with its own copy button — an account number, a wallet ID. */
-function DetailLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
-      <div className="min-w-0">
-        <p className="text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        <p className="truncate font-mono text-sm font-semibold text-foreground">
-          {value}
-        </p>
-      </div>
-      <CopyButton label={label} value={value} />
-    </div>
-  );
-}
-
+/**
+ * One method, expanded.
+ *
+ * The manual half is {@link ManualMethodPanel}, shared with the owner preview
+ * and the intake desk; only a live checkout is rendered here, because starting
+ * one needs this resident’s own session.
+ */
 function MethodPanel({
   amount,
   invoiceId,
@@ -304,50 +205,7 @@ function MethodPanel({
     return <GatewayPanel amount={amount} invoiceId={invoiceId} method={method} />;
   }
 
-  if (method.kind === "QR") {
-    return (
-      <div className="space-y-3">
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4">
-          {/* eslint-disable-next-line @next/next/no-img-element -- private asset served through our own authorizing route */}
-          <img
-            alt="Scan to pay"
-            className="size-52 max-w-full object-contain"
-            src={`/api/v1/files/${method.assetId}/url`}
-          />
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <QrCode aria-hidden className="size-3.5" />
-            Scan with any payment app
-          </span>
-        </div>
-        {/* A personal wallet's daily cap. Told before they try, because the
-            network's rejection afterwards explains nothing. */}
-        {method.notice ? (
-          <p className="flex items-start gap-1.5 rounded-lg bg-amber-500/15 p-2.5 text-xs font-semibold leading-4 text-amber-800 dark:text-amber-300">
-            <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-            {method.notice}
-          </p>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (method.kind === "BANK") {
-    return (
-      <div className="space-y-2">
-        {method.bankName ? (
-          <p className="text-sm font-bold text-foreground">{method.bankName}</p>
-        ) : null}
-        {method.accountName ? (
-          <DetailLine label="Account name" value={method.accountName} />
-        ) : null}
-        <DetailLine label="Account number" value={method.accountNumber} />
-      </div>
-    );
-  }
-
-  const label = method.kind === "ESEWA" ? "eSewa ID" : "Khalti ID";
-
-  return <DetailLine label={label} value={method.id} />;
+  return <ManualMethodPanel method={method} />;
 }
 
 export const ResidentPayInvoicePanel = memo(function ResidentPayInvoicePanel({

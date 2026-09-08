@@ -202,6 +202,61 @@ function qrNotice(
   );
 }
 
+/**
+ * How this hostel can be paid, without an invoice to hang it on.
+ *
+ * The resident's own screen ({@link getPayInstructions}) answers for one
+ * invoice, from that resident's session. The intake desk needs the same answer
+ * a moment earlier and from the other side of the counter: the warden has just
+ * registered somebody, the invoices carry reference codes, and the resident is
+ * standing there asking where to send the money. Reading the resident's
+ * endpoint is not open to them — it resolves `findCurrentResident` off the
+ * caller's own principal — and re-listing the methods on the intake screen
+ * would be a second answer to "how do I pay you" that drifts from the first.
+ *
+ * So the method list is `methodsFrom`, unchanged and in the same order, and
+ * everything invoice-shaped is left to the caller.
+ *
+ * `amountDue` only decides the Fonepay personal-wallet notice; pass the total
+ * being collected so a joining payment over the daily cap says so at the desk
+ * rather than after a rejected transfer.
+ */
+export type HostelPayMethods = {
+  displayName: string | null;
+  instructions: string | null;
+  methods: PayMethod[];
+  tier: PaymentTier;
+  /** False means: this hostel has not set up a single way to be paid. */
+  usable: boolean;
+};
+
+export async function getHostelPayMethods(
+  hostelId: Types.ObjectId | string,
+  amountDue: number,
+): Promise<HostelPayMethods> {
+  await connectToDatabase();
+
+  const profile = await HostelPaymentProfileModel.findOne({ hostelId }).lean<{
+    bankAccountName?: string | null;
+    bankAccountNumber?: string | null;
+    bankName?: string | null;
+    displayName?: string | null;
+    esewaId?: string | null;
+    gateways?: GatewayConfig[] | null;
+    khaltiId?: string | null;
+    paymentInstructions?: string | null;
+    staticQrAssetId?: Types.ObjectId | null;
+  } | null>();
+
+  return {
+    displayName: profile?.displayName ?? null,
+    instructions: profile?.paymentInstructions ?? null,
+    methods: profile ? methodsFrom(profile, amountDue) : [],
+    tier: resolvePaymentTier(profile),
+    usable: isPaymentProfileUsable(profile),
+  };
+}
+
 export async function getPayInstructions(
   invoiceId: string,
   principal: ApiPrincipal,

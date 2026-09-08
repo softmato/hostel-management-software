@@ -265,7 +265,7 @@ function ListingPill({ listing }: { listing: { live: boolean; note: string } }) 
  * | `08500501204444` | `hostelCode` — `HH-6F2A9C41` — and the area |
  * | `NPR 52.43` | everything collected, ever |
  * | `SIDDHANT YADAV` | residents, free beds, how full |
- * | `Actual` / `Available Balance` | `Since opening` / `In Bhadra` |
+ * | `Actual` / `Available Balance` | `In Bhadra` / `Still due` |
  *
  * Inset on all four sides with a shadow under it, cornered, lifted, and with the
  * building's own photograph as its ground: all of that is `<PortalHeroCard>`,
@@ -279,15 +279,33 @@ function ListingPill({ listing }: { listing: { live: boolean; note: string } }) 
  * is the figure in 34-point type, `DeltaPill` answers "and is that good" in
  * words beside it, and the trend card in the body draws the rest.
  *
- * The two-up under it repeats that total on the left, which is deliberate and is
- * what EBL does: it *names* the big figure, and it makes the month beside it
- * read as a comparison rather than as a second unrelated number. It also earns
- * its place for a reason EBL does not have — a warden without `viewPayments`
- * gets no lifetime figure at all and the headline silently falls back to the
- * month, so `Since opening` reading `—` is the only thing that tells the two
- * cases apart. See `earningsSummary`.
+ * The two-up under it used to repeat that total on the left, under `Since
+ * opening`. Nothing else on the card competes for that reading — the headline
+ * *is* the lifetime figure — so the label was naming something already named,
+ * and the row spent half of itself on a second copy of the number above it.
+ * Both halves are the billing period now: what came in, and what has not.
  *
- * ## The right half names its month
+ * The repeat did do one job, and it is kept for exactly the case that needed
+ * it. A warden without `viewPayments` gets no lifetime figure at all and the
+ * headline silently falls back to the month — so when `lifetime` is null the
+ * left half goes back to `Since opening` reading `—`, which is the only thing
+ * on the card that tells the two cases apart. See `earningsSummary`.
+ *
+ * ## `Still due` is that month's shortfall, not the hostel's
+ *
+ * `thisMonthBilled - thisMonth`, so the two halves are one sentence about one
+ * period rather than two figures at different scales — a month's collections
+ * beside an all-time arrears total is a comparison nobody is making. Lifetime
+ * outstanding is a real question, and Money is the screen that answers it next
+ * to the residents it belongs to.
+ *
+ * The subtraction clamps at zero on the total, where `overall.outstanding`
+ * clamps per invoice: a resident who overpaid one invoice offsets another's
+ * shortfall here by that much. The period roll-up carries no per-month arrears
+ * field to do better, and a hostel with overpayments can only read that figure
+ * correctly on Money in any case.
+ *
+ * ## The left half names its month
  *
  * `In Bhadra`, not `This month`. A hostel does not bill the month the phone is
  * in — it bills the period on the invoice, and the two come apart every time a
@@ -358,6 +376,13 @@ export function HostelHero({
    */
   const month = earnings.period ? dates.periodMonth(earnings.period) : "";
   const monthLabel = month && month !== "—" ? `In ${month}` : "This month";
+  /*
+   * What that month was billed, less what it collected. Clamped, because a
+   * month that took in more than it billed — an early payment against next
+   * month's invoice lands in the period it was billed for, but a part-payment
+   * settled twice does not — would otherwise print a negative arrears figure.
+   */
+  const monthShortfall = Math.max(0, earnings.thisMonthBilled - earnings.thisMonth);
 
   return (
     <PortalHeroCard photoUrl={photo}>
@@ -491,13 +516,20 @@ export function HostelHero({
         <View className="flex-row items-center">
           {[
             /*
-              Masked with the headline, by the same switch. The left half is
-              the same lifetime total the headline draws, so covering only
-              the big figure and printing it again in 16-point type two rows
-              below would hide nothing at all.
+              Masked with the headline, by the same switch. Covering the big
+              figure while printing the month and the arrears under it in
+              16-point type would leave the hostel's takings on the screen for
+              whoever is standing next to the owner, which is the whole of what
+              the eye exists to prevent.
             */
-            { label: "Since opening", value: money(earnings.lifetime) },
-            { label: monthLabel, value: money(earnings.thisMonth) },
+            /*
+              The month, unless there is no lifetime figure to have been
+              redundant with — see the note above on the degraded path.
+            */
+            lifetimeKnown
+              ? { label: monthLabel, value: money(earnings.thisMonth) }
+              : { label: "Since opening", value: money(earnings.lifetime) },
+            { label: "Still due", value: money(monthShortfall) },
           ].map((fact, index) => (
             <View className="flex-1 flex-row items-center" key={fact.label}>
               {index > 0 ? <View className="mr-3 h-9 w-px bg-white/25" /> : null}

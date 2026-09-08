@@ -7,6 +7,7 @@ const serviceMocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
   getIntakeQuote: vi.fn(),
   raiseAdmissionInvoice: vi.fn(),
+  getHostelPayMethods: vi.fn(),
   runBillingCycle: vi.fn(),
   connectToDatabase: vi.fn(),
   emergencyContactCreate: vi.fn(),
@@ -63,6 +64,16 @@ vi.mock("@/modules/residents/resident-intake.service", () => ({
 
 vi.mock("@/modules/finance/billing.service", () => ({
   runBillingCycle: serviceMocks.runBillingCycle,
+}));
+
+/*
+ * How the hostel takes money, returned with the registration so the desk can
+ * read a reference code and an account number off one screen. Mocked because
+ * the real one reaches for a payment profile in Mongo, and what this file
+ * asserts about it is only that an intake carries it back.
+ */
+vi.mock("@/modules/finance/pay-instructions.service", () => ({
+  getHostelPayMethods: serviceMocks.getHostelPayMethods,
 }));
 
 /*
@@ -243,6 +254,13 @@ describe("resident management service behavior", () => {
       period: "2026-08",
       skipped: [],
       totalBilled: 0,
+    });
+    serviceMocks.getHostelPayMethods.mockResolvedValue({
+      displayName: "Sunrise Hostel",
+      instructions: null,
+      methods: [{ id: "9800000000", kind: "ESEWA" }],
+      tier: "TIER_0",
+      usable: true,
     });
   });
 
@@ -623,6 +641,79 @@ describe("resident management service behavior", () => {
       raised: true,
       referenceCode: "HH-0007",
     });
+  });
+
+  it("hands the desk the reference codes and how this hostel is paid", async () => {
+    /*
+     * The reference code has exactly one moment where it is guaranteed to reach
+     * the person who owes the money: they are standing at the desk. It was
+     * allocated on both invoices and returned nowhere anybody could read it, so
+     * transfers arrived unattributed and landed in the owner’s review queue.
+     */
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+    serviceMocks.runBillingCycle.mockResolvedValueOnce({
+      billed: [
+        {
+          amount: 2322,
+          creditApplied: 0,
+          invoiceId: "inv-1",
+          referenceCode: "HH-0007",
+          residentId,
+        },
+      ],
+      failures: [],
+      period: "2026-08",
+      skipped: [],
+      totalBilled: 2322,
+    });
+
+    const result = await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(result.firstMonth).toMatchObject({ referenceCode: "HH-0007" });
+    expect(result.howToPay).toMatchObject({
+      methods: [{ id: "9800000000", kind: "ESEWA" }],
+      usable: true,
+    });
+    // Priced on what was actually raised, so a personal-wallet daily cap is
+    // judged against the sum the resident is being asked for today.
+    expect(serviceMocks.getHostelPayMethods).toHaveBeenCalledWith(
+      new Types.ObjectId(hostelId),
+      2322,
+    );
+  });
+
+  it("registers the resident even when the payment profile cannot be read", async () => {
+    // The bed is spent and the invoices are on the ledger by the time this
+    // runs. A lookup that throws must not report a failed intake.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+    serviceMocks.getHostelPayMethods.mockRejectedValueOnce(new Error("mongo down"));
+
+    const result = await createResident(
+      {
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2026-08-20T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(result.howToPay).toBeNull();
+    expect(result.resident).toBeTruthy();
   });
 
   it("tells the resident and the hostel, with the figures they were quoted", async () => {

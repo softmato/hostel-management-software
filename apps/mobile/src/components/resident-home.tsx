@@ -45,7 +45,7 @@ import type { StayPill } from "@/lib/resident-home";
  * | is the listing live | did they check in tonight |
  * | everything collected, ever | everything they owe right now |
  * | residents / vacant / occupancy | which month, and how late |
- * | since opening / this month | outstanding / deposit held |
+ * | this month, and what is still due | outstanding / deposit held |
  *
  * ## The money is the other direction, and that is the one real divergence
  *

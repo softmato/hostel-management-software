@@ -60,7 +60,9 @@ vi.mock("@hostel/db/models/HostelPaymentProfile", async () => {
   };
 });
 
-const { getPayInstructions } = await import("./pay-instructions.service");
+const { getHostelPayMethods, getPayInstructions } = await import(
+  "./pay-instructions.service"
+);
 
 const hostelId = new Types.ObjectId();
 const residentId = new Types.ObjectId();
@@ -372,5 +374,54 @@ describe("live gateways on the pay screen", () => {
     expect(result.methods.find((method) => method.kind === "QR")).toMatchObject({
       notice: null,
     });
+  });
+});
+
+/**
+ * The intake desk asks the same question from the other side of the counter:
+ * a resident has just been registered, the invoices carry reference codes, and
+ * the warden has to tell them where to send the money. Same method list, same
+ * order — a second answer here is a warden reading out an account number the
+ * resident's own screen does not show.
+ */
+describe("getHostelPayMethods", () => {
+  it("returns the hostel's methods without needing an invoice or a resident", async () => {
+    const result = await getHostelPayMethods(hostelId, 12000);
+
+    expect(result.displayName).toBe("Green View Hostel");
+    expect(result.methods).toEqual([{ kind: "ESEWA", id: "9800000000" }]);
+    expect(result.usable).toBe(true);
+    // The resident's own lookup is never consulted: the caller is staff.
+    expect(mocks.findCurrentResident).not.toHaveBeenCalled();
+  });
+
+  it("says a hostel with no profile cannot be paid, rather than showing nothing", async () => {
+    mocks.profileFindOne.mockReturnValue(lean(null));
+
+    const result = await getHostelPayMethods(hostelId, 12000);
+
+    expect(result.methods).toEqual([]);
+    expect(result.usable).toBe(false);
+  });
+
+  it("carries the personal-wallet cap notice, judged on the amount being collected", async () => {
+    mocks.profileFindOne.mockReturnValue(
+      lean({
+        gateways: [{ accountKind: "PERSONAL", provider: "FONEPAY" }],
+        staticQrAssetId: qrAssetId,
+      }),
+    );
+
+    // A joining payment is the largest single amount a resident ever transfers,
+    // so this is exactly where a 5,000/day cap has to be said at the desk.
+    const capped = await getHostelPayMethods(hostelId, 12000);
+    const qr = capped.methods.find((method) => method.kind === "QR");
+
+    expect(qr?.kind === "QR" && qr.notice).toContain("5,000");
+
+    const under = await getHostelPayMethods(hostelId, 4000);
+    const smallQr = under.methods.find((method) => method.kind === "QR");
+
+    expect(smallQr?.kind === "QR" && smallQr.notice).toBeNull();
   });
 });

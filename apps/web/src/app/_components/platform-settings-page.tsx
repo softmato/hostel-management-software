@@ -6,13 +6,15 @@ import {
   Copy,
   KeyRound,
   Loader2,
+  Mail,
+  MailX,
   ShieldCheck,
   ShieldHalf,
   Trash2,
   UserPlus,
 } from "lucide-react";
 import Link from "next/link";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
 import { useConfirm } from "@/app/_components/confirm-dialog";
@@ -66,6 +68,59 @@ type PlatformAdmin = {
   status: string;
 };
 
+type PlatformAdminInvite = {
+  createdAt: string | null;
+  email: string;
+  expired: boolean;
+  expiresAt: string;
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+};
+
+type EmailCheck = {
+  availability: "AVAILABLE" | "UPGRADEABLE" | "TAKEN";
+  message: string;
+  reason: string;
+  sendable: boolean;
+};
+
+/**
+ * How the new admin gets in.
+ *
+ * Both paths still exist because they answer different situations. An
+ * invitation is the right default — nothing appears on the roster until the
+ * person opens a link only their mailbox received, and they choose their own
+ * password. But a platform whose email delivery is not configured cannot use
+ * one at all, and that platform still needs to add an admin, which is what the
+ * temporary password is for.
+ */
+type GrantMode = "invite" | "password";
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const CHECK_TONES: Record<
+  EmailCheck["availability"],
+  { className: string; icon: typeof Check }
+> = {
+  AVAILABLE: {
+    className:
+      "border-emerald-200/80 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
+    icon: Check,
+  },
+  TAKEN: {
+    className:
+      "border-rose-200/80 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300",
+    icon: AlertCircle,
+  },
+  UPGRADEABLE: {
+    className:
+      "border-amber-200/80 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+    icon: AlertCircle,
+  },
+};
+
 const ROLE_COPY: Record<string, { description: string; label: string }> = {
   [Role.PLATFORM_MODERATOR]: {
     description:
@@ -85,6 +140,96 @@ function formatDate(value: string | null) {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
 }
 
+function GrantModeSwitch({
+  onChange,
+  value,
+}: {
+  onChange: (value: GrantMode) => void;
+  value: GrantMode;
+}) {
+  const options: { hint: string; label: string; value: GrantMode }[] = [
+    { hint: "They set their own password", label: "Send an invite link", value: "invite" },
+    { hint: "For when email is not set up", label: "Temporary password", value: "password" },
+  ];
+
+  return (
+    <div
+      aria-label="How they get access"
+      className="inline-flex rounded-lg border border-border bg-background p-0.5"
+      role="tablist"
+    >
+      {options.map((option) => (
+        <button
+          aria-selected={value === option.value}
+          className={
+            value === option.value
+              ? "rounded-md bg-role-platform px-3 py-1.5 text-[11.5px] font-semibold text-white"
+              : "rounded-md px-3 py-1.5 text-[11.5px] font-semibold text-muted-foreground transition hover:text-foreground"
+          }
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          role="tab"
+          title={option.hint}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The verdict on the typed address, under the field, as they type.
+ *
+ * Says nothing at all until the address is complete — a half-typed one is not
+ * "unavailable", and colouring it red while somebody is still on the third
+ * character is a rebuke for typing.
+ */
+function EmailCheckNote({
+  checking,
+  looksComplete,
+  result,
+  typed,
+}: {
+  checking: boolean;
+  looksComplete: boolean;
+  result: EmailCheck | null;
+  typed: boolean;
+}) {
+  if (!typed || !looksComplete) {
+    return null;
+  }
+
+  if (checking) {
+    return (
+      <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Loader2 className="size-3 animate-spin" />
+        Checking whether this address is already in use…
+      </p>
+    );
+  }
+
+  // Checked, but the lookup itself failed. Silence rather than a spinner that
+  // never stops — the submit is unlocked and the server checks again anyway.
+  if (!result) {
+    return null;
+  }
+
+  const tone = CHECK_TONES[result.availability];
+  const Icon = tone.icon;
+
+  return (
+    <p
+      className={`mt-1.5 flex items-start gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] leading-4 ${tone.className}`}
+      role="status"
+    >
+      <Icon className="mt-px size-3 shrink-0" />
+      {result.message}
+    </p>
+  );
+}
+
 export const PlatformSettingsPageContent = memo(function PlatformSettingsPageContent() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -93,8 +238,20 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
   const [inviteName, setInviteName] = useState("");
   const [invitePhone, setInvitePhone] = useState("");
   const [inviteRole, setInviteRole] = useState<string>(Role.PLATFORM_MODERATOR);
+  const [grantMode, setGrantMode] = useState<GrantMode>("invite");
   const [creating, setCreating] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState("");
+  /*
+   * The verdict is stored *with the address it was about*, not on its own.
+   * Keying it that way is what lets "are we still checking?" be derived from a
+   * comparison rather than tracked as a second flag that has to be flipped in
+   * both directions — and a reply that lands after the field has moved on is
+   * then simply not the current address, instead of a stale answer on screen.
+   */
+  const [emailCheck, setEmailCheck] = useState<{
+    email: string;
+    result: EmailCheck | null;
+  } | null>(null);
 
   const invalidate = useInvalidateResources();
   const { confirm, confirmDialog } = useConfirm();
@@ -109,19 +266,84 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
   const adminsResource = usePortalResource<{ admins: PlatformAdmin[] }>(
     platformEndpoints.admins,
   );
+  const invitesResource = usePortalResource<{ invites: PlatformAdminInvite[] }>(
+    platformEndpoints.adminInvites,
+  );
 
   const owner = ownerResource.data?.user ?? null;
   const report = reportResource.data?.report ?? null;
   // A PLATFORM_MODERATOR gets 403 on the roster by design — show it empty rather
   // than surfacing an error they cannot act on, so its failure is not combined
-  // into the page-level state below.
+  // into the page-level state below. The outstanding invitations are the same
+  // shape of thing and are read the same way.
   const admins = adminsResource.data?.admins ?? [];
+  const invites = invitesResource.data?.invites ?? [];
   const { state, message: loadMessage } = combineResources(ownerResource, reportResource);
   const pageError = error || loadMessage;
 
   // Only a full superadmin may manage admins; an acting superadmin sees the
   // roster read-only. The server enforces this too.
   const canManageAdmins = owner?.role === Role.SUPERADMIN;
+
+  const trimmedEmail = inviteEmail.trim().toLowerCase();
+  const emailLooksComplete = EMAIL_PATTERN.test(trimmedEmail);
+
+  /*
+   * Checked as they type, debounced, and only once the address is complete
+   * enough to be one. Both grant paths refuse the same addresses, so the answer
+   * belongs beside the field rather than behind the button — finding out that
+   * an address is a warden's *after* pressing Create tells you the same thing
+   * one wasted round trip later, and the older screen did exactly that.
+   *
+   * A failed lookup clears the note rather than blocking: the address may be
+   * perfectly good, and the server re-checks on submit either way.
+   */
+  useEffect(() => {
+    if (!emailLooksComplete) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await browserApi<EmailCheck>(
+            `${platformEndpoints.adminEmailCheck}?email=${encodeURIComponent(trimmedEmail)}`,
+          );
+
+          if (!cancelled) {
+            setEmailCheck({ email: trimmedEmail, result });
+          }
+        } catch {
+          // Recorded as "checked, no answer" rather than left pending, so the
+          // button unlocks: the address may be perfectly good, and the server
+          // re-checks it on submit regardless.
+          if (!cancelled) {
+            setEmailCheck({ email: trimmedEmail, result: null });
+          }
+        }
+      })();
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [emailLooksComplete, trimmedEmail]);
+
+  const checkedEmail = emailCheck?.email === trimmedEmail ? emailCheck : null;
+  const checkingEmail = emailLooksComplete && !checkedEmail;
+  const emailBlocked = Boolean(checkedEmail?.result && !checkedEmail.result.sendable);
+  const submitDisabled =
+    creating || !emailLooksComplete || checkingEmail || emailBlocked;
+
+  function resetForm() {
+    setInviteEmail("");
+    setInviteName("");
+    setInvitePhone("");
+    setEmailCheck(null);
+  }
 
   async function createAdmin() {
     if (!inviteEmail.trim()) {
@@ -149,12 +371,10 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
       );
 
       setMessage(
-        `${ROLE_COPY[inviteRole]?.label ?? "Admin"} created — credentials emailed to ${inviteEmail.trim()}.`,
+        `${ROLE_COPY[inviteRole]?.label ?? "Admin"} created — credentials emailed to ${trimmedEmail}.`,
       );
       setTemporaryPassword(result.temporaryPassword);
-      setInviteEmail("");
-      setInviteName("");
-      setInvitePhone("");
+      resetForm();
       invalidate(platformEndpoints.admins);
     } catch (createError) {
       setError(
@@ -162,6 +382,87 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
       );
     } finally {
       setCreating(false);
+    }
+  }
+
+  /**
+   * Sends the emailed link. Nothing is added to the roster here — the account
+   * appears only when the recipient opens the link, which is the whole point of
+   * this path, so the success line says so rather than implying it is done.
+   */
+  async function sendInvite() {
+    if (!trimmedEmail) {
+      setError("An email address is required.");
+      return;
+    }
+
+    setCreating(true);
+    setError("");
+    setMessage("");
+    setTemporaryPassword("");
+
+    try {
+      const result = await browserApi<{
+        delivered: boolean;
+        deliveryReason: string | null;
+      }>(platformEndpoints.adminInvites, {
+        body: JSON.stringify({
+          email: trimmedEmail,
+          name: inviteName.trim() || undefined,
+          phone: invitePhone.trim() || undefined,
+          role: inviteRole,
+        }),
+        method: "POST",
+      });
+
+      /*
+       * An invitation with no delivered mail is a dead end — there is no
+       * password to read off the screen and hand over — so a failed send is
+       * said out loud rather than reported as success.
+       */
+      setMessage(
+        result.delivered
+          ? `Invitation sent to ${trimmedEmail}. They join the roster when they accept it.`
+          : `The invitation was created, but the email could not be sent (${result.deliveryReason ?? "unknown"}). Withdraw it below and issue a temporary password instead until email delivery is configured.`,
+      );
+      resetForm();
+      invalidate(platformEndpoints.adminInvites);
+    } catch (inviteError) {
+      setError(
+        inviteError instanceof Error
+          ? inviteError.message
+          : "Could not send the invitation.",
+      );
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function revokeInvite(inviteId: string, email: string) {
+    const confirmed = await confirm({
+      actionLabel: "Withdraw invitation",
+      description: `The link sent to ${email} stops working immediately. Nothing was created on the roster, so there is nothing else to undo.`,
+      title: "Withdraw this invitation?",
+      tone: "destructive",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError("");
+    setMessage("");
+
+    try {
+      await browserApi(platformEndpoints.adminInvite(inviteId), { method: "DELETE" });
+      setMessage("Invitation withdrawn.");
+      invalidate(platformEndpoints.adminInvites);
+    } catch (revokeError) {
+      setError(
+        revokeError instanceof Error
+          ? revokeError.message
+          : "Could not withdraw the invitation.",
+      );
     }
   }
 
@@ -323,19 +624,30 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
                   Add a Platform Admin
                 </h2>
                 <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-                  The new admin receives a temporary password by email and must change it
-                  on first login.
+                  {grantMode === "invite"
+                    ? "They get an emailed link, confirm on one screen, and sign in with Google — no password to set. Nothing appears on the roster until they accept."
+                    : "The account is created now with a temporary password, emailed and shown once here. They must change it on first login."}
                 </p>
               </header>
 
               <div className="space-y-3 p-3.5">
+                <GrantModeSwitch onChange={setGrantMode} value={grantMode} />
+
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <TextField
-                    label="Email"
-                    onChange={setInviteEmail}
-                    placeholder="admin@example.com"
-                    value={inviteEmail}
-                  />
+                  <div>
+                    <TextField
+                      label="Email"
+                      onChange={setInviteEmail}
+                      placeholder="admin@example.com"
+                      value={inviteEmail}
+                    />
+                    <EmailCheckNote
+                      checking={checkingEmail}
+                      looksComplete={emailLooksComplete}
+                      result={checkedEmail?.result ?? null}
+                      typed={inviteEmail.trim().length > 0}
+                    />
+                  </div>
                   <TextField
                     label="Full name"
                     onChange={setInviteName}
@@ -368,13 +680,19 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
                   </div>
                 </div>
 
-                <RoleButton disabled={creating} onClick={createAdmin} tone="platform">
+                <RoleButton
+                  disabled={submitDisabled}
+                  onClick={grantMode === "invite" ? sendInvite : createAdmin}
+                  tone="platform"
+                >
                   {creating ? (
                     <Loader2 className="size-3.5 animate-spin" />
+                  ) : grantMode === "invite" ? (
+                    <Mail className="size-3.5" />
                   ) : (
                     <UserPlus className="size-3.5" />
                   )}
-                  Create admin
+                  {grantMode === "invite" ? "Send invitation" : "Create admin"}
                 </RoleButton>
 
                 {temporaryPassword ? (
@@ -401,6 +719,94 @@ export const PlatformSettingsPageContent = memo(function PlatformSettingsPageCon
                 ) : null}
               </div>
             </section>
+          ) : null}
+
+          {/* ── Outstanding invitations ──────────────────────────────
+              Only rendered when there are any. An empty card here would be a
+              permanent reminder of a thing that has not happened, on a screen
+              whose other cards all state facts. */}
+          {canManageAdmins && invites.length > 0 ? (
+            <Panel title={`Invitations Awaiting Acceptance (${invites.length})`}>
+              <DataTable className="min-w-[620px]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <Th>Invited</Th>
+                    <Th>Access level</Th>
+                    <Th>Sent</Th>
+                    <Th>Link expires</Th>
+                    <Th align="right">Actions</Th>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invites.map((invite) => (
+                    <TableRow key={invite.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2.5">
+                          <InitialsAvatar
+                            name={invite.name || invite.email}
+                            size="sm"
+                            tone="platform"
+                          />
+                          <div className="min-w-0">
+                            <span className="block truncate font-semibold text-foreground">
+                              {invite.name || invite.email}
+                            </span>
+                            {invite.name ? (
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {invite.email}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <SoftBadge
+                          tone={invite.role === Role.SUPERADMIN ? "teal" : "purple"}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {invite.role === Role.SUPERADMIN ? (
+                              <ShieldCheck className="size-3" />
+                            ) : (
+                              <ShieldHalf className="size-3" />
+                            )}
+                            {ROLE_COPY[invite.role]?.label ?? invite.role}
+                          </span>
+                        </SoftBadge>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatDate(invite.createdAt)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {invite.expired ? (
+                          <SoftBadge tone="amber">
+                            <span className="inline-flex items-center gap-1">
+                              <MailX className="size-3" />
+                              Expired
+                            </span>
+                          </SoftBadge>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {formatDate(invite.expiresAt)}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end">
+                          <button
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                            onClick={() => void revokeInvite(invite.id, invite.email)}
+                            type="button"
+                          >
+                            <Trash2 className="size-3" />
+                            Withdraw
+                          </button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </DataTable>
+            </Panel>
           ) : null}
 
           <Panel title={`Platform Admins (${admins.length})`}>

@@ -38,6 +38,7 @@ import {
   raiseAdmissionInvoice,
 } from "@/modules/residents/resident-intake.service";
 import { runBillingCycle } from "@/modules/finance/billing.service";
+import { getHostelPayMethods } from "@/modules/finance/pay-instructions.service";
 import {
   claimBedForRoomType,
   moveBedBetweenRoomTypes,
@@ -967,10 +968,36 @@ export async function createResident(
     }),
   );
 
+  /*
+   * And how the hostel takes money, returned with the intake rather than looked
+   * up afterwards.
+   *
+   * The two invoices above are the whole reason: they carry reference codes, and
+   * a reference code is only worth allocating if the resident actually quotes it
+   * on the transfer. The desk is the one moment where that can be guaranteed —
+   * the resident is standing there. Sending them away to find the hostel's eSewa
+   * id somewhere else is how a transfer arrives with no reference and lands in
+   * the owner's review queue as an unidentifiable payment.
+   *
+   * Priced on what was actually raised, so the Fonepay personal-wallet cap is
+   * judged against the sum the resident is being asked for today.
+   *
+   * Non-fatal like everything else past the write: a hostel that has not set up
+   * a payment profile still registered a resident.
+   */
+  const howToPay = await nonFatal(() =>
+    getHostelPayMethods(
+      hostelId,
+      (admission.raised ? admission.amount : 0) +
+        (firstMonth.raised ? firstMonth.amount : 0),
+    ),
+  );
+
   return {
     accountLink,
     admission,
     firstMonth,
+    howToPay,
     quote,
     referral,
     resident: serializeResident(

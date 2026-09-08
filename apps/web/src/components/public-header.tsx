@@ -16,6 +16,7 @@ import {
   requestResidentQr,
 } from "@/components/resident-identity";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { PublicPushOptIn } from "@/components/public-push-optin";
 import { useSessionStore, type SessionUser } from "@/stores/session-store";
 
 type PublicHeaderProps = {
@@ -333,6 +334,9 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                         Create resident ID
                       </button>
                     )}
+                    {/* The only place a signed-out-of-any-portal account can
+                        turn browser push on — see PublicPushOptIn. */}
+                    <PublicPushOptIn onDone={() => setMenuOpen(false)} />
                     <button
                       onClick={handleLogout}
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-600 transition hover:bg-red-50"

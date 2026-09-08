@@ -819,9 +819,35 @@ export async function getCurrentUser(accessToken: string) {
       }),
     );
 
+  const safeUser = publicUser(user);
+
   return {
-    ...publicUser(user),
+    ...safeUser,
     isServiceProvider,
+    /**
+     * The account outgrew the token in this tab, and nothing else would say so.
+     *
+     * Every API route authorises from the claims baked into the access token
+     * (`loadApiPrincipal`), while this endpoint answers from the database. When
+     * a hostel registers somebody, `promoteAccountToResident` raises their row
+     * to RESIDENT and adds the hostel — and the tab they are holding keeps a
+     * PUBLIC token for the rest of its fifteen minutes. The symptom is exactly
+     * the one reported: a resident who has just been registered is still in the
+     * public site, with no resident portal, until they sign out and back in.
+     *
+     * `browser-api` already heals this, but only once it has been *refused* —
+     * it needs a 403 from a resident-only route to react to, and the public
+     * site never calls one. So the answer to "who is signed in?" carries the
+     * mismatch itself, and {@link checkAuthWithRefresh} rotates the token the
+     * moment it sees it. One comparison on a call the shell already makes.
+     *
+     * Hostels are compared as well as the role: a resident registered at a
+     * second hostel keeps their RESIDENT role and gains a `hostelId` that every
+     * tenant guard reads off the token (`assertHostelAccess`).
+     */
+    sessionStale:
+      payload.role !== safeUser.role ||
+      !sameIds(payload.hostelIds, safeUser.hostelIds),
     /**
      * Lets the portal header say "you are on a temporary login" — the account
      * looks identical otherwise, and a borrower who does not realise it will
@@ -829,6 +855,18 @@ export async function getCurrentUser(accessToken: string) {
      */
     viaTemporaryCredential,
   };
+}
+
+/** Set equality over two id lists, order and duplicates ignored. */
+function sameIds(fromToken: unknown, fromAccount: string[]) {
+  const claimed = new Set(
+    (Array.isArray(fromToken) ? fromToken : []).map((id) => String(id)),
+  );
+
+  return (
+    claimed.size === new Set(fromAccount).size &&
+    fromAccount.every((id) => claimed.has(id))
+  );
 }
 
 export async function logout(refreshToken: string) {

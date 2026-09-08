@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { IdScanner } from "@/components/manage/id-scanner";
+import { ManualMethodPanel, methodLabel } from "@/components/pay-methods";
 import { ReferenceStrip } from "@/components/resident-payments";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
@@ -996,6 +997,111 @@ function CollectStep({ result }: { result: ResidentIntakeResult }) {
           the code is how the payment is matched to them either way.
         </Text>
       )}
+
+      <HowToPay howToPay={result.howToPay} />
+    </View>
+  );
+}
+
+/**
+ * Where the money goes, under the codes that identify it.
+ *
+ * The codes alone were half an answer: a warden could read one out and then
+ * had nowhere to point when the resident asked where to send it, so the eSewa
+ * id came off a poster, a WhatsApp message, or memory. Both halves are on one
+ * screen now, and they are the same components the resident's own checkout
+ * renders — an account number a warden reads aloud must be the one the
+ * resident's app will show them.
+ *
+ * One method at a time, chosen by tapping its name: six panels of account
+ * numbers open at once is how somebody pays the right hostel from the wrong
+ * app, which is the rule the pay screen already holds.
+ */
+function HowToPay({
+  howToPay,
+}: {
+  howToPay: ResidentIntakeResult["howToPay"];
+}) {
+  const { colors } = useAppTheme();
+  const methods = howToPay?.methods ?? [];
+  const [selected, setSelected] = useState(0);
+
+  if (!howToPay || !howToPay.usable || methods.length === 0) {
+    return (
+      <Card>
+        <Text variant="muted">
+          This hostel has no payment details set up yet, so there is nothing to
+          give them. Add an eSewa ID, a bank account or a payment QR under
+          Finance.
+        </Text>
+      </Card>
+    );
+  }
+
+  const active = methods[Math.min(selected, methods.length - 1)];
+
+  return (
+    <View className="gap-3">
+      <SectionHeader
+        subtitle={howToPay.displayName ? `Paid to ${howToPay.displayName}` : undefined}
+        title="Where to send it"
+      />
+
+      <View className="flex-row flex-wrap gap-2">
+        {methods.map((method, index) => {
+          const on = method === active;
+
+          return (
+            <Pressable
+              accessibilityLabel={methodLabel(method)}
+              accessibilityRole="button"
+              className={`rounded-xl border px-3 py-2 active:opacity-70 ${
+                on ? "border-brand bg-brand-soft" : "border-border"
+              }`}
+              key={methodLabel(method)}
+              onPress={() => setSelected(index)}
+            >
+              <Text
+                className={on ? "font-semibold text-foreground" : undefined}
+                variant={on ? "label" : "muted"}
+              >
+                {methodLabel(method)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Card>
+        {active.kind === "GATEWAY" ? (
+          /*
+           * A checkout cannot be started from here. Creating a payment intent
+           * authorises against the *resident's* session and hands their phone
+           * to the provider; a warden pressing it would be paying from their
+           * own account. So it is described rather than offered.
+           */
+          <View className="flex-row items-start gap-2">
+            <Ionicons
+              color={colors.mutedForeground}
+              name="phone-portrait-outline"
+              size={16}
+            />
+            <Text className="flex-1" variant="muted">
+              {methodLabel(active)} checkout is live here. They pay with one tap
+              from their own Payments screen — it settles itself, with no
+              screenshot for anyone to review.
+            </Text>
+          </View>
+        ) : (
+          <ManualMethodPanel method={active} />
+        )}
+      </Card>
+
+      {howToPay.instructions ? (
+        <Text className="px-1 text-xs text-muted-foreground">
+          {howToPay.instructions}
+        </Text>
+      ) : null}
     </View>
   );
 }

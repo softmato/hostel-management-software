@@ -54,7 +54,6 @@ import {
   useResidents,
 } from "@/hooks/use-hostel-admin";
 import { browserApi } from "@/lib/browser-api";
-import { monthLabel } from "@/lib/format-month";
 import { cn } from "@/lib/utils";
 
 import {
@@ -63,6 +62,11 @@ import {
   optionalField,
   type Resident,
 } from "./hostel-admin-shared";
+import {
+  type RegisteredInvoice,
+  type RegistrationOutcome,
+  ResidentRegisteredSummary,
+} from "./resident-registered-summary";
 import {
   DataTable,
   EmptyInline,
@@ -315,6 +319,13 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [selectedResidentId, setSelectedResidentId] = useState("");
   const [activationCode, setActivationCode] = useState("");
   const [message, setMessage] = useState("");
+  /*
+   * What the last registration actually produced — reference codes, the amount
+   * due and how this hostel takes it. Held rather than folded into `message`
+   * because the resident is standing at the desk and has to read a code off the
+   * screen; a sentence that scrolls away with the next toast cannot do that.
+   */
+  const [registered, setRegistered] = useState<RegistrationOutcome | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
@@ -517,6 +528,22 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
           /** Optional for the same reason `firstMonth` is — see below. */
           accountLink?: { linked: boolean; reason?: string };
           /**
+           * Admission fee less any referral discount, plus the security deposit,
+           * on one invoice under one reference code (`raiseAdmissionInvoice`).
+           * `raised: false` is ordinary — a hostel that charges neither invoices
+           * nothing at the door.
+           */
+          admission?:
+            | { amount: number; raised: true; referenceCode: string }
+            | { raised: false; reason: string };
+          /**
+           * How this hostel takes money, resolved server-side at the moment of
+           * registration. Null when the lookup failed; empty `methods` when the
+           * owner has not set a payment profile up at all, which the summary
+           * says out loud rather than showing an empty list.
+           */
+          howToPay?: RegistrationOutcome["howToPay"];
+          /**
            * The move-in month's rent, raised by the intake itself and pro-rated
            * from the move-in day. `raised: false` is ordinary — a `PENDING`
            * resident is not billable until somebody admits them, and a hostel
@@ -527,7 +554,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
            * registration that succeeded as one that failed.
            */
           firstMonth?:
-            | { amount: number; period: string; raised: true }
+            | { amount: number; period: string; raised: true; referenceCode: string }
             | { period: string; raised: false; reason: string };
           referral: { code: string } | null;
           resident: { id: string };
@@ -586,35 +613,63 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         setMonthlyFee("");
         setShowAddForm(false);
         setAddStep("identify");
-        // Registering promotes their account to a resident login, so the code is
-        // only worth mentioning when that automatic link did not happen.
-        const accountNote = created.accountLink?.linked
-          ? " They can now sign in with their own email and land on their resident dashboard."
-          : " Their account could not be linked automatically — generate an activation code for them.";
         const referralNote = created.referral
           ? ` Credited to referral code ${created.referral.code}.`
           : "";
-        /*
-         * Registering somebody now raises the rent for the month they move
-         * into, pro-rated from the move-in day (`raiseFirstMonthInvoice`). It is
-         * said out loud because it is a new obligation created by pressing this
-         * button — and because the case where it did *not* happen is the one an
-         * owner has to know about: a pending resident owes nothing until they
-         * are marked as living here.
-         */
-        const rentNote = !created.firstMonth
-          ? ""
-          : created.firstMonth.raised
-            ? ` ${currency(created.firstMonth.amount)} invoiced for ${monthLabel(created.firstMonth.period)}, pro-rated from their move-in day.`
-            : " No rent is due yet — it is invoiced when they are marked as living here.";
         setMessage(
           (prefill
             ? `Resident created from ID ${lookupId.trim().toUpperCase()} — ${attachedContacts} contact record(s) added automatically.`
-            : "Resident created.") +
-            rentNote +
-            accountNote +
-            referralNote,
+            : "Resident created.") + referralNote,
         );
+
+        /*
+         * Everything the desk needs while the resident is still in front of it.
+         *
+         * The invoices are collected in the order they are owed rather than the
+         * order the server happens to return them: joining first, because it is
+         * the payment being asked for right now, then the move-in month's rent.
+         * Only the ones actually raised appear — an invoice that was skipped is
+         * explained in `rentNote`, and a card reading "not raised" is a card
+         * somebody would try to read a reference code off.
+         */
+        const invoices: RegisteredInvoice[] = [];
+
+        if (created.admission?.raised) {
+          invoices.push({
+            amount: created.admission.amount,
+            period: null,
+            referenceCode: created.admission.referenceCode,
+            title: "Joining — admission & deposit",
+          });
+        }
+
+        if (created.firstMonth?.raised) {
+          invoices.push({
+            amount: created.firstMonth.amount,
+            period: created.firstMonth.period,
+            referenceCode: created.firstMonth.referenceCode,
+            title: "Rent —",
+          });
+        }
+
+        setRegistered({
+          accountLinked: Boolean(created.accountLink?.linked),
+          accountLinkReason: created.accountLink?.reason,
+          dueNow: invoices.reduce((total, invoice) => total + invoice.amount, 0),
+          howToPay: created.howToPay ?? null,
+          invoices,
+          /*
+           * The case an owner has to know about: a pending resident owes nothing
+           * until somebody marks them as living here, so the missing rent line is
+           * explained rather than left as an absence.
+           */
+          rentNote:
+            created.firstMonth && !created.firstMonth.raised
+              ? "No rent is due yet — it is invoiced when they are marked as living here."
+              : null,
+          residentId: created.resident.id,
+          residentName: `${field(form, "firstName")} ${field(form, "lastName")}`.trim(),
+        });
         clearPrefill();
         // Vacancy just changed, so the room-type dropdown has to be refetched
         // alongside the resident list.
@@ -664,6 +719,14 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
       {confirmDialog}
+      <ResidentRegisteredSummary
+        onClose={() => setRegistered(null)}
+        onGenerateActivation={(residentId) => {
+          setRegistered(null);
+          void handleGenerateActivation(residentId);
+        }}
+        outcome={registered}
+      />
       <PortalPageHeader
         actions={
           <>

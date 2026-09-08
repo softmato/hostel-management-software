@@ -187,10 +187,9 @@ export function PaintedAmount({
  * A `BannerFacts` pair — two figures split by a hairline — lived here and was
  * drawn once, by Home's hero, where it printed "This month" and "Still to
  * collect" directly above a Money section carrying the same two numbers. The
- * shape later came back to the hero as `Since opening` / `This month` — a
- * lifetime total against the month, which is a comparison rather than the
- * subtraction the Money section was already doing — but inline, on the hero's
- * own paint, so this stayed deleted.
+ * shape came back to the hero inline, on its own paint, so this stayed deleted;
+ * the hero now prints that same month-and-shortfall pair, and it is no longer a
+ * duplicate because the Money section it duplicated moved off Home entirely.
  *
  * Its lesson outlived it and is worth keeping written down: **give each half a
  * fixed fraction of the row, never size the chips to their content.** The first

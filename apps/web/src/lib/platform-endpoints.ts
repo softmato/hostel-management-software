@@ -22,6 +22,14 @@ function withFullPage(url: string) {
  */
 export const platformEndpoints = {
   admins: "/api/v1/platform/admins",
+  /**
+   * Availability of an address for a platform invitation. Not listed as a bare
+   * literal because it is queried on every keystroke and cancelled on the next
+   * one — the caller appends `?email=`, so it is never a cache key on its own.
+   */
+  adminEmailCheck: "/api/v1/platform/admins/email-check",
+  adminInvite: (inviteId: string) => `/api/v1/platform/admins/invites/${inviteId}`,
+  adminInvites: "/api/v1/platform/admins/invites",
   auditLogs: "/api/v1/platform/audit-logs",
   complaints: withFullPage("/api/v1/platform/complaints"),
   currentUser: "/api/v1/auth/me",

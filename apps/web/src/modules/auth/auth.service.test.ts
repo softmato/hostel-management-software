@@ -459,4 +459,70 @@ describe("auth service", () => {
       expect(cook.mustChangePassword).toBe(true);
     });
   });
+
+  /**
+   * A tab whose token predates a promotion is the whole reason registering
+   * somebody appeared not to work: `promoteAccountToResident` raises the account
+   * in the database, every API route authorises from the token, and nothing on
+   * the public site 401s or 403s hard enough to make the browser refresh. So the
+   * answer to "who is signed in?" has to carry the mismatch itself.
+   */
+  describe("stale sessions", () => {
+    beforeEach(() => {
+      serviceMocks.isTemporaryCredentialActive.mockResolvedValue(true);
+    });
+
+    it("reports a token whose role the account has outgrown", async () => {
+      serviceMocks.verifyAccessToken.mockResolvedValue({
+        hostelIds: [],
+        role: Role.PUBLIC,
+        sub: "user-1",
+        tokenType: "access",
+      });
+      serviceMocks.userFindOne.mockResolvedValue(
+        createUser({ hostelIds: [], role: Role.RESIDENT }),
+      );
+
+      await expect(getCurrentUser("access-token")).resolves.toMatchObject({
+        role: Role.RESIDENT,
+        sessionStale: true,
+      });
+    });
+
+    it("reports a hostel the token does not carry yet", async () => {
+      // A resident registered at a second hostel keeps their role and gains a
+      // hostelId that every tenant guard reads off the token.
+      serviceMocks.verifyAccessToken.mockResolvedValue({
+        hostelIds: ["hostel-1"],
+        role: Role.RESIDENT,
+        sub: "user-1",
+        tokenType: "access",
+      });
+      serviceMocks.userFindOne.mockResolvedValue(
+        createUser({ hostelIds: ["hostel-1", "hostel-2"], role: Role.RESIDENT }),
+      );
+
+      await expect(getCurrentUser("access-token")).resolves.toMatchObject({
+        sessionStale: true,
+      });
+    });
+
+    it("leaves an up-to-date session alone", async () => {
+      // Otherwise every /me call would rotate the refresh token, and two tabs
+      // racing that is how a session dies.
+      serviceMocks.verifyAccessToken.mockResolvedValue({
+        hostelIds: ["hostel-1"],
+        role: Role.RESIDENT,
+        sub: "user-1",
+        tokenType: "access",
+      });
+      serviceMocks.userFindOne.mockResolvedValue(
+        createUser({ hostelIds: ["hostel-1"], role: Role.RESIDENT }),
+      );
+
+      await expect(getCurrentUser("access-token")).resolves.toMatchObject({
+        sessionStale: false,
+      });
+    });
+  });
 });
