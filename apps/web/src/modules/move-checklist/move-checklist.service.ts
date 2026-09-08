@@ -12,6 +12,7 @@ import { ProvidedItemModel } from "@hostel/db/models/ProvidedItem";
 import { outstandingForResident } from "@/modules/finance/ledger-read.service";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { releaseBedForRoomType } from "@/modules/hostels/hostel-capacity.service";
+import { notifyMoveOutCompleted } from "@/modules/move-checklist/move-out-notify";
 import {
   findCurrentResident,
   normalizeObjectId,
@@ -350,6 +351,20 @@ export async function createMoveOutChecklist(
       pendingFeeAmount: pendingFees,
     },
   );
+
+  /*
+   * And the resident. This path sets `MOVED_OUT` with its own `updateOne`
+   * rather than going through `updateResidentStatus`, so the status notifier
+   * never sees it — the dropdown was covered and the door people actually leave
+   * by was not. It carries the deposit decision too, because that is the same
+   * conversation and the part about their own money.
+   */
+  await notifyMoveOutCompleted({
+    depositAmount: input.depositRefundAmount,
+    depositDecision: input.depositRefundDecision,
+    hostelId: resident.hostelId,
+    resident,
+  });
 
   return {
     checklist: serializeMoveOut(checklist),

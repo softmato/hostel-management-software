@@ -298,7 +298,7 @@ const PLAN_SERVICES: PlanServiceSeed[] = [
     blurb:
       "Inside or outside once a day, and who is in tonight. Coordinates are never stored.",
     module: "attendance-safety",
-    name: "Daily Attendance & Night Roll",
+    name: "Daily Attendance & Night Status",
     plan: "go",
     slug: "daily-attendance",
   },
@@ -407,7 +407,7 @@ const PLAN_SERVICES: PlanServiceSeed[] = [
   // Reporting & Control
   {
     audience: ["Hostel admin", "Warden"],
-    blurb: "Occupancy, dues, open complaints and tonight's roll, on one screen.",
+    blurb: "Occupancy, dues, open complaints and tonight's night status, on one screen.",
     module: "reporting",
     name: "Daily Dashboard",
     plan: "go",

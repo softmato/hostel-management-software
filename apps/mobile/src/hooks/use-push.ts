@@ -18,9 +18,16 @@ import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
+import { nightKey } from "@hostel/night/night-window";
+
 import { useAppSelector } from "@/hooks/redux";
 import { adoptRoleChange } from "@/lib/auth-session";
 import { openDownloaded } from "@/lib/native-downloads";
+import { parseNightStatusAction } from "@/lib/night-status-actions";
+import {
+  flushNightStatusQueue,
+  handleNightStatusResponse,
+} from "@/lib/night-status-notification";
 import { marksRoleChange, resolvePushPath } from "@/lib/push-link";
 import {
   forgetPushToken,
@@ -36,10 +43,29 @@ export function usePush() {
   const userId = account?.id ?? null;
 
   /*
-   * Identifiers already routed. The cold-start replay below and the live
-   * listener can both surface the *same* response, and without this the app
-   * pushes the invoice screen twice — leaving a duplicate in the back stack
-   * that the user has to dismiss twice.
+   * Responses already routed. The cold-start replay below and the live listener
+   * can both surface the *same* response, and without this the app pushes the
+   * invoice screen twice — leaving a duplicate in the back stack that the user
+   * has to dismiss twice.
+   *
+   * ## Why the key is not the identifier alone
+   *
+   * It was, and it broke every download after the first. A *server* push gets a
+   * fresh identifier per message, so an identifier looked like a per-response
+   * key — but the app's own notifications are posted under a deliberately
+   * constant one (`UPLOAD_NOTIFICATION_ID`), because each progress update has to
+   * *replace* the last rather than stack. So every download the app has ever
+   * reported shares a single identifier, and this set never empties: the first
+   * tap opened the file, and every tap afterwards was dropped as a duplicate.
+   *
+   * The cold-start replay made it worse than "once per session". It marks that
+   * constant id handled before the user has tapped anything, so the first real
+   * tap of a session was usually dead too — which is exactly what a tap that
+   * does nothing at all looks like from the outside.
+   *
+   * `date` is when the notification was delivered, so it differs per post and
+   * matches for the two surfacings of one response — which is the only thing
+   * this set was ever meant to catch.
    */
   const handled = useRef(new Set<string>());
 
@@ -70,13 +96,38 @@ export function usePush() {
     }
 
     function open(response: Notifications.NotificationResponse) {
-      const id = response.notification.request.identifier;
+      // Identifier *and* delivery time — see `handled` above. The identifier is
+      // reused by design for the app's own notifications, so on its own it
+      // silently swallowed every download tap after the first.
+      const id = `${response.notification.request.identifier}:${response.notification.date ?? 0}`;
 
       if (handled.current.has(id)) {
         return;
       }
 
       handled.current.add(id);
+
+      /*
+       * A night-status button, answered rather than opened.
+       *
+       * Checked first, and it never routes. The three buttons are registered
+       * with `opensAppToForeground: false`, so reaching this listener at all
+       * means the app happened to be alive — and the resident who tapped
+       * `Inside` on their lock screen has not asked to be taken anywhere. On
+       * Android with the app killed this never runs and the background task in
+       * `lib/night-status-task.ts` handles it instead; on iOS after a
+       * force-quit it arrives here through the cold-start replay below, which
+       * is exactly what that replay is for.
+       *
+       * `parseNightStatusAction` is pure and synchronous, so the decision to
+       * swallow the response is made before anything is awaited — a `return`
+       * after an `await` would have already let the routing below run.
+       */
+      if (parseNightStatusAction(response.actionIdentifier, response.userText)) {
+        void handleNightStatusResponse(response);
+
+        return;
+      }
 
       const data = response.notification.request.content.data as
         | Record<string, unknown>
@@ -238,6 +289,15 @@ export function usePush() {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void registerPushToken();
+
+        /*
+         * Anything the shade could not send. A background handler gets seconds
+         * and a doubtful network; this is the first moment there is a real
+         * client, a live token and time to use them. See
+         * `night-status-queue.ts` for why the answer was written to disk before
+         * it was ever posted.
+         */
+        void flushNightStatusQueue(nightKey()).catch(() => undefined);
       }
     });
 

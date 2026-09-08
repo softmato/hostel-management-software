@@ -102,6 +102,14 @@ const CATEGORY_VISUALS: Record<string, NotificationVisual> = {
   /** A lead. `mail-outline` is what the portal's own Inquiries door uses. */
   INQUIRY: { icon: "mail-outline", label: "Inquiry", tone: "warning" },
   MAINTENANCE: { icon: "construct-outline", label: "Maintenance", tone: "warning" },
+  /*
+   * The nightly "are you in tonight?" prompt. A moon rather than the
+   * fingerprint `ATTENDANCE` carries: the two are different signals — one is
+   * what the phone was sensed doing, this is what the resident said — and a
+   * shared glyph would put them in the same visual bucket in the one list where
+   * they arrive side by side.
+   */
+  NIGHT_STATUS: { icon: "moon-outline", label: "Night status", tone: "brand" },
   NOTICE: { icon: "megaphone-outline", label: "Notice", tone: "brand" },
   PAYMENT: { icon: "wallet-outline", label: "Payment", tone: "brand" },
   PLUMBER: { icon: "water-outline", label: "Plumbing", tone: "warning" },

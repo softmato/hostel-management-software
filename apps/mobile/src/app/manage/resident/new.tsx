@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { IdScanner } from "@/components/manage/id-scanner";
-import { ManualMethodPanel, methodLabel } from "@/components/pay-methods";
+import { ManualMethodPanel, methodLabel, methodProvider } from "@/components/pay-methods";
 import { ReferenceStrip } from "@/components/resident-payments";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { WalletMark } from "@/components/ui/wallet-mark";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -1022,7 +1023,6 @@ function HowToPay({
 }: {
   howToPay: ResidentIntakeResult["howToPay"];
 }) {
-  const { colors } = useAppTheme();
   const methods = howToPay?.methods ?? [];
   const [selected, setSelected] = useState(0);
 
@@ -1061,12 +1061,23 @@ function HowToPay({
               key={methodLabel(method)}
               onPress={() => setSelected(index)}
             >
-              <Text
-                className={on ? "font-semibold text-foreground" : undefined}
-                variant={on ? "label" : "muted"}
-              >
-                {methodLabel(method)}
-              </Text>
+              {/*
+                The provider's own mark on the chip, not only in the panel
+                below it. A warden picking a rail for somebody standing at the
+                desk reads the logos, not four lines of identically-set grey
+                text — and `eSewa` and `Khalti` are the two that get mis-tapped.
+                `<WalletMark>` draws the QR and bank glyphs for the two kinds
+                that have no brand of their own, so the row stays one shape.
+              */}
+              <View className="flex-row items-center gap-2">
+                <WalletMark name={methodProvider(method)} size={22} />
+                <Text
+                  className={on ? "font-semibold text-foreground" : undefined}
+                  variant={on ? "label" : "muted"}
+                >
+                  {methodLabel(method)}
+                </Text>
+              </View>
             </Pressable>
           );
         })}
@@ -1080,12 +1091,13 @@ function HowToPay({
            * to the provider; a warden pressing it would be paying from their
            * own account. So it is described rather than offered.
            */
-          <View className="flex-row items-start gap-2">
-            <Ionicons
-              color={colors.mutedForeground}
-              name="phone-portrait-outline"
-              size={16}
-            />
+          <View className="flex-row items-start gap-2.5">
+            {/*
+              The provider's mark, not `phone-portrait-outline`. The glyph was
+              the same for eSewa as for Khalti on a card whose sentence names
+              one of them — see the same fix on the resident's own pay screen.
+            */}
+            <WalletMark name={methodProvider(active)} size={24} />
             <Text className="flex-1" variant="muted">
               {methodLabel(active)} checkout is live here. They pay with one tap
               from their own Payments screen — it settles itself, with no

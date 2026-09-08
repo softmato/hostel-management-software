@@ -14,6 +14,7 @@ import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { WalletMark, walletLabel } from "@/components/ui/wallet-mark";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
@@ -370,7 +371,14 @@ export default function ManageFinanceScreen() {
                   <View key={provider}>
                     {index > 0 ? <RowDivider inset /> : null}
                     <ListRow
-                      icon="card-outline"
+                      /*
+                        The provider's own mark, and its own spelling. Three
+                        rows of `card-outline` said nothing about which of the
+                        three a tap would open, and `humanizeEnum("ESEWA")` is
+                        "Esewa" — the wrong capital on the brand our owners see
+                        a dozen times a day. `walletLabel` holds the casing.
+                      */
+                      left={<WalletMark name={provider} size={36} />}
                       onPress={() => router.push(`/manage/finance/gateway/${provider}`)}
                       right={
                         <Badge
@@ -388,7 +396,7 @@ export default function ManageFinanceScreen() {
                           }
                         />
                       }
-                      title={humanizeEnum(provider)}
+                      title={walletLabel(provider)}
                     />
                   </View>
                 );

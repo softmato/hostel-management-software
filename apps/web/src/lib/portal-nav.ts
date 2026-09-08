@@ -565,11 +565,11 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Food & Menu",
       },
       {
-        description: "Night safety roll-call, manual overrides, and absence follow-up.",
+        description: "Who is in tonight, manual overrides, and absence follow-up.",
         href: "/hostel-admin/night-status",
         icon: "moon",
         keywords: ["attendance", "night", "roll call", "inside", "outside", "safety"],
-        label: "Attendance / Night",
+        label: "Night Status",
       },
       {
         description: "Publish notices to residents and track read status.",

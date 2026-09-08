@@ -27,6 +27,7 @@ import {
   deleteHostelPhoto,
   geocodeHostelLocation,
   type GeocodeHit,
+  type NightStatusPromptSettings,
   requestHostelChange,
   updateAttendanceSettings,
   updateCommunitySettings,
@@ -689,7 +690,7 @@ export default function ManageSettingsScreen() {
 
         <View>
           <SectionHeader
-            subtitle="The nightly roll call, and how long its records are kept"
+            subtitle="The geofence, and how long its records are kept"
             title="Attendance"
           />
           {attendance === null ? (
@@ -749,6 +750,19 @@ export default function ManageSettingsScreen() {
             </Card>
           )}
         </View>
+
+        {attendance === null ? null : (
+          <View>
+            <SectionHeader
+              subtitle="One question at a fixed hour, answered from the notification"
+              title="Night status"
+            />
+            <NightStatusPromptCard
+              onSaved={reload}
+              settings={attendance.nightStatus}
+            />
+          </View>
+        )}
 
         <View>
           <SectionHeader
@@ -1207,5 +1221,147 @@ export default function ManageSettingsScreen() {
         </View>
       </Sheet>
     </Screen>
+  );
+}
+
+/**
+ * The nightly prompt: whether it goes out, and at what hour.
+ *
+ * ## Why this is a card and not a row in the geofence panel
+ *
+ * They are two different signals that happen to share a settings document. The
+ * geofence records what a **phone was sensed doing**; this records what a
+ * **resident said**. A warden turning the prompt on has not turned on location
+ * tracking, and burying the switch inside "Change the geofence" would make it
+ * look like they had.
+ *
+ * ## The hour is a picker, not a text field
+ *
+ * The server refuses anything outside 17:00-23:45 — a prompt before the night
+ * starts would file answers under the wrong night, and one after midnight would
+ * be sent on the day after the night it asks about. A free text field would let
+ * a warden type `08:00`, save it, and get a 422 explaining a rule they had no
+ * way to know. Fifteen-minute steps because nobody schedules a roll call at
+ * 20:07, and the list stays short enough to scroll.
+ *
+ * ## It writes through the attendance settings endpoint
+ *
+ * The same one the website's editor uses, patching the same field on the same
+ * document — so a warden who changes the hour here has changed it on the
+ * website by the time they look. That is the whole "single source" requirement,
+ * met by not adding a second store rather than by syncing two.
+ */
+/**
+ * The follow-up chase. `0` is off and it is the default.
+ *
+ * Short list rather than a number field: the only sensible answers are "don't"
+ * and a round interval, and a warden typing `7` would get a notification seven
+ * minutes after the first one. A chase that would land after midnight is
+ * dropped by the server rather than delivered — see `reminderIsDue`.
+ */
+const REMINDER_OPTIONS = [
+  { label: "Do not chase", value: "0" },
+  { label: "30 minutes later", value: "30" },
+  { label: "1 hour later", value: "60" },
+  { label: "2 hours later", value: "120" },
+] as const;
+
+function NightStatusPromptCard({
+  onSaved,
+  settings,
+}: {
+  onSaved: () => void;
+  settings: NightStatusPromptSettings;
+}) {
+  const [draft, setDraft] = useState(settings);
+  const [saving, setSaving] = useState(false);
+
+  /*
+    17:00 to 23:45 in quarter hours — the server's own bounds, so the picker
+    cannot offer a value the save would reject.
+  */
+  const times = useMemo(
+    () =>
+      Array.from({ length: (23 - 17) * 4 + 4 }, (_, index) => {
+        const minute = 17 * 60 + index * 15;
+        const value = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(
+          minute % 60,
+        ).padStart(2, "0")}`;
+
+        return { label: value, value };
+      }),
+    [],
+  );
+
+  const save = useCallback(
+    async (patch: Partial<NightStatusPromptSettings>) => {
+      const next = { ...draft, ...patch };
+
+      // Optimistic, then reconciled by `onSaved`. A toggle that waits for a
+      // round trip before moving reads as a broken switch.
+      setDraft(next);
+      setSaving(true);
+
+      try {
+        await updateAttendanceSettings({ nightStatus: patch });
+        onSaved();
+      } catch (error: unknown) {
+        setDraft(draft);
+        toastError("Could not save that", readApiError(error));
+      } finally {
+        setSaving(false);
+      }
+    },
+    [draft, onSaved],
+  );
+
+  return (
+    <Card className="gap-3">
+      <View className="flex-row items-center justify-between gap-3">
+        <View className="flex-1">
+          <Text variant="label">
+            {draft.promptEnabled ? "Asking every night" : "Nobody is asked"}
+          </Text>
+          <Text variant="caption">
+            {draft.promptEnabled
+              ? `Residents get one notification at ${draft.promptTime}.`
+              : "Residents have to open the app and tell you themselves."}
+          </Text>
+        </View>
+        <Toggle
+          accessibilityLabel="Night status prompt enabled"
+          onChange={(promptEnabled) => void save({ promptEnabled })}
+          value={draft.promptEnabled}
+        />
+      </View>
+
+      {draft.promptEnabled ? (
+        <View className="gap-3 border-t border-border pt-3">
+          <Select
+            disabled={saving}
+            label="Ask at"
+            onChange={(promptTime) => void save({ promptTime })}
+            options={times}
+            sheetTitle="What time should residents be asked?"
+            value={draft.promptTime}
+          />
+
+          <Select
+            disabled={saving}
+            label="Chase whoever has not answered"
+            onChange={(value) => void save({ remindAfterMinutes: Number(value) })}
+            options={REMINDER_OPTIONS}
+            sheetTitle="Send a second notification?"
+            value={String(draft.remindAfterMinutes)}
+          />
+
+          <Text variant="caption">
+            They answer from the notification itself — Inside, At home, or a typed
+            reason — without opening the app. Anyone who has already told you where
+            they are is not asked again.
+          </Text>
+        </View>
+      ) : null}
+    </Card>
   );
 }

@@ -71,7 +71,7 @@ export const DEFAULT_SERVICE_EXPLAINERS: Record<string, ServiceExplainer> = {
   },
   "daily-attendance": {
     how: [
-      "The resident marks themselves in or out from their phone, once a day, and the warden sees tonight's roll build up: who is in, who is out, and who never answered.",
+      "The resident marks themselves in or out from their phone, once a day, and the warden sees tonight's night status build up: who is in, who is out, and who never answered.",
       "The check confirms the resident is at the hostel without keeping where they were. Coordinates are never stored — a test in the codebase fails if they ever are.",
     ],
     what: [
@@ -234,7 +234,7 @@ export const DEFAULT_SERVICE_EXPLAINERS: Record<string, ServiceExplainer> = {
   },
   "operations-dashboard": {
     how: [
-      "Occupancy, dues, open complaints and tonight's roll, read live from the records the rest of the portal writes.",
+      "Occupancy, dues, open complaints and tonight's night status, read live from the records the rest of the portal writes.",
     ],
     what: ["The four numbers the day starts with, on one screen."],
     why: [

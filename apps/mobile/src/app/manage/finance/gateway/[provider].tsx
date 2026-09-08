@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
+import { WalletMark, walletLabel } from "@/components/ui/wallet-mark";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
@@ -116,7 +117,12 @@ export default function ManageGatewayScreen() {
     }
   }, [enabled, form, provider]);
 
-  const title = provider ? humanizeEnum(provider) : "Provider";
+  /*
+   * `walletLabel`, not `humanizeEnum` — the latter titles this screen "Esewa",
+   * which is not how the provider writes its own name anywhere the owner has
+   * ever seen it. Same table the resident's pay screen reads from.
+   */
+  const title = provider ? walletLabel(provider) : "Provider";
   const header = <AppBar accent centerTitle showBack title={title} />;
 
   if (!provider) {
@@ -152,6 +158,13 @@ export default function ManageGatewayScreen() {
       <View className="gap-5 pt-1">
         <Card className="gap-3">
           <View className="flex-row items-center justify-between gap-3">
+            {/*
+              Whose settings these are, said in their own mark. The bar's title
+              is the only other thing on this screen that names the provider,
+              and it scrolls away under the keyboard the moment a key is being
+              pasted into the fields below.
+            */}
+            <WalletMark name={provider} size={40} />
             <View className="flex-1">
               <Text variant="label">Offer this to residents</Text>
               {entry?.blockedReason ? (

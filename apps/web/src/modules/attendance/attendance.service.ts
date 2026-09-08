@@ -26,6 +26,7 @@ import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import { DEFAULT_PROMPT_TIME } from "@hostel/shared/night/night-window";
 import {
   findCurrentResident,
   normalizeObjectId,
@@ -50,11 +51,21 @@ type AttendanceAlertResolveInput = z.infer<typeof attendanceAlertResolveSchema>;
 
 export type AttendanceZone = "INSIDE" | "NEARBY" | "OUTSIDE" | "UNKNOWN";
 
+/** The nightly self-report prompt. See `night-window.ts` for the hour's bounds. */
+export type NightStatusPromptConfig = {
+  promptEnabled: boolean;
+  /** `HH:mm` in Nepal, 17:00-23:45. */
+  promptTime: string;
+  /** Minutes after the prompt to chase non-responders. `0` is off. */
+  remindAfterMinutes: number;
+};
+
 export type AttendanceConfig = {
   absenceAlertDays: number;
   enabled: boolean;
   insideZoneRadiusMeters: number;
   nearbyZoneRadiusMeters: number;
+  nightStatus: NightStatusPromptConfig;
   pingTimes: string[];
   retentionDays: number;
 };
@@ -65,6 +76,15 @@ export const ATTENDANCE_DEFAULTS: AttendanceConfig = {
   enabled: false,
   insideZoneRadiusMeters: 50,
   nearbyZoneRadiusMeters: 200,
+  /*
+   * Off until a hostel turns it on. A product that starts notifying residents
+   * at 8pm on the strength of a default is a product that gets uninstalled.
+   */
+  nightStatus: {
+    promptEnabled: false,
+    promptTime: DEFAULT_PROMPT_TIME,
+    remindAfterMinutes: 0,
+  },
   pingTimes: ["06:00", "08:00", "22:00"],
   retentionDays: 600,
 };
@@ -159,7 +179,25 @@ export async function getAttendanceConfig(
     attendance?: Partial<AttendanceConfig>;
   } | null>();
 
-  return { ...ATTENDANCE_DEFAULTS, ...(settings?.attendance ?? {}) };
+  const stored = settings?.attendance ?? {};
+
+  return {
+    ...ATTENDANCE_DEFAULTS,
+    ...stored,
+    /*
+     * Merged one level deeper than everything else.
+     *
+     * A settings document written before `nightStatus` existed has no such key,
+     * and one written by a client that sent only `promptTime` has a partial
+     * one. A plain spread would hand both of those straight back — the first as
+     * `undefined`, which every reader would then have to guard, and the second
+     * missing whichever fields that client did not care about.
+     */
+    nightStatus: {
+      ...ATTENDANCE_DEFAULTS.nightStatus,
+      ...(stored.nightStatus ?? {}),
+    },
+  };
 }
 
 function resolveAdminHostelId(principal: ApiPrincipal, requestedHostelId?: string) {
@@ -479,7 +517,18 @@ export async function updateAttendanceSettings(
   const { hostelId: requestedHostelId, ...settings } = input;
   const hostelId = resolveAdminHostelId(principal, requestedHostelId);
   const current = await getAttendanceConfig(hostelId);
-  const next = { ...current, ...settings };
+  const next: AttendanceConfig = {
+    ...current,
+    ...settings,
+    /*
+     * Field-by-field, not replaced. The app's editor sends only the hour and
+     * the web's only the switch — spreading a partial over the stored object
+     * would have each surface silently reset the other's field, which is the
+     * precise opposite of the "change it in one place and it changes
+     * everywhere" this endpoint exists to provide.
+     */
+    nightStatus: { ...current.nightStatus, ...(settings.nightStatus ?? {}) },
+  };
 
   if (next.nearbyZoneRadiusMeters <= next.insideZoneRadiusMeters) {
     throw new AttendanceServiceError(

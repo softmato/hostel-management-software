@@ -12,6 +12,10 @@ import { ReferralModel } from "@hostel/db/models/Referral";
 import { ReferralRewardModel } from "@hostel/db/models/ReferralReward";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import {
+  notifyReferralJoined,
+  notifyReferralReward,
+} from "@/modules/referrals/referral-notify";
+import {
   findCurrentResident,
   normalizeObjectId,
   serializeResidentSummary,
@@ -732,6 +736,16 @@ export async function updateReferralReward(
     set.approvedBy = principal.userId;
   }
 
+  /*
+   * Read before the upsert, because the notification below has to tell a
+   * withdrawal apart from a reward that was never promised — a cancellation out
+   * of `PENDING` must stay quiet. `findOneAndUpdate` returns the *new* document,
+   * so the prior status is not recoverable after this point.
+   */
+  const priorReward = await ReferralRewardModel.findOne({ referralId: referral._id })
+    .select({ status: 1 })
+    .lean<{ status?: string } | null>();
+
   const reward = await ReferralRewardModel.findOneAndUpdate(
     { referralId: referral._id },
     { $set: set },
@@ -747,6 +761,17 @@ export async function updateReferralReward(
 
   await auditReferralAction(principal, referral, "REFERRAL_REWARD_UPDATED", {
     amount: reward?.amount ?? 0,
+    status: input.status,
+  });
+
+  // And the person who earned it. Approvals and payments only — see
+  // `notifyReferralReward` for why a cancelled PENDING row stays quiet.
+  await notifyReferralReward({
+    amount: reward?.amount ?? 0,
+    hostelId: referral.hostelId,
+    previousStatus: priorReward?.status ?? null,
+    referrerResidentId: referral.referrerResidentId,
+    rewardType: reward?.rewardType ?? input.rewardType ?? "OTHER",
     status: input.status,
   });
 
@@ -844,6 +869,22 @@ export async function confirmReferralJoined(
   await auditReferralAction(principal, updatedReferral, "REFERRAL_JOINED_CONFIRMED", {
     rewardAmount: input.rewardAmount,
   });
+
+  /*
+   * And the referrer — once. Guarded on the same `alreadyJoined` the leaderboard
+   * counter is: a second confirmation, or an edit to the reward on an existing
+   * one, must not tell somebody their friend joined all over again.
+   *
+   * The reward's own approval is announced by `updateReferralReward`, so this
+   * says only that the person arrived. The two are separate events for the
+   * referrer and routinely days apart.
+   */
+  if (!alreadyJoined) {
+    await notifyReferralJoined({
+      hostelId: referral.hostelId,
+      referrerResidentId: referral.referrerResidentId,
+    });
+  }
 
   return {
     referral: serializeReferral(updatedReferral),

@@ -34,9 +34,11 @@
  */
 
 import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
+import { PushTicketModel } from "@hostel/db/models/PushTicket";
 import { UserModel } from "@hostel/db/models/User";
 
 import { connectToDatabase } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { filterPushRecipients } from "@/modules/notifications/notification-preference.service";
 import { afterResponse } from "@/lib/after-response";
 import { deepLinkForNotification } from "@/modules/notifications/push-routing";
@@ -52,6 +54,22 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 type ExpoPushMessage = {
   body: string;
+  /**
+   * The notification category the handset should render this under — which is
+   * what puts **buttons** on it.
+   *
+   * The identifier names a category the app registered with
+   * `setNotificationCategoryAsync`; the OS then draws that category's actions
+   * under the notification. So the server decides *that* a message is
+   * answerable and the app decides *what the buttons say*, which is the right
+   * split: a build that has never heard of `night-status` simply renders an
+   * ordinary notification and the tap opens the screen instead.
+   *
+   * Expo passes it to APNs as the category and to FCM as the data key the
+   * client reads at build time. Both ends therefore have to agree on the exact
+   * string, and `NIGHT_STATUS_CATEGORY` in the app is the one that matters.
+   */
+  categoryId?: string;
   channelId?: string;
   data: Record<string, unknown>;
   richContent?: { image: string };
@@ -73,6 +91,11 @@ export type PushPayload = {
   actionUrl?: string;
   body: string;
   category: string;
+  /**
+   * Draw this one with its category's action buttons — see `categoryId` on
+   * `ExpoPushMessage`. Only the nightly night-status prompt sets it today.
+   */
+  categoryId?: string;
   data?: Record<string, unknown>;
   hostelId?: string;
   imageUrl?: string;
@@ -276,14 +299,33 @@ async function postBatch(messages: ExpoPushMessage[]): Promise<ExpoPushTicket[]>
     });
 
     if (!response.ok) {
+      /*
+       * Logged rather than swallowed. A 401 here is what an Expo project with
+       * "enhanced push security" turned on and no `EXPO_ACCESS_TOKEN` looks
+       * like, and a silent return made that indistinguishable from a quiet
+       * evening with nothing to send.
+       */
+      logger.error("Expo rejected a push batch", {
+        action: "push_batch_http_error",
+        body: (await response.text().catch(() => "")).slice(0, 400),
+        count: messages.length,
+        status: response.status,
+      });
+
       return [];
     }
 
     const payload = (await response.json()) as { data?: ExpoPushTicket[] };
 
     return payload?.data ?? [];
-  } catch {
+  } catch (error) {
     // Timeout, DNS, Expo outage. The notification row is already saved.
+    logger.error("Expo push request failed", {
+      action: "push_batch_request_failed",
+      count: messages.length,
+      error,
+    });
+
     return [];
   } finally {
     clearTimeout(timeout);
@@ -426,6 +468,7 @@ export async function sendPushToUsers(
 
   const messages: ExpoPushMessage[] = tokens.map((token) => ({
     body: payload.body,
+    ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
     channelId: androidChannel(payload.category, payload.priority),
     data,
     priority: high ? "high" : "default",
@@ -437,6 +480,17 @@ export async function sendPushToUsers(
 
   let sent = 0;
   const dead: string[] = [];
+
+  /*
+   * Accepted tickets, to be asked about later.
+   *
+   * `status: "ok"` only means Expo queued the message — FCM and APNS have not
+   * seen it yet, and their verdict arrives in a receipt minutes later. Keeping
+   * the ids is what makes that verdict reachable at all; see
+   * `push-receipts.service.ts` for the outage this was written after.
+   */
+  const accepted: { category: string; ticketId: string; token: string }[] = [];
+  const ticketErrors: Record<string, number> = {};
 
   for (const batch of chunk(messages, MAX_MESSAGES_PER_REQUEST)) {
     const tickets = await postBatch(batch);
@@ -452,13 +506,52 @@ export async function sendPushToUsers(
 
       if (ticket.status === "ok") {
         sent += 1;
+
+        if (ticket.id) {
+          accepted.push({
+            category: payload.category,
+            ticketId: ticket.id,
+            token: message.to,
+          });
+        }
+
         return;
       }
 
-      if (ticket.details?.error === "DeviceNotRegistered") {
+      /*
+       * Every error code, not just the one we act on.
+       *
+       * `DeviceNotRegistered` was the only ticket error this loop had ever
+       * looked at, so `MismatchSenderId`, `InvalidCredentials` and
+       * `MessageTooBig` all landed here and vanished — the send reported zero
+       * sent and nobody was told why.
+       */
+      const code = ticket.details?.error ?? "Unknown";
+
+      ticketErrors[code] = (ticketErrors[code] ?? 0) + 1;
+
+      if (code === "DeviceNotRegistered") {
         dead.push(message.to);
       }
     });
+  }
+
+  if (Object.keys(ticketErrors).length > 0) {
+    logger.error("Expo refused push messages", {
+      action: "push_ticket_errors",
+      category: payload.category,
+      codes: ticketErrors,
+    });
+  }
+
+  /*
+   * Best-effort, and never in the caller's way: a failure to write these costs
+   * the receipt check for one send, not the send itself.
+   */
+  if (accepted.length > 0) {
+    await PushTicketModel.insertMany(accepted, { ordered: false }).catch(
+      () => undefined,
+    );
   }
 
   const web = await sendToBrowsers(devices.web, payload, high);

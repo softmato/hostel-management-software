@@ -1,6 +1,6 @@
 {
   "name": "hostelhub-mobile",
-  "main": "expo-router/entry",
+  "main": "./index.js",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -57,6 +57,7 @@
     "expo-splash-screen": "~57.0.6",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.2",
+    "expo-task-manager": "~57.0.16",
     "expo-web-browser": "~57.0.2",
     "nativewind": "^4.2.6",
     "nepali-date-converter": "^3.4.0",

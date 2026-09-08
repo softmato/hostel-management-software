@@ -187,12 +187,12 @@ export default function AdminTodayScreen() {
                         ? "Everybody is accounted for"
                         : `${night.summary.NOT_VERIFIED} still to check`
                     }
-                    title="Open the roll call"
+                    title="Open the night status board"
                   />
                 </Card>
               </>
             ) : (
-              <PermissionCard capability="night status" feature="The roll call" />
+              <PermissionCard capability="night status" feature="The night status board" />
             )}
           </View>
 

@@ -31,6 +31,11 @@ export default defineConfig({
        * against the shipped parser rather than a stand-in for it.
        */
       "@hostel/food": resolve(root, "../../packages/shared/src/food"),
+      /*
+       * The night boundary the prompt cron, the warden board and this app all
+       * key an answer under. One file, or "tonight" means three things.
+       */
+      "@hostel/night": resolve(root, "../../packages/shared/src/night"),
     },
   },
   test: {

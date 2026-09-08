@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Role } from "@/lib/roles";
+import { nightKey } from "@hostel/shared/night/night-window";
 
 const serviceMocks = vi.hoisted(() => ({
   auditCreate: vi.fn(),
@@ -468,9 +469,18 @@ describe("resident daily-use services", () => {
         _id: objectId("64f0f0f0f0f0f0f0f0f0f0b1"),
         checkedAt: new Date("2030-01-01T18:30:00.000Z"),
         hostelId: objectId(hostelId),
+        /*
+         * Tonight's key, so this row is tonight's answer.
+         *
+         * It has to be computed rather than written as a literal: an answer
+         * only counts for the night it was given, so a hardcoded date would
+         * make this test pass on the day it was written and report
+         * `NOT_VERIFIED` forever after.
+         */
+        night: nightKey(new Date()),
         residentId: objectId(residentId),
         source: "RESIDENT",
-        status: "IN_HOSTEL",
+        status: "INSIDE_HOSTEL",
       }),
     );
     serviceMocks.complaintFind.mockReturnValueOnce(
@@ -492,7 +502,10 @@ describe("resident daily-use services", () => {
 
     const result = await getResidentDashboard(residentPrincipal);
 
-    expect(result.dashboard.nightStatus).toMatchObject({ status: "IN_HOSTEL" });
+    expect(result.dashboard.nightStatus).toMatchObject({
+      isCurrentNight: true,
+      status: "INSIDE_HOSTEL",
+    });
     // Never raised one, so there is nothing for the home card to flag.
     expect(result.dashboard.sos).toBeNull();
     expect(result.dashboard.complaints.openCount).toBe(2);
@@ -508,6 +521,60 @@ describe("resident daily-use services", () => {
         residentId: objectId(residentId),
         status: { $in: ["PENDING", "IN_PROGRESS"] },
       }),
+    );
+  });
+
+  it("reports last night's answer as NOT_VERIFIED rather than as tonight's", async () => {
+    /*
+     * The most misleading number the product had.
+     *
+     * `NightStatus` is one upserted row per resident that nothing ever clears,
+     * so before the night key existed "she is INSIDE_HOSTEL" stayed true
+     * forever after the single evening she tapped it. The app hid this by
+     * comparing `checkedAt` against a 17:00 boundary it kept to itself and
+     * never told the server about; the warden's board did no such thing and
+     * showed a hostel full of residents marked present on the strength of
+     * answers given weeks earlier.
+     *
+     * A row from an earlier night now reads as "they have not told us anything
+     * about tonight", and the reason goes with it — leaving "At my sister's"
+     * beside a NOT_VERIFIED row would read as tonight's reason.
+     */
+    serviceMocks.residentFindOne.mockReturnValueOnce(
+      leanResult(residentRecord({ userId: objectId(userId) })),
+    );
+    serviceMocks.hostelFindOne.mockReturnValueOnce(leanResult(null));
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
+    serviceMocks.invoiceAggregate.mockResolvedValueOnce([]);
+    serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
+    serviceMocks.nightStatusFindOne.mockReturnValueOnce(
+      leanResult({
+        _id: objectId("64f0f0f0f0f0f0f0f0f0f0b1"),
+        checkedAt: new Date("2026-01-01T18:30:00.000Z"),
+        hostelId: objectId(hostelId),
+        night: "2026-01-01",
+        note: "At my sister's",
+        reasonCode: "FRIENDS",
+        residentId: objectId(residentId),
+        source: "RESIDENT",
+        status: "OUTSIDE_HOSTEL",
+      }),
+    );
+    serviceMocks.complaintFind.mockReturnValueOnce(queryResult([]));
+    serviceMocks.complaintCountDocuments.mockResolvedValueOnce(0);
+
+    const result = await getResidentDashboard(residentPrincipal);
+
+    expect(result.dashboard.nightStatus).toMatchObject({
+      isCurrentNight: false,
+      note: "",
+      reasonCode: null,
+      status: "NOT_VERIFIED",
+    });
+    // The timestamp survives, so a caller can still say when they last answered.
+    expect(result.dashboard.nightStatus.checkedAt).toBe(
+      "2026-01-01T18:30:00.000Z",
     );
   });
 

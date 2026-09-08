@@ -17,6 +17,10 @@ import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { afterResponse } from "@/lib/after-response";
+import {
+  notifyResidentRoomChanged,
+  notifyResidentStatusChanged,
+} from "@/modules/residents/resident-changed-notify";
 import { notifyResidentRegistered } from "@/modules/residents/resident-registered-notify";
 import { wardRegisteredEmail } from "@hostel/shared/email/templates/guardian/ward-registered";
 import { residentAccessClearedEmail } from "@hostel/shared/email/templates/resident/resident-access-cleared";
@@ -1193,6 +1197,18 @@ export async function updateResident(
     "RESIDENT_UPDATED",
   );
 
+  /*
+   * And the resident, if this moved them. Reads the record as it was before the
+   * write, so a bed swap within one room type is told apart from a change of
+   * room type — see `notifyResidentRoomChanged`, which stays quiet when neither
+   * actually moved.
+   */
+  await notifyResidentRoomChanged({
+    hostelId: resident.hostelId,
+    previous: { roomType: resident.roomType },
+    resident: updatedResident,
+  });
+
   return {
     resident: serializeResident(updatedResident),
   };
@@ -1273,15 +1289,33 @@ export async function updateResidentStatus(
     { status: input.status },
   );
 
+  /*
+   * Hoisted out of the return so the notification below can use it too.
+   *
+   * It matters which copy: `linkResidentAccount` may have just given this
+   * resident their first `userId`, and that write does not land on
+   * `updatedResident`. Notifying from the stale copy would silently skip the one
+   * case where somebody is being admitted *and* handed their login in the same
+   * action — which is the most useful moment in this whole function to reach
+   * them.
+   */
+  const finalResident =
+    accountLink.linked && !resident.userId
+      ? ((await ResidentModel.findById(resident._id).lean<ResidentRecord>()) ??
+        updatedResident)
+      : updatedResident;
+
+  await notifyResidentStatusChanged({
+    hostelId: resident.hostelId,
+    previousStatus: resident.status,
+    resident: finalResident,
+    status: input.status,
+  });
+
   return {
     accountLink,
     firstMonth,
-    resident: serializeResident(
-      accountLink.linked && !resident.userId
-        ? ((await ResidentModel.findById(resident._id).lean<ResidentRecord>()) ??
-            updatedResident)
-        : updatedResident,
-    ),
+    resident: serializeResident(finalResident),
   };
 }
 

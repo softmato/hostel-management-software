@@ -12,6 +12,7 @@ import {
 } from "@/lib/hostel-day";
 import { normalizeBedType } from "@/modules/finance/bed-type";
 import { projectScheduleOntoListing } from "@/modules/finance/listing-projection.service";
+import { notifyRateCardChanged } from "@/modules/finance/rate-card-notify";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { assertWholeRupees, prorate } from "@/modules/finance/money";
 import { FeeScheduleModel } from "@hostel/db/models/FeeSchedule";
@@ -503,6 +504,18 @@ export async function createFeeSchedule(
     hostelId,
   }).lean<FeeScheduleRecord | null>();
 
+  /*
+   * What residents are actually paying **today**, read before anything below
+   * closes or deletes a card.
+   *
+   * Deliberately not `current`. That is the open-ended card, which is often an
+   * unstarted draft for a future month — and replacing a draft would compare the
+   * new rates against numbers nobody has ever been charged, telling residents
+   * their rent "changed from" a price that never existed. The card in effect this
+   * month is the only honest baseline for that sentence.
+   */
+  const inEffect = await getEffectiveSchedule(hostelId, bsPeriodOf(new Date()));
+
   if (current) {
     if (effectiveFrom <= thisMonth) {
       throw new FinanceServiceError(
@@ -562,6 +575,20 @@ export async function createFeeSchedule(
    * smaller problem than a rate change reported as failed after it succeeded.
    */
   await projectScheduleOntoListing(hostelId, { admissionFee: input.admissionFee, rates });
+
+  /*
+   * And the residents whose rent this just changed.
+   *
+   * After the write and unable to fail it, for the same reason the listing
+   * projection above is: the card is the record that matters. Only residents
+   * whose own room type moved are written to — see `notifyRateCardChanged`.
+   */
+  await notifyRateCardChanged({
+    effectiveFrom,
+    hostelId,
+    previousRates: inEffect?.rates ?? null,
+    rates,
+  });
 
   // A rate card is what every future invoice is computed from, so a change to
   // it is a finance action even though no money moves today.

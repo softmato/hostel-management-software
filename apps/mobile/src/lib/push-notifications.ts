@@ -73,6 +73,7 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import { api } from "@/lib/api";
+import { registerNightStatusCategory } from "@/lib/night-status-notification";
 import { palette } from "@/constants/theme";
 import { UPLOAD_NOTIFICATION_TYPE } from "@/lib/upload-notification";
 
@@ -356,6 +357,17 @@ export async function registerPushToken(
   // Before the token, not after: a token issued for a channel that does not
   // exist yet arrives on `default` with none of the urgent channel's settings.
   await createAndroidChannels().catch(() => undefined);
+
+  /*
+   * The night-status buttons, on the same terms and for the same reason.
+   *
+   * A category is per-install state the OS holds, so it has to be re-declared
+   * every launch — a reinstall or an OS update can lose it, and a prompt that
+   * arrives before it is registered is a prompt with no buttons on it, which is
+   * the entire feature missing with nothing logged. Registering here rather
+   * than at first use means it is in place before any push can arrive.
+   */
+  await registerNightStatusCategory();
 
   const token = await fetchExpoPushToken();
 

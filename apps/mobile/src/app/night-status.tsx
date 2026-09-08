@@ -16,6 +16,10 @@ import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import {
+  NIGHT_STATUS_REASONS,
+  type NightStatusReasonCode,
+} from "@/lib/night-status-actions";
+import {
   NIGHT_STATUS_OPTIONS,
   nightNote,
   nightStanding,
@@ -47,6 +51,18 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * `docs/MOBILE_APP_PHASES.md`). An empty "History" heading would suggest the
  * feature exists and is broken; its absence suggests nothing at all, which is
  * accurate.
+ *
+ * ## The reason list is what the notification cannot draw
+ *
+ * Most residents will never see this screen, because the nightly prompt is
+ * answered from the shade — and a notification can show buttons and one
+ * free-text field, nothing else. No dropdown, no chip row, on either platform.
+ * So the shade gets three buttons (`Inside`, `At home`, `Outside…`) and the
+ * full preset list lives here, where there is room for it.
+ *
+ * The chips appear only under "Out for the night". A reason is an explanation
+ * for being away; offering one beside "Inside the hostel" would be asking
+ * somebody to justify being in their own room.
  *
  * ## Nothing is preselected from a stale answer
  *
@@ -132,6 +148,15 @@ function NightStatusForm({
     standing.suggested,
   );
   const [note, setNote] = useState(status.note);
+  /*
+   * Only carried over when the row on screen is tonight's. `nightStanding`
+   * already refuses to preselect a status from an earlier night, and a reason
+   * chip left lit under an unselected status would be the same stale answer one
+   * tap from being confirmed.
+   */
+  const [reasonCode, setReasonCode] = useState<NightStatusReasonCode | null>(
+    standing.answered ? (status.reasonCode ?? null) : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -151,7 +176,18 @@ function NightStatusForm({
     setSaving(true);
 
     try {
-      const next = await setResidentNightStatus({ ...parsed, status: choice });
+      const next = await setResidentNightStatus({
+        ...parsed,
+        /*
+         * A reason belongs to being out. Sending the one they picked before
+         * changing their mind to `Inside` would file "at home" against a night
+         * they said they were here for.
+         */
+        reasonCode:
+          choice === "OUTSIDE_HOSTEL" ? (reasonCode ?? undefined) : undefined,
+        source: "APP",
+        status: choice,
+      });
 
       onChanged(next);
       toastSuccess("Status updated", "Your hostel can see this now.");
@@ -160,7 +196,7 @@ function NightStatusForm({
     } finally {
       setSaving(false);
     }
-  }, [choice, note, onChanged]);
+  }, [choice, note, onChanged, reasonCode]);
 
   return (
     <Screen
@@ -250,6 +286,54 @@ function NightStatusForm({
             );
           })}
         </View>
+
+        {/*
+          The presets, and only under "Out for the night".
+
+          A wrapping row of chips rather than another column of cards: these are
+          one word each and secondary to the choice above them, and five more
+          full-width rows would bury the note field below the fold. `Card` is
+          deliberately not used — a chip is not a card, and
+          `components/ui/card.tsx` says so.
+        */}
+        {choice === "OUTSIDE_HOSTEL" ? (
+          <View className="gap-2">
+            <Text variant="label">Why? (optional)</Text>
+
+            <View className="flex-row flex-wrap gap-2">
+              {NIGHT_STATUS_REASONS.map((reason) => {
+                const selected = reason.code === reasonCode;
+
+                return (
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    key={reason.code}
+                    /* Tapping the lit chip clears it — a reason is optional. */
+                    onPress={() => setReasonCode(selected ? null : reason.code)}
+                  >
+                    <View
+                      className="rounded-full border px-3.5 py-2 active:opacity-80"
+                      style={{
+                        backgroundColor: selected ? colors.brandSoft : colors.card,
+                        borderColor: selected ? colors.primary : colors.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: selected ? colors.primary : colors.mutedForeground,
+                        }}
+                        variant="caption"
+                      >
+                        {reason.label}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
 
         <Input
           error={error}

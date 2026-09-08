@@ -84,7 +84,7 @@ const PERMISSION_LABELS: Record<WardenPermission, { hint: string; label: string 
     label: "Reverse payments",
   },
   updateComplaints: { hint: "Reply to and resolve complaints.", label: "Answer complaints" },
-  updateNightStatus: { hint: "Override a resident's roll call entry.", label: "Mark roll call" },
+  updateNightStatus: { hint: "Override a resident's night status.", label: "Set night status" },
   viewComplaints: { hint: "Read the complaints queue.", label: "See complaints" },
   viewNightStatus: { hint: "See who is accounted for tonight.", label: "See roll call" },
   viewPayments: { hint: "Read invoices and the ledger.", label: "See payments" },

@@ -58,6 +58,18 @@ const plansRoot = path.resolve(__dirname, "../../packages/shared/src/plans");
  * all, so like the plans catalogue it needs no `extraNodeModules` entry.
  */
 const foodRoot = path.resolve(__dirname, "../../packages/shared/src/food");
+
+/*
+ * `@hostel/night/*` — when a night starts, and when the hostel asks about it.
+ *
+ * The 17:00 boundary used to be a private constant in `lib/night-status.ts`,
+ * whose own comment noted it had "no server counterpart". Once a cron asks who
+ * has not answered tonight and a warden board renders the answer, a boundary
+ * with no server counterpart is two boundaries — so it moved to the shared
+ * package and both ends import it. `night-window.ts` imports `../food/`, which
+ * is already a watch folder, and nothing else.
+ */
+const nightRoot = path.resolve(__dirname, "../../packages/shared/src/night");
 const baseResolveRequest = config.resolver.resolveRequest;
 
 config.watchFolders = [
@@ -65,6 +77,7 @@ config.watchFolders = [
   calendarRoot,
   plansRoot,
   foodRoot,
+  nightRoot,
 ];
 
 /*
@@ -101,6 +114,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName.startsWith("@hostel/food/")) {
     return {
       filePath: path.join(foodRoot, `${moduleName.slice("@hostel/food/".length)}.ts`),
+      type: "sourceFile",
+    };
+  }
+
+  if (moduleName.startsWith("@hostel/night/")) {
+    return {
+      filePath: path.join(nightRoot, `${moduleName.slice("@hostel/night/".length)}.ts`),
       type: "sourceFile",
     };
   }

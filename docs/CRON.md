@@ -251,6 +251,34 @@ Returns `{ dispatched, failed, recipients, scanned }`.
   delay between the time an admin picked and the notification landing, so pick it to taste — the
   job is cheap when nothing is due.
 
+### Check push delivery receipts
+
+`POST /api/v1/cron/push-receipts`
+
+Reads the delivery receipt for every push Expo accepted. **This is the only job that can answer
+whether a notification actually reached a phone**, and it is not optional monitoring — without it
+the product cannot tell a working push pipeline from a completely broken one.
+
+Expo answers a send with a *ticket*, and a ticket only means the message was queued. FCM and APNS
+give their verdict minutes later in a *receipt*, so `sendPushToUsers` records the accepted ticket
+ids (`PushTicket`) and this job collects the answers.
+
+That gap was a real outage, not a hypothetical one: every push in the product was undeliverable
+while the send path counted them as sent, because Expo returned `ok` for each one and the receipts —
+which nothing fetched — carried `FCM 403 PERMISSION_DENIED` on `cloudmessaging.messages.create`. The
+FCM service account held by the EAS project had lost that permission. Fixing it is an **EAS/Google
+Cloud** change, not a code one; this job is what makes it visible within the hour instead of never.
+
+Failures are logged at `error`. A credential failure is reported separately from an ordinary
+delivery failure, with the remedy, under `push_transport_misconfigured`. Only a receipt saying
+`DeviceNotRegistered` revokes a token — a refused transport is our problem, not the recipient's, and
+must never cost them their registration.
+
+Returns `{ checked, delivered, expired, failed, revoked }`.
+
+- Recommended schedule: hourly (e.g. `0 * * * *`). Receipts are not ready immediately — tickets
+  younger than a minute are left for the next pass — and Expo keeps them for about a day.
+
 ### Meal call reminders
 
 `POST /api/v1/cron/meal-call-reminders`
@@ -272,6 +300,36 @@ Returns `{ due, sent, skipped }`.
   reminded about within 45 minutes of coming due, so a slower cadence silently drops meals rather
   than delivering them late.
 
+### Night status prompts
+
+`POST /api/v1/cron/night-status-prompt`
+
+Asks each hostel's residents whether they are in the hostel tonight, at the hour that hostel chose
+(`HostelSettings.attendance.nightStatus.promptTime`, default `20:00`, editable by a warden from the
+app or the web — it is one field on one document, so one edit moves both surfaces).
+
+The push carries a `categoryId`, so the handset draws the app's registered action buttons under the
+notification: **Inside**, **At home**, and **Outside…**, the last opening the notification's own
+inline text field. The answer posts from a background handler with the app never coming to the
+foreground. A build too old to know the category still gets an ordinary notification that opens the
+night-status screen on tap.
+
+Skips a hostel with the prompt switched off, one whose hour is unreadable or outside 17:00–23:45
+(see [`night-window.ts`](../packages/shared/src/night/night-window.ts) for why those are the
+bounds), and any resident who is not `ACTIVE`, has no user account, or **has already answered
+tonight**. A hostel with nobody left to ask is not claimed, so an answer withdrawn later in the
+window can still be re-prompted.
+
+Idempotent: each hostel's night is claimed in `NightStatusPrompt` under the hostel and the
+**night** key — 17:00 to 17:00, not the calendar day — before anything is sent, so overlapping or
+retried runs cannot ask a hostel twice. Those rows expire after a week.
+
+Returns `{ due, sent, skipped, residents }`.
+
+- Recommended schedule: every 15 minutes (`*/15 * * * *`). **Not wider than that** — a hostel is
+  only prompted within 45 minutes of its hour, so a slower cadence silently drops nights. A prompt
+  four hours late is worse than none: it wakes people who already answered and went to bed.
+
 ## Every job, and what to register
 
 The full set to create on cron-job.org. All are `POST`, all take the
@@ -283,7 +341,9 @@ The full set to create on cron-job.org. All are `POST`, all take the
 | Payment reminders and chases | `payment-reminders` | `0 2 * * *` | Daily; the ladder is self-healing, so a missed day is not a skipped resident. |
 | Gateway checkout expiry sweep | `gateway-expiry-sweep` | `*/5 * * * *` | Stale checkouts sit on a resident's screen until this runs. |
 | Dispatch scheduled notifications | `notification-dispatch` | `*/15 * * * *` | The interval is the worst-case delay on a scheduled broadcast. |
+| Check push delivery receipts | `push-receipts` | `0 * * * *` | Receipts are not ready immediately and survive a day, so hourly is ample. |
 | Meal call reminders | `meal-call-reminders` | `*/15 * * * *` | The cook is only reminded within 45 minutes of a meal coming due. |
+| Night status prompts | `night-status-prompt` | `*/15 * * * *` | A hostel is only prompted within 45 minutes of its own hour. |
 | Refresh nearby places | `refresh-nearby-places` | `0 * * * *` | Fills caches a batch at a time inside the Nominatim rate limit. |
 | Purge expired OTPs | `purge-expired-otps` | `0 3 * * *` | Backup for the TTL index. |
 | Account deletion purge | `account-purge` | `0 3 * * *` | Executes 60-day grace periods that have run out. |

@@ -152,7 +152,7 @@ export default function ManageRollCallScreen() {
       centerTitle
       showBack
       subtitle={dates.dateLong(new Date())}
-      title="Roll call"
+      title="Night status"
     />
   );
 
@@ -172,7 +172,7 @@ export default function ManageRollCallScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message={roll.error ?? "The roll call could not be loaded."}
+          message={roll.error ?? "The night status board could not be loaded."}
           onRetry={roll.reload}
         />
       </Screen>
@@ -184,7 +184,7 @@ export default function ManageRollCallScreen() {
   if (!night) {
     return (
       <Screen header={header}>
-        <PermissionCard capability="night status" feature="The roll call" />
+        <PermissionCard capability="night status" feature="The night status board" />
       </Screen>
     );
   }

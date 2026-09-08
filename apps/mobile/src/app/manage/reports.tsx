@@ -501,7 +501,7 @@ export default function ManageReportsScreen() {
                     ? `Last ${attendance.summary.windowDays} days · ${attendance.summary.pings} check-in(s)`
                     : "Not available"
                 }
-                title="Roll call"
+                title="Night status"
               />
               <Card className="gap-3">
                 {attendance === null ? (
@@ -684,7 +684,7 @@ export default function ManageReportsScreen() {
             </View>
 
             <View>
-              <SectionHeader subtitle="Where residents are tonight" title="Roll call now" />
+              <SectionHeader subtitle="Where residents are tonight" title="Night status now" />
               <Card>
                 <Breakdown empty="Nothing recorded tonight." map={overview.nightStatus} />
               </Card>

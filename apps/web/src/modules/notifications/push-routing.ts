@@ -33,6 +33,13 @@ const CATEGORY_PATHS: Record<string, string> = {
   HOSTEL_APPROVAL: "/notifications",
   INQUIRY: "/(admin)",
   MAINTENANCE: "/(provider)",
+  /*
+   * The nightly prompt. Its buttons answer it without opening anything, so this
+   * path is only reached by a plain tap on the notification body — or by a
+   * build too old to have registered the category, where it is the whole
+   * fallback.
+   */
+  NIGHT_STATUS: "/night-status",
   NOTICE: "/(resident)/notices",
   PAYMENT: "/(resident)/payments",
   PLUMBER: "/(provider)",

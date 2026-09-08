@@ -37,6 +37,52 @@ const hostelSettingsSchema = new Schema(
         retentionDays: { default: 600, max: 1095, min: 30, type: Number },
         /** Local times (HH:mm) the mobile app is expected to ping at. */
         pingTimes: { default: ["06:00", "08:00", "22:00"], type: [String] },
+        /**
+         * The nightly "are you in tonight?" prompt.
+         *
+         * ## Why it lives under `attendance` and not beside it
+         *
+         * Because this is the settings block a warden opens when they want to
+         * change anything about how the hostel tracks who is in. Splitting the
+         * prompt into a sibling block would mean two screens, two endpoints and
+         * two chances for a hostel to have the geofence on and the prompt off
+         * without anybody noticing the difference — and the two answer the same
+         * question by different means.
+         *
+         * It is deliberately **one field on one document**: the app's editor and
+         * the web's editor both `PATCH` the existing attendance-settings route,
+         * so a warden who changes the hour on their phone has changed it on the
+         * website by the time they look. That is the whole "single source"
+         * requirement, and it is satisfied by not adding a second store rather
+         * than by syncing two.
+         */
+        nightStatus: {
+          type: {
+            /**
+             * Off until a hostel turns it on. A product that starts notifying
+             * residents at 8pm on the strength of a default is a product that
+             * gets uninstalled, and the hostel has to decide it wants this.
+             */
+            promptEnabled: { default: false, type: Boolean },
+            /**
+             * `HH:mm` in Nepal. 20:00 unless the warden says otherwise.
+             *
+             * Bounded 17:00–23:45 by `parsePromptTime` rather than by the
+             * schema, because the reason for the bound is the night boundary
+             * and that reasoning belongs beside the boundary. An out-of-range
+             * value here means the hostel is skipped, never that it is prompted
+             * at an hour nobody chose.
+             */
+            promptTime: { default: "20:00", type: String },
+            /**
+             * Minutes after the prompt to chase whoever still has not answered.
+             * `0` is off, which is the default — one notification a night is
+             * the promise, and a second one has to be asked for.
+             */
+            remindAfterMinutes: { default: 0, max: 180, min: 0, type: Number },
+          },
+          default: () => ({}),
+        },
       },
       default: () => ({}),
     },

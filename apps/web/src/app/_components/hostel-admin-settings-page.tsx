@@ -20,9 +20,39 @@ type AttendanceSettings = {
   enabled: boolean;
   insideZoneRadiusMeters: number;
   nearbyZoneRadiusMeters: number;
+  /**
+   * The nightly "are you in tonight?" prompt.
+   *
+   * Edited through this same endpoint, on the same document, as the app's own
+   * editor in `manage/settings.tsx` — which is what makes a change here show up
+   * there without anything syncing. The server merges the object field by
+   * field, so sending only what this form shows cannot reset what it does not.
+   */
+  nightStatus: {
+    promptEnabled: boolean;
+    /** `HH:mm` in Nepal. The server refuses anything outside 17:00-23:45. */
+    promptTime: string;
+    remindAfterMinutes: number;
+  };
   pingTimes: string[];
   retentionDays: number;
 };
+
+/**
+ * 17:00 to 23:45 in quarter hours — the server's own bounds, so the picker
+ * cannot offer an hour the save would reject.
+ *
+ * Those bounds are not arbitrary: a prompt before 17:00 would file answers
+ * under the night that has not started, and one after midnight would be sent on
+ * the calendar day *after* the night it asks about. See `night-window.ts`.
+ */
+const PROMPT_TIMES = Array.from({ length: (23 - 17) * 4 + 4 }, (_, index) => {
+  const minute = 17 * 60 + index * 15;
+
+  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(
+    minute % 60,
+  ).padStart(2, "0")}`;
+});
 
 type CookPortalSettings = {
   cookCredentialIssuedAt?: string | null;
@@ -90,6 +120,11 @@ export const HostelAdminSettingsPageContent = memo(
                 .split(",")
                 .map((value) => value.trim())
                 .filter(Boolean),
+              nightStatus: {
+                promptEnabled: field(form, "promptEnabled") === "true",
+                promptTime: field(form, "promptTime"),
+                remindAfterMinutes: Number(field(form, "remindAfterMinutes")),
+              },
               retentionDays: Number(field(form, "retentionDays")),
             }),
             method: "PATCH",
@@ -250,6 +285,46 @@ export const HostelAdminSettingsPageContent = memo(
                   name="pingTimes"
                   required
                 />
+                {/*
+                  The nightly prompt. Two fields rather than a section of its
+                  own because it saves through this form and this endpoint —
+                  splitting it out would mean a second submit that patches the
+                  same document, which is how the two halves start disagreeing.
+                */}
+                <Select
+                  defaultValue={String(attendance.nightStatus.promptEnabled)}
+                  label="Night status prompt (asked once a night)"
+                  name="promptEnabled"
+                >
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
+                <Select
+                  defaultValue={attendance.nightStatus.promptTime}
+                  label="Ask at (anyone who answered is skipped)"
+                  name="promptTime"
+                >
+                  {PROMPT_TIMES.map((time) => (
+                    <option key={time} value={time}>
+                      {time}
+                    </option>
+                  ))}
+                </Select>
+                {/*
+                  The follow-up chase. `0` is off and is the default — one
+                  notification a night is the promise. A chase that would land
+                  after midnight is dropped by the server rather than delivered.
+                */}
+                <Select
+                  defaultValue={String(attendance.nightStatus.remindAfterMinutes)}
+                  label="Chase whoever has not answered"
+                  name="remindAfterMinutes"
+                >
+                  <option value="0">Do not chase</option>
+                  <option value="30">30 minutes later</option>
+                  <option value="60">1 hour later</option>
+                  <option value="120">2 hours later</option>
+                </Select>
               </div>
               <div className="flex justify-end">
                 <button

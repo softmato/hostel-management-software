@@ -79,10 +79,37 @@ type Buckets = ReconciliationView["buckets"];
 type OrphanRow = Buckets["orphans"][number];
 type Suggestion = OrphanRow["suggestions"][number];
 
+/**
+ * Where the file came from.
+ *
+ * The marks are not decoration: picking the wrong one here parses an eSewa
+ * export with Khalti's column map and imports nothing, and the two options
+ * were otherwise five letters apart in identical grey. `BANK` has no brand of
+ * its own, so `<WalletMark>` gives it the building glyph — see `claim.tsx`,
+ * which builds its method picker the same way.
+ *
+ * 28 points, not 32: the same node is drawn on the `<Select>` trigger, which is
+ * `h-12` and would grow past the controls either side of it.
+ */
 const PROVIDER_OPTIONS = [
-  { description: "A wallet transaction export.", label: "eSewa", value: "ESEWA" },
-  { description: "A wallet transaction export.", label: "Khalti", value: "KHALTI" },
-  { description: "A bank account statement.", label: "Bank", value: "BANK" },
+  {
+    description: "A wallet transaction export.",
+    label: "eSewa",
+    leading: <WalletMark name="ESEWA" size={28} />,
+    value: "ESEWA",
+  },
+  {
+    description: "A wallet transaction export.",
+    label: "Khalti",
+    leading: <WalletMark name="KHALTI" size={28} />,
+    value: "KHALTI",
+  },
+  {
+    description: "A bank account statement.",
+    label: "Bank",
+    leading: <WalletMark name="BANK" size={28} />,
+    value: "BANK",
+  },
 ] as const;
 
 /**

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { WalletMark } from "@/components/ui/wallet-mark";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
@@ -298,11 +299,24 @@ export default function ManagePaymentSetupScreen() {
         <View>
           <SectionHeader title="Bank" />
           <Card className="gap-3">
-            <Input
-              label="Bank"
-              onChangeText={(bankName) => edit({ bankName })}
-              value={form.bankName}
-            />
+            {/*
+              The mark is drawn from what has been *typed*, and that is the
+              point: `bankName` is free text, and the residents' pay screen
+              resolves it to a logo by the same function. An owner who typed
+              "Everst Bank" sees the glyph rather than Everest's mark and has a
+              chance to fix it here — the alternative is finding out on the
+              screen somebody is paying from.
+            */}
+            <View className="flex-row items-end gap-3">
+              <WalletMark name={form.bankName} size={48} />
+              <View className="flex-1">
+                <Input
+                  label="Bank"
+                  onChangeText={(bankName) => edit({ bankName })}
+                  value={form.bankName}
+                />
+              </View>
+            </View>
             <Input
               label="Account name"
               onChangeText={(bankAccountName) => edit({ bankAccountName })}
@@ -320,18 +334,34 @@ export default function ManagePaymentSetupScreen() {
         <View>
           <SectionHeader title="Wallets" />
           <Card className="gap-3">
-            <Input
-              keyboardType="numbers-and-punctuation"
-              label="eSewa ID"
-              onChangeText={(esewaId) => edit({ esewaId })}
-              value={form.esewaId}
-            />
-            <Input
-              keyboardType="numbers-and-punctuation"
-              label="Khalti ID"
-              onChangeText={(khaltiId) => edit({ khaltiId })}
-              value={form.khaltiId}
-            />
+            {/*
+              Two number fields whose labels differ by one word is the pair that
+              gets a Khalti id typed into the eSewa row. The marks are what the
+              eye actually matches against, and they are the same ones the
+              resident sees on the method they pick.
+            */}
+            <View className="flex-row items-end gap-3">
+              <WalletMark name="ESEWA" size={48} />
+              <View className="flex-1">
+                <Input
+                  keyboardType="numbers-and-punctuation"
+                  label="eSewa ID"
+                  onChangeText={(esewaId) => edit({ esewaId })}
+                  value={form.esewaId}
+                />
+              </View>
+            </View>
+            <View className="flex-row items-end gap-3">
+              <WalletMark name="KHALTI" size={48} />
+              <View className="flex-1">
+                <Input
+                  keyboardType="numbers-and-punctuation"
+                  label="Khalti ID"
+                  onChangeText={(khaltiId) => edit({ khaltiId })}
+                  value={form.khaltiId}
+                />
+              </View>
+            </View>
             <Text variant="caption">
               A bank account or a wallet ID is what lets us check that a receipt was paid
               to you. With only a QR, every receipt reads as an unknown payee.

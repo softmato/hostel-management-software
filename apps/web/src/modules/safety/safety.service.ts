@@ -15,6 +15,7 @@ import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { SOSAlertModel } from "@hostel/db/models/SOSAlert";
 import { fanOutSOSAlert } from "@/modules/safety/safety-notify";
+import { nightKey } from "@hostel/shared/night/night-window";
 import {
   findCurrentResident,
   normalizeObjectId,
@@ -44,12 +45,23 @@ type NightStatusValue =
   | "MARKED_SAFE"
   | "SOS_TRIGGERED";
 
+type NightStatusReasonCode =
+  | "HOME"
+  | "FRIENDS"
+  | "TRAVELLING"
+  | "WORKING_LATE"
+  | "HOSPITAL"
+  | "OTHER";
+
 type NightStatusRecord = {
   _id: Types.ObjectId;
   checkedAt: Date;
   createdAt?: Date;
   hostelId: Types.ObjectId;
+  /** The night this answer is about — `YYYY-MM-DD` from `nightKey()`. */
+  night?: string;
   note?: string;
+  reasonCode?: NightStatusReasonCode;
   residentId: Types.ObjectId;
   source: "RESIDENT" | "WARDEN_OVERRIDE" | "SOS";
   status: NightStatusValue;
@@ -122,24 +134,68 @@ function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string)
   return { hostelId: { $in: normalizeObjectIds(principal.hostelIds) } };
 }
 
-function serializeNightStatus(status: NightStatusRecord | null) {
+/**
+ * One resident's status **for tonight**.
+ *
+ * ## An answer expires with the night it was about
+ *
+ * The row is upserted and never deleted, so on its own "her status is
+ * INSIDE_HOSTEL" stays true forever after the one evening she tapped it. The
+ * app hid that by comparing `checkedAt` against a 17:00 boundary it kept to
+ * itself and never told the server about; the warden's board did no such thing,
+ * and showed a hostel full of residents marked present on the strength of
+ * answers given weeks earlier. It was the single most misleading number in the
+ * product.
+ *
+ * So a row whose stored `night` is not tonight's is reported as
+ * `NOT_VERIFIED` — *they have not told us anything about tonight* — with
+ * `checkedAt` still carried so a caller can say when they last did. Rows
+ * written before `night` existed have none, never match, and therefore read as
+ * unanswered, which is the honest treatment of an answer that predates the
+ * question.
+ *
+ * `SOS_TRIGGERED` is the one status that does **not** expire. An emergency is
+ * not a statement about a night, and quietly downgrading it to "not verified"
+ * at 17:00 the next day would take an unresolved alert off the board. Only
+ * staff close those.
+ */
+function serializeNightStatus(
+  status: NightStatusRecord | null,
+  now: Date = new Date(),
+) {
   if (!status) {
     return {
       checkedAt: null,
+      isCurrentNight: false,
+      night: null,
       note: "",
+      reasonCode: null,
       source: "RESIDENT",
       status: "NOT_VERIFIED",
     };
   }
 
+  const tonight = nightKey(now);
+  const current = status.night === tonight;
+  const stale = !current && status.status !== "SOS_TRIGGERED";
+
   return {
     checkedAt: status.checkedAt.toISOString(),
     hostelId: status.hostelId.toString(),
     id: status._id.toString(),
-    note: status.note ?? "",
+    isCurrentNight: current,
+    night: status.night ?? null,
+    /*
+     * The note and the reason go with the status they explain. Leaving
+     * "At my sister's" beside a `NOT_VERIFIED` row would read as tonight's
+     * reason on the warden's board, which is precisely the stale answer this
+     * function exists to stop reporting.
+     */
+    note: stale ? "" : (status.note ?? ""),
+    reasonCode: stale ? null : (status.reasonCode ?? null),
     residentId: status.residentId.toString(),
     source: status.source,
-    status: status.status,
+    status: stale ? "NOT_VERIFIED" : status.status,
     updatedAt: status.updatedAt?.toISOString(),
   };
 }
@@ -190,15 +246,26 @@ async function auditSafetyAction(
   });
 }
 
+/**
+ * The single write path for a night status, whichever surface it came from.
+ *
+ * A notification button, the in-app screen, the website and a warden's override
+ * all land here, which is why `night` is stamped **here** rather than by each
+ * caller: an answer filed under the wrong night is indistinguishable from no
+ * answer at all, and there is no way to notice it after the fact.
+ */
 async function writeNightStatus(
   resident: ResidentRecord,
   principal: ApiPrincipal,
   input: {
     note?: string;
+    reasonCode?: NightStatusReasonCode;
     source: "RESIDENT" | "WARDEN_OVERRIDE" | "SOS";
     status: NightStatusValue;
   },
 ) {
+  const now = new Date();
+  const night = nightKey(now);
   const existing = await NightStatusModel.findOne({
     residentId: resident._id,
   }).lean<NightStatusRecord | null>();
@@ -206,9 +273,18 @@ async function writeNightStatus(
     { residentId: resident._id },
     {
       $set: {
-        checkedAt: new Date(),
+        checkedAt: now,
         hostelId: resident.hostelId,
+        night,
         note: input.note,
+        /*
+         * Written unconditionally, `undefined` included. A resident who says
+         * "at home" and then corrects it to a typed reason must not keep the
+         * old preset alongside the new sentence — `$set` with `undefined` is
+         * how Mongoose clears it, and leaving it out instead would make the
+         * previous answer sticky.
+         */
+        reasonCode: input.reasonCode,
         residentId: resident._id,
         source: input.source,
         status: input.status,
@@ -222,8 +298,10 @@ async function writeNightStatus(
     changedBy: principal.userId,
     hostelId: resident.hostelId,
     nextStatus: input.status,
+    night,
     note: input.note,
     previousStatus: existing?.status,
+    reasonCode: input.reasonCode,
     residentId: resident._id,
     source: input.source,
   });
@@ -258,6 +336,7 @@ export async function updateResidentNightStatus(
   const resident = await findCurrentResident(principal);
   const status = await writeNightStatus(resident, principal, {
     note: input.note,
+    reasonCode: input.reasonCode,
     source: "RESIDENT",
     status: input.status,
   });
@@ -404,6 +483,7 @@ export async function overrideNightStatus(
   }).lean<NightStatusRecord | null>();
   const status = await writeNightStatus(resident, principal, {
     note: input.reason,
+    reasonCode: input.reasonCode,
     source: "WARDEN_OVERRIDE",
     status: input.status,
   });

@@ -26,6 +26,13 @@ const nightStatusLogSchema = new Schema(
       type: String,
     },
     note: { trim: true, type: String },
+    /** The preset behind this change, when one was tapped. Mirrors NightStatus. */
+    reasonCode: {
+      enum: ["HOME", "FRIENDS", "TRAVELLING", "WORKING_LATE", "HOSPITAL", "OTHER"],
+      type: String,
+    },
+    /** The night the change was about — see the note on `NightStatus.night`. */
+    night: { type: String },
     source: {
       default: "RESIDENT",
       enum: ["RESIDENT", "WARDEN_OVERRIDE", "SOS"],

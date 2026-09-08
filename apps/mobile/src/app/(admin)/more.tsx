@@ -86,7 +86,7 @@ const MANAGE_ROWS: {
     href: "/manage/roll-call",
     icon: "moon-outline",
     subtitle: "Who is in tonight, who is out, and who has not been verified",
-    title: "Roll call",
+    title: "Night status",
   },
   {
     /*

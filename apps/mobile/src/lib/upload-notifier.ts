@@ -15,12 +15,26 @@
  * unaffected and still shows everything; the Settings screen is where the ask
  * lives, with an explanation in front of it.
  *
- * ## Serialised posts
+ * ## Serialised posts, and why serialising alone was not enough
  *
- * Every post is chained onto the previous one. Two `scheduleNotificationAsync`
- * calls issued a frame apart can resolve out of order, and the loser overwrites
- * the winner — which in practice means "Uploaded" flashing and then reverting
- * to "45%" forever, because nothing else is coming to correct it.
+ * Two `scheduleNotificationAsync` calls issued a frame apart can resolve out of
+ * order, and the loser overwrites the winner — which in practice means
+ * "Uploaded" flashing and then reverting to "45%" forever, because nothing else
+ * is coming to correct it. So posts are serialised.
+ *
+ * They are also **coalesced**, which is the half that was missing. Chaining
+ * every update onto the previous one keeps them in order but preserves all of
+ * them, and a post is an IPC round trip that is easily slower than the progress
+ * events driving it. The queue then runs behind the transfer and drains stale
+ * frames *after* it is over: the toaster on screen finishes, and the shade goes
+ * on counting up to a number that stopped being true seconds ago. That is the
+ * "the notification is not in sync with the toast" report, and it gets worse the
+ * bigger the file, because the backlog is longer.
+ *
+ * Intermediate states have no value once a newer one exists — nobody needs to
+ * see 45% on the way to 80%. So only the **latest** is kept: `drain` applies it,
+ * and whatever arrived while that was in flight replaces it rather than queueing
+ * behind it. The shade converges on the truth instead of replaying history.
  */
 
 import * as Notifications from "expo-notifications";
@@ -51,7 +65,17 @@ let started = false;
 let tally: UploadTally = EMPTY_TALLY;
 let posted: UploadNotice | null = null;
 let granted = false;
-let pending: Promise<unknown> = Promise.resolve();
+
+/**
+ * The state the shade should be showing, or `null` for "nothing waiting".
+ *
+ * Boxed rather than held bare, because `null` is itself a notice worth applying
+ * — it means dismiss — and the two have to stay distinguishable.
+ */
+let queued: { notice: UploadNotice | null } | null = null;
+let draining = false;
+/** Set when a batch begins: the user may have granted permission since the last. */
+let recheckPermission = false;
 
 async function ensureChannel() {
   if (Platform.OS !== "android") {
@@ -152,6 +176,46 @@ async function apply(notice: UploadNotice | null) {
   });
 }
 
+/**
+ * Applies the latest queued state, then whatever replaced it while that was in
+ * flight. One at a time, newest only — see the note at the top of the file.
+ */
+async function drain() {
+  if (draining) {
+    return;
+  }
+
+  draining = true;
+
+  try {
+    while (queued) {
+      const { notice } = queued;
+
+      /*
+       * Cleared *before* the await, not after. Anything arriving during the
+       * post lands in a fresh `queued` and is picked up by the next turn of
+       * this loop; clearing afterwards would discard it and leave the shade one
+       * state behind for good — which is the bug this function replaced, just
+       * with a shorter backlog.
+       */
+      queued = null;
+
+      if (recheckPermission || !granted) {
+        recheckPermission = false;
+        granted = await readPermission();
+      }
+
+      if (!granted) {
+        continue;
+      }
+
+      await apply(notice);
+    }
+  } finally {
+    draining = false;
+  }
+}
+
 function onQueueChanged() {
   const previouslyIdle = tally.active === 0;
   /*
@@ -164,7 +228,9 @@ function onQueueChanged() {
 
   // A new batch is the one moment worth re-reading permission: the user may
   // have granted it in Settings since the last upload.
-  const batchStarted = previouslyIdle && tally.active > 0;
+  if (previouslyIdle && tally.active > 0) {
+    recheckPermission = true;
+  }
 
   const next = uploadNotice(tally, Date.now());
 
@@ -173,20 +239,9 @@ function onQueueChanged() {
   }
 
   posted = next;
+  queued = { notice: next };
 
-  pending = pending
-    .then(async () => {
-      if (batchStarted || !granted) {
-        granted = await readPermission();
-      }
-
-      if (!granted) {
-        return;
-      }
-
-      await apply(next);
-    })
-    .catch(() => {});
+  void drain();
 }
 
 /**
@@ -221,5 +276,12 @@ export function resetUploadNotifications() {
   tally = EMPTY_TALLY;
   posted = null;
   granted = false;
+  /*
+   * Dropped, not drained. A state queued for the account that just signed out
+   * must not be posted over the dismissal below — that would leave one user's
+   * transfer sitting in the shade of the next user's session.
+   */
+  queued = null;
+  recheckPermission = false;
   void Notifications.dismissNotificationAsync(UPLOAD_NOTIFICATION_ID).catch(() => {});
 }

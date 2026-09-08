@@ -5,7 +5,8 @@
  * Native shim. Same split as `lib/sos.ts` and `lib/complaints.ts`.
  */
 
-import { nepalDayKey } from "@/lib/format";
+import { isCurrentNight } from "@hostel/night/night-window";
+
 import type { NightStatus, NightStatusValue } from "@/lib/resident-api";
 import { sosIsOpen, type SosStanding } from "@/lib/sos";
 
@@ -65,37 +66,21 @@ export function isSelfReportable(status: string): status is SelfReportableStatus
 /* -------------------------------------------------------------------------- */
 
 /**
- * A night starts at 17:00 Nepal time and runs to 17:00 the next day.
+ * Re-exported, not reimplemented.
  *
- * Without a window, "have I checked in tonight?" collapses into "was this today?"
- * — and a resident who checked in at 11pm is told at 00:30 that they have not
- * checked in tonight, on the one screen whose entire job is to answer that
- * question correctly. Shifting the instant back 17 hours before asking for its
- * Nepal day gives every evening and the small hours after it the same key.
+ * The 17:00 night boundary used to live here as a private constant, and the
+ * comment beside it admitted the problem: *"a client-side product choice with
+ * no server counterpart."* That was fine while this screen was the only thing
+ * that ever asked. It stopped being fine when a cron job started asking who has
+ * not answered tonight and a warden board started rendering the answer — three
+ * opinions about when a night starts, two of them across a network boundary
+ * from this one.
  *
- * **17:00 is a client-side product choice with no server counterpart.** Nothing
- * in `apps/web` defines a night boundary — `writeNightStatus` just stamps
- * `checkedAt` — so this decides only what this screen says, never what is stored.
+ * So it lives in `@hostel/night/night-window` now and both ends import it, the
+ * same arrangement `@hostel/calendar` has for the Bikram Sambat month. The
+ * re-export keeps every existing caller in this app importing from here.
  */
-const NIGHT_STARTS_AT_HOUR = 17;
-
-function nightKey(date: Date): string {
-  return nepalDayKey(new Date(date.getTime() - NIGHT_STARTS_AT_HOUR * 3_600_000));
-}
-
-/** Whether `checkedAt` falls in the night `now` is in. */
-export function isCurrentNight(
-  checkedAt: string | null | undefined,
-  now: Date = new Date(),
-): boolean {
-  if (!checkedAt) {
-    return false;
-  }
-
-  const date = new Date(checkedAt);
-
-  return Number.isNaN(date.getTime()) ? false : nightKey(date) === nightKey(now);
-}
+export { isCurrentNight };
 
 /* -------------------------------------------------------------------------- */
 /* The wording                                                                */

@@ -984,11 +984,28 @@ export async function updateCommunitySettings(input: Partial<CommunitySettings>)
  * refuses the save with INVALID_GEOFENCE otherwise — and `pingTimes` are `HH:mm`
  * strings, at most six of them.
  */
+/**
+ * The nightly "are you in tonight?" prompt.
+ *
+ * Lives inside the attendance settings rather than beside them because it is
+ * one field on one document, written through the one endpoint — which is what
+ * makes a warden's edit on their phone show up on the website without anything
+ * syncing. Adding a second store for it is the way to break that.
+ */
+export type NightStatusPromptSettings = {
+  promptEnabled: boolean;
+  /** `HH:mm` in Nepal. The server refuses anything outside 17:00-23:45. */
+  promptTime: string;
+  /** Minutes after the prompt to chase non-responders. `0` is off. */
+  remindAfterMinutes: number;
+};
+
 export type AttendanceSettings = {
   absenceAlertDays: number;
   enabled: boolean;
   insideZoneRadiusMeters: number;
   nearbyZoneRadiusMeters: number;
+  nightStatus: NightStatusPromptSettings;
   pingTimes: string[];
   retentionDays: number;
 };
@@ -1001,7 +1018,17 @@ export async function getAttendanceSettings() {
   return unwrap(response).settings;
 }
 
-export async function updateAttendanceSettings(input: Partial<AttendanceSettings>) {
+export async function updateAttendanceSettings(
+  input: Partial<Omit<AttendanceSettings, "nightStatus">> & {
+    /*
+     * Partial on its own account. The server merges this object field by field
+     * rather than replacing it, so sending just the hour leaves the switch
+     * alone — which is what lets this screen and the website each edit the part
+     * they show without resetting the other's.
+     */
+    nightStatus?: Partial<NightStatusPromptSettings>;
+  },
+) {
   const response = await api.patch<ApiEnvelope<{ settings: AttendanceSettings }>>(
     "/hostel-admin/attendance/settings",
     input,

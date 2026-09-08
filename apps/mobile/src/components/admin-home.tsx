@@ -630,7 +630,7 @@ export function ServiceGrid({
 
       Next to Residents deliberately: it is that list, at night.
     */
-    { href: "/manage/roll-call", icon: "moon-outline", label: "Roll call", tone: "warning" },
+    { href: "/manage/roll-call", icon: "moon-outline", label: "Night status", tone: "warning" },
     /*
       Came down from "Waiting for you" when the scanner took a shortcut slot and
       `Post notice` took its place there. It lands on Today rather than on a
@@ -807,7 +807,7 @@ export function QuickActions({
           <ActionCell
             glyph={colors.warning}
             icon="moon-outline"
-            label="Roll call"
+            label="Night status"
             onPress={onRollCall}
             tone="warning"
           />

@@ -22,6 +22,7 @@
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
 import type { MealType, RoutineDay } from "@/lib/food-week";
+import type { NightStatusReasonCode } from "@/lib/night-status-actions";
 import type { SosAlert } from "@/lib/safety-api";
 
 /* -------------------------------------------------------------------------- */
@@ -221,7 +222,21 @@ export type NightStatusValue = (typeof NIGHT_STATUSES)[number];
 export type NightStatus = {
   checkedAt: string | null;
   id?: string;
+  /**
+   * Whether this answer is about **tonight**.
+   *
+   * The row is upserted and never cleared, so `status` on its own is the last
+   * answer ever given rather than the current one. The server now stamps the
+   * night and reports a stale row as `NOT_VERIFIED`; this says which of the two
+   * happened, so a screen can show "last set on Tuesday" without implying
+   * Tuesday's answer still stands.
+   */
+  isCurrentNight?: boolean;
+  /** `YYYY-MM-DD`, the 17:00-to-17:00 night this answer was about. */
+  night?: string | null;
   note: string;
+  /** The preset they tapped, when they tapped one instead of typing. */
+  reasonCode?: NightStatusReasonCode | null;
   source: string;
   /** `NOT_VERIFIED` when the resident has no row yet — an answer, not an absence. */
   status: NightStatusValue | string;
@@ -251,6 +266,15 @@ export async function getResidentNightStatus(): Promise<NightStatusView> {
 
 export async function setResidentNightStatus(input: {
   note?: string;
+  reasonCode?: NightStatusReasonCode;
+  /**
+   * Which surface the answer came from. `APP` here; the notification's own
+   * buttons send `PUSH_ACTION` from `night-status-notification.ts`. It decides
+   * nothing on the server — it is the one number that says whether residents
+   * are actually answering from the shade, which is the whole bet of this
+   * feature.
+   */
+  source?: "APP" | "PUSH_ACTION" | "WEB";
   status: NightStatusValue;
 }) {
   const response = await api.post<ApiEnvelope<{ status: NightStatus }>>(

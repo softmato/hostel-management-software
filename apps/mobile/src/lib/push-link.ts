@@ -79,6 +79,13 @@ const KNOWN_PATHS = new Set([
    * exactly one screen that shows what that guardian can now see.
    */
   "/guardians",
+  /*
+   * The night-status screen, on the root stack. Reached by a plain tap on the
+   * nightly prompt — the notification's own buttons answer it without opening
+   * anything, so this is the path for somebody who wants to see the reason list
+   * or change an answer they already gave.
+   */
+  "/night-status",
   "/notifications",
   /*
    * Where a refused provider application lands. `notifyServiceProviderDecision`
