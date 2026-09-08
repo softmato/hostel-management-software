@@ -160,10 +160,41 @@ describe("duePrompts", () => {
     expect(due[0].hostelId).toBe(HOSTEL);
   });
 
-  it("skips a hostel that has not turned the prompt on", () => {
+  it("skips a hostel that has explicitly turned the prompt off", () => {
     expect(
       duePrompts(settings({ promptEnabled: false }), nepal("2026-09-08", "20:10")),
     ).toHaveLength(0);
+  });
+
+  it("prompts a hostel that has never opened its settings", () => {
+    /*
+     * The prompt is on by default, so **absence has to mean on**.
+     *
+     * This is the case a truthiness check gets wrong, and it gets it wrong
+     * silently and for every existing customer: a hostel whose warden has never
+     * touched the settings screen has no `nightStatus` object at all, and one
+     * that saved settings before the field existed has the object without the
+     * key. Under `if (!config?.promptEnabled)` both read as "off", and
+     * "on by default" would have reached nobody who was already a customer.
+     */
+    const noSettingsDocument = [{ hostelId: HOSTEL }];
+    const noAttendanceBlock = [{ attendance: {}, hostelId: HOSTEL }];
+    const noNightStatusKey = [
+      { attendance: { nightStatus: {} }, hostelId: HOSTEL },
+    ];
+
+    for (const rows of [noSettingsDocument, noAttendanceBlock, noNightStatusKey]) {
+      expect(duePrompts(rows, nepal("2026-09-08", "20:10"))).toHaveLength(1);
+      // And at the default hour, not at some other one.
+      expect(duePrompts(rows, nepal("2026-09-08", "21:10"))).toHaveLength(0);
+    }
+  });
+
+  it("treats only an explicit false as off", () => {
+    // `undefined` is not `false`. The distinction is the whole feature here.
+    expect(
+      duePrompts(settings({ promptEnabled: undefined }), nepal("2026-09-08", "20:10")),
+    ).toHaveLength(1);
   });
 
   it("falls back to the default hour when none was ever set", () => {

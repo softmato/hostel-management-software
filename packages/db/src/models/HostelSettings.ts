@@ -59,11 +59,22 @@ const hostelSettingsSchema = new Schema(
         nightStatus: {
           type: {
             /**
-             * Off until a hostel turns it on. A product that starts notifying
-             * residents at 8pm on the strength of a default is a product that
-             * gets uninstalled, and the hostel has to decide it wants this.
+             * **On by default**, and a hostel has to opt *out*.
+             *
+             * The opposite of how the geofence next door works, deliberately.
+             * The geofence reads a resident's location whether or not they are
+             * thinking about it, so it defaults off and has to be chosen. This
+             * asks a question the resident answers or ignores — nothing is read,
+             * nothing is inferred from silence — and a hostel that has to
+             * discover a setting before anybody is ever asked is a hostel where
+             * the warden keeps knocking on doors.
+             *
+             * `false` is stored only when somebody explicitly turns it off,
+             * which is why the sender tests `$ne: false` rather than `=== true`:
+             * a settings document written before this field existed has no value
+             * at all, and that absence has to mean the default rather than "off".
              */
-            promptEnabled: { default: false, type: Boolean },
+            promptEnabled: { default: true, type: Boolean },
             /**
              * `HH:mm` in Nepal. 20:00 unless the warden says otherwise.
              *

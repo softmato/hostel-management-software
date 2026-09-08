@@ -807,6 +807,19 @@ export async function lookupResidentProfile(
   }).catch(() => null);
 
   return {
+    /*
+     * Not the photo, and not a URL to it: the bytes are streamed by
+     * `/hostel-admin/resident-scan/photo`, which takes the same resident ID and
+     * the same `registerResidents` grant. All the caller is missing is whether
+     * there is a face to ask for and which version of it — without those a
+     * registration screen either draws a broken image for the majority who
+     * never uploaded one, or shows a replaced portrait's predecessor out of a
+     * disk cache keyed on the URL.
+     */
+    photo: {
+      hasPhoto: Boolean(record.photoAssetId),
+      updatedAt: record.photoUpdatedAt?.toISOString() ?? null,
+    },
     prefill: toResidentPrefill(readProfile(record)),
     residentId,
     sharedAt: new Date().toISOString(),

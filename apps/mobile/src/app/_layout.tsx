@@ -1,6 +1,7 @@
 import "@/global.css";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { BlurTargetView } from "expo-blur";
 import { router, Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -16,6 +17,7 @@ import { PersistGate } from "redux-persist/integration/react";
 import { BottomChromeProvider } from "@/components/bottom-chrome";
 import { AssetViewer } from "@/components/asset-viewer";
 import { BrandSplash } from "@/components/brand-splash";
+import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { UploadToaster } from "@/components/upload-toaster";
 import { useAppDispatch } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -25,6 +27,7 @@ import { useRoleSync } from "@/hooks/use-role-sync";
 import { useUploads } from "@/hooks/use-uploads";
 import { resolveHome } from "@/constants/roles";
 import { bootstrapSession, revalidateSession } from "@/lib/auth-session";
+import { appBlurTarget } from "@/lib/blur-target";
 import { startUploadNotifications } from "@/lib/upload-notifier";
 import { persistor, store } from "@/store";
 import { setReady } from "@/store/slices/authSlice";
@@ -222,6 +225,18 @@ function RootShell() {
       */}
       <StatusBar style={isDark ? "light" : "dark"} />
 
+      {/*
+        Everything the confirm dialog's backdrop blurs, named as one view.
+
+        Android cannot sample what is behind a layer the way iOS does, so
+        `expo-blur@57` requires the content to be captured to be pointed at
+        explicitly — without this the dialog logged "blurTarget has not been
+        configured" and fell back to a flat tint. See `lib/blur-target.ts`.
+
+        Layout-neutral: it is the `flex: 1` box the navigator was already filling
+        on its own.
+      */}
+      <BlurTargetView ref={appBlurTarget} style={{ flex: 1 }}>
       {/*
         Screens fade up in place rather than sliding in from the edge.
 
@@ -492,6 +507,15 @@ function RootShell() {
         navigator — this one has to draw over the tab bar and the SOS button.
       */}
       <AssetViewer />
+      </BlurTargetView>
+
+      {/*
+        The one custom alert, and the only thing outside the blur target: a view
+        cannot blur a buffer it is itself drawn into. Being a sibling *after* the
+        target is also what puts it over the tab bar — it is not a `Modal`, see
+        its own note for why.
+      */}
+      <ConfirmDialogHost />
 
       {/*
         Transient toasts move down to clear the upload cards rather than

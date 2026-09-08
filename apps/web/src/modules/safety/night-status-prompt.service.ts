@@ -3,6 +3,7 @@ import type { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { sendPushToUsers } from "@/modules/notifications/push.service";
+import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { NightStatusPromptModel } from "@hostel/db/models/NightStatusPrompt";
@@ -92,6 +93,8 @@ type SettingsRecord = {
   hostelId: Types.ObjectId;
 };
 
+type HostelRecord = { _id: Types.ObjectId };
+
 type ResidentRecord = {
   _id: Types.ObjectId;
   hostelId: Types.ObjectId;
@@ -125,7 +128,18 @@ export function duePrompts(
   for (const row of settings) {
     const config = row.attendance?.nightStatus;
 
-    if (!config?.promptEnabled) {
+    /*
+     * `false` only, not falsy.
+     *
+     * The prompt is on by default, so **absence has to mean on**. A hostel that
+     * has never opened its settings has no `nightStatus` object at all, and one
+     * that saved settings before this field existed has the object without the
+     * key — under a truthiness test both of those read as "off", which would
+     * have made "on by default" reach precisely nobody who was already a
+     * customer. Only an explicit `false`, written by somebody turning the
+     * switch off, stops the prompt.
+     */
+    if (config?.promptEnabled === false) {
       continue;
     }
 
@@ -135,7 +149,7 @@ export function duePrompts(
      * written after the field existed, and a hostel that enabled the prompt on
      * an older settings row would otherwise be silently skipped forever.
      */
-    const promptTime = config.promptTime?.trim() || DEFAULT_PROMPT_TIME;
+    const promptTime = config?.promptTime?.trim() || DEFAULT_PROMPT_TIME;
 
     if (parsePromptTime(promptTime) === null) {
       continue;
@@ -152,7 +166,7 @@ export function duePrompts(
      * a hostel is never a candidate for both in one run, which would claim two
      * rows and send two notifications inside the same minute.
      */
-    if (reminderIsDue(promptTime, config.remindAfterMinutes, now)) {
+    if (reminderIsDue(promptTime, config?.remindAfterMinutes, now)) {
       candidates.push({ hostelId: row.hostelId, kind: "REMINDER", promptTime });
     }
   }
@@ -207,18 +221,57 @@ export const NIGHT_STATUS_CATEGORY = "night-status";
  * hostel — which stays cheap well past the point where anything else here would
  * need rethinking.
  */
+/** Split out only so the `Promise.all` above stays readable. */
+function readNightStatusSettings() {
+  return HostelSettingsModel.find({})
+    .select({ "attendance.nightStatus": 1, hostelId: 1 })
+    .lean<SettingsRecord[]>();
+}
+
 export async function runNightStatusPrompts(
   now: Date = new Date(),
 ): Promise<NightStatusPromptResult> {
   await connectToDatabase();
 
-  const settings = await HostelSettingsModel.find({
-    "attendance.nightStatus.promptEnabled": true,
-  })
-    .select({ "attendance.nightStatus": 1, hostelId: 1 })
-    .lean<SettingsRecord[]>();
+  /*
+   * Every live hostel, then its settings on top — not the settings collection
+   * on its own.
+   *
+   * The obvious query is `find({ "attendance.nightStatus.promptEnabled": true })`
+   * and it is wrong now that the prompt defaults on, because it can only ever
+   * return hostels that have a settings **document**. A hostel whose warden has
+   * never opened the settings screen has none at all, so it would be skipped
+   * forever while its own configuration said the prompt was enabled — the
+   * settings screen and the sender disagreeing, silently, about every hostel
+   * that never touched a setting.
+   *
+   * Both collections hold one document per hostel, so this is two bounded lean
+   * reads either way.
+   */
+  const [hostels, settings] = await Promise.all([
+    HostelModel.find({
+      isDeleted: false,
+      /*
+       * A draft or rejected listing has no residents to ask, and a suspended
+       * one should not be notifying anybody on the hostel's behalf.
+       */
+      status: { $in: ["APPROVED", "PUBLISHED"] },
+    })
+      .select({ _id: 1 })
+      .lean<HostelRecord[]>(),
+    readNightStatusSettings(),
+  ]);
 
-  const candidates = duePrompts(settings ?? [], now);
+  const settingsByHostel = new Map(
+    (settings ?? []).map((row) => [row.hostelId.toString(), row]),
+  );
+  const candidates = duePrompts(
+    (hostels ?? []).map(
+      (hostel) =>
+        settingsByHostel.get(hostel._id.toString()) ?? { hostelId: hostel._id },
+    ),
+    now,
+  );
 
   if (candidates.length === 0) {
     return { due: 0, residents: 0, sent: 0, skipped: 0 };

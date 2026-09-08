@@ -57,6 +57,8 @@
  * both so the search box finds a row either way.
  */
 
+import { bsPeriodBounds } from "@hostel/calendar/bs";
+
 import type { AdminLedger, AdminLedgerEntry } from "@/lib/admin-api";
 import {
   type CalendarSystem,
@@ -330,6 +332,168 @@ export function activeQuickRange(
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Months                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The month a row's money **landed** in, or `null` when it has no usable date.
+ *
+ * The collection month, not the billing period. Those are routinely different —
+ * a hostel takes Bhadra's rent in Shrawan and Asar's arrears the day after —
+ * and reading this screen as though they were the same is what makes two
+ * honest rows look like a fault. The statement is filtered, grouped, summarised
+ * and totalled on **this** axis throughout; `credit.period` only ever titles a
+ * row. See {@link creditTitle}.
+ *
+ * `null` rather than a throw off the conversion table: the same rule the rest of
+ * the calendar layer keeps, where an honest gap beats a confident guess.
+ */
+function receivedMonth(row: StatementRow): string | null {
+  if (!row.receivedAt) {
+    return null;
+  }
+
+  const received = new Date(row.receivedAt);
+
+  if (Number.isNaN(received.getTime())) {
+    return null;
+  }
+
+  try {
+    return nepalPeriodKey(received);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The BS months this statement can be narrowed to, newest first.
+ *
+ * Built from the data, on the same argument as {@link methodOptions}: a hostel
+ * that took its first payment in Shrawan should not be offered a year of empty
+ * months to filter to nothing with.
+ *
+ * The **current** month is always in the list even when nothing has arrived in
+ * it, because it is the month the screen opens on — an option that vanishes
+ * exactly when it is selected is not an option, and a quiet month is a fact an
+ * owner opens this screen to check rather than a state to hide.
+ *
+ * Sorted on the key rather than on a label: BS period keys are zero-padded
+ * `YYYY-MM`, so string order is chronological order, and it stays that way
+ * across the year boundary that a month *name* sort would scramble.
+ */
+export function monthOptions(
+  credits: readonly StatementRow[],
+  now: Date = new Date(),
+): string[] {
+  const months = new Set<string>([nepalPeriodKey(now)]);
+
+  for (const credit of credits) {
+    const month = receivedMonth(credit);
+
+    if (month) {
+      months.add(month);
+    }
+  }
+
+  return [...months].sort((left, right) => right.localeCompare(left));
+}
+
+/**
+ * `{ from, to }` day inputs spanning one BS month, or a run of them.
+ *
+ * Writes into the same `from`/`to` the typed fields and the quick ranges edit,
+ * for the reason {@link QUICK_RANGES} gives: one range, one pair of strings, and
+ * no second control that can disagree with the first about what is on screen.
+ *
+ * The ends are ordered rather than validated. Picking Bhadra and then reaching
+ * back to Shrawan is somebody widening a range, not making a mistake, and a
+ * filter that answers an out-of-order pair with nothing is a filter people stop
+ * trusting.
+ *
+ * `lastDay`, never `end` — see `bsPeriodBounds`. `end` is the last millisecond
+ * of the month in UTC, which is already the small hours of the *next* month in
+ * Kathmandu, and taking it here would push every range one day long.
+ */
+export function monthRange(from: string, to: string = from): { from: string; to: string } {
+  const [first, last] = from <= to ? [from, to] : [to, from];
+
+  try {
+    return {
+      from: toDayInput(bsPeriodBounds(first).start),
+      to: toDayInput(bsPeriodBounds(last).lastDay),
+    };
+  } catch {
+    // A key the conversion table does not reach. "No range" is the honest
+    // answer; a clamped one would silently filter to a month nobody picked.
+    return { from: "", to: "" };
+  }
+}
+
+/**
+ * Which BS months a filter currently *is*, or `null` for anything else.
+ *
+ * Derived rather than stored, exactly as {@link activeQuickRange} is derived,
+ * and for the same reason: the month chips and the typed `YYYY-MM-DD` fields
+ * edit one range between them, so typing a date that lands mid-month has to
+ * un-highlight the chip on its own. A remembered selection would have to be
+ * cleared by hand in every branch that touches a date, and one of them would
+ * eventually forget.
+ */
+export function activeMonthRange(
+  filter: StatementFilter,
+): { from: string; to: string } | null {
+  const from = monthOfDayInput(filter.from);
+  const to = monthOfDayInput(filter.to);
+
+  if (!from || !to) {
+    return null;
+  }
+
+  const range = monthRange(from, to);
+
+  return range.from === filter.from && range.to === filter.to ? { from, to } : null;
+}
+
+/** The BS month a `YYYY-MM-DD` filter bound falls in, or `null` if it is not one. */
+function monthOfDayInput(value: string): string | null {
+  const iso = value ? startOfDayIso(value) : null;
+
+  if (!iso) {
+    return null;
+  }
+
+  try {
+    return nepalPeriodKey(new Date(iso));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A month selection in words — `Bhadra 2083 BS`, or `Shrawan 2083 to Bhadra 2083 BS`.
+ *
+ * The era marker is trimmed off the left half of a run for the reason
+ * {@link rangeLabel} trims it off a date range: saying which calendar this is
+ * twice in one line is how a single range starts reading as two.
+ */
+export function monthRangeLabel(
+  range: { from: string; to: string },
+  calendar: CalendarSystem,
+): string {
+  const to = formatPeriodIn(calendar, range.to);
+
+  if (range.from === range.to) {
+    return to;
+  }
+
+  const from = formatPeriodIn(calendar, range.from);
+  const lead = to.endsWith(" BS") && from.endsWith(" BS") ? from.slice(0, -3) : from;
+
+  return `${lead} to ${to}`;
+}
+
 /**
  * How many filters are on, for the dot on the filter button.
  *
@@ -535,12 +699,27 @@ export type StatementSummary = {
 };
 
 /**
- * The strip under the bar: what has come in **this month**, and how much of it.
+ * The strip under the bar: what has come in over **the months on screen**.
  *
- * The month rather than the visible list on purpose. The list is whatever the
- * filters left behind, and a headline that moves when a filter is tapped is a
- * headline nobody can quote; "NPR 84,500 received in August" is a fact about the
+ * The month, not the visible list. The list is whatever every filter left
+ * behind, and a headline that moves when a status chip is tapped is a headline
+ * nobody can quote; "NPR 84,500 received in Bhadra 2083 BS" is a fact about the
  * hostel that stays true while the reader searches around underneath it.
+ *
+ * ## Why it follows the month filter and nothing else
+ *
+ * The card names a month in its own sentence, so once a reader has picked one it
+ * has to be *that* month. Pinned to today's regardless, it said "NPR 0 received
+ * in Bhadra 2083 BS · 0 payments" over a list the reader had just narrowed to
+ * Shrawan — both halves true, and together they read as a broken screen. So a
+ * month selection moves it, and a run of months widens it to say so. With no
+ * month picked it stays on the current one, which is the figure an owner opens
+ * this screen already wanting.
+ *
+ * Every other filter is deliberately ignored. Narrowing to cash, or to sums
+ * over NPR 5,000, is the reader interrogating the list; the figure above it is
+ * the total those questions are being asked *of*, and a headline that shrank to
+ * match each one would answer none of them.
  *
  * The month is decided in **Nepal** time (`nepalPeriodKey`), not the device's,
  * for the same reason invoice periods are — a phone left on UTC would call the
@@ -548,24 +727,30 @@ export type StatementSummary = {
  * is.
  *
  * It counts by the day the money **landed**, not by the period the invoice is
- * for: an August payment against July's rent is August's collection, which is
- * the figure the owner is going to compare against their own cash box.
+ * for: a Shrawan payment against Asar's rent is Shrawan's collection, which is
+ * the figure the owner is going to compare against their own cash box. See
+ * {@link receivedMonth}.
  */
 export function statementSummary(
   credits: readonly StatementRow[],
   calendar: CalendarSystem,
   now: Date = new Date(),
+  filter: StatementFilter = NO_FILTER,
 ): StatementSummary {
   const period = nepalPeriodKey(now);
-  const thisMonth = credits.filter(
-    (credit) =>
-      credit.receivedAt && nepalPeriodKey(new Date(credit.receivedAt)) === period,
-  );
+  const months = activeMonthRange(filter) ?? { from: period, to: period };
+  const inScope = credits.filter((credit) => {
+    const month = receivedMonth(credit);
+
+    // String comparison, not arithmetic: BS period keys are zero-padded
+    // `YYYY-MM`, so lexicographic order is chronological order.
+    return month !== null && month >= months.from && month <= months.to;
+  });
 
   return {
-    count: thisMonth.length,
-    periodLabel: formatPeriodIn(calendar, period),
-    total: thisMonth.reduce((sum, credit) => sum + credit.amount, 0),
+    count: inScope.length,
+    periodLabel: monthRangeLabel(months, calendar),
+    total: inScope.reduce((sum, credit) => sum + credit.amount, 0),
   };
 }
 

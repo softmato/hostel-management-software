@@ -33,12 +33,15 @@ import {
 } from "@/lib/format";
 import {
   activeFilterCount,
+  activeMonthRange,
   activeQuickRange,
   creditTitle,
   filterCredits,
   groupByDay,
   isPartial,
   methodOptions,
+  monthOptions,
+  monthRange,
   NO_FILTER,
   quickRange,
   QUICK_RANGES,
@@ -360,7 +363,14 @@ export default function ManageStatementScreen() {
     topics: hostelQuery.topics,
   });
 
-  /** What the list is actually filtered by. */
+  /**
+   * What the list is actually filtered by.
+   *
+   * Opens on **everything**, and the month chips in the sheet are how a reader
+   * narrows it. A statement that opened pre-filtered would hide rows behind a
+   * choice nobody made — the screen is opened to see what has come in, and the
+   * first thing it shows should be the answer to that.
+   */
   const [filter, setFilter] = useState<StatementFilter>(NO_FILTER);
   /**
    * The sheet's working copy.
@@ -391,11 +401,20 @@ export default function ManageStatementScreen() {
   const visible = useMemo(() => filterCredits(credits, filter), [credits, filter]);
   const days = useMemo(() => groupByDay(visible), [visible]);
   const summary = useMemo(
-    () => statementSummary(credits, dates.calendar),
-    [credits, dates.calendar],
+    () => statementSummary(credits, dates.calendar, new Date(), filter),
+    [credits, dates.calendar, filter],
   );
   const methods = useMemo(() => methodOptions(credits), [credits]);
   const statuses = useMemo(() => statusOptions(credits), [credits]);
+  /**
+   * The months the sheet offers, and which of them the draft currently is.
+   *
+   * `months` comes off the whole ledger, not off `visible`: a picker built from
+   * what the live filter left behind would offer only the month already
+   * selected, which is the one month nobody needs to pick.
+   */
+  const months = useMemo(() => monthOptions(credits), [credits]);
+  const draftMonths = useMemo(() => activeMonthRange(draft), [draft]);
 
   const filterCount = activeFilterCount(filter);
   const activeRange = activeQuickRange(filter);
@@ -988,6 +1007,63 @@ export default function ManageStatementScreen() {
 
           <View className="gap-2">
             <Text variant="label">Date</Text>
+
+            {/*
+              Months first, because a month is what a hostel's books are kept in
+              and it is the answer to almost every question this sheet is opened
+              with. The chips are the hostel's own collection months — see
+              `monthOptions` — and they write into the same `from`/`to` the typed
+              fields and the quick ranges below edit, so the three controls can
+              never disagree about what is on screen. `activeMonthRange` reads
+              the selection back out of those two strings rather than remembering
+              it, which is what lets a typed date that lands mid-month
+              un-highlight the chip on its own.
+
+              `dates.period` rather than a formatter from `lib/format.ts`: the
+              chips are dates being *read*, so they follow the portal's calendar
+              like everything else under `app/`. See `use-dates.ts`.
+            */}
+            <View className="flex-row flex-wrap gap-2">
+              {months.map((period) => (
+                <FilterChip
+                  key={period}
+                  label={dates.period(period)}
+                  onPress={() =>
+                    setDraft((current) => ({ ...current, ...monthRange(period) }))
+                  }
+                  selected={draftMonths?.from === period && draftMonths.to === period}
+                />
+              ))}
+            </View>
+
+            {/*
+              The second end of a run of months, and only once there is a first
+              end to run from. Offered as its own row rather than as a "tap two
+              chips" gesture on the row above: a selection that changes meaning
+              on the second tap is not discoverable, and this way each row says
+              what it does. Reaching back past the start widens the range from
+              the other end instead of refusing it — see `monthRange`.
+            */}
+            {draftMonths ? (
+              <View className="gap-2">
+                <Text variant="caption">Up to</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {months.map((period) => (
+                    <FilterChip
+                      key={period}
+                      label={dates.period(period)}
+                      onPress={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          ...monthRange(draftMonths.from, period),
+                        }))
+                      }
+                      selected={draftMonths.to === period}
+                    />
+                  ))}
+                </View>
+              </View>
+            ) : null}
 
             <View className="flex-row gap-3">
               <View className="flex-1">

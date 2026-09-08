@@ -1325,7 +1325,7 @@ function NightStatusPromptCard({
           <Text variant="caption">
             {draft.promptEnabled
               ? `Residents get one notification at ${draft.promptTime}.`
-              : "Residents have to open the app and tell you themselves."}
+              : "Turned off — residents have to open the app and tell you themselves."}
           </Text>
         </View>
         <Toggle

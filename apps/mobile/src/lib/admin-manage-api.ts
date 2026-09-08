@@ -1382,9 +1382,22 @@ export type ResidentPrefill = {
   };
 };
 
+/**
+ * Whether the card holder has a photograph, and which version of it.
+ *
+ * The bytes come from `/hostel-admin/resident-scan/photo` — build the source
+ * with `residentCardPhotoSource`, which is what the corridor scan uses too.
+ */
+export type ResidentPrefillPhoto = { hasPhoto: boolean; updatedAt: string | null };
+
 export async function lookupResidentProfile(residentId: string) {
   const response = await api.get<
-    ApiEnvelope<{ prefill: ResidentPrefill; residentId: string; sharedAt: string }>
+    ApiEnvelope<{
+      photo: ResidentPrefillPhoto;
+      prefill: ResidentPrefill;
+      residentId: string;
+      sharedAt: string;
+    }>
   >("/hostel-admin/resident-lookup", { params: { residentId } });
 
   return unwrap(response);

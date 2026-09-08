@@ -85,6 +85,17 @@ import {
   TableRow,
 } from "./portal-dashboard-ui";
 
+/**
+ * The card photo the lookup found, ready for `/hostel-admin/resident-scan/photo`.
+ *
+ * Null when the holder never uploaded one, which is still most people. The
+ * route streams the bytes from the private bucket under the same
+ * `registerResidents` grant that loaded the profile, so an `<img src>` on it
+ * authenticates on the session cookie like every other call from this page —
+ * and `v=` keeps a replaced portrait from being served out of the disk cache.
+ */
+type PrefillPhoto = { residentId: string; updatedAt: string | null };
+
 /** Shape returned by /api/v1/hostel-admin/resident-lookup. */
 type ResidentPrefill = {
   details: {
@@ -152,7 +163,13 @@ function humanizeValue(value: string) {
  * itself has no field for — blood group, ID, allergies. The warden sees it here
  * and it is carried into the resident's guardian / emergency records on save.
  */
-function ImportedProfileSummary({ prefill }: { prefill: ResidentPrefill }) {
+function ImportedProfileSummary({
+  photo,
+  prefill,
+}: {
+  photo: PrefillPhoto | null;
+  prefill: ResidentPrefill;
+}) {
   const { details } = prefill;
   const facts: [string, string][] = [
     ["Gender", humanizeValue(details.gender)],
@@ -198,18 +215,38 @@ function ImportedProfileSummary({ prefill }: { prefill: ResidentPrefill }) {
       <div className="space-y-4 p-4">
         {/* Stacked label-over-value reads far better than a wall of
             left/right rows once there are eight of them. */}
-        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
-          {facts.map(([label, value]) => (
-            <div key={label}>
-              <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {label}
-              </dt>
-              <dd className="mt-0.5 break-words text-sm font-medium text-foreground">
-                {value}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <div className="flex flex-col gap-4 sm:flex-row">
+          {photo ? (
+            /*
+             * Their face, beside the facts they shared, because this block is
+             * where the person at the desk is checked against the profile that
+             * is about to become a tenancy. Plain <img>: next/image would want
+             * this private, per-resident route in its loader config and would
+             * cache a face at the edge.
+             */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt={`Photo on ${photo.residentId}'s ID card`}
+              className="size-28 shrink-0 rounded-xl border border-role-admin/25 bg-background object-cover"
+              src={`/api/v1/hostel-admin/resident-scan/photo?residentId=${encodeURIComponent(
+                photo.residentId,
+              )}&v=${encodeURIComponent(photo.updatedAt ?? "1")}`}
+            />
+          ) : null}
+
+          <dl className="grid flex-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            {facts.map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {label}
+                </dt>
+                <dd className="mt-0.5 break-words text-sm font-medium text-foreground">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
 
         <div className="grid gap-2 border-t border-role-admin/15 pt-4 sm:grid-cols-2 lg:grid-cols-3">
           {people.map((person) => (
@@ -334,6 +371,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupError, setLookupError] = useState("");
   const [prefill, setPrefill] = useState<ResidentPrefill | null>(null);
+  const [prefillPhoto, setPrefillPhoto] = useState<PrefillPhoto | null>(null);
   /** "identify" asks for the resident ID first; "form" is the actual registration. */
   const [addStep, setAddStep] = useState<"identify" | "form">("identify");
   /** Room type drives the monthly rent, so both are controlled in the form. */ const [
@@ -398,16 +436,24 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     setLookupError("");
 
     try {
-      const result = await browserApi<{ prefill: ResidentPrefill }>(
-        `/api/v1/hostel-admin/resident-lookup?residentId=${encodeURIComponent(query)}`,
-      );
+      const result = await browserApi<{
+        photo: { hasPhoto: boolean; updatedAt: string | null };
+        prefill: ResidentPrefill;
+        residentId: string;
+      }>(`/api/v1/hostel-admin/resident-lookup?residentId=${encodeURIComponent(query)}`);
 
       setPrefill(result.prefill);
+      setPrefillPhoto(
+        result.photo.hasPhoto
+          ? { residentId: result.residentId, updatedAt: result.photo.updatedAt }
+          : null,
+      );
       setShowAddForm(true);
       setAddStep("form");
       setMessage("");
     } catch (error) {
       setPrefill(null);
+      setPrefillPhoto(null);
       setLookupError(
         error instanceof Error ? error.message : "Could not load that resident ID.",
       );
@@ -418,6 +464,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
 
   const clearPrefill = useCallback(() => {
     setPrefill(null);
+    setPrefillPhoto(null);
     setLookupId("");
     setLookupError("");
   }, []);
@@ -864,7 +911,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                   Use a different ID
                 </Button>
               </div>
-              <ImportedProfileSummary prefill={prefill} />
+              <ImportedProfileSummary photo={prefillPhoto} prefill={prefill} />
             </div>
           ) : null}
 

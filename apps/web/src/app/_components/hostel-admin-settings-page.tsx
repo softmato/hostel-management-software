@@ -293,7 +293,7 @@ export const HostelAdminSettingsPageContent = memo(
                 */}
                 <Select
                   defaultValue={String(attendance.nightStatus.promptEnabled)}
-                  label="Night status prompt (asked once a night)"
+                  label="Night status prompt (on by default, once a night)"
                   name="promptEnabled"
                 >
                   <option value="true">Enabled</option>

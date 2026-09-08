@@ -77,11 +77,11 @@ export const ATTENDANCE_DEFAULTS: AttendanceConfig = {
   insideZoneRadiusMeters: 50,
   nearbyZoneRadiusMeters: 200,
   /*
-   * Off until a hostel turns it on. A product that starts notifying residents
-   * at 8pm on the strength of a default is a product that gets uninstalled.
+   * On unless a hostel turns it off — the opposite of the geofence above it,
+   * and see `HostelSettings` for why the two differ.
    */
   nightStatus: {
-    promptEnabled: false,
+    promptEnabled: true,
     promptTime: DEFAULT_PROMPT_TIME,
     remindAfterMinutes: 0,
   },

@@ -164,26 +164,46 @@ export async function scanResident(residentId: string) {
 }
 
 /**
- * An `<Image source>` for the scanned holder's card photo.
+ * An `<Image source>` for a card holder's photograph, by their resident ID.
  *
  * Deliberately not `privateAssetSource`: this route streams the bytes through
  * our origin rather than redirecting to R2, so the bearer token has no hop to be
  * stripped on. `v=` is the cache key — `expo-image` keys its disk cache on the
  * URL, so without it a replaced portrait would show the old face until reinstall.
+ *
+ * Both screens that hold a resident ID draw the same face from the same route:
+ * the corridor scan, and step 2 of an intake. `hasPhoto` is what makes the
+ * difference between an initial and a hole, so it is required rather than
+ * inferred — a caller that does not know is asking the wrong question.
  */
-export function scannedPhotoSource(
-  scan: Pick<ResidentScan, "account" | "residentId">,
+export function residentCardPhotoSource(
+  card: { hasPhoto: boolean; photoUpdatedAt: string | null; residentId: string },
   token: string | null | undefined,
 ) {
-  if (!scan.account.hasPhoto) {
+  if (!card.hasPhoto) {
     return null;
   }
 
-  const version = encodeURIComponent(scan.account.photoUpdatedAt ?? "1");
-  const id = encodeURIComponent(scan.residentId);
+  const version = encodeURIComponent(card.photoUpdatedAt ?? "1");
+  const id = encodeURIComponent(card.residentId);
 
   return {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     uri: `${API_BASE_URL}/api/v1/hostel-admin/resident-scan/photo?residentId=${id}&v=${version}`,
   };
+}
+
+/** {@link residentCardPhotoSource} for a scan, which nests the two photo fields. */
+export function scannedPhotoSource(
+  scan: Pick<ResidentScan, "account" | "residentId">,
+  token: string | null | undefined,
+) {
+  return residentCardPhotoSource(
+    {
+      hasPhoto: scan.account.hasPhoto,
+      photoUpdatedAt: scan.account.photoUpdatedAt,
+      residentId: scan.residentId,
+    },
+    token,
+  );
 }

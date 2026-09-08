@@ -29,6 +29,7 @@ import {
 } from "@/lib/admin-manage-api";
 import { adminQuery } from "@/lib/admin-queries";
 import { openAssetViewer } from "@/lib/asset-viewer";
+import { openConfirm } from "@/lib/confirm";
 import { formatMoney } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -347,30 +348,35 @@ export default function ManageRoomsScreen() {
     [reload],
   );
 
+  /**
+   * The cross on a thumbnail only *asks*. The app's custom alert does the
+   * deleting, and holds its own spinner while the request is out.
+   *
+   * It used to delete on the press itself, and a photograph is the one thing on
+   * this screen with no undo — the file is gone from the bucket and the owner
+   * has to find the original in their gallery again. A single tap, on a 20-point
+   * target sitting on the corner of a picture people also tap to enlarge, is far
+   * too cheap for that.
+   */
   const removePhoto = useCallback(
     (photoId: string) => {
-      Alert.alert(
-        "Remove this photo?",
-        "It disappears from the public listing.",
-        [
-          { style: "cancel", text: "Keep it" },
-          {
-            onPress: () => {
-              void (async () => {
-                try {
-                  await deleteHostelPhoto(photoId);
-                  toastSuccess("Photo removed");
-                  await reload();
-                } catch (error) {
-                  toastError("Could not remove", readApiError(error));
-                }
-              })();
-            },
-            style: "destructive",
-            text: "Remove",
-          },
-        ],
-      );
+      openConfirm({
+        cancelLabel: "Keep it",
+        confirmLabel: "Remove",
+        destructive: true,
+        message:
+          "It disappears from the public listing, and the file cannot be brought back.",
+        onConfirm: async () => {
+          try {
+            await deleteHostelPhoto(photoId);
+            toastSuccess("Photo removed");
+            await reload();
+          } catch (error) {
+            toastError("Could not remove", readApiError(error));
+          }
+        },
+        title: "Remove this photo?",
+      });
     },
     [reload],
   );

@@ -3,12 +3,16 @@ import { describe, expect, it } from "vitest";
 import type { AdminLedger, AdminLedgerEntry } from "@/lib/admin-api";
 import {
   activeFilterCount,
+  activeMonthRange,
   activeQuickRange,
   creditTitle,
   filterCredits,
   groupByDay,
   isPartial,
   methodOptions,
+  monthOptions,
+  monthRange,
+  monthRangeLabel,
   NO_FILTER,
   quickRange,
   rangeLabel,
@@ -195,6 +199,108 @@ describe("quickRange", () => {
     expect(activeQuickRange(filter(quickRange(30, now)), now)).toBe(30);
     expect(activeQuickRange(filter({ from: "2026-08-01", to: "2026-08-26" }), now)).toBeNull();
     expect(activeQuickRange(NO_FILTER, now)).toBeNull();
+  });
+});
+
+describe("month filter", () => {
+  // Bhadra 23, 2083. Bhadra runs 17 Aug to 16 Sep 2026; Shrawan, 17 Jul to 16 Aug.
+  const now = new Date("2026-09-08T06:00:00.000Z");
+
+  it("bounds a BS month on its own days, not on a Gregorian month's", () => {
+    expect(monthRange("2083-05")).toEqual({ from: "2026-08-17", to: "2026-09-16" });
+  });
+
+  it("spans a run of months, whichever end was picked first", () => {
+    const span = { from: "2026-07-17", to: "2026-09-16" };
+
+    expect(monthRange("2083-04", "2083-05")).toEqual(span);
+    // Reaching back past the start widens the range rather than emptying it.
+    expect(monthRange("2083-05", "2083-04")).toEqual(span);
+  });
+
+  it("reads the selection back out of the dates rather than remembering it", () => {
+    expect(activeMonthRange(filter(monthRange("2083-05")))).toEqual({
+      from: "2083-05",
+      to: "2083-05",
+    });
+    expect(activeMonthRange(filter(monthRange("2083-04", "2083-05")))).toEqual({
+      from: "2083-04",
+      to: "2083-05",
+    });
+    // A hand-typed date that lands mid-month is not a month, and says so.
+    expect(activeMonthRange(filter({ from: "2026-08-20", to: "2026-09-16" }))).toBeNull();
+    expect(activeMonthRange(NO_FILTER)).toBeNull();
+  });
+
+  it("offers the months money landed in, newest first", () => {
+    const credits = statementCredits(
+      ledger([
+        entry({ id: "bhadra", paidDate: "2026-08-24T07:53:00.000Z" }),
+        entry({ id: "shrawan", paidDate: "2026-08-10T09:13:00.000Z" }),
+        entry({ id: "also-shrawan", paidDate: "2026-08-11T07:45:00.000Z" }),
+      ]),
+    );
+
+    expect(monthOptions(credits, now)).toEqual(["2083-05", "2083-04"]);
+  });
+
+  it("always offers this month, because that is the one the screen opens on", () => {
+    expect(monthOptions([], now)).toEqual(["2083-05"]);
+  });
+
+  it("names one month, and a run of them without saying the era twice", () => {
+    expect(monthRangeLabel({ from: "2083-05", to: "2083-05" }, "BS")).toBe("Bhadra 2083 BS");
+    expect(monthRangeLabel({ from: "2083-04", to: "2083-05" }, "BS")).toBe(
+      "Shrawan 2083 to Bhadra 2083 BS",
+    );
+    expect(monthRangeLabel({ from: "2083-04", to: "2083-05" }, "AD")).toBe(
+      "August 2026 to September 2026",
+    );
+  });
+
+  /*
+   * The bug this pins. The card read "NPR 0 received in Bhadra 2083 BS · 0
+   * payments" directly above a list of Shrawan payments — both halves true, and
+   * together unreadable. The month the card names is now the month the list is
+   * showing.
+   */
+  it("moves the summary card onto the months the list is showing", () => {
+    const credits = statementCredits(
+      ledger([
+        entry({ id: "bhadra", paidAmount: 5000, paidDate: "2026-08-24T07:53:00.000Z" }),
+        entry({ id: "shrawan", paidAmount: 9000, paidDate: "2026-08-10T09:13:00.000Z" }),
+      ]),
+    );
+
+    expect(statementSummary(credits, "BS", now, filter(monthRange("2083-04")))).toEqual({
+      count: 1,
+      periodLabel: "Shrawan 2083 BS",
+      total: 9000,
+    });
+    expect(
+      statementSummary(credits, "BS", now, filter(monthRange("2083-04", "2083-05"))),
+    ).toEqual({
+      count: 2,
+      periodLabel: "Shrawan 2083 to Bhadra 2083 BS",
+      total: 14_000,
+    });
+  });
+
+  it("falls back to this month when the range is not whole months", () => {
+    const credits = statementCredits(
+      ledger([
+        entry({ id: "bhadra", paidAmount: 5000, paidDate: "2026-08-24T07:53:00.000Z" }),
+        entry({ id: "shrawan", paidAmount: 9000, paidDate: "2026-08-10T09:13:00.000Z" }),
+      ]),
+    );
+
+    // All time, and a hand-typed span: neither renames the card.
+    expect(statementSummary(credits, "BS", now).periodLabel).toBe("Bhadra 2083 BS");
+    expect(statementSummary(credits, "BS", now).total).toBe(5000);
+    expect(
+      statementSummary(credits, "BS", now, filter({ from: "2026-08-01", to: "2026-08-26" }))
+        .total,
+    ).toBe(5000);
   });
 });
 

@@ -7,6 +7,7 @@ import { IdScanner } from "@/components/manage/id-scanner";
 import { ManualMethodPanel, methodLabel, methodProvider } from "@/components/pay-methods";
 import { ReferenceStrip } from "@/components/resident-payments";
 import { AppBar } from "@/components/ui/app-bar";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import { Select } from "@/components/ui/select";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { WalletMark } from "@/components/ui/wallet-mark";
+import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -30,8 +32,10 @@ import {
   RESIDENT_TYPES,
   type ResidentIntakeResult,
   type ResidentPrefill,
+  type ResidentPrefillPhoto,
   type ResidentType,
 } from "@/lib/admin-manage-api";
+import { residentCardPhotoSource } from "@/lib/admin-scan-api";
 import { readApiError } from "@/lib/api-contract";
 import { formatDateIn } from "@/lib/calendar";
 import { humanizeEnum } from "@/lib/format";
@@ -110,7 +114,12 @@ const TYPE_OPTIONS = RESIDENT_TYPES.map((value) => ({
 
 /** What the card supplied, or what the warden typed when there was no card. */
 type Identity =
-  | { kind: "card"; prefill: ResidentPrefill; residentId: string }
+  | {
+      kind: "card";
+      photo: ResidentPrefillPhoto;
+      prefill: ResidentPrefill;
+      residentId: string;
+    }
   | { kind: "manual" };
 
 export default function NewResidentScreen() {
@@ -183,9 +192,9 @@ export default function NewResidentScreen() {
     setReading(true);
 
     try {
-      const { prefill } = await lookupResidentProfile(residentId);
+      const { photo, prefill } = await lookupResidentProfile(residentId);
 
-      setIdentity({ kind: "card", prefill, residentId });
+      setIdentity({ kind: "card", photo, prefill, residentId });
       setStep("confirm");
     } catch (error) {
       /*
@@ -493,6 +502,7 @@ function ConfirmStep({
 }) {
   const { colors } = useAppTheme();
   const dates = useDates();
+  const token = useAppSelector((state) => state.auth.accessToken);
 
   if (identity?.kind !== "card") {
     return (
@@ -562,7 +572,11 @@ function ConfirmStep({
     );
   }
 
-  const { prefill, residentId } = identity;
+  const { photo, prefill, residentId } = identity;
+  const portrait = residentCardPhotoSource(
+    { hasPhoto: photo.hasPhoto, photoUpdatedAt: photo.updatedAt, residentId },
+    token,
+  );
   const people = intakePeople(prefill);
   const background = backgroundFacts(prefill);
   const notes = prefill.details.medicalNotes?.trim();
@@ -571,12 +585,21 @@ function ConfirmStep({
     <View className="gap-5 pt-1">
       {/*
         A painted block with rounded bottom corners, which `NOTES.md` records as
-        how the reference apps mark the thing a screen is *about*. What is
-        straddling its bottom edge is the resident's own ID — the fact that makes
-        every row under it theirs rather than something we typed.
+        how the reference apps mark the thing a screen is *about*, with the
+        holder's own face straddling its bottom edge.
+
+        The face, and not the ID string that used to sit there, because a warden
+        confirming an identity is looking at a person: the photograph is the one
+        field on this screen they can check against the human in front of them,
+        and it is the difference between admitting the card's owner and admitting
+        whoever is carrying the card. The ID keeps its pill directly under it.
+
+        Most people have not uploaded one — `<Avatar>` falls back to their
+        initial, which is also what a photo that 401s or has been deleted
+        degrades to.
       */}
       <View className="-mt-1">
-        <View className="items-center gap-1 rounded-b-3xl bg-primary px-5 pb-7 pt-4">
+        <View className="items-center gap-1 rounded-b-3xl bg-primary px-5 pb-12 pt-4">
           <Text className="text-xs font-bold uppercase tracking-wide text-primary-foreground/75">
             Shared from their ID card
           </Text>
@@ -584,7 +607,17 @@ function ConfirmStep({
             {residentFullName(prefill)}
           </Text>
         </View>
-        <View className="-mt-4 items-center">
+        <View className="-mt-10 items-center gap-2">
+          {/* The ring is the card background, so the circle reads as sitting on
+              top of the paint rather than punched out of it. */}
+          <View className="rounded-full bg-card p-1">
+            <Avatar
+              headers={portrait?.headers}
+              name={residentFullName(prefill)}
+              size="xl"
+              uri={portrait?.uri}
+            />
+          </View>
           <View className="rounded-full border border-border bg-card px-4 py-1.5">
             <Text className="text-xs font-semibold tracking-wide text-foreground">
               {residentId}
