@@ -5,6 +5,7 @@ import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { fetchInvoiceDetail } from "@/modules/billing/billing-gateway";
 import { resolveOwnedHostel } from "@/modules/billing/subscription-access";
+import { reconcileInvoiceFromSoftmato } from "@/modules/billing/subscription-reconcile.service";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 
 /**
@@ -31,12 +32,18 @@ import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice"
  * known since we raised it, and its `paid_minor` is the same ledger the
  * transaction would be reported from.
  *
- * ## This reports; it does not provision
+ * ## It provisions, and that is allowed
  *
- * Turning the service on is the webhook's job, and doing it here as well would
- * mean two paths racing to publish a hostel. So when this says the money
- * arrived and our own subscription has not caught up yet, the page says so and
- * waits, rather than reaching for the activation itself.
+ * §6.4 names two authoritative answers: a verified webhook, **or** a
+ * server-side read this app made. This is the second. It matters because a
+ * webhook needs a hostname Softmato's server can reach, and a laptop does not
+ * have one — without this, a developer's payment would land, be visible in
+ * Softmato's ledger, and never turn anything on.
+ *
+ * The two paths do not race. Both settle through
+ * `reconcileInvoiceFromSoftmato`, which writes the difference between what
+ * Softmato says was paid and what we have already recorded, so whichever runs
+ * second finds nothing owing.
  */
 
 export type ReturnState =
@@ -62,6 +69,7 @@ export async function readReturnState(
   const invoice = await SubscriptionInvoiceModel.findOne({
     invoiceNumber,
   }).lean<{
+    _id: Types.ObjectId;
     hostelId: Types.ObjectId;
     planName: string;
     softmatoInvoiceNo?: string | null;
@@ -94,6 +102,26 @@ export async function readReturnState(
   );
 
   if (!detail) return { invoiceNumber, kind: "pending_document" };
+
+  /*
+   * Provision on what the read just said, before rendering it.
+   *
+   * Failure here does not fail the page. The reader still gets a truthful
+   * answer about their money — that is what they came for — and the next
+   * check, or a webhook, will settle it. Showing an error because a write
+   * downstream of the answer went wrong would tell somebody who has paid that
+   * something is broken with their payment.
+   */
+  await reconcileInvoiceFromSoftmato(invoice._id).catch((error) => {
+    console.error(
+      JSON.stringify({
+        action: "return_reconcile_failed",
+        invoiceNumber,
+        level: "error",
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  });
 
   if (detail.status === "void" || detail.status === "written_off") {
     return { invoiceNumber, kind: "void" };

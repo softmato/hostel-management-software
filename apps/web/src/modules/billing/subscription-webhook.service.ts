@@ -102,6 +102,38 @@ export async function applyWebhook(
   }).lean<{ _id: Types.ObjectId; status: string } | null>();
 
   /*
+   * Before creating anything: was this money already counted by the other
+   * authority?
+   *
+   * `subscription-reconcile.service.ts` settles from a server-side read of
+   * Softmato's ledger, which learns *how much* arrived without learning
+   * *which* transaction it was — so it leaves a settled row with no
+   * transaction number. A webhook that turns up afterwards naming that same
+   * payment must **label** that row, not add a second one, or the hostel is
+   * recorded as having paid twice.
+   *
+   * Matched on the amount as well as the invoice, so a genuine second
+   * instalment is still a second row.
+   */
+  const reconciled = attached
+    ? null
+    : await SubscriptionPaymentModel.findOneAndUpdate(
+        {
+          amount,
+          invoiceId: invoice._id,
+          method: "SOFTMATO",
+          softmatoTransactionNo: null,
+          status: "SETTLED",
+        },
+        { $set: { softmatoTransactionNo: payload.transaction_id } },
+        { new: true, sort: { createdAt: -1 } },
+      ).lean<{ _id: Types.ObjectId } | null>();
+
+  if (reconciled) {
+    return { action: "already_settled", paymentId: String(reconciled._id) };
+  }
+
+  /*
    * No attempt to attach to is a legitimate state, not an error. The owner may
    * have paid from a session opened on another device, or the write that
    * recorded the attempt may have been lost. The money arrived either way, so

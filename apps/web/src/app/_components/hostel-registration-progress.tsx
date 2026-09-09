@@ -591,6 +591,19 @@ export function HostelRegistrationProgress({
                 className="mt-4 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
                 disabled={busy}
                 onClick={async () => {
+                  /*
+                   * Ask Softmato first, then reload. The return endpoint does a
+                   * server-side read of their ledger and settles anything we
+                   * have not recorded — which is how a payment gets provisioned
+                   * on a machine no webhook can reach. Reloading without it
+                   * would only re-render the same stale state.
+                   */
+                  if (state?.invoice) {
+                    await browserApi(
+                      `/api/v1/hostel-registration/return?invoice=${encodeURIComponent(state.invoice.invoiceNumber)}`,
+                    ).catch(() => null);
+                  }
+
                   await load();
                   await onRefresh();
                 }}
