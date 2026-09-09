@@ -8,10 +8,9 @@ import { Avatar } from "@/components/ui/avatar";
 import type { RoleAccentKey } from "@/constants/theme";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { API_BASE_URL } from "@/lib/api";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { prefetchCommunity } from "@/lib/community-queries";
 import { runWhenIdle } from "@/lib/idle";
-import { absoluteMediaUrl } from "@/lib/media";
 import { prefetchNotifications } from "@/lib/notification-queries";
 
 /**
@@ -212,9 +211,11 @@ export function RoleTabs({
  * carries, which is what keeps the tab readable for anyone who cannot tell the
  * two tints apart at 22px.
  *
- * `absoluteMediaUrl` because `user.image` is a Google URL for a Google sign-in
- * and a relative path for anything we stored; `Avatar` handles the third case,
- * where the URL exists and cannot be drawn, by falling back to the initial.
+ * `useAvatarSource` because `user.image` is a Google URL for a Google sign-in
+ * and a relative, authenticated path for the photo on their ID card — it makes
+ * the second absolute and gives it the bearer token, which is what the card
+ * photo needs to render at all. `Avatar` handles the third case, where the URL
+ * exists and cannot be drawn, by falling back to the initial.
  */
 function AvatarTabIcon({
   account,
@@ -225,6 +226,8 @@ function AvatarTabIcon({
   focused: boolean;
   tint: ColorValue;
 }) {
+  const photo = useAvatarSource()(account.image);
+
   return (
     <View
       className="items-center justify-center rounded-full"
@@ -236,9 +239,10 @@ function AvatarTabIcon({
       }}
     >
       <Avatar
+        headers={photo?.headers}
         name={account.name}
         size="xs"
-        uri={absoluteMediaUrl(account.image, API_BASE_URL)}
+        uri={photo?.uri}
       />
     </View>
   );

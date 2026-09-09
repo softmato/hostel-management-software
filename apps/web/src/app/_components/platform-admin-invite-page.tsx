@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ShieldCheck, ShieldHalf } from "lucide-react";
+import { CheckCircle2, ShieldCheck, ShieldHalf, Users } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { memo, useCallback, useEffect, useState } from "react";
@@ -90,6 +90,15 @@ export const PlatformAdminInvitePageContent = memo(
     // so "loading" is exactly "there is a token and the read has not settled".
     const loading = Boolean(token) && !loaded;
 
+    const isSuperadmin = invitation?.role === Role.SUPERADMIN;
+    /*
+     * A field agent signs in the ordinary way — email and password — so their
+     * acceptance sets one. An admin's does not: that account is created without
+     * a password at all and finishes at Google sign-in, so offering a password
+     * box would be offering a credential nothing would ever check.
+     */
+    const isAgent = invitation?.role === Role.PLATFORM_AGENT;
+
     const handleAccept = useCallback(async () => {
       setMessage("");
 
@@ -109,8 +118,6 @@ export const PlatformAdminInvitePageContent = memo(
       }
     }, [token]);
 
-    const isSuperadmin = invitation?.role === Role.SUPERADMIN;
-
     return (
       <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-6 px-4 py-12">
         <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
@@ -121,7 +128,7 @@ export const PlatformAdminInvitePageContent = memo(
               </span>
               <h1 className="text-2xl font-bold text-foreground">Invitation accepted</h1>
               <p className="text-sm text-muted-foreground">
-                {result.email} is now {result.roleLabel.toLowerCase()} on the platform.
+                {result.email} is now {result.roleLabel.toLowerCase()} on the platform.{" "}
                 Sign in with Google using that address.
               </p>
               <Link
@@ -136,6 +143,8 @@ export const PlatformAdminInvitePageContent = memo(
               <span className="flex size-14 items-center justify-center rounded-full bg-role-platform-soft text-role-platform">
                 {isSuperadmin ? (
                   <ShieldCheck className="size-8" />
+                ) : isAgent ? (
+                  <Users className="size-8" />
                 ) : (
                   <ShieldHalf className="size-8" />
                 )}
@@ -153,7 +162,9 @@ export const PlatformAdminInvitePageContent = memo(
                     on <strong className="text-foreground">{invitation.email}</strong>.{" "}
                     {isSuperadmin
                       ? "A superadmin can see and change everything on the platform, including who else holds admin access."
-                      : "A platform moderator handles approvals, verification and moderation, and can read the reports."}
+                      : isAgent
+                        ? "A team member registers hostels on their owners' behalf and collects the first payment. It does not open the platform admin portal."
+                        : "A platform moderator handles approvals, verification and moderation, and can read the reports."}
                   </p>
                 ) : null}
               </div>
@@ -182,8 +193,10 @@ export const PlatformAdminInvitePageContent = memo(
                   }}
                 >
                   <p className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                    Accepting takes effect straight away. Afterwards, sign in with Google
-                    using {invitation.email} — there is no separate password to set up.
+                    Accepting takes effect straight away. Afterwards, sign in with
+                    Google using {invitation.email}
+                    {isAgent ? " and open /team" : ""} — there is no password to set
+                    up.
                   </p>
                   <SubmitButton className="inline-flex h-11 w-full items-center justify-center rounded-md bg-role-platform text-sm font-semibold text-white">
                     Yes, accept this invitation

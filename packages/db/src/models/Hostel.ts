@@ -36,10 +36,22 @@ const hostelSchema = new Schema(
         enum: ["MANUAL", "GEOCODED"],
         default: "GEOCODED",
       },
+      /** "Opposite the campus gate" — how people actually give directions here. */
+      landmark: { type: String, trim: true },
+      /**
+       * A Google Maps link the owner pasted.
+       *
+       * Kept alongside lat/lng rather than parsed into them: a shortened
+       * `maps.app.goo.gl` link cannot be resolved without a network call, and
+       * the honest thing to store is what the owner actually gave us.
+       */
+      mapLink: { type: String, trim: true },
     },
     contact: {
       phone: String,
       email: String,
+      /** A second number to try. Both registration forms ask for it. */
+      alternatePhone: { type: String, trim: true },
     },
     hostelType: {
       type: String,
@@ -106,6 +118,8 @@ const hostelSchema = new Schema(
     // How many floors the building has. Purely descriptive — rooms are stored
     // as one flat list per hostel and are not grouped by floor.
     totalFloors: { min: 0, type: Number },
+    /** Four-digit year the hostel opened. Shown on the public listing. */
+    yearEstablished: { type: String, trim: true },
     capacitySummary: {
       totalRooms: { min: 0, type: Number },
       totalBeds: { min: 0, type: Number },

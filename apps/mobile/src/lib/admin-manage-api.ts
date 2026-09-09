@@ -1179,8 +1179,24 @@ export const RESIDENT_STATUSES = ["PENDING", "ACTIVE", "SUSPENDED", "MOVED_OUT"]
 
 export type ResidentStatus = (typeof RESIDENT_STATUSES)[number];
 
+/**
+ * The account a resident signs in with, when they have activated one.
+ *
+ * `image` is their profile picture — `/api/v1/users/<id>/avatar` for the photo
+ * they put on their ID card, or their sign-in provider's. Relative and behind
+ * auth, so it is `useAvatarSource()` that turns it into something an `<Image>`
+ * can load; never hand it to a bare `<Avatar uri>`.
+ *
+ * `email` is deliberately not `Resident.email`: that is what the hostel wrote
+ * down, and on a scanned intake it is the address off their profile form, which
+ * need not be the one on their account.
+ */
+export type ResidentAccount = { email: string; image: string | null; name: string };
+
 /** `serializeResident` in full. `AdminResident` in `admin-api.ts` is the row. */
 export type ManagedResident = {
+  /** Null until they activate a login. See {@link ResidentAccount}. */
+  account?: ResidentAccount | null;
   /** What was levied at intake. Null — not zero — when none was. */
   admissionFee: number | null;
   admissionFeeDiscount: number;

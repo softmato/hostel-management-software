@@ -14,6 +14,7 @@ import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
@@ -204,6 +205,7 @@ const DISCOVER_ROWS: {
 export default function ResidentMoreScreen() {
   const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
+  const photo = useAvatarSource()(account?.image);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
@@ -280,8 +282,17 @@ export default function ResidentMoreScreen() {
               with a Google photo, one with none, and one whose photo URL exists
               but cannot be drawn — and it colours the fallback the same way the
               same person is coloured in Community.
+
+              The photo goes through `useAvatarSource`, because the picture most
+              residents have is the one on their ID card: our own origin, behind
+              auth, and a relative path a phone cannot resolve on its own.
             */}
-            <Avatar name={resident?.fullName ?? account?.name} size="lg" uri={account?.image} />
+            <Avatar
+              headers={photo?.headers}
+              name={resident?.fullName ?? account?.name}
+              size="lg"
+              uri={photo?.uri}
+            />
 
             <View className="flex-1">
               <Text variant="subtitle">

@@ -15,6 +15,7 @@ import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { endSession } from "@/lib/auth-session";
@@ -58,6 +59,7 @@ import { setThemePreference } from "@/store/slices/uiSlice";
 export default function GuardianMoreScreen() {
   const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
+  const photo = useAvatarSource()(account?.image);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
@@ -123,7 +125,12 @@ export default function GuardianMoreScreen() {
           way the same person is coloured in Community.
         */}
         <Card className="flex-row items-center gap-3">
-          <Avatar name={dashboard?.guardian.name ?? account?.name} size="lg" uri={account?.image} />
+          <Avatar
+            headers={photo?.headers}
+            name={dashboard?.guardian.name ?? account?.name}
+            size="lg"
+            uri={photo?.uri}
+          />
 
           <View className="flex-1 gap-0.5">
             <Text numberOfLines={1} variant="subtitle">

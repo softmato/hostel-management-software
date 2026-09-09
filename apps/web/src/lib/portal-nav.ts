@@ -195,6 +195,22 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         ],
         label: "Service Providers",
       },
+      {
+        description:
+          "The field team, and every hostel they registered — with what each of them collected.",
+        href: "/platform/team",
+        icon: "users",
+        keywords: [
+          "team",
+          "agents",
+          "field",
+          "invite",
+          "commission",
+          "collected",
+          "cash",
+        ],
+        label: "Team",
+      },
     ],
     label: "People",
   },
@@ -660,6 +676,21 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Reports",
       },
       {
+        description:
+          "Your plan invoices and receipts from Softmato, and what is outstanding.",
+        href: "/hostel-admin/billing",
+        icon: "receipt",
+        keywords: [
+          "billing",
+          "plan",
+          "subscription",
+          "invoice",
+          "receipt",
+          "softmato",
+        ],
+        label: "Plan billing",
+      },
+      {
         description: "Hostel workspace controls for profile, resident access, and staff.",
         href: "/hostel-admin/settings",
         icon: "settings",
@@ -831,6 +862,42 @@ export function searchEntriesFromNav(groups: PortalNavGroup[]): PortalSearchEntr
 
   return entries;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Field team                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Two destinations, and that is the point.
+ *
+ * An agent's whole job is filing hostels and collecting the first payment, so
+ * the portal is a desk rather than an administration console. Every other
+ * platform screen — moderation, config, users, the store — is deliberately
+ * absent: an agent handles cash in the field, and the smaller the surface their
+ * login opens, the less a lost phone costs.
+ */
+export const TEAM_NAV: PortalNavGroup[] = [
+  {
+    items: [
+      {
+        description: "Hostels you have registered, and what they still owe.",
+        href: "/team",
+        icon: "dashboard",
+        keywords: ["dashboard", "home", "registrations"],
+        label: "My desk",
+      },
+      {
+        description: "Register a hostel and take the first payment.",
+        href: "/team/register",
+        icon: "building",
+        keywords: ["new", "register", "hostel", "add"],
+        label: "Register a hostel",
+      },
+    ],
+  },
+];
+
+export const TEAM_SEARCH_ENTRIES = searchEntriesFromNav(TEAM_NAV);
 
 export const PLATFORM_SEARCH_ENTRIES = searchEntriesFromNav(PLATFORM_NAV);
 

@@ -1,6 +1,19 @@
 export enum Role {
   SUPERADMIN = "SUPERADMIN",
   PLATFORM_MODERATOR = "PLATFORM_MODERATOR",
+  /**
+   * A member of the platform's own field team, working out of `/team`.
+   *
+   * They register hostels on an owner's behalf and collect the first payment in
+   * person, which is why a hostel they file is published immediately rather than
+   * queueing for review: the data was gathered and checked by staff, so the
+   * verification the public queue exists to perform has already happened.
+   *
+   * Deliberately *not* a platform admin. `PLATFORM_ROLES` gates the superadmin
+   * portal and this role is absent from it — an agent can create a hostel and
+   * take money for a plan, and can see nothing else about the platform.
+   */
+  PLATFORM_AGENT = "PLATFORM_AGENT",
   HOSTEL_ADMIN = "HOSTEL_ADMIN",
   WARDEN = "WARDEN",
   COOK = "COOK",

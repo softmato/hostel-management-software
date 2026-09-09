@@ -404,15 +404,34 @@ type PhotoAssetRecord = {
   ownerId?: Types.ObjectId | null;
 };
 
-const CARD_PHOTO_PATH = "/api/v1/users/resident-identity/photo";
+/**
+ * The avatar URL is **per user**, not per session.
+ *
+ * `User.image` is read by everybody: the account's own header, and every screen
+ * that draws somebody else — a resident row, a community post, a roster. The
+ * first version of this pointed at `/users/resident-identity/photo`, which
+ * serves *the caller's own* face and carries no id, so a reader looking at a
+ * list of ten residents was served their own photograph ten times, or a 404 if
+ * they had none. One id in the path is what makes an avatar somebody's.
+ *
+ * The legacy path is still recognised so a row written by that version is still
+ * understood to be *ours* — the sync below must stay free to replace it, and
+ * `scripts/backfill-card-avatars.ts` rewrites the stored value.
+ */
+const LEGACY_SELF_PHOTO_PATH = "/api/v1/users/resident-identity/photo";
+const ACCOUNT_AVATAR_PATH = /^\/api\/v1\/users\/[0-9a-fA-F]{24}\/avatar(?:\?|$)/;
 
 /** The version query is what makes a replaced photo bypass the browser cache. */
-function cardPhotoImageUrl(version: Date) {
-  return `${CARD_PHOTO_PATH}?v=${version.getTime()}`;
+export function cardPhotoImageUrl(userId: Types.ObjectId | string, version: Date) {
+  return `/api/v1/users/${userId.toString()}/avatar?v=${version.getTime()}`;
 }
 
-function isCardPhotoImage(value?: string | null) {
-  return typeof value === "string" && value.startsWith(CARD_PHOTO_PATH);
+/** Whether an avatar is one we set from a card photo, rather than the user's own. */
+export function isCardPhotoImage(value?: string | null) {
+  return (
+    typeof value === "string" &&
+    (value.startsWith(LEGACY_SELF_PHOTO_PATH) || ACCOUNT_AVATAR_PATH.test(value))
+  );
 }
 
 /**
@@ -436,7 +455,7 @@ async function syncAvatarWithCardPhoto(
 
   await UserModel.updateOne(
     { _id: userId },
-    { $set: { image: photo ? cardPhotoImageUrl(photo.version) : null } },
+    { $set: { image: photo ? cardPhotoImageUrl(userId, photo.version) : null } },
   );
 }
 
@@ -542,6 +561,49 @@ export async function clearResidentIdentityPhoto(userId: string) {
 }
 
 /**
+ * The stored object behind a profile's `photoAssetId`, as bytes.
+ *
+ * The messages are the callers' only disagreement: one is showing you your own
+ * face, the other somebody else's, and "please upload it again" is nonsense
+ * advice to give a warden.
+ */
+async function streamCardPhoto(
+  photoAssetId: Types.ObjectId,
+  messages: { missing: string; unavailable: string },
+) {
+  const asset = await FileAssetModel.findOne({
+    _id: photoAssetId,
+    isDeleted: { $ne: true },
+    status: "ACTIVE",
+  })
+    .select("bucket key mimeType")
+    .lean<PhotoAssetRecord | null>();
+
+  if (!asset) {
+    throw new ResidentIdentityError(messages.missing, "PHOTO_MISSING", 404);
+  }
+
+  // Covers both "R2 is not configured" and "R2 is having a bad day": either way
+  // the card falls back to initials rather than failing to render at all.
+  try {
+    // The bucket comes off the asset, not the environment: rows written before
+    // the public/private split still name the bucket they were stored in.
+    const response = await fetch(await getPresignedReadUrl(asset.bucket, asset.key));
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Storage answered ${response.status}`);
+    }
+
+    return {
+      body: response.body,
+      contentType: asset.mimeType || "application/octet-stream",
+    };
+  } catch {
+    throw new ResidentIdentityError(messages.unavailable, "PHOTO_UNAVAILABLE", 502);
+  }
+}
+
+/**
  * Streams the owner's own card photo back through our origin.
  *
  * Redirecting to a presigned R2 URL would be cheaper, but the ID card is drawn
@@ -567,44 +629,62 @@ export async function readResidentIdentityPhoto(userId: string) {
     );
   }
 
-  const asset = await FileAssetModel.findOne({
-    _id: record.photoAssetId,
+  return streamCardPhoto(record.photoAssetId, {
+    missing: "Your photo is no longer available. Please upload it again.",
+    unavailable: "Could not load your photo right now.",
+  });
+}
+
+/**
+ * One account's avatar, for anybody signed in who is looking at them.
+ *
+ * ## What this may serve, and what decides it
+ *
+ * Only the photo an account is **presenting as its avatar**: `User.image` has
+ * to be one of ours, written by {@link syncAvatarWithCardPhoto} when the owner
+ * put that photo on their card. Somebody who has replaced their avatar since,
+ * or whose card photo is gone, is not served here. So the answer to "may I see
+ * this face" is that account's own `image` field — the same field every avatar
+ * in the product already reads, which is what keeps the two from disagreeing.
+ *
+ * ## Why it is not gated the way the corridor scan is
+ *
+ * `readScannedResidentPhoto` is stricter: it stops at the profile sharing
+ * switch, because that route answers *disclose this stranger's dossier to a
+ * hostel*, and the face is part of that dossier. This one answers what the
+ * product has always answered — draw the profile picture of somebody whose name
+ * is already on the screen. Turning ID sharing off withdraws your details from
+ * hostels that scan you; it does not blank your picture in the app you are
+ * signed in to. Neither route takes an asset id, so neither can be walked
+ * across the bucket.
+ */
+export async function readAccountAvatarPhoto(userIdInput: string) {
+  await connectToDatabase();
+
+  const userId = normalizeUserId(userIdInput);
+  const user = await UserModel.findOne({ _id: userId, isDeleted: { $ne: true } })
+    .select("image")
+    .lean<{ image?: string | null } | null>();
+
+  if (!user || !isCardPhotoImage(user.image)) {
+    throw new ResidentIdentityError("That account has no photo.", "PHOTO_MISSING", 404);
+  }
+
+  const record = await UserResidentProfileModel.findOne({
     isDeleted: { $ne: true },
-    status: "ACTIVE",
+    userId,
   })
-    .select("bucket key mimeType")
-    .lean<PhotoAssetRecord | null>();
+    .select("photoAssetId")
+    .lean<ProfileRecord | null>();
 
-  if (!asset) {
-    throw new ResidentIdentityError(
-      "Your photo is no longer available. Please upload it again.",
-      "PHOTO_MISSING",
-      404,
-    );
+  if (!record?.photoAssetId) {
+    throw new ResidentIdentityError("That account has no photo.", "PHOTO_MISSING", 404);
   }
 
-  // Covers both "R2 is not configured" and "R2 is having a bad day": either way
-  // the card falls back to initials rather than failing to render at all.
-  try {
-    // The bucket comes off the asset, not the environment: rows written before
-    // the public/private split still name the bucket they were stored in.
-    const response = await fetch(await getPresignedReadUrl(asset.bucket, asset.key));
-
-    if (!response.ok || !response.body) {
-      throw new Error(`Storage answered ${response.status}`);
-    }
-
-    return {
-      body: response.body,
-      contentType: asset.mimeType || "application/octet-stream",
-    };
-  } catch {
-    throw new ResidentIdentityError(
-      "Could not load your photo right now.",
-      "PHOTO_UNAVAILABLE",
-      502,
-    );
-  }
+  return streamCardPhoto(record.photoAssetId, {
+    missing: "That photo is no longer available.",
+    unavailable: "Could not load that photo right now.",
+  });
 }
 
 /** Guardian is stored as one name but persisted as first + last. */

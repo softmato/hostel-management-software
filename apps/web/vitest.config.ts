@@ -10,6 +10,9 @@ export default defineConfig({
       "@": path.resolve(dirname, "src"),
       "@hostel/db": path.resolve(dirname, "../../packages/db/src"),
       "@hostel/shared": path.resolve(dirname, "../../packages/shared/src"),
+      // See the stub for why. The real package is a build-time tripwire that
+      // throws on import, and Vitest is not a build.
+      "server-only": path.resolve(dirname, "test/server-only-stub.ts"),
     },
   },
   test: {

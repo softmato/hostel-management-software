@@ -43,11 +43,13 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
+import { HostelRegistrationProgress } from "./hostel-registration-progress";
+import { StepFlow, StepRail } from "./registration-step-shell";
 import { acceptAttribute, uploadHint } from "@/lib/uploads/accepts";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 
-import { PublicShell, formatMoney } from "./shared";
+import { PublicShell } from "./shared";
 import { SiteName } from "@/components/site-config-provider";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { useConfirm } from "@/app/_components/confirm-dialog";
@@ -109,7 +111,6 @@ type DraftData = {
   rulesDoc: UploadedFile[];
   rulesTemplateId: string | null;
   savedAt: string;
-  selectedPlan: string;
   step: number;
   totalCapacity: string;
   totalFloors: string;
@@ -180,35 +181,6 @@ const facilityOptions = [
   "First Aid",
   "Generator",
   "Garden",
-];
-
-const plans = [
-  {
-    capacity: "Best for small hostels getting started.",
-    features: ["Public Listing", "Basic Dashboard", "Email Support"],
-    id: "starter",
-    name: "Starter Plan",
-    price: 2900,
-  },
-  {
-    capacity: "Best for growing hostels with advanced features and priority support.",
-    features: [
-      "Priority Listing",
-      "Analytics Dashboard",
-      "Multiple Staff Access",
-      "Priority Support",
-    ],
-    id: "pro",
-    name: "Pro Plan",
-    price: 5900,
-  },
-  {
-    capacity: "Unlimited branches, beds, and staff accounts.",
-    features: ["Everything in Pro", "Unlimited Branches", "Dedicated Manager"],
-    id: "enterprise",
-    name: "Enterprise Plan",
-    price: 11900,
-  },
 ];
 
 const cityOptions = [
@@ -430,7 +402,6 @@ const FIELD_KEY_STEP: Record<string, number> = {
   totalFloors: 3,
   documents: 4,
   photos: 4,
-  selectedPlan: 5,
 };
 
 function humanizeFieldKey(key: string) {
@@ -541,7 +512,7 @@ function FileUploadArea({
             )}
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-foreground">{f.name}</p>
-              <p className="truncate text-[10px] text-muted-foreground">
+              <p className="truncate text-[11px] text-muted-foreground">
                 {f.uploading ? "Uploading…" : "Uploaded"}
               </p>
             </div>
@@ -576,7 +547,7 @@ function FileUploadArea({
           <span className="text-xs font-semibold text-foreground">
             {isDragging ? "Drop to upload" : label}
           </span>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground">
             {hint ?? uploadHint("document", accept)}
           </span>
           <input
@@ -608,7 +579,6 @@ export function PublicHostelRegistrationPage() {
   const areaRef = useRef<HTMLInputElement>(null);
   const roomsSectionRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(1);
-  const [selectedPlan, setSelectedPlan] = useState("pro");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -648,6 +618,8 @@ export function PublicHostelRegistrationPage() {
   const [landmark, setLandmark] = useState("");
   const [mapLink, setMapLink] = useState("");
   const [facilities, setFacilities] = useState<string[]>(["Wi-Fi", "CCTV", "Hot Water"]);
+  const [customFacility, setCustomFacility] = useState("");
+  const [facilityError, setFacilityError] = useState("");
   const [foodAvailability, setFoodAvailability] = useState<"extra" | "included" | "none">(
     "included",
   );
@@ -802,7 +774,6 @@ export function PublicHostelRegistrationPage() {
         if (draft.rulesTemplateId !== undefined)
           setRulesTemplateId(draft.rulesTemplateId);
         if (draft.idProofType !== undefined) setIdProofType(draft.idProofType);
-        if (draft.selectedPlan !== undefined) setSelectedPlan(draft.selectedPlan);
         if (draft.agreed !== undefined) setAgreed(draft.agreed);
         if (draft.step !== undefined) setStep(draft.step);
 
@@ -856,7 +827,6 @@ export function PublicHostelRegistrationPage() {
     setRestoredDraftAt(null);
   }
 
-  const selectedPlanDetail = plans.find((p) => p.id === selectedPlan) ?? plans[1];
 
   const summary = useMemo(() => {
     return rooms.reduce(
@@ -986,12 +956,34 @@ export function PublicHostelRegistrationPage() {
     await saveRulesTextAsFile(rulesDraft);
   }
 
+  /*
+   * Each step says what it is *for* as well as what it is called. A number tells
+   * somebody how much is left; a sentence tells them what they are about to be
+   * asked, which is what lets them decide whether they have the paperwork in
+   * front of them or should come back later.
+   */
   const stepsList = [
-    { key: 1, label: "Basic Information" },
-    { key: 2, label: "Location & Facilities" },
-    { key: 3, label: "Rooms & Pricing" },
-    { key: 4, label: "Documents" },
-    { key: 5, label: "Review & Submit" },
+    {
+      description: "Your hostel, and how to reach you.",
+      key: 1,
+      label: "Basic information",
+    },
+    {
+      description: "Where it is, and what it offers.",
+      key: 2,
+      label: "Location & facilities",
+    },
+    {
+      description: "Room types, beds and what they cost.",
+      key: 3,
+      label: "Rooms & pricing",
+    },
+    {
+      description: "Ownership, ID and anything else we need.",
+      key: 4,
+      label: "Documents",
+    },
+    { description: "One last look before it goes to us.", key: 5, label: "Review" },
   ];
 
   function stepComplete(key: number) {
@@ -1021,6 +1013,74 @@ export function PublicHostelRegistrationPage() {
     setFacilities((prev) =>
       prev.includes(f) ? prev.filter((i) => i !== f) : [...prev, f],
     );
+  }
+
+  /**
+   * Anything the owner added that is not one of the presets.
+   *
+   * Derived rather than kept in a second piece of state: `facilities` is the one
+   * list that gets submitted, and a parallel `customFacilities` array would be a
+   * second copy of the same fact — free to disagree with it, and certain to
+   * after a draft restore.
+   */
+  const customFacilities = facilities.filter(
+    (facility) => !facilityOptions.includes(facility),
+  );
+
+  /**
+   * Adds whatever is typed, if it is worth adding.
+   *
+   * Matching is case-insensitive against the presets *and* what has already been
+   * added, so typing "wifi" when Wi-Fi is already ticked does not produce two
+   * entries meaning the same thing on the public listing. A typed value that
+   * matches a preset selects that preset instead of adding a near-duplicate.
+   */
+  function addCustomFacility() {
+    const value = customFacility.trim().replace(/\s+/g, " ");
+
+    if (!value) {
+      return;
+    }
+
+    // 80 per entry and 40 entries are the schema's own limits — refusing here
+    // means a clear message instead of a validation error at submit.
+    if (value.length > 80) {
+      setFacilityError("Keep a facility name under 80 characters.");
+
+      return;
+    }
+
+    if (facilities.length >= 40) {
+      setFacilityError("That is as many facilities as we can list.");
+
+      return;
+    }
+
+    const preset = facilityOptions.find(
+      (option) => option.toLowerCase() === value.toLowerCase(),
+    );
+
+    if (preset) {
+      setCustomFacility("");
+      setFacilityError("");
+
+      if (!facilities.includes(preset)) {
+        setFacilities((prev) => [...prev, preset]);
+      }
+
+      return;
+    }
+
+    if (facilities.some((facility) => facility.toLowerCase() === value.toLowerCase())) {
+      setCustomFacility("");
+      setFacilityError("");
+
+      return;
+    }
+
+    setFacilities((prev) => [...prev, value]);
+    setCustomFacility("");
+    setFacilityError("");
   }
 
   function updateRoom(id: string, next: Partial<RoomConfig>) {
@@ -1152,7 +1212,6 @@ export function PublicHostelRegistrationPage() {
       rulesDoc,
       rulesTemplateId,
       savedAt: new Date().toISOString(),
-      selectedPlan,
       step,
       totalCapacity,
       totalFloors,
@@ -1245,7 +1304,6 @@ export function PublicHostelRegistrationPage() {
       ownerGender ? `Owner gender: ${ownerGender}` : "",
       `Cooks: ${numberValue(cookCount) ?? 0}`,
       `Floors: ${numberValue(totalFloors) ?? 1}`,
-      `Selected plan: ${selectedPlanDetail.name}`,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -1299,8 +1357,7 @@ export function PublicHostelRegistrationPage() {
               .split(/\r?\n|,/)
               .map((l) => l.trim())
               .filter(Boolean),
-            selectedPlan,
-            totalCapacity: numberValue(totalCapacity),
+                  totalCapacity: numberValue(totalCapacity),
             totalFloors: numberValue(totalFloors),
             yearEstablished: yearEstablished.trim() || undefined,
           }),
@@ -1390,7 +1447,13 @@ export function PublicHostelRegistrationPage() {
     <PublicShell active="register-hostel">
       {confirmDialog}
 
-      <form className="mx-auto max-w-[1240px] px-4 py-8 md:px-6" onSubmit={submit}>
+      {/*
+        Wider than the 1240px the rest of the site uses, because this page is the
+        one that has to hold a seven-column table of room types beside two
+        supporting columns. At 1240 the middle got 558px for an 820px table, so
+        it scrolled sideways on a desktop with room to spare.
+      */}
+      <form className="mx-auto max-w-[1440px] px-4 py-8 md:px-6" onSubmit={submit}>
         {/* Header */}
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -1434,61 +1497,6 @@ export function PublicHostelRegistrationPage() {
           </div>
         ) : null}
 
-        {/* Stepper */}
-        {!submitted ? (
-          <div className="mb-8 overflow-x-auto rounded-2xl border border-border bg-surface px-4 py-5 shadow-sm md:px-8">
-            <div className="flex min-w-[640px] items-center">
-              {stepsList.map((item, index) => {
-                const done = stepComplete(item.key);
-                const active = step === item.key;
-                return (
-                  <div
-                    className="flex flex-1 items-center last:flex-initial"
-                    key={item.key}
-                  >
-                    <button
-                      className="group flex shrink-0 flex-col items-center gap-2 rounded-lg px-2 py-1 text-center transition hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/40"
-                      onClick={() => goTo(item.key)}
-                      type="button"
-                    >
-                      <span
-                        className={cn(
-                          "flex size-9 items-center justify-center rounded-full text-sm font-bold transition-colors",
-                          done
-                            ? "bg-brand-teal text-white"
-                            : active
-                              ? "border-2 border-brand-teal bg-brand-teal/10 text-brand-teal"
-                              : "bg-muted text-muted-foreground group-hover:bg-brand-teal/10 group-hover:text-brand-teal",
-                        )}
-                      >
-                        {done ? <Check className="size-4.5" /> : item.key}
-                      </span>
-                      <p
-                        className={cn(
-                          "whitespace-nowrap text-xs font-semibold transition-colors",
-                          active
-                            ? "text-brand-teal"
-                            : "text-muted-foreground group-hover:text-foreground",
-                        )}
-                      >
-                        {item.label}
-                      </p>
-                    </button>
-                    {index < stepsList.length - 1 ? (
-                      <div
-                        className={cn(
-                          "mx-3 h-0.5 flex-1 rounded-full",
-                          done ? "bg-brand-teal" : "bg-border",
-                        )}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-
         {missingFields.length > 0 ? (
           <div className="mb-5 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             <p className="font-semibold">
@@ -1510,10 +1518,35 @@ export function PublicHostelRegistrationPage() {
         ) : null}
 
         {submitted ? (
-          <SubmittedView planName={selectedPlanDetail.name} />
+          <SubmittedView />
         ) : (
-          <div className="grid items-start gap-6 lg:grid-cols-[1fr_360px]">
-            <div className="space-y-6">
+          /*
+           * Three columns: the rail, the current step, and the contextual aside.
+           * The rail replaces the horizontal stepper that used to sit above
+           * everything — on a phone that stepper needed 640px of horizontal
+           * scroll to show five steps, so the one piece of chrome telling
+           * somebody where they were in the form was the one piece they could
+           * not see.
+           */
+          <div className="grid items-start gap-8 lg:grid-cols-[200px_1fr] xl:grid-cols-[200px_1fr_300px]">
+            <StepRail
+              currentStep={step}
+              onStepSelect={goTo}
+              stepComplete={stepComplete}
+              steps={stepsList}
+            />
+
+            {/*
+              `min-w-0` is load-bearing, not tidying.
+
+              A grid item defaults to `min-width: auto`, which means it will not
+              shrink below the intrinsic width of its content. Step 3's room
+              table is `min-w-[820px]` inside an `overflow-x-auto`, so without
+              this the column grew to fit the table instead of letting it
+              scroll — and the aside was pushed off the right edge of the page,
+              with its figures cut in half.
+            */}
+            <StepFlow className="min-w-0 space-y-6" stepKey={step}>
               {/* STEP 1 — BASIC INFORMATION */}
               {step === 1 ? (
                 <section className="app-card p-6">
@@ -1838,6 +1871,73 @@ export function PublicHostelRegistrationPage() {
                           </button>
                         );
                       })}
+                    </div>
+
+                    {/*
+                      The presets are the common cases, not the whole world. A
+                      hostel with a rooftop, a temple room or a music room had no
+                      way to say so, and the list of things students actually ask
+                      about is longer than any grid we would ship.
+                    */}
+                    {customFacilities.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {customFacilities.map((facility) => (
+                          <span
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-teal bg-brand-teal/5 px-3 py-1.5 text-xs font-semibold text-foreground"
+                            key={facility}
+                          >
+                            {facility}
+                            <button
+                              aria-label={`Remove ${facility}`}
+                              className="rounded text-muted-foreground transition hover:text-destructive"
+                              onClick={() => toggleFacility(facility)}
+                              type="button"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <input
+                          className="input-field w-full"
+                          maxLength={80}
+                          onChange={(event) => {
+                            setCustomFacility(event.target.value);
+                            setFacilityError("");
+                          }}
+                          /*
+                           * Enter adds the facility rather than submitting the
+                           * form. Without this the one key somebody naturally
+                           * presses after typing would post a half-filled
+                           * registration.
+                           */
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              addCustomFacility();
+                            }
+                          }}
+                          placeholder="Something else? e.g. Rooftop, Music room"
+                          value={customFacility}
+                        />
+                        {facilityError ? (
+                          <p className="mt-1 text-xs font-medium text-destructive">
+                            {facilityError}
+                          </p>
+                        ) : null}
+                      </div>
+                      <button
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-4 py-2.5 text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5 disabled:opacity-40"
+                        disabled={!customFacility.trim()}
+                        onClick={addCustomFacility}
+                        type="button"
+                      >
+                        <Plus className="size-3.5" /> Add
+                      </button>
                     </div>
                   </div>
 
@@ -2480,10 +2580,18 @@ export function PublicHostelRegistrationPage() {
                   </p>
                 </section>
               ) : null}
-            </div>
+            </StepFlow>
 
-            {/* RIGHT ASIDE — changes per step */}
-            <aside className="space-y-4 lg:sticky lg:top-24">
+            {/*
+              RIGHT ASIDE — changes per step.
+
+              Full width on `lg`, its own column from `xl`. The grid only has a
+              third column at `xl`, so between the two breakpoints this was a
+              third child flowing onto a second row underneath the rail — a
+              340px card orphaned under the step list. Spanning both columns
+              there keeps the content without the orphan.
+            */}
+            <aside className="min-w-0 space-y-4 lg:col-span-2 xl:sticky xl:top-24 xl:col-span-1">
               {step === 1 ? <PortalsCard /> : null}
 
               {step === 2 ? (
@@ -2529,7 +2637,7 @@ export function PublicHostelRegistrationPage() {
                               </span>
                             ))}
                             {facilities.length > 6 ? (
-                              <span className="rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                              <span className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground">
                                 +{facilities.length - 6} more
                               </span>
                             ) : null}
@@ -2555,61 +2663,64 @@ export function PublicHostelRegistrationPage() {
 
               {step === 3 ? (
                 <div className="app-card p-5">
-                  <h3 className="text-sm font-bold text-foreground">Pricing Summary</h3>
-                  <div className="mt-4 space-y-4">
-                    <div className="flex items-start gap-3">
-                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                        <CreditCard className="size-4.5" />
-                      </span>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground">
-                          Estimated Monthly Revenue
-                        </p>
-                        <p className="text-lg font-extrabold text-foreground">
-                          NPR {summary.revenue.toLocaleString()}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          From current occupancy
-                        </p>
-                      </div>
+                  {/*
+                    Two figures and a meter, in one shape.
+
+                    This was three different layouts stacked — an icon beside a
+                    three-line block, the same again, then a bar — across four
+                    type sizes, which is what made a panel of three numbers read
+                    as clutter. The icons went with them: a card headed "Pricing
+                    Summary" does not need a picture of a card to say that the
+                    money figure is money.
+                  */}
+                  <h3 className="text-sm font-bold text-foreground">Pricing summary</h3>
+
+                  <dl className="mt-4 space-y-3">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="min-w-0 text-xs text-muted-foreground">
+                        Monthly revenue
+                      </dt>
+                      <dd className="shrink-0 text-base font-bold tabular-nums text-foreground">
+                        NPR {summary.revenue.toLocaleString()}
+                      </dd>
                     </div>
-                    <div className="flex items-start gap-3">
-                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                        <Bed className="size-4.5" />
-                      </span>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground">
-                          Total Capacity
-                        </p>
-                        <p className="text-lg font-extrabold text-foreground">
-                          {summary.totalBeds} Beds
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          Across {summary.totalRooms} rooms
-                        </p>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Current Occupancy</span>
-                        <span className="font-bold text-foreground">
-                          {occupiedBeds} / {summary.totalBeds} Beds
+
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="min-w-0 text-xs text-muted-foreground">
+                        Capacity
+                      </dt>
+                      <dd className="shrink-0 text-base font-bold tabular-nums text-foreground">
+                        {summary.totalBeds}{" "}
+                        <span className="text-xs font-medium text-muted-foreground">
+                          beds in {summary.totalRooms} rooms
                         </span>
-                      </div>
-                      <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full bg-brand-teal transition-all"
-                          style={{ width: `${occupancyPct}%` }}
-                        />
-                      </div>
-                      <p className="mt-1 text-[10px] text-muted-foreground">
-                        {occupancyPct}% Occupied
-                      </p>
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-4 border-t border-border pt-4">
+                    <div className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="text-muted-foreground">Occupancy</span>
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {occupiedBeds} / {summary.totalBeds}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-brand-teal transition-all"
+                        style={{ width: `${occupancyPct}%` }}
+                      />
                     </div>
                   </div>
-                  <p className="mt-4 flex items-start gap-2 rounded-lg bg-brand-teal/5 p-3 text-[11px] text-brand-teal">
-                    <Info className="mt-0.5 size-3.5 shrink-0" />
-                    Revenue is calculated from current occupancy and monthly rent per bed.
+
+                  {/*
+                    Muted, not brand-coloured. It is a footnote explaining where
+                    a number came from — painting it in the accent on an accent
+                    wash made the quietest sentence on the card the loudest
+                    thing in the column.
+                  */}
+                  <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground">
+                    Revenue assumes current occupancy at the monthly rent per bed.
                   </p>
                 </div>
               ) : null}
@@ -2682,80 +2793,46 @@ export function PublicHostelRegistrationPage() {
 
               {step === 5 ? (
                 <>
-                  <div className="app-card p-5">
-                    <h3 className="text-sm font-bold text-foreground">Your Selection</h3>
-                    <div className="mt-3 flex items-start gap-3">
-                      <span className="flex size-9 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                        <Star className="size-4.5" />
-                      </span>
-                      <div>
-                        <p className="text-sm font-bold text-foreground">
-                          {selectedPlanDetail.name}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {selectedPlanDetail.capacity}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4 space-y-2">
-                      {selectedPlanDetail.features.map((f) => (
-                        <p
-                          className="flex items-center gap-2 text-xs text-foreground"
-                          key={f}
-                        >
-                          <CheckCircle2 className="size-3.5 text-brand-teal" /> {f}
-                        </p>
-                      ))}
-                    </div>
-                    <div className="mt-4 grid grid-cols-3 gap-2">
-                      {plans.map((plan) => (
-                        <button
-                          key={plan.id}
-                          className={cn(
-                            "rounded-lg border p-2 text-center text-[11px] font-bold transition",
-                            selectedPlan === plan.id
-                              ? "border-brand-teal bg-brand-teal/10 text-brand-teal"
-                              : "border-border text-muted-foreground hover:border-brand-teal/40",
-                          )}
-                          onClick={() => setSelectedPlan(plan.id)}
-                          type="button"
-                        >
-                          {plan.name.replace(" Plan", "")}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
+                  {/*
+                    * The plan picker and its billing estimate used to sit here.
+                    *
+                    * Both are gone, and neither is coming back to this step. The
+                    * picker offered three plans hardcoded in this file, at prices
+                    * that had already drifted from what /plans-pricing quoted; the
+                    * estimate added a "Platform Fee (10%)" that exists nowhere in
+                    * the pricing model at all. An owner was being shown a total
+                    * they would never be charged.
+                    *
+                    * Choosing now also asked for a decision at the wrong moment —
+                    * before anyone had confirmed the hostel would be accepted. The
+                    * choice moves to the progress page, against the live
+                    * catalogue, where it can be made during the wait and changed
+                    * right up until the invoice is raised.
+                    */}
                   <div className="app-card p-5">
                     <h3 className="text-sm font-bold text-foreground">
-                      Estimated Monthly Billing
+                      What happens next
                     </h3>
-                    <div className="mt-3 space-y-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">
-                          {selectedPlanDetail.name}
-                        </span>
-                        <span className="font-semibold text-foreground">
-                          {formatMoney(selectedPlanDetail.price)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Platform Fee (10%)</span>
-                        <span className="font-semibold text-foreground">
-                          {formatMoney(Math.round(selectedPlanDetail.price * 0.1))}
-                        </span>
-                      </div>
-                      <hr className="border-border" />
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-foreground">Estimated Total</span>
-                        <span className="font-extrabold text-brand-teal">
-                          {formatMoney(Math.round(selectedPlanDetail.price * 1.1))}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                      <Info className="mt-0.5 size-3 shrink-0" /> You will be billed after
-                      your hostel is approved and published.
+                    <ol className="mt-3 space-y-3 text-xs">
+                      {[
+                        "You submit — we email you to confirm we have everything.",
+                        "We check your details and documents, usually within 1–2 business days.",
+                        "Pick your plan any time from this page while you wait.",
+                        "Once verified, pay for the plan and your listing goes live immediately.",
+                      ].map((line, index) => (
+                        <li className="flex gap-2.5" key={line}>
+                          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
+                            {index + 1}
+                          </span>
+                          <span className="leading-relaxed text-muted-foreground">
+                            {line}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                    <p className="mt-4 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                      <Info className="mt-0.5 size-3 shrink-0" /> Nothing is charged
+                      until your hostel is verified.
                     </p>
                   </div>
 
@@ -3000,40 +3077,6 @@ function WhatHappensNext() {
   );
 }
 
-const STATUS_META: Record<
-  OwnerApplication["status"],
-  { badge: string; desc: string; icon: LucideIcon; label: string; tone: string }
-> = {
-  APPROVED: {
-    badge: "bg-emerald-100 text-emerald-700",
-    desc: "Your hostel is verified and approved. Log in to your Hostel Admin portal to manage it.",
-    icon: CheckCircle2,
-    label: "Approved",
-    tone: "text-success",
-  },
-  NEEDS_MORE_INFO: {
-    badge: "bg-amber-100 text-amber-700",
-    desc: "Our team needs a few more documents before they can approve your hostel. Please provide them below.",
-    icon: Info,
-    label: "Documents needed",
-    tone: "text-amber-600",
-  },
-  PENDING: {
-    badge: "bg-blue-100 text-blue-700",
-    desc: "Your application is in the review queue. We typically respond within 1–2 business days.",
-    icon: Clock,
-    label: "Under review",
-    tone: "text-brand-teal",
-  },
-  REJECTED: {
-    badge: "bg-red-100 text-red-700",
-    desc: "Your application was not approved. See the reason below — you can update your details and register again.",
-    icon: X,
-    label: "Not approved",
-    tone: "text-danger",
-  },
-};
-
 export function HostelStatusView({
   application,
   onRegisterAnother,
@@ -3043,7 +3086,6 @@ export function HostelStatusView({
   onRegisterAnother: () => void;
   onResubmitted: () => Promise<void> | void;
 }) {
-  const meta = STATUS_META[application.status];
   const needsInfo = application.status === "NEEDS_MORE_INFO";
   const [files, setFiles] = useState<Record<number, UploadedFile>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -3110,216 +3152,170 @@ export function HostelStatusView({
     }
   }
 
+  /*
+   * The status card, the three-stage timeline and the "approved, go log in"
+   * copy that used to live here are gone.
+   *
+   * They described a journey that ended at approval, and the journey no longer
+   * does: approval is the *middle* of it now, after which a plan is chosen and
+   * paid for before anything is published. `HostelRegistrationProgress` owns
+   * that whole arc, so this component keeps only the one thing it was doing
+   * that the new page cannot do for itself — collecting the documents a
+   * reviewer asked for — and hands it over as a slot.
+   */
   return (
-    <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
-      <div className="app-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <span
-              className={cn(
-                "flex size-11 items-center justify-center rounded-xl bg-muted",
-                meta.tone,
-              )}
-            >
-              <meta.icon className="size-6" />
-            </span>
+    <>
+      <HostelRegistrationProgress
+        application={{
+          hostelId: application.hostelId,
+          hostelName: application.hostelName,
+          status: application.status,
+        }}
+        documentSlot={
+          needsInfo ? (
             <div>
-              <h1 className="text-xl font-bold text-foreground">
-                {application.hostelName}
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                {application.submittedAt
-                  ? `Last updated ${new Date(application.submittedAt).toLocaleString()}`
-                  : "Application submitted"}
-              </p>
-            </div>
-          </div>
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold",
-              meta.badge,
-            )}
-          >
-            {meta.label}
-          </span>
-        </div>
-        <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{meta.desc}</p>
+              {application.infoRequestNote ? (
+                <p className="mb-4 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                  {application.infoRequestNote}
+                </p>
+              ) : null}
 
+              <div className="space-y-3">
+                {application.requestedDocuments.map((doc, index) => {
+                  const uploaded = files[index];
+
+                  return (
+                    <div
+                      className="rounded-lg border border-border bg-surface p-3"
+                      key={`${doc.documentType}-${index}`}
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {doc.documentType}
+                      </p>
+                      {doc.note ? (
+                        <p className="text-xs text-muted-foreground">{doc.note}</p>
+                      ) : null}
+                      <div className="mt-2">
+                        {uploaded ? (
+                          <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              {uploaded.uploading ? (
+                                <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
+                              ) : (
+                                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                                  <FileText className="size-4" />
+                                </div>
+                              )}
+                              <p className="truncate text-xs font-semibold text-foreground">
+                                {uploaded.name}
+                              </p>
+                            </div>
+                            <button
+                              className="ml-2 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() =>
+                                setFiles((prev) => {
+                                  const next = { ...prev };
+
+                                  delete next[index];
+
+                                  return next;
+                                })
+                              }
+                              type="button"
+                            >
+                              <X className="size-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-3 text-center text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5">
+                            <Upload className="size-4 text-muted-foreground" /> Upload
+                            document
+                            <input
+                              accept="image/jpeg,image/png,image/webp,application/pdf,text/plain"
+                              className="sr-only"
+                              onChange={(event) => handleUpload(index, event)}
+                              type="file"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {error ? (
+                <p className="mt-3 text-xs font-medium text-destructive">{error}</p>
+              ) : null}
+
+              <button
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-teal px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-50"
+                disabled={!canResubmit}
+                onClick={resubmit}
+                type="button"
+              >
+                <Send className="size-4" />
+                {submitting
+                  ? "Submitting…"
+                  : anyUploading
+                    ? "Waiting for uploads…"
+                    : "Resubmit documents"}
+              </button>
+            </div>
+          ) : null
+        }
+        onRefresh={onResubmitted}
+      />
+
+      <div className="mx-auto max-w-3xl px-4 pb-10 md:px-6">
         {application.status === "REJECTED" && application.rejectionReason ? (
-          <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            <p className="font-semibold">Reason</p>
-            <p className="mt-0.5">{application.rejectionReason}</p>
+          <div className="mb-5 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+            <p className="font-semibold">Your application was not approved</p>
+            <p className="mt-1">{application.rejectionReason}</p>
           </div>
         ) : null}
 
-        {/* Progress timeline */}
-        <div className="mt-6 flex items-center gap-2">
-          {(["PENDING", "NEEDS_MORE_INFO", "APPROVED"] as const).map((stage, index) => {
-            const reached =
-              stage === "PENDING" ||
-              (stage === "NEEDS_MORE_INFO" && application.status === "NEEDS_MORE_INFO") ||
-              (stage === "APPROVED" && application.status === "APPROVED");
-            const isRejected = application.status === "REJECTED";
-            return (
-              <div className="flex flex-1 items-center last:flex-initial" key={stage}>
-                <span
-                  className={cn(
-                    "flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
-                    isRejected
-                      ? "bg-red-100 text-red-600"
-                      : reached
-                        ? "bg-brand-teal text-white"
-                        : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {index + 1}
-                </span>
-                {index < 2 ? (
-                  <div
-                    className={cn(
-                      "mx-2 h-0.5 flex-1 rounded-full",
-                      reached && !isRejected ? "bg-brand-teal" : "bg-border",
-                    )}
-                  />
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <span>Submitted</span>
-          <span>Info requested</span>
-          <span>Approved</span>
-        </div>
-      </div>
-
-      {needsInfo ? (
-        <div className="app-card border-amber-300/50 p-6">
-          <div className="flex items-center gap-2">
-            <FileText className="size-5 text-amber-600" />
-            <h2 className="text-sm font-bold text-foreground">Documents requested</h2>
-          </div>
-          {application.infoRequestNote ? (
-            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              {application.infoRequestNote}
-            </p>
-          ) : null}
-
-          <div className="mt-4 space-y-3">
-            {application.requestedDocuments.map((doc, index) => {
-              const uploaded = files[index];
-              return (
-                <div
-                  key={`${doc.documentType}-${index}`}
-                  className="rounded-lg border border-border p-3"
-                >
-                  <p className="text-sm font-semibold text-foreground">
-                    {doc.documentType}
-                  </p>
-                  {doc.note ? (
-                    <p className="text-xs text-muted-foreground">{doc.note}</p>
-                  ) : null}
-                  <div className="mt-2">
-                    {uploaded ? (
-                      <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2">
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          {uploaded.uploading ? (
-                            <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
-                          ) : (
-                            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                              <FileText className="size-4" />
-                            </div>
-                          )}
-                          <p className="truncate text-xs font-semibold text-foreground">
-                            {uploaded.name}
-                          </p>
-                        </div>
-                        <button
-                          className="ml-2 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600"
-                          onClick={() =>
-                            setFiles((prev) => {
-                              const n = { ...prev };
-                              delete n[index];
-                              return n;
-                            })
-                          }
-                          type="button"
-                        >
-                          <X className="size-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-3 text-center text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5">
-                        <Upload className="size-4 text-muted-foreground" /> Upload
-                        document
-                        <input
-                          accept="image/jpeg,image/png,image/webp,application/pdf,text/plain"
-                          className="sr-only"
-                          onChange={(e) => handleUpload(index, e)}
-                          type="file"
-                        />
-                      </label>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {error ? (
-            <p className="mt-3 text-xs font-medium text-destructive">{error}</p>
-          ) : null}
-
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal hover:underline"
+            href="/"
+          >
+            <ArrowLeft className="size-4" /> Back to Homepage
+          </Link>
           <button
-            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-teal px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-50"
-            disabled={!canResubmit}
-            onClick={resubmit}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+            onClick={onRegisterAnother}
             type="button"
           >
-            <Send className="size-4" />
-            {submitting
-              ? "Submitting…"
-              : anyUploading
-                ? "Waiting for uploads…"
-                : "Resubmit documents"}
+            <Plus className="size-4" /> Register another hostel
           </button>
         </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal hover:underline"
-          href="/"
-        >
-          <ArrowLeft className="size-4" /> Back to Homepage
-        </Link>
-        <button
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
-          onClick={onRegisterAnother}
-          type="button"
-        >
-          <Plus className="size-4" /> Register another hostel
-        </button>
       </div>
-
-      <PortalsCard />
-    </div>
+    </>
   );
 }
 
-function SubmittedView({ planName }: { planName: string }) {
+function SubmittedView() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="app-card p-10 text-center">
         <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-emerald-100 text-success">
           <Check className="size-10" />
         </div>
-        <h2 className="mt-5 text-2xl font-bold text-foreground">You&apos;re All Set!</h2>
+        <h2 className="mt-5 text-2xl font-bold text-foreground">
+          Registration received
+        </h2>
+        {/*
+          * Says what actually happens next, and only through channels we
+          * actually use. The old copy promised a reply "via email and WhatsApp"
+          * — there is no WhatsApp integration anywhere in this product — and
+          * named the plan the owner had supposedly chosen, at a point where
+          * choosing one is no longer part of this form.
+          */}
         <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-          Your hostel registration application will go for review. Our team will verify
-          your details on the{" "}
-          <span className="font-semibold text-foreground">{planName}</span> and get back
-          to you shortly via email and WhatsApp.
+          We have your details and have emailed you to confirm. Our team checks
+          everything within 1–2 business days, and this page will show you where
+          it has got to — you can choose your plan here in the meantime.
         </p>
         <Link
           className="mt-6 inline-flex rounded-lg bg-brand-teal px-6 py-2.5 text-sm font-semibold text-white shadow transition hover:brightness-105"

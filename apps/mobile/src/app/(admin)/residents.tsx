@@ -16,6 +16,7 @@ import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { SwipeRow } from "@/components/ui/swipe-row";
 import { Text } from "@/components/ui/text";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import type { AdminResident } from "@/lib/admin-api";
@@ -93,6 +94,7 @@ import { humanizeEnum } from "@/lib/format";
  */
 export default function AdminResidentsScreen() {
   const dates = useDates();
+  const avatarSource = useAvatarSource();
   /*
    * Warmed by `prefetchAdminPortal` when the portal opens, so arriving here from
    * Home usually paints the roster rather than a spinner.
@@ -235,18 +237,23 @@ export default function AdminResidentsScreen() {
           */
           <View className="gap-3">
             {visible.map((resident) => {
+              const photo = avatarSource(resident.account?.image);
               const row = (
                 <CardRow
                   /*
-                   * A face per row. Almost nobody here has uploaded a photo, so
-                   * this is the initial circle — and its colour is derived from
-                   * the name, which is what makes two adjacent rows of a
-                   * forty-person roster tell themselves apart at a glance.
+                   * A face per row — their own card photo, the same picture the
+                   * dossier and their own header show. Anyone who has not
+                   * uploaded one falls back to the initial circle, whose colour
+                   * is derived from the name, and that is what makes two
+                   * adjacent rows of a forty-person roster tell themselves
+                   * apart at a glance.
                    */
                   left={
                     <Avatar
+                      headers={photo?.headers}
                       name={`${resident.firstName} ${resident.lastName}`.trim()}
                       size="md"
+                      uri={photo?.uri}
                     />
                   }
                   /*

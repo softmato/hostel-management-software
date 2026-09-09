@@ -16,11 +16,49 @@
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.97 0.001 106.424);
-  --muted-foreground: oklch(0.553 0.013 58.071);
+  /*
+   * Darkened from `oklch(0.553 …)`, which was failing WCAG AA.
+   *
+   * That value lands on roughly `#7c736c`, and against `--surface` it measures
+   * **4.47:1** — under the 4.5:1 floor for normal text, and worse in practice
+   * because `--surface` is 78% alpha over white, so the real background is
+   * lighter than the swatch. Every caption, field hint, table header and
+   * timestamp in the product is painted in this token, which made a large part
+   * of the interface quietly unreadable rather than merely quiet.
+   *
+   * This lands near `#635c56` and measures 6.33:1, so it clears AA with room to
+   * spare while staying obviously secondary to `--foreground`, which is 15.19:1
+   * on the same ground. The hue and chroma are unchanged; only lightness moved.
+   *
+   * Dark mode needed no change — its pairing already measures ~6:1.
+   */
+  --muted-foreground: oklch(0.47 0.012 58.071);
   --accent: oklch(0.97 0.001 106.424);
   --accent-foreground: oklch(0.216 0.006 56.043);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.923 0.003 48.717);
+  /*
+   * The edge of a control you are meant to type in — deliberately **not**
+   * `--border`.
+   *
+   * `--border` is right for what it does: card edges, dividers and table rules
+   * are structure, and structure should be quiet. But the same value on an
+   * input measured about 1.2:1 against `--surface`, which is not a faint box —
+   * it is no box at all, and WCAG 1.4.11 asks for 3:1 on the boundary of any
+   * control somebody has to find and operate.
+   *
+   * This lands near `#8c8681` and measures ~3.5:1, so a field reads as a field
+   * without every form on the site turning into a grid of heavy rectangles.
+   * Darkening `--border` itself would have done the second thing.
+   *
+   * It is also separate from `--input`, which looks like the obvious home for
+   * it and is not: shadcn uses that token for the *fill* as well as the edge
+   * (`bg-input/30`, `disabled:bg-input/50`), so darkening it to make borders
+   * visible would have turned every disabled field grey. Two jobs, two tokens —
+   * `input.tsx`, `select.tsx` and `textarea.tsx` take their border from here and
+   * leave their backgrounds on `--input`.
+   */
+  --input-border: oklch(0.62 0.008 58.071);
   --input: oklch(0.923 0.003 48.717);
   --ring: oklch(0.709 0.01 56.259);
   --radius: 0.625rem;
@@ -38,6 +76,28 @@
   --role-resident-soft: #dcfce7;
   --role-guardian: #d97706;
   --role-guardian-soft: #fffbeb;
+  /*
+   * The field team's tone. An agent works for the platform, but the desk is the
+   * one portal an outsider is walked through on a phone in a hostel lobby, and
+   * it wears the product's own green rather than the platform teal so that what
+   * the owner sees matches the brand they just signed up to.
+   *
+   * The active pill paints `--brand-teal` (#0a8a4b in both themes, 4.9:1 under
+   * white) rather than this token, which is free to go bright in dark mode
+   * because it only ever carries text and icons.
+   */
+  --role-team: #0a8a4b;
+  --role-team-soft: #dcfce7;
+  /*
+   * A field's own ground.
+   *
+   * `--input-border` gives the box an edge you can trace; this gives it a
+   * face. `.input-field` used to paint `bg-surface` inside `.app-card`, which
+   * is also `bg-surface` — the same cream on the same cream — so a section of
+   * the registration form read as flat paper with lines drawn on it. A field
+   * now sits a shade lighter than the card it is in.
+   */
+  --field: #ffffff;
   --chart-1: oklch(0.508 0.118 165.612);
   --chart-2: oklch(0.967 0.001 286.375);
   --chart-3: oklch(0.21 0.006 285.885);
@@ -70,6 +130,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-input-border: var(--input-border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-surface: var(--surface);
@@ -86,6 +147,9 @@
   --color-role-resident-soft: var(--role-resident-soft);
   --color-role-guardian: var(--role-guardian);
   --color-role-guardian-soft: var(--role-guardian-soft);
+  --color-role-team: var(--role-team);
+  --color-role-team-soft: var(--role-team-soft);
+  --color-field: var(--field);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-poppins);
@@ -163,6 +227,11 @@ body {
   --accent-foreground: oklch(0.985 0.001 106.423);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
+  /*
+   * White at 40% over the dark surface — ~3.7:1, where the 10% `--border` was
+   * 1.4:1. Same reasoning as the light value next door.
+   */
+  --input-border: oklch(1 0 0 / 40%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.553 0.013 58.071);
   --surface: #292524;
@@ -179,6 +248,9 @@ body {
   --role-resident-soft: #312e81;
   --role-guardian: #fbbf24;
   --role-guardian-soft: #451a03;
+  --role-team: #34d399;
+  --role-team-soft: #14532d;
+  --field: oklch(0.262 0.007 56.043);
   --chart-1: oklch(0.432 0.095 166.913);
   --chart-2: oklch(0.274 0.006 286.033);
   --chart-3: oklch(0.985 0 0);
@@ -233,11 +305,120 @@ body {
   }
 
   .app-control {
-    @apply rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow-sm transition;
+    @apply rounded-lg border border-input-border bg-surface px-3 py-2 text-sm shadow-sm transition;
   }
 
   .input-field {
-    @apply h-11 rounded-lg border border-border bg-surface px-3 text-sm font-normal outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15;
+    @apply h-11 rounded-lg border border-input-border bg-surface px-3 text-sm font-normal outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15;
+  }
+
+  /*
+   * Native controls that are not `.input-field` but read as one — the file
+   * inputs, date pickers and selects that browsers paint themselves. Without
+   * this they keep the user-agent border and sit visibly lighter than the
+   * fields beside them.
+   */
+  .input-field:disabled {
+    @apply cursor-not-allowed opacity-60;
+  }
+}
+
+/* ── Step-flow motion ────────────────────────────────────────────────────────
+ *
+ * The registration form advances one section at a time, and these are the four
+ * movements that carry it. The vocabulary — a section that lifts and sharpens
+ * in, a rail that grows, a marker that settles — is taken from the reference
+ * flow; the timings are not.
+ *
+ * The reference blurs 6px, travels 18px and overshoots its step marker to 1.12
+ * before settling. All three are dialled back here: 4px, 10px, and no overshoot
+ * at all. A bounce on a progress marker reads as playful, and this form is
+ * asking somebody for their citizenship document and their bank details — the
+ * motion should feel like a well-made instrument, not a toy. What is left is
+ * only enough movement to say "this is a new section", which is the entire job.
+ *
+ * Durations sit at 260ms/180ms: fast enough that somebody filling in five steps
+ * never waits on the animation, slow enough that the change of section is
+ * legible rather than a flicker.
+ */
+
+@keyframes step-in {
+  from {
+    filter: blur(4px);
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    filter: blur(0);
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes step-out {
+  from {
+    filter: blur(0);
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    filter: blur(4px);
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes rail-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes marker-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@layer utilities {
+  .animate-step-in {
+    animation: step-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  .animate-step-out {
+    animation: step-out 180ms cubic-bezier(0.55, 0.06, 0.68, 0.19) both;
+  }
+
+  .animate-marker-settle {
+    animation: marker-settle 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  /* The connector between two step markers, grown from its top edge. */
+  .animate-rail-grow {
+    animation: rail-grow 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    transform-origin: top;
+  }
+}
+
+/*
+ * Motion is decoration here — every one of these animations only restates a
+ * change the layout has already made — so under a reduced-motion preference
+ * they are removed outright rather than shortened.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-step-in,
+  .animate-step-out,
+  .animate-marker-settle,
+  .animate-rail-grow {
+    animation: none;
   }
 }
 

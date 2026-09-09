@@ -26,6 +26,7 @@
     "web:check:private-documents": "npm --prefix apps/web run check:private-documents",
     "web:backfill:resident-accounts": "npm --prefix apps/web run backfill:resident-accounts",
     "web:backfill:fileasset-hostel": "npm --prefix apps/web run backfill:fileasset-hostel",
+    "web:backfill:card-avatars": "npm --prefix apps/web run backfill:card-avatars",
     "web:migrate:payment-caps": "npm --prefix apps/web run migrate:payment-caps",
     "web:seed:fee-schedules": "npm --prefix apps/web run seed:fee-schedules",
     "web:backfill:reference-prefix": "npm --prefix apps/web run backfill:reference-prefix",

@@ -32,7 +32,23 @@ const receiptCounterSchema = new Schema(
      */
     kind: {
       type: String,
-      enum: ["RECEIPT", "REFERENCE", "STORE_ORDER"],
+      enum: [
+        "RECEIPT",
+        "REFERENCE",
+        "STORE_ORDER",
+        /**
+         * The platform's own invoices and receipts to a hostel, for its plan.
+         * They join here on the same reasoning `STORE_ORDER` did — the
+         * mechanism is an atomic `$inc` on a per-hostel row, and a second copy
+         * of it would be a second chance to get the race wrong.
+         *
+         * Both run for the hostel's lifetime rather than per month: a
+         * subscription document is quoted back years later, and a per-period
+         * sequence would reissue the same number every January.
+         */
+        "SUBSCRIPTION_INVOICE",
+        "SUBSCRIPTION_RECEIPT",
+      ],
       default: "RECEIPT",
       required: true,
     },

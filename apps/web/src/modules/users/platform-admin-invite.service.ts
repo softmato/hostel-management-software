@@ -4,7 +4,6 @@ import { Types } from "mongoose";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { Role } from "@/lib/roles";
-import { PLATFORM_ADMIN_ROLES } from "@/modules/users/platform-admin.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { CookAccountModel } from "@hostel/db/models/CookAccount";
 import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
@@ -35,9 +34,21 @@ export class PlatformAdminInviteError extends Error {
   }
 }
 
-export type PlatformAdminInviteRole = (typeof PLATFORM_ADMIN_ROLES)[number];
+/**
+ * Every role an invitation can grant — the two platform grades plus the field
+ * agent. `PLATFORM_ADMIN_ROLES` stays narrower and keeps guarding the roster,
+ * so an agent never counts as a platform admin anywhere that matters.
+ */
+export const INVITABLE_ROLES = [
+  Role.SUPERADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.PLATFORM_AGENT,
+] as const;
+
+export type PlatformAdminInviteRole = (typeof INVITABLE_ROLES)[number];
 
 const ROLE_LABELS: Record<string, string> = {
+  [Role.PLATFORM_AGENT]: "Team Member",
   [Role.PLATFORM_MODERATOR]: "Platform Moderator",
   [Role.SUPERADMIN]: "Superadmin",
 };
@@ -48,6 +59,7 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
   [Role.GUARDIAN]: "a guardian account",
   [Role.HOSTEL_ADMIN]: "a hostel admin account",
   [Role.PLATFORM_MODERATOR]: "a platform moderator",
+  [Role.PLATFORM_AGENT]: "a team member account",
   [Role.RESIDENT]: "a resident account",
   [Role.SUPERADMIN]: "a superadmin",
   [Role.WARDEN]: "a warden account",
@@ -192,7 +204,7 @@ export async function checkPlatformAdminEmail(
       .lean<{ _id: Types.ObjectId } | null>(),
   ]);
 
-  if (user && PLATFORM_ADMIN_ROLES.includes(user.role as PlatformAdminInviteRole)) {
+  if (user && INVITABLE_ROLES.includes(user.role as PlatformAdminInviteRole)) {
     return {
       availability: "TAKEN",
       message: `${email} is already ${ROLE_DESCRIPTIONS[user.role ?? ""] ?? "a platform admin"}. Change their access level on the roster below instead.`,
@@ -350,6 +362,67 @@ export async function invitePlatformAdmin(
   };
 }
 
+/**
+ * Sends several invitations in one go, reporting each one separately.
+ *
+ * **Deliberately not atomic.** A batch of ten addresses where the fourth is
+ * already a resident should send the other nine, not refuse the lot — the
+ * superadmin pasted in a list of people who have actually been hired, and
+ * making them find and remove the one bad row before anybody gets an email
+ * helps nobody. So every address is attempted and the result says, per address,
+ * what happened to it.
+ *
+ * Sequential rather than `Promise.all`, because each send runs its own
+ * availability check and two invitations to the same address in one batch must
+ * not both pass it.
+ */
+export async function invitePlatformAdmins(
+  input: {
+    invitations: { email: string; name?: string; phone?: string }[];
+    role: PlatformAdminInviteRole;
+  },
+  principal: ApiPrincipal,
+) {
+  const results: {
+    delivered: boolean;
+    email: string;
+    error: string | null;
+    sent: boolean;
+  }[] = [];
+
+  for (const invitation of input.invitations) {
+    try {
+      const result = await invitePlatformAdmin(
+        { ...invitation, role: input.role },
+        principal,
+      );
+
+      results.push({
+        delivered: result.delivered,
+        email: invitation.email,
+        error: null,
+        sent: true,
+      });
+    } catch (error) {
+      results.push({
+        delivered: false,
+        email: invitation.email,
+        error:
+          error instanceof PlatformAdminInviteError
+            ? error.message
+            : "Could not send this invitation.",
+        sent: false,
+      });
+    }
+  }
+
+  return {
+    results,
+    sent: results.filter((result) => result.sent).length,
+    total: results.length,
+  };
+}
+
 /** Every invitation that has not yet been accepted, newest first. */
 export async function listPlatformAdminInvites() {
   await connectToDatabase();
@@ -470,6 +543,8 @@ export async function readPlatformAdminInvitation(token: string) {
 }
 
 export type AcceptPlatformAdminInvitationInput = {
+  /** Required when the invitation grants `PLATFORM_AGENT`; ignored otherwise. */
+  password?: string;
   token: string;
 };
 
@@ -512,10 +587,7 @@ export async function acceptPlatformAdminInvitation(
     isDeleted: { $ne: true },
   });
 
-  if (
-    existing &&
-    PLATFORM_ADMIN_ROLES.includes(existing.role as PlatformAdminInviteRole)
-  ) {
+  if (existing && INVITABLE_ROLES.includes(existing.role as PlatformAdminInviteRole)) {
     // Settle the invitation rather than leaving a live token behind for an
     // address that already has the access it was offering.
     await PlatformAdminInviteModel.updateOne(

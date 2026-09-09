@@ -15,11 +15,10 @@ import { Text } from "@/components/ui/text";
 import { readableRole } from "@/constants/roles";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useResource } from "@/hooks/use-resource";
 import { useSiteConfig } from "@/hooks/use-site-config";
-import { API_BASE_URL } from "@/lib/api";
 import { endSession } from "@/lib/auth-session";
-import { absoluteMediaUrl } from "@/lib/media";
 import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
 import { isApplicationInFlight } from "@/lib/provider-status";
 import { toastInfo } from "@/lib/toast";
@@ -74,6 +73,7 @@ export default function BrowseProfileScreen() {
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
   const { config, refresh, refreshing } = useSiteConfig();
+  const photo = useAvatarSource()(account?.image);
   const [signingOut, setSigningOut] = useState(false);
 
   /*
@@ -145,11 +145,15 @@ export default function BrowseProfileScreen() {
           <Card className="gap-3">
             <View className="flex-row items-center gap-3">
               {/* The shared component, which also handles a Google photo and a
-                  photo URL that exists but cannot be drawn. */}
+                  photo URL that exists but cannot be drawn. `useAvatarSource`
+                  and not a bare absolute URL: a card photo is served from our
+                  own origin behind auth, so without the bearer token it 401s
+                  and silently becomes an initial. */}
               <Avatar
+                headers={photo?.headers}
                 name={account.name}
                 size="lg"
-                uri={absoluteMediaUrl(account.image, API_BASE_URL)}
+                uri={photo?.uri}
               />
 
               <View className="flex-1">

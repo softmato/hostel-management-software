@@ -8,6 +8,7 @@ import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { HostelApplicationModel } from "@hostel/db/models/HostelApplication";
+import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { HostelDocumentModel } from "@hostel/db/models/HostelDocument";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelVerificationModel } from "@hostel/db/models/HostelVerification";
@@ -28,11 +29,30 @@ import { hostelPublishedEmail } from "@hostel/shared/email/templates/hostel/host
 import { hostelUnpublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-unpublished";
 import { hostelDocumentsRequestedEmail } from "@hostel/shared/email/templates/hostel/documents-requested";
 import { hostelRejectedEmail } from "@hostel/shared/email/templates/hostel/hostel-rejected";
-import { hostelSubmissionReceivedEmail } from "@hostel/shared/email/templates/hostel/submission-received";
 import {
   notifyHostelOfInquiry,
   notifyPlatformOfPendingHostel,
 } from "@/modules/hostels/hostel-notify";
+import {
+  getOrCreateSubscription,
+  getSubscriptionState,
+  issueSubscriptionInvoice,
+  selectPlan,
+} from "@/modules/billing/subscription.service";
+import {
+  openSubscriptionCheckout,
+  recordCashPayment,
+} from "@/modules/billing/subscription-payment.service";
+import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import {
+  onHostelVerified,
+  onRegisteredByTeam,
+  onRegistrationSubmitted,
+} from "@/modules/hostels/hostel-registration.events";
+import type {
+  HostelRegistrationInput,
+  TeamHostelRegistrationInput,
+} from "@/modules/hostels/hostel-registration.validation";
 import type {
   hostelRejectSchema,
   hostelRequestDocumentsSchema,
@@ -848,8 +868,65 @@ export async function createPlatformHostelApplication(
   };
 }
 
+/**
+ * The hostel document both desks write.
+ *
+ * Only the lifecycle differs between them — a public registration lands
+ * `PENDING_APPROVAL`/`PENDING` and waits to be read; a team registration lands
+ * `PUBLISHED`/`VERIFIED` because it already has been. Every other field is the
+ * same shape from the same schema, so it is built once here rather than kept in
+ * step by hand in two places.
+ */
+function hostelDocumentFrom(
+  input: HostelRegistrationInput,
+  lifecycle: {
+    ownerId: Types.ObjectId | string;
+    slug: string;
+    status: string;
+    verificationStatus: string;
+  },
+) {
+  return {
+    /*
+     * `totalCapacity` is the owner's own count of beds across the building, and
+     * it is only used when the per-room figures do not add up to one — the room
+     * configurations are the more specific answer and win where they exist.
+     */
+    capacitySummary: {
+      ...input.capacitySummary,
+      ...(input.totalCapacity && !input.capacitySummary?.totalBeds
+        ? { totalBeds: input.totalCapacity }
+        : {}),
+    },
+    contact: { ...input.contact, alternatePhone: input.alternatePhone },
+    createdBy: lifecycle.ownerId,
+    description: input.description,
+    facilities: input.facilities,
+    food: input.food,
+    hostelType: input.hostelType,
+    location: {
+      ...input.location,
+      landmark: input.landmark,
+      mapLink: input.mapLink,
+    },
+    name: input.name,
+    ownerId: lifecycle.ownerId,
+    photos: input.photos,
+    pricing: input.pricing,
+    roomConfigurations: input.roomConfigurations,
+    roomTypes: input.roomTypes,
+    rules: input.rules,
+    slug: lifecycle.slug,
+    status: lifecycle.status,
+    totalFloors: input.totalFloors,
+    updatedBy: lifecycle.ownerId,
+    verificationStatus: lifecycle.verificationStatus,
+    yearEstablished: input.yearEstablished,
+  };
+}
+
 export async function registerPublicHostelApplication(
-  input: PublicHostelApplicationCreateInput,
+  input: HostelRegistrationInput,
   options: { authUserId?: string } = {},
 ) {
   await connectToDatabase();
@@ -872,28 +949,14 @@ export async function registerPublicHostelApplication(
     authenticatedOwner?._id ?? (await findOrCreatePublicHostelOwner(applicant));
   const slug = await uniqueSlug(input.name, input.location.area);
 
-  const hostel = await HostelModel.create({
-    capacitySummary: input.capacitySummary,
-    contact: input.contact,
-    createdBy: ownerId,
-    description: input.description,
-    facilities: input.facilities,
-    food: input.food,
-    hostelType: input.hostelType,
-    location: input.location,
-    name: input.name,
-    ownerId,
-    photos: input.photos,
-    pricing: input.pricing,
-    roomConfigurations: input.roomConfigurations,
-    roomTypes: input.roomTypes,
-    rules: input.rules,
-    totalFloors: input.totalFloors,
-    slug,
-    status: "PENDING_APPROVAL",
-    updatedBy: ownerId,
-    verificationStatus: "PENDING",
-  });
+  const hostel = await HostelModel.create(
+    hostelDocumentFrom(input, {
+      ownerId,
+      slug,
+      status: "PENDING_APPROVAL",
+      verificationStatus: "PENDING",
+    }),
+  );
 
   const application = await HostelApplicationModel.create({
     applicantId: ownerId,
@@ -908,11 +971,23 @@ export async function registerPublicHostelApplication(
       name: input.name,
       pricing: input.pricing,
       roomConfigurations: input.roomConfigurations,
-      selectedPlan: input.selectedPlan,
+      selectedPlan: input.plan?.planId ?? null,
     },
+    source: "PUBLIC",
     status: "PENDING",
     submittedBy: ownerId,
   });
+
+  /*
+   * The subscription row exists from the moment the hostel does, holding no
+   * plan yet.
+   *
+   * Created here rather than lazily when a plan is first chosen, so that every
+   * surface which reads billing state — the progress page, the due banner, the
+   * platform roster — reads a row rather than having to treat "no row" as a
+   * fourth kind of empty.
+   */
+  await getOrCreateSubscription(hostel._id, { source: "PUBLIC" });
 
   await HostelVerificationModel.create({
     createdBy: ownerId,
@@ -943,20 +1018,16 @@ export async function registerPublicHostelApplication(
     entityType: "Hostel",
     hostelId: hostel._id,
     metadata: {
-      selectedPlan: input.selectedPlan,
+      selectedPlan: input.plan?.planId ?? null,
       submittedFrom: "public-registration",
     },
   });
 
-  if (input.applicant.email) {
-    await sendEmail({
-      to: input.applicant.email,
-      ...hostelSubmissionReceivedEmail({
-        hostelName: input.name,
-        ownerName: input.applicant.name,
-      }),
-    });
-  }
+  await onRegistrationSubmitted({
+    hostelName: input.name,
+    ownerEmail: applicant.email,
+    ownerName: input.applicant.name,
+  });
 
   // EMAIL_SYSTEM.md §7.1. The owner was already told; until this landed the
   // platform staff who have to act on it were not.
@@ -973,6 +1044,234 @@ export async function registerPublicHostelApplication(
   return {
     application: serializeApplication(createdApplication),
     hostel: serializeHostel(createdHostel),
+  };
+}
+
+/**
+ * A field agent registers a hostel, and it goes live on the spot.
+ *
+ * ## Why this one does not queue
+ *
+ * The public queue exists so a human can read the documents and decide whether
+ * the place is real. On this path a human already has: one of ours, standing in
+ * the building, with the papers in their hand. Running it through the queue
+ * again would ask a superadmin to re-perform a check that has been done better,
+ * and would leave an owner who has already paid staring at a listing that is
+ * not up.
+ *
+ * So the hostel is created `PUBLISHED`/`VERIFIED`, the application is written
+ * `APPROVED` for the record, and the documents land `APPROVED` too.
+ *
+ * ## Money does not gate publication here — it becomes a due
+ *
+ * The agent may collect the full price, part of it, or nothing at all. The
+ * listing goes up regardless; whatever is short becomes an outstanding balance
+ * with a deadline, shown to the owner as a banner in their portal. That is the
+ * inversion the public path never makes, and `PAST_DUE` records it.
+ *
+ * ## The agent is not the owner
+ *
+ * `findOrCreatePublicHostelOwner` resolves the owner from the details the agent
+ * typed *about the owner* — never from the agent's own account. An agent files
+ * many hostels; if their account were the owner they would end up owning every
+ * one of them, and the real owner could never sign in to their own dashboard.
+ */
+export async function registerTeamHostelApplication(
+  input: TeamHostelRegistrationInput,
+  agent: { name?: string; userId: string },
+) {
+  await connectToDatabase();
+
+  const ownerId = await findOrCreatePublicHostelOwner(input.applicant);
+  const slug = await uniqueSlug(input.name, input.location.area);
+
+  const hostel = await HostelModel.create(
+    hostelDocumentFrom(input, {
+      ownerId,
+      slug,
+      status: "PUBLISHED",
+      verificationStatus: "VERIFIED",
+    }),
+  );
+
+  const application = await HostelApplicationModel.create({
+    applicantId: ownerId,
+    hostelId: hostel._id,
+    notes: input.notes,
+    reviewedAt: new Date(),
+    reviewedBy: agent.userId,
+    snapshot: {
+      applicant: input.applicant,
+      capacitySummary: input.capacitySummary,
+      contact: input.contact,
+      documents: input.documents,
+      location: input.location,
+      name: input.name,
+      pricing: input.pricing,
+      roomConfigurations: input.roomConfigurations,
+      selectedPlan: input.plan.planId,
+    },
+    source: "TEAM",
+    status: "APPROVED",
+    submittedBy: ownerId,
+    submittedByAgentId: agent.userId,
+  });
+
+  await HostelVerificationModel.create({
+    createdBy: agent.userId,
+    hostelId: hostel._id,
+    status: "VERIFIED",
+    updatedBy: agent.userId,
+    verifiedAt: new Date(),
+    verifiedBy: agent.userId,
+  });
+
+  if (input.documents.length > 0) {
+    await HostelDocumentModel.insertMany(
+      input.documents.map((document) => ({
+        createdBy: agent.userId,
+        documentType: document.documentType,
+        fileAssetId: document.fileAssetId,
+        fileUrl: document.fileUrl,
+        hostelId: hostel._id,
+        ownerId,
+        reviewedAt: new Date(),
+        reviewedBy: agent.userId,
+        status: "APPROVED",
+        updatedBy: agent.userId,
+      })),
+    );
+  }
+
+  await getOrCreateSubscription(hostel._id, {
+    agentId: agent.userId,
+    source: "TEAM",
+  });
+  await selectPlan(hostel._id.toString(), input.plan, agent.userId);
+
+  /*
+   * `requireVerified` is passed explicitly rather than relying on the hostel
+   * having been written VERIFIED a few statements ago. The guard exists to stop
+   * money being demanded from an unchecked hostel, and on this path the check is
+   * the agent's presence — saying so is clearer than depending on write order.
+   */
+  const invoice = await issueSubscriptionInvoice(hostel._id.toString(), agent.userId, {
+    agentId: agent.userId,
+    requireVerified: false,
+    source: "TEAM",
+  });
+
+  let checkout: Awaited<ReturnType<typeof openSubscriptionCheckout>> | null =
+    null;
+
+  if (input.payment.amount > 0) {
+    if (input.payment.method === "CASH") {
+      await recordCashPayment(
+        invoice._id.toString(),
+        { amount: input.payment.amount },
+        agent.userId,
+      );
+    } else {
+      /*
+       * An online payment cannot be settled from this form, and that is the
+       * correction rather than the limitation.
+       *
+       * The agent is standing in front of the owner, but the owner is the one
+       * who has to open a wallet: Nepali wallets have no auto-debit, so nobody
+       * can charge on their behalf. What the agent can do is open a checkout
+       * and hand it over. Money confirmed arrives later, on a signed webhook.
+       *
+       * The previous code settled here, immediately, on the agent's say-so —
+       * which was only ever tenable because the gateway was mocked. An agent
+       * asserting that a payment happened is exactly the claim a payment rail
+       * exists to replace.
+       */
+      checkout = await openSubscriptionCheckout(
+        invoice._id.toString(),
+        agent.userId,
+      );
+    }
+  } else {
+    /*
+     * Nothing collected today. The whole price is still owed, so the due is set
+     * here rather than waiting for a settlement that is not coming — otherwise a
+     * hostel filed with no payment would sit in `AWAITING_PAYMENT` with no
+     * deadline and never raise a banner.
+     */
+    const operations = await getOperationsConfig();
+    const dueBy = new Date();
+
+    dueBy.setDate(dueBy.getDate() + operations.subscriptionDueGraceDays);
+
+    await HostelSubscriptionModel.updateOne(
+      { hostelId: hostel._id },
+      { $set: { dueBy, status: "PAST_DUE" } },
+    );
+  }
+
+  /*
+   * The owner has to be able to sign in — to see the due and to pay it — so the
+   * account upgrade a public registration gets at approval happens here, at
+   * submission, because this *is* the approval.
+   */
+  const upgrade = input.applicant.email
+    ? await registerOrUpgradeUserByEmail({
+        email: input.applicant.email,
+        hostelId: hostel._id.toString(),
+        hostelName: input.name,
+        name: input.applicant.name,
+        performedBy: agent.userId,
+        role: Role.HOSTEL_ADMIN,
+        sendEmailNotification: false,
+      }).catch(() => null)
+    : null;
+
+  const state = await getSubscriptionState(hostel._id.toString());
+
+  await AuditLogModel.create({
+    action: "TEAM_HOSTEL_REGISTERED",
+    actorId: agent.userId,
+    entityId: hostel._id.toString(),
+    entityType: "Hostel",
+    hostelId: hostel._id,
+    metadata: {
+      amountCollected: input.payment.amount,
+      method: input.payment.method,
+      outstanding: state?.outstanding ?? 0,
+      planId: input.plan.planId,
+      submittedFrom: "team-registration",
+    },
+  });
+
+  await onRegisteredByTeam({
+    agentName: agent.name,
+    amountPaid: input.payment.amount,
+    dueBy: state?.subscription.dueBy ? new Date(state.subscription.dueBy) : null,
+    hostelName: input.name,
+    hostelSlug: slug,
+    outstanding: state?.outstanding ?? 0,
+    ownerEmail: input.applicant.email,
+    ownerName: input.applicant.name,
+    planName: state?.subscription.planName ?? "",
+  });
+
+  const createdHostel = await findHostelByIdOrThrow(hostel._id.toString());
+  const createdApplication = await HostelApplicationModel.findById(
+    application._id,
+  ).lean<HostelApplicationRecord | null>();
+
+  return {
+    application: serializeApplication(createdApplication),
+    billing: state,
+    /*
+     * Present only when the agent chose to collect online. It is the link the
+     * owner has to open themselves — the agent hands over a phone or reads out
+     * the URL — and it expires in thirty minutes, so it is returned to be used
+     * now rather than stored anywhere.
+     */
+    checkout,
+    hostel: serializeHostel(createdHostel),
+    temporaryPassword: upgrade?.temporaryPassword ?? null,
   };
 }
 
@@ -1273,6 +1572,27 @@ export async function approvePlatformHostel(hostelId: string, principal: ApiPrin
     // Approval re-issues any ID card this owner already holds as an owner card
     // — the conversion the registration form warned them about.
     await sendIdCardEmail(ownerInfo.owner.id.toString(), "HOSTEL_OWNER");
+
+    /*
+     * Approval is *verification*, not publication.
+     *
+     * The listing does not go live here — it goes live when the plan is paid
+     * for. So the owner is told the wait is over and pointed at the button that
+     * has just become live on their progress page, and the message names the
+     * plan if they already chose one during the wait.
+     */
+    const subscription = await HostelSubscriptionModel.findOne({
+      hostelId: objectId,
+    })
+      .select("planName")
+      .lean<{ planName?: string | null } | null>();
+
+    await onHostelVerified({
+      hostelName: ownerInfo.hostelName,
+      ownerEmail: ownerInfo.owner.email,
+      ownerName: ownerInfo.owner.name,
+      selectedPlanName: subscription?.planName ?? null,
+    });
   }
 
   return result;

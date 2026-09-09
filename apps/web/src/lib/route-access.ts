@@ -50,6 +50,19 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     prefix: "/platform",
     roles: [Role.SUPERADMIN, Role.PLATFORM_MODERATOR],
   },
+  /*
+   * The field team's own portal.
+   *
+   * Above `/hostel-admin` and below `/platform` because it is neither: an agent
+   * registers hostels and collects the first payment, and has no business in
+   * the superadmin portal or inside any one hostel's workspace. Superadmins are
+   * allowed through as well, since they are the ones who invite agents and need
+   * to see what the desk actually looks like.
+   */
+  {
+    prefix: "/team",
+    roles: [Role.PLATFORM_AGENT, Role.SUPERADMIN],
+  },
   {
     prefix: "/hostel-admin",
     roles: [Role.HOSTEL_ADMIN, Role.WARDEN],
@@ -82,6 +95,7 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
 export const roleLandingPath: Record<Role, string> = {
   [Role.SUPERADMIN]: "/platform/dashboard",
   [Role.PLATFORM_MODERATOR]: "/platform/dashboard",
+  [Role.PLATFORM_AGENT]: "/team",
   [Role.HOSTEL_ADMIN]: "/hostel-admin/dashboard",
   [Role.WARDEN]: "/hostel-admin/dashboard",
   [Role.COOK]: "/",
@@ -91,8 +105,9 @@ export const roleLandingPath: Record<Role, string> = {
 };
 
 export const roleAllowedNextPrefixes: Partial<Record<Role, string[]>> = {
-  [Role.SUPERADMIN]: ["/platform"],
+  [Role.SUPERADMIN]: ["/platform", "/team"],
   [Role.PLATFORM_MODERATOR]: ["/platform"],
+  [Role.PLATFORM_AGENT]: ["/team"],
   [Role.HOSTEL_ADMIN]: ["/hostel-admin"],
   [Role.WARDEN]: ["/hostel-admin"],
   [Role.RESIDENT]: ["/resident"],

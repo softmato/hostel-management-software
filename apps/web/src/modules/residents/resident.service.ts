@@ -174,6 +174,9 @@ function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string)
   };
 }
 
+/** The login behind a resident row, when they have activated one. */
+type ResidentAccount = { email: string; image: string | null; name: string };
+
 function serializeResident(resident: ResidentRecord) {
   return {
     /** What was levied at intake. Null — not zero — when none was. */
@@ -1030,20 +1033,31 @@ async function findResidentAccounts(residents: ResidentRecord[]) {
     .filter((userId): userId is Types.ObjectId => Boolean(userId));
 
   if (userIds.length === 0) {
-    return new Map<string, { email: string; name: string }>();
+    return new Map<string, ResidentAccount>();
   }
 
   const users = await UserModel.find({
     _id: { $in: userIds },
     isDeleted: { $ne: true },
   })
-    .select("_id email name")
-    .lean<{ _id: Types.ObjectId; email?: string; name?: string }[]>();
+    .select("_id email image name")
+    .lean<{ _id: Types.ObjectId; email?: string; image?: string; name?: string }[]>();
 
   return new Map(
     users.map((user) => [
       user._id.toString(),
-      { email: user.email ?? "", name: user.name ?? "" },
+      {
+        email: user.email ?? "",
+        /*
+         * Their face. It is a URL, not bytes — `/api/v1/users/<id>/avatar` for
+         * the photo they put on their ID card, or whatever their sign-in
+         * provider stored. The card photo is the picture this product shows for
+         * a person everywhere, so a roster row and their own header draw the
+         * same one.
+         */
+        image: user.image ?? null,
+        name: user.name ?? "",
+      },
     ]),
   );
 }
@@ -1112,9 +1126,20 @@ export async function getResidentById(
   await connectToDatabase();
 
   const resident = await findResidentForPrincipal(residentId, principal, query.hostelId);
+  /*
+   * The same join the list does, for one row. The dossier is where a warden
+   * checks a record against a person, so it needs the same two things the list
+   * needs: the address they actually sign in with, and their photograph.
+   */
+  const accounts = await findResidentAccounts([resident]);
 
   return {
-    resident: serializeResident(resident),
+    resident: {
+      ...serializeResident(resident),
+      account: resident.userId
+        ? (accounts.get(resident.userId.toString()) ?? null)
+        : null,
+    },
   };
 }
 

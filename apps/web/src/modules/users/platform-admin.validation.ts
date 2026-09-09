@@ -16,11 +16,49 @@ export const platformAdminRoleUpdateSchema = z.object({
   role: platformAdminRoleSchema,
 });
 
+/**
+ * Every role an invitation may grant.
+ *
+ * Wider than `platformAdminRoleSchema`, which stays as it is because it also
+ * guards *changing* an existing admin's grade — a field agent is not a rung on
+ * that ladder and must not be reachable by editing somebody's admin level.
+ */
+export const invitableRoleSchema = z.enum([
+  Role.SUPERADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.PLATFORM_AGENT,
+]);
+
 export const platformAdminInviteSchema = z.object({
   email: z.string().trim().email(),
   name: z.string().trim().max(120).optional(),
   phone: z.string().trim().max(40).optional(),
-  role: platformAdminRoleSchema,
+  role: invitableRoleSchema,
+});
+
+/**
+ * Several invitations in one submission.
+ *
+ * The team is hired in batches — a superadmin pastes in the addresses of the
+ * people who started this week — so the screen takes a list and this takes a
+ * list. Capped at twenty because beyond that it stops being a form and starts
+ * being an import, and an import needs a preview and a dry run that this does
+ * not have.
+ *
+ * Sending is deliberately **not** all-or-nothing: see `invitePlatformAdmins`.
+ */
+export const platformAdminBulkInviteSchema = z.object({
+  invitations: z
+    .array(
+      z.object({
+        email: z.string().trim().email(),
+        name: z.string().trim().max(120).optional(),
+        phone: z.string().trim().max(40).optional(),
+      }),
+    )
+    .min(1, "Add at least one address.")
+    .max(20, "Send at most twenty invitations at a time."),
+  role: invitableRoleSchema,
 });
 
 export const platformAdminEmailCheckSchema = z.object({

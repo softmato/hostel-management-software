@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   hostelFindOne: vi.fn(),
   hostelFindOneAndUpdate: vi.fn(),
+  subscriptionFindOne: vi.fn(),
   materializeRoomsFromConfigurations: vi.fn(),
   provisionCookAccount: vi.fn(),
   registerOrUpgradeUserByEmail: vi.fn(),
@@ -33,6 +34,15 @@ vi.mock("@hostel/db/models/Hostel", () => ({
 
 vi.mock("@hostel/db/models/HostelApplication", () => ({
   HostelApplicationModel: { updateMany: mocks.applicationUpdateMany },
+}));
+
+/*
+ * Approval now reads the subscription, because the "you are verified" email
+ * names the plan the owner chose while they were waiting. It is only ever read
+ * here — approval never writes billing state.
+ */
+vi.mock("@hostel/db/models/HostelSubscription", () => ({
+  HostelSubscriptionModel: { findOne: mocks.subscriptionFindOne },
 }));
 
 vi.mock("@hostel/db/models/HostelVerification", () => ({
@@ -112,6 +122,7 @@ describe("hostel approval issues cook credentials", () => {
     vi.clearAllMocks();
     mocks.hostelFindOneAndUpdate.mockReturnValue(leanResult(hostelRecord()));
     mocks.hostelFindOne.mockReturnValue(queryResult(hostelRecord()));
+    mocks.subscriptionFindOne.mockReturnValue(queryResult(null));
     mocks.userFindOne.mockReturnValue(
       leanResult({ _id: ownerId, email: "owner@example.com", name: "Owner" }),
     );

@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
 import {
@@ -15,6 +15,7 @@ import {
   ServiceGrid,
   WaitingActions,
 } from "@/components/admin-home";
+import { SubscriptionDueCard } from "@/components/subscription-due";
 import { SectionHeader } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
@@ -23,11 +24,17 @@ import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
 import { buildAlertFeed, occupancyRate } from "@/lib/admin-alerts";
 import { earningsSummary, listingState, monthOverMonth } from "@/lib/admin-home";
+import { payHostelSubscription } from "@/lib/admin-api";
+import { formatMoney } from "@/lib/format";
+import { readApiError } from "@/lib/api-contract";
 import {
   type AdminOverview,
   adminQuery,
   prefetchAdminRoute,
 } from "@/lib/admin-queries";
+import { openConfirm } from "@/lib/confirm";
+
+import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
  * The hostel at a glance — and the first screen a hostel owner ever sees.
@@ -99,10 +106,61 @@ export default function AdminHomeScreen() {
    * in `lib/admin-queries.ts` for why that is a requirement rather than a tidy-up.
    */
   const query = adminQuery.overview();
+  /*
+   * Only a team-registered hostel ever has anything here, so this resolves to
+   * `null` for almost every owner and the card renders nothing. It is read on
+   * Home rather than buried in Money because a due with a deadline is news, and
+   * news belongs on the screen that opens first.
+   */
+  const dueQuery = adminQuery.subscription();
+  const due = useResource(dueQuery.load, {
+    cacheKey: dueQuery.key,
+    topics: dueQuery.topics,
+  });
+
   const overview = useResource<AdminOverview>(query.load, {
     cacheKey: query.key,
     topics: query.topics,
   });
+
+  const [payingDue, setPayingDue] = useState(false);
+
+  /**
+   * Settles the plan balance from the card.
+   *
+   * Behind a confirm because it moves money, and the dialog states plainly that
+   * Fonepay is not connected yet — an owner tapping this needs to know that what
+   * it records is the agreement, not a card charge they can look up in their
+   * bank app tomorrow.
+   */
+  const payDue = useCallback(() => {
+    const outstanding = due.data?.outstanding ?? 0;
+    const hostelId = due.data ? overview.data?.hostel?.id : null;
+
+    if (!hostelId || outstanding <= 0) {
+      return;
+    }
+
+    openConfirm({
+      cancelLabel: "Not now",
+      confirmLabel: "Record payment",
+      message: `This records ${formatMoney(outstanding)} against your plan. Online payment is not connected yet, so use this only once you have actually paid.`,
+      onConfirm: async () => {
+        setPayingDue(true);
+
+        try {
+          await payHostelSubscription(hostelId, outstanding);
+          toastSuccess("Payment recorded");
+          await due.reload();
+        } catch (error) {
+          toastError("Could not record it", readApiError(error));
+        } finally {
+          setPayingDue(false);
+        }
+      },
+      title: "Settle your plan balance?",
+    });
+  }, [due, overview.data?.hostel?.id]);
 
   const alerts = useAdminAlerts();
   const actions = useAlertActions();
@@ -251,6 +309,12 @@ export default function AdminHomeScreen() {
         </View>
 
         <View className="gap-6 px-5 pt-6">
+          <SubscriptionDueCard
+            busy={payingDue}
+            onPay={payDue}
+            state={due.data ?? null}
+          />
+
           {sosRows.length > 0 ? (
             <View className="gap-3">
               {sosRows.map((row) => (

@@ -35,9 +35,22 @@ const platformAdminInviteSchema = new Schema(
     /** Optional pre-fill; the recipient can give their own name on accept. */
     name: { trim: true, type: String },
     phone: { trim: true, type: String },
-    /** The grade this invitation grants once accepted. */
+    /**
+     * The grade this invitation grants once accepted.
+     *
+     * `PLATFORM_AGENT` — a member of the field team — rides in this collection
+     * rather than one of its own, because everything this model exists to get
+     * right is identical for them: nothing on the roster until the link is
+     * opened, and a hash rather than a working link at rest. What differs is
+     * only what the grant is worth, and that is the value of this field.
+     *
+     * Accepting works identically for all three: the account is minted with no
+     * password at all and the first Google sign-in on that address activates it.
+     * The invitation is what marks the address as staff; Google is what proves
+     * the person.
+     */
     role: {
-      enum: [Role.SUPERADMIN, Role.PLATFORM_MODERATOR],
+      enum: [Role.SUPERADMIN, Role.PLATFORM_MODERATOR, Role.PLATFORM_AGENT],
       required: true,
       type: String,
     },

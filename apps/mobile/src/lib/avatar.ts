@@ -3,9 +3,12 @@
  *
  * Split out for the same reason `lib/status.ts` is: Vitest runs node-side with
  * no React Native shim, so anything importing `react-native` cannot be tested —
- * and the initial and the tone are exactly the parts worth testing. A name that
- * starts with a space, an emoji, or nothing at all all reach this.
+ * and the initial, the tone and the photo URL are exactly the parts worth
+ * testing. A name that starts with a space, an emoji, or nothing at all all
+ * reach this.
  */
+
+import { absoluteMediaUrl } from "@/lib/media";
 
 /**
  * One letter, matching the web (`community-post-card.tsx`).
@@ -54,4 +57,41 @@ export function avatarToneIndex(name: string | null | undefined, buckets: number
   }
 
   return hash % buckets;
+}
+
+/**
+ * An `<Image source>` for whatever a `User.image` holds.
+ *
+ * ## Two kinds of value live in that one field
+ *
+ * A card photo is stored as `/api/v1/users/<id>/avatar?v=…` — our own origin,
+ * behind auth. A Google sign-in stores `https://lh3.googleusercontent.com/…`.
+ * A phone has no page origin to resolve the first against, so it renders
+ * nothing at all and silently falls back to the initial; that is why an account
+ * with a photograph still showed a letter in the app while the web showed the
+ * face.
+ *
+ * ## The bearer token goes to our origin and nowhere else
+ *
+ * Attaching `Authorization` to an absolute URL would hand this user's access
+ * token to whatever host is in it — a third party we do not control, on every
+ * avatar render. Only a relative path is ours, and only a relative path gets
+ * the header.
+ */
+export function avatarPhotoSource(
+  image: string | null | undefined,
+  options: { baseUrl: string; token?: string | null },
+): { headers?: Record<string, string>; uri: string } | null {
+  const uri = absoluteMediaUrl(image, options.baseUrl);
+
+  if (!uri) {
+    return null;
+  }
+
+  const ours = (image ?? "").trim().startsWith("/");
+
+  return {
+    headers: ours && options.token ? { Authorization: `Bearer ${options.token}` } : undefined,
+    uri,
+  };
 }

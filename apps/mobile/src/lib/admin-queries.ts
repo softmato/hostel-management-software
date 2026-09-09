@@ -51,6 +51,7 @@ import { REALTIME_TOPIC } from "@/constants/topics";
 import {
   type AdminAlerts,
   type AdminHostel,
+  type AdminSubscription,
   type AdminInvoiceMatrix,
   type AdminMaintenance,
   type AdminNightStatus,
@@ -65,6 +66,7 @@ import {
   getAdminCommunityModeration,
   getAdminFoodRoutine,
   getAdminHostel,
+  getAdminSubscription,
   getAdminInvoices,
   getAdminLedger,
   getAdminMaintenance,
@@ -493,6 +495,20 @@ export const adminQuery = {
       "admin:managed-hostel",
       [REALTIME_TOPIC.HOSTELS, REALTIME_TOPIC.ROOMS],
       () => getManagedHostel(),
+    ),
+
+  /**
+   * The plan balance behind Home's due banner.
+   *
+   * Keyed on `PAYMENTS` so settling the due from the banner repaints it without
+   * a pull-to-refresh, and on `HOSTELS` because a subscription that activates
+   * changes the listing's own state alongside it.
+   */
+  subscription: (): AdminQuery<AdminSubscription | null> =>
+    define(
+      "admin:subscription",
+      [REALTIME_TOPIC.PAYMENTS, REALTIME_TOPIC.HOSTELS],
+      () => getAdminSubscription().catch(() => null),
     ),
 
   money: (period: string): AdminQuery<AdminMoneyData> =>

@@ -39,6 +39,20 @@ export const operationsConfigSchema = z.object({
    * itself, so lowering this shortens the run-up rather than removing notices.
    */
   paymentReminderDaysBefore: z.number().int().min(0).max(30).default(7),
+  /**
+   * How long a hostel has to clear a plan shortfall before the due bites.
+   *
+   * Only a team-filed registration can owe anything: the agent publishes the
+   * hostel on the strength of having met the owner, and whatever was not
+   * collected that day becomes a due with this many days on it. A public
+   * registration never reaches the state, because it does not publish until it
+   * has paid.
+   *
+   * Configurable rather than fixed because it is a commercial term, not a
+   * technical one — the number a field team can promise an owner is the
+   * platform's call, and it will change without any code needing to.
+   */
+  subscriptionDueGraceDays: z.number().int().min(1).max(180).default(15),
   sendComplaintEmails: z.boolean().default(true),
   qrActivationExpiryDays: z.number().int().min(1).max(60).default(7),
   receiptNumberPrefix: z.string().trim().min(1).max(10).default("RCP"),

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { HostelAdminAttendancePageContent } from "@/app/_components/hostel-admin-attendance-page";
+import { HostelAdminBillingPageContent } from "@/app/_components/hostel-admin-billing-page";
 import { HostelAdminCommunityPageContent } from "@/app/_components/hostel-admin-community-page";
 import { HostelAdminComplaintsPage } from "@/app/_components/hostel-admin-complaints-page";
 import { HostelAdminDashboardPageContent } from "@/app/_components/hostel-admin-dashboard-page";
@@ -34,6 +35,10 @@ import { NotificationsPageContent } from "@/app/_components/notifications-page";
  */
 export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> = {
   attendance: () => <HostelAdminAttendancePageContent />,
+  // The hostel's own plan paperwork, from Softmato. Distinct from `payments`,
+  // which is residents paying this hostel — a different direction of money and
+  // a different merchant of record.
+  billing: () => <HostelAdminBillingPageContent />,
   community: () => <HostelAdminCommunityPageContent />,
   complaints: () => <HostelAdminComplaintsPage />,
   dashboard: () => <HostelAdminDashboardPageContent />,

@@ -1,0 +1,254 @@
+"use client";
+
+import { AlertTriangle, Building2, Plus, Wallet } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+import { browserApi } from "@/lib/browser-api";
+import { cn } from "@/lib/utils";
+
+/**
+ * An agent's own desk: what they have filed, and what is still owed on it.
+ *
+ * Deliberately plain. This is a work surface somebody opens twenty times a day
+ * standing in a corridor, so it is a number row and a table — no hero, no
+ * illustration, no explanatory prose about what the field team does. The person
+ * reading it is the field team.
+ *
+ * ## Why "cash in hand" is its own figure
+ *
+ * `collected` includes Fonepay payments, which went straight to the platform's
+ * merchant account and never touched the agent. `cashCollected` is the money
+ * that physically passed through their hands, and it is the only one that is
+ * ever a conversation about reconciliation — so it is shown separately rather
+ * than rolled into a single total that would misstate what they are answerable
+ * for.
+ */
+
+type Registration = {
+  area: string;
+  cashCollected: number;
+  city: string;
+  dueBy: string | null;
+  hostelId: string;
+  hostelName: string;
+  hostelStatus: string;
+  onlineCollected: number;
+  outstanding: number;
+  paid: number;
+  planName: string;
+  price: number;
+  registeredAt: string | null;
+  slug: string;
+  subscriptionStatus: string;
+};
+
+type Summary = {
+  cashCollected: number;
+  collected: number;
+  hostelsRegistered: number;
+  outstanding: number;
+  pastDue: number;
+};
+
+function rupees(amount: number) {
+  return `Rs ${amount.toLocaleString("en-IN")}`;
+}
+
+function Stat({
+  emphasis,
+  icon: Icon,
+  label,
+  value,
+}: {
+  emphasis?: "warning";
+  icon: typeof Wallet;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="app-card p-4">
+      <div className="flex items-center gap-2">
+        <Icon
+          className={cn(
+            "size-4",
+            emphasis === "warning" ? "text-warning" : "text-brand-teal",
+          )}
+        />
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
+      </div>
+      <p
+        className={cn(
+          "mt-2 text-2xl font-bold tabular-nums",
+          emphasis === "warning" ? "text-warning" : "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+export function TeamDeskPage() {
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [list, stats] = await Promise.all([
+          browserApi<{ registrations: Registration[] }>("/api/v1/team/hostels"),
+          browserApi<{ summary: Summary }>("/api/v1/team/summary"),
+        ]);
+
+        setRegistrations(list.registrations);
+        setSummary(stats.summary);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    void load();
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">My desk</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Every hostel you have registered, and what it still owes.
+          </p>
+        </div>
+        <Link
+          className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
+          href="/team/register"
+        >
+          <Plus className="size-4" /> Register a hostel
+        </Link>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat
+          icon={Building2}
+          label="Registered"
+          value={String(summary?.hostelsRegistered ?? 0)}
+        />
+        <Stat
+          icon={Wallet}
+          label="Cash in hand"
+          value={rupees(summary?.cashCollected ?? 0)}
+        />
+        <Stat icon={Wallet} label="Collected" value={rupees(summary?.collected ?? 0)} />
+        <Stat
+          emphasis="warning"
+          icon={AlertTriangle}
+          label="Outstanding"
+          value={rupees(summary?.outstanding ?? 0)}
+        />
+      </div>
+
+      <div className="app-card overflow-hidden">
+        {loading ? (
+          <div className="space-y-3 p-5">
+            {[0, 1, 2].map((row) => (
+              <div className="h-10 animate-pulse rounded bg-muted" key={row} />
+            ))}
+          </div>
+        ) : registrations.length === 0 ? (
+          <div className="p-10 text-center">
+            <Building2 className="mx-auto size-8 text-muted-foreground/40" />
+            <p className="mt-3 text-sm font-semibold text-foreground">
+              You have not registered a hostel yet
+            </p>
+            <Link
+              className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              href="/team/register"
+            >
+              <Plus className="size-4" /> Register your first
+            </Link>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Hostel
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Plan
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Collected
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Outstanding
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {registrations.map((row) => (
+                  <tr key={row.hostelId}>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-foreground">{row.hostelName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[row.area, row.city].filter(Boolean).join(", ")}
+                        {row.registeredAt
+                          ? ` · ${new Date(row.registeredAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                          : ""}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{row.planName}</td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-foreground">
+                      {rupees(row.paid)}
+                      {row.cashCollected > 0 ? (
+                        <span className="block text-[11px] font-normal text-muted-foreground">
+                          {rupees(row.cashCollected)} cash
+                        </span>
+                      ) : null}
+                    </td>
+                    <td
+                      className={cn(
+                        "px-4 py-3 text-right font-semibold tabular-nums",
+                        row.outstanding > 0 ? "text-warning" : "text-muted-foreground",
+                      )}
+                    >
+                      {row.outstanding > 0 ? rupees(row.outstanding) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold",
+                          row.subscriptionStatus === "ACTIVE"
+                            ? "bg-success/10 text-success"
+                            : row.subscriptionStatus === "PAST_DUE"
+                              ? "bg-warning/10 text-warning"
+                              : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {row.subscriptionStatus === "PAST_DUE"
+                          ? row.dueBy
+                            ? `Due ${new Date(row.dueBy).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                            : "Past due"
+                          : row.subscriptionStatus === "ACTIVE"
+                            ? "Paid"
+                            : row.subscriptionStatus}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -17,6 +17,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
@@ -172,6 +173,8 @@ export default function ManageResidentScreen() {
     () => (resident ? `${resident.firstName} ${resident.lastName}`.trim() : ""),
     [resident],
   );
+
+  const photo = useAvatarSource()(resident?.account?.image);
 
   const { reload } = data;
 
@@ -358,7 +361,19 @@ export default function ManageResidentScreen() {
       <View className="gap-5 pt-1">
         <Card className="gap-3">
           <View className="flex-row items-center gap-3">
-            <Avatar name={fullName} size="lg" />
+            {/*
+              Their own photograph — the one they put on their ID card, which is
+              the picture this product shows for a person everywhere. It is what
+              lets a warden check the record in their hand against the person in
+              front of them; the initial circle is the fallback for the majority
+              who have not uploaded one.
+            */}
+            <Avatar
+              headers={photo?.headers}
+              name={fullName}
+              size="lg"
+              uri={photo?.uri}
+            />
 
             <View className="flex-1">
               <Text variant="subtitle">{fullName}</Text>
@@ -609,7 +624,12 @@ export default function ManageResidentScreen() {
       <Sheet onClose={() => setPanel(null)} open={panel === "details"} title={fullName}>
         <View className="gap-5 pb-2">
           <View className="flex-row items-center gap-3">
-            <Avatar name={fullName} size="lg" />
+            <Avatar
+              headers={photo?.headers}
+              name={fullName}
+              size="lg"
+              uri={photo?.uri}
+            />
             <View className="flex-1 gap-1">
               <Text variant="subtitle">{fullName}</Text>
               <View className="flex-row flex-wrap items-center gap-2">

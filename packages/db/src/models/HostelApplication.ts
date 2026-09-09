@@ -10,6 +10,27 @@ const hostelApplicationSchema = new Schema(
       enum: ["PENDING", "APPROVED", "REJECTED", "NEEDS_MORE_INFO"],
       default: "PENDING",
     },
+    /**
+     * Which desk this application came in at, and the reason the two behave
+     * differently.
+     *
+     * `PUBLIC` is an owner filing for themselves: it queues, a superadmin reads
+     * the documents, and the hostel publishes only once the plan is paid for.
+     *
+     * `TEAM` is one of our own field staff filing on the owner's behalf, having
+     * met them and seen the papers. The review this queue exists to perform has
+     * already happened in person, so a team application is approved, verified
+     * and published on submission, and any shortfall in what was collected
+     * becomes a due rather than a barrier.
+     *
+     * It is stored rather than inferred from `submittedByAgentId` being set,
+     * because "who filed it" and "what rules it plays by" are separate facts —
+     * an agent who later loses their role must not retroactively turn a
+     * published hostel back into a queued one.
+     */
+    source: { type: String, enum: ["PUBLIC", "TEAM"], default: "PUBLIC" },
+    /** The field-team member who filed it. Null on a public application. */
+    submittedByAgentId: { ref: "User", default: null, type: Schema.Types.ObjectId },
     reviewedBy: { ref: "User", type: Schema.Types.ObjectId },
     reviewedAt: Date,
     rejectionReason: { type: String, trim: true },
@@ -41,6 +62,7 @@ const hostelApplicationSchema = new Schema(
 hostelApplicationSchema.index({ hostelId: 1, status: 1 });
 hostelApplicationSchema.index({ applicantId: 1, status: 1 });
 hostelApplicationSchema.index({ status: 1, createdAt: -1 });
+hostelApplicationSchema.index({ submittedByAgentId: 1, createdAt: -1 });
 
 export const HostelApplicationModel =
   models.HostelApplication || model("HostelApplication", hostelApplicationSchema);

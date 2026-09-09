@@ -161,6 +161,25 @@ export async function requireSuperadminPrincipal(request: NextRequest) {
   return principal;
 }
 
+/**
+ * The field team's desk.
+ *
+ * `PLATFORM_AGENT` registers hostels and collects the first payment;
+ * `SUPERADMIN` is admitted too, because superadmins invite agents and have to
+ * be able to see and use what they gave them. `PLATFORM_MODERATOR` is
+ * deliberately absent — moderating content carries no authority to take money.
+ *
+ * Mirrors `protectedRouteRules` for `/team`, so the edge and the API agree on
+ * who belongs there.
+ */
+export async function requireTeamPrincipal(request: NextRequest) {
+  const principal = await requireApiPrincipal(request);
+
+  assertApiRoles(principal, [Role.PLATFORM_AGENT, Role.SUPERADMIN]);
+
+  return principal;
+}
+
 export async function requireHostelStaffPrincipal(request: NextRequest) {
   const principal = await requireApiPrincipal(request);
 

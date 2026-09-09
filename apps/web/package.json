@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3100",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -28,6 +28,7 @@
     "backfill:resident-accounts": "node scripts/backfill-resident-accounts.mjs",
     "backfill:fileasset-hostel": "node scripts/backfill-fileasset-hostel.mjs",
     "backfill:photo-url-origins": "node scripts/backfill-photo-url-origins.mjs",
+    "backfill:card-avatars": "node scripts/backfill-card-avatars.mjs",
     "repair:archived-residents": "node scripts/repair-archived-residents.mjs",
     "check:duplicate-resident-emails": "node scripts/find-duplicate-resident-emails.mjs",
     "migrate:r2-buckets": "node scripts/migrate-r2-buckets.mjs",
@@ -41,7 +42,11 @@
     "send:test-emails": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/send-test-emails.ts",
     "migrate:bs-periods": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/migrate-periods-to-bikram-sambat.mjs",
     "evidence:fixtures": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/make-evidence-fixtures.ts",
-    "evidence:score": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/score-evidence-engines.ts"
+    "evidence:score": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/score-evidence-engines.ts",
+    "check:public-registration": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-public-registration.mjs",
+    "check:team-registration": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-team-registration.mjs",
+    "dev:mint-session": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-mint-session.mjs",
+    "check:softmato": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-softmato.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",
@@ -49,6 +54,7 @@
     "@hostel/db": "*",
     "@hostel/shared": "*",
     "@napi-rs/canvas": "^1.0.3",
+    "@softmato/sdk": "^0.1.2",
     "@tanstack/react-query": "^5.101.4",
     "@types/papaparse": "^5.5.2",
     "@types/qrcode": "^1.5.6",
@@ -73,6 +79,7 @@
     "radix-ui": "^1.6.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "server-only": "^0.0.1",
     "shadcn": "^4.11.0",
     "sharp": "^0.35.3",
     "tailwind-merge": "^3.6.0",

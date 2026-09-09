@@ -31,6 +31,7 @@
 
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
+import type { ResidentAccount } from "@/lib/admin-manage-api";
 import type { CommunityMedia } from "@/lib/community-api";
 import type { FoodRoutine } from "@/lib/resident-api";
 
@@ -85,6 +86,60 @@ export type AdminHostel = {
   status: string;
   verificationStatus: string;
 };
+
+/**
+ * What this hostel owes the platform for its plan, if anything.
+ *
+ * Only a hostel our field team registered can owe anything: an agent publishes
+ * the listing on the strength of having met the owner, and whatever they did not
+ * collect that day becomes a due. A hostel that registered itself paid before it
+ * was published, so this comes back `null` for almost every reader — which is
+ * exactly why the banner that uses it renders nothing at all rather than an
+ * empty state.
+ */
+export type AdminSubscription = {
+  invoice: { id: string; invoiceNumber: string } | null;
+  outstanding: number;
+  subscription: {
+    dueBy: string | null;
+    planName: string | null;
+    status: string;
+  };
+};
+
+export async function getAdminSubscription() {
+  const response =
+    await api.get<ApiEnvelope<{ state: AdminSubscription | null }>>(
+      "/hostel-admin/subscription",
+    );
+
+  return unwrap(response).state;
+}
+
+/**
+ * Settles the outstanding plan balance.
+ *
+ * Two calls because that is what the endpoint is: `open` reserves the payment
+ * and hands back what a payer would scan, `confirm` records that the money
+ * arrived. While Fonepay is mocked there is nothing to scan between them, so
+ * this runs both — and the sheet that calls it says so in as many words rather
+ * than implying a gateway ran.
+ *
+ * When the real gateway lands, `confirm` becomes its callback and this function
+ * stops at `open`; the split already exists so that change reaches one file.
+ */
+export async function payHostelSubscription(hostelId: string, amount: number) {
+  const opened = await api.post<
+    ApiEnvelope<{ mocked: boolean; payment: { id: string } }>
+  >(`/hostel-registration/${hostelId}/pay`, { action: "open", amount });
+
+  const { payment } = unwrap(opened);
+
+  await api.post<ApiEnvelope<unknown>>(`/hostel-registration/${hostelId}/pay`, {
+    action: "confirm",
+    paymentId: payment.id,
+  });
+}
 
 export async function getAdminHostel() {
   const response =
@@ -240,6 +295,8 @@ export type AdminSosAlert = {
 };
 
 export type AdminResident = {
+  /** Null until they activate a login. See {@link ResidentAccount}. */
+  account?: ResidentAccount | null;
   email: string;
   firstName: string;
   id: string;

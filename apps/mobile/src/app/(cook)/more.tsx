@@ -16,6 +16,7 @@ import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { endSession } from "@/lib/auth-session";
@@ -69,6 +70,7 @@ import { setThemePreference } from "@/store/slices/uiSlice";
 export default function CookMoreScreen() {
   const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
+  const photo = useAvatarSource()(account?.image);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
@@ -140,7 +142,12 @@ export default function CookMoreScreen() {
           it says so in the same breath.
         */}
         <Card className="flex-row items-center gap-3">
-          <Avatar name={account?.name ?? "Kitchen"} size="lg" />
+          <Avatar
+            headers={photo?.headers}
+            name={account?.name ?? "Kitchen"}
+            size="lg"
+            uri={photo?.uri}
+          />
 
           <View className="flex-1 gap-0.5">
             <Text numberOfLines={1} variant="subtitle">
