@@ -43,13 +43,21 @@
  * `com.googleusercontent.apps.123-abc` — so it is derived here rather than
  * written down twice and allowed to disagree with itself.
  *
- * It is registered **only when an iOS client id exists**, which today it does
- * not: `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is commented out in `.env` because
- * the client has not been created in Google Cloud yet. A plugin registered with
- * an empty scheme writes `CFBundleURLSchemes: [""]` into `Info.plist`, which
- * iOS treats as a malformed entry, so the conditional is load-bearing rather
- * than tidiness. Set the variable — in `.env` and on EAS — and the scheme
- * appears on the next build with nothing else to change.
+ * It is registered only when `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is set — in
+ * `apps/mobile/.env` for local work and as an EAS environment variable for
+ * cloud builds, which have no `.env` to read. The conditional is load-bearing
+ * rather than tidiness: the library's plugin *throws* on a missing or
+ * malformed `iosUrlScheme`, so registering it unconditionally would turn a
+ * fresh clone with no `.env` — which is every fresh clone, the file is
+ * gitignored — into a config that cannot even be resolved, on Android too.
+ *
+ * **The variable is part of the update fingerprint.** `runtimeVersion.policy`
+ * is `fingerprint`, and the fingerprint hashes this function's *output*, so
+ * setting or clearing the variable moves the runtime version on both platforms
+ * even though the plugin only ever touches `Info.plist`. `.env` and the EAS
+ * environment therefore have to agree: a fingerprint computed on a laptop whose
+ * `.env` disagrees with EAS will not match any build, and every update
+ * published from it reaches nothing. See `docs/MOBILE_RELEASE.md` §3.3.
  */
 
 /**

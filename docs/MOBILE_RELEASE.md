@@ -85,24 +85,61 @@ and points at the deployed API.
 
 ### 2.2 iOS — install and test
 
-Ad-hoc distribution names the exact devices it is allowed to install on, so the
-iPhone has to be registered **before** the build. A build made first will not
-install on a device registered afterwards; you would have to build again.
+There is no iOS equivalent of "send someone the APK". Apple authorises every
+install, and the two ways it does so are the two profiles above.
+
+Either way, **the membership has to be paid and active first**. Apple issues no
+distribution certificate without one, so EAS cannot build at all — see §5.
+
+On the first iOS build EAS asks for the Apple ID and then creates the
+distribution certificate, the provisioning profile and the push key itself. It
+also registers the **Associated Domains** capability, because `app.json`
+declares one.
+
+#### TestFlight — `store-ios`
+
+Apple hosts the build and the tester installs Apple's TestFlight app. Nothing to
+register, nothing for the tester to do but tap a link, and it exercises the same
+pipeline as a real submission — so certificate and App Store Connect problems
+surface now rather than on release day.
+
+```bash
+eas build --profile store-ios --platform ios
+eas submit --profile production --platform ios
+```
+
+The app record in App Store Connect has to exist; `eas submit` offers to create
+it. Testers are then added there:
+
+- **Internal** (up to 100) need an App Store Connect user role on your team, and
+  get the build within minutes of processing. No review.
+- **External** (up to 10,000) need only an email or a public link, but the
+  *first* build sent to them goes through a Beta App Review — usually about a
+  day, and far lighter than App Store review. Later builds are immediate.
+
+#### Ad-hoc — `production-ios`
+
+Apple installs only onto a list of devices you registered in advance, by UDID.
+No review at any point, so it is the fastest way to iterate, at the cost of a
+fiddlier step for whoever is testing.
+
+The device has to be registered **before** the build — a build made first will
+not install on a device registered afterwards, and you would have to build
+again.
 
 ```bash
 eas device:create
 ```
 
-Pick the "website" method, open the link on the iPhone, install the profile it
-offers, and the UDID registers itself. Then:
+Pick the "website" method and send the link; opening it on the iPhone and
+installing the profile it offers registers the UDID. Then:
 
 ```bash
 eas build --profile production-ios --platform ios
 ```
 
-EAS will ask for the Apple ID on the first iOS build and create the
-distribution certificate, provisioning profile and push key itself. It will also
-add the **Associated Domains** capability, because `app.json` now declares one.
+The 100-device allowance resets only at annual renewal, so do not burn slots on
+devices that will not actually test.
 
 ### 2.3 Store artefacts — only when the tested build is good
 
@@ -184,11 +221,22 @@ npx expo-updates fingerprint:generate --platform android
 Compare it to the fingerprint on the build in the EAS dashboard. If they differ,
 the change needs a new binary, not an update.
 
-One non-obvious input: **`google-services.json` is part of the fingerprint.**
-The local copy and the one EAS writes from the `GOOGLE_SERVICES_JSON` file
-variable have to be byte-identical, or a fingerprint computed on this laptop
-will never match a build made in the cloud, and every update published from here
-will reach nothing. If the file is ever regenerated in the Firebase console,
+Two non-obvious inputs, and they share one failure:
+
+**`google-services.json` is part of the fingerprint**, and so is **every
+environment variable `app.config.js` reads** — today that is
+`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, which decides whether the Google sign-in
+plugin is registered. The fingerprint hashes the *resolved config*, not the
+native output, so a variable that only ever affects `Info.plist` still moves the
+runtime version on Android too.
+
+The consequence in both cases is the same: `apps/mobile/.env` and the EAS
+environment have to agree. A fingerprint computed on a laptop whose `.env`
+disagrees with EAS matches no build, and every update published from it reaches
+zero phones — silently, as always. `eas env:list --environment production` is
+the check.
+
+If `google-services.json` is ever regenerated in the Firebase console,
 re-upload it:
 
 ```bash
@@ -259,24 +307,27 @@ is why nothing is broken today — iOS simply never claims the domain.
 
 ---
 
-## 5. Still needed for the iOS build to be fully functional
+## 5. Prerequisites for the iOS build
 
-The build itself will succeed without these. These are features that will be
-missing or dead inside it.
+### Done
+
+**The iOS OAuth client exists** — `567374505362-ghbjtn0n1u4j6ccfb8ggsu3v5ui705m7`,
+a third client in the same Google Cloud project as the web and Android ones,
+bundle id `com.softmato.hostelhub`. It is set in `apps/mobile/.env` and as an EAS
+environment variable in all three environments, so Google sign-in is live on iOS.
+
+`app.config.js` derives the URL scheme from that id rather than storing it
+separately, which is worth knowing because the two *must* match and Google gives
+you both. The derived value was checked against the `REVERSED_CLIENT_ID` in the
+plist Google issued: identical.
+
+### Outstanding
 
 | What | Why | Where |
 |---|---|---|
-| An **iOS OAuth client** | Google sign-in needs its own client id on iOS, plus the URL scheme derived from it. Until it exists the button is hidden rather than broken — `app.config.js` registers the plugin and `google-auth.ts` shows the button the moment `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is set in `apps/mobile/.env` **and** on EAS. | Google Cloud project `567374505362` |
-| `APPLE_APP_ID_PREFIX` | Universal links — see §4.3. | Vercel env |
+| **An active paid membership** | Apple issues no distribution certificate without one, so there is no iOS build of any kind — TestFlight or ad-hoc — until the $99 clears. Verified documents alone is not enough. | Apple Developer |
+| `APPLE_APP_ID_PREFIX` | Universal links — see §4.3. Not needed to build. | Vercel env |
 | An **APNs key** | Push. EAS offers to create it during the first iOS build; accept. | EAS prompt |
-
-To add the iOS client id to EAS once it exists:
-
-```bash
-eas env:create --name EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID \
-  --value <the id> --type string --visibility plaintext \
-  --environment development --environment preview --environment production
-```
 
 ---
 

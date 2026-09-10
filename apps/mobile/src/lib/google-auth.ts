@@ -29,11 +29,13 @@
  * Android needs neither — the native module is autolinked and takes everything
  * from `configure()` at runtime.
  *
- * iOS does need that scheme, and `app.config.js` adds the plugin the moment
+ * iOS does need that scheme, and `app.config.js` adds the plugin when
  * `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is set, deriving the scheme from the id so
- * the two cannot disagree. Until the iOS client exists in Google Cloud the
- * variable is unset, the plugin is not registered, and
- * {@link isGoogleSignInAvailable} is false on iOS so the button is not drawn.
+ * the two cannot disagree. The iOS client now exists — it is a third client in
+ * the same project, alongside the web and Android ones — so on any build made
+ * with that variable set, the button is drawn and works. Where it is unset the
+ * plugin is not registered and {@link isGoogleSignInAvailable} is false on iOS,
+ * so the button is not drawn rather than failing on the tap.
  *
  * `android.googleServicesFile` in `app.json` does point at a
  * `google-services.json`, but that file is there for **push** (expo-notifications
