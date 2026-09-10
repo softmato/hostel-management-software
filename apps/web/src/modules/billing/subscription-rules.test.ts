@@ -116,6 +116,7 @@ vi.mock("@/modules/hostels/hostel-registration.events", () => ({
 import {
   SubscriptionError,
   getSubscriptionState,
+  graceDeadline,
   issueSubscriptionInvoice,
   selectPlan,
 } from "@/modules/billing/subscription.service";
@@ -436,6 +437,24 @@ describe("settling", () => {
     );
   });
 
+  /*
+   * A part payment used to set the due to "now plus the grace period", so each
+   * instalment bought another one. The deadline is the invoice's and stays put.
+   */
+  it("keeps the deadline the invoice was raised with when part paid", async () => {
+    const dueAt = new Date("2026-09-13T18:14:59.999Z");
+
+    arrangeSettlement({ amount: 1400, source: "TEAM" });
+    mocks.invoiceFindById.mockReturnValue(query(invoice({ dueAt })));
+
+    await settlePayment(paymentId.toString(), { actorId });
+
+    expect(mocks.subscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: subscriptionId },
+      { $set: { dueBy: dueAt, status: "PAST_DUE" } },
+    );
+  });
+
   it("does not publish a public hostel that has only part paid", async () => {
     arrangeSettlement({ amount: 2000, source: "PUBLIC" });
 
@@ -503,6 +522,23 @@ describe("settling", () => {
       }),
     ).rejects.toThrow(/not found/i);
     expect(mocks.paymentUpdateOne).not.toHaveBeenCalled();
+  });
+});
+
+describe("the grace deadline", () => {
+  it("is the end of the Nepal day, grace days after the invoice", () => {
+    // Added at 3:20 pm in Kathmandu on Bhadra 25, 2083 (10 Sep 2026): due by
+    // the last moment of Bhadra 28.
+    const added = new Date("2026-09-10T09:35:34Z");
+
+    expect(graceDeadline(added, 3).toISOString()).toBe("2026-09-13T18:14:59.999Z");
+  });
+
+  it("counts from the Nepal day, not the UTC one", () => {
+    // 11 pm UTC on the 9th is already 4:45 am on the 10th in Kathmandu.
+    const lateUtc = new Date("2026-09-09T23:00:00Z");
+
+    expect(graceDeadline(lateUtc, 3).toISOString()).toBe("2026-09-13T18:14:59.999Z");
   });
 });
 

@@ -42,6 +42,7 @@ import {
 import {
   getOrCreateSubscription,
   getSubscriptionState,
+  graceDeadline,
   issueSubscriptionInvoice,
   selectPlan,
 } from "@/modules/billing/subscription.service";
@@ -1426,11 +1427,17 @@ export async function registerTeamHostelApplication(
      * here rather than waiting for a settlement that is not coming — otherwise a
      * hostel filed with no payment would sit in `AWAITING_PAYMENT` with no
      * deadline and never raise a banner.
+     *
+     * The deadline is the invoice's own — the end of the Nepal day `grace` days
+     * after today, the day the hostel was added — so this path and a later part
+     * payment agree on it to the millisecond.
      */
-    const operations = await getOperationsConfig();
-    const dueBy = new Date();
-
-    dueBy.setDate(dueBy.getDate() + operations.subscriptionDueGraceDays);
+    const dueBy =
+      invoice.dueAt ??
+      graceDeadline(
+        invoice.issuedAt ?? new Date(),
+        (await getOperationsConfig()).subscriptionDueGraceDays,
+      );
 
     await HostelSubscriptionModel.updateOne(
       { hostelId: hostel._id },

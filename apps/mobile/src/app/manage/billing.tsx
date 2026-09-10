@@ -2,10 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
+import { PlanMark } from "@/components/plan-mark";
+import { PaintedAmount } from "@/components/portal-shared";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
-import { FactRow } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Meter } from "@/components/ui/meter";
 import { Money } from "@/components/ui/money";
@@ -15,7 +16,7 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useDates } from "@/hooks/use-dates";
+import { type PortalDates, useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import type {
   PlanBilling,
@@ -26,6 +27,8 @@ import type {
 import { adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { downloadToDevice } from "@/lib/documents";
+import { formatMoney } from "@/lib/format";
+import type { BadgeTone } from "@/lib/status";
 import { toastError } from "@/lib/toast";
 
 /**
@@ -40,23 +43,30 @@ import { toastError } from "@/lib/toast";
  * an owner reading "outstanding" here must never have to work out which of the
  * two debts it is.
  *
- * ## What an owner opens this for
+ * ## Three things, top to bottom
  *
- * Almost always one question: *how long have I got*. So the plan card is first,
- * the number is the largest thing on the screen, and everything under it is the
- * record that supports it. The documents matter — they are what an accountant
- * asks for — but nobody opens a billing screen on a phone to browse invoices.
+ * 1. **Which plan** — the plan's own mark from `/plans-pricing`, its name, the
+ *    cycle and price, and one status pill, on a card straddling the header
+ *    (NOTES §1). It lives in the header rather than the scroll body because
+ *    Android clips a `ScrollView`'s children to its bounds, and a card pulled up
+ *    by a negative margin inside one loses its top — `statement.tsx` learnt this.
+ * 2. **Pay by** — only while a balance is owed against a deadline: the day, on
+ *    red, with what is left to pay and what has been paid so far. Red is the
+ *    one colour this screen reserves for money genuinely owed; a plan merely
+ *    coming up for renewal never gets it.
+ * 3. **Days left** — a usage-style bar that fills as the window runs down: the
+ *    time to pay while something is owed, the paid period once it is not.
  *
- * ## Days, with the date under it
+ * Then the paperwork. No fact rows restating the pill, no "nothing paid for
+ * yet" — which read as a lie to an owner who had just handed an agent Rs 1,400.
  *
- * `daysRemaining` is computed on the **server** and printed, never recomputed
- * here. The website shows the same figure from the same field, and two clients
- * each flooring their own part-day is exactly how one screen says 12 and the
- * other says 11 on the same afternoon.
+ * ## Days are the server's
  *
- * The date sits beneath it in the reader's own calendar via `useDates`, because
- * the count is what makes an owner act and the date is what they put in a diary.
- * Neither is sufficient alone.
+ * `daysToDue` and `daysRemaining` are computed on the **server** and printed,
+ * never recomputed here. The website shows the same figures from the same
+ * fields, and two clients each flooring their own part-day is how one screen
+ * says 3 and the other says 2 on the same afternoon. The bar's proportion is
+ * drawn locally — it is a shape, not a number anybody quotes back.
  *
  * ## One list, switched, rather than two stacked
  *
@@ -70,11 +80,45 @@ import { toastError } from "@/lib/toast";
  *
  * `downloadToDevice` — the global downloader. The file lands in the user's own
  * folder with progress in the notification shade, which is what every other
- * document in this app does. A share sheet would make saving an invoice a
- * different gesture from saving a statement, for no reason.
+ * document in this app does.
  */
 
 type Tab = "invoices" | "receipts";
+
+/** How far the plan card rides up onto the painted bar, in points. */
+const STRADDLE = 26;
+
+/** The straddling card's lift. Without a shadow it reads as a hole in the paint. */
+const LIFT = {
+  elevation: 8,
+  shadowColor: "#000000",
+  shadowOffset: { height: 6, width: 0 },
+  shadowOpacity: 0.13,
+  shadowRadius: 16,
+} as const;
+
+/** Secondary text on the red block: the same white, stepped back. */
+const FADED = { opacity: 0.85 } as const;
+
+/**
+ * The pill for each subscription state, in the owner's words. Anything not
+ * listed falls back to the enum, lower-cased, rather than to nothing.
+ */
+const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
+  ACTIVE: { label: "Active", tone: "success" },
+  AWAITING_PAYMENT: { label: "Unpaid", tone: "warning" },
+  EXPIRED: { label: "Expired", tone: "danger" },
+  PAST_DUE: { label: "Payment due", tone: "danger" },
+};
+
+function statusOf(status: string) {
+  return (
+    STATUS[status] ?? {
+      label: status.replaceAll("_", " ").toLowerCase(),
+      tone: "neutral" as const,
+    }
+  );
+}
 
 /**
  * The document route, rebuilt against this build's API host.
@@ -103,6 +147,7 @@ export default function ManageBillingScreen() {
   });
 
   const data = billing.data;
+  const plan = data?.plan ?? null;
   const invoices = useMemo(() => data?.invoices ?? [], [data]);
   const payments = useMemo(() => data?.payments ?? [], [data]);
 
@@ -136,7 +181,23 @@ export default function ManageBillingScreen() {
     [],
   );
 
-  const header = <AppBar accent centerTitle showBack title="Billing" />;
+  /*
+   * The bar reserves room for the plan card only once there is a plan to put
+   * there. While loading, or for a hostel with no plan, it is the plain accent
+   * bar — reserved paint with nothing on it reads as a rendering fault.
+   */
+  const header = (
+    <View className="bg-background">
+      <AppBar
+        accent
+        centerTitle
+        showBack
+        straddle={plan ? STRADDLE : 0}
+        title="Billing"
+      />
+      {plan ? <PlanHead plan={plan} /> : null}
+    </View>
+  );
 
   if (billing.loading) {
     return (
@@ -160,190 +221,316 @@ export default function ManageBillingScreen() {
 
   return (
     <Screen header={header} scroll>
-      <View className="gap-5">
-          {data?.plan ? (
-            <PlanCard dateLong={dates.dateLong} plan={data.plan} />
-          ) : (
-            <EmptyCard
-              description="This hostel is not on a plan yet, so there is nothing to bill."
-              title="No plan"
-            />
-          )}
+      <View className="gap-5 pt-2">
+        {plan ? (
+          <Standing dates={dates} plan={plan} />
+        ) : (
+          <EmptyCard
+            description="This hostel is not on a plan yet, so there is nothing to bill."
+            title="No plan"
+          />
+        )}
 
-          <View>
-            <SectionHeader
-              subtitle="Every document we have issued for this hostel"
-              title="Paperwork"
-            />
+        <View>
+          <SectionHeader title="Paperwork" />
 
-            <Segmented
-              onChange={setTab}
-              options={[
-                { label: `Invoices (${invoices.length})`, value: "invoices" },
-                { label: `Receipts (${payments.length})`, value: "receipts" },
-              ]}
-              value={tab}
-            />
+          <Segmented
+            onChange={setTab}
+            options={[
+              { label: `Invoices (${invoices.length})`, value: "invoices" },
+              { label: `Receipts (${payments.length})`, value: "receipts" },
+            ]}
+            value={tab}
+          />
 
-            <View className="mt-3 gap-3">
-              {tab === "invoices" ? (
-                invoices.length === 0 ? (
-                  <EmptyCard
-                    description="Nothing has been billed for this hostel's plan yet."
-                    title="No invoices"
-                  />
-                ) : (
-                  invoices.map((invoice) => (
-                    <InvoiceCard
-                      busy={busy === invoice.invoiceNumber}
-                      dateLong={dates.dateLong}
-                      invoice={invoice}
-                      key={invoice.invoiceNumber}
-                      onDownload={() =>
-                        void grab(
-                          "invoice",
-                          invoice.invoiceNumber,
-                          invoice.invoiceNumber,
-                        )
-                      }
-                    />
-                  ))
-                )
-              ) : payments.length === 0 ? (
+          <View className="mt-3 gap-3">
+            {tab === "invoices" ? (
+              invoices.length === 0 ? (
                 <EmptyCard
-                  description="No payment has been received against a plan invoice yet."
-                  title="No receipts"
+                  description="Nothing has been billed for this hostel's plan yet."
+                  title="No invoices"
                 />
               ) : (
-                payments.map((payment, index) => {
-                  const key =
-                    payment.printedNumber ??
-                    payment.receiptNumber ??
-                    String(index);
+                invoices.map((invoice) => (
+                  <InvoiceCard
+                    busy={busy === invoice.invoiceNumber}
+                    dateLong={dates.dateLong}
+                    invoice={invoice}
+                    key={invoice.invoiceNumber}
+                    onDownload={() =>
+                      void grab(
+                        "invoice",
+                        invoice.invoiceNumber,
+                        invoice.invoiceNumber,
+                      )
+                    }
+                  />
+                ))
+              )
+            ) : payments.length === 0 ? (
+              <EmptyCard
+                description="No payment has been received against a plan invoice yet."
+                title="No receipts"
+              />
+            ) : (
+              payments.map((payment, index) => {
+                const key =
+                  payment.printedNumber ??
+                  payment.receiptNumber ??
+                  String(index);
 
-                  return (
-                    <ReceiptCard
-                      busy={busy === key}
-                      dateLong={dates.dateLong}
-                      iconColor={colors.mutedForeground}
-                      key={key}
-                      onDownload={() => void grab("receipt", key, key)}
-                      payment={payment}
-                    />
-                  );
-                })
-              )}
-            </View>
+                return (
+                  <ReceiptCard
+                    busy={busy === key}
+                    dateLong={dates.dateLong}
+                    iconColor={colors.mutedForeground}
+                    key={key}
+                    onDownload={() => void grab("receipt", key, key)}
+                    payment={payment}
+                  />
+                );
+              })
+            )}
           </View>
+        </View>
       </View>
     </Screen>
   );
 }
 
 /**
- * The plan, and the countdown.
+ * Which plan this is — the card on the header's edge.
  *
- * The meter is the cycle consumed rather than a decorative bar: it is drawn
- * only when both ends of the period are known, because a proportion with no
- * denominator is a bar that means whatever its width happens to be. When the
- * cycle length is unknown the number and the date carry the whole message,
- * which they can.
- *
- * Amber inside a fortnight, never red. A plan coming up for renewal is the
- * product working; a hostel that has paid every cycle does not need its billing
- * screen alarmed at it. The one genuinely wrong state — the period has run out —
- * says so in words.
+ * The mark is the one `/plans-pricing` draws on the same plan's card, ranked
+ * by the server against the live catalogue, so an owner recognises what they
+ * bought by its shape before reading its name.
  */
-function PlanCard({
-  dateLong,
-  plan,
-}: {
-  dateLong: (value: string | null | undefined) => string;
-  plan: PlanBillingPlan;
-}) {
-  const days = plan.daysRemaining;
-  const expiring = days !== null && days <= 14;
-  const expired = days === 0;
-
-  const percent = useMemo(() => {
-    if (!plan.currentPeriodEnd || !plan.activatedAt || days === null) {
-      return null;
-    }
-
-    const end = new Date(plan.currentPeriodEnd).getTime();
-    const start = new Date(plan.activatedAt).getTime();
-    const span = end - start;
-
-    if (span <= 0) return null;
-
-    return Math.round(((span - days * 86_400_000) / span) * 100);
-  }, [days, plan.activatedAt, plan.currentPeriodEnd]);
+function PlanHead({ plan }: { plan: PlanBillingPlan }) {
+  const { colors } = useAppTheme();
+  const status = statusOf(plan.status);
+  const detail = [plan.cycleLabel, plan.price ? formatMoney(plan.price) : null]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <Card className={expiring ? "gap-3 border-warning/40 bg-warning/5" : "gap-3"}>
-      <View className="flex-row items-start justify-between gap-4">
+    <View className="px-5" style={{ marginTop: -STRADDLE }}>
+      <View
+        className="flex-row items-center gap-3 rounded-2xl border border-border bg-card p-3"
+        style={LIFT}
+      >
+        <View className="h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft">
+          <PlanMark color={colors.primary} rank={plan.planRank ?? 0} size={30} />
+        </View>
+
         <View className="flex-1">
-          <Text variant="caption">Current plan</Text>
-          <Text className="mt-0.5" variant="subtitle">
+          <Text numberOfLines={1} variant="subtitle">
             {plan.planName ?? "No plan chosen"}
           </Text>
-          {plan.cycleLabel ? (
-            <Text variant="muted">{plan.cycleLabel}</Text>
+          {detail ? (
+            <Text numberOfLines={1} variant="caption">
+              {detail}
+            </Text>
           ) : null}
         </View>
 
-        {days !== null ? (
-          <View className="items-end">
-            <Text
-              className={`text-3xl font-bold ${expiring ? "text-warning" : "text-foreground"}`}
-            >
-              {days}
+        {/* Wrapped: the pill is `self-start`, which in this row would pin it to
+            the top edge instead of the centre line the name sits on. */}
+        <View>
+          <Badge label={status.label} tone={status.tone} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Where the plan stands: the deadline if money is owed, then the days left.
+ *
+ * The countdown follows whichever window currently matters. While a balance is
+ * owed that is the time to pay it — for a hostel an agent filed today, the
+ * plan's paid period has not even started, so a bar of it would be empty and
+ * say nothing. Once paid, it is the paid period.
+ */
+function Standing({ dates, plan }: { dates: PortalDates; plan: PlanBillingPlan }) {
+  const owing = Boolean(plan.dueBy) && (plan.amountDue ?? 0) > 0;
+
+  if (owing) {
+    const overdue = Date.parse(plan.dueBy as string) < Date.now();
+
+    return (
+      <View className="gap-3">
+        <PayBy dates={dates} overdue={overdue} plan={plan} />
+        <Countdown
+          dates={dates}
+          days={plan.daysToDue ?? null}
+          end={plan.dueBy}
+          headline={
+            overdue
+              ? "Overdue"
+              : plan.daysToDue === 0
+                ? "Last day to pay"
+                : `${plan.daysToDue} ${plan.daysToDue === 1 ? "day" : "days"} left to pay`
+          }
+          start={plan.dueFrom ?? null}
+        />
+      </View>
+    );
+  }
+
+  if (!plan.currentPeriodEnd) {
+    return null;
+  }
+
+  const days = plan.daysRemaining;
+
+  return (
+    <Countdown
+      dates={dates}
+      days={days}
+      end={plan.currentPeriodEnd}
+      headline={
+        days === 0
+          ? "This plan has run out"
+          : `${days} ${days === 1 ? "day" : "days"} left on ${plan.planName ?? "your plan"}`
+      }
+      start={plan.activatedAt}
+    />
+  );
+}
+
+/**
+ * The deadline, on red.
+ *
+ * The date is the subject — it is what goes in a diary — with the weekday under
+ * it and the balance opposite. What has been paid rides along the bottom, so an
+ * owner who paid part of it sees that it counted.
+ *
+ * White on `destructive` in both schemes: the ground is red either way, so
+ * there is no scheme in which the ink should flip.
+ */
+function PayBy({
+  dates,
+  overdue,
+  plan,
+}: {
+  dates: PortalDates;
+  overdue: boolean;
+  plan: PlanBillingPlan;
+}) {
+  const { colors } = useAppTheme();
+  const [day, weekday] = dates.dateLong(plan.dueBy).split(" · ");
+  const total = plan.amountPaid + plan.amountDue;
+
+  return (
+    <View
+      className="gap-3 rounded-2xl p-4"
+      style={{ backgroundColor: colors.destructive }}
+    >
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1 gap-0.5">
+          <Text
+            className="text-xs font-bold uppercase tracking-wider text-white"
+            style={FADED}
+            variant={null}
+          >
+            {overdue ? "Overdue since" : "Pay by"}
+          </Text>
+          <Text
+            className="text-2xl font-semibold tracking-tight text-white"
+            variant={null}
+          >
+            {day}
+          </Text>
+          {weekday ? (
+            <Text className="text-sm text-white" style={FADED} variant={null}>
+              {weekday}
             </Text>
-            <Text variant="caption">{days === 1 ? "day left" : "days left"}</Text>
+          ) : null}
+        </View>
+
+        <View className="items-end gap-0.5">
+          <Text
+            className="text-xs font-bold uppercase tracking-wider text-white"
+            style={FADED}
+            variant={null}
+          >
+            Left to pay
+          </Text>
+          <PaintedAmount size={22} value={formatMoney(plan.amountDue)} />
+        </View>
+      </View>
+
+      {plan.amountPaid > 0 ? (
+        <>
+          <View className="h-px" style={{ backgroundColor: "#ffffff", opacity: 0.3 }} />
+          <View className="flex-row items-center justify-between gap-3">
+            <Text className="text-sm text-white" style={FADED} variant={null}>
+              Paid so far
+            </Text>
+            <Text className="text-sm font-semibold text-white" variant={null}>
+              {`${formatMoney(plan.amountPaid)} of ${formatMoney(total)}`}
+            </Text>
           </View>
-        ) : null}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Days left, as a usage bar.
+ *
+ * The bar fills as the window is used up and animates to its value on arrival —
+ * the reading an owner already has from every usage meter on their phone. The
+ * figure is the server's; the proportion under it is only a shape. The two
+ * ends are labelled so the bar has a scale, in the reader's own calendar and
+ * without the year, which the dates above already carry.
+ */
+function Countdown({
+  dates,
+  days,
+  end,
+  headline,
+  start,
+}: {
+  dates: PortalDates;
+  days: number | null;
+  end: string | null;
+  headline: string;
+  start: string | null;
+}) {
+  const percent = useMemo(() => {
+    if (!start || !end || days === null) return null;
+
+    const from = Date.parse(start);
+    const to = Date.parse(end);
+
+    if (!(to > from)) return null;
+
+    return Math.max(
+      0,
+      Math.min(100, Math.round(((Date.now() - from) / (to - from)) * 100)),
+    );
+  }, [days, end, start]);
+
+  return (
+    <Card className="gap-3">
+      <View className="flex-row items-baseline justify-between gap-3">
+        <Text className="flex-1" variant="subtitle">
+          {headline}
+        </Text>
+        {percent === null ? null : (
+          <Text variant="caption">{`${percent}% used`}</Text>
+        )}
       </View>
 
       {percent === null ? null : (
-        <Meter label={`${percent}% of this cycle used`} percent={percent} />
+        <Meter animated label={null} percent={percent} reading="elapsed" />
       )}
 
-      <View className="gap-0 border-t border-border pt-1">
-        <FactRow
-          label="Status"
-          value={
-            <Badge
-              label={plan.status.replaceAll("_", " ").toLowerCase()}
-              tone={
-                plan.status === "ACTIVE"
-                  ? "success"
-                  : plan.status === "PAST_DUE" || plan.status === "EXPIRED"
-                    ? "warning"
-                    : "neutral"
-              }
-            />
-          }
-        />
-
-        <FactRow
-          label={expired ? "Ended" : "Paid through"}
-          value={
-            plan.currentPeriodEnd
-              ? dateLong(plan.currentPeriodEnd)
-              : "Nothing paid for yet"
-          }
-        />
-
-        {plan.price ? (
-          <FactRow
-            label="Price per cycle"
-            value={<Money size="inline" value={plan.price} />}
-          />
-        ) : null}
-
-        {plan.dueBy ? (
-          <FactRow label="Balance due by" value={dateLong(plan.dueBy)} />
-        ) : null}
+      <View className="flex-row justify-between gap-3">
+        <Text variant="caption">{start ? dates.dayMonth(start) : ""}</Text>
+        <Text variant="caption">{dates.dayMonth(end)}</Text>
       </View>
     </Card>
   );
@@ -386,8 +573,15 @@ function InvoiceCard({
 
         <View className="items-end">
           <Money size="large" value={invoice.amount} />
+          {/* Labelled: a second, smaller amount under the first read as a
+              typo rather than as what is still owed on it. */}
+          {/* `variant={null}`: the default `body` variant's `text-base
+              text-foreground` otherwise wins the generation-order race, and
+              this rendered black at 16pt on the device. */}
           {settled ? null : (
-            <Money owed size="inline" value={invoice.outstanding} />
+            <Text className="text-xs font-semibold text-destructive" variant={null}>
+              {`${formatMoney(invoice.outstanding)} due`}
+            </Text>
           )}
         </View>
       </View>
@@ -403,7 +597,7 @@ function InvoiceCard({
                 : "warning"
           }
         />
-        <Text variant="caption">
+        <Text className="flex-1" variant="caption">
           {invoice.cycleLabel} · issued {dateLong(invoice.issuedAt)}
         </Text>
       </View>
@@ -419,11 +613,7 @@ function InvoiceCard({
         busy={busy}
         icon="download-outline"
         onPress={onDownload}
-        subtitle={
-          invoice.issuedBy === "platform"
-            ? "Issued by us while Softmato is unavailable"
-            : "Issued by Softmato"
-        }
+        subtitle="PDF"
         title="Download invoice"
       />
     </Card>
@@ -485,7 +675,7 @@ function ReceiptCard({
           busy={busy}
           icon="receipt-outline"
           onPress={onDownload}
-          subtitle={payment.providerRef ? `Ref ${payment.providerRef}` : undefined}
+          subtitle={payment.providerRef ? `Ref ${payment.providerRef}` : "PDF"}
           title="Download receipt"
         />
       ) : (

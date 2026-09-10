@@ -10,6 +10,7 @@ import {
   SubscriptionError,
   ensureInvoiceRaised,
   getSubscriptionState,
+  graceDeadline,
   outstandingFor,
   type InvoiceRecord as SubscriptionInvoiceRecord,
 } from "@/modules/billing/subscription.service";
@@ -500,10 +501,23 @@ async function applySettlement(
   // Still owed. Only a team registration may live in this state — a public one
   // simply stays unpublished and unactivated until it clears.
   if (subscription.source === "TEAM") {
-    const operations = await getOperationsConfig();
-    const dueBy = new Date();
-
-    dueBy.setDate(dueBy.getDate() + operations.subscriptionDueGraceDays);
+    /*
+     * The deadline the invoice was raised with — never a fresh one.
+     *
+     * This used to be "now plus the grace period" on every part payment, which
+     * made each instalment buy a new grace period: a hostel added on Bhadra 25
+     * that paid Rs 1,400 the same afternoon was told it had until Aswin 9, and
+     * one that paid a little every few days would never have been due at all.
+     * The due is counted from the day the hostel was added and does not move.
+     *
+     * The fallback covers invoices raised before `dueAt` was always written.
+     */
+    const dueBy =
+      invoice.dueAt ??
+      graceDeadline(
+        invoice.issuedAt ?? new Date(),
+        (await getOperationsConfig()).subscriptionDueGraceDays,
+      );
 
     await HostelSubscriptionModel.updateOne(
       { _id: subscription._id },

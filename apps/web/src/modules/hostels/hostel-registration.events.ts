@@ -257,11 +257,14 @@ export async function onInvoiceIssued(input: {
     return;
   }
 
+  const attachments = await attach("invoice", input.invoiceNumber);
+
   await deliver(
     "subscription_invoice_issued",
     input.ownerEmail,
     subscriptionInvoiceEmail({
       amount: input.amount,
+      attached: attachments.length > 0,
       cycleLabel: input.cycleLabel,
       documentUrl: input.documentUrl,
       dueAt: formatEmailDate(input.dueAt),
@@ -271,7 +274,7 @@ export async function onInvoiceIssued(input: {
       payUrl: registrationStatusUrl(),
       planName: input.planName,
     }),
-    await attach("invoice", input.invoiceNumber),
+    attachments,
   );
 }
 
@@ -292,11 +295,14 @@ export async function onPaymentSettled(input: {
     return;
   }
 
+  const attachments = await attach("receipt", input.receiptNumber);
+
   await deliver(
     "subscription_receipt",
     input.ownerEmail,
     subscriptionReceiptEmail({
       amount: input.amount,
+      attached: attachments.length > 0,
       dueBy: formatEmailDate(input.dueBy),
       hostelName: input.hostelName,
       invoiceNumber: input.invoiceNumber,
@@ -305,6 +311,6 @@ export async function onPaymentSettled(input: {
       planName: input.planName,
       receiptNumber: input.receiptNumber,
     }),
-    await attach("receipt", input.receiptNumber),
+    attachments,
   );
 }

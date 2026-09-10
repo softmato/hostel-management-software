@@ -8,14 +8,15 @@ export function formatRupees(amount: number) {
 /**
  * The invoice for a hostel's plan.
  *
- * `documentUrl` is optional and is **omitted rather than faked** while the
- * parent company's document SDK is still being wired. An email that offers a
- * download button pointing at nothing is worse than one that states the amount
- * and the reference plainly — so with no URL the figures carry the message, and
- * the button simply does not appear.
+ * The PDF rides on the email — the same document the billing screen downloads —
+ * and `attached` says whether it made it, so the body never promises paperwork
+ * that is not there. When it did not (a renderer failure, which never blocks the
+ * send), the figures carry the message and the billing page is offered instead.
  */
 export function subscriptionInvoiceEmail(input: {
   amount: number;
+  /** The invoice PDF is on this email. */
+  attached?: boolean;
   cycleLabel: string;
   documentUrl?: string | null;
   dueAt?: string | null;
@@ -51,9 +52,15 @@ export function subscriptionInvoiceEmail(input: {
           "Your listing goes live the moment this is paid — activation is immediate, there is nothing further to wait for.",
         ),
         ctaButton(input.payUrl, "Pay now"),
-        ...(input.documentUrl
-          ? [paragraph(`A PDF copy is attached to your account: ${escapeHtml(input.documentUrl)}`)]
-          : []),
+        ...(input.attached
+          ? [paragraph("The invoice is attached to this email as a PDF.")]
+          : input.documentUrl
+            ? [
+                paragraph(
+                  `You can download the invoice from your billing page: ${escapeHtml(input.documentUrl)}`,
+                ),
+              ]
+            : []),
       ].join("\n"),
     }),
   };

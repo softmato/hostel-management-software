@@ -2517,12 +2517,24 @@ export type PlanBillingPayment = {
 
 export type PlanBillingPlan = {
   activatedAt: string | null;
+  /** Still owed on the invoice being paid. `0` when nothing is open. */
+  amountDue: number;
+  /** Settled so far against that same invoice. */
+  amountPaid: number;
   cycleLabel: string | null;
   currentPeriodEnd: string | null;
   /** Whole days left on the paid period. Null when no period is running. */
   daysRemaining: number | null;
+  /** Whole days until `dueBy`, floored on the server like `daysRemaining`. */
+  daysToDue: number | null;
+  /** The last instant of the day the balance must be paid by. */
   dueBy: string | null;
+  /** When the window to pay opened — the open invoice's issue. */
+  dueFrom: string | null;
+  planId: string | null;
   planName: string | null;
+  /** Cheapest-first position in the catalogue. Draws `<PlanMark>`. */
+  planRank: number | null;
   price: number | null;
   status: string;
 };

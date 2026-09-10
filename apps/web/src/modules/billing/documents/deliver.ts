@@ -11,6 +11,7 @@ import {
   documentFilename as softmatoFilename,
   downloadInvoiceFile,
   downloadReceiptFile,
+  isPdf,
 } from "@/modules/billing/softmato/documents";
 
 import {
@@ -92,6 +93,31 @@ async function trySoftmato(
     const file = await read();
 
     if (!file) return null;
+
+    /*
+     * Their PDF, or ours — never their HTML.
+     *
+     * A Softmato deployment with no PDF engine answers a PDF request with a
+     * printable HTML page. That is a real document, but it is not what an owner
+     * was promised: it went out as `INV-….html` on the invoice email while the
+     * receipt beside it — rendered here — arrived as a PDF, and the phone saved
+     * the same HTML under a `.pdf` name its reader refused to open. We can always
+     * print a PDF from our own rows, so an HTML answer is treated exactly like
+     * no answer.
+     */
+    if (!isPdf(file)) {
+      console.warn(
+        JSON.stringify({
+          action: "softmato_document_not_pdf",
+          contentType: file.contentType,
+          documentNumber,
+          level: "warn",
+          reason: file.pdfFallbackReason ?? null,
+        }),
+      );
+
+      return null;
+    }
 
     return {
       bytes: new Uint8Array(file.bytes),

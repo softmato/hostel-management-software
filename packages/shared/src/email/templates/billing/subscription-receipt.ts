@@ -28,6 +28,8 @@ const METHOD_LABELS: Record<string, string> = {
  */
 export function subscriptionReceiptEmail(input: {
   amount: number;
+  /** The receipt PDF is on this email. */
+  attached?: boolean;
   dueBy?: string | null;
   hostelName: string;
   invoiceNumber: string;
@@ -70,6 +72,9 @@ export function subscriptionReceiptEmail(input: {
                 .filter(Boolean)
                 .join(" "),
             ),
+        ...(input.attached
+          ? [paragraph("The receipt is attached to this email as a PDF.")]
+          : []),
       ].join("\n"),
     }),
   };

@@ -17,6 +17,10 @@ import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { ReceiptCounterModel } from "@hostel/db/models/ReceiptCounter";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
+import {
+  HOSTEL_UTC_OFFSET_MINUTES,
+  hostelCalendarDay,
+} from "@hostel/shared/calendar/bs";
 import { cycleMonths, cycleTotal, getPlan } from "@hostel/shared/plans/catalog";
 import type { BillingCycle } from "@hostel/shared/plans/catalog";
 
@@ -217,6 +221,31 @@ export async function outstandingFor(invoice: {
   const paid = settled[0]?.total ?? 0;
 
   return { outstanding: Math.max(0, invoice.amount - paid), paid };
+}
+
+/* ── Deadlines ─────────────────────────────────────────────────────────── */
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The last instant of the Nepal calendar day `graceDays` after `from`.
+ *
+ * A due is a **day**, not a timestamp. "Pay by Bhadra 28" means all of Bhadra
+ * 28, so the deadline is the final millisecond of that day in Kathmandu — not
+ * the wall-clock minute the invoice happened to be raised at, which would make
+ * a hostel added at 3 pm overdue at 3 pm three days later while every screen
+ * still said "due today".
+ *
+ * Counted from the day the invoice was raised, which for a team registration is
+ * the day the hostel was added: added on Bhadra 25 with a 3-day grace means due
+ * by the end of Bhadra 28.
+ */
+export function graceDeadline(from: Date, graceDays: number): Date {
+  const day = hostelCalendarDay(from).getTime();
+  const nextDayOpens =
+    day + (graceDays + 1) * DAY_MS - HOSTEL_UTC_OFFSET_MINUTES * 60_000;
+
+  return new Date(nextDayOpens - 1);
 }
 
 export async function getOrCreateSubscription(
@@ -519,9 +548,13 @@ export async function issueSubscriptionInvoice(
     );
   }
 
+  /*
+   * One instant for both, so the deadline is counted from the day the invoice
+   * says it was issued rather than from a clock read a few statements apart.
+   */
   const operations = await getOperationsConfig();
-  const dueAt = new Date();
-  dueAt.setDate(dueAt.getDate() + operations.subscriptionDueGraceDays);
+  const issuedAt = new Date();
+  const dueAt = graceDeadline(issuedAt, operations.subscriptionDueGraceDays);
 
   const owner = await resolveBillingContact(subscription.hostelId);
   const invoiceNumber = await allocateNumber(
@@ -555,7 +588,7 @@ export async function issueSubscriptionInvoice(
     dueAt,
     hostelId: subscription.hostelId,
     invoiceNumber,
-    issuedAt: new Date(),
+    issuedAt,
     planId: subscription.planId,
     planName: subscription.planName,
     source: options.source ?? subscription.source ?? "PUBLIC",

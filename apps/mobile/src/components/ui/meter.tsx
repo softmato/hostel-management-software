@@ -1,4 +1,12 @@
+import { useEffect } from "react";
 import { View } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { Text } from "@/components/ui/text";
 
@@ -18,6 +26,23 @@ import { Text } from "@/components/ui/text";
  * generous: below 60% is amber rather than red, because a hostel collects rent
  * through the month and a red bar on the 3rd would cry wolf every month.
  *
+ * ## …and from which way the value reads
+ *
+ * `reading="elapsed"` is the other meaning a bar can carry: time used up, the
+ * way a usage-limit bar fills. There a *high* bar is the one to notice, so the
+ * scale runs the other way — brand green while there is plenty left, amber past
+ * 60%. Never red: a plan or a payment window running down is the product
+ * working, and the screens that show one already say in words when it has
+ * actually run out. Still derived from the value; the caller only says which
+ * way round it is.
+ *
+ * ## `animated` fills from empty once
+ *
+ * The usage-bar treatment: the track fills to its value on arrival, so the eye
+ * reads the proportion as a movement rather than having to measure it. Once per
+ * value, never looping — `DESIGN.md` §8 keeps the one continuous animation for
+ * SOS — and skipped entirely under the OS's reduce-motion setting.
+ *
  * ## `null` is a state, not a zero
  *
  * A month nobody billed has no percentage, and drawing an empty track for it
@@ -27,13 +52,20 @@ import { Text } from "@/components/ui/text";
  */
 
 const TONES = {
+  brand: "bg-primary",
   danger: "bg-destructive",
   neutral: "bg-muted-foreground",
   success: "bg-success",
   warning: "bg-warning",
 } as const;
 
-function toneFor(percent: number): keyof typeof TONES {
+type Reading = "collected" | "elapsed";
+
+function toneFor(percent: number, reading: Reading): keyof typeof TONES {
+  if (reading === "elapsed") {
+    return percent >= 60 ? "warning" : "brand";
+  }
+
   if (percent >= 90) {
     return "success";
   }
@@ -45,20 +77,32 @@ function toneFor(percent: number): keyof typeof TONES {
   return "danger";
 }
 
+/** Long enough to be seen as a fill, short enough never to be waited on. */
+const FILL_MS = 900;
+
 export function Meter({
+  animated = false,
   /** Height of the track in points. The default is a bar, not a hairline. */
   height = 8,
   label,
   /** `0`–`100`, or `null` when the ratio does not apply. */
   percent,
+  reading = "collected",
 }: {
+  animated?: boolean;
   height?: number;
-  /** Right-hand caption. Falls back to the percentage itself. */
-  label?: string;
+  /**
+   * Caption under the track. Falls back to the percentage itself; `null`
+   * draws no caption, for a caller that lays out its own around the bar.
+   */
+  label?: string | null;
   percent: number | null;
+  reading?: Reading;
 }) {
   const clamped = percent === null ? null : Math.max(0, Math.min(100, percent));
-  const tone = clamped === null ? "neutral" : toneFor(clamped);
+  const tone = clamped === null ? "neutral" : toneFor(clamped, reading);
+  const caption =
+    label === null ? null : (label ?? (clamped === null ? "—" : `${clamped}%`));
 
   return (
     <View className="gap-1.5">
@@ -67,8 +111,9 @@ export function Meter({
         style={{ height }}
       >
         {clamped === null ? null : (
-          <View
-            className={`h-full rounded-full ${TONES[tone]}`}
+          <Fill
+            animated={animated}
+            className={TONES[tone]}
             /*
              * A percentage width, not a measured pixel one. `<Grid>` measures
              * because it has to divide a row into a whole number of cells;
@@ -76,12 +121,45 @@ export function Meter({
              * a rounded, clipping parent are exact enough that the extra layout
              * pass would buy nothing but a frame of empty track on every render.
              */
-            style={{ width: `${Math.max(clamped > 0 ? 4 : 0, clamped)}%` }}
+            width={Math.max(clamped > 0 ? 4 : 0, clamped)}
           />
         )}
       </View>
 
-      <Text variant="caption">{label ?? (clamped === null ? "—" : `${clamped}%`)}</Text>
+      {caption === null ? null : <Text variant="caption">{caption}</Text>}
     </View>
+  );
+}
+
+/**
+ * The filled part. The colour is on a plain `View` inside the animated one, so
+ * the tone stays a class like every other in this file and only the width is
+ * driven from the UI thread.
+ */
+function Fill({
+  animated,
+  className,
+  width,
+}: {
+  animated: boolean;
+  className: string;
+  width: number;
+}) {
+  const reduced = useReducedMotion();
+  const moving = animated && !reduced;
+  const progress = useSharedValue(moving ? 0 : width);
+
+  useEffect(() => {
+    progress.value = moving
+      ? withTiming(width, { duration: FILL_MS, easing: Easing.out(Easing.cubic) })
+      : width;
+  }, [moving, progress, width]);
+
+  const style = useAnimatedStyle(() => ({ width: `${progress.value}%` }));
+
+  return (
+    <Animated.View className="h-full overflow-hidden rounded-full" style={style}>
+      <View className={`h-full w-full rounded-full ${className}`} />
+    </Animated.View>
   );
 }

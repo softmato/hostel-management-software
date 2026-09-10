@@ -281,6 +281,12 @@ function PlanCard({ plan }: { plan: BillingPlan }) {
           </span>
         ) : plan.currentPeriodEnd ? (
           <span>Paid through {shortDate(plan.currentPeriodEnd)}</span>
+        ) : plan.amountPaid > 0 ? (
+          // A part payment is money received, and saying "nothing paid" beside
+          // it read as the payment having been lost.
+          <span>
+            Paid {rupees(plan.amountPaid)} of {rupees(plan.amountPaid + plan.amountDue)}
+          </span>
         ) : (
           <span>Nothing has been paid for yet.</span>
         )}

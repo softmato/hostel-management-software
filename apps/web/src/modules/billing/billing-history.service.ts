@@ -8,9 +8,11 @@ import {
   fetchInvoiceDetail,
   softmatoDocsUrl,
 } from "@/modules/billing/billing-gateway";
+import { getSiteConfigSection } from "@/modules/platform-config/site-config.service";
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
+import { planRank } from "@hostel/shared/plans/catalog";
 
 /**
  * Everything a hostel's own billing screen shows: what was billed, what was
@@ -102,14 +104,33 @@ export interface BillingPaymentRow {
  */
 export interface BillingPlan {
   activatedAt: string | null;
+  /** Still owed on the invoice being paid. `0` when nothing is open. */
+  amountDue: number;
+  /** Settled so far against that same invoice. */
+  amountPaid: number;
   cycleLabel: string | null;
   /** Null before the first activation — nothing has been paid for yet. */
   currentPeriodEnd: string | null;
   /** Whole days left on the paid period. Null when no period is running. */
   daysRemaining: number | null;
-  /** The deadline on a shortfall, on a team registration that owes money. */
+  /** Whole days until `dueBy`, the same floor as `daysRemaining`. */
+  daysToDue: number | null;
+  /**
+   * The deadline on a shortfall. The subscription's own when a team
+   * registration carries one, otherwise the open invoice's — both are counted
+   * from the day the invoice was raised and neither moves on a part payment.
+   */
   dueBy: string | null;
+  /** When the window to pay opened: the open invoice's issue. */
+  dueFrom: string | null;
+  planId: string | null;
   planName: string | null;
+  /**
+   * Cheapest-first position in the live catalogue — what draws the plan's mark,
+   * the same one `/plans-pricing` puts on its card. Null for a plan the
+   * catalogue no longer sells.
+   */
+  planRank: number | null;
   price: number | null;
   status: string;
 }
@@ -145,13 +166,14 @@ export async function getBillingHistory(
 
   const id = new Types.ObjectId(hostelId);
 
-  const [subscription, invoices, payments] = await Promise.all([
+  const [subscription, invoices, payments, catalog] = await Promise.all([
     HostelSubscriptionModel.findOne({ hostelId: id }).lean<{
       activatedAt?: Date | null;
       cycle?: string | null;
       currentPeriodEnd?: Date | null;
       cycleTotal?: number | null;
       dueBy?: Date | null;
+      planId?: string | null;
       planName?: string | null;
       status: string;
     } | null>(),
@@ -191,6 +213,7 @@ export async function getBillingHistory(
           status: string;
         }>
       >(),
+    getSiteConfigSection("plans"),
   ]);
 
   /*
@@ -210,6 +233,23 @@ export async function getBillingHistory(
   const paidByInvoice = new Map(
     settled.map((row) => [String(row._id), row.total]),
   );
+
+  /*
+   * The invoice still being paid, and where it stands. What the owner reads as
+   * "paid so far" and "left to pay" is this one invoice — never a sum across
+   * the history, which would fold a settled year into this year's balance.
+   */
+  const open =
+    invoices.find(
+      (invoice) => invoice.status === "OPEN" || invoice.status === "PARTIAL",
+    ) ?? null;
+  const openPaid = open ? (paidByInvoice.get(String(open._id)) ?? 0) : 0;
+  const openDue = open ? Math.max(0, open.amount - openPaid) : 0;
+  const dueBy =
+    subscription?.dueBy ?? (openDue > 0 ? (open?.dueAt ?? null) : null);
+  const rank = subscription?.planId
+    ? planRank(catalog, subscription.planId)
+    : -1;
 
   return {
     docsUrl: softmatoDocsUrl(),
@@ -274,13 +314,19 @@ export async function getBillingHistory(
     plan: subscription
       ? {
           activatedAt: subscription.activatedAt?.toISOString() ?? null,
+          amountDue: openDue,
+          amountPaid: openPaid,
           cycleLabel: subscription.cycle
             ? (CYCLE_LABELS[subscription.cycle] ?? subscription.cycle)
             : null,
           currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
           daysRemaining: daysUntil(subscription.currentPeriodEnd),
-          dueBy: subscription.dueBy?.toISOString() ?? null,
+          daysToDue: daysUntil(dueBy),
+          dueBy: dueBy?.toISOString() ?? null,
+          dueFrom: dueBy ? (open?.issuedAt?.toISOString() ?? null) : null,
+          planId: subscription.planId ?? null,
           planName: subscription.planName ?? null,
+          planRank: rank >= 0 ? rank : null,
           price: subscription.cycleTotal ?? null,
           status: subscription.status,
         }
