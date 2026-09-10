@@ -11,9 +11,6 @@
       "environment": "development",
       "android": {
         "buildType": "apk"
-      },
-      "ios": {
-        "simulator": false
       }
     },
     "preview": {
@@ -22,9 +19,6 @@
       "environment": "preview",
       "android": {
         "buildType": "apk"
-      },
-      "ios": {
-        "simulator": false
       }
     },
     "production": {
@@ -36,19 +30,22 @@
         "buildType": "apk"
       }
     },
-    "production-play": {
+    "production-ios": {
+      "extends": "production",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "store-android": {
       "extends": "production",
       "distribution": "store",
       "android": {
         "buildType": "app-bundle"
       }
     },
-    "production-ios": {
+    "store-ios": {
       "extends": "production",
-      "distribution": "store",
-      "ios": {
-        "simulator": false
-      }
+      "distribution": "store"
     }
   },
   "submit": {
