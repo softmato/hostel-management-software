@@ -308,7 +308,15 @@ export async function settlePayment(
    * the publish — therefore happens once.
    */
   const claimed = await SubscriptionPaymentModel.findOneAndUpdate(
-    { _id: payment._id, status: "PENDING" },
+    /*
+     * Two openings, not one. `PENDING` is a checkout waiting on a webhook;
+     * `IN_REVIEW` is a manual claim waiting on a person. Both are rows worth
+     * nothing until this update lands, both settle exactly once, and widening
+     * the filter is what lets an approved claim take the same path — the
+     * receipt, the activation and the publish are the same four steps whether
+     * a gateway or a reviewer said the money arrived.
+     */
+    { _id: payment._id, status: { $in: ["PENDING", "IN_REVIEW"] } },
     { $set: { settledAt: new Date(), status: "SETTLED" } },
     { new: true },
   ).lean<{ _id: Types.ObjectId } | null>();

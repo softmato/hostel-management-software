@@ -10,7 +10,7 @@ import { currencyField, positiveWholeRupees } from "@hostel/db/models/finance-fi
  * the hostel still owes is the invoice amount minus the sum of the settled rows
  * pointing at it. That is the whole reason the invoice carries no `paidAmount`.
  *
- * ## Two methods, and only one of them is on a rail
+ * ## Three methods, and only one of them is on a rail
  *
  * `SOFTMATO` is money taken through the parent company's checkout — eSewa,
  * Khalti, whatever they route it to. It lands in their ledger, gets their
@@ -30,17 +30,39 @@ import { currencyField, positiveWholeRupees } from "@hostel/db/models/finance-fi
  * their hand out for it. The team roster reads exactly this field to answer
  * "who collected how much".
  *
- * ## `PENDING` is a real state
+ * `MANUAL` is the owner scanning the platform's own collection QR from their
+ * phone, paying out of their banking app, and sending back a screenshot. It is
+ * the **fallback lane** while the Softmato rail is not carrying owner-initiated
+ * payments, and it stays after the rail lands: there will always be an owner
+ * whose bank app worked and whose checkout did not. Nothing about it is
+ * asserted by a gateway, so the only thing that can turn it into money received
+ * is a human on the platform side looking at the proof — which is what
+ * `IN_REVIEW` below exists to represent.
  *
- * A QR payment is displayed and then waited on. Until the gateway confirms, the
- * row exists and is worth nothing — it must not count toward the balance. Only
- * `SETTLED` rows are ever summed.
+ * ## `PENDING` and `IN_REVIEW` are both real states, and they are not the same
+ *
+ * A QR payment on the rail is displayed and then waited on. Until the gateway
+ * confirms, the row exists and is worth nothing — it must not count toward the
+ * balance. That is `PENDING`, and what clears it is a webhook.
+ *
+ * `IN_REVIEW` is a `MANUAL` row whose payer has attached proof and is waiting on
+ * a person. It is worth exactly as little: only `SETTLED` rows are ever summed,
+ * so a claim cannot publish a hostel or shorten a due on the strength of a
+ * screenshot. The distinction matters because the two are cleared by different
+ * things and a platform admin's review queue is *only* the second kind — a
+ * `PENDING` row in it would be an abandoned checkout somebody is being asked to
+ * adjudicate.
  */
 
-export const SUBSCRIPTION_PAYMENT_METHODS = ["SOFTMATO", "CASH"] as const;
+export const SUBSCRIPTION_PAYMENT_METHODS = [
+  "SOFTMATO",
+  "CASH",
+  "MANUAL",
+] as const;
 
 export const SUBSCRIPTION_PAYMENT_STATUSES = [
   "PENDING",
+  "IN_REVIEW",
   "SETTLED",
   "FAILED",
 ] as const;
@@ -117,6 +139,38 @@ const subscriptionPaymentSchema = new Schema(
     settledAt: { default: null, type: Date },
     failureReason: { default: null, trim: true, type: String },
 
+    /* ── The claim, on a `MANUAL` row ──────────────────────────────────── */
+
+    /**
+     * The screenshot or receipt the owner attached — a `PAYMENT_PROOF`
+     * `FileAsset`, private, scoped to their hostel.
+     *
+     * Required in practice for `MANUAL`, enforced in the service rather than in
+     * the schema so the refusal can say *why*. A manual claim with no proof is
+     * not a weaker claim, it is a message, and there is nothing for a reviewer
+     * to look at.
+     */
+    proofAssetId: { default: null, ref: "FileAsset", type: Schema.Types.ObjectId },
+    /** When the owner said they had paid. Not when the money moved. */
+    claimedAt: { default: null, type: Date },
+    /** Whatever the owner wanted the reviewer to know. Free text, optional. */
+    claimNote: { default: null, trim: true, type: String },
+
+    /* ── The review ────────────────────────────────────────────────────── */
+
+    /**
+     * The platform admin who approved or refused it, and when.
+     *
+     * Kept apart from `recordedBy`: on a manual row that is the *owner*, who
+     * asserted the payment, and conflating the person making a claim with the
+     * person who accepted it would leave no way to answer "who let this
+     * through" — which is the whole question an audit of a manual lane asks.
+     */
+    reviewedBy: { default: null, ref: "User", type: Schema.Types.ObjectId },
+    reviewedAt: { default: null, type: Date },
+    /** What the reviewer told the owner. Carried into the outcome email. */
+    reviewNote: { default: null, trim: true, type: String },
+
     /* ── The receipt, issued once the row settles ──────────────────────── */
 
     receiptNumber: { default: null, trim: true, type: String, uppercase: true },
@@ -144,6 +198,9 @@ const subscriptionPaymentSchema = new Schema(
 );
 
 subscriptionPaymentSchema.index({ invoiceId: 1, status: 1 });
+// The platform's manual-review queue reads exactly this: claims waiting on a
+// person, oldest first, across every hostel.
+subscriptionPaymentSchema.index({ status: 1, claimedAt: 1 });
 subscriptionPaymentSchema.index({ hostelId: 1, createdAt: -1 });
 subscriptionPaymentSchema.index({ collectedBy: 1, settledAt: -1 });
 // Our own statutory series, on the rows we had to issue a receipt for.

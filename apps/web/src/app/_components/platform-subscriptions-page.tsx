@@ -33,12 +33,14 @@ import {
 import { downloadFile } from "@/lib/downloads/downloader";
 import { platformEndpoints } from "@/lib/platform-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
+import type { PlanPaymentClaim } from "@/modules/billing/subscription-claim.service";
 import type {
   PlatformInvoiceRow,
   PlatformPaymentRow,
   PlatformSubscriptionLedger,
 } from "@/modules/billing/platform-subscriptions.service";
 import { Message } from "./core-portal-shared";
+import { SubscriptionClaimQueue } from "./platform-subscription-claims";
 
 /**
  * Plan billing, from the platform's side of the table.
@@ -72,6 +74,13 @@ import { Message } from "./core-portal-shared";
 const TABS = [
   { key: "INVOICES", label: "Invoices" },
   { key: "PAYMENTS", label: "Payments" },
+  /*
+   * Third and last, but it is the only tab with work in it. The two before it
+   * are records; this is a queue with a turnaround promise attached, so it
+   * carries a count and the count is what makes it findable — a reviewer opens
+   * this screen because the badge said a number, not because they browse.
+   */
+  { key: "REVIEW", label: "Manual review" },
 ];
 
 const PAGE_SIZE = 12;
@@ -93,8 +102,23 @@ function formatDate(value: string | null) {
 /** `SOFTMATO` is a rail, and nobody paid "by Softmato". */
 function methodLabel(payment: PlatformPaymentRow) {
   if (payment.method === "CASH") return "Cash";
+  /*
+   * Named for what the payer did, not for the row's enum. "Manual" alone reads
+   * as a data-entry mode; what actually happened is that somebody scanned our
+   * QR out of their banking app and sent a screenshot back.
+   */
+  if (payment.method === "MANUAL") return "QR — manual";
 
   return payment.provider || "Online";
+}
+
+/**
+ * `IN_REVIEW` is the one status whose enum is unreadable to a person, and it is
+ * the one that most needs reading: it means money a hostel says it sent that
+ * nobody has checked yet. Everything else already reads as English lower-cased.
+ */
+function statusLabel(status: string) {
+  return status === "IN_REVIEW" ? "Manual review" : status.replaceAll("_", " ");
 }
 
 export const PlatformSubscriptionsPageContent = memo(
@@ -102,6 +126,16 @@ export const PlatformSubscriptionsPageContent = memo(
     const ledger = usePortalResource<PlatformSubscriptionLedger>(
       platformEndpoints.subscriptions,
       { errorMessage: "Could not load plan billing." },
+    );
+    /*
+     * A second read rather than a field on the ledger. The queue changes on a
+     * different clock — it empties as people work it — and a reviewer who has
+     * just confirmed a payment needs both refreshed: the claim leaves this
+     * list, and the payment it became appears in the one next door.
+     */
+    const claimQueue = usePortalResource<{ claims: PlanPaymentClaim[] }>(
+      platformEndpoints.subscriptionClaims,
+      { errorMessage: "Could not load the manual review queue." },
     );
     const { data, message, state } = ledger;
 
@@ -139,7 +173,29 @@ export const PlatformSubscriptionsPageContent = memo(
       [payments, term],
     );
 
-    const rows = tab === "INVOICES" ? invoiceRows : paymentRows;
+    const claims = useMemo(
+      () => claimQueue.data?.claims ?? [],
+      [claimQueue.data],
+    );
+
+    const claimRows = useMemo(
+      () =>
+        claims.filter((claim) =>
+          term
+            ? `${claim.hostelName} ${claim.invoiceNumber} ${claim.reference ?? ""}`
+                .toLowerCase()
+                .includes(term)
+            : true,
+        ),
+      [claims, term],
+    );
+
+    const rows =
+      tab === "INVOICES"
+        ? invoiceRows
+        : tab === "PAYMENTS"
+          ? paymentRows
+          : claimRows;
     const paged = useMemo(
       () => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
       [page, rows],
@@ -222,7 +278,11 @@ export const PlatformSubscriptionsPageContent = memo(
                 tabs={TABS.map((item) => ({
                   ...item,
                   count:
-                    item.key === "INVOICES" ? invoices.length : payments.length,
+                    item.key === "INVOICES"
+                      ? invoices.length
+                      : item.key === "PAYMENTS"
+                        ? payments.length
+                        : claims.length,
                 }))}
                 value={tab}
               />
@@ -244,7 +304,22 @@ export const PlatformSubscriptionsPageContent = memo(
                 />
               </FilterBar>
 
-              {rows.length === 0 ? (
+              {tab === "REVIEW" ? (
+                <SubscriptionClaimQueue
+                  claims={claimRows}
+                  onReviewed={() => {
+                    /*
+                     * Both, and in this order for no reason other than that
+                     * they are independent: a confirmed claim leaves the queue
+                     * and reappears as a settled payment in the tab next door,
+                     * and a reviewer who switches straight to it must not read
+                     * a stale ledger.
+                     */
+                    claimQueue.refresh();
+                    ledger.refresh();
+                  }}
+                />
+              ) : rows.length === 0 ? (
                 <EmptyState
                   label={
                     tab === "INVOICES"
@@ -394,7 +469,7 @@ export const PlatformSubscriptionsPageContent = memo(
                               <SoftBadge
                                 tone={statusToneFromLabel(payment.status)}
                               >
-                                {payment.status}
+                                {statusLabel(payment.status)}
                               </SoftBadge>
                             </TableCell>
                             <TableCell className="whitespace-nowrap text-muted-foreground">

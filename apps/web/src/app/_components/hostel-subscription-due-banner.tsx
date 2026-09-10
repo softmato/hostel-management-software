@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, Loader2, QrCode, X } from "lucide-react";
+import { AlertTriangle, Clock, QrCode, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
@@ -15,8 +16,21 @@ import { browserApi } from "@/lib/browser-api";
  * and it is being run day to day by somebody who did not necessarily make the
  * payment arrangement — the owner met an agent once and an amount was agreed.
  * So the reminder has to be somewhere they cannot miss on the way to doing
- * something else, which is the top of every screen, and it has to be payable
- * from where it appears rather than sending them off to find a billing page.
+ * something else, which is the top of every screen.
+ *
+ * ## The button navigates; it does not pay
+ *
+ * It used to. `Pay now` posted `{ action: "open" }` and then, on a second
+ * press, `{ action: "confirm" }` — and the route behind it had dropped both
+ * branches when settlement moved to a verified webhook, so the pair opened two
+ * checkouts and told the owner their payment was recorded. **A browser cannot
+ * record a payment.** The banner is a reminder now and nothing more: it points
+ * at Plan billing, where the QR and the proof form live.
+ *
+ * ## It knows when a claim is already in review
+ *
+ * A balance stays outstanding while we are checking a proof, so without this
+ * the banner would keep asking an owner who paid this morning to pay again.
  *
  * ## Why it cannot be dismissed permanently
  *
@@ -35,6 +49,8 @@ import { browserApi } from "@/lib/browser-api";
 type State = {
   invoice: { id: string; invoiceNumber: string } | null;
   outstanding: number;
+  /** Every attempt against the plan. Read for one thing: an `IN_REVIEW` row. */
+  payments?: { status: string }[];
   subscription: { dueBy: string | null; planName: string | null; status: string };
 };
 
@@ -52,11 +68,6 @@ function daysUntil(iso: string) {
 export function HostelSubscriptionDueBanner() {
   const [state, setState] = useState<State | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [charge, setCharge] = useState<{ mocked: boolean; paymentId: string } | null>(
-    null,
-  );
-  const [working, setWorking] = useState(false);
-  const [hostelId, setHostelId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -66,12 +77,6 @@ export function HostelSubscriptionDueBanner() {
         }>("/api/v1/hostel-admin/subscription");
 
         setState(result.state);
-
-        const me = await browserApi<{ user: { hostelIds?: string[] } }>(
-          "/api/v1/auth/me",
-        );
-
-        setHostelId(me.user.hostelIds?.[0] ?? null);
       } catch {
         // A banner that cannot load its own data shows nothing. It is a
         // reminder, not a gate — failing loudly here would put an error across
@@ -86,7 +91,6 @@ export function HostelSubscriptionDueBanner() {
   if (
     dismissed ||
     !state ||
-    !hostelId ||
     state.subscription.status !== "PAST_DUE" ||
     state.outstanding <= 0
   ) {
@@ -95,37 +99,9 @@ export function HostelSubscriptionDueBanner() {
 
   const remaining = state.subscription.dueBy ? daysUntil(state.subscription.dueBy) : null;
   const overdue = remaining !== null && remaining < 0;
-
-  async function pay() {
-    setWorking(true);
-
-    try {
-      if (!charge) {
-        const opened = await browserApi<{
-          mocked: boolean;
-          payment: { id: string };
-        }>(`/api/v1/hostel-registration/${hostelId}/pay`, {
-          body: JSON.stringify({ action: "open", amount: state!.outstanding }),
-          method: "POST",
-        });
-
-        setCharge({ mocked: opened.mocked, paymentId: opened.payment.id });
-
-        return;
-      }
-
-      await browserApi(`/api/v1/hostel-registration/${hostelId}/pay`, {
-        body: JSON.stringify({ action: "confirm", paymentId: charge.paymentId }),
-        method: "POST",
-      });
-
-      setState(null);
-    } catch {
-      setCharge(null);
-    } finally {
-      setWorking(false);
-    }
-  }
+  const reviewing = Boolean(
+    state.payments?.some((payment) => payment.status === "IN_REVIEW"),
+  );
 
   return (
     <div className="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3">
@@ -137,29 +113,37 @@ export function HostelSubscriptionDueBanner() {
             {rupees(state.outstanding)} is due for your{" "}
             {state.subscription.planName ?? "plan"}
           </strong>
-          {remaining === null
-            ? "."
-            : overdue
-              ? ` — it was due ${Math.abs(remaining)} ${Math.abs(remaining) === 1 ? "day" : "days"} ago.`
-              : ` — please pay within ${remaining} ${remaining === 1 ? "day" : "days"}.`}{" "}
+          {reviewing
+            ? " — we have your proof and are checking it."
+            : remaining === null
+              ? "."
+              : overdue
+                ? ` — it was due ${Math.abs(remaining)} ${Math.abs(remaining) === 1 ? "day" : "days"} ago.`
+                : ` — please pay within ${remaining} ${remaining === 1 ? "day" : "days"}.`}{" "}
           <span className="text-muted-foreground">
-            Your listing stays live in the meantime.
+            {reviewing
+              ? "We will email you within 1–2 working days. Your listing stays live."
+              : "Your listing stays live in the meantime."}
           </span>
         </p>
 
-        <button
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-warning px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-60"
-          disabled={working}
-          onClick={pay}
-          type="button"
+        {/*
+          A link, not a form. Paying is four steps — read the amount, scan our
+          QR, pay in another app, send the proof back — and a banner is the
+          wrong object to carry any of them. Plan billing already holds all
+          four, so this is the shortest honest route to them.
+        */}
+        <Link
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-warning px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
+          href="/hostel-admin/billing"
         >
-          {working ? (
-            <Loader2 className="size-3.5 animate-spin" />
+          {reviewing ? (
+            <Clock className="size-3.5" />
           ) : (
             <QrCode className="size-3.5" />
           )}
-          {charge ? `Confirm ${rupees(state.outstanding)}` : "Pay now"}
-        </button>
+          {reviewing ? "See the status" : "Pay now"}
+        </Link>
 
         <button
           aria-label="Hide until next visit"
@@ -171,12 +155,6 @@ export function HostelSubscriptionDueBanner() {
         </button>
       </div>
 
-      {charge?.mocked ? (
-        <p className="mt-2 pl-7 text-xs text-warning">
-          Fonepay is not connected yet — confirming records the payment so your balance
-          is correct.
-        </p>
-      ) : null}
     </div>
   );
 }

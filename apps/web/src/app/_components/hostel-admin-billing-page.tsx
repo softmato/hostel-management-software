@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { PayPlanPanel } from "@/app/_components/hostel-admin-pay-plan";
 import { browserApi } from "@/lib/browser-api";
 import { downloadFile } from "@/lib/downloads/downloader";
 import { cn } from "@/lib/utils";
@@ -58,6 +59,7 @@ const STATUS_TONE: Record<string, string> = {
   OPEN: "border-warning/40 bg-warning/10 text-warning",
   PAID: "border-success/40 bg-success/10 text-success",
   PARTIAL: "border-warning/40 bg-warning/10 text-warning",
+  "IN REVIEW": "border-warning/40 bg-warning/10 text-warning",
   PENDING: "border-border bg-muted/40 text-muted-foreground",
   SETTLED: "border-success/40 bg-success/10 text-success",
   VOID: "border-border bg-muted/40 text-muted-foreground",
@@ -163,6 +165,14 @@ export function HostelAdminBillingPageContent() {
       ) : null}
 
       {history?.plan ? <PlanCard plan={history.plan} /> : null}
+
+      {/*
+        Above the paperwork, below the plan. An owner who opens this page while
+        owing money opens it *to pay*; the invoices underneath are what they
+        read afterwards to check it landed. It renders nothing at all when
+        nothing is outstanding, which is most of the time.
+      */}
+      <PayPlanPanel />
 
       {history ? (
         <>
@@ -408,7 +418,9 @@ function PaymentRow({ payment }: { payment: BillingPaymentRow }) {
           <p className="text-sm font-semibold text-foreground">
             {payment.method === "CASH"
               ? "Cash, collected in person"
-              : (payment.provider ?? "Online payment")}
+              : payment.method === "MANUAL"
+                ? "Paid by QR, sent to us for checking"
+                : (payment.provider ?? "Online payment")}
           </p>
 
           <p className="mt-1 font-mono text-xs text-foreground/70">
@@ -434,7 +446,10 @@ function PaymentRow({ payment }: { payment: BillingPaymentRow }) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Badge status={payment.status} />
+        {/* `IN_REVIEW` is the one status that cannot be printed as its enum. */}
+        <Badge
+          status={payment.status === "IN_REVIEW" ? "IN REVIEW" : payment.status}
+        />
 
         {payment.documentUrl ? (
           <button

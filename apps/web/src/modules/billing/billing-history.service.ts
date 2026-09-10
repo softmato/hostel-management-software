@@ -8,11 +8,9 @@ import {
   fetchInvoiceDetail,
   softmatoDocsUrl,
 } from "@/modules/billing/billing-gateway";
-import { getSiteConfigSection } from "@/modules/platform-config/site-config.service";
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
-import { planRank } from "@hostel/shared/plans/catalog";
 
 /**
  * Everything a hostel's own billing screen shows: what was billed, what was
@@ -123,14 +121,9 @@ export interface BillingPlan {
   dueBy: string | null;
   /** When the window to pay opened: the open invoice's issue. */
   dueFrom: string | null;
+  /** The catalogue id — what a client ranks the plan's mark by. */
   planId: string | null;
   planName: string | null;
-  /**
-   * Cheapest-first position in the live catalogue — what draws the plan's mark,
-   * the same one `/plans-pricing` puts on its card. Null for a plan the
-   * catalogue no longer sells.
-   */
-  planRank: number | null;
   price: number | null;
   status: string;
 }
@@ -166,7 +159,7 @@ export async function getBillingHistory(
 
   const id = new Types.ObjectId(hostelId);
 
-  const [subscription, invoices, payments, catalog] = await Promise.all([
+  const [subscription, invoices, payments] = await Promise.all([
     HostelSubscriptionModel.findOne({ hostelId: id }).lean<{
       activatedAt?: Date | null;
       cycle?: string | null;
@@ -213,7 +206,6 @@ export async function getBillingHistory(
           status: string;
         }>
       >(),
-    getSiteConfigSection("plans"),
   ]);
 
   /*
@@ -247,9 +239,6 @@ export async function getBillingHistory(
   const openDue = open ? Math.max(0, open.amount - openPaid) : 0;
   const dueBy =
     subscription?.dueBy ?? (openDue > 0 ? (open?.dueAt ?? null) : null);
-  const rank = subscription?.planId
-    ? planRank(catalog, subscription.planId)
-    : -1;
 
   return {
     docsUrl: softmatoDocsUrl(),
@@ -326,7 +315,6 @@ export async function getBillingHistory(
           dueFrom: dueBy ? (open?.issuedAt?.toISOString() ?? null) : null,
           planId: subscription.planId ?? null,
           planName: subscription.planName ?? null,
-          planRank: rank >= 0 ? rank : null,
           price: subscription.cycleTotal ?? null,
           status: subscription.status,
         }

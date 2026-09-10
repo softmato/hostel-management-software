@@ -2533,8 +2533,6 @@ export type PlanBillingPlan = {
   dueFrom: string | null;
   planId: string | null;
   planName: string | null;
-  /** Cheapest-first position in the catalogue. Draws `<PlanMark>`. */
-  planRank: number | null;
   price: number | null;
   status: string;
 };

@@ -100,12 +100,36 @@ export type AdminHostel = {
 export type AdminSubscription = {
   invoice: { id: string; invoiceNumber: string } | null;
   outstanding: number;
+  /**
+   * Every payment ever attempted against this plan, newest first — the shape
+   * `getSubscriptionState` has always returned and this type used to drop.
+   *
+   * The due card reads exactly one thing off it: whether a row is `IN_REVIEW`,
+   * meaning the owner has already sent us proof and is waiting on a person. The
+   * balance does not move while that is true — only `SETTLED` rows count — so
+   * without this the card would still be saying *Pay now* to somebody who paid
+   * an hour ago, which is how a hostel pays us twice.
+   */
+  payments: {
+    amount: number;
+    id: string;
+    method: string;
+    settledAt: string | null;
+    status: string;
+  }[];
   subscription: {
     dueBy: string | null;
     planName: string | null;
     status: string;
   };
 };
+
+/** Is a manual payment claim sitting with the platform right now? */
+export function hasClaimInReview(state: AdminSubscription | null) {
+  return Boolean(
+    state?.payments?.some((payment) => payment.status === "IN_REVIEW"),
+  );
+}
 
 export async function getAdminSubscription() {
   const response =
@@ -116,29 +140,79 @@ export async function getAdminSubscription() {
   return unwrap(response).state;
 }
 
+/* -- Paying the platform, by hand ---------------------------------------- */
+
 /**
- * Settles the outstanding plan balance.
+ * What the *Pay your plan* screen draws — our QR, the amount, the reference.
  *
- * Two calls because that is what the endpoint is: `open` reserves the payment
- * and hands back what a payer would scan, `confirm` records that the money
- * arrived. While Fonepay is mocked there is nothing to scan between them, so
- * this runs both — and the sheet that calls it says so in as many words rather
- * than implying a gateway ran.
+ * ## What was here before, and why it is gone
  *
- * When the real gateway lands, `confirm` becomes its callback and this function
- * stops at `open`; the split already exists so that change reaches one file.
+ * `payHostelSubscription` posted `{ action: "open" }` and then
+ * `{ action: "confirm" }` to `hostel-registration/{id}/pay`. That contract no
+ * longer exists on the server: the route dropped its `action` branch when
+ * settlement moved to a verified webhook, and it now ignores the body and opens
+ * a Softmato checkout. So the pair opened **two** checkouts and reported
+ * "Payment recorded" for money nobody had received — or, when the second
+ * checkout was refused because one was already open against the invoice,
+ * surfaced *"This invoice is already settled in full"* to an owner staring at
+ * an unpaid balance. Both endings were wrong in the same way: a client had been
+ * given the job of asserting that money arrived.
+ *
+ * Nothing replaces it, because nothing should. A client cannot record a
+ * payment. It can only say it made one, which is what `submitPlanPaymentClaim`
+ * below does.
  */
-export async function payHostelSubscription(hostelId: string, amount: number) {
-  const opened = await api.post<
-    ApiEnvelope<{ mocked: boolean; payment: { id: string } }>
-  >(`/hostel-registration/${hostelId}/pay`, { action: "open", amount });
+export type PlanPayInstructions = {
+  amountDue: number;
+  /** A claim already with the platform, when the owner has sent one. */
+  claim: {
+    amount: number;
+    claimedAt: string | null;
+    reference: string | null;
+  } | null;
+  dueBy: string | null;
+  invoice: { id: string; invoiceNumber: string; planName: string } | null;
+  /** The server's verdict on the deadline, not the phone's clock. */
+  overdue: boolean;
+  /** The platform's own collection QR. Null when nobody has configured one. */
+  qr: { label: string; url: string } | null;
+  reference: string | null;
+};
 
-  const { payment } = unwrap(opened);
+export async function getPlanPayInstructions() {
+  const response = await api.get<
+    ApiEnvelope<{ instructions: PlanPayInstructions }>
+  >("/hostel-admin/billing/pay-instructions");
 
-  await api.post<ApiEnvelope<unknown>>(`/hostel-registration/${hostelId}/pay`, {
-    action: "confirm",
-    paymentId: payment.id,
-  });
+  return unwrap(response).instructions;
+}
+
+/**
+ * "I have paid — here is the screenshot."
+ *
+ * Records a **claim**, never a payment. The server writes it `IN_REVIEW`, it
+ * moves no balance and clears no due, and a platform admin who has looked at
+ * the proof is the only thing that can turn it into money received. The amount
+ * is not sent: a claim is for whatever is outstanding, and the server reads
+ * that itself.
+ */
+export async function submitPlanPaymentClaim(input: {
+  note?: string;
+  proofAssetId: string;
+  reference?: string;
+}) {
+  const response = await api.post<
+    ApiEnvelope<{
+      claim: {
+        amount: number;
+        claimedAt: string;
+        id: string;
+        invoiceNumber: string;
+      };
+    }>
+  >("/hostel-admin/billing/claim", input);
+
+  return unwrap(response).claim;
 }
 
 export async function getAdminHostel() {

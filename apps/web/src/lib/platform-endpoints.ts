@@ -57,5 +57,9 @@ export const platformEndpoints = {
   siteConfig: "/api/v1/platform/site-config",
   /** Plan billing across every hostel — what we invoiced and what arrived. */
   subscriptions: "/api/v1/platform/subscriptions",
+  /** Hostels that say they have paid us by QR, waiting on a human. */
+  subscriptionClaims: "/api/v1/platform/subscriptions/claims",
+  subscriptionClaimReview: (paymentId: string) =>
+    `/api/v1/platform/subscriptions/claims/${paymentId}/review`,
   users: "/api/v1/platform/users",
 } as const;

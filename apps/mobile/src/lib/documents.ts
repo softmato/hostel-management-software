@@ -522,12 +522,25 @@ async function placeOnDevice({
 }
 
 export async function downloadToDevice({
+  authenticated = true,
   extension,
   fileName,
   label,
   mimeType,
   url,
 }: {
+  /**
+   * Whether to put this session's bearer token on the request. `true` for our
+   * own routes, which is nearly everything.
+   *
+   * **`false` is not "skip a nicety" — it is required for public storage.** An
+   * R2 or S3 URL reads *any* `Authorization` header as a SigV4 signature and
+   * rejects the request outright rather than ignoring it, so a public asset
+   * fetched with a token on it fails with a signature error that says nothing
+   * about tokens. `lib/uploads.ts` documents the same trap on the PUT side, and
+   * `lib/asset-viewer.ts` on the read side; this is the third face of it.
+   */
+  authenticated?: boolean;
   /** Without the dot — `csv`, `pdf`. */
   extension: string;
   /** Without the extension. */
@@ -540,9 +553,9 @@ export async function downloadToDevice({
   const id = startDownload(label);
 
   try {
-    const tokens = await readTokens();
+    const tokens = authenticated ? await readTokens() : null;
 
-    if (!tokens?.accessToken) {
+    if (authenticated && !tokens?.accessToken) {
       throw new Error("You need to be signed in to download this.");
     }
 
@@ -570,7 +583,9 @@ export async function downloadToDevice({
      * a repeat download safe instead.
      */
     const task = new DownloadTask(url, target, {
-      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      headers: tokens?.accessToken
+        ? { Authorization: `Bearer ${tokens.accessToken}` }
+        : {},
       onProgress: ({ bytesWritten, totalBytes }) => {
         /*
          * `totalBytes` is `-1` when the server sent no `Content-Length`, which

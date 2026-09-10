@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { planRank } from "@hostel/plans/catalog";
 import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
@@ -18,6 +19,7 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { type PortalDates, useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
+import { useSiteConfig } from "@/hooks/use-site-config";
 import type {
   PlanBilling,
   PlanBillingInvoice,
@@ -28,6 +30,7 @@ import { adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
 import { downloadToDevice } from "@/lib/documents";
 import { formatMoney } from "@/lib/format";
+import type { SitePlans } from "@/lib/site-config-api";
 import type { BadgeTone } from "@/lib/status";
 import { toastError } from "@/lib/toast";
 
@@ -299,14 +302,40 @@ export default function ManageBillingScreen() {
 }
 
 /**
+ * Where this plan sits in the catalogue — the fill depth of its mark.
+ *
+ * Ranked on the phone against the live catalogue with `planRank`, exactly as
+ * the Pricing screen and `/plans-pricing` rank their cards, so Pro is drawn as
+ * Pro everywhere. By id first; by the name snapshotted on the subscription for
+ * a server that predates `planId` on this payload.
+ *
+ * `null` when neither matches — the catalogue is still loading, or the plan is
+ * no longer sold. The first cut defaulted that to rank 0 and drew a Pro hostel
+ * with Go's mark; no mark beats the wrong plan's.
+ */
+function rankOf(catalog: SitePlans, plan: PlanBillingPlan): number | null {
+  const byId = plan.planId ? planRank(catalog, plan.planId) : -1;
+
+  if (byId >= 0) return byId;
+
+  const name = plan.planName?.trim().toLowerCase();
+  const byName = name
+    ? catalog.plans.findIndex((tier) => tier.name.trim().toLowerCase() === name)
+    : -1;
+
+  return byName >= 0 ? byName : null;
+}
+
+/**
  * Which plan this is — the card on the header's edge.
  *
- * The mark is the one `/plans-pricing` draws on the same plan's card, ranked
- * by the server against the live catalogue, so an owner recognises what they
- * bought by its shape before reading its name.
+ * The mark is the one `/plans-pricing` draws on the same plan's card, so an
+ * owner recognises what they bought by its shape before reading its name.
  */
 function PlanHead({ plan }: { plan: PlanBillingPlan }) {
   const { colors } = useAppTheme();
+  const { config } = useSiteConfig();
+  const rank = rankOf(config.plans, plan);
   const status = statusOf(plan.status);
   const detail = [plan.cycleLabel, plan.price ? formatMoney(plan.price) : null]
     .filter(Boolean)
@@ -319,7 +348,11 @@ function PlanHead({ plan }: { plan: PlanBillingPlan }) {
         style={LIFT}
       >
         <View className="h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft">
-          <PlanMark color={colors.primary} rank={plan.planRank ?? 0} size={30} />
+          {rank === null ? (
+            <Ionicons color={colors.primary} name="pricetag-outline" size={22} />
+          ) : (
+            <PlanMark color={colors.primary} rank={rank} size={30} />
+          )}
         </View>
 
         <View className="flex-1">
@@ -642,6 +675,7 @@ function ReceiptCard({
   payment: PlanBillingPayment;
 }) {
   const settled = payment.status === "SETTLED";
+  const reviewing = payment.status === "IN_REVIEW";
 
   return (
     <Card className="gap-2">
@@ -650,7 +684,9 @@ function ReceiptCard({
           <Text variant="subtitle">
             {payment.method === "CASH"
               ? "Cash, collected in person"
-              : (payment.provider ?? "Online payment")}
+              : payment.method === "MANUAL"
+                ? "Paid by QR, sent to us for checking"
+                : (payment.provider ?? "Online payment")}
           </Text>
           <Text variant="caption">
             {payment.printedNumber ?? payment.receiptNumber ?? "—"}
@@ -661,9 +697,23 @@ function ReceiptCard({
       </View>
 
       <View className="flex-row items-center gap-2">
+        {/*
+          `IN_REVIEW` is the one status whose enum cannot be lower-cased into
+          English — "in_review" reads as a bug. It is also the status that most
+          needs saying, because it is the only one where the owner is waiting on
+          us rather than the other way round.
+        */}
         <Badge
-          label={payment.status.toLowerCase()}
-          tone={settled ? "success" : payment.status === "FAILED" ? "danger" : "neutral"}
+          label={reviewing ? "in review" : payment.status.toLowerCase()}
+          tone={
+            settled
+              ? "success"
+              : payment.status === "FAILED"
+                ? "danger"
+                : reviewing
+                  ? "warning"
+                  : "neutral"
+          }
         />
         <Text variant="caption">{dateLong(payment.paidAt)}</Text>
       </View>
@@ -681,8 +731,10 @@ function ReceiptCard({
       ) : (
         <View className="flex-row items-center gap-2 py-2">
           <Ionicons color={iconColor} name="time-outline" size={16} />
-          <Text variant="caption">
-            The receipt is issued once this payment settles.
+          <Text className="flex-1" variant="caption">
+            {reviewing
+              ? "We are checking your proof. The receipt is issued once it is confirmed."
+              : "The receipt is issued once this payment settles."}
           </Text>
         </View>
       )}
