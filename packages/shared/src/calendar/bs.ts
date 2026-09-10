@@ -521,3 +521,50 @@ export function bsPeriodsBetween(from: string, to: string, cap = 120): string[] 
 
   return Array.from({ length }, (_, offset) => addBsMonths(first, offset));
 }
+
+/* -------------------------------------------------------------------------- */
+/* Fiscal year                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The BS month the fiscal year opens on. Shrawan — the fourth, 1-indexed.
+ *
+ * Nepal's fiscal year runs Shrawan 1 to the last day of Asar, so it straddles
+ * two Bikram Sambat years and is named after both. It is not the calendar year
+ * and it is not derivable from a Gregorian one either: Shrawan 1 lands in
+ * mid-July, which is neither an AD year boundary nor an AD quarter boundary.
+ */
+const FISCAL_YEAR_START_MONTH = 4;
+
+/**
+ * `2083/84` — the fiscal year an instant falls in, as it is printed.
+ *
+ * Every statutory document numbered in this codebase carries it, because a
+ * document sequence restarts each fiscal year and a bare sequence number is
+ * therefore ambiguous across years. `INV-2083/84-000012` says which run of the
+ * counter produced it; `INV-000012` does not.
+ *
+ * The second half is the last two digits of the closing year, which is the form
+ * used on Nepali tax paperwork — `2083/84`, never `2083/2084`. That is a
+ * convention rather than a shortening we chose, so it is applied here rather
+ * than left to each caller to remember.
+ *
+ * Returns `""` off the end of the conversion table, matching every other
+ * formatter in this file: a caller that cannot get a Nepali fiscal year prints
+ * nothing rather than a confidently wrong one.
+ */
+export function bsFiscalYear(instant: Date | null | undefined): string {
+  if (!instant) {
+    return "";
+  }
+
+  try {
+    const bs = toBs(instant);
+    const opening =
+      bs.month >= FISCAL_YEAR_START_MONTH ? bs.year : bs.year - 1;
+
+    return `${opening}/${String(opening + 1).slice(-2)}`;
+  } catch {
+    return "";
+  }
+}

@@ -224,6 +224,51 @@ export const legalSchema = z.object({
   }),
 });
 
+/**
+ * Who the plan invoice and the plan receipt are issued **by**.
+ *
+ * Not `identity`, and the distinction is the whole reason this is its own
+ * section. `identity` is the *site*: the name in the header, the support
+ * address in the footer, the tagline on the marketing page. This is the *legal
+ * person* whose PAN goes on a tax document — the parent company — and the two
+ * are only accidentally similar. HostelHub is the product line printed in the
+ * receipt's "For" row; Softmato Technology Private Limited is the entity that
+ * received the money, and an accountant reconciling a payment needs the second
+ * one.
+ *
+ * ## Every field prints, so every field is real
+ *
+ * The defaults are the parent company's actual registered details rather than
+ * placeholders. `identity.supportEmail` already carries the note explaining
+ * why — a plausible-looking address nobody owns survives review and then
+ * bounces — and it is worse here: a wrong PAN on a document a hostel files
+ * with its own accounts is a problem discovered by somebody else, months later.
+ *
+ * ## `vatRegistered` changes what the document asserts
+ *
+ * PAN-registered and VAT-registered are different registrations in Nepal, and
+ * a document that charges no VAT has to say why. False prints the footnote the
+ * supplied documents carry; true drops it, because a VAT-registered issuer
+ * showing a line explaining that it charges none would be asserting something
+ * untrue. There is no VAT arithmetic behind the flag on purpose — the day this
+ * company registers, the rate and the breakdown are a change to the renderer,
+ * not a number typed into a settings form.
+ */
+export const issuerSchema = z.object({
+  address: trimmed.max(200).default(""),
+  email: trimmed.email().or(z.literal("")).default(""),
+  /** The registered name, exactly as it appears on the PAN certificate. */
+  legalName: trimmed.min(1).max(120),
+  pan: trimmed
+    .max(20)
+    .regex(/^$|^[0-9]{9}$/, "A Nepali PAN is nine digits.")
+    .default(""),
+  phone: trimmed.max(40).default(""),
+  /** The receipt's "For" row — what the money bought, not who sold it. */
+  productName: trimmed.max(60).default(""),
+  vatRegistered: z.boolean().default(false),
+});
+
 export const featuresSchema = z.object({
   compare: z.boolean().default(true),
   inquiries: z.boolean().default(true),
@@ -395,6 +440,7 @@ export const siteConfigSectionSchemas = {
   features: featuresSchema,
   hero: heroSchema,
   identity: identitySchema,
+  issuer: issuerSchema,
   legal: legalSchema,
   locations: locationsSchema,
   plans: plansSchema,

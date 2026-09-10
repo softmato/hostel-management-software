@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   hostelUpdateOne: vi.fn(),
   invoiceCreate: vi.fn(),
   invoiceFindById: vi.fn(),
+  invoiceFindOneAndUpdate: vi.fn(),
+  documentSequenceFindOneAndUpdate: vi.fn(),
   invoiceFindOne: vi.fn(),
   invoiceUpdateOne: vi.fn(),
   onInvoiceIssued: vi.fn(),
@@ -72,7 +74,14 @@ vi.mock("@hostel/db/models/SubscriptionInvoice", () => ({
     create: mocks.invoiceCreate,
     findById: mocks.invoiceFindById,
     findOne: mocks.invoiceFindOne,
+    findOneAndUpdate: mocks.invoiceFindOneAndUpdate,
     updateOne: mocks.invoiceUpdateOne,
+  },
+}));
+
+vi.mock("@hostel/db/models/PlatformDocumentSequence", () => ({
+  PlatformDocumentSequenceModel: {
+    findOneAndUpdate: mocks.documentSequenceFindOneAndUpdate,
   },
 }));
 
@@ -298,11 +307,59 @@ describe("raising the invoice", () => {
     mocks.subscriptionFindOne.mockReturnValue(query(subscription()));
     mocks.subscriptionFindById.mockReturnValue(query(subscription()));
     mocks.invoiceFindOne.mockReturnValue(query(invoice()));
+    mocks.invoiceFindById.mockReturnValue(query(invoice()));
+    mocks.documentSequenceFindOneAndUpdate.mockReturnValue(
+      query({ sequence: 12 }),
+    );
+    mocks.invoiceFindOneAndUpdate.mockReturnValue(
+      query({ localInvoiceNo: "HH-INV-2083/84-000012" }),
+    );
 
     const result = await issueSubscriptionInvoice(hostelId.toString(), actorId);
 
     expect(result.invoiceNumber).toBe("SUB-0001-F0A1");
     expect(mocks.invoiceCreate).not.toHaveBeenCalled();
+  });
+
+  /*
+   * Softmato is not configured in this suite, so every raise here takes the
+   * unreachable path — which is the path that now has to produce a document
+   * rather than leave the owner with an invoice they cannot be shown.
+   */
+  it("issues our own numbered document when Softmato cannot be reached", async () => {
+    mocks.subscriptionFindOne.mockReturnValue(query(subscription()));
+    mocks.subscriptionFindById.mockReturnValue(query(subscription()));
+    mocks.invoiceFindOne.mockReturnValue(query(invoice()));
+    mocks.invoiceFindById.mockReturnValue(query(invoice()));
+    mocks.documentSequenceFindOneAndUpdate.mockReturnValue(
+      query({ sequence: 12 }),
+    );
+    mocks.invoiceFindOneAndUpdate.mockReturnValue(
+      query({ localInvoiceNo: "HH-INV-2083/84-000012" }),
+    );
+
+    const result = await issueSubscriptionInvoice(hostelId.toString(), actorId);
+
+    // The `HH-` prefix is what keeps our series from ever colliding with theirs.
+    expect(result.localInvoiceNo).toMatch(/^HH-INV-/);
+    // Never into the field a webhook is matched on.
+    expect(result.softmatoInvoiceNo ?? null).toBeNull();
+    // And the owner gets a download button, not a "not raised yet".
+    expect(result.documentUrl).toContain("/billing/documents/invoice/");
+  });
+
+  it("does not burn a second number on an invoice that already has one", async () => {
+    mocks.subscriptionFindOne.mockReturnValue(query(subscription()));
+    mocks.subscriptionFindById.mockReturnValue(query(subscription()));
+    mocks.invoiceFindOne.mockReturnValue(query(invoice()));
+    mocks.invoiceFindById.mockReturnValue(
+      query({ ...invoice(), localInvoiceNo: "HH-INV-2083/84-000007" }),
+    );
+
+    const result = await issueSubscriptionInvoice(hostelId.toString(), actorId);
+
+    expect(result.localInvoiceNo).toBe("HH-INV-2083/84-000007");
+    expect(mocks.documentSequenceFindOneAndUpdate).not.toHaveBeenCalled();
   });
 });
 

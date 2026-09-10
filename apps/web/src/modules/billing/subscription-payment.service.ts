@@ -3,6 +3,7 @@ import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import {
   openCheckoutSession,
+  documentDownloadUrl,
   readSettledReceipt,
 } from "@/modules/billing/billing-gateway";
 import {
@@ -12,6 +13,7 @@ import {
   outstandingFor,
   type InvoiceRecord as SubscriptionInvoiceRecord,
 } from "@/modules/billing/subscription.service";
+import { ensureLocalReceiptNumber } from "@/modules/billing/documents/issue";
 import { onPaymentSettled } from "@/modules/hostels/hostel-registration.events";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
@@ -365,12 +367,27 @@ export async function settlePayment(
           ? { gatewayReference: receipt.providerRef }
           : {}),
         ...(receipt?.provider ? { softmatoProvider: receipt.provider } : {}),
-        receiptDocumentUrl: receipt?.documentUrl ?? null,
+        receiptDocumentUrl:
+          receipt?.documentUrl ?? documentDownloadUrl("receipt", receiptNumber),
         receiptIssuedAt: new Date(),
         receiptNumber,
       },
     },
   );
+
+  /*
+   * **A receipt exists either way now.**
+   *
+   * When Softmato issued one, theirs is the document and this does nothing.
+   * When they did not — a cash payment, or their API unreachable — we number
+   * and print our own, so a settled payment is never a payment with no paper.
+   * The URL above is our route in both cases; it resolves whichever document
+   * actually exists (`documents/deliver.ts`), so nothing downstream has to know
+   * which side printed it.
+   */
+  if (!receipt) {
+    await ensureLocalReceiptNumber(payment._id);
+  }
 
   const balance = await outstandingFor(invoice);
 

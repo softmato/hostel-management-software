@@ -51,8 +51,14 @@ export const operationsConfigSchema = z.object({
    * Configurable rather than fixed because it is a commercial term, not a
    * technical one — the number a field team can promise an owner is the
    * platform's call, and it will change without any code needing to.
+   *
+   * Three days by default: registered on 25 Bhadra, due on 28 Bhadra. It is
+   * the trial — the hostel is live and fully usable for these days before the
+   * balance falls due — and it is also the window on a public owner's invoice
+   * after they press Pay now. One number for both, because an owner who asks
+   * "how long do I have" should get one answer.
    */
-  subscriptionDueGraceDays: z.number().int().min(1).max(180).default(15),
+  subscriptionDueGraceDays: z.number().int().min(1).max(180).default(3),
   /**
    * The QR a field agent shows an owner who wants to pay by wallet.
    *

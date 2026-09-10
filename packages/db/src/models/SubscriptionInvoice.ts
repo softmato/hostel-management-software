@@ -119,6 +119,29 @@ const subscriptionInvoiceSchema = new Schema(
      */
     documentUrl: { default: null, trim: true, type: String },
 
+    /* ── The document we issued ourselves, when they could not ────────── */
+
+    /**
+     * `HH-INV-2083/84-000012` — our own statutory number, allocated only when
+     * Softmato was unreachable at the moment the invoice had to be raised.
+     *
+     * **A third field rather than a value in `softmatoInvoiceNo`.** That one
+     * carries a unique index and is what an arriving webhook is matched on, so
+     * a locally minted number sitting in it would make a genuine settlement
+     * notification fail to find its invoice — and, if the two series ever
+     * overlapped, match the wrong one. The failure would be silent and would
+     * look like a payment that never happened.
+     *
+     * Both can be set on one invoice, and that is a normal end state rather
+     * than a conflict: we issued the paper while they were down, they raised
+     * theirs when the retry got through, and the hostel is entitled to see
+     * both. `softmatoInvoiceNo` wins wherever exactly one document has to be
+     * named, because theirs is the one in the ledger the payment landed in.
+     */
+    localInvoiceNo: { default: null, trim: true, type: String },
+    /** When our number was allocated. What the document prints as its date. */
+    localIssuedAt: { default: null, type: Date },
+
     voidedAt: { default: null, type: Date },
     voidedBy: { default: null, ref: "User", type: Schema.Types.ObjectId },
     voidReason: { default: null, trim: true, type: String },
@@ -130,6 +153,15 @@ subscriptionInvoiceSchema.index({ invoiceNumber: 1 }, { unique: true });
 subscriptionInvoiceSchema.index({ hostelId: 1, status: 1, createdAt: -1 });
 subscriptionInvoiceSchema.index({ status: 1, dueAt: 1 });
 subscriptionInvoiceSchema.index({ agentId: 1, createdAt: -1 });
+// Our own series, when we had to issue it. Partial for the same reason theirs
+// is: the number exists only on the invoices that needed one.
+subscriptionInvoiceSchema.index(
+  { localInvoiceNo: 1 },
+  {
+    partialFilterExpression: { localInvoiceNo: { $type: "string" } },
+    unique: true,
+  },
+);
 // The handle a webhook arrives carrying. Partial, because the number is only
 // assigned once the invoice has actually been raised on their side.
 subscriptionInvoiceSchema.index(

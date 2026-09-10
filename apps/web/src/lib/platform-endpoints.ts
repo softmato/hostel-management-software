@@ -55,5 +55,7 @@ export const platformEndpoints = {
   serviceProviderDetails: "/api/v1/platform/service-providers/*",
   serviceProviders: withFullPage("/api/v1/platform/service-providers"),
   siteConfig: "/api/v1/platform/site-config",
+  /** Plan billing across every hostel — what we invoiced and what arrived. */
+  subscriptions: "/api/v1/platform/subscriptions",
   users: "/api/v1/platform/users",
 } as const;

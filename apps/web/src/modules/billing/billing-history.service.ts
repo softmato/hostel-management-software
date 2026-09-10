@@ -4,9 +4,11 @@ import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
 import {
+  documentDownloadUrl,
   fetchInvoiceDetail,
   softmatoDocsUrl,
 } from "@/modules/billing/billing-gateway";
+import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
 
@@ -40,8 +42,17 @@ import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment"
 export interface BillingInvoiceRow {
   amount: number;
   currency: string;
-  /** Our own authenticated download route, or null before the paper exists. */
-  documentUrl: string | null;
+  /**
+   * Our own authenticated download route.
+   *
+   * No longer nullable. It used to be, because a document existed only once
+   * Softmato had raised one — an invoice recorded here with no paper anywhere
+   * was a real state, and a download button for it would have produced nothing.
+   * That is no longer true: when they cannot be reached we issue the document
+   * ourselves, so every invoice has one, and the route resolves whichever
+   * exists.
+   */
+  documentUrl: string;
   dueAt: string | null;
   invoiceNumber: string;
   issuedAt: string | null;
@@ -49,8 +60,12 @@ export interface BillingInvoiceRow {
   paid: number;
   planName: string;
   cycleLabel: string;
+  /** What is printed on the page the owner holds, whoever issued it. */
+  printedNumber: string;
   /** `INV-2083/84-000010`, once raised. */
   softmatoInvoiceNo: string | null;
+  /** Who produced the document. Shown plainly rather than hidden. */
+  issuedBy: "softmato" | "platform";
   status: string;
 }
 
@@ -63,8 +78,39 @@ export interface BillingPaymentRow {
   /** `eSewa`, `Khalti` — absent on cash. */
   provider: string | null;
   providerRef: string | null;
+  /** What is printed on the receipt the owner holds, whoever issued it. */
+  printedNumber: string | null;
   receiptNumber: string | null;
   softmatoTransactionNo: string | null;
+  status: string;
+}
+
+/**
+ * The plan itself — what is running, and how long is left on it.
+ *
+ * `daysRemaining` is computed here rather than on each client for the reason
+ * every derived figure in this codebase is: the website and the app would
+ * otherwise each own a copy of "how many days is that", and the two would round
+ * a part-day differently on the one screen where an owner is deciding whether
+ * to renew today or tomorrow.
+ *
+ * It counts **whole days from now to the end of the paid period**, floored, and
+ * clamps at zero. Floored because a plan with eleven and a half days left has
+ * eleven full days left — telling an owner "12" and then having it read "11"
+ * two hours later is how a countdown loses its reader's trust. Zero means the
+ * period has run out, which is a real state and not an error.
+ */
+export interface BillingPlan {
+  activatedAt: string | null;
+  cycleLabel: string | null;
+  /** Null before the first activation — nothing has been paid for yet. */
+  currentPeriodEnd: string | null;
+  /** Whole days left on the paid period. Null when no period is running. */
+  daysRemaining: number | null;
+  /** The deadline on a shortfall, on a team registration that owes money. */
+  dueBy: string | null;
+  planName: string | null;
+  price: number | null;
   status: string;
 }
 
@@ -73,6 +119,17 @@ export interface BillingHistory {
   docsUrl: string | null;
   invoices: BillingInvoiceRow[];
   payments: BillingPaymentRow[];
+  /** Null for a hostel that predates plan billing and has no subscription. */
+  plan: BillingPlan | null;
+}
+
+/** Whole days from now until an instant, floored, never negative. */
+export function daysUntil(end: Date | null | undefined, now = new Date()) {
+  if (!end) return null;
+
+  const millis = end.getTime() - now.getTime();
+
+  return millis <= 0 ? 0 : Math.floor(millis / 86_400_000);
 }
 
 const CYCLE_LABELS: Record<string, string> = {
@@ -88,7 +145,16 @@ export async function getBillingHistory(
 
   const id = new Types.ObjectId(hostelId);
 
-  const [invoices, payments] = await Promise.all([
+  const [subscription, invoices, payments] = await Promise.all([
+    HostelSubscriptionModel.findOne({ hostelId: id }).lean<{
+      activatedAt?: Date | null;
+      cycle?: string | null;
+      currentPeriodEnd?: Date | null;
+      cycleTotal?: number | null;
+      dueBy?: Date | null;
+      planName?: string | null;
+      status: string;
+    } | null>(),
     SubscriptionInvoiceModel.find({ hostelId: id })
       .sort({ createdAt: -1 })
       .limit(50)
@@ -102,6 +168,7 @@ export async function getBillingHistory(
           dueAt?: Date | null;
           invoiceNumber: string;
           issuedAt?: Date | null;
+          localInvoiceNo?: string | null;
           planName: string;
           softmatoInvoiceNo?: string | null;
           status: string;
@@ -116,6 +183,7 @@ export async function getBillingHistory(
           gatewayReference?: string | null;
           method: string;
           receiptDocumentUrl?: string | null;
+          localTransactionNo?: string | null;
           receiptNumber?: string | null;
           settledAt?: Date | null;
           softmatoProvider?: string | null;
@@ -152,28 +220,71 @@ export async function getBillingHistory(
         amount: invoice.amount,
         currency: invoice.currency ?? "NPR",
         cycleLabel: CYCLE_LABELS[invoice.cycle] ?? invoice.cycle,
-        documentUrl: invoice.documentUrl ?? null,
+        /*
+         * Built rather than read from the row. `documentUrl` is written when an
+         * invoice is raised, so the rows that predate the local renderer carry a
+         * null — and every one of those now has a document that this route can
+         * produce. Deriving it means the button appears for them too.
+         */
+        documentUrl: documentDownloadUrl("invoice", invoice.invoiceNumber),
         dueAt: invoice.dueAt?.toISOString() ?? null,
         invoiceNumber: invoice.invoiceNumber,
         issuedAt: invoice.issuedAt?.toISOString() ?? null,
-        outstanding: Math.max(0, invoice.amount - paid),
+        issuedBy: invoice.softmatoInvoiceNo ? "softmato" : "platform",
+        outstanding:
+          invoice.status === "VOID" ? 0 : Math.max(0, invoice.amount - paid),
         paid,
         planName: invoice.planName,
+        printedNumber:
+          invoice.softmatoInvoiceNo ??
+          invoice.localInvoiceNo ??
+          invoice.invoiceNumber,
         softmatoInvoiceNo: invoice.softmatoInvoiceNo ?? null,
         status: invoice.status,
       };
     }),
-    payments: payments.map((payment) => ({
-      amount: payment.amount,
-      documentUrl: payment.receiptDocumentUrl ?? null,
-      method: payment.method,
-      paidAt: payment.settledAt?.toISOString() ?? null,
-      provider: payment.softmatoProvider ?? null,
-      providerRef: payment.gatewayReference ?? null,
-      receiptNumber: payment.receiptNumber ?? null,
-      softmatoTransactionNo: payment.softmatoTransactionNo ?? null,
-      status: payment.status,
-    })),
+    payments: payments.map((payment) => {
+      const printed =
+        payment.softmatoTransactionNo ??
+        payment.localTransactionNo ??
+        payment.receiptNumber ??
+        null;
+
+      return {
+        amount: payment.amount,
+        /*
+         * Only a settled payment has a receipt. A pending or failed row is a
+         * promise that has not been kept, and a download button on one would
+         * offer a document asserting money arrived when it has not.
+         */
+        documentUrl:
+          payment.status === "SETTLED" && printed
+            ? documentDownloadUrl("receipt", printed)
+            : null,
+        method: payment.method,
+        paidAt: payment.settledAt?.toISOString() ?? null,
+        printedNumber: printed,
+        provider: payment.softmatoProvider ?? null,
+        providerRef: payment.gatewayReference ?? null,
+        receiptNumber: payment.receiptNumber ?? null,
+        softmatoTransactionNo: payment.softmatoTransactionNo ?? null,
+        status: payment.status,
+      };
+    }),
+    plan: subscription
+      ? {
+          activatedAt: subscription.activatedAt?.toISOString() ?? null,
+          cycleLabel: subscription.cycle
+            ? (CYCLE_LABELS[subscription.cycle] ?? subscription.cycle)
+            : null,
+          currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+          daysRemaining: daysUntil(subscription.currentPeriodEnd),
+          dueBy: subscription.dueBy?.toISOString() ?? null,
+          planName: subscription.planName ?? null,
+          price: subscription.cycleTotal ?? null,
+          status: subscription.status,
+        }
+      : null,
   };
 }
 

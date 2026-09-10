@@ -81,6 +81,10 @@ filters `isDeleted`.
       `getPlatformPaymentsOverview` is scoped to live hostels — otherwise an
       archived hostel's invoices keep summing into `totalDue`/`totalPaid` for the
       whole 60 days.
+      **Also on `platform-listings-page.tsx`** — that is the screen the platform
+      owner actually reaches for when looking at the listing inventory, and it is
+      where the dummy rows are visible. Archive is a per-row action at every
+      status there; the Archived tab carries Restore and Erase now per row.
 - [ ] **A7 — verify (yours, in the browser).** Archive a throwaway hostel: its slug 404s on the public site,
       it is gone from `/hostels` search and the map, its admin cannot log in, and
       Restore puts all of it back.

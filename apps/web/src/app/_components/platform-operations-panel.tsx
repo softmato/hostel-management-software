@@ -31,6 +31,7 @@ type OperationsConfig = {
   sendComplaintEmails: boolean;
   sendNoticeEmails: boolean;
   sendPaymentEmails: boolean;
+  subscriptionDueGraceDays: number;
 };
 
 const OPERATIONS_ENDPOINT = "/api/v1/platform/operations-config";
@@ -182,6 +183,7 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
             sendComplaintEmails: field(form, "sendComplaintEmails") === "true",
             sendNoticeEmails: field(form, "sendNoticeEmails") === "true",
             sendPaymentEmails: field(form, "sendPaymentEmails") === "true",
+            subscriptionDueGraceDays: Number(field(form, "subscriptionDueGraceDays")),
           }),
           method: "PUT",
         });
@@ -224,6 +226,23 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
               label="Payment reminder lead (days)"
               min="0"
               name="paymentReminderDaysBefore"
+              required
+              type="number"
+            />
+            {/*
+              The plan trial. Registered on 25 Bhadra with 3 here, and the
+              balance is due on 28 Bhadra — the hostel is live and usable in
+              between. The same number sets the window on a public owner's
+              invoice after Pay now, so the answer to "how long do I have" is
+              one figure wherever it is asked.
+            */}
+            <Input
+              defaultValue={config.subscriptionDueGraceDays}
+              hint="Days a new hostel can run before its plan payment is due. Also the due window on every plan invoice."
+              label="Plan trial / payment window (days)"
+              max="180"
+              min="1"
+              name="subscriptionDueGraceDays"
               required
               type="number"
             />

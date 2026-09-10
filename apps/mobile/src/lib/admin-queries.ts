@@ -86,6 +86,7 @@ import {
   type FeeScheduleData,
   type FoodAnalytics,
   type GatewayConfig,
+  type PlanBilling,
   getAttendanceAnalytics,
   getAttendanceSettings,
   getCommunitySettings,
@@ -93,6 +94,7 @@ import {
   getCookRoster,
   getFoodAnalytics,
   getMaintenanceSettings,
+  getPlanBilling,
   getManagedHostel,
   getMoveInChecklist,
   getMoveOutChecklist,
@@ -541,6 +543,20 @@ export const adminQuery = {
       listFeeSchedules(),
     ),
 
+  /**
+   * Plan billing — the hostel paying *us*, not its residents paying it.
+   *
+   * On the `PAYMENTS` topic like its neighbours even though a plan payment is a
+   * different kind of money: the alternative is a topic of its own that fires
+   * a handful of times a year per hostel, and a screen that misses a settlement
+   * by one refocus is worse than one that revalidates on an unrelated rent
+   * payment. Nothing on this screen is expensive to refetch.
+   */
+  planBilling: (): AdminQuery<PlanBilling> =>
+    define("admin:plan-billing", [REALTIME_TOPIC.PAYMENTS], () =>
+      getPlanBilling(),
+    ),
+
   finance: (): AdminQuery<AdminFinanceData> =>
     define("admin:finance", [REALTIME_TOPIC.PAYMENTS], loadFinance),
 
@@ -728,6 +744,9 @@ export function prefetchAdminRoute(href: string) {
       return;
     case "/(admin)/today":
       prefetchAdminQuery(adminQuery.today());
+      return;
+    case "/manage/billing":
+      prefetchAdminQuery(adminQuery.planBilling());
       return;
     case "/manage/finance":
       prefetchAdminQuery(adminQuery.finance());

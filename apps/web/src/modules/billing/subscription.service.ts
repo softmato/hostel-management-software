@@ -1,7 +1,11 @@
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
-import { issueInvoiceDocument } from "@/modules/billing/billing-gateway";
+import {
+  documentDownloadUrl,
+  issueInvoiceDocument,
+} from "@/modules/billing/billing-gateway";
+import { ensureLocalInvoiceNumber } from "@/modules/billing/documents/issue";
 import { servicePeriod } from "@/modules/billing/softmato/invoice";
 import { buildPresentation } from "@/modules/billing/softmato/presentation";
 import { onInvoiceIssued } from "@/modules/hostels/hostel-registration.events";
@@ -85,6 +89,9 @@ export type InvoiceRecord = {
   hostelId: Types.ObjectId;
   invoiceNumber: string;
   issuedAt?: Date;
+  /** Our own statutory number, when Softmato could not raise theirs. */
+  localInvoiceNo?: string | null;
+  localIssuedAt?: Date | null;
   planId: string;
   planName: string;
   softmatoInvoiceId?: string | null;
@@ -698,7 +705,26 @@ export async function ensureInvoiceRaised(
       }),
     );
 
-    return invoice;
+    /*
+     * **A document still exists.** Softmato could not raise theirs, so ours is
+     * the invoice — allocated here rather than lazily on first read, so the
+     * email that goes out in the next breath has a number to carry and the
+     * owner is never told to expect paperwork that has not been numbered.
+     *
+     * `documentUrl` is filled either way, because the route it points at
+     * resolves whichever document exists (`documents/deliver.ts`). Leaving it
+     * null on this path would give a hostel a billing screen with no download
+     * button beside an invoice it can perfectly well be shown.
+     */
+    const localInvoiceNo = await ensureLocalInvoiceNumber(invoice._id);
+    const documentUrl = documentDownloadUrl("invoice", invoice.invoiceNumber);
+
+    await SubscriptionInvoiceModel.updateOne(
+      { _id: invoice._id },
+      { $set: { documentUrl } },
+    );
+
+    return { ...invoice, documentUrl, localInvoiceNo };
   }
 }
 

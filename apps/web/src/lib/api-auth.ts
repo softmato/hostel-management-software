@@ -7,6 +7,7 @@ import { HOSTEL_STAFF_ROLES, PLATFORM_ROLES, assertAllowedRole } from "@/lib/per
 import { assertHostelAccess } from "@/lib/tenant";
 import { Role } from "@/lib/roles";
 import { grantingPermissionKeys } from "@/lib/warden-capability";
+import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { isTemporaryCredentialActive } from "@/modules/auth/temporary-credential.service";
 import type { WardenPermissionKey } from "@/modules/wardens/warden.validation";
@@ -180,12 +181,54 @@ export async function requireTeamPrincipal(request: NextRequest) {
   return principal;
 }
 
+/**
+ * Hostel staff, scoped to the hostels that still **exist**.
+ *
+ * `hostelIds` is baked into the access token at sign-in, and deleting a hostel
+ * does not reach into a token somebody is already holding. So an owner whose
+ * hostel was deleted — or who had two duplicate registrations filed for them
+ * and one removed — kept arriving with every id they ever had. That was not
+ * cosmetic: `resolveAdminHostelId` treats more than one id as "which hostel do
+ * you mean?", so a one-hostel owner was served the multi-hostel fallback on
+ * every screen (no name, no photo, no public-page button, claims refused), and
+ * the billing screen read `hostelIds[0]` — the *deleted* hostel's invoices.
+ *
+ * Narrowing here, once, fixes every route downstream without any of them
+ * knowing deletion exists — the same trick `requireHostelCapability` uses for
+ * warden grants, which inherits this because it starts from this function.
+ * One indexed `_id $in` read per request.
+ *
+ * Deleting a hostel also pulls it from `User.hostelIds`, so the token heals at
+ * the next refresh; this is what makes the gap between the two harmless.
+ */
 export async function requireHostelStaffPrincipal(request: NextRequest) {
   const principal = await requireApiPrincipal(request);
 
   assertApiRoles(principal, HOSTEL_STAFF_ROLES);
 
-  return principal;
+  const candidates = principal.hostelIds.filter((id) => Types.ObjectId.isValid(id));
+
+  if (candidates.length === 0) {
+    return principal;
+  }
+
+  await connectToDatabase();
+
+  const live = await HostelModel.find({
+    _id: { $in: candidates.map((id) => new Types.ObjectId(id)) },
+    isDeleted: { $ne: true },
+  })
+    .select("_id")
+    .lean<{ _id: Types.ObjectId }[]>();
+
+  const liveIds = new Set(live.map((hostel) => hostel._id.toString()));
+
+  // Token order preserved: `hostelIds[0]` is "the" hostel for a one-hostel
+  // reader, and reordering would change which one that is.
+  return {
+    ...principal,
+    hostelIds: candidates.filter((id) => liveIds.has(id)),
+  } satisfies ApiPrincipal;
 }
 
 /**

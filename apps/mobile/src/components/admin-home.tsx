@@ -656,6 +656,18 @@ export function ServiceGrid({
     { href: "/manage/cook", icon: "flame-outline", label: "Cooks", tone: "warning" },
     { href: "/manage/maintenance", icon: "construct-outline", label: "Repairs", tone: "danger" },
     { href: "/manage/reports", icon: "bar-chart-outline", label: "Reports", tone: "admin" },
+    /*
+      The hostel paying *us*, which is the one kind of money on this grid that
+      does not belong to Finance.
+      Every other tile here is the hostel's own operation. This one is the
+      subscription that keeps the app switched on — the plan, the days left on
+      it, and the invoices and receipts an accountant asks for. Folding it into
+      Finance would put two opposite directions of money behind one door, and an
+      owner reading "outstanding" would have to work out which debt it meant.
+      Next to Settings deliberately: both are about the account rather than the
+      building.
+    */
+    { href: "/manage/billing", icon: "card-outline", label: "Billing", tone: "success" },
     { href: "/manage/settings", icon: "settings-outline", label: "Settings", tone: "brand" },
   ] as const;
 

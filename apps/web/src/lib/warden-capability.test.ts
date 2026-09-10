@@ -6,6 +6,7 @@ import { Role } from "@/lib/roles";
 
 const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
+  hostelFind: vi.fn(),
   memberFind: vi.fn(),
   verifyAccessToken: vi.fn(),
 }));
@@ -18,6 +19,10 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
+
+vi.mock("@hostel/db/models/Hostel", () => ({
+  HostelModel: { find: mocks.hostelFind },
+}));
 
 vi.mock("@hostel/db/models/HostelMember", () => ({
   HostelMemberModel: { find: mocks.memberFind },
@@ -49,6 +54,24 @@ function signedInAs(role: Role, hostelIds: string[]) {
   });
 }
 
+/**
+ * Which of the token's hostels still exist. Everything is live unless a test
+ * says otherwise — archiving is the exception these cases are not about.
+ */
+function liveHostels(hostelIds?: string[]) {
+  mocks.hostelFind.mockImplementation(
+    (filter: { _id: { $in: Types.ObjectId[] } }) => ({
+      lean: vi.fn().mockResolvedValue(
+        filter._id.$in
+          .map((id) => id.toString())
+          .filter((id) => !hostelIds || hostelIds.includes(id))
+          .map((id) => ({ _id: new Types.ObjectId(id) })),
+      ),
+      select: vi.fn().mockReturnThis(),
+    }),
+  );
+}
+
 function membershipsIn(hostelIds: string[]) {
   mocks.memberFind.mockReturnValue({
     lean: vi
@@ -61,6 +84,32 @@ function membershipsIn(hostelIds: string[]) {
 describe("warden capability enforcement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    liveHostels();
+  });
+
+  /*
+   * The bug this guards: a one-hostel owner whose duplicate registration was
+   * archived still carried both ids in their token, and every screen treated
+   * them as a multi-hostel account — nameless dashboard, claims refused, and
+   * the billing page reading the archived hostel's invoices.
+   */
+  it("drops an archived hostel the token still carries", async () => {
+    signedInAs(Role.HOSTEL_ADMIN, [HOSTEL_A, HOSTEL_B]);
+    liveHostels([HOSTEL_B]);
+
+    const principal = await requireHostelCapability(request(), "editHostelProfile");
+
+    expect(principal.hostelIds).toEqual([HOSTEL_B]);
+  });
+
+  it("keeps a one-hostel owner a one-hostel owner after an archive", async () => {
+    signedInAs(Role.HOSTEL_ADMIN, [HOSTEL_A, HOSTEL_B]);
+    liveHostels([HOSTEL_A]);
+
+    const principal = await requireHostelCapability(request(), "editHostelProfile");
+
+    // Exactly one — which is what `resolveAdminHostelId` needs to pick it.
+    expect(principal.hostelIds).toHaveLength(1);
   });
 
   it("lets a hostel admin through without consulting permissions", async () => {
@@ -136,6 +185,7 @@ describe("warden capability enforcement", () => {
 describe("payment capability split", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    liveHostels();
   });
 
   it.each(["viewPayments", "approvePayments", "recordCash"] as const)(

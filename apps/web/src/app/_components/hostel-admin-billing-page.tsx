@@ -2,6 +2,7 @@
 
 import {
   BookOpen,
+  CalendarClock,
   Download,
   ExternalLink,
   FileText,
@@ -11,11 +12,13 @@ import {
 import { useEffect, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
+import { downloadFile } from "@/lib/downloads/downloader";
 import { cn } from "@/lib/utils";
 import type {
   BillingHistory,
   BillingInvoiceRow,
   BillingPaymentRow,
+  BillingPlan,
 } from "@/modules/billing/billing-history.service";
 
 /**
@@ -25,10 +28,11 @@ import type {
  * ## Two numbers on every row, and that is deliberate
  *
  * `SUB-0001-4F2A` is ours — the reference our emails quote and the one support
- * will be asked about. `INV-2083/84-000010` is Softmato's, carrying the fiscal
- * year and the ledger sequence, and it is the number printed on the PDF an
- * accountant will hold. Showing one and hiding the other guarantees the reader
- * is looking for the one we hid.
+ * will be asked about. The other is what is *printed on the document*:
+ * `INV-2083/84-000010` when Softmato raised it, `HH-INV-2083/84-000012` when
+ * we did. The printed one leads, because it is what the owner is reading off
+ * their copy; ours sits beside it, because showing one and hiding the other
+ * guarantees the reader is looking for the one we hid.
  *
  * ## The download is a route on this app, not a link to Softmato
  *
@@ -37,12 +41,17 @@ import type {
  * fix that would publish it. So the button points at our own endpoint, which
  * checks the reader owns the hostel and then streams the bytes.
  *
- * ## Cash rows have no document, and say so
+ * ## Every settled row has a document now
  *
- * A cash payment is our own record: money handed to a field agent that no
- * gateway can corroborate. It carries our receipt number and no PDF, which is
- * the honest rendering — a download button that produced nothing would be
- * worse than its absence.
+ * This screen used to say "document not raised yet" on an invoice Softmato had
+ * not managed to raise, and "no gateway document" on a cash payment. Neither
+ * state exists any more: when Softmato cannot be reached we issue the paper
+ * ourselves, and a cash payment gets our receipt rather than nothing, because
+ * money that was genuinely handed over deserves a document saying so.
+ *
+ * What still has no document is a payment that has not **settled** — and that
+ * is not a gap. A receipt asserts that a sum was received, and one for money
+ * still in flight would be a document stating something that may never be true.
  */
 
 const STATUS_TONE: Record<string, string> = {
@@ -55,6 +64,25 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const rupees = (value: number) => `NPR ${value.toLocaleString("en-IN")}`;
+
+/**
+ * The download is a fetch, not a link.
+ *
+ * The document route authenticates the reader and streams bytes; a plain
+ * `<a href>` would send the browser off without the session this portal keeps
+ * in memory, and the owner would get a login page where they expected a PDF.
+ * `downloadFile` carries the credentials, shows the transfer in the global
+ * toaster and never throws — the same path every other file in this portal
+ * takes.
+ */
+function grabDocument(url: string, number: string, label: string) {
+  void downloadFile({
+    fileName: `${number.replace(/\//g, "-")}.pdf`,
+    label,
+    mimeType: "application/pdf",
+    url,
+  });
+}
 
 const shortDate = (value: string | null) =>
   value
@@ -101,8 +129,9 @@ export function HostelAdminBillingPageContent() {
           <h1 className="text-xl font-bold text-foreground">Plan billing</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             What this hostel has been billed for its plan, and what has been
-            received. Invoices and receipts are issued by Softmato, who take the
-            payment — the documents below are theirs, served through us.
+            received. Every invoice and receipt below can be downloaded — issued
+            by Softmato, who take the payment, or by us directly when they
+            cannot be reached.
           </p>
         </div>
 
@@ -133,6 +162,8 @@ export function HostelAdminBillingPageContent() {
         </p>
       ) : null}
 
+      {history?.plan ? <PlanCard plan={history.plan} /> : null}
+
       {history ? (
         <>
           <Panel
@@ -152,7 +183,7 @@ export function HostelAdminBillingPageContent() {
           >
             {history.payments.map((payment, index) => (
               <PaymentRow
-                key={payment.softmatoTransactionNo ?? payment.receiptNumber ?? index}
+                key={payment.printedNumber ?? payment.receiptNumber ?? index}
                 payment={payment}
               />
             ))}
@@ -160,6 +191,106 @@ export function HostelAdminBillingPageContent() {
         </>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The plan, and how long is left on it.
+ *
+ * First on the page because it is the only thing here an owner opens this
+ * screen to *decide* something about. The invoice list below is a record; this
+ * is the question "am I about to lose the app".
+ *
+ * ## Days, and the date underneath it
+ *
+ * Both, and neither on its own. "17 days left" is what makes an owner act and
+ * is useless for arranging a payment; "ends 14 December" is what they need to
+ * put in a diary and does not convey urgency. The count leads and the date
+ * qualifies it.
+ *
+ * The number is computed on the server (`daysUntil`) so the app and this screen
+ * cannot disagree about a part-day. Rendering it here from `currentPeriodEnd`
+ * would have put a second implementation of the same rounding in the browser.
+ *
+ * ## The tone changes once, and late
+ *
+ * Amber inside a fortnight, and never red. A plan approaching renewal is not a
+ * fault — it is the product working — and a hostel that has paid us every year
+ * does not need its billing screen shouting at it. Zero days is the state that
+ * has actually gone wrong, and it says so in words rather than by turning a
+ * card a colour.
+ */
+function PlanCard({ plan }: { plan: BillingPlan }) {
+  const days = plan.daysRemaining;
+  const expiring = days !== null && days <= 14;
+  const expired = days === 0;
+
+  return (
+    <section
+      className={cn(
+        "rounded-2xl border p-5",
+        expiring ? "border-warning/40 bg-warning/5" : "border-border bg-surface",
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Current plan
+          </p>
+          <p className="mt-1 text-lg font-bold text-foreground">
+            {plan.planName ?? "No plan chosen yet"}
+            {plan.cycleLabel ? (
+              <span className="font-normal text-muted-foreground">
+                {" \u00b7 "}
+                {plan.cycleLabel}
+              </span>
+            ) : null}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Badge status={plan.status.replaceAll("_", " ")} />
+            {plan.price ? (
+              <span className="text-xs text-muted-foreground">
+                {rupees(plan.price)} per cycle
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        {days !== null ? (
+          <div className="text-right">
+            <p
+              className={cn(
+                "text-3xl font-bold tabular-nums",
+                expiring ? "text-warning" : "text-foreground",
+              )}
+            >
+              {days}
+            </p>
+            <p className="text-xs font-semibold text-muted-foreground">
+              {days === 1 ? "day left" : "days left"}
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+        <CalendarClock className="size-3.5" />
+        {expired ? (
+          <span className="font-semibold text-warning">
+            This plan has reached the end of its paid period.
+          </span>
+        ) : plan.currentPeriodEnd ? (
+          <span>Paid through {shortDate(plan.currentPeriodEnd)}</span>
+        ) : (
+          <span>Nothing has been paid for yet.</span>
+        )}
+        {plan.dueBy ? (
+          <span className="font-semibold text-warning">
+            Balance due by {shortDate(plan.dueBy)}
+          </span>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -204,16 +335,21 @@ function InvoiceRow({ invoice }: { invoice: BillingInvoiceRow }) {
             </span>
           </p>
 
-          <p className="mt-1 font-mono text-xs text-muted-foreground">
-            {invoice.invoiceNumber}
-            {invoice.softmatoInvoiceNo ? (
-              <>
+          {/*
+            The number printed on the page leads, because that is what the owner
+            is reading off their copy when they ring us. Ours sits beside it in
+            the muted ink — it is the one every other screen in this portal
+            indexes by, and showing only one guarantees they are holding the
+            other.
+          */}
+          <p className="mt-1 font-mono text-xs text-foreground/70">
+            {invoice.printedNumber}
+            {invoice.printedNumber === invoice.invoiceNumber ? null : (
+              <span className="text-muted-foreground">
                 {" · "}
-                <span className="text-foreground/70">
-                  {invoice.softmatoInvoiceNo}
-                </span>
-              </>
-            ) : null}
+                {invoice.invoiceNumber}
+              </span>
+            )}
           </p>
 
           <p className="mt-1 text-xs text-muted-foreground">
@@ -237,23 +373,22 @@ function InvoiceRow({ invoice }: { invoice: BillingInvoiceRow }) {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Badge status={invoice.status} />
 
-        {invoice.documentUrl ? (
-          <a
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-brand-teal/40"
-            href={invoice.documentUrl}
-          >
-            <Download className="size-3.5" />
-            Invoice PDF
-          </a>
-        ) : (
-          /*
-           * Not a disabled button. The paper genuinely does not exist yet, and
-           * saying which of the two situations this is spares a support thread.
-           */
-          <span className="text-xs text-muted-foreground">
-            Document not raised yet
-          </span>
-        )}
+        {/*
+          Always offered. There used to be a "document not raised yet" state
+          here, for an invoice Softmato had not managed to raise — that state no
+          longer exists, because we issue the document ourselves when they
+          cannot, and the route resolves whichever one there is.
+        */}
+        <button
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-brand-teal/40"
+          onClick={() =>
+            grabDocument(invoice.documentUrl, invoice.printedNumber, "Invoice")
+          }
+          type="button"
+        >
+          <Download className="size-3.5" />
+          Invoice PDF
+        </button>
       </div>
     </li>
   );
@@ -270,15 +405,14 @@ function PaymentRow({ payment }: { payment: BillingPaymentRow }) {
               : (payment.provider ?? "Online payment")}
           </p>
 
-          <p className="mt-1 font-mono text-xs text-muted-foreground">
-            {payment.receiptNumber ?? "—"}
-            {payment.softmatoTransactionNo ? (
-              <>
+          <p className="mt-1 font-mono text-xs text-foreground/70">
+            {payment.printedNumber ?? payment.receiptNumber ?? "—"}
+            {payment.receiptNumber &&
+            payment.printedNumber !== payment.receiptNumber ? (
+              <span className="text-muted-foreground">
                 {" · "}
-                <span className="text-foreground/70">
-                  {payment.softmatoTransactionNo}
-                </span>
-              </>
+                {payment.receiptNumber}
+              </span>
             ) : null}
           </p>
 
@@ -297,18 +431,30 @@ function PaymentRow({ payment }: { payment: BillingPaymentRow }) {
         <Badge status={payment.status} />
 
         {payment.documentUrl ? (
-          <a
+          <button
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-brand-teal/40"
-            href={payment.documentUrl}
+            onClick={() =>
+              grabDocument(
+                payment.documentUrl as string,
+                payment.printedNumber ?? payment.receiptNumber ?? "receipt",
+                "Receipt",
+              )
+            }
+            type="button"
           >
             <Download className="size-3.5" />
             Receipt PDF
-          </a>
-        ) : payment.method === "CASH" ? (
+          </button>
+        ) : (
+          /*
+           * A receipt exists only for money that arrived. A pending or failed
+           * attempt has none — not because we could not produce one, but
+           * because it would assert something untrue.
+           */
           <span className="text-xs text-muted-foreground">
-            Recorded by our team — no gateway document
+            No receipt until this payment settles
           </span>
-        ) : null}
+        )}
       </div>
     </li>
   );

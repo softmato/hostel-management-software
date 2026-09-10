@@ -364,34 +364,54 @@ export async function readEvidence(
 
   const mode = evidenceEngineMode();
 
-  if (mode === "vision") {
-    const prepared = await prepareForVision(bytes);
-
-    // No decoder on this deployment. Distinct from a Vision failure, and worth
-    // saying so: it means `sharp` is missing, which breaks far more than this.
-    if (!prepared) return { failure: "unknown", result: null };
-
-    return readWithVision(prepared);
-  }
-
-  if (mode === "gemini") {
+  if (mode === "vision" || mode === "gemini" || mode === "vision+gemini") {
     /*
-     * The same preparation Vision gets.
+     * One preparation, whichever remote engine ends up reading it.
      *
-     * Not because the model needs it — it reads a raw phone screenshot fine —
-     * but because it bounds what is sent. `prepareForVision` downscales and
-     * re-encodes, and every byte here becomes base64 in a JSON body on a free
-     * tier with a request-size limit. It also keeps the two remote engines
-     * reading pixel-for-pixel the same image, which is the only way a shadow
-     * comparison between them means anything.
+     * Vision needs it. Gemini does not — it reads a raw phone screenshot fine —
+     * but gets it anyway, because it bounds what is sent: `prepareForVision`
+     * downscales and re-encodes, and every byte here becomes base64 in a JSON
+     * body on a tier with a request-size limit. It also keeps the two remote
+     * engines reading pixel-for-pixel the same image, which is the only way
+     * comparing their answers — shadowed or fallen back to — means anything.
      */
     const prepared = await prepareForVision(bytes);
 
+    // No decoder on this deployment. Distinct from an engine failure, and worth
+    // saying so: it means `sharp` is missing, which breaks far more than this.
     if (!prepared) return { failure: "unknown", result: null };
 
     // `prepareForVision` re-encodes to PNG, and the mime type has to say so —
-    // Vision sniffs the bytes, but this endpoint is told what it is being given.
-    return readWithGemini(prepared, "image/png");
+    // Vision sniffs the bytes, but Gemini is told what it is being given.
+    if (mode === "gemini") return readWithGemini(prepared, "image/png");
+
+    const vision = await readWithVision(prepared);
+
+    if (mode === "vision" || !worthAskingTheOtherEngine(vision.failure)) {
+      return vision;
+    }
+
+    /*
+     * Loud on both sides, and deliberately so.
+     *
+     * A fallback that works silently is a fallback nobody notices is load-
+     * bearing, and the bill for the engine that stopped answering keeps being
+     * paid for months. These two lines are how somebody finds out that Vision
+     * has been down since Tuesday while receipts kept reading fine.
+     */
+    console.error(
+      `[evidence-fallback] vision returned nothing (${vision.failure}) — asking gemini`,
+    );
+
+    const gemini = await readWithGemini(prepared, "image/png");
+
+    if (gemini.failure) {
+      console.error(
+        `[evidence-fallback] gemini returned nothing either (${gemini.failure}) — this file goes to a human`,
+      );
+    }
+
+    return gemini;
   }
 
   if (mode === "shadow") {
@@ -406,6 +426,26 @@ export async function readEvidence(
         failure: null,
         result: { engine: "tesseract", ms: 0, text, words: [] },
       };
+}
+
+/**
+ * Whether a Vision non-answer is worth spending a second engine on.
+ *
+ * Everything except `empty`. `empty` is not a failure of Vision's at all — it
+ * ran, it looked, and the page carries no text; that is a fact about the file,
+ * and the correct response to it is not to ask a language model to look again at
+ * a page already known to be blank, which is an invitation to find something
+ * there that is not.
+ *
+ * Every other reason — no credential, a vendor error, a timeout, the monthly
+ * breaker, an unhandled throw — means Vision did not answer the question, so the
+ * question is still open and somebody else may as well be asked. The breaker is
+ * on that list on purpose: `EVIDENCE_VISION_MONTHLY_CAP` bounds Vision's bill,
+ * not the platform's ability to read a receipt, and Gemini has a cap of its own
+ * so a runaway loop still hits a wall on the far side.
+ */
+function worthAskingTheOtherEngine(failure: EvidenceReadFailure | null): boolean {
+  return failure !== null && failure !== "empty";
 }
 
 /**

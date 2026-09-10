@@ -587,6 +587,23 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
     supportPhone: "+977-1-5432123",
     tagline: "Find & manage hostels in Nepal",
   },
+  /**
+   * The parent company, as it prints on a plan invoice or receipt.
+   *
+   * Real details, not placeholders — see `issuerSchema` for why a document
+   * carrying a plausible-looking PAN is worse than one carrying an obvious
+   * blank. `vatRegistered: false` is the current fact and it puts the "no VAT
+   * is charged on this document" footnote on the page.
+   */
+  issuer: {
+    address: "Kathmandu, Nepal",
+    email: "info@softmato.com",
+    legalName: "Softmato Technology Private Limited",
+    pan: "623692242",
+    phone: "9709155982",
+    productName: "HostelHub",
+    vatRegistered: false,
+  },
   legal: {
     privacy: { body: "", updatedAt: "" },
     terms: { body: "", updatedAt: "" },

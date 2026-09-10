@@ -1125,11 +1125,181 @@ export async function registerPublicHostelApplication(
  * many hostels; if their account were the owner they would end up owning every
  * one of them, and the real owner could never sign in to their own dashboard.
  */
+/**
+ * `Study Sanjal Hostel`, `Study Sanjal`, `study-sanjal hostel.` → one key.
+ *
+ * Case, punctuation, spacing and the generic words a hostel name is padded
+ * with are dropped, because those are exactly the ways the same building gets
+ * typed twice by two agents — or by one agent on two visits.
+ */
+export function hostelNameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9ऀ-ॿ]+/g, " ")
+    .replace(/\b(hostel|hostels|pg|boys|girls|home|house|the)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The two ways a field agent files a hostel that should not be filed.
+ *
+ * The case that made this necessary: one owner, three TEAM registrations in a
+ * day — "Study Sanjal Hostel", then "Study Sanjal", then a test entry — two of
+ * which had to be archived. Each one went live on submit, raised its own plan
+ * invoice and put a hostel on the owner's account, and the leftovers are what
+ * turned a one-hostel owner's app into the nameless multi-hostel dashboard.
+ * The public desk has a reviewer between submit and publish to catch this; the
+ * team desk publishes instantly, so the check has to happen before the write.
+ *
+ * **The building is already listed** — same name once normalised, same area,
+ * still live. Refused with no override: it is on the platform, and a second
+ * listing would split its residents, its reviews and its plan across two
+ * records. If it is genuinely a different building with the same name, the
+ * agent gives it a distinguishing name, which the public would need anyway.
+ *
+ * **The owner already has a live hostel** — matched by phone or email, the same
+ * way `findOrCreatePublicHostelOwner` is about to resolve them. Refused *unless*
+ * the agent confirms it is a second building, because real owners do run two.
+ * The refusal names the hostel they already have, so the agent can see which.
+ */
+/**
+ * The live hostel an email is already tied to, by name — or null.
+ *
+ * "Tied to" three ways, because each is somebody who can already act for a
+ * hostel with that address: the account that **owns** it, an account that
+ * **staffs** it (`hostelIds` — a warden or a cook signs in with their own
+ * email), and the hostel's own **contact** address printed on its listing.
+ * Only live hostels count — an address on an archived one is free again, which
+ * is the point of archiving it.
+ *
+ * Compared lower-cased, the way accounts store it; nobody types an email the
+ * same way twice.
+ */
+export async function findHostelUsingEmail(email: string): Promise<string | null> {
+  const address = email.trim().toLowerCase();
+
+  if (!address) {
+    return null;
+  }
+
+  await connectToDatabase();
+
+  const user = await UserModel.findOne({
+    email: address,
+    isDeleted: { $ne: true },
+  })
+    .select("_id hostelIds")
+    .lean<{ _id: Types.ObjectId; hostelIds?: Types.ObjectId[] } | null>();
+
+  const hostel = await HostelModel.findOne({
+    isDeleted: { $ne: true },
+    $or: [
+      { "contact.email": new RegExp(`^${address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+      ...(user
+        ? [{ ownerId: user._id }, { _id: { $in: user.hostelIds ?? [] } }]
+        : []),
+    ],
+  })
+    .select("name")
+    .lean<{ name?: string } | null>();
+
+  return hostel ? (hostel.name ?? "another hostel") : null;
+}
+
+export async function assertTeamRegistrationIsNew(input: TeamHostelRegistrationInput) {
+  const key = hostelNameKey(input.name);
+  const areaPattern = new RegExp(
+    `^${input.location.area.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+    "i",
+  );
+
+  const neighbours = await HostelModel.find({
+    isDeleted: { $ne: true },
+    "location.area": areaPattern,
+  })
+    .select("name slug")
+    .lean<Array<{ name?: string; slug?: string }>>();
+
+  const sameBuilding = key
+    ? neighbours.find((hostel) => hostelNameKey(hostel.name ?? "") === key)
+    : undefined;
+
+  if (sameBuilding) {
+    throw new HostelServiceError(
+      `"${sameBuilding.name}" in ${input.location.area} is already on HostelHub. If this is a different building, give it a name that tells them apart.`,
+      "HOSTEL_ALREADY_LISTED",
+      409,
+    );
+  }
+
+  /*
+   * The email is a hard stop, ahead of the second-building question.
+   *
+   * An email already tied to a live hostel belongs to somebody who can already
+   * sign in to one. Filing another hostel under it would either hand this
+   * building to that person's account or — when the agent typed the wrong
+   * address — to a stranger's. There is no tick for this: the agent asks the
+   * owner for their own address, or files with no email at all.
+   */
+  if (input.applicant.email) {
+    const usedBy = await findHostelUsingEmail(input.applicant.email);
+
+    if (usedBy) {
+      throw new HostelServiceError(
+        `${input.applicant.email} is already used by "${usedBy}". Use a different email for this owner.`,
+        "OWNER_EMAIL_IN_USE",
+        409,
+      );
+    }
+  }
+
+  if (input.confirmSecondHostel) {
+    return;
+  }
+
+  const contacts: Array<Record<string, string>> = [{ phone: input.applicant.phone }];
+
+  if (input.applicant.email) {
+    contacts.push({ email: input.applicant.email.toLowerCase() });
+  }
+
+  const owner = await UserModel.findOne({
+    $or: contacts,
+    isDeleted: { $ne: true },
+  })
+    .select("_id")
+    .lean<{ _id: Types.ObjectId } | null>();
+
+  if (!owner) {
+    return;
+  }
+
+  const existing = await HostelModel.findOne({
+    isDeleted: { $ne: true },
+    ownerId: owner._id,
+  })
+    .select("name location.area")
+    .lean<{ location?: { area?: string }; name?: string } | null>();
+
+  if (existing) {
+    throw new HostelServiceError(
+      `This owner already has "${existing.name}"${existing.location?.area ? ` in ${existing.location.area}` : ""} on HostelHub. Confirm this is a second, separate building to register it.`,
+      "OWNER_ALREADY_HAS_HOSTEL",
+      409,
+    );
+  }
+}
+
 export async function registerTeamHostelApplication(
   input: TeamHostelRegistrationInput,
   agent: { name?: string; userId: string },
 ) {
   await connectToDatabase();
+
+  // Before any write: this path publishes on submit, so a duplicate caught
+  // after `HostelModel.create` is already a live listing with an invoice.
+  await assertTeamRegistrationIsNew(input);
 
   const ownerId = await findOrCreatePublicHostelOwner(input.applicant);
   const slug = await uniqueSlug(input.name, input.location.area);
@@ -2174,6 +2344,21 @@ export async function archivePlatformHostel(
 
   const sessionsRevoked = await revokeSessionsForArchivedHostel(objectId);
 
+  /*
+   * Off every account that listed it.
+   *
+   * Revoking sessions stops today's tokens; this stops tomorrow's. Left in
+   * `User.hostelIds`, an archived hostel is minted into every future token for
+   * that owner, and a one-hostel owner who once had a duplicate registration
+   * removed is then treated as a multi-hostel account on every screen — which
+   * is exactly how an owner ended up with a nameless dashboard and the deleted
+   * hostel's invoices on their billing page. Restore puts it back.
+   */
+  await UserModel.updateMany(
+    { hostelIds: objectId },
+    { $pull: { hostelIds: objectId } },
+  );
+
   await auditHostelAction(principal, objectId, "HOSTEL_ARCHIVED", {
     purgeScheduledAt: purgeScheduledAt.toISOString(),
     reason: input.reason,
@@ -2264,6 +2449,36 @@ export async function restorePlatformHostel(
       "Hostel was not found, or is not archived.",
       "HOSTEL_NOT_FOUND",
       404,
+    );
+  }
+
+  /*
+   * Back onto the accounts that archive took it off.
+   *
+   * The owner, and every warden or cook whose membership row is still active —
+   * the rows themselves survive an archive, only the `User.hostelIds` entry was
+   * pulled. Without this a restored hostel is live on the public site and
+   * unreachable by the people who run it, because their next token would not
+   * carry it.
+   */
+  const { HostelMemberModel } = await import("@hostel/db/models/HostelMember");
+  const members = await HostelMemberModel.find({
+    hostelId: objectId,
+    isDeleted: { $ne: true },
+    status: "ACTIVE",
+  })
+    .select("userId")
+    .lean<Array<{ userId?: Types.ObjectId | null }>>();
+
+  const staffIds = [
+    ...(hostel.ownerId ? [hostel.ownerId] : []),
+    ...members.map((member) => member.userId).filter(Boolean),
+  ];
+
+  if (staffIds.length > 0) {
+    await UserModel.updateMany(
+      { _id: { $in: staffIds } },
+      { $addToSet: { hostelIds: objectId } },
     );
   }
 

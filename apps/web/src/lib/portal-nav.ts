@@ -232,6 +232,30 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
             keywords: ["ledger", "txn", "refund", "settlement", "invoice", "history"],
             label: "Transactions",
           },
+          {
+            /*
+             * Hostels paying *us*, which is not what the two rows above are.
+             * Those are residents paying hostels, one level down, and they
+             * share no rows, no merchant of record and no reader with this.
+             * Filed under Fees & Payments because it is money, and kept a
+             * separate destination because a single screen carrying both
+             * would make one of its two totals answer a question nobody asked.
+             */
+            description:
+              "Plan invoices and receipts issued to hostels, what has been collected, and what is still owed.",
+            href: "/platform/subscriptions",
+            keywords: [
+              "subscription",
+              "plan",
+              "invoice",
+              "receipt",
+              "billing",
+              "softmato",
+              "renewal",
+              "mrr",
+            ],
+            label: "Plan Billing",
+          },
         ],
         href: "/platform/payments",
         icon: "card",

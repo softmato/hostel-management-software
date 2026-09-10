@@ -198,6 +198,16 @@ export const teamHostelRegistrationSchema = registrationFields
     }),
     /** The team form always names a plan — it is a step in the form. */
     plan: registrationPlanChoiceSchema,
+    /**
+     * The agent has seen that this owner already has a live hostel and says
+     * this is a separate building.
+     *
+     * Only lifts the *same owner* refusal. It cannot lift *same building*: a
+     * hostel already listed under this name in this area is refused whatever
+     * the agent ticks, because two listings for one building split its
+     * residents, reviews and plan across two records.
+     */
+    confirmSecondHostel: z.boolean().optional(),
   })
   .superRefine(refineRegistrationPhotos);
 

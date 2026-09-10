@@ -17,7 +17,15 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import {
+  cloneElement,
+  createContext,
+  isValidElement,
+  useContext,
+  useEffect,
+  useState,
+  type ReactElement,
+} from "react";
 
 import { useConfirm } from "@/app/_components/confirm-dialog";
 import { MEAL_TIMING_DEFAULTS } from "@hostel/shared/food/meal-window";
@@ -25,7 +33,7 @@ import { MEAL_TIMING_DEFAULTS } from "@hostel/shared/food/meal-window";
 import { LocationPicker, type LocationPickerValue } from "@/components/maps/location-picker";
 import { useMediaViewer } from "@/components/media-viewer";
 import { useSiteConfig } from "@/components/site-config-provider";
-import { browserApi } from "@/lib/browser-api";
+import { ApiRequestError, browserApi } from "@/lib/browser-api";
 import { acceptAttribute } from "@/lib/uploads/accepts";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
@@ -278,28 +286,243 @@ function Card({
   );
 }
 
+/* ── Field errors ──────────────────────────────────────────────────────────
+ *
+ * A registration the server refuses has to say *which* box is wrong, on the
+ * step that box lives on, with the cursor already in it. "Validation failed"
+ * across the top of the review step told an agent standing in a lobby nothing —
+ * the server knew it was the phone number and the form threw that away.
+ *
+ * Every input that can be wrong carries a `data-field` name. The server's zod
+ * paths (`contact.phone`, `roomConfigurations.2.bedsPerRoom`) and the form's own
+ * checks both resolve to one of those names, which gives three things from one
+ * key: the step to open, the element to focus, and where to print the message.
+ */
+
+const ROOM_KEY_LABEL = {
+  bedsPerRoom: "Beds each",
+  monthlyRent: "Rent",
+  rooms: "Rooms",
+  roomType: "Room type",
+  vacantBeds: "Vacant",
+} as const;
+
+type RoomKey = keyof typeof ROOM_KEY_LABEL;
+
+/** Which step each named field lives on. Room and routine cells are prefixed. */
+const FIELD_STEP: Record<string, number> = {
+  address: 2,
+  admissionFee: 3,
+  alternatePhone: 1,
+  amount: 7,
+  area: 2,
+  city: 2,
+  description: 1,
+  documents: 6,
+  email: 1,
+  facilities: 5,
+  foodNotes: 5,
+  hostelName: 1,
+  landmark: 2,
+  mapLink: 2,
+  mealsPerDay: 5,
+  ownerName: 1,
+  paymentReference: 7,
+  phone: 1,
+  photos: 4,
+  pin: 2,
+  plan: 7,
+  rooms: 3,
+  routine: 5,
+  rules: 5,
+  totalFloors: 1,
+  yearEstablished: 1,
+};
+
+const FIELD_LABEL: Record<string, string> = {
+  address: "Address line",
+  admissionFee: "Admission fee",
+  alternatePhone: "Alternate phone",
+  amount: "Amount collected",
+  area: "Area",
+  city: "City",
+  description: "Description",
+  documents: "Documents",
+  email: "Owner email",
+  facilities: "Facilities",
+  foodNotes: "Food notes",
+  hostelName: "Hostel name",
+  landmark: "Landmark",
+  mapLink: "Maps link",
+  mealsPerDay: "Meals a day",
+  ownerName: "Owner name",
+  paymentReference: "Payment reference",
+  phone: "Owner phone",
+  photos: "Photos",
+  pin: "Map pin",
+  plan: "Plan",
+  rooms: "Room types",
+  routine: "Weekly routine",
+  rules: "House rules",
+  totalFloors: "Floors",
+  yearEstablished: "Year established",
+};
+
+function stepOfField(field: string) {
+  if (field.startsWith("room:")) return 3;
+  if (field.startsWith("timing:") || field.startsWith("routine:")) return 5;
+
+  return FIELD_STEP[field] ?? 1;
+}
+
+function phoneValid(value: string) {
+  const length = value.trim().length;
+
+  return length >= 7 && length <= 24;
+}
+
+/**
+ * Zod's wording, in the words an agent would use.
+ *
+ * "Too small: expected string to have >=7 characters" is accurate and useless in
+ * a lobby. Our own custom messages ("Year established should be four digits.")
+ * are already sentences and pass straight through.
+ */
+function plainMessage(message: string, field: string) {
+  const unit = field === "phone" || field === "alternatePhone" ? "digits" : "characters";
+  const bound = message.match(/([<>]=?)\s*(-?\d+)/)?.[2];
+
+  if (/^too small/i.test(message) && bound) {
+    if (/string/i.test(message)) return `Needs at least ${bound} ${unit}.`;
+    if (/array|set/i.test(message)) return `Needs at least ${bound}.`;
+
+    return `Must be ${bound} or more.`;
+  }
+
+  if (/^too big/i.test(message) && bound) {
+    if (/string/i.test(message)) return `Can be at most ${bound} ${unit}.`;
+    if (/array|set/i.test(message)) return `No more than ${bound}.`;
+
+    return `Must be ${bound} or less.`;
+  }
+
+  if (/invalid email/i.test(message)) return "That is not a valid email address.";
+  if (/invalid url/i.test(message)) return "Has to be a full link, starting with https://.";
+  if (/expected number/i.test(message)) return "Has to be a number.";
+  if (/^invalid/i.test(message)) return "This is not a value we can accept.";
+
+  return message;
+}
+
+/** The field-level issues a 422 carries, or nothing if this was not one. */
+function validationIssues(error: unknown) {
+  if (!(error instanceof ApiRequestError) || error.errorCode !== "VALIDATION_ERROR") {
+    return [];
+  }
+
+  const issues = (error.details as { issues?: unknown } | undefined)?.issues;
+
+  return Array.isArray(issues)
+    ? issues.filter(
+        (issue): issue is { message: string; path: string } =>
+          typeof issue?.path === "string" && typeof issue?.message === "string",
+      )
+    : [];
+}
+
+type FieldErrors = Partial<Record<string, string>>;
+
+const FieldErrorContext = createContext<{
+  clear: (field: string) => void;
+  errors: FieldErrors;
+}>({ clear: () => {}, errors: {} });
+
+function fieldErrorId(field: string) {
+  return `field-error-${field.replace(/[^a-z0-9-]/gi, "-")}`;
+}
+
+function FieldError({ name }: { name: string }) {
+  const { errors } = useContext(FieldErrorContext);
+  const error = errors[name];
+
+  return error ? (
+    <span
+      className="mt-1 block text-[11px] font-semibold text-destructive"
+      id={fieldErrorId(name)}
+    >
+      {error}
+    </span>
+  ) : null;
+}
+
 function Field({
   children,
   hint,
   label,
+  name,
   required,
 }: {
   children: React.ReactNode;
   hint?: string;
   label: string;
+  /** The key errors are filed under. Without one the field cannot be pointed at. */
+  name?: string;
   required?: boolean;
 }) {
+  const { clear, errors } = useContext(FieldErrorContext);
+  const error = name ? errors[name] : undefined;
+
   return (
-    <label className="block">
+    <label
+      className="block"
+      data-field={name}
+      // Typing into the box is the agent acting on the message, so the server's
+      // complaint goes. The form's own checks are derived and clear themselves.
+      onChangeCapture={name && error ? () => clear(name) : undefined}
+    >
       <span className="mb-1.5 block text-xs font-semibold text-foreground">
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
       </span>
-      {children}
-      {hint ? (
+      {error && name && isValidElement(children)
+        ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+            "aria-describedby": fieldErrorId(name),
+            "aria-invalid": true,
+          })
+        : children}
+      {error && name ? (
+        <FieldError name={name} />
+      ) : hint ? (
         <span className="mt-1 block text-[11px] text-muted-foreground">{hint}</span>
       ) : null}
     </label>
+  );
+}
+
+/**
+ * A pointable area that is not a single input — the photo strips, the plan
+ * cards, the map pin. Focus lands on the first control inside it.
+ */
+function ErrorRegion({
+  children,
+  className,
+  name,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  name: string;
+}) {
+  const { clear, errors } = useContext(FieldErrorContext);
+
+  return (
+    <div
+      className={className}
+      data-field={name}
+      onChangeCapture={errors[name] ? () => clear(name) : undefined}
+    >
+      {children}
+      <FieldError name={name} />
+    </div>
   );
 }
 
@@ -488,6 +711,69 @@ export function TeamRegisterHostelPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  /*
+   * A registration the server refused as a duplicate. Kept apart from `error`
+   * because it is not a fault to fix in a field — it is a question for the
+   * agent: is this the hostel we already have, or a second building?
+   */
+  const [duplicate, setDuplicate] = useState<{
+    code: "HOSTEL_ALREADY_LISTED" | "OWNER_ALREADY_HAS_HOSTEL";
+    message: string;
+  } | null>(null);
+  const [confirmSecondHostel, setConfirmSecondHostel] = useState(false);
+  /*
+   * The hostel this owner email is already tied to, or null when it is free.
+   *
+   * Checked as the agent types rather than at Publish, because an email in use
+   * cannot be used at all — and learning that on the last step, after the
+   * photos and the rooms are in, sends the agent back to a field they left ten
+   * minutes ago. Debounced so a typed address is one request, and cancelled on
+   * the next keystroke so a slow answer for "ram@gm" cannot overwrite the one
+   * for "ram@gmail.com". The server refuses it again at Publish either way.
+   */
+  const [emailInUse, setEmailInUse] = useState<string | null>(null);
+
+  useEffect(() => {
+    const address = email.trim();
+
+    setEmailInUse(null);
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void browserApi<{ available: boolean; usedBy: string | null }>(
+        `/api/v1/team/email-check?email=${encodeURIComponent(address)}`,
+        { signal: controller.signal },
+      )
+        .then((result) => {
+          if (!controller.signal.aborted) {
+            setEmailInUse(result.available ? null : (result.usedBy ?? "another hostel"));
+          }
+        })
+        .catch(() => {
+          // A check that could not run is not a refusal. Publish still checks.
+        });
+    }, 450);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [email]);
+  /** What the server refused, filed under the field it was about. */
+  const [submitErrors, setSubmitErrors] = useState<FieldErrors>({});
+  /**
+   * Set once the agent has been to the review step. From then on the form's own
+   * checks are printed under the fields they are about — before it, a half-typed
+   * phone number would be shouted at mid-keystroke.
+   */
+  const [reviewed, setReviewed] = useState(false);
+  const [focusTarget, setFocusTarget] = useState<{ at: number; field: string } | null>(
+    null,
+  );
   const [draftNotice, setDraftNotice] = useState("");
 
   const cycles = billingCycles(catalog);
@@ -777,9 +1063,10 @@ export function TeamRegisterHostelPage() {
   function stepComplete(key: number) {
     switch (key) {
       case 1:
-        return Boolean(ownerName.trim() && phone.trim() && hostelName.trim());
       case 2:
-        return Boolean(area.trim() && city.trim());
+        // The same checks that stop a submission, so a tick on the rail cannot
+        // sit beside a phone number the server is going to refuse.
+        return !blocking.some((check) => check.step === key);
       case 3:
         return validRooms.length > 0;
       case 4:
@@ -795,19 +1082,67 @@ export function TeamRegisterHostelPage() {
     }
   }
 
-  /** Missing things that stop a submission, each pointing at its own step. */
+  /**
+   * What stops a submission, each filed under the field it is about.
+   *
+   * These are the server's own rules (`hostel-registration.validation.ts`),
+   * checked here as well so the agent finds out on the step and not after a
+   * round trip. "Not empty" was not enough: a six-digit phone passed this list
+   * and was then refused by the server's seven-character minimum.
+   */
   const blocking = (() => {
-    const checks: { label: string; step: number; valid: boolean }[] = [
-      { label: "Owner name", step: 1, valid: Boolean(ownerName.trim()) },
-      { label: "Owner phone", step: 1, valid: Boolean(phone.trim()) },
-      { label: "Hostel name", step: 1, valid: Boolean(hostelName.trim()) },
-      { label: "Area", step: 2, valid: Boolean(area.trim()) },
-      { label: "City", step: 2, valid: Boolean(city.trim()) },
-      { label: "At least one room type", step: 3, valid: validRooms.length > 0 },
-      { label: "A plan", step: 7, valid: Boolean(plan) },
+    const checks: { field: string; message: string; valid: boolean }[] = [
+      {
+        field: "ownerName",
+        message: ownerName.trim() ? "Needs at least 2 characters." : "Enter the owner's name.",
+        valid: ownerName.trim().length >= 2,
+      },
+      {
+        field: "phone",
+        message: phone.trim() ? "Needs at least 7 digits." : "Enter the owner's phone number.",
+        valid: phoneValid(phone),
+      },
+      {
+        field: "alternatePhone",
+        message: "Needs at least 7 digits, or leave it empty.",
+        valid: !alternatePhone.trim() || phoneValid(alternatePhone),
+      },
+      {
+        field: "email",
+        message: "That is not a valid email address.",
+        valid: !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()),
+      },
+      {
+        field: "hostelName",
+        message: hostelName.trim() ? "Needs at least 2 characters." : "Enter the hostel's name.",
+        valid: hostelName.trim().length >= 2,
+      },
+      {
+        field: "yearEstablished",
+        message: "Four digits, like 2018.",
+        valid: !yearEstablished.trim() || /^\d{4}$/.test(yearEstablished.trim()),
+      },
+      {
+        field: "area",
+        message: area.trim() ? "Needs at least 2 characters." : "Enter the area or locality.",
+        valid: area.trim().length >= 2,
+      },
+      { field: "city", message: "Pick the city.", valid: city.trim().length >= 2 },
+      {
+        field: "rooms",
+        message: "Add at least one room type with a number of rooms.",
+        valid: validRooms.length > 0,
+      },
+      { field: "plan", message: "Pick the plan the owner is buying.", valid: Boolean(plan) },
     ];
 
-    return checks.filter((check) => !check.valid);
+    return checks
+      .filter((check) => !check.valid)
+      .map((check) => ({
+        ...check,
+        label: FIELD_LABEL[check.field],
+        step: stepOfField(check.field),
+      }));
   })();
 
   /**
@@ -833,29 +1168,64 @@ export function TeamRegisterHostelPage() {
         ),
       ) && MEAL_TYPES.every((meal) => (timings[meal] ?? "") === DEFAULT_TIMINGS[meal]);
 
-    const checks: { label: string; step: number; valid: boolean }[] = [
-      { label: "Photos of the building", step: 4, valid: photos.some((p) => p.url) },
+    const checks: { field: string; label: string; step: number; valid: boolean }[] = [
+      {
+        field: "photos",
+        label: "Photos of the building",
+        step: 4,
+        valid: photos.some((p) => p.url),
+      },
       {
         // The server geocodes the address when nobody placed a pin, which puts
         // the hostel somewhere in the right neighbourhood. The agent is in the
         // building; they can do better, and it is worth asking them to.
+        field: "pin",
         label: "The map pin — you are standing there, so place it",
         step: 2,
         valid: pin.coordinates !== null,
       },
-      { label: "Facilities", step: 5, valid: facilities.length > 0 },
-      { label: "House rules", step: 5, valid: Boolean(rules.trim()) },
+      { field: "facilities", label: "Facilities", step: 5, valid: facilities.length > 0 },
+      { field: "rules", label: "House rules", step: 5, valid: Boolean(rules.trim()) },
       {
+        field: "routine",
         label: "The food routine is still the sample week — check it with the owner",
         step: 5,
         valid: !routineUntouched,
       },
-      { label: "Documents", step: 6, valid: documents.some((doc) => doc.url) },
-      { label: "The owner's email", step: 1, valid: Boolean(email.trim()) },
+      {
+        field: "documents",
+        label: "Documents",
+        step: 6,
+        valid: documents.some((doc) => doc.url),
+      },
+      { field: "email", label: "The owner's email", step: 1, valid: Boolean(email.trim()) },
     ];
 
     return checks.filter((check) => !check.valid);
   })();
+
+  /*
+   * Every field that is wrong right now, and what to say about it: the form's
+   * own checks once the agent has reached the review step, with whatever the
+   * server refused laid over the top. Derived on every render, so a problem the
+   * agent fixes drops off the list as they fix it — nothing to dismiss.
+   */
+  const showChecks = reviewed || step === STEPS.length;
+  const fieldErrors: FieldErrors = {
+    ...(showChecks
+      ? Object.fromEntries(blocking.map((check) => [check.field, check.message]))
+      : {}),
+    ...submitErrors,
+  };
+  const problems = Object.entries(fieldErrors)
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([field, message]) => ({
+      field,
+      label: labelOf(field),
+      message,
+      step: stepOfField(field),
+    }))
+    .sort((a, b) => a.step - b.step);
 
   /* ── Editing ─────────────────────────────────────────────────────────── */
 
@@ -1037,8 +1407,88 @@ export function TeamRegisterHostelPage() {
   }
 
   function goTo(next: number) {
+    if (step === STEPS.length || next >= STEPS.length) {
+      setReviewed(true);
+    }
+
     setStep(Math.min(STEPS.length, Math.max(1, next)));
     window.scrollTo({ behavior: "smooth", top: 0 });
+  }
+
+  /** Opens the step a field lives on and puts the cursor in it. */
+  function focusField(field: string, day?: RoutineDay) {
+    if (day) {
+      setRoutineDay(day);
+    }
+
+    setReviewed(true);
+    setStep(stepOfField(field));
+    // A fresh object each time, so pointing at the same field twice still moves.
+    setFocusTarget((prev) => ({ at: (prev?.at ?? 0) + 1, field }));
+  }
+
+  useEffect(() => {
+    if (!focusTarget) {
+      return;
+    }
+
+    // The step's section is committed by now, but its entrance animation is
+    // still starting; one frame lets the scroll measure where it will settle.
+    const frame = requestAnimationFrame(() => {
+      const region = document.querySelector<HTMLElement>(
+        `[data-field="${CSS.escape(focusTarget.field)}"]`,
+      );
+
+      if (!region) {
+        window.scrollTo({ behavior: "smooth", top: 0 });
+
+        return;
+      }
+
+      region.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      const control =
+        region.querySelector<HTMLElement>(
+          "input:not([type=file]):not([type=hidden]), select, textarea",
+        ) ?? region.querySelector<HTMLElement>("button");
+
+      control?.focus({ preventScroll: true });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [focusTarget]);
+
+  function clearSubmitError(field: string) {
+    setSubmitErrors((prev) => {
+      if (!(field in prev)) {
+        return prev;
+      }
+
+      const next = { ...prev };
+      delete next[field];
+
+      return next;
+    });
+  }
+
+  /** The name a field goes by in the problem list. Room cells name their row. */
+  function labelOf(field: string) {
+    if (field.startsWith("room:")) {
+      const [, id, key] = field.split(":");
+      const room = rooms.find((entry) => entry.id === id);
+
+      return `${room?.roomType ?? "Room"} · ${ROOM_KEY_LABEL[key as RoomKey] ?? "Room"}`;
+    }
+
+    if (field.startsWith("timing:")) {
+      return `${titleCase(field.slice("timing:".length))} time`;
+    }
+
+    if (field.startsWith("routine:")) {
+      return `${titleCase(field.slice("routine:".length))} on the routine`;
+    }
+
+    return FIELD_LABEL[field] ?? field;
   }
 
   function buildPayload() {
@@ -1152,12 +1602,70 @@ export function TeamRegisterHostelPage() {
     };
   }
 
+  /**
+   * The input a server-side issue is about.
+   *
+   * Array indices are resolved against the payload that was actually sent: the
+   * third room configuration is the third *valid* room row, not the third row on
+   * screen, and a meal index only names a day once it is looked up.
+   */
+  function fieldForPath(
+    path: string,
+    payload: ReturnType<typeof buildPayload>,
+  ): { day?: RoutineDay; field: string } | null {
+    const [head, second, third] = path.split(".");
+
+    switch (head) {
+      case "applicant":
+      case "contact":
+        return {
+          field: second === "email" ? "email" : second === "name" ? "ownerName" : "phone",
+        };
+      case "name":
+        return { field: "hostelName" };
+      case "location":
+        return {
+          field: second === "area" || second === "city" || second === "address" ? second : "pin",
+        };
+      case "roomConfigurations": {
+        const room = validRooms[Number(second)];
+
+        return {
+          field: room && third && third in ROOM_KEY_LABEL ? `room:${room.id}:${third}` : "rooms",
+        };
+      }
+      case "roomTypes":
+      case "capacitySummary":
+      case "totalCapacity":
+        return { field: "rooms" };
+      case "pricing":
+        return { field: second === "admissionFee" ? "admissionFee" : "rooms" };
+      case "food":
+        return { field: second === "notes" ? "foodNotes" : "mealsPerDay" };
+      case "foodRoutine": {
+        if (second === "timings" && third) {
+          return { field: `timing:${third}` };
+        }
+
+        const meal = second === "meals" ? payload.foodRoutine?.meals[Number(third)] : undefined;
+
+        return meal
+          ? { day: meal.dayOfWeek, field: `routine:${meal.mealType}` }
+          : { field: "routine" };
+      }
+      case "payment":
+        return { field: second === "reference" ? "paymentReference" : "amount" };
+      default:
+        return head in FIELD_STEP ? { field: head } : null;
+    }
+  }
+
   async function publish() {
     setError("");
+    setSubmitErrors({});
 
     if (blocking.length > 0) {
-      setError("Some required details are still missing.");
-      goTo(blocking[0].step);
+      focusField(blocking[0].field);
 
       return;
     }
@@ -1169,7 +1677,8 @@ export function TeamRegisterHostelPage() {
     }
 
     if (collecting > price) {
-      setError(`You cannot collect more than the plan price of ${rupees(price)}.`);
+      setSubmitErrors({ amount: `Can't be more than the plan price of ${rupees(price)}.` });
+      focusField("amount");
 
       return;
     }
@@ -1182,6 +1691,18 @@ export function TeamRegisterHostelPage() {
      * invoice with somebody's money against it exists. So the agent is told in
      * plain figures what they are about to do and has to say yes to it.
      */
+    /*
+     * Refused here rather than left to the server, so the agent is taken to the
+     * one field that is wrong instead of reading a banner about it. The server
+     * refuses the same thing if this is ever bypassed.
+     */
+    if (emailInUse) {
+      setError(`That email is already used by "${emailInUse}". Use a different email for this owner.`);
+      focusField("email");
+
+      return;
+    }
+
     const confirmed = await confirm({
       actionLabel: "Publish the hostel",
       description: [
@@ -1203,10 +1724,17 @@ export function TeamRegisterHostelPage() {
 
     setSubmitting(true);
 
+    // Kept, not rebuilt in the catch: the server's array indices point into
+    // exactly this object.
+    const payload = {
+      ...buildPayload(),
+      ...(confirmSecondHostel ? { confirmSecondHostel: true } : {}),
+    };
+
     try {
       const result = await browserApi<{ hostel: { id: string } }>(
         "/api/v1/team/hostels",
-        { body: JSON.stringify(buildPayload()), method: "POST" },
+        { body: JSON.stringify(payload), method: "POST" },
       );
 
       try {
@@ -1217,14 +1745,65 @@ export function TeamRegisterHostelPage() {
 
       router.push(`/team?registered=${result.hostel.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not register this hostel.");
       setSubmitting(false);
+
+      /*
+       * A 422 names every field it refused. Each one is filed under its input,
+       * and the agent is taken to the earliest — the same place they would have
+       * started if they were fixing it by hand.
+       */
+      if (
+        err instanceof ApiRequestError &&
+        (err.errorCode === "HOSTEL_ALREADY_LISTED" ||
+          err.errorCode === "OWNER_ALREADY_HAS_HOSTEL")
+      ) {
+        setDuplicate({ code: err.errorCode, message: err.message });
+
+        return;
+      }
+
+      const issues = validationIssues(err);
+      const found: FieldErrors = {};
+      let first: { day?: RoutineDay; field: string } | null = null;
+
+      for (const issue of issues) {
+        const target = fieldForPath(issue.path, payload);
+
+        if (!target || found[target.field]) {
+          continue;
+        }
+
+        found[target.field] =
+          plainMessage(issue.message, target.field) +
+          (target.day ? ` (${titleCase(target.day)})` : "");
+
+        if (!first || stepOfField(target.field) < stepOfField(first.field)) {
+          first = target;
+        }
+      }
+
+      if (first) {
+        setSubmitErrors(found);
+        focusField(first.field, first.day);
+
+        return;
+      }
+
+      // A refusal we cannot place still says what it was about.
+      setError(
+        issues.length > 0
+          ? `${issues[0].path}: ${plainMessage(issues[0].message, issues[0].path)}`
+          : err instanceof Error
+            ? err.message
+            : "Could not register this hostel.",
+      );
     }
   }
 
   /* ── Render ──────────────────────────────────────────────────────────── */
 
   return (
+    <FieldErrorContext.Provider value={{ clear: clearSubmitError, errors: fieldErrors }}>
     <div className="pb-10">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -1275,10 +1854,98 @@ export function TeamRegisterHostelPage() {
         </div>
       </div>
 
+      {/*
+        A duplicate, as the server judged it before writing anything.
+
+        Amber, not red: the agent has done nothing wrong, the platform has
+        spotted something they may not know. "Already listed" has no way past —
+        it is the same building, and a second listing would split its residents
+        and reviews. "Owner already has one" can be a real second building, so
+        the agent confirms it and publishes again; the flag rides on that next
+        submit and nothing is sent until they press Publish.
+      */}
+      {duplicate ? (
+        <div
+          className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground"
+          role="alert"
+        >
+          <p className="font-semibold">
+            {duplicate.code === "HOSTEL_ALREADY_LISTED"
+              ? "This hostel is already on HostelHub"
+              : "This owner already has a hostel"}
+          </p>
+          <p className="mt-1 text-muted-foreground">{duplicate.message}</p>
+
+          {duplicate.code === "OWNER_ALREADY_HAS_HOSTEL" ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                className="rounded-lg bg-brand-teal px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90"
+                onClick={() => {
+                  setConfirmSecondHostel(true);
+                  setDuplicate(null);
+                }}
+                type="button"
+              >
+                Yes, it&apos;s a separate building
+              </button>
+              <button
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
+                onClick={() => setDuplicate(null)}
+                type="button"
+              >
+                No, don&apos;t register it
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {confirmSecondHostel && !duplicate ? (
+        <p className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+          Confirmed as a second building for this owner. Press Publish again to register it.
+        </p>
+      ) : null}
+
       {error ? (
-        <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm font-medium text-destructive">
+        <p
+          className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm font-medium text-destructive"
+          role="alert"
+        >
           {error}
         </p>
+      ) : null}
+
+      {/*
+        Every problem, each one a way straight to it. The review step lists the
+        same things in its own card, so this only shows on the other steps.
+      */}
+      {showChecks && step !== STEPS.length && problems.length > 0 ? (
+        <div
+          className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm"
+          role="alert"
+        >
+          <p className="font-semibold text-destructive">
+            {problems.length === 1
+              ? "One thing to fix before this can publish"
+              : `${problems.length} things to fix before this can publish`}
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {problems.map((problem) => (
+              <li key={problem.field}>
+                <button
+                  className="text-left text-destructive hover:underline"
+                  onClick={() => focusField(problem.field)}
+                  type="button"
+                >
+                  <span className="font-semibold">{problem.label}</span> — {problem.message}
+                  <span className="ml-1.5 text-muted-foreground">
+                    {STEPS[problem.step - 1].label}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -1294,14 +1961,14 @@ export function TeamRegisterHostelPage() {
             <>
               <Card subtitle="Who owns it and how to reach them." title="Owner">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Owner name" required>
+                  <Field label="Owner name" name="ownerName" required>
                     <input
                       className="input-field w-full"
                       onChange={(event) => setOwnerName(event.target.value)}
                       value={ownerName}
                     />
                   </Field>
-                  <Field label="Phone" required>
+                  <Field label="Phone" name="phone" required>
                     <input
                       className="input-field w-full"
                       inputMode="tel"
@@ -1312,16 +1979,26 @@ export function TeamRegisterHostelPage() {
                   <Field
                     hint="Their invoice, receipt and sign-in details go here."
                     label="Email"
+                    name="email"
                   >
                     <input
+                      aria-invalid={emailInUse ? true : undefined}
                       className="input-field w-full"
                       inputMode="email"
                       onChange={(event) => setEmail(event.target.value)}
                       type="email"
                       value={email}
                     />
+                    {emailInUse ? (
+                      <span
+                        className="mt-1 block text-[11px] font-semibold text-destructive"
+                        role="alert"
+                      >
+                        {`Already used by "${emailInUse}". Use a different email for this owner.`}
+                      </span>
+                    ) : null}
                   </Field>
-                  <Field label="Alternate phone">
+                  <Field label="Alternate phone" name="alternatePhone">
                     <input
                       className="input-field w-full"
                       inputMode="tel"
@@ -1334,7 +2011,7 @@ export function TeamRegisterHostelPage() {
 
               <Card subtitle="What the place is and what it is called." title="The hostel">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Hostel name" required>
+                  <Field label="Hostel name" name="hostelName" required>
                     <input
                       className="input-field w-full"
                       onChange={(event) => setHostelName(event.target.value)}
@@ -1356,7 +2033,7 @@ export function TeamRegisterHostelPage() {
                       <option value="GIRLS">Girls</option>
                     </select>
                   </Field>
-                  <Field label="Year established">
+                  <Field label="Year established" name="yearEstablished">
                     <input
                       className="input-field w-full"
                       inputMode="numeric"
@@ -1365,7 +2042,7 @@ export function TeamRegisterHostelPage() {
                       value={yearEstablished}
                     />
                   </Field>
-                  <Field label="Floors">
+                  <Field label="Floors" name="totalFloors">
                     <input
                       className="input-field w-full"
                       inputMode="numeric"
@@ -1377,6 +2054,7 @@ export function TeamRegisterHostelPage() {
                     <Field
                       hint="Two or three lines. It is the first thing a resident reads."
                       label="Description"
+                      name="description"
                     >
                       <textarea
                         className="input-field h-24 w-full py-2"
@@ -1393,14 +2071,14 @@ export function TeamRegisterHostelPage() {
           {step === 2 ? (
             <Card subtitle="How somebody actually finds it." title="Where it is">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Area / locality" required>
+                <Field label="Area / locality" name="area" required>
                   <input
                     className="input-field w-full"
                     onChange={(event) => setArea(event.target.value)}
                     value={area}
                   />
                 </Field>
-                <Field label="City" required>
+                <Field label="City" name="city" required>
                   <select
                     className="input-field w-full"
                     onChange={(event) => setCity(event.target.value)}
@@ -1413,14 +2091,18 @@ export function TeamRegisterHostelPage() {
                     ))}
                   </select>
                 </Field>
-                <Field label="Address line">
+                <Field label="Address line" name="address">
                   <input
                     className="input-field w-full"
                     onChange={(event) => setAddress(event.target.value)}
                     value={address}
                   />
                 </Field>
-                <Field hint="Opposite the campus gate, behind the temple." label="Landmark">
+                <Field
+                  hint="Opposite the campus gate, behind the temple."
+                  label="Landmark"
+                  name="landmark"
+                >
                   <input
                     className="input-field w-full"
                     onChange={(event) => setLandmark(event.target.value)}
@@ -1431,6 +2113,7 @@ export function TeamRegisterHostelPage() {
                   <Field
                     hint="Kept exactly as the owner sent it, and shown on the listing."
                     label="Maps link"
+                    name="mapLink"
                   >
                     <input
                       className="input-field w-full"
@@ -1447,7 +2130,7 @@ export function TeamRegisterHostelPage() {
                   so this is the one moment the platform can get it exactly right
                   — an address geocoded later lands in the middle of the tole.
                 */}
-                <div className="space-y-2 sm:col-span-2">
+                <ErrorRegion className="space-y-2 sm:col-span-2" name="pin">
                   <div>
                     <p className="text-sm font-bold text-foreground">Exact map pin</p>
                     <p className="text-xs font-medium text-muted-foreground">
@@ -1472,7 +2155,7 @@ export function TeamRegisterHostelPage() {
                     }}
                     value={pin}
                   />
-                </div>
+                </ErrorRegion>
               </div>
             </Card>
           ) : null}
@@ -1483,77 +2166,97 @@ export function TeamRegisterHostelPage() {
                 subtitle="One row per kind of room. The totals below come from these."
                 title="Rooms"
               >
-                <div className="space-y-2">
-                  {rooms.map((room) => (
-                    <div className="flex flex-wrap items-end gap-2" key={room.id}>
-                      <label className="min-w-[9rem] flex-1">
-                        <span className="mb-1 block text-[11px] font-semibold text-muted-foreground">
-                          Room type
-                        </span>
-                        <select
-                          className="input-field w-full"
-                          onChange={(event) =>
-                            setRooms((prev) =>
-                              prev.map((entry) =>
-                                entry.id === room.id
-                                  ? { ...entry, roomType: event.target.value }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          value={room.roomType}
-                        >
-                          {roomTypeOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                <ErrorRegion className="space-y-2" name="rooms">
+                  {rooms.map((room) => {
+                    const cell = (key: RoomKey) => `room:${room.id}:${key}`;
+                    const invalid = (key: RoomKey) =>
+                      Boolean(fieldErrors[cell(key)]) || undefined;
+                    const rowErrors = (Object.keys(ROOM_KEY_LABEL) as RoomKey[]).flatMap(
+                      (key) => {
+                        const message = fieldErrors[cell(key)];
 
-                      {(
-                        [
-                          ["rooms", "Rooms"],
-                          ["bedsPerRoom", "Beds each"],
-                          ["vacantBeds", "Vacant"],
-                          ["monthlyRent", "Rent"],
-                        ] as const
-                      ).map(([key, label]) => (
-                        <label className="w-20" key={key}>
-                          <span className="mb-1 block text-[11px] font-semibold text-muted-foreground">
-                            {label}
-                          </span>
-                          <input
-                            className="input-field w-full"
-                            inputMode="numeric"
-                            onChange={(event) =>
-                              setRooms((prev) =>
-                                prev.map((entry) =>
-                                  entry.id === room.id
-                                    ? { ...entry, [key]: event.target.value }
-                                    : entry,
-                                ),
-                              )
+                        return message ? [`${ROOM_KEY_LABEL[key]}: ${message}`] : [];
+                      },
+                    );
+
+                    return (
+                      <div key={room.id}>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <label className="min-w-[9rem] flex-1" data-field={cell("roomType")}>
+                            <span className="mb-1 block text-[11px] font-semibold text-muted-foreground">
+                              {ROOM_KEY_LABEL.roomType}
+                            </span>
+                            <select
+                              aria-invalid={invalid("roomType")}
+                              className="input-field w-full"
+                              onChange={(event) => {
+                                clearSubmitError(cell("roomType"));
+                                setRooms((prev) =>
+                                  prev.map((entry) =>
+                                    entry.id === room.id
+                                      ? { ...entry, roomType: event.target.value }
+                                      : entry,
+                                  ),
+                                );
+                              }}
+                              value={room.roomType}
+                            >
+                              {roomTypeOptions.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          {(["rooms", "bedsPerRoom", "vacantBeds", "monthlyRent"] as const).map(
+                            (key) => (
+                              <label className="w-20" data-field={cell(key)} key={key}>
+                                <span className="mb-1 block text-[11px] font-semibold text-muted-foreground">
+                                  {ROOM_KEY_LABEL[key]}
+                                </span>
+                                <input
+                                  aria-invalid={invalid(key)}
+                                  className="input-field w-full"
+                                  inputMode="numeric"
+                                  onChange={(event) => {
+                                    clearSubmitError(cell(key));
+                                    setRooms((prev) =>
+                                      prev.map((entry) =>
+                                        entry.id === room.id
+                                          ? { ...entry, [key]: event.target.value }
+                                          : entry,
+                                      ),
+                                    );
+                                  }}
+                                  value={room[key]}
+                                />
+                              </label>
+                            ),
+                          )}
+
+                          <button
+                            aria-label="Remove this room type"
+                            className="rounded-lg border border-border p-2.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                            disabled={rooms.length === 1}
+                            onClick={() =>
+                              setRooms((prev) => prev.filter((entry) => entry.id !== room.id))
                             }
-                            value={room[key]}
-                          />
-                        </label>
-                      ))}
+                            type="button"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
 
-                      <button
-                        aria-label="Remove this room type"
-                        className="rounded-lg border border-border p-2.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-                        disabled={rooms.length === 1}
-                        onClick={() =>
-                          setRooms((prev) => prev.filter((entry) => entry.id !== room.id))
-                        }
-                        type="button"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                        {rowErrors.length > 0 ? (
+                          <p className="mt-1 text-[11px] font-semibold text-destructive">
+                            {rowErrors.join(" · ")}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </ErrorRegion>
 
                 <button
                   className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-teal hover:underline"
@@ -1581,7 +2284,7 @@ export function TeamRegisterHostelPage() {
 
               <Card subtitle="What a resident pays on top of rent." title="Pricing">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Admission fee">
+                  <Field label="Admission fee" name="admissionFee">
                     <input
                       className="input-field w-full"
                       inputMode="numeric"
@@ -1611,7 +2314,7 @@ export function TeamRegisterHostelPage() {
               subtitle="The listing leads with an exterior. Room shots attach to the room type they are of."
               title="Photos"
             >
-              <div className="space-y-5">
+              <ErrorRegion className="space-y-5" name="photos">
                 <PhotoStrip
                   busy={false}
                   kind="EXTERIOR"
@@ -1657,14 +2360,14 @@ export function TeamRegisterHostelPage() {
                     />
                   ))
                 )}
-              </div>
+              </ErrorRegion>
             </Card>
           ) : null}
 
           {step === 5 ? (
             <>
               <Card subtitle="What the hostel has." title="Facilities">
-                <div className="flex flex-wrap gap-2">
+                <ErrorRegion className="flex flex-wrap gap-2" name="facilities">
                   {[...facilityOptions, ...custom].map((facility) => {
                     const active = facilities.includes(facility);
                     const isCustom = custom.includes(facility);
@@ -1692,7 +2395,7 @@ export function TeamRegisterHostelPage() {
                       </button>
                     );
                   })}
-                </div>
+                </ErrorRegion>
 
                 <div className="mt-3 flex gap-2">
                   <input
@@ -1735,12 +2438,15 @@ export function TeamRegisterHostelPage() {
                   ))}
                 </div>
 
+                <ErrorRegion name="rules">
                 <textarea
+                  aria-invalid={Boolean(fieldErrors.rules) || undefined}
                   className="input-field h-40 w-full py-2"
                   onChange={(event) => setRules(event.target.value)}
                   placeholder={"Gate closes at 10:00 PM\nNo smoking indoors"}
                   value={rules}
                 />
+                </ErrorRegion>
               </Card>
 
               <Card subtitle="What the kitchen serves." title="Food">
@@ -1769,7 +2475,7 @@ export function TeamRegisterHostelPage() {
                       ))}
                     </div>
                   </Field>
-                  <Field label="Meals a day">
+                  <Field label="Meals a day" name="mealsPerDay">
                     <input
                       className="input-field w-full"
                       inputMode="numeric"
@@ -1778,7 +2484,7 @@ export function TeamRegisterHostelPage() {
                     />
                   </Field>
                   <div className="sm:col-span-2">
-                    <Field label="Notes">
+                    <Field label="Notes" name="foodNotes">
                       <input
                         className="input-field w-full"
                         onChange={(event) => setFoodNotes(event.target.value)}
@@ -1796,7 +2502,7 @@ export function TeamRegisterHostelPage() {
               >
                 <div className="grid gap-3 sm:grid-cols-4">
                   {MEAL_TYPES.map((meal) => (
-                    <Field key={meal} label={`${titleCase(meal)} time`}>
+                    <Field key={meal} label={`${titleCase(meal)} time`} name={`timing:${meal}`}>
                       <input
                         className="input-field w-full"
                         onChange={(event) =>
@@ -1827,9 +2533,9 @@ export function TeamRegisterHostelPage() {
                   ))}
                 </div>
 
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="mt-3 grid gap-3 sm:grid-cols-2" data-field="routine">
                   {MEAL_TYPES.map((meal) => (
-                    <Field key={meal} label={titleCase(meal)}>
+                    <Field key={meal} label={titleCase(meal)} name={`routine:${meal}`}>
                       <input
                         className="input-field w-full"
                         onChange={(event) =>
@@ -1856,7 +2562,8 @@ export function TeamRegisterHostelPage() {
 
           {step === 6 ? (
             <Card subtitle="Whatever the owner handed you." title="Documents">
-              <div className="flex flex-wrap gap-2">
+              <FieldError name="documents" />
+              <div className="flex flex-wrap gap-2" data-field="documents">
                 {DOC_TYPES.map((type) => (
                   <label
                     className="cursor-pointer rounded-lg border border-dashed border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5"
@@ -1952,7 +2659,7 @@ export function TeamRegisterHostelPage() {
                     Config → Plans &amp; Pricing.
                   </p>
                 ) : (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-field="plan">
                     {priced.map((entry) => {
                       const selected = entry.id === planId;
 
@@ -1999,6 +2706,7 @@ export function TeamRegisterHostelPage() {
                     })}
                   </div>
                 )}
+                <FieldError name="plan" />
               </Card>
 
               <Card
@@ -2101,6 +2809,7 @@ export function TeamRegisterHostelPage() {
                         : "Whole rupees shown on their confirmation."
                     }
                     label="Amount collected"
+                    name="amount"
                   >
                     <input
                       className="input-field w-full"
@@ -2113,6 +2822,7 @@ export function TeamRegisterHostelPage() {
                   <Field
                     hint={method === "CASH" ? "Slip number, if you wrote one." : "Transaction id."}
                     label="Reference"
+                    name="paymentReference"
                   >
                     <input
                       className="input-field w-full"
@@ -2209,21 +2919,21 @@ export function TeamRegisterHostelPage() {
                 </dl>
               </Card>
 
-              {blocking.length > 0 ? (
+              {problems.length > 0 ? (
                 <Card
-                  subtitle="These have to be filled in before the hostel can publish."
-                  title="Still missing"
+                  subtitle="These have to be right before the hostel can publish. Each one takes you to the box."
+                  title="Still to fix"
                 >
                   <ul className="space-y-1.5">
-                    {blocking.map((item) => (
-                      <li key={item.label}>
+                    {problems.map((item) => (
+                      <li key={item.field}>
                         <button
-                          className="text-sm font-semibold text-destructive hover:underline"
-                          onClick={() => goTo(item.step)}
+                          className="text-left text-sm text-destructive hover:underline"
+                          onClick={() => focusField(item.field)}
                           type="button"
                         >
-                          {item.label}
-                          <span className="ml-1.5 font-normal text-muted-foreground">
+                          <span className="font-semibold">{item.label}</span> — {item.message}
+                          <span className="ml-1.5 text-muted-foreground">
                             {STEPS[item.step - 1].label}
                           </span>
                         </button>
@@ -2243,7 +2953,7 @@ export function TeamRegisterHostelPage() {
                       <li key={item.label}>
                         <button
                           className="text-sm font-semibold text-foreground hover:underline"
-                          onClick={() => goTo(item.step)}
+                          onClick={() => focusField(item.field)}
                           type="button"
                         >
                           {item.label}
@@ -2260,7 +2970,9 @@ export function TeamRegisterHostelPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-6 py-3 text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-50"
-                  disabled={submitting || uploading || blocking.length > 0}
+                  // Not disabled while something is wrong: pressing it is how
+                  // the agent gets taken to the first thing to fix.
+                  disabled={submitting || uploading}
                   onClick={() => void publish()}
                   type="button"
                 >
@@ -2306,5 +3018,6 @@ export function TeamRegisterHostelPage() {
 
       {confirmDialog}
     </div>
+    </FieldErrorContext.Provider>
   );
 }

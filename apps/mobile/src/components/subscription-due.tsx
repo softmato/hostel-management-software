@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { View } from "react-native";
 
 import { Button } from "@/components/ui/button";
@@ -80,20 +81,44 @@ export function SubscriptionDueCard({
         title="Payment due"
       />
 
-      <View className="flex-row items-center justify-between gap-3 border-t border-border pt-3">
+      {/*
+        Date on its own line, buttons on the next. They shared one row until a
+        device showed the long form of a BS date ("Aswin 8, 2083 BS · Thursday")
+        plus two buttons is wider than a 360dp card, and `Pay now` — the one
+        control this card exists for — was pushed past the border.
+      */}
+      <View className="gap-3 border-t border-border pt-3">
         <Text variant="caption">
           {state.subscription.dueBy
             ? `Pay by ${dates.dateLong(state.subscription.dueBy)}`
             : "Your listing stays live in the meantime."}
         </Text>
 
-        <Button
-          label="Pay now"
-          loading={busy}
-          onPress={onPay}
-          size="sm"
-          variant="primary"
-        />
+        <View className="flex-row items-center justify-end gap-2">
+          {/*
+            A way out of the card that is not paying.
+            The owner reading this may want the invoice — to check what the
+            balance is actually for, to forward it to whoever holds the money,
+            or to see what was already collected in the field. Sending them to
+            hunt for it under More is how a due card becomes something people
+            dismiss rather than act on. Quiet variant, because Pay now is still
+            the thing this card is asking for.
+          */}
+          <Button
+            label="View billing"
+            onPress={() => router.push("/manage/billing")}
+            size="sm"
+            variant="ghost"
+          />
+
+          <Button
+            label="Pay now"
+            loading={busy}
+            onPress={onPay}
+            size="sm"
+            variant="primary"
+          />
+        </View>
       </View>
     </Card>
   );

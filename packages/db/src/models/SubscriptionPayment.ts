@@ -123,6 +123,22 @@ const subscriptionPaymentSchema = new Schema(
     receiptIssuedAt: { default: null, type: Date },
     /** Rendered by the parent company's SDK. Null while that is mocked. */
     receiptDocumentUrl: { default: null, trim: true, type: String },
+
+    /**
+     * `HH-TXN-2083/84-00000008` — the number on a receipt this platform issued
+     * itself, because Softmato could not be reached when the money landed.
+     *
+     * Kept apart from `softmatoTransactionNo` for the reason that field's own
+     * unique index exists: it is the idempotency key for the entire webhook
+     * path, and a locally minted number written into it would make a real
+     * settlement notification arrive as a *different* transaction and post the
+     * payment twice.
+     *
+     * Distinct from `receiptNumber` too, which is `SRC-0001-4F2A` — a per-hostel
+     * handle for support to quote. This one is the statutory number: one gapless
+     * platform-wide run per fiscal year, and the thing an accountant reconciles.
+     */
+    localTransactionNo: { default: null, trim: true, type: String },
   },
   { timestamps: true },
 );
@@ -130,6 +146,14 @@ const subscriptionPaymentSchema = new Schema(
 subscriptionPaymentSchema.index({ invoiceId: 1, status: 1 });
 subscriptionPaymentSchema.index({ hostelId: 1, createdAt: -1 });
 subscriptionPaymentSchema.index({ collectedBy: 1, settledAt: -1 });
+// Our own statutory series, on the rows we had to issue a receipt for.
+subscriptionPaymentSchema.index(
+  { localTransactionNo: 1 },
+  {
+    partialFilterExpression: { localTransactionNo: { $type: "string" } },
+    unique: true,
+  },
+);
 // Unique so a retried webhook delivery cannot become a second payment row.
 // Partial, because only a Softmato row ever has one.
 subscriptionPaymentSchema.index(

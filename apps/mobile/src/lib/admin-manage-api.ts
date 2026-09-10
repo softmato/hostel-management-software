@@ -2458,3 +2458,87 @@ export async function approveMatchedStatement(statementImportId: string) {
 export async function assignOrphanPayment(eventId: string, invoiceId: string) {
   await api.post(`/hostel-admin/finance/events/${eventId}/assign`, { invoiceId });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Plan billing — what the hostel pays the platform                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The hostel's own plan paperwork.
+ *
+ * Not to be confused with anything in `finance-api.ts`, which is one level down:
+ * that is the hostel billing its **residents** for rent, where the hostel is the
+ * merchant of record. This is the hostel being billed by **us** for the software
+ * it runs on. Different models, different money, different direction — the only
+ * thing they share is the word "invoice", which is why the screens are far apart
+ * and named differently.
+ *
+ * ## Read straight off `billing-history.service.ts`
+ *
+ * Every field below is what that serializer returns, not what the web billing
+ * page happens to render — rule 1 at the top of this file. `daysRemaining` in
+ * particular is computed on the server on purpose: this screen and the website
+ * must never disagree about how many days are left on a plan, and they would the
+ * moment each rounded a part-day for itself.
+ */
+export type PlanBillingInvoice = {
+  amount: number;
+  currency: string;
+  cycleLabel: string;
+  /** Always present — a document exists for every invoice now. */
+  documentUrl: string;
+  dueAt: string | null;
+  invoiceNumber: string;
+  issuedAt: string | null;
+  /** Who printed the page. `platform` while Softmato is unreachable. */
+  issuedBy: "softmato" | "platform";
+  outstanding: number;
+  paid: number;
+  planName: string;
+  /** What is printed on the owner's copy. Quote this one back to them. */
+  printedNumber: string;
+  softmatoInvoiceNo: string | null;
+  status: string;
+};
+
+export type PlanBillingPayment = {
+  amount: number;
+  /** Null until the payment settles — no receipt for money still in flight. */
+  documentUrl: string | null;
+  method: string;
+  paidAt: string | null;
+  printedNumber: string | null;
+  provider: string | null;
+  providerRef: string | null;
+  receiptNumber: string | null;
+  softmatoTransactionNo: string | null;
+  status: string;
+};
+
+export type PlanBillingPlan = {
+  activatedAt: string | null;
+  cycleLabel: string | null;
+  currentPeriodEnd: string | null;
+  /** Whole days left on the paid period. Null when no period is running. */
+  daysRemaining: number | null;
+  dueBy: string | null;
+  planName: string | null;
+  price: number | null;
+  status: string;
+};
+
+export type PlanBilling = {
+  docsUrl: string | null;
+  invoices: PlanBillingInvoice[];
+  payments: PlanBillingPayment[];
+  /** Null for a hostel that predates plan billing. */
+  plan: PlanBillingPlan | null;
+};
+
+export async function getPlanBilling() {
+  const response = await api.get<
+    ApiEnvelope<{ history: PlanBilling; state: unknown }>
+  >("/hostel-admin/billing");
+
+  return unwrap(response).history;
+}

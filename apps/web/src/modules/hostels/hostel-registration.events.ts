@@ -3,8 +3,13 @@ import { hostelSubmissionReceivedEmail } from "@hostel/shared/email/templates/ho
 import { hostelVerifiedEmail } from "@hostel/shared/email/templates/hostel/hostel-verified";
 import { subscriptionInvoiceEmail } from "@hostel/shared/email/templates/billing/subscription-invoice";
 import { subscriptionReceiptEmail } from "@hostel/shared/email/templates/billing/subscription-receipt";
-import { sendEmail } from "@hostel/shared/email/sender";
+import { sendEmail, type EmailAttachment } from "@hostel/shared/email/sender";
 import type { EmailContent } from "@hostel/shared/email/templates/layout";
+
+import {
+  resolveInvoiceDocument,
+  resolveReceiptDocument,
+} from "@/modules/billing/documents/deliver";
 
 /**
  * Every email the registration lifecycle sends, in one file.
@@ -74,12 +79,18 @@ export function formatEmailDate(value?: Date | string | null) {
   });
 }
 
-async function deliver(action: string, to: string, message: EmailContent) {
+async function deliver(
+  action: string,
+  to: string,
+  message: EmailContent,
+  attachments?: EmailAttachment[],
+) {
   if (!to) {
     return;
   }
 
   const result = await sendEmail({
+    ...(attachments?.length ? { attachments } : {}),
     category: message.category,
     html: message.html,
     subject: message.subject,
@@ -187,6 +198,50 @@ export async function onHostelVerified(input: {
 
 /* ── Both: invoice raised ──────────────────────────────────────────────── */
 
+/**
+ * The document itself, fetched so it can ride on the email.
+ *
+ * A billing email carries its paperwork. The alternative — a link back into the
+ * portal — asks somebody to log in to see a document that was already addressed
+ * to them, and it fails outright for the reader who forwards the mail to their
+ * accountant, which is what actually happens to an invoice. The attachment is
+ * the deliverable; the link beside it is a convenience.
+ *
+ * **Never throws, and never blocks the send.** A document that could not be
+ * produced yields an email with the figures and the reference in it, which is
+ * the message the template was written to carry on its own. Failing the email —
+ * or worse, the invoice behind it — because a renderer had a bad day would turn
+ * a cosmetic problem into a hostel that was never told it owes us money.
+ */
+async function attach(
+  kind: "invoice" | "receipt",
+  number: string,
+): Promise<EmailAttachment[]> {
+  try {
+    const document =
+      kind === "invoice"
+        ? await resolveInvoiceDocument(number, null)
+        : await resolveReceiptDocument(number, null);
+
+    if (!document) {
+      return [];
+    }
+
+    return [{ content: document.bytes, filename: document.filename }];
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: `subscription_${kind}_attachment_failed`,
+        level: "warn",
+        message: error instanceof Error ? error.message : "unknown",
+        number,
+      }),
+    );
+
+    return [];
+  }
+}
+
 export async function onInvoiceIssued(input: {
   amount: number;
   cycleLabel: string;
@@ -216,6 +271,7 @@ export async function onInvoiceIssued(input: {
       payUrl: registrationStatusUrl(),
       planName: input.planName,
     }),
+    await attach("invoice", input.invoiceNumber),
   );
 }
 
@@ -249,5 +305,6 @@ export async function onPaymentSettled(input: {
       planName: input.planName,
       receiptNumber: input.receiptNumber,
     }),
+    await attach("receipt", input.receiptNumber),
   );
 }

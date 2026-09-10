@@ -1,6 +1,15 @@
 "use client";
 
-import { EyeOff, Globe, Image as ImageIcon, MapPin, Star } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  EyeOff,
+  Globe,
+  Image as ImageIcon,
+  MapPin,
+  Star,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback, useMemo, useState } from "react";
 
@@ -28,14 +37,30 @@ import { platformEndpoints } from "@/lib/platform-endpoints";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { DemoDataBadge, Hostel, Message } from "./core-portal-shared";
 
+/**
+ * The Archived tab reads a different endpoint, not a different slice of this
+ * one — an archived hostel is excluded from every other platform read, which is
+ * the whole point of archiving it.
+ */
+const ARCHIVED_TAB = "ARCHIVED";
+
 const TABS = [
   { key: "PUBLISHED", label: "Live" },
   { key: "APPROVED", label: "Approved, not live" },
   { key: "DRAFT", label: "Draft" },
   { key: "ALL", label: "All" },
+  { key: ARCHIVED_TAB, label: "Archived" },
 ];
 
 const PAGE_SIZE = 10;
+
+/** Whole days left before the purge cron erases an archived hostel. */
+function daysUntilPurge(purgeScheduledAt: string | null | undefined) {
+  if (!purgeScheduledAt) return null;
+  const due = new Date(purgeScheduledAt).getTime();
+  if (Number.isNaN(due)) return null;
+  return Math.max(0, Math.ceil((due - Date.now()) / (24 * 60 * 60 * 1000)));
+}
 
 /**
  * A rough completeness score so the owner can spot thin listings — the same
@@ -56,22 +81,130 @@ function listingQuality(hostel: Hostel) {
 
 export const PlatformListingsPageContent = memo(function PlatformListingsPageContent() {
   const invalidate = useInvalidateResources();
-  const hostelsResource = usePortalResource<{ hostels: Hostel[] }>(
-    platformEndpoints.hostels,
-    { errorMessage: "Could not load listings." },
-  );
   const [actionMessage, setActionMessage] = useState("");
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("PUBLISHED");
   const [cityFilter, setCityFilter] = useState("");
   const [page, setPage] = useState(1);
+  const [busy, setBusy] = useState(false);
+
+  const showingArchived = tab === ARCHIVED_TAB;
+
+  const liveResource = usePortalResource<{ hostels: Hostel[] }>(
+    platformEndpoints.hostels,
+    { errorMessage: "Could not load listings." },
+  );
+  // Fetched only once the Archived tab is opened. This page is about what the
+  // public can see, and archived hostels are dead weight on every other tab.
+  const archivedResource = usePortalResource<{ hostels: Hostel[] }>(
+    showingArchived ? platformEndpoints.hostelsArchived : null,
+    { errorMessage: "Could not load archived listings." },
+  );
+  const hostelsResource = showingArchived ? archivedResource : liveResource;
 
   const hostels = useMemo(
     () => hostelsResource.data?.hostels ?? [],
     [hostelsResource.data],
   );
+  // The four metric cards describe the platform, so they always read the live
+  // list — a "Live Listings" count sourced from the archived queue is a lie.
+  const liveHostels = useMemo(
+    () => liveResource.data?.hostels ?? [],
+    [liveResource.data],
+  );
   const state = hostelsResource.state;
   const message = actionMessage || hostelsResource.message;
+
+  /**
+   * Archive, and undo it. Both move a hostel between the two lists, so both
+   * invalidate both — dropping only the one on screen leaves the other holding
+   * a hostel that is no longer in it.
+   */
+  const archiveAction = useCallback(
+    async (hostel: Hostel, next: "archive" | "restore") => {
+      let body = JSON.stringify({});
+
+      if (next === "archive") {
+        const confirmed = window.confirm(
+          `Archive "${hostel.name}"?\n\nIt comes off the public site and out of its own portal immediately, and its staff and residents are signed out.\n\nIt can be restored for 60 days. After that it is erased permanently, along with its residents, invoices, payments and photos.`,
+        );
+        if (!confirmed) return;
+        const reason = window
+          .prompt("Why is this hostel being archived? (recorded in the audit log)")
+          ?.trim();
+        if (!reason) return;
+        body = JSON.stringify({ reason });
+      }
+
+      setBusy(true);
+      try {
+        await browserApi(`${platformEndpoints.hostel(hostel.id)}/${next}`, {
+          body,
+          method: "PATCH",
+        });
+        setActionMessage(
+          next === "archive"
+            ? `"${hostel.name}" archived — restorable for 60 days.`
+            : `"${hostel.name}" restored.`,
+        );
+        invalidate(
+          platformEndpoints.hostels,
+          platformEndpoints.hostelsArchived,
+          platformEndpoints.hostelDetails,
+        );
+      } catch (error) {
+        setActionMessage(error instanceof Error ? error.message : "Action failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [invalidate],
+  );
+
+  /**
+   * Erase an archived hostel now rather than waiting out its 60 days.
+   *
+   * Guarded by typing the hostel's name, not an OK button. Nothing else in this
+   * portal destroys data that cannot be recovered, and a confirm dialog is a
+   * reflex — typing the name is the only guard that requires having read which
+   * hostel you are on.
+   */
+  const purgeNow = useCallback(
+    async (hostel: Hostel) => {
+      const typed = window.prompt(
+        `Erase "${hostel.name}" permanently?\n\nThis cannot be undone. Its residents, invoices, payments, complaints, photos and documents are deleted outright. Only the audit record survives.\n\nType the hostel's name to confirm:`,
+      );
+
+      if (typed?.trim() !== hostel.name) {
+        if (typed !== null) {
+          setActionMessage("Name did not match — nothing was erased.");
+        }
+        return;
+      }
+
+      setBusy(true);
+      try {
+        const result = await browserApi<{
+          documentsDeleted: number;
+          objectsDeleted: number;
+        }>(platformEndpoints.hostel(hostel.id), { method: "DELETE" });
+
+        setActionMessage(
+          `"${hostel.name}" erased permanently — ${result?.documentsDeleted ?? 0} records and ${result?.objectsDeleted ?? 0} files.`,
+        );
+        invalidate(
+          platformEndpoints.hostels,
+          platformEndpoints.hostelsArchived,
+          platformEndpoints.hostelDetails,
+        );
+      } catch (error) {
+        setActionMessage(error instanceof Error ? error.message : "Erase failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [invalidate],
+  );
 
   const action = useCallback(
     async (hostelId: string, next: "publish" | "unpublish") => {
@@ -113,12 +246,12 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
 
   const counts = useMemo(
     () => ({
-      approved: hostels.filter((hostel) => hostel.status === "APPROVED").length,
-      lowQuality: hostels.filter((hostel) => listingQuality(hostel) < 60).length,
-      noPhotos: hostels.filter((hostel) => hostel.photos.length === 0).length,
-      published: hostels.filter((hostel) => hostel.status === "PUBLISHED").length,
+      approved: liveHostels.filter((hostel) => hostel.status === "APPROVED").length,
+      lowQuality: liveHostels.filter((hostel) => listingQuality(hostel) < 60).length,
+      noPhotos: liveHostels.filter((hostel) => hostel.photos.length === 0).length,
+      published: liveHostels.filter((hostel) => hostel.status === "PUBLISHED").length,
     }),
-    [hostels],
+    [liveHostels],
   );
 
   const cities = useMemo(
@@ -133,24 +266,35 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
     const term = query.trim().toLowerCase();
 
     return hostels.filter((hostel) => {
-      if (tab !== "ALL" && hostel.status !== tab) return false;
+      // The archived list is already scoped by the endpoint; its rows keep
+      // whatever listing status they held when they were archived, so matching
+      // on `status` here would filter all of them out.
+      if (tab !== "ALL" && !showingArchived && hostel.status !== tab) return false;
       if (cityFilter && hostel.location.city !== cityFilter) return false;
       if (!term) return true;
       return `${hostel.name} ${hostel.slug} ${hostel.location.area}`
         .toLowerCase()
         .includes(term);
     });
-  }, [cityFilter, hostels, query, tab]);
+  }, [cityFilter, hostels, query, showingArchived, tab]);
 
   const paged = useMemo(
     () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
     [filtered, page],
   );
 
-  const tabCount = (key: string) =>
-    key === "ALL"
-      ? hostels.length
-      : hostels.filter((hostel) => hostel.status === key).length;
+  const tabCount = (key: string) => {
+    // The archived count comes from its own list, and only once that list has
+    // been fetched. The other four always count the live one, so the numbers
+    // stay put when the Archived tab is open.
+    if (key === ARCHIVED_TAB) {
+      return archivedResource.data?.hostels.length;
+    }
+    if (key === "ALL") {
+      return liveHostels.length;
+    }
+    return liveHostels.filter((hostel) => hostel.status === key).length;
+  };
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-4">
@@ -318,13 +462,49 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
                         </div>
                       </TableCell>
                       <TableCell>
-                        <SoftBadge tone={statusToneFromLabel(hostel.status)}>
-                          {hostel.status.replaceAll("_", " ")}
-                        </SoftBadge>
+                        {hostel.isArchived ? (
+                          <div className="space-y-0.5">
+                            <SoftBadge tone="rose">ARCHIVED</SoftBadge>
+                            <p className="text-[11px] text-muted-foreground">
+                              {(() => {
+                                const days = daysUntilPurge(hostel.purgeScheduledAt);
+                                if (days === null) return "Not scheduled for erasure";
+                                return days === 0
+                                  ? "Erased on the next sweep"
+                                  : `Erased in ${days} day${days === 1 ? "" : "s"}`;
+                              })()}
+                            </p>
+                          </div>
+                        ) : (
+                          <SoftBadge tone={statusToneFromLabel(hostel.status)}>
+                            {hostel.status.replaceAll("_", " ")}
+                          </SoftBadge>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
-                          {hostel.status === "PUBLISHED" ? (
+                          {hostel.isArchived ? (
+                            <>
+                              <button
+                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-role-platform transition hover:bg-role-platform-soft disabled:opacity-40"
+                                disabled={busy}
+                                onClick={() => void archiveAction(hostel, "restore")}
+                                type="button"
+                              >
+                                <ArchiveRestore className="size-3.5" />
+                                Restore
+                              </button>
+                              <button
+                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-40"
+                                disabled={busy}
+                                onClick={() => void purgeNow(hostel)}
+                                type="button"
+                              >
+                                <Trash2 className="size-3.5" />
+                                Erase now
+                              </button>
+                            </>
+                          ) : hostel.status === "PUBLISHED" ? (
                             <>
                               <a
                                 className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-role-platform transition hover:bg-role-platform-soft"
@@ -353,8 +533,20 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
                               <Globe className="size-3.5" />
                               Publish
                             </button>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">—</span>
+                          ) : null}
+                          {/* Offered at every stage — a listing can be a
+                              mistaken draft as easily as a closed business —
+                              and never on a row that is already archived. */}
+                          {hostel.isArchived ? null : (
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-40"
+                              disabled={busy}
+                              onClick={() => void archiveAction(hostel, "archive")}
+                              type="button"
+                            >
+                              <Archive className="size-3.5" />
+                              Archive
+                            </button>
                           )}
                         </div>
                       </TableCell>

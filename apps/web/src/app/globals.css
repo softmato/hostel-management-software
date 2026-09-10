@@ -325,6 +325,12 @@ body {
     @apply h-11 rounded-lg border border-input-border bg-field px-3 text-sm font-normal text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15;
   }
 
+  /* A field a form has pointed at as wrong. `aria-invalid` rather than a class,
+     so the screen reader and the red border cannot disagree. */
+  .input-field[aria-invalid="true"] {
+    @apply border-destructive focus:border-destructive focus:ring-destructive/15;
+  }
+
   .input-field:disabled {
     @apply cursor-not-allowed bg-muted opacity-60;
   }

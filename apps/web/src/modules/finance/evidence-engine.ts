@@ -68,8 +68,18 @@ export type EvidenceEngine = "gemini" | "tesseract" | "vision";
  *   placeholder rather than a fallback.
  * - `shadow` — both run; Tesseract's answer drives behaviour and the divergence
  *   is logged. The rollout lever, and the only mode that costs two reads.
+ * - `vision+gemini` — Vision reads, and Gemini reads only when Vision did not
+ *   answer at all. **The production mode**, and the one exception to the
+ *   no-fallback rule above — because that rule was written against Tesseract,
+ *   and Gemini is not Tesseract. Tesseract scores 16% all-critical on the real
+ *   corpus and Gemini 68%, so Gemini's answer is a second opinion rather than a
+ *   fuzzy guess that manufactures the false confirmations the rule exists to
+ *   prevent. What it guards against is the failure this pipeline has already
+ *   suffered twice: one remote dependency goes away — an expired card, a lapsed
+ *   billing account, a revoked key, a spent quota — and takes every receipt read
+ *   on the platform down with it, silently.
  */
-export type EvidenceEngineMode = EvidenceEngine | "shadow";
+export type EvidenceEngineMode = EvidenceEngine | "shadow" | "vision+gemini";
 
 export function evidenceEngineMode(): EvidenceEngineMode {
   const configured = (process.env.EVIDENCE_ENGINE ?? "").toLowerCase();
@@ -78,7 +88,8 @@ export function evidenceEngineMode(): EvidenceEngineMode {
     configured === "gemini" ||
     configured === "shadow" ||
     configured === "tesseract" ||
-    configured === "vision"
+    configured === "vision" ||
+    configured === "vision+gemini"
   ) {
     return configured;
   }
@@ -92,11 +103,27 @@ export function evidenceEngineMode(): EvidenceEngineMode {
    * once — the recogniser was dead in production for weeks while every local run
    * stayed green, because nothing anywhere said which engine was live.
    *
-   * Vision outranks Gemini because it measures word boxes and Gemini does not.
-   * Tesseract is last because in the runtime that matters it does not run at all.
+   * Vision leads because it measures word boxes and Gemini does not. Tesseract
+   * is last because in the runtime that matters it does not run at all.
    */
-  if (process.env.GCP_VISION_SA_KEY) return "vision";
-  if ((process.env.GEMINI_API_KEYS ?? "").trim()) return "gemini";
+  const vision = Boolean(process.env.GCP_VISION_SA_KEY);
+  const gemini = Boolean((process.env.GEMINI_API_KEYS ?? "").trim());
+
+  /*
+   * Two credentials resolve to the pair, not to Vision alone. A deployment
+   * holding two working engines should not lose receipt reading outright
+   * because one vendor is having a bad morning, and the second read is only
+   * ever paid for on the reads the first one failed.
+   *
+   * `vision` remains available as an explicit setting, and has to be: the
+   * scoring harness sets EVIDENCE_ENGINE to the engine it is measuring, so a
+   * `vision` that quietly answered with Gemini would report Gemini's score as
+   * Vision's — and this pipeline's whole history is measurements that were not
+   * measuring what they claimed.
+   */
+  if (vision && gemini) return "vision+gemini";
+  if (vision) return "vision";
+  if (gemini) return "gemini";
 
   return "tesseract";
 }

@@ -131,6 +131,18 @@ const MANAGE_ROWS: {
     title: "Reports",
   },
   {
+    /*
+      The one row on this screen about money going *out* of the hostel rather
+      than into it. Finance above is the rate cards the residents are billed
+      from; this is the plan the hostel is billed on, and the subtitle leads
+      with the days left because that is the only thing anyone opens it for.
+    */
+    href: "/manage/billing",
+    icon: "card-outline",
+    subtitle: "Days left on your plan, and every invoice and receipt from us",
+    title: "Billing",
+  },
+  {
     href: "/manage/settings",
     icon: "settings-outline",
     subtitle: "Hostel profile, photos, wardens and the hostel-wide switches",
