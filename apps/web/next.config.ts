@@ -145,6 +145,25 @@ const nextConfig: NextConfig = {
       { destination: "/community", permanent: true, source: "/resident/community" },
     ];
   },
+  async rewrites() {
+    return [
+      /*
+       * Apple fetches the AASA from this exact path and will not follow a
+       * redirect to find it, so this has to be a rewrite. It exists at all
+       * because Next's app router skips folders whose name starts with a dot,
+       * which rules out `app/.well-known/…` as a route.
+       *
+       * Its Android counterpart needs none of this: `assetlinks.json` is a
+       * committed file under `public/.well-known/`, which Next serves verbatim
+       * at the site root, dot-directory included. The handler explains why this
+       * one cannot be a file.
+       */
+      {
+        destination: "/api/apple-app-site-association",
+        source: "/.well-known/apple-app-site-association",
+      },
+    ];
+  },
   turbopack: {
     root: repoRoot,
   },

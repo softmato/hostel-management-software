@@ -247,6 +247,22 @@ nothing. Session cookies are host-only and set `secure` from
 No Firebase variables. Push goes through the Expo push service, which accepts
 both Expo and raw FCM tokens, so no `FIREBASE_*` credential is read anywhere.
 
+### App links
+
+| Variable | Required | Notes |
+|---|---|---|
+| `APPLE_APP_ID_PREFIX` | for iOS universal links | `<Apple Team ID>.com.softmato.hostelhub`, from Apple Developer → Membership. Serves `/.well-known/apple-app-site-association`; unset, that path 404s and a tapped link opens Safari. |
+
+Android needs no variable: its half is the committed
+`apps/web/public/.well-known/assetlinks.json`, which names the signing
+certificate we already hold. The iOS team id does not exist until the Apple
+developer account does, which is the only reason the two halves are shaped
+differently — see the route handler at
+`src/app/api/apple-app-site-association/route.ts`.
+
+Both are **server state**. Adding a fingerprint or a team id reaches installed
+apps without a rebuild, a release or an OTA update.
+
 
 ### Prerequisites
 - Vercel account

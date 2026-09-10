@@ -11,6 +11,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.softmato.hostelhub",
+      "associatedDomains": [
+        "applinks:hostel-management-software-web.vercel.app"
+      ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "HostelHub uses the camera to scan your hostel activation QR code and to attach photos to payment claims, complaints and meals.",
@@ -141,7 +144,11 @@
       }
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/b2b0ab97-162c-425c-8f06-6e7db901e1e6"
     }
   }
 }

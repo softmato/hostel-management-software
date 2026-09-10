@@ -24,12 +24,16 @@
  * the sign-in button does — so the rest of the app still runs under Expo Go;
  * only the Google button is dead there.
  *
- * No Expo config plugin is registered. The plugin's bare form is its *Firebase*
- * mode; its other form exists only to add an iOS URL scheme. Android needs
- * neither — the native module is autolinked and takes everything from
- * `configure()` at runtime. Add
- * `["@react-native-google-signin/google-signin", { iosUrlScheme: "…" }]` when
- * an iOS client is created.
+ * Android registers no Expo config plugin. The plugin's bare form is its
+ * *Firebase* mode; its other form exists only to add an iOS URL scheme, and
+ * Android needs neither — the native module is autolinked and takes everything
+ * from `configure()` at runtime.
+ *
+ * iOS does need that scheme, and `app.config.js` adds the plugin the moment
+ * `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is set, deriving the scheme from the id so
+ * the two cannot disagree. Until the iOS client exists in Google Cloud the
+ * variable is unset, the plugin is not registered, and
+ * {@link isGoogleSignInAvailable} is false on iOS so the button is not drawn.
  *
  * `android.googleServicesFile` in `app.json` does point at a
  * `google-services.json`, but that file is there for **push** (expo-notifications
@@ -84,6 +88,7 @@ import {
   isSuccessResponse,
   statusCodes,
 } from "@react-native-google-signin/google-signin";
+import { Platform } from "react-native";
 
 import {
   GOOGLE_NOT_CONFIGURED_MESSAGE,
@@ -98,8 +103,23 @@ const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? "";
  * Whether this build can offer Google at all. False in any checkout without
  * `apps/mobile/.env` — which is gitignored, so that is every fresh clone.
  * The button hides rather than failing on tap.
+ *
+ * **iOS needs its own client id and Android does not**, which is the one place
+ * the two platforms disagree about what "configured" means. Android's OAuth
+ * client authorises the APK by package name plus signing SHA and is never named
+ * in code, so `webClientId` alone is a complete configuration. iOS has no such
+ * out-of-band match: the SDK opens a URL back into the app, and both the id
+ * passed to `configure()` and the scheme declared in `Info.plist`
+ * (see `app.config.js`) come from an **iOS** client that has to exist.
+ *
+ * Without that, `webClientId` alone is enough to make this constant true and
+ * draw the button, and the failure lands on the tap — after the account sheet,
+ * on a screen where the user has done everything right. Requiring the iOS id on
+ * iOS moves the whole thing back to a button that is simply not offered, which
+ * is what every other unconfigured surface in this app does.
  */
-export const isGoogleSignInAvailable = WEB_CLIENT_ID.length > 0;
+export const isGoogleSignInAvailable =
+  WEB_CLIENT_ID.length > 0 && (Platform.OS !== "ios" || IOS_CLIENT_ID.length > 0);
 
 let configured = false;
 

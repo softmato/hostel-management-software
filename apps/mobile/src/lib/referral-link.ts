@@ -13,13 +13,25 @@
  * alike. Both forms are parsed here so a code survives whichever way it arrives:
  * a tapped app link, or a web URL a friend pasted into the search box.
  *
- * ## An https link will not open the app yet
+ * ## An https link opens the app on Android, and not yet on iOS
  *
- * That needs verified app links — `assetlinks.json` served from the domain and
- * `intentFilters` in `app.json` on Android, `associatedDomains` plus an AASA
- * file on iOS. None of that is configured, so a tapped `https://…/inquiry?ref=`
- * opens the browser. Parsing it here costs nothing and means the app is ready
- * the day those are set up; it is not a claim that they work now.
+ * Verified app links need both halves — a file served from the domain and a
+ * declaration in `app.json` — and the two platforms are at different stages.
+ *
+ * **Android is configured.** `assetlinks.json` is committed under
+ * `apps/web/public/.well-known/` naming our signing certificate, and
+ * `android.intentFilters` claims `/ref/*`, `/inquiry` and `/guardian-invite`,
+ * so a tapped `https://…/ref/<code>` opens straight into `app/ref/[code].tsx`.
+ *
+ * **iOS is declared but not yet served.** `ios.associatedDomains` is in
+ * `app.json`; the AASA it points at answers 404 until `APPLE_APP_ID_PREFIX` is
+ * set on the web deployment, because that file has to name an Apple Team ID
+ * that does not exist until the developer account does. Until then a tapped
+ * link opens Safari.
+ *
+ * Either way the parsing below is what makes the code usable when it arrives as
+ * a web URL a friend pasted into the search box, which is a path that never
+ * depended on app links at all.
  *
  * ## Codes are not activation codes
  *

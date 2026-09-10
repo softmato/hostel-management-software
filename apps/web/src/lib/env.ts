@@ -98,6 +98,25 @@ export const serverEnvSchema = z.object({
   /** `off` disables the evidence OCR pass; anything else leaves it on. */
   EVIDENCE_OCR: z.string().optional(),
   /**
+   * The iOS half of app links: `<Apple Team ID>.com.softmato.hostelhub`.
+   *
+   * Read only by `/.well-known/apple-app-site-association`, which is Apple's
+   * counterpart to the static `assetlinks.json` beside it. It lives in the
+   * environment rather than in `public/` for one reason: the team id is issued
+   * by Apple when the developer account is created, and there is no honest
+   * value to commit before that happens. A placeholder would be worse than an
+   * absence — iOS caches what it fetches, so a file naming the wrong app is a
+   * mistake that outlives the deploy that fixes it.
+   *
+   * Unset, the route answers 404 and iOS simply never claims the domain, which
+   * is exactly today's behaviour. Set it and universal links start working on
+   * the next install with no code change and no app release.
+   *
+   * Team ID: Apple Developer → Membership. It is the same prefix shown in
+   * App Store Connect and in the provisioning profile EAS generates.
+   */
+  APPLE_APP_ID_PREFIX: z.string().optional(),
+  /**
    * `COOKIE_DOMAIN` and `COOKIE_SECURE` were declared here and read by nothing —
    * setting either had no effect at all, which is worse than not offering them.
    * `session-cookies.ts` derives `secure` from `NODE_ENV === "production"` and
