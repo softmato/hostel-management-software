@@ -4,6 +4,7 @@ import {
   DEFAULT_SERVICE_MINUTES,
   MEAL_ANNOUNCE_LATE_MINUTES,
   MEAL_ANNOUNCE_LEAD_MINUTES,
+  MEAL_TIMING_DEFAULTS,
   canAnnounceMeal,
   formatMinuteOfDay,
   mealAnnounceState,
@@ -25,6 +26,52 @@ import {
  * below are the strings the product actually produces: the four seeded defaults
  * from the admin form, and the shapes hostels type over them with.
  */
+/**
+ * The literals below are pinned expectations on purpose — a test that computed
+ * them from the constant would pass whatever the constant said. This one case
+ * ties the two together, so changing `MEAL_TIMING_DEFAULTS` without revisiting
+ * the parse expectations is a failure rather than a silent drift.
+ */
+describe("MEAL_TIMING_DEFAULTS", () => {
+  it("is the set of strings the cases below pin", () => {
+    expect(MEAL_TIMING_DEFAULTS).toEqual({
+      BREAKFAST: "6:00 AM - 7:00 AM",
+      DINNER: "7:00 PM - 8:45 PM",
+      LUNCH: "8:45 AM - 12:00 PM",
+      SNACKS: "3:00 PM - 5:00 PM",
+    });
+  });
+
+  it("every seeded timing reads as a closed window", () => {
+    for (const timing of Object.values(MEAL_TIMING_DEFAULTS)) {
+      const window = parseMealWindow(timing);
+
+      expect(window).not.toBeNull();
+      expect(window?.endMinute).not.toBeNull();
+    }
+  });
+
+  /*
+   * The lead time's own doc comment claims these four never overlap at 30
+   * minutes. That claim is load-bearing — overlapping windows would let a cook
+   * announce lunch during breakfast — so it is checked rather than asserted in
+   * prose.
+   */
+  it("leaves no two windows overlapping once the announce lead is applied", () => {
+    const windows = Object.values(MEAL_TIMING_DEFAULTS)
+      .map((timing) => parseMealWindow(timing))
+      .map((window) => ({
+        end: window?.endMinute ?? 0,
+        start: (window?.startMinute ?? 0) - MEAL_ANNOUNCE_LEAD_MINUTES,
+      }))
+      .sort((left, right) => left.start - right.start);
+
+    for (let index = 1; index < windows.length; index += 1) {
+      expect(windows[index].start).toBeGreaterThanOrEqual(windows[index - 1].end);
+    }
+  });
+});
+
 describe("parseMealWindow", () => {
   it("reads the four timings the admin form seeds", () => {
     expect(parseMealWindow("6:00 AM - 7:00 AM")).toEqual({

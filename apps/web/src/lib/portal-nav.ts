@@ -416,10 +416,27 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         label: "Audit Log",
       },
       {
-        description: "Platform owner account, workspace snapshot, and access controls.",
+        description:
+          "Platform owner account, access controls, and the operations knobs — SLAs, reminder timings, and the field collection QR.",
         href: "/platform/settings",
         icon: "settings",
-        keywords: ["settings", "account", "password", "profile", "preferences"],
+        keywords: [
+          "settings",
+          "account",
+          "password",
+          "profile",
+          "preferences",
+          // The operations panel lives inside this page rather than on a route
+          // of its own, so the things it configures have to be searchable from
+          // here or they are only findable by scrolling.
+          "operations",
+          "qr",
+          "collection qr",
+          "field collection",
+          "receipt prefix",
+          "sla",
+          "reminders",
+        ],
         label: "Settings",
       },
     ],

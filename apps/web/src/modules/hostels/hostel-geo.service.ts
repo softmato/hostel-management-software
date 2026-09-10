@@ -1,33 +1,19 @@
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
-import { geocodeAddress } from "@/lib/maps/geocoding";
-import { fetchNearbyPlaces } from "@/lib/maps/nearby";
-import type { LocationSource } from "@/lib/maps/types";
+import { resolveHostelGeo, type HostelGeoLocation } from "@/lib/maps/hostel-geo";
 import { HostelModel } from "@hostel/db/models/Hostel";
 
 type HostelGeoRecord = {
   _id: Types.ObjectId;
-  location?: {
-    address?: string;
-    area?: string;
-    city?: string;
-    lat?: number;
-    lng?: number;
-    locationSource?: LocationSource;
-    province?: string;
-  };
+  location?: HostelGeoLocation;
 };
 
 /**
  * Geocode a hostel's address (if needed) and refresh its cached nearby places.
  * Best-effort: returns null and leaves the document untouched on any failure so
- * callers (profile save, cron) never break on a flaky map provider.
- *
- * A MANUAL pin is authoritative: the admin placed that marker on their own
- * building, so we keep the coordinates and only refresh the nearby-places cache
- * around them. Re-geocoding a hand-placed pin is what silently drags a hostel
- * back to the middle of its neighbourhood.
+ * callers (registration, profile save, cron) never break on a flaky map
+ * provider.
  */
 export async function geocodeAndCacheHostel(hostelId: string) {
   await connectToDatabase();
@@ -43,49 +29,20 @@ export async function geocodeAndCacheHostel(hostelId: string) {
     return null;
   }
 
-  const pinned =
-    hostel.location.locationSource === "MANUAL" &&
-    typeof hostel.location.lat === "number" &&
-    typeof hostel.location.lng === "number"
-      ? { lat: hostel.location.lat, lng: hostel.location.lng }
-      : null;
+  const resolved = await resolveHostelGeo(hostel.location);
 
-  const geocoded = pinned ? null : await geocodeAddress(hostel.location);
-  const coords = pinned ?? geocoded?.coordinates ?? null;
-  if (!coords) {
+  if (!resolved) {
     return null;
   }
 
-  const nearby = await fetchNearbyPlaces(coords);
-
-  await HostelModel.updateOne(
-    { _id: hostel._id },
-    {
-      $set: {
-        // Leave location.* untouched for a manual pin so a concurrent admin
-        // edit is never clobbered by a background refresh.
-        ...(pinned
-          ? {}
-          : {
-              "location.lat": coords.lat,
-              "location.lng": coords.lng,
-              "location.locationSource": "GEOCODED",
-            }),
-        // null means every provider failed. Writing it — and the timestamp —
-        // would mark the hostel fresh for the whole stale window, so one bad
-        // Overpass response would blank its nearby list for a week. Leave the
-        // previous cache in place and let the next sweep pick it up instead.
-        ...(nearby ? { nearbyPlaces: nearby, nearbyPlacesLastUpdated: new Date() } : {}),
-      },
-    },
-  );
+  await HostelModel.updateOne({ _id: hostel._id }, { $set: resolved.set });
 
   return {
-    coordinates: coords,
-    nearbyCount: nearby?.length ?? 0,
-    nearbyRefreshed: nearby != null,
-    precision: pinned ? ("exact" as const) : (geocoded?.precision ?? "approximate"),
-    source: pinned ? ("MANUAL" as const) : ("GEOCODED" as const),
+    coordinates: resolved.coordinates,
+    nearbyCount: resolved.nearbyCount,
+    nearbyRefreshed: resolved.nearbyRefreshed,
+    precision: resolved.precision,
+    source: resolved.source,
   };
 }
 

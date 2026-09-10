@@ -5,7 +5,7 @@ import { Alert, Linking, View } from "react-native";
 
 import { NotificationBell } from "@/components/notification-bell";
 import { AppBar } from "@/components/ui/app-bar";
-import { Avatar } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Chip } from "@/components/ui/layout";
@@ -14,7 +14,6 @@ import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
@@ -205,7 +204,6 @@ const DISCOVER_ROWS: {
 export default function ResidentMoreScreen() {
   const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
-  const photo = useAvatarSource()(account?.image);
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
@@ -287,11 +285,10 @@ export default function ResidentMoreScreen() {
               residents have is the one on their ID card: our own origin, behind
               auth, and a relative path a phone cannot resolve on its own.
             */}
-            <Avatar
-              headers={photo?.headers}
+            <PersonAvatar
+              image={account?.image}
               name={resident?.fullName ?? account?.name}
               size="lg"
-              uri={photo?.uri}
             />
 
             <View className="flex-1">

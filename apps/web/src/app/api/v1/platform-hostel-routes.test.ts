@@ -219,8 +219,24 @@ describe("platform hostel routes", () => {
 
     expect(response.status).toBe(200);
     expect(payload.data.hostels).toHaveLength(1);
+    // `archived` defaults rather than being optional, so the live queue is
+    // what a caller gets by omitting it — an archived hostel never turns up in
+    // a list that did not ask for one.
     expect(routeMocks.listPlatformHostels).toHaveBeenCalledWith({
+      archived: "exclude",
       status: "PENDING_APPROVAL",
+    });
+  });
+
+  it("passes archived=only through to the service", async () => {
+    routeMocks.listPlatformHostels.mockResolvedValue({ hostels: [] });
+
+    await platformHostelsRoute.GET(
+      getRequest("/api/v1/platform/hostels?archived=only"),
+    );
+
+    expect(routeMocks.listPlatformHostels).toHaveBeenCalledWith({
+      archived: "only",
     });
   });
 

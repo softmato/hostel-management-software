@@ -1,4 +1,5 @@
 import type { Coordinates } from "./types";
+import { fetchUpstream } from "./upstream-fetch";
 
 /**
  * What a pasted map link (or a raw coordinate pair) resolved to.
@@ -39,8 +40,22 @@ const POINT_PARAMS = [
   "viewpoint",
 ];
 
-/** Hosts whose links are opaque redirects until followed. */
-const SHORTENERS = ["goo.gl", "maps.app.goo.gl", "g.co", "bit.ly", "osm.org"];
+/**
+ * Hosts whose links are opaque redirects until followed.
+ *
+ * `share.google` is what Google's Share sheet hands out now — the hostel whose
+ * owner sent us `https://share.google/g7znZy6lJWDsMM2rq` is the reason it is
+ * here. Without it that paste resolves to nothing and the agent is told the
+ * link contains no location, which is untrue and unactionable.
+ */
+const SHORTENERS = [
+  "goo.gl",
+  "maps.app.goo.gl",
+  "g.co",
+  "share.google",
+  "bit.ly",
+  "osm.org",
+];
 
 function toCoordinates(lat: string, lng: string): Coordinates | null {
   const parsed = { lat: Number(lat), lng: Number(lng) };
@@ -189,7 +204,7 @@ export function parseMapLink(raw: string): ParsedMapLink | null {
  * shorteners.
  */
 export async function resolveShortLink(url: string): Promise<ParsedMapLink | null> {
-  const response = await fetch(url, {
+  const response = await fetchUpstream(url, {
     headers: {
       // The bare-bones client gets a consent interstitial with no coordinates.
       "Accept-Language": "en",
@@ -197,7 +212,7 @@ export async function resolveShortLink(url: string): Promise<ParsedMapLink | nul
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
     },
     redirect: "follow",
-  }).catch(() => null);
+  });
 
   if (!response) {
     return null;

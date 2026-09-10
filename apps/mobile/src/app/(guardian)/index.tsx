@@ -189,6 +189,7 @@ export default function GuardianHomeScreen() {
         relation={dashboard.guardian.relation.toLowerCase()}
         roomLabel={humanizeEnum(dashboard.resident.roomType)}
         unpaidCount={unpaid}
+        wardImage={dashboard.resident.image}
         wardName={wardName}
       />
 

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3100",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -29,6 +29,7 @@
     "backfill:fileasset-hostel": "node scripts/backfill-fileasset-hostel.mjs",
     "backfill:photo-url-origins": "node scripts/backfill-photo-url-origins.mjs",
     "backfill:card-avatars": "node scripts/backfill-card-avatars.mjs",
+    "backfill:hostel-map-pins": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/backfill-hostel-map-pins.mjs",
     "repair:archived-residents": "node scripts/repair-archived-residents.mjs",
     "check:duplicate-resident-emails": "node scripts/find-duplicate-resident-emails.mjs",
     "migrate:r2-buckets": "node scripts/migrate-r2-buckets.mjs",

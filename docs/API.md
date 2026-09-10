@@ -228,11 +228,14 @@ All routes require `role = SUPERADMIN`.
 | Method | Path | Body/Query | Notes |
 |---|---|---|---|
 | GET | `/api/v1/platform/reports/dashboard` | — | Totals: hostels (by status), residents, inquiries, payments (verified), open complaints |
-| GET | `/api/v1/platform/hostels` | `?status=, page=, pageSize=` | List with filter by `HostelStatus` |
+| GET | `/api/v1/platform/hostels` | `?status=, archived=exclude\|only, page=, pageSize=` | List with filter by `HostelStatus`. `archived=only` returns the Archived queue instead of the live one |
 | PATCH | `/api/v1/platform/hostels/[id]/approve` | — | Sets `status = APPROVED`, triggers `HOSTEL_ADMIN` account creation/upgrade (ARCHITECTURE.md §3.2), sends credential email (EMAIL_SYSTEM.md) |
 | PATCH | `/api/v1/platform/hostels/[id]/reject` | `{ reason }` | Sets `status = REJECTED`, sends rejection email |
 | PATCH | `/api/superadmin/hostels/:id/suspend` | `{ reason }` | ⏳ **Not built.** Sets `status = SUSPENDED` |
-| GET | `/api/v1/platform/hostels/[id]` | — | Verification documents |
+| GET | `/api/v1/platform/hostels/[id]` | — | Verification documents. Resolves an archived hostel too, so the reviewer can read why it was archived |
+| PATCH | `/api/v1/platform/hostels/[id]/archive` | `{ reason }` | **Superadmin.** Off the public site and out of its own portal immediately, staff sessions revoked, erased 60 days later by `cron/hostel-purge` |
+| PATCH | `/api/v1/platform/hostels/[id]/restore` | — | **Superadmin.** Undoes an archive. Refused once the purge is due |
+| DELETE | `/api/v1/platform/hostels/[id]` | — | **Superadmin.** Erases an already-archived hostel now. Refused on a live one |
 | PATCH | `/api/superadmin/documents/:id/review` | `{ status: VERIFIED|REJECTED, rejectionReason? }` | ⏳ **Not built.** Review a hostel document |
 | GET | `/api/v1/platform/listing-flags` | — | Flagged duplicate/ghost listings (same address, phone, photos, documents) |
 | GET | `/api/superadmin/subscriptions` | `?status=, page=` | ⏳ **Not built.** Hostel subscriptions |
@@ -260,7 +263,7 @@ is which of them accept the role. `requirePlatformPrincipal` admits both roles,
 
 | Area | Endpoints |
 |---|---|
-| Hostels | `/api/v1/platform/hostels*` — list, review, approve, reject, request documents, publish, unpublish |
+| Hostels | `/api/v1/platform/hostels*` — list, review, approve, reject, request documents, publish, unpublish, archive, restore, erase |
 | Service providers | `/api/v1/platform/service-providers*` — list, approve, reject, hide |
 | Reviews | `/api/v1/platform/reviews*` — list, hide, unhide |
 | Complaints | `/api/v1/platform/complaints` |

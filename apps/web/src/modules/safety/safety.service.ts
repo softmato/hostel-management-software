@@ -18,6 +18,7 @@ import { fanOutSOSAlert } from "@/modules/safety/safety-notify";
 import { nightKey } from "@hostel/shared/night/night-window";
 import {
   findCurrentResident,
+  findResidentAvatars,
   normalizeObjectId,
   serializeResidentSummary,
   type ResidentRecord,
@@ -438,9 +439,11 @@ export async function listAdminNightStatus(
   const statusByResidentId = new Map(
     statuses.map((status) => [status.residentId.toString(), status]),
   );
+  // A roll call is a page of faces — one join for the whole roster.
+  const avatars = await findResidentAvatars(residents);
   const rows = residents
     .map((resident) => ({
-      resident: serializeResidentSummary(resident),
+      resident: serializeResidentSummary(resident, avatars),
       status: serializeNightStatus(
         statusByResidentId.get(resident._id.toString()) ?? null,
       ),

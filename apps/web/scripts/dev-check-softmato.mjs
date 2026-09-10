@@ -39,7 +39,7 @@ import { loadRootEnv } from "../src/lib/load-root-env.ts";
 
 loadRootEnv();
 
-const APP = process.env.APP_URL ?? "http://hostelhub.localhost:3100";
+const APP = process.env.APP_URL ?? "http://hostelhub.localhost:3000";
 const BASE = process.env.SOFTMATO_BASE_URL;
 const SECRET = process.env.SOFTMATO_SECRET;
 const WEBHOOK_SECRET = process.env.SOFTMATO_WEBHOOK_SECRET;

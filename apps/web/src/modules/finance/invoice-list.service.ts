@@ -22,7 +22,10 @@ import {
 import type { LedgerInvoice } from "@/modules/finance/ledger-read.service";
 import { countableResidentIds } from "@/modules/finance/resident-scope";
 import { listReviewQueue } from "@/modules/finance/review.service";
-import { findCurrentResident } from "@/modules/residents/resident-access";
+import {
+  findCurrentResident,
+  findResidentAvatars,
+} from "@/modules/residents/resident-access";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
@@ -334,6 +337,8 @@ type ResidentRow = {
   phone?: string;
   roomNumber?: string;
   roomType?: string;
+  /** Only to find their face — see {@link findResidentAvatars}. */
+  userId?: Types.ObjectId | null;
 };
 
 /**
@@ -434,6 +439,8 @@ export type InvoiceMatrixRow = {
   resident: {
     fullName: string;
     id: string;
+    /** Their profile picture — a URL behind auth, or null. */
+    image: string | null;
     moveInDate: string;
     phone?: string;
     roomNumber?: string | null;
@@ -526,7 +533,7 @@ export async function getInvoiceMatrix(
       status: "ACTIVE",
     })
       .select(
-        "bedType firstName lastName monthlyFee moveInDate moveOutDate phone roomNumber roomType",
+        "bedType firstName lastName monthlyFee moveInDate moveOutDate phone roomNumber roomType userId",
       )
       .lean<ResidentRow[]>(),
     InvoiceModel.find({ hostelId, period, status: { $ne: "VOID" } }).lean<
@@ -580,12 +587,16 @@ export async function getInvoiceMatrix(
   const extras = extraIds.length
     ? await ResidentModel.find({ _id: { $in: extraIds }, isDeleted: { $ne: true } })
         .select(
-        "bedType firstName lastName monthlyFee moveInDate moveOutDate phone roomNumber roomType",
+        "bedType firstName lastName monthlyFee moveInDate moveOutDate phone roomNumber roomType userId",
       )
         .lean<ResidentRow[]>()
     : [];
 
-  const rows: InvoiceMatrixRow[] = [...residents, ...extras].map((resident) => {
+  const everyone = [...residents, ...extras];
+  // One join for the whole matrix; the money list draws a face per row.
+  const avatars = await findResidentAvatars(everyone);
+
+  const rows: InvoiceMatrixRow[] = everyone.map((resident) => {
     const invoice = invoiceByResident.get(resident._id.toString()) ?? null;
 
     return {
@@ -595,6 +606,8 @@ export async function getInvoiceMatrix(
       resident: {
         fullName: `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim(),
         id: resident._id.toString(),
+        /** Their profile picture, or null. See {@link findResidentAvatars}. */
+        image: resident.userId ? (avatars.get(resident.userId.toString()) ?? null) : null,
         // The screen flags a mid-month move-in as pro-rated by comparing this
         // against the period, so it has to be an ISO string, not a Date.
         moveInDate: resident.moveInDate?.toISOString() ?? "",

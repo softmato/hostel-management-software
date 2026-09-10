@@ -6,7 +6,6 @@ import { useCallback, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { browserApi } from "@/lib/browser-api";
-import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { parseMapLink } from "@/lib/maps/map-links";
 import type { AddressParts, Coordinates, GeocodeResult } from "@/lib/maps/types";
 
@@ -54,12 +53,20 @@ function describeParts(parts: AddressParts): string {
  */
 export function LocationPicker({
   addressHint,
+  lookupPath = "/api/v1/hostel-admin/profile/geocode",
   onChange,
   onResolvedAddress,
   value,
 }: {
   /** Current address fields — seeds the box and disambiguates bare names. */
   addressHint: string;
+  /**
+   * The geocode endpoint to search through. Two desks place this same pin — a
+   * hostel admin on their own listing, and a team agent registering a hostel
+   * that has no id to authorise against yet — so the guard differs while the
+   * lookup behind it does not (`modules/hostels/hostel-geocode.service.ts`).
+   */
+  lookupPath?: string;
   onChange: (next: LocationPickerValue) => void;
   /** Called when a lookup produced an address for the placed pin. */
   onResolvedAddress?: (parts: AddressParts) => void;
@@ -119,7 +126,8 @@ export function LocationPicker({
         const response = await browserApi<{ results: GeocodeResult[] }>(
           // The address fields go along as context: an admin searching their
           // own hostel's name gives a geocoder nothing to work with otherwise.
-          hostelAdminEndpoints.profileGeocode(trimmed, addressHint),
+          `${lookupPath}?q=${encodeURIComponent(trimmed)}` +
+            (addressHint ? `&near=${encodeURIComponent(addressHint)}` : ""),
         );
         if (requestIdRef.current !== requestId) {
           return;
@@ -165,7 +173,7 @@ export function LocationPicker({
         }
       }
     },
-    [addressHint, applyAddress, applyPin],
+    [addressHint, applyAddress, applyPin, lookupPath],
   );
 
   const choose = useCallback(
@@ -184,7 +192,7 @@ export function LocationPicker({
       requestIdRef.current = requestId;
       try {
         const response = await browserApi<{ results: GeocodeResult[] }>(
-          hostelAdminEndpoints.profileReverseGeocode(next.lat, next.lng),
+          `${lookupPath}?lat=${next.lat}&lng=${next.lng}`,
         );
         if (requestIdRef.current !== requestId) {
           return;
@@ -197,7 +205,7 @@ export function LocationPicker({
         }
       }
     },
-    [applyAddress],
+    [applyAddress, lookupPath],
   );
 
   const useDeviceLocation = useCallback(() => {

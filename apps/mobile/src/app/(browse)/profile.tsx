@@ -5,7 +5,7 @@ import { Alert, Linking, View } from "react-native";
 
 import { ProviderStatusCard } from "@/components/provider-status-card";
 import { AppBar } from "@/components/ui/app-bar";
-import { Avatar } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
@@ -15,7 +15,6 @@ import { Text } from "@/components/ui/text";
 import { readableRole } from "@/constants/roles";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useResource } from "@/hooks/use-resource";
 import { useSiteConfig } from "@/hooks/use-site-config";
 import { endSession } from "@/lib/auth-session";
@@ -73,7 +72,6 @@ export default function BrowseProfileScreen() {
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
   const { config, refresh, refreshing } = useSiteConfig();
-  const photo = useAvatarSource()(account?.image);
   const [signingOut, setSigningOut] = useState(false);
 
   /*
@@ -149,12 +147,7 @@ export default function BrowseProfileScreen() {
                   and not a bare absolute URL: a card photo is served from our
                   own origin behind auth, so without the bearer token it 401s
                   and silently becomes an initial. */}
-              <Avatar
-                headers={photo?.headers}
-                name={account.name}
-                size="lg"
-                uri={photo?.uri}
-              />
+              <PersonAvatar image={account.image} name={account.name} size="lg" />
 
               <View className="flex-1">
                 <Text variant="subtitle">{account.name || "Your account"}</Text>

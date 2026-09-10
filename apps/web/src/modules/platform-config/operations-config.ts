@@ -53,6 +53,26 @@ export const operationsConfigSchema = z.object({
    * platform's call, and it will change without any code needing to.
    */
   subscriptionDueGraceDays: z.number().int().min(1).max(180).default(15),
+  /**
+   * The QR a field agent shows an owner who wants to pay by wallet.
+   *
+   * It is one image for the whole platform — our own merchant QR — rather than
+   * something generated per invoice, because there is no gateway session behind
+   * it yet: the owner scans, pays whatever was agreed, and the agent types in
+   * what arrived. So this is a picture and a caption, not a payload.
+   *
+   * Lives in operations rather than in the site config sections because it is
+   * how money is taken, not what the website says. A website edit must never be
+   * able to change the account money lands in — which is exactly the split this
+   * file's header describes.
+   *
+   * `collectionQrLabel` is what the agent reads out while the owner scans
+   * ("HostelDays Pvt. Ltd. — Fonepay"), so the owner can check the name on
+   * their own screen before they confirm. That check is the only thing standing
+   * between this and a swapped QR, so it is worth a field of its own.
+   */
+  collectionQrUrl: z.string().trim().max(500).default(""),
+  collectionQrLabel: z.string().trim().max(120).default(""),
   sendComplaintEmails: z.boolean().default(true),
   qrActivationExpiryDays: z.number().int().min(1).max(60).default(7),
   receiptNumberPrefix: z.string().trim().min(1).max(10).default("RCP"),

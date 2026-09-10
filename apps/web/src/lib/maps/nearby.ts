@@ -1,4 +1,5 @@
 import type { Coordinates, NearbyPlace, NearbyPlaceType } from "./types";
+import { fetchUpstream } from "./upstream-fetch";
 
 /**
  * Overpass mirrors, tried in order. The main endpoint frequently answers 504
@@ -99,11 +100,14 @@ async function fetchNearbyWithOverpass(center: Coordinates): Promise<NearbyPlace
   let data: { elements?: OverpassElement[] } | null = null;
 
   for (const url of OVERPASS_URLS) {
-    const response = await fetch(url, {
+    const response = await fetchUpstream(url, {
       body: `data=${encodeURIComponent(query)}`,
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       method: "POST",
-    }).catch(() => null);
+      // Overpass is asked for a 20-second query, so it gets longer than the
+      // default before we move to the next mirror.
+      timeoutMs: 25_000,
+    });
 
     if (!response?.ok) {
       continue;
@@ -187,7 +191,7 @@ async function fetchNearbyWithGoogle(center: Coordinates): Promise<NearbyPlace[]
         `https://maps.googleapis.com/maps/api/place/nearbysearch/json` +
         `?location=${center.lat},${center.lng}&radius=${SEARCH_RADIUS_METERS}` +
         `&type=${type}&key=${key}`;
-      const response = await fetch(url).catch(() => null);
+      const response = await fetchUpstream(url);
       if (!response || !response.ok) {
         return [];
       }

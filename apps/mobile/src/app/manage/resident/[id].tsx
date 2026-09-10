@@ -3,7 +3,7 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
-import { Avatar } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { Badge, StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
@@ -17,7 +17,6 @@ import { Sheet } from "@/components/ui/sheet";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
-import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
@@ -174,7 +173,6 @@ export default function ManageResidentScreen() {
     [resident],
   );
 
-  const photo = useAvatarSource()(resident?.account?.image);
 
   const { reload } = data;
 
@@ -368,11 +366,10 @@ export default function ManageResidentScreen() {
               front of them; the initial circle is the fallback for the majority
               who have not uploaded one.
             */}
-            <Avatar
-              headers={photo?.headers}
+            <PersonAvatar
+              image={resident.account?.image}
               name={fullName}
               size="lg"
-              uri={photo?.uri}
             />
 
             <View className="flex-1">
@@ -624,11 +621,10 @@ export default function ManageResidentScreen() {
       <Sheet onClose={() => setPanel(null)} open={panel === "details"} title={fullName}>
         <View className="gap-5 pb-2">
           <View className="flex-row items-center gap-3">
-            <Avatar
-              headers={photo?.headers}
+            <PersonAvatar
+              image={resident.account?.image}
               name={fullName}
               size="lg"
-              uri={photo?.uri}
             />
             <View className="flex-1 gap-1">
               <Text variant="subtitle">{fullName}</Text>

@@ -147,11 +147,48 @@ const registration = await api(
       contact: { phone: "9800000000" },
       documents: [],
       facilities: ["Wi-Fi"],
+      /*
+       * The full-setup fields the form now collects. They are posted here
+       * because every one of them has, at some point, been accepted by the API
+       * and then silently dropped — `photos[].kind` most recently, which zod
+       * stripped so every categorised upload landed as an interior. A field
+       * that is not asserted after a round trip is a field nobody has checked.
+       */
+      food: { hasNonVeg: true, hasVeg: true, mealsPerDay: 3, notes: "Saturday special" },
+      foodRoutine: {
+        meals: [
+          { dayOfWeek: "SUNDAY", items: ["Dal", "Bhat"], mealType: "DINNER" },
+          { dayOfWeek: "MONDAY", items: ["Roti", "Tarkari"], mealType: "LUNCH" },
+        ],
+        timings: { DINNER: "7:30 pm", LUNCH: "1:00 pm" },
+      },
       landmark: "Opposite the test gate",
-      location: { area: "Baneshwor", city: "Kathmandu" },
+      /*
+       * The agent places a pin, because they are standing in the building.
+       * MANUAL is the part that matters: it is what stops the nightly
+       * nearby-places sweep re-geocoding the hostel back to the middle of
+       * Baneshwor.
+       */
+      location: {
+        area: "Baneshwor",
+        city: "Kathmandu",
+        lat: 27.6892,
+        lng: 85.3435,
+        locationSource: "MANUAL",
+      },
       name: hostelName,
       payment: { amount: collected, method: "CASH" },
+      photos: [
+        { kind: "EXTERIOR", url: "https://cdn.example.com/e2e-front.jpg" },
+        { kind: "INTERIOR", url: "https://cdn.example.com/e2e-lounge.jpg" },
+        {
+          kind: "ROOM",
+          roomType: "Double Sharing",
+          url: "https://cdn.example.com/e2e-room.jpg",
+        },
+      ],
       plan: { cycle: "monthly", planId: plan.id },
+      pricing: { admissionFee: 2000, currency: "NPR", monthlyRentMax: 7000, monthlyRentMin: 7000 },
       roomConfigurations: [
         {
           bedsPerRoom: 2,
@@ -163,6 +200,7 @@ const registration = await api(
         },
       ],
       roomTypes: ["Double Sharing"],
+      rules: ["Gate closes at 10:00 PM", "No smoking indoors"],
       yearEstablished: "2019",
     }),
     method: "POST",
@@ -192,6 +230,53 @@ ok("hostel published immediately", hostel.status === "PUBLISHED", hostel.status)
 ok("hostel marked verified", hostel.verificationStatus === "VERIFIED", hostel.verificationStatus);
 ok("landmark persisted", hostel.location?.landmark === "Opposite the test gate", hostel.location?.landmark);
 ok("yearEstablished persisted", hostel.yearEstablished === "2019", hostel.yearEstablished);
+/*
+ * The pin, and that publishing left it alone.
+ *
+ * Registration now geocodes on the way out (`placeOnMap`), and the one thing
+ * that must never happen there is a hand-placed pin being replaced by a
+ * geocode of the locality — the hostel would slide off its own building on the
+ * day it goes live.
+ */
+ok(
+  "the agent's pin was stored",
+  hostel.location?.lat === 27.6892 && hostel.location?.lng === 85.3435,
+  `${hostel.location?.lat}, ${hostel.location?.lng}`,
+);
+ok(
+  "publishing left the manual pin where the agent put it",
+  hostel.location?.locationSource === "MANUAL",
+  hostel.location?.locationSource,
+);
+
+/* The full-setup fields, read back off the stored hostel. */
+const photoKinds = (hostel.photos ?? []).map((photo) => photo.kind).sort();
+
+ok("all three photos stored", (hostel.photos ?? []).length === 3, String((hostel.photos ?? []).length));
+ok(
+  "photo kinds survived the round trip",
+  photoKinds.join(",") === "EXTERIOR,INTERIOR,ROOM",
+  photoKinds.join(","),
+);
+ok(
+  "the room photo kept its room type",
+  (hostel.photos ?? []).find((photo) => photo.kind === "ROOM")?.roomType ===
+    "Double Sharing",
+  (hostel.photos ?? []).find((photo) => photo.kind === "ROOM")?.roomType,
+);
+ok("rules stored", (hostel.rules ?? []).length === 2, String((hostel.rules ?? []).length));
+ok("food stored", hostel.food?.mealsPerDay === 3, String(hostel.food?.mealsPerDay));
+ok(
+  "admission fee stored",
+  hostel.pricing?.admissionFee === 2000,
+  String(hostel.pricing?.admissionFee),
+);
+
+const routine = await db.collection("foodroutines").findOne({ hostelId: hostel._id });
+
+ok("weekly routine written", Boolean(routine), routine ? "yes" : "no");
+ok("routine kept both meals", (routine?.meals ?? []).length === 2, String((routine?.meals ?? []).length));
+ok("routine kept the timings", routine?.timings?.DINNER === "7:30 pm", routine?.timings?.DINNER);
 
 const subscription = await db
   .collection("hostelsubscriptions")

@@ -29,9 +29,9 @@ const BHADRA = "2083-05";
 const SHRAWAN = "2083-04";
 const bhadra = (day: number) => fromBs({ day, month: 5, year: 2083 });
 
-
 const mocks = vi.hoisted(() => ({
   findCurrentResident: vi.fn(),
+  findResidentAvatars: vi.fn(),
   hostelFindById: vi.fn(),
   invoiceFind: vi.fn(),
   scheduleFindOne: vi.fn(),
@@ -56,8 +56,16 @@ vi.mock("@/modules/finance/review.service", () => ({
   listReviewQueue: mocks.listReviewQueue,
 }));
 
+/*
+ * Both exports are stubbed, including the avatar lookup the matrix now makes.
+ * A face is decoration on a money row — no assertion in this file turns on one
+ * — but the call is real, so a factory that omits it fails every test in the
+ * file with a module error rather than a wrong figure. It returns an empty Map,
+ * which is also the shape the real function returns when nobody has a photo.
+ */
 vi.mock("@/modules/residents/resident-access", () => ({
   findCurrentResident: mocks.findCurrentResident,
+  findResidentAvatars: mocks.findResidentAvatars,
 }));
 
 /*
@@ -122,6 +130,7 @@ function lean<T>(rows: T) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.findCurrentResident.mockResolvedValue({ _id: residentId, hostelId });
+  mocks.findResidentAvatars.mockResolvedValue(new Map());
   mocks.listResidentInvoices.mockResolvedValue([ledgerInvoice]);
   mocks.listRecentInvoices.mockResolvedValue([ledgerInvoice]);
   mocks.listReviewQueue.mockResolvedValue([]);

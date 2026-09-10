@@ -233,6 +233,35 @@ rest of the batch. Returns `{ due, failed, purged }`.
 
 - Recommended schedule: daily (e.g. `0 3 * * *`).
 
+### Hostel archive purge
+
+`POST /api/v1/cron/hostel-purge`
+
+Permanently erases hostels whose 60-day archive grace period has run out.
+
+A superadmin archives a hostel from the Hostel Approvals queue. That sets `isDeleted`,
+which takes it off the public site, out of search and out of its own portal immediately,
+and sets `purgeScheduledAt` 60 days out. Until that date passes the archive is reversible
+with **Restore**; after it, this job erases the hostel and everything scoped to it —
+residents, the ledger, complaints, maintenance, food, attendance, notices, community
+posts, subscriptions, store orders, and the R2 objects behind its file assets.
+
+A hostel qualifies only when `purgeScheduledAt` is set **and** past, so one archived
+before that field existed has no purge date and can never be swept up by accident.
+
+The R2 objects go first: deleting a `FileAsset` row before its bytes leaves an object
+nothing can name and nothing will ever find, billing for storage forever. The `Hostel`
+row goes last, so a crash part-way through leaves it archived and still due, and the next
+run finishes the job. One hostel failing does not strand the rest of the batch. The
+`AuditLog` row — including a final `HOSTEL_PURGED` — is the one thing deliberately kept.
+Returns `{ due, failed, purged }`.
+
+A superadmin can also erase an already-archived hostel immediately with
+`DELETE /api/v1/platform/hostels/{id}`, which runs the same code. It refuses any hostel
+that is not already archived: there is no path from live to erased in one step.
+
+- Recommended schedule: daily (e.g. `0 3 * * *`), alongside `account-purge`.
+
 ### Dispatch scheduled notifications
 
 `POST /api/v1/cron/notification-dispatch`
@@ -347,6 +376,7 @@ The full set to create on cron-job.org. All are `POST`, all take the
 | Refresh nearby places | `refresh-nearby-places` | `0 * * * *` | Fills caches a batch at a time inside the Nominatim rate limit. |
 | Purge expired OTPs | `purge-expired-otps` | `0 3 * * *` | Backup for the TTL index. |
 | Account deletion purge | `account-purge` | `0 3 * * *` | Executes 60-day grace periods that have run out. |
+| Hostel archive purge | `hostel-purge` | `0 3 * * *` | Erases hostels whose 60-day archive grace period has run out. |
 | Ledger drift check | `ledger-drift` | `0 3 * * *` | Read-only; reports, never corrects. |
 | Complaint SLA breach check | `complaint-sla` | `0 4 * * *` | Alerts once per breached complaint. |
 | Gateway settlement reconciliation | `gateway-settlement-recon` | `0 4 * * 1` | Weekly, with a fortnight window so a missed week is not a gap. |

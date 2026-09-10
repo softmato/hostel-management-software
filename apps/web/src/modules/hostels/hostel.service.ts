@@ -7,19 +7,25 @@ import { escapeRegex } from "@/lib/validators";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
+import { CookAccountModel } from "@hostel/db/models/CookAccount";
 import { HostelApplicationModel } from "@hostel/db/models/HostelApplication";
+import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { HostelDocumentModel } from "@hostel/db/models/HostelDocument";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelVerificationModel } from "@hostel/db/models/HostelVerification";
 import { InquiryModel } from "@hostel/db/models/Inquiry";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
+import { ResidentModel } from "@hostel/db/models/Resident";
+import { SessionModel } from "@hostel/db/models/Session";
 import { UserModel } from "@hostel/db/models/User";
 import { provisionCookAccount } from "@/modules/food/cook.service";
+import { geocodeAndCacheHostel } from "@/modules/hostels/hostel-geo.service";
 import {
   EMPTY_ROUTINE,
   getFoodRoutine,
   getFoodRoutinesByHostelId,
+  saveFoodRoutine,
 } from "@/modules/food/food-routine.service";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import { sendEmail } from "@hostel/shared/email/sender";
@@ -40,8 +46,7 @@ import {
   selectPlan,
 } from "@/modules/billing/subscription.service";
 import {
-  openSubscriptionCheckout,
-  recordCashPayment,
+  recordFieldCollection,
 } from "@/modules/billing/subscription-payment.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import {
@@ -54,6 +59,7 @@ import type {
   TeamHostelRegistrationInput,
 } from "@/modules/hostels/hostel-registration.validation";
 import type {
+  hostelArchiveSchema,
   hostelRejectSchema,
   hostelRequestDocumentsSchema,
   hostelResubmitDocumentsSchema,
@@ -75,6 +81,7 @@ type PlatformHostelListQuery = z.infer<typeof platformHostelListQuerySchema>;
 type HostelRejectInput = z.infer<typeof hostelRejectSchema>;
 type HostelRequestDocumentsInput = z.infer<typeof hostelRequestDocumentsSchema>;
 type HostelUnpublishInput = z.infer<typeof hostelUnpublishSchema>;
+type HostelArchiveInput = z.infer<typeof hostelArchiveSchema>;
 
 /**
  * Result of trying to email a hostel owner about a review decision. Delivery
@@ -102,7 +109,10 @@ export type HostelRecord = {
     email?: string;
     phone?: string;
   };
+  archiveReason?: string;
   createdAt?: Date;
+  deletedAt?: Date;
+  deletedBy?: Types.ObjectId;
   totalFloors?: number;
   demoDataLabel?: string;
   description?: string;
@@ -114,7 +124,10 @@ export type HostelRecord = {
     notes?: string;
   };
   hostelType?: "BOYS" | "GIRLS" | "CO_LIVING";
+  isDeleted?: boolean;
   isDemoData?: boolean;
+  purgeScheduledAt?: Date;
+  referencePrefix?: string;
   location: {
     address?: string;
     area: string;
@@ -339,6 +352,12 @@ function serializeRoomConfigurations(hostel: HostelRecord) {
 
 export function serializeHostel(hostel: HostelRecord) {
   return {
+    // Archive state travels with every hostel the superadmin reads, so the
+    // Archived queue can render the reason and the countdown without a second
+    // endpoint. Empty on a live hostel, which is every hostel any other portal
+    // is allowed to see.
+    archivedAt: hostel.deletedAt?.toISOString() ?? null,
+    archiveReason: hostel.archiveReason ?? "",
     capacitySummary: hostel.capacitySummary ?? {},
     contact: hostel.contact ?? {},
     createdAt: hostel.createdAt?.toISOString(),
@@ -348,7 +367,9 @@ export function serializeHostel(hostel: HostelRecord) {
     food: hostel.food ?? {},
     hostelType: hostel.hostelType ?? "CO_LIVING",
     id: hostel._id.toString(),
+    isArchived: Boolean(hostel.isDeleted),
     isDemoData: Boolean(hostel.isDemoData),
+    purgeScheduledAt: hostel.purgeScheduledAt?.toISOString() ?? null,
     location: hostel.location,
     name: hostel.name,
     nameChangeCount: hostel.nameChangeCount ?? 0,
@@ -540,10 +561,19 @@ export async function auditHostelAction(
   });
 }
 
-export async function findHostelByIdOrThrow(hostelId: string) {
+/**
+ * `includeArchived` exists for exactly one caller: the platform's own review
+ * screen, which has to be able to open an archived hostel to read why it was
+ * archived and decide whether to restore it. Every other caller is a portal or
+ * a public page, and to those an archived hostel does not exist.
+ */
+export async function findHostelByIdOrThrow(
+  hostelId: string,
+  { includeArchived = false }: { includeArchived?: boolean } = {},
+) {
   const hostel = await HostelModel.findOne({
     _id: normalizeObjectId(hostelId),
-    isDeleted: false,
+    ...(includeArchived ? {} : { isDeleted: false }),
   }).lean<HostelRecord | null>();
 
   if (!hostel) {
@@ -709,6 +739,25 @@ function appHostelListingUrl(slug: string) {
   const base =
     process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   return `${base}/hostels/${slug}`;
+}
+
+/**
+ * Put the hostel on the map the moment it goes live.
+ *
+ * Until this existed, `geocodeAndCacheHostel` ran from exactly two places — the
+ * hostel admin's own profile save, and the nightly sweep — so a hostel published
+ * today had no `lat`/`lng` and no `nearbyPlaces` until somebody signed in and
+ * saved a form they had no reason to open. Its public page said "the exact
+ * location appears once the hostel admin saves an address", which reads to a
+ * visitor as an unfinished listing.
+ *
+ * Best-effort on purpose: Nominatim and Overpass are third-party and free, and a
+ * hostel must publish whether or not they answer. A pin somebody placed is
+ * MANUAL and is left exactly where they put it — only the nearby cache is
+ * filled in around it.
+ */
+async function placeOnMap(hostelId: Types.ObjectId | string) {
+  return geocodeAndCacheHostel(String(hostelId)).catch(() => null);
 }
 
 async function resolveHostelOwner(hostelId: Types.ObjectId | string) {
@@ -1143,6 +1192,22 @@ export async function registerTeamHostelApplication(
     );
   }
 
+  /*
+   * The kitchen's week, if the agent collected it.
+   *
+   * Written through `saveFoodRoutine` rather than straight to the model so this
+   * path gets the same audit row and the same cache invalidation the hostel's
+   * own screen does — a routine that appeared without either would be a row
+   * nobody could explain the origin of.
+   */
+  if (input.foodRoutine) {
+    await saveFoodRoutine(
+      input.foodRoutine,
+      { hostelIds: [hostel._id.toString()], role: Role.PLATFORM_AGENT, userId: agent.userId },
+      hostel._id,
+    );
+  }
+
   await getOrCreateSubscription(hostel._id, {
     agentId: agent.userId,
     source: "TEAM",
@@ -1161,36 +1226,30 @@ export async function registerTeamHostelApplication(
     source: "TEAM",
   });
 
-  let checkout: Awaited<ReturnType<typeof openSubscriptionCheckout>> | null =
-    null;
-
   if (input.payment.amount > 0) {
-    if (input.payment.method === "CASH") {
-      await recordCashPayment(
-        invoice._id.toString(),
-        { amount: input.payment.amount },
-        agent.userId,
-      );
-    } else {
-      /*
-       * An online payment cannot be settled from this form, and that is the
-       * correction rather than the limitation.
-       *
-       * The agent is standing in front of the owner, but the owner is the one
-       * who has to open a wallet: Nepali wallets have no auto-debit, so nobody
-       * can charge on their behalf. What the agent can do is open a checkout
-       * and hand it over. Money confirmed arrives later, on a signed webhook.
-       *
-       * The previous code settled here, immediately, on the agent's say-so —
-       * which was only ever tenable because the gateway was mocked. An agent
-       * asserting that a payment happened is exactly the claim a payment rail
-       * exists to replace.
-       */
-      checkout = await openSubscriptionCheckout(
-        invoice._id.toString(),
-        agent.userId,
-      );
-    }
+    /*
+     * Both methods settle here, for the amount the agent typed.
+     *
+     * Nepali wallets have no auto-debit, so nobody can charge an owner on their
+     * behalf — what happens in the room is that the agent shows a QR, the owner
+     * scans it, and the agent reads the amount off the confirmation. That is a
+     * staff assertion rather than a gateway settlement, and it is the honest
+     * shape of the transaction while the gateway is mocked: a checkout link
+     * whose webhook will never fire would leave a paid owner looking at an
+     * unpaid invoice.
+     *
+     * `recordFieldCollection` writes `isMocked` on the QR rows so this can be
+     * unwound the day a real merchant account exists.
+     */
+    await recordFieldCollection(
+      invoice._id.toString(),
+      {
+        amount: input.payment.amount,
+        method: input.payment.method,
+        reference: input.payment.reference,
+      },
+      agent.userId,
+    );
   } else {
     /*
      * Nothing collected today. The whole price is still owed, so the due is set
@@ -1213,6 +1272,13 @@ export async function registerTeamHostelApplication(
    * The owner has to be able to sign in — to see the due and to pay it — so the
    * account upgrade a public registration gets at approval happens here, at
    * submission, because this *is* the approval.
+   *
+   * The credentials email is sent as well as being returned to the agent, not
+   * instead of. It used to be suppressed on the grounds that the agent is
+   * standing there and can read the password out, which is true on the day and
+   * useless a week later: an owner who wrote it on the back of a receipt and
+   * lost it had nothing to go back to, because nothing was ever sent. Reading it
+   * out gets them in now; the email is what gets them in on the second visit.
    */
   const upgrade = input.applicant.email
     ? await registerOrUpgradeUserByEmail({
@@ -1222,7 +1288,7 @@ export async function registerTeamHostelApplication(
         name: input.applicant.name,
         performedBy: agent.userId,
         role: Role.HOSTEL_ADMIN,
-        sendEmailNotification: false,
+        sendEmailNotification: true,
       }).catch(() => null)
     : null;
 
@@ -1255,6 +1321,10 @@ export async function registerTeamHostelApplication(
     planName: state?.subscription.planName ?? "",
   });
 
+  // This hostel is published as of a few statements ago, so its map has to
+  // exist now — not after the next sweep.
+  await placeOnMap(hostel._id);
+
   const createdHostel = await findHostelByIdOrThrow(hostel._id.toString());
   const createdApplication = await HostelApplicationModel.findById(
     application._id,
@@ -1263,13 +1333,6 @@ export async function registerTeamHostelApplication(
   return {
     application: serializeApplication(createdApplication),
     billing: state,
-    /*
-     * Present only when the agent chose to collect online. It is the link the
-     * owner has to open themselves — the agent hands over a phone or reads out
-     * the URL — and it expires in thirty minutes, so it is returned to be used
-     * now rather than stored anywhere.
-     */
-    checkout,
     hostel: serializeHostel(createdHostel),
     temporaryPassword: upgrade?.temporaryPassword ?? null,
   };
@@ -1279,9 +1342,9 @@ export async function listPlatformHostels(query: PlatformHostelListQuery) {
   await connectToDatabase();
 
   const filter: Partial<Pick<HostelRecord, "status" | "verificationStatus">> & {
-    isDeleted: false;
+    isDeleted: boolean;
   } = {
-    isDeleted: false,
+    isDeleted: query.archived === "only",
   };
 
   if (query.status) {
@@ -1370,7 +1433,7 @@ export async function listPlatformHostels(query: PlatformHostelListQuery) {
 export async function getPlatformHostel(hostelId: string) {
   await connectToDatabase();
 
-  const hostel = await findHostelByIdOrThrow(hostelId);
+  const hostel = await findHostelByIdOrThrow(hostelId, { includeArchived: true });
   const application = await HostelApplicationModel.findOne({
     hostelId: hostel._id,
     isDeleted: false,
@@ -1521,6 +1584,14 @@ export async function approvePlatformHostel(hostelId: string, principal: ApiPrin
       },
     },
   );
+
+  /*
+   * Approval is the moment a person has looked at this hostel's address and
+   * accepted it, and it is the last step before the listing can go live — so it
+   * is where the pin and the nearby cache are filled in. An owner-registered
+   * hostel publishes with the same map a team-registered one has.
+   */
+  await placeOnMap(objectId);
 
   // Account upgrade (ARCHITECTURE.md §3.2): PUBLIC owner -> HOSTEL_ADMIN,
   // then the approval email carries credentials only for accounts that never
@@ -1948,6 +2019,259 @@ export async function unpublishPlatformHostel(
   );
 
   return { ...result, notification };
+}
+
+/**
+ * How long an archived hostel stays recoverable before the purge cron erases
+ * it. The same 60 days an account deletion request gets (PRIVACY_POLICY.md
+ * §8.3) — a hostel is a larger loss than an account, never a smaller one.
+ */
+export const HOSTEL_ARCHIVE_GRACE_DAYS = 60;
+
+/**
+ * Every user whose reason to hold a session is this hostel: its owner, its
+ * staff, its cooks and its residents.
+ *
+ * A user who still has a live link to some *other* hostel is left alone. A
+ * warden covering two buildings does not deserve to be signed out of the
+ * second because the first was archived — and their access to the archived one
+ * is already dead the moment `isDeleted` is set, because every hostel-scoped
+ * read filters on it.
+ */
+async function revokeSessionsForArchivedHostel(hostelId: Types.ObjectId) {
+  const [hostel, members, residents, cooks] = await Promise.all([
+    HostelModel.findById(hostelId).select("ownerId").lean<{
+      ownerId: Types.ObjectId;
+    } | null>(),
+    HostelMemberModel.find({ hostelId, isDeleted: { $ne: true } })
+      .select("userId")
+      .lean<{ userId: Types.ObjectId }[]>(),
+    ResidentModel.find({ hostelId, isDeleted: { $ne: true }, userId: { $ne: null } })
+      .select("userId")
+      .lean<{ userId: Types.ObjectId }[]>(),
+    CookAccountModel.find({ hostelId, userId: { $ne: null } })
+      .select("userId")
+      .lean<{ userId: Types.ObjectId }[]>(),
+  ]);
+
+  const candidates = new Map<string, Types.ObjectId>();
+
+  for (const id of [
+    ...(hostel?.ownerId ? [hostel.ownerId] : []),
+    ...members.map((member) => member.userId),
+    ...residents.map((resident) => resident.userId),
+    ...cooks.map((cook) => cook.userId),
+  ]) {
+    if (id) {
+      candidates.set(id.toString(), id);
+    }
+  }
+
+  if (candidates.size === 0) {
+    return 0;
+  }
+
+  const candidateIds = [...candidates.values()];
+
+  // Which of them still belong somewhere that is not archived. Two queries
+  // rather than one per user.
+  const [liveHostelIds, otherMembers, otherResidents] = await Promise.all([
+    HostelModel.find({ _id: { $ne: hostelId }, isDeleted: { $ne: true } })
+      .select("_id ownerId")
+      .lean<{ _id: Types.ObjectId; ownerId?: Types.ObjectId }[]>(),
+    HostelMemberModel.find({
+      hostelId: { $ne: hostelId },
+      isDeleted: { $ne: true },
+      userId: { $in: candidateIds },
+    })
+      .select("hostelId userId")
+      .lean<{ hostelId: Types.ObjectId; userId: Types.ObjectId }[]>(),
+    ResidentModel.find({
+      hostelId: { $ne: hostelId },
+      isDeleted: { $ne: true },
+      userId: { $in: candidateIds },
+    })
+      .select("hostelId userId")
+      .lean<{ hostelId: Types.ObjectId; userId: Types.ObjectId }[]>(),
+  ]);
+
+  const liveHostels = new Set(liveHostelIds.map((row) => row._id.toString()));
+  const stillAttached = new Set<string>();
+
+  for (const row of liveHostelIds) {
+    if (row.ownerId) {
+      stillAttached.add(row.ownerId.toString());
+    }
+  }
+
+  for (const row of [...otherMembers, ...otherResidents]) {
+    if (liveHostels.has(row.hostelId.toString())) {
+      stillAttached.add(row.userId.toString());
+    }
+  }
+
+  const toRevoke = candidateIds.filter((id) => !stillAttached.has(id.toString()));
+
+  if (toRevoke.length === 0) {
+    return 0;
+  }
+
+  const result = await SessionModel.updateMany(
+    { revokedAt: null, userId: { $in: toRevoke } },
+    { $set: { refreshTokenHash: null, revokedAt: new Date() } },
+  );
+
+  return result.modifiedCount ?? 0;
+}
+
+/**
+ * Archive a hostel: off the public site, out of its own portal, recoverable
+ * for 60 days, then erased by the `hostel-purge` cron.
+ *
+ * Nothing is deleted here. `isDeleted` is the switch every read in the app
+ * already respects — roughly forty service files filter on it — so setting it
+ * is what makes the hostel disappear from search, the map, the listing pages
+ * and its own admin portal in one write. `subscription-access.ts` refuses an
+ * archived hostel outright, which is what locks its staff out.
+ */
+export async function archivePlatformHostel(
+  hostelId: string,
+  input: HostelArchiveInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const objectId = normalizeObjectId(hostelId);
+  const now = new Date();
+  const purgeScheduledAt = new Date(
+    now.getTime() + HOSTEL_ARCHIVE_GRACE_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  // Filtered on `isDeleted: false` rather than checked after the fact, so a
+  // second archive cannot quietly push the purge date out by another 60 days.
+  const hostel = await HostelModel.findOneAndUpdate(
+    { _id: objectId, isDeleted: false },
+    {
+      $set: {
+        archiveReason: input.reason,
+        deletedAt: now,
+        deletedBy: principal.userId,
+        isDeleted: true,
+        purgeScheduledAt,
+        updatedBy: principal.userId,
+      },
+    },
+    { new: true },
+  ).lean<HostelRecord | null>();
+
+  if (!hostel) {
+    throw new HostelServiceError(
+      "Hostel was not found, or is already archived.",
+      "HOSTEL_NOT_FOUND",
+      404,
+    );
+  }
+
+  const sessionsRevoked = await revokeSessionsForArchivedHostel(objectId);
+
+  await auditHostelAction(principal, objectId, "HOSTEL_ARCHIVED", {
+    purgeScheduledAt: purgeScheduledAt.toISOString(),
+    reason: input.reason,
+    sessionsRevoked,
+  });
+
+  return { hostel: serializeHostel(hostel), sessionsRevoked };
+}
+
+/**
+ * Undo an archive, while it is still an archive and not yet a purge.
+ *
+ * Refused once the purge date has passed: the cron may already be part-way
+ * through erasing this hostel's collections, and a "restored" hostel missing
+ * half its residents is worse than an honest refusal.
+ *
+ * `slug` and `referencePrefix` are unique platform-wide, and an archived
+ * hostel keeps holding both — so the only way they can be taken while it is
+ * away is by a document written outside the app. Checked anyway, because a
+ * duplicate-key error surfacing from a restore button is not an answer anyone
+ * can act on.
+ */
+export async function restorePlatformHostel(
+  hostelId: string,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const objectId = normalizeObjectId(hostelId);
+  const existing = await HostelModel.findOne({
+    _id: objectId,
+    isDeleted: true,
+  }).lean<HostelRecord | null>();
+
+  if (!existing) {
+    throw new HostelServiceError(
+      "Hostel was not found, or is not archived.",
+      "HOSTEL_NOT_FOUND",
+      404,
+    );
+  }
+
+  if (existing.purgeScheduledAt && existing.purgeScheduledAt.getTime() <= Date.now()) {
+    throw new HostelServiceError(
+      "This hostel's 60-day grace period has run out and it is queued for erasure. It can no longer be restored.",
+      "HOSTEL_PURGE_DUE",
+      409,
+    );
+  }
+
+  const clash = await HostelModel.findOne({
+    _id: { $ne: objectId },
+    isDeleted: { $ne: true },
+    $or: [
+      { slug: existing.slug },
+      ...(existing.referencePrefix
+        ? [{ referencePrefix: existing.referencePrefix }]
+        : []),
+    ],
+  })
+    .select("_id name slug referencePrefix")
+    .lean<{ name?: string; slug?: string } | null>();
+
+  if (clash) {
+    throw new HostelServiceError(
+      `Its address or reference code is now held by "${clash.name ?? clash.slug}". Rename that hostel before restoring this one.`,
+      "HOSTEL_SLUG_TAKEN",
+      409,
+    );
+  }
+
+  const hostel = await HostelModel.findOneAndUpdate(
+    { _id: objectId, isDeleted: true },
+    {
+      $set: { isDeleted: false, updatedBy: principal.userId },
+      $unset: {
+        archiveReason: "",
+        deletedAt: "",
+        deletedBy: "",
+        purgeScheduledAt: "",
+      },
+    },
+    { new: true },
+  ).lean<HostelRecord | null>();
+
+  if (!hostel) {
+    throw new HostelServiceError(
+      "Hostel was not found, or is not archived.",
+      "HOSTEL_NOT_FOUND",
+      404,
+    );
+  }
+
+  await auditHostelAction(principal, objectId, "HOSTEL_RESTORED", {
+    archivedAt: existing.deletedAt?.toISOString() ?? null,
+  });
+
+  return { hostel: serializeHostel(hostel) };
 }
 
 export async function listPublicHostels(query: PublicHostelListQuery) {

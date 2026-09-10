@@ -129,7 +129,12 @@ export const GuardianDashboardPageContent = memo(function GuardianDashboardPageC
             */}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div className="flex items-center gap-4 rounded-xl border border-border bg-muted/15 p-4">
-                <InitialsAvatar name={residentName} size="lg" tone="guardian" />
+                <InitialsAvatar
+                  image={dashboard?.resident.image}
+                  name={residentName}
+                  size="lg"
+                  tone="guardian"
+                />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-lg font-bold text-foreground">{residentName}</p>

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { foodRoutineSaveSchema } from "@/modules/food/food.validation";
 import { platformHostelCreateSchema } from "@/modules/hostels/hostel.validation";
 
 /**
@@ -63,7 +64,16 @@ const applicantSchema = z.object({
   phone: z.string().trim().min(7).max(24),
 });
 
-export const hostelRegistrationSchema = platformHostelCreateSchema
+/**
+ * The registration *fields*, unrefined.
+ *
+ * Kept as a plain object because `.superRefine` returns a `ZodEffects`, and a
+ * `ZodEffects` cannot be `.extend`ed — the team schema below adds two keys to
+ * this and needs it to still be an object. The cross-field checks are attached
+ * to each exported schema instead, so both desks get them and neither desk owns
+ * them.
+ */
+const registrationFields = platformHostelCreateSchema
   .omit({ ownerId: true })
   .extend({
     /** A second number to try. Collected by both forms, stored on the hostel. */
@@ -80,6 +90,21 @@ export const hostelRegistrationSchema = platformHostelCreateSchema
      */
     mapLink: z.string().trim().max(500).optional(),
     plan: registrationPlanChoiceSchema.optional(),
+    /*
+     * The weekly food routine, seeded at registration.
+     *
+     * It is the same payload the hostel's own kitchen screen posts — the schema
+     * is imported rather than restated, minus `hostelId`, which on this path is
+     * the hostel being created and cannot be named by the client. A hostel that
+     * publishes with its meal timings already on it is the difference between a
+     * listing a resident can read and one that says "ask the hostel".
+     *
+     * Optional because only the team form sends it today: an agent is sitting
+     * with the owner and can ask what time dinner is, and an owner filling in
+     * the public form at midnight cannot be asked to plan a week before they are
+     * even verified.
+     */
+    foodRoutine: foodRoutineSaveSchema.omit({ hostelId: true }).optional(),
     /** Beds across the whole building, as stated. */
     totalCapacity: z.coerce.number().int().min(0).max(10_000).optional(),
     yearEstablished: z
@@ -88,6 +113,52 @@ export const hostelRegistrationSchema = platformHostelCreateSchema
       .regex(/^\d{4}$/, "Year established should be four digits.")
       .optional(),
   });
+
+/**
+ * A ROOM photo has to belong to a room type that was actually submitted.
+ *
+ * `resolveHostelPhotos` narrows the per-room strip by matching `photo.roomType`
+ * against `roomConfigurations[].roomType` exactly. A photo tagged "Four Sharing"
+ * on a hostel that submitted "4 Sharing" is not an error anywhere — it simply
+ * never appears again, which is the worst kind of wrong because the agent who
+ * uploaded it watched it succeed.
+ *
+ * Checking it here, once, covers both desks and every future caller of the
+ * contract; checking it in the form would only cover the form.
+ */
+function refineRegistrationPhotos(
+  input: Pick<z.infer<typeof registrationFields>, "photos" | "roomConfigurations">,
+  ctx: z.RefinementCtx,
+) {
+  const known = new Set(input.roomConfigurations.map((room) => room.roomType));
+
+  input.photos.forEach((photo, index) => {
+    if (photo.kind !== "ROOM") {
+      return;
+    }
+
+    if (!photo.roomType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A room photo has to say which room type it is of.",
+        path: ["photos", index, "roomType"],
+      });
+
+      return;
+    }
+
+    if (!known.has(photo.roomType)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `"${photo.roomType}" is not one of the room types on this hostel.`,
+        path: ["photos", index, "roomType"],
+      });
+    }
+  });
+}
+
+export const hostelRegistrationSchema =
+  registrationFields.superRefine(refineRegistrationPhotos);
 
 export type HostelRegistrationInput = z.infer<typeof hostelRegistrationSchema>;
 export type RegistrationPlanChoice = z.infer<typeof registrationPlanChoiceSchema>;
@@ -105,21 +176,29 @@ export type RegistrationPlanChoice = z.infer<typeof registrationPlanChoiceSchema
  * and collect nothing that day. Zero is not a payment, so no payment row is
  * written for it — the whole plan price simply becomes the due.
  */
-export const teamHostelRegistrationSchema = hostelRegistrationSchema.extend({
-  payment: z.object({
-    /** Whole rupees actually taken. Zero means nothing was collected. */
-    amount: z.coerce.number().int().min(0).max(10_000_000),
-    /**
-     * `SOFTMATO` opens a checkout the owner completes themselves; it settles
-     * later, on a webhook. `CASH` is money already in the agent's hand and
-     * settles on submission.
-     */
-    method: z.enum(["SOFTMATO", "CASH"]),
-    /** Kept for cash: a slip number the agent wrote down. */
-    reference: z.string().trim().max(120).optional(),
-  }),
-  /** The team form always names a plan — it is a step in the form. */
-  plan: registrationPlanChoiceSchema,
-});
+export const teamHostelRegistrationSchema = registrationFields
+  .extend({
+    payment: z.object({
+      /** Whole rupees actually taken. Zero means nothing was collected. */
+      amount: z.coerce.number().int().min(0).max(10_000_000),
+      /**
+       * Both methods settle on submission, and both settle for the amount the
+       * agent typed.
+       *
+       * `CASH` is money in the agent's hand. `SOFTMATO` is a QR the owner
+       * scanned while the agent watched — see the note on the QR step in
+       * `TEAM_REGISTRATION_UPGRADE.md` for what that trades away and why it is
+       * acceptable while the gateway is mocked. The method is still recorded
+       * because it decides who is answerable for the money: cash is on the
+       * agent until they bank it, a transfer is not.
+       */
+      method: z.enum(["SOFTMATO", "CASH"]),
+      /** A slip number or transaction id the agent wrote down. */
+      reference: z.string().trim().max(120).optional(),
+    }),
+    /** The team form always names a plan — it is a step in the form. */
+    plan: registrationPlanChoiceSchema,
+  })
+  .superRefine(refineRegistrationPhotos);
 
 export type TeamHostelRegistrationInput = z.infer<typeof teamHostelRegistrationSchema>;

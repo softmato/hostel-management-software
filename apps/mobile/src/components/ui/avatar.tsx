@@ -3,6 +3,7 @@ import { useState } from "react";
 import { View } from "react-native";
 
 import { Text } from "@/components/ui/text";
+import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { avatarInitial, avatarToneIndex } from "@/lib/avatar";
 
 /**
@@ -91,5 +92,44 @@ export function Avatar({
         </Text>
       )}
     </View>
+  );
+}
+
+/**
+ * `<Avatar>` for a person, from the `image` a payload carries.
+ *
+ * Every screen that draws somebody — the roster, the roll call, the money
+ * matrix, a resident's record, the account's own header — is handed the same
+ * thing: a `User.image`, which is a relative, authenticated URL for the photo
+ * they put on their ID card and an absolute one for a sign-in provider's. Both
+ * need resolving before an `<Image>` can load them, and doing that at nine call
+ * sites is nine chances to forget the token and quietly render an initial
+ * instead of a face.
+ *
+ * Use this wherever the picture comes from an account. `<Avatar>` itself stays
+ * for the cases where there is no account behind the circle at all — a hostel,
+ * a kitchen, an inquiry from somebody who has never signed up.
+ */
+export function PersonAvatar({
+  className,
+  image,
+  name,
+  size = "md",
+}: {
+  className?: string;
+  image: string | null | undefined;
+  name: string | null | undefined;
+  size?: keyof typeof SIZES;
+}) {
+  const photo = useAvatarSource()(image);
+
+  return (
+    <Avatar
+      className={className}
+      headers={photo?.headers}
+      name={name}
+      size={size}
+      uri={photo?.uri}
+    />
   );
 }

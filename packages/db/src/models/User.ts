@@ -28,6 +28,23 @@ const userSchema = new Schema(
      */
     userResidentId: { type: String, trim: true, uppercase: true },
     role: { type: String, enum: ROLE_VALUES, required: true },
+    /**
+     * The role this account held immediately before a platform grant took it
+     * over, and nothing else.
+     *
+     * A platform invitation may now land on an address that already belongs to
+     * a resident, a warden, a cook or a service provider's public account, and
+     * accepting it moves that one account onto the field team. `role` is a
+     * single value, so the old one has to be written down somewhere or the
+     * grant is a one-way door: removing somebody from the team would leave a
+     * former warden sitting on PUBLIC with no way back short of a hand-written
+     * database edit.
+     *
+     * Set on accept, read once by "remove from team", and cleared the moment it
+     * is spent — a stale value here would restore a role the account has since
+     * been moved off deliberately.
+     */
+    previousRole: { type: String, enum: ROLE_VALUES },
     mustChangePassword: { type: Boolean, default: false },
     tokenVersion: { type: Number, default: 0 },
     hostelIds: [{ ref: "Hostel", type: Schema.Types.ObjectId }],

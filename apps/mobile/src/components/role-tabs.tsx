@@ -4,11 +4,10 @@ import { useEffect } from "react";
 import { type ColorValue, View } from "react-native";
 
 import { AnimatedTabBar } from "@/components/tab-bar";
-import { Avatar } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import type { RoleAccentKey } from "@/constants/theme";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { prefetchCommunity } from "@/lib/community-queries";
 import { runWhenIdle } from "@/lib/idle";
 import { prefetchNotifications } from "@/lib/notification-queries";
@@ -226,8 +225,6 @@ function AvatarTabIcon({
   focused: boolean;
   tint: ColorValue;
 }) {
-  const photo = useAvatarSource()(account.image);
-
   return (
     <View
       className="items-center justify-center rounded-full"
@@ -238,12 +235,7 @@ function AvatarTabIcon({
         width: 27,
       }}
     >
-      <Avatar
-        headers={photo?.headers}
-        name={account.name}
-        size="xs"
-        uri={photo?.uri}
-      />
+      <PersonAvatar image={account.image} name={account.name} size="xs" />
     </View>
   );
 }

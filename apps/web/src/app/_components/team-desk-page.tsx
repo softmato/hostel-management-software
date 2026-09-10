@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Building2, Plus, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, Phone, Plus, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -14,6 +14,14 @@ import { cn } from "@/lib/utils";
  * standing in a corridor, so it is a number row and a table — no hero, no
  * illustration, no explanatory prose about what the field team does. The person
  * reading it is the field team.
+ *
+ * ## The order is the point
+ *
+ * Rows come back owed-first, oldest deadline leading, rather than newest-first.
+ * This list is opened to answer "who do I ring today", and under a date sort the
+ * hostel that has been overdue longest sinks further down the page every time
+ * anybody files a new registration — the one row that most needed attention
+ * being the one hardest to find.
  *
  * ## Why "cash in hand" is its own figure
  *
@@ -35,6 +43,8 @@ type Registration = {
   hostelStatus: string;
   onlineCollected: number;
   outstanding: number;
+  ownerEmail: string;
+  ownerPhone: string;
   paid: number;
   planName: string;
   price: number;
@@ -173,7 +183,7 @@ export function TeamDeskPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[860px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
                   <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -187,6 +197,9 @@ export function TeamDeskPage() {
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Outstanding
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Owner
                   </th>
                   <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Status
@@ -205,7 +218,17 @@ export function TeamDeskPage() {
                           : ""}
                       </p>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.planName}</td>
+                    <td className="px-4 py-3">
+                      {/* Plan and price together: an outstanding figure means
+                          nothing without the number it is short of, and that is
+                          the first thing asked on the call. */}
+                      <p className="font-medium text-foreground">
+                        {row.planName || "—"}
+                      </p>
+                      <p className="text-xs tabular-nums text-muted-foreground">
+                        {rupees(row.price)}
+                      </p>
+                    </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-foreground">
                       {rupees(row.paid)}
                       {row.cashCollected > 0 ? (
@@ -221,6 +244,24 @@ export function TeamDeskPage() {
                       )}
                     >
                       {row.outstanding > 0 ? rupees(row.outstanding) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {/* The row exists so somebody rings them. A number that has
+                          to be copied out of another screen first is a number
+                          that does not get rung. */}
+                      {row.ownerPhone ? (
+                        <a
+                          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal hover:underline"
+                          href={`tel:${row.ownerPhone}`}
+                        >
+                          <Phone className="size-3.5" />
+                          {row.ownerPhone}
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          No number on file
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span

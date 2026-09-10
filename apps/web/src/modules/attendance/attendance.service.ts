@@ -30,6 +30,7 @@ import { DEFAULT_PROMPT_TIME } from "@hostel/shared/night/night-window";
 import {
   findCurrentResident,
   normalizeObjectId,
+  findResidentAvatars,
   serializeResidentSummary,
   type ResidentRecord,
 } from "@/modules/residents/resident-access";
@@ -358,7 +359,7 @@ export async function getResidentAttendance(principal: ApiPrincipal, days = 60) 
       zone: log.zone,
     })),
     consentGranted: await hasLocationConsent(principal.userId),
-    resident: serializeResidentSummary(resident),
+    resident: serializeResidentSummary(resident, await findResidentAvatars([resident])),
   };
 }
 
@@ -410,8 +411,10 @@ export async function listHostelAttendance(
   const zoneByResidentId = new Map(
     todayLogs.map((log) => [log.residentId.toString(), log.zone]),
   );
+  // The roll call is a page of faces — one join for the whole list.
+  const avatars = await findResidentAvatars(residents);
   const rows = residents.map((resident) => ({
-    resident: serializeResidentSummary(resident),
+    resident: serializeResidentSummary(resident, avatars),
     zone: zoneByResidentId.get(resident._id.toString()) ?? ("UNKNOWN" as AttendanceZone),
   }));
 

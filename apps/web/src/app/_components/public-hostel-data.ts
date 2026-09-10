@@ -62,6 +62,10 @@ export type PublicHostel = {
     address?: string;
     area: string;
     city?: string;
+    /** "Opposite the campus gate" — how directions are actually given here. */
+    landmark?: string;
+    /** The owner's own maps link, stored as they pasted it. */
+    mapLink?: string;
     province?: string;
   };
   name: string;

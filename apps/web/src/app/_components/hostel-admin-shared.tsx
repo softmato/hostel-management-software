@@ -14,7 +14,17 @@ export type Resident = {
    * can edit independently of their account. This is read from the account
    * itself, so it is the address that actually works at the sign-in box.
    */
-  account?: { email: string; name: string } | null;
+  account?: {
+    email: string;
+    /**
+     * Their profile picture: the photo they put on their ID card, served from
+     * `/api/v1/users/<id>/avatar`, or a sign-in provider's URL. Null when they
+     * have neither. It is the same picture the mobile app and their own header
+     * draw — a person has one face in this product, not one per screen.
+     */
+    image: string | null;
+    name: string;
+  } | null;
   bedId: string;
   demoDataLabel?: string;
   depositAmount: number;

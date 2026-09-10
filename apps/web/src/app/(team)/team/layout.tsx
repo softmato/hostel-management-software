@@ -4,10 +4,12 @@ import { TEAM_NAV, TEAM_SEARCH_ENTRIES } from "@/lib/portal-nav";
 /**
  * The field team's portal.
  *
- * Wears the platform tone rather than a fifth colour of its own. An agent works
- * for the platform, and inventing a tone for a two-page desk would mean a new
- * accent in the palette carrying no information — the sidebar already says
- * whose desk this is.
+ * Wears the product's green rather than the platform teal it used to borrow.
+ * The argument for the teal was that an agent works for the platform, which is
+ * true and is not what the colour has to answer for: this is the one portal an
+ * owner is shown in person, on the agent's phone, minutes before they meet the
+ * green brand everywhere else. The rest of the tone is defined in
+ * `portal-shell.tsx`.
  */
 export default function TeamLayout({
   children,
@@ -20,7 +22,7 @@ export default function TeamLayout({
       searchEntries={TEAM_SEARCH_ENTRIES}
       searchPlaceholder="Search your registrations..."
       subtitle="Field Team"
-      tone="platform"
+      tone="team"
       workspaceName="Team Desk"
     >
       {children}

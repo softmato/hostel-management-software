@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { HostelPreviewLink } from "@/components/hostel-preview-link";
 import { NotificationBell } from "@/components/notification-bell";
@@ -64,7 +64,7 @@ import type {
 import { useSiteConfig } from "@/components/site-config-provider";
 import { cn } from "@/lib/utils";
 
-type PortalTone = "platform" | "admin" | "resident" | "guardian";
+type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team";
 
 type PortalShellProps = {
   children: ReactNode;
@@ -132,6 +132,8 @@ const NOTIFICATIONS_HREF: Record<PortalTone, string> = {
   guardian: "/guardian/notifications",
   platform: "/platform/inbox",
   resident: "/resident/notifications",
+  // An agent reads the platform's inbox; the desk has no feed of its own.
+  team: "/platform/inbox",
 };
 
 const toneStyles: Record<
@@ -186,6 +188,31 @@ const toneStyles: Record<
     ring: "ring-role-resident/20",
     softBg: "bg-role-resident-soft",
     text: "text-role-resident",
+  },
+  /*
+   * The field desk wears the product's own green.
+   *
+   * It used to borrow the platform teal on the grounds that an agent works for
+   * the platform. That reasoning holds for who they are and not for who is
+   * looking: the desk is the one portal an owner is walked through in person,
+   * on the agent's phone, minutes before they see the green brand everywhere
+   * else — so the sidebar matching the product is worth more here than the
+   * internal hierarchy the teal was expressing.
+   *
+   * The active pill paints `--brand-teal` (#0a8a4b in both themes, 4.9:1 under
+   * white) rather than `--role-team`, which goes bright in dark mode because it
+   * only ever carries text and icons. Painting the pill with the bright value
+   * would have put white on #34d399 at 1.8:1.
+   */
+  team: {
+    active: "bg-brand-teal text-white shadow-sm",
+    badge: "border-role-team/25 bg-role-team-soft text-role-team",
+    brand: "text-role-team",
+    brandSoft: "bg-brand-teal",
+    hover: "hover:bg-role-team-soft/70 hover:text-role-team",
+    ring: "ring-role-team/20",
+    softBg: "bg-role-team-soft",
+    text: "text-role-team",
   },
 };
 
@@ -262,8 +289,29 @@ export function PortalShell({
     }
   }
 
+  /*
+   * Exactly one destination is active, and it is the most specific one.
+   *
+   * A plain `startsWith` marked every ancestor active too, so on `/team/register`
+   * both "My desk" (`/team`) and "Register a hostel" lit up and the sidebar
+   * stopped saying where you were. Every portal whose index route is the prefix
+   * of its siblings had the same bug; resolving the longest match once, here,
+   * fixes all of them rather than special-casing index hrefs one nav at a time.
+   */
+  const activeHref = useMemo(() => {
+    const hrefs = navGroups.flatMap((group) =>
+      group.items.flatMap((item) => [item.href, ...(item.children ?? []).map((c) => c.href)]),
+    );
+
+    return hrefs.reduce<string | null>((best, href) => {
+      const matches = pathname === href || pathname.startsWith(`${href}/`);
+
+      return matches && (best === null || href.length > best.length) ? href : best;
+    }, null);
+  }, [navGroups, pathname]);
+
   function isActiveHref(href: string) {
-    return pathname === href || pathname.startsWith(`${href}/`);
+    return href === activeHref;
   }
 
   function hasActiveChild(item: PortalNavItem) {
@@ -285,7 +333,9 @@ export function PortalShell({
     onNavigate?: () => void;
   }) {
     const Icon = iconMap[item.icon ?? "dashboard"];
-    const isActive = isActiveHref(item.href);
+    // In the collapsed rail the children are not rendered, so the parent has to
+    // carry their highlight or nothing in the sidebar looks active at all.
+    const isActive = isActiveHref(item.href) || hasActiveChild(item);
 
     return (
       <Link
@@ -540,14 +590,19 @@ export function PortalShell({
               <div className="ml-auto flex items-center gap-1.5 md:gap-2">
                 {/* The community is one platform-wide room at `/community`, not
                     a per-portal feed — so it lives in every header instead of
-                    four sidebars. */}
-                <Link
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-medium text-slate-600 transition-colors hover:bg-muted hover:text-foreground dark:text-slate-300"
-                  href="/community"
-                >
-                  <Users className="size-4" />
-                  <span className="hidden sm:inline">Community</span>
-                </Link>
+                    four sidebars. The field desk is the exception: an agent is
+                    registering somebody else's hostel, often with that owner
+                    watching the screen, and a room full of residents and
+                    wardens is not a door to leave open in the middle of it. */}
+                {tone === "team" ? null : (
+                  <Link
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-medium text-slate-600 transition-colors hover:bg-muted hover:text-foreground dark:text-slate-300"
+                    href="/community"
+                  >
+                    <Users className="size-4" />
+                    <span className="hidden sm:inline">Community</span>
+                  </Link>
+                )}
 
                 {tone === "admin" ? (
                   <HostelPreviewLink className="hidden lg:inline-flex" />

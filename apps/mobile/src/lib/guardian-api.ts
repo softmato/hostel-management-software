@@ -157,7 +157,14 @@ export type GuardianDashboard = {
   permissions: GuardianPermissions;
   receipts: GuardianReceipt[];
   /** Identity and room only. Never the deposit, contacts or account linkage. */
-  resident: { fullName: string; id: string; roomType: string; status: string };
+  resident: {
+    fullName: string;
+    id: string;
+    /** Their profile picture. Pass it through `useAvatarSource()`, never raw. */
+    image: string | null;
+    roomType: string;
+    status: string;
+  };
   safety: GuardianSafety | null;
   /** `null` when `canViewPayments` is false — not a zeroed summary. */
   summary: { dueAmount: number; unpaidCount: number } | null;

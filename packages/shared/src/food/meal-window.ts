@@ -51,6 +51,31 @@ export const NEPAL_OFFSET_MINUTES = 5 * 60 + 45;
 export const MEAL_ANNOUNCE_LEAD_MINUTES = 30;
 
 /**
+ * The serving windows a hostel starts with, before anybody edits them.
+ *
+ * Stated here, once, because three surfaces seed them and they have to agree:
+ * the hostel's own Food & Menu screen, the team registration form that sets a
+ * hostel up on the owner's behalf, and the note above about the lead time — the
+ * claim that "at 30 minutes the four windows still never overlap" is a claim
+ * about *these four strings*, and it stops being checkable the moment a second
+ * surface seeds different ones.
+ *
+ * They are ranges rather than single times because that is what a resident is
+ * actually asking: not when the food appears but how long they have to get
+ * there. `parseMealWindow` reads either, so a hostel that types `7 PM` over the
+ * top loses nothing but the closing time.
+ */
+export const MEAL_TIMING_DEFAULTS: Record<
+  "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER",
+  string
+> = {
+  BREAKFAST: "6:00 AM - 7:00 AM",
+  LUNCH: "8:45 AM - 12:00 PM",
+  SNACKS: "3:00 PM - 5:00 PM",
+  DINNER: "7:00 PM - 8:45 PM",
+};
+
+/**
  * How long after service ends a meal may still be called.
  *
  * The window **does** close, and that is a deliberate reversal: an earlier

@@ -390,12 +390,28 @@ const PENDING_CLAIM_FILTER = { source: "RESIDENT_CLAIM", status: "PENDING" };
 export async function getPlatformPaymentsOverview() {
   await connectToDatabase();
 
+  // Scoped to hostels that are still on the platform. An archived hostel is
+  // waiting to be erased and is no longer part of the platform's book — leaving
+  // its invoices in these totals means the money a superadmin reads here stops
+  // matching the money anyone can act on, and stays wrong for the whole 60-day
+  // grace period. The rows are erased by the purge; until then they are simply
+  // out of scope.
+  const liveHostels = await HostelModel.find({ isDeleted: false })
+    .select("_id")
+    .lean<Array<{ _id: Types.ObjectId }>>();
+  const liveHostelIds = liveHostels.map((hostel) => hostel._id);
+  const liveScope = { hostelIds: liveHostelIds };
+  const livePendingClaims = {
+    hostelId: { $in: liveHostelIds },
+    ...PENDING_CLAIM_FILTER,
+  };
+
   const [totals, statusCounts, pendingProofs, recent, proofs] = await Promise.all([
-    collectionTotals({}),
-    countInvoicesByField({}, "status"),
-    PaymentEventModel.countDocuments(PENDING_CLAIM_FILTER),
-    listRecentInvoices({}, 25),
-    PaymentEventModel.find(PENDING_CLAIM_FILTER)
+    collectionTotals(liveScope),
+    countInvoicesByField(liveScope, "status"),
+    PaymentEventModel.countDocuments(livePendingClaims),
+    listRecentInvoices(liveScope, 25),
+    PaymentEventModel.find(livePendingClaims)
       .sort({ occurredAt: -1 })
       .limit(10)
       .lean<PlatformPaymentProofRecord[]>(),

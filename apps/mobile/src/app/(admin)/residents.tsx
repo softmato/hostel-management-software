@@ -4,7 +4,7 @@ import { Linking, View } from "react-native";
 
 import { AdminSearchBar } from "@/components/admin-search-bar";
 import { NotificationBell } from "@/components/notification-bell";
-import { Avatar } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { StatusPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,7 +16,6 @@ import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { SwipeRow } from "@/components/ui/swipe-row";
 import { Text } from "@/components/ui/text";
-import { useAvatarSource } from "@/hooks/use-avatar-source";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import type { AdminResident } from "@/lib/admin-api";
@@ -94,7 +93,6 @@ import { humanizeEnum } from "@/lib/format";
  */
 export default function AdminResidentsScreen() {
   const dates = useDates();
-  const avatarSource = useAvatarSource();
   /*
    * Warmed by `prefetchAdminPortal` when the portal opens, so arriving here from
    * Home usually paints the roster rather than a spinner.
@@ -237,7 +235,6 @@ export default function AdminResidentsScreen() {
           */
           <View className="gap-3">
             {visible.map((resident) => {
-              const photo = avatarSource(resident.account?.image);
               const row = (
                 <CardRow
                   /*
@@ -249,11 +246,10 @@ export default function AdminResidentsScreen() {
                    * apart at a glance.
                    */
                   left={
-                    <Avatar
-                      headers={photo?.headers}
+                    <PersonAvatar
+                      image={resident.account?.image}
                       name={`${resident.firstName} ${resident.lastName}`.trim()}
                       size="md"
-                      uri={photo?.uri}
                     />
                   }
                   /*

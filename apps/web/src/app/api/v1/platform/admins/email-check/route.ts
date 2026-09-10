@@ -24,11 +24,13 @@ export async function GET(request: NextRequest) {
   try {
     await requireSuperadminPrincipal(request);
 
-    const { email } = platformAdminEmailCheckSchema.parse({
+    const roleParam = request.nextUrl.searchParams.get("role");
+    const { email, role } = platformAdminEmailCheckSchema.parse({
       email: request.nextUrl.searchParams.get("email") ?? "",
+      ...(roleParam ? { role: roleParam } : {}),
     });
 
-    return successResponse(await checkPlatformAdminEmail(email), "Email checked");
+    return successResponse(await checkPlatformAdminEmail(email, role), "Email checked");
   } catch (error) {
     return handleRouteError(error);
   }

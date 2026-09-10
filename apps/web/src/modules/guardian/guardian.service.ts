@@ -24,6 +24,7 @@ import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { issueSessionForUser } from "@/modules/auth/auth.service";
 import {
+  findResidentAvatars,
   normalizeObjectId,
   serializeResidentSummary,
 } from "@/modules/residents/resident-access";
@@ -571,10 +572,16 @@ export async function getGuardianDashboard(principal: ApiPrincipal) {
         receiptNumber: receipt.receiptNumber,
       })),
       // A guardian gets the resident's identity and room, never their deposit,
-      // contact details or account linkage (PRD.md §10).
+      // contact details or account linkage (PRD.md §10). Their photograph is
+      // part of that identity — it is their own child's face, and it is the
+      // picture the resident chose for themselves.
       resident: {
         fullName: `${resident.firstName} ${resident.lastName}`.trim(),
         id: resident._id.toString(),
+        image: resident.userId
+          ? ((await findResidentAvatars([resident])).get(resident.userId.toString()) ??
+            null)
+          : null,
         roomType: resident.roomType,
         status: resident.status,
       },

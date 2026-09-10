@@ -22,6 +22,7 @@ import {
   StatusBadge,
 } from "@/app/_components/shared-ui";
 import { Button } from "@/components/ui/button";
+import { MEAL_TIMING_DEFAULTS } from "@hostel/shared/food/meal-window";
 import { browserApi } from "@/lib/browser-api";
 import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
@@ -74,25 +75,25 @@ const MEALS: {
   type: MealType;
 }[] = [
   {
-    defaultTiming: "6:00 AM - 7:00 AM",
+    defaultTiming: MEAL_TIMING_DEFAULTS.BREAKFAST,
     icon: Sun,
     label: "Breakfast (Morning)",
     type: "BREAKFAST",
   },
   {
-    defaultTiming: "8:45 AM - 12:00 PM",
+    defaultTiming: MEAL_TIMING_DEFAULTS.LUNCH,
     icon: Utensils,
     label: "Lunch",
     type: "LUNCH",
   },
   {
-    defaultTiming: "3:00 PM - 5:00 PM",
+    defaultTiming: MEAL_TIMING_DEFAULTS.SNACKS,
     icon: Cookie,
     label: "Evening Snacks",
     type: "SNACKS",
   },
   {
-    defaultTiming: "7:00 PM - 8:45 PM",
+    defaultTiming: MEAL_TIMING_DEFAULTS.DINNER,
     icon: Moon,
     label: "Dinner",
     type: "DINNER",

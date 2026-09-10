@@ -3,7 +3,7 @@ import { View } from "react-native";
 
 import { AdminRollCallCard } from "@/components/admin-rollcall-card";
 import { AppBar } from "@/components/ui/app-bar";
-import { Avatar } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -239,7 +239,15 @@ export default function ManageRollCallScreen() {
               {visible.map((row) => (
                 <CardRow
                   key={row.resident.id}
-                  left={<Avatar name={row.resident.fullName} size="md" />}
+                  /* Their own face — the card photo, the same picture the roster
+                     and their own header show. */
+                  left={
+                    <PersonAvatar
+                      image={row.resident.image}
+                      name={row.resident.fullName}
+                      size="md"
+                    />
+                  }
                   onPress={() => open(row)}
                   right={
                     <Badge

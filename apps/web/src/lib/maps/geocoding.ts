@@ -1,4 +1,5 @@
 import type { AddressParts, Coordinates, GeocodeResult } from "./types";
+import { fetchUpstream } from "./upstream-fetch";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
@@ -197,11 +198,11 @@ async function reverseWithNominatim(
   const url =
     `${NOMINATIM_REVERSE_URL}?format=jsonv2&addressdetails=1&zoom=18` +
     `&lat=${coordinates.lat}&lon=${coordinates.lng}`;
-  const response = await fetch(url, {
+  const response = await fetchUpstream(url, {
     headers: { "Accept-Language": "en", "User-Agent": USER_AGENT },
   });
 
-  if (!response.ok) {
+  if (!response?.ok) {
     return null;
   }
 
@@ -229,8 +230,8 @@ async function reverseWithGoogle(
   const url =
     `https://maps.googleapis.com/maps/api/geocode/json` +
     `?latlng=${coordinates.lat},${coordinates.lng}&key=${key}`;
-  const response = await fetch(url);
-  if (!response.ok) {
+  const response = await fetchUpstream(url);
+  if (!response?.ok) {
     return null;
   }
 
@@ -264,11 +265,11 @@ async function searchWithNominatim(
   const url =
     `${NOMINATIM_URL}?format=json&addressdetails=1&limit=${limit}` +
     `&countrycodes=np&q=${encodeURIComponent(query)}`;
-  const response = await fetch(url, {
+  const response = await fetchUpstream(url, {
     headers: { "Accept-Language": "en", "User-Agent": USER_AGENT },
   });
 
-  if (!response.ok) {
+  if (!response?.ok) {
     return [];
   }
 
@@ -298,8 +299,8 @@ async function searchWithGoogle(query: string, limit: number): Promise<GeocodeRe
   const url =
     `https://maps.googleapis.com/maps/api/geocode/json` +
     `?address=${encodeURIComponent(query)}&region=np&key=${key}`;
-  const response = await fetch(url);
-  if (!response.ok) {
+  const response = await fetchUpstream(url);
+  if (!response?.ok) {
     return [];
   }
 

@@ -6,7 +6,7 @@ import { ChevronDown, Star, TrendingDown, TrendingUp, X } from "lucide-react";
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +27,16 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-export type PortalTone = "platform" | "admin" | "resident" | "guardian";
+/*
+ * Kept in step with the union in `portal-shell.tsx`, which is what decides
+ * which portal wears which tone.
+ *
+ * `team` is the one tone whose solid fill is not `bg-role-team`: that token
+ * goes bright (#34d399) in dark mode so it can carry text on a dark card, and
+ * white on it measures 1.8:1. The solids below paint `--brand-teal` instead,
+ * which is #0a8a4b in both themes and clears AA under white.
+ */
+export type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team";
 export type SoftTone =
   | "green"
   | "amber"
@@ -57,6 +66,7 @@ const roleLinkClasses: Record<PortalTone, string> = {
   guardian: "text-role-guardian hover:text-role-guardian/80",
   platform: "text-role-platform hover:text-role-platform/80",
   resident: "text-role-resident hover:text-role-resident/80",
+  team: "text-role-team hover:text-role-team/80",
 };
 
 const roleSolidClasses: Record<PortalTone, string> = {
@@ -64,6 +74,7 @@ const roleSolidClasses: Record<PortalTone, string> = {
   guardian: "bg-role-guardian text-white hover:bg-role-guardian/90",
   platform: "bg-role-platform text-white hover:bg-role-platform/90",
   resident: "bg-role-resident text-white hover:bg-role-resident/90",
+  team: "bg-brand-teal text-white hover:bg-brand-teal/90",
 };
 
 const avatarToneClasses: Record<PortalTone, string> = {
@@ -71,6 +82,7 @@ const avatarToneClasses: Record<PortalTone, string> = {
   guardian: "bg-role-guardian-soft text-role-guardian",
   platform: "bg-role-platform-soft text-role-platform",
   resident: "bg-role-resident-soft text-role-resident",
+  team: "bg-role-team-soft text-role-team",
 };
 
 const roleTextClasses: Record<PortalTone, string> = {
@@ -78,6 +90,7 @@ const roleTextClasses: Record<PortalTone, string> = {
   guardian: "text-role-guardian",
   platform: "text-role-platform",
   resident: "text-role-resident",
+  team: "text-role-team",
 };
 
 const roleBorderClasses: Record<PortalTone, string> = {
@@ -85,6 +98,7 @@ const roleBorderClasses: Record<PortalTone, string> = {
   guardian: "border-role-guardian",
   platform: "border-role-platform",
   resident: "border-role-resident",
+  team: "border-role-team",
 };
 
 export type BreadcrumbItem = string | { href: string; label: string };
@@ -330,13 +344,27 @@ export function SoftBadge({
   );
 }
 
+/**
+ * A person's avatar: their photograph, with their initials behind it.
+ *
+ * `image` is a `User.image` — `/api/v1/users/<id>/avatar` for the photo they
+ * put on their ID card, or a sign-in provider's URL. It is served from our own
+ * origin behind the session cookie, so a plain `<img>` inside Radix's `Avatar`
+ * loads it; Radix swaps to the fallback on its own when the URL 404s, which is
+ * the same "photo that exists and cannot be drawn" case the app handles.
+ *
+ * The initials stay the default because most accounts still have no picture —
+ * this is not a component that shows a grey silhouette.
+ */
 export function InitialsAvatar({
   className,
+  image,
   name,
   size = "md",
   tone = "platform",
 }: {
   className?: string;
+  image?: string | null;
   name: string;
   size?: "sm" | "md" | "lg";
   tone?: PortalTone;
@@ -357,6 +385,7 @@ export function InitialsAvatar({
 
   return (
     <Avatar className={cn(sizeClass, className)} size={size === "sm" ? "sm" : "lg"}>
+      {image ? <AvatarImage alt="" src={image} /> : null}
       <AvatarFallback
         className={cn(
           "font-bold",
@@ -634,6 +663,7 @@ const pagerActiveTone: Record<PortalTone, string> = {
   guardian: "bg-role-guardian text-white",
   platform: "bg-role-platform text-white",
   resident: "bg-role-resident text-white",
+  team: "bg-brand-teal text-white",
 };
 
 function PagerButton({
@@ -1037,6 +1067,7 @@ export function ToggleSwitch({
     guardian: "bg-role-guardian",
     platform: "bg-role-platform",
     resident: "bg-role-resident",
+    team: "bg-brand-teal",
   };
 
   return (

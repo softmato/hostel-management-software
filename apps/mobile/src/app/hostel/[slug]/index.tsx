@@ -17,6 +17,7 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { Sheet } from "@/components/ui/sheet";
 import { FactRow, Grid, StatTile } from "@/components/ui/layout";
 import { RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
@@ -27,6 +28,14 @@ import { useResource } from "@/hooks/use-resource";
 import { API_BASE_URL } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { hostelCoordinates } from "@/lib/geo";
+import {
+  dayLabel,
+  foodFacts,
+  leadDay,
+  routineDays,
+  todayName,
+  type RoutineDay,
+} from "@/lib/hostel-food";
 import { groupNearbyPlaces } from "@/lib/hostel-nearby";
 import { buildHostelShare, hostelPublicUrl } from "@/lib/hostel-share";
 import {
@@ -235,6 +244,10 @@ export default function HostelDetailScreen() {
             </View>
           </View>
         ) : null}
+
+        <RoomTypes hostel={data} />
+
+        <FoodBlock hostel={data} />
 
         {data.description ? (
           <View>
@@ -513,6 +526,207 @@ function PriceTiles({ hostel }: { hostel: PublicHostelDetail }) {
     <Grid gap={10} maxColumns={3} minCellWidth={116}>
       {tiles}
     </Grid>
+  );
+}
+
+/**
+ * What each kind of room costs and how many beds are left in it.
+ *
+ * Every hostel submits this at registration — rent, beds per room, how many
+ * rooms of that kind, vacancy, whether meals are in the price — and until now
+ * none of it reached a phone. The rent at the top of the screen is a range
+ * across all of them, which answers "can I afford this hostel" and not "what am
+ * I actually being offered".
+ *
+ * A card per room type rather than the website's four-across grid: a phone has
+ * one column, and a room type with its facts stacked under it is the shape that
+ * survives the narrowest screen we support.
+ */
+function RoomTypes({ hostel }: { hostel: PublicHostelDetail }) {
+  const { colors } = useAppTheme();
+
+  if (hostel.roomConfigurations.length === 0) {
+    return null;
+  }
+
+  return (
+    <View>
+      <SectionHeader
+        subtitle={
+          hostel.pricing.admissionFee
+            ? `Admission fee ${formatMoney(hostel.pricing.admissionFee)}, once`
+            : undefined
+        }
+        title="Rooms & pricing"
+      />
+      <View className="gap-3">
+        {hostel.roomConfigurations.map((room) => {
+          /*
+           * A room shows its own shots only. Falling back to the hostel's
+           * exterior would put the same building photo on every room type and
+           * quietly claim it is a picture of that room.
+           */
+          const photos = hostel.photos
+            .filter(
+              (photo) => photo.kind === "ROOM" && photo.roomType === room.roomType,
+            )
+            .map((photo) => absoluteMediaUrl(photo.url, API_BASE_URL))
+            .filter((url): url is string => Boolean(url));
+
+          const facts = [
+            room.monthlyRent > 0
+              ? { label: "Monthly rent", value: formatMoney(room.monthlyRent) }
+              : null,
+            room.bedsPerRoom
+              ? { label: "Beds per room", value: String(room.bedsPerRoom) }
+              : null,
+            room.rooms
+              ? { label: "Rooms of this type", value: String(room.rooms) }
+              : null,
+            { label: "Vacant beds", value: String(room.vacantBeds) },
+            room.mealInclusion ? { label: "Meals", value: room.mealInclusion } : null,
+          ].filter((fact): fact is { label: string; value: string } => fact !== null);
+
+          return (
+            <Card key={room.roomType}>
+              <View className="flex-row items-center gap-3">
+                {photos[0] ? (
+                  <Pressable
+                    accessibilityLabel={`${room.roomType} photos`}
+                    accessibilityRole="imagebutton"
+                    onPress={() =>
+                      openAssetViewer(
+                        photos.map((url) => ({ title: room.roomType, url })),
+                        0,
+                      )
+                    }
+                  >
+                    <Image
+                      contentFit="cover"
+                      source={{ uri: photos[0] }}
+                      style={{
+                        backgroundColor: colors.muted,
+                        borderRadius: 12,
+                        height: 56,
+                        width: 56,
+                      }}
+                      transition={150}
+                    />
+                  </Pressable>
+                ) : null}
+                <Text className="flex-1 text-base font-semibold text-foreground">
+                  {room.roomType}
+                </Text>
+              </View>
+              <View className="mt-1">
+                {facts.map((fact, index) => (
+                  <View key={fact.label}>
+                    {index > 0 ? <RowDivider /> : null}
+                    <FactRow label={fact.label} value={fact.value} />
+                  </View>
+                ))}
+              </View>
+            </Card>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * The kitchen's week.
+ *
+ * The website prints all seven days as a table. A phone cannot, and seven
+ * stacked day cards would be twenty-eight rows in the middle of a listing
+ * somebody is skimming — so the screen shows **today**, which is the day a
+ * visitor can verify by turning up, and the rest of the week opens in a sheet.
+ * That is this app's own vocabulary for overflow, and it keeps the listing
+ * readable without hiding anything.
+ */
+function FoodBlock({ hostel }: { hostel: PublicHostelDetail }) {
+  const [weekOpen, setWeekOpen] = useState(false);
+
+  const facts = foodFacts(hostel.food);
+  const days = routineDays(hostel.foodRoutine);
+
+  if (facts.length === 0 && days.length === 0) {
+    return null;
+  }
+
+  const today = todayName();
+  const shown = leadDay(days, today);
+  const monthEnd = hostel.foodRoutine.monthEndSpecial;
+
+  return (
+    <View>
+      <SectionHeader title="Food" />
+      {facts.length > 0 ? (
+        <View className="mb-3 flex-row flex-wrap gap-2">
+          {facts.map((fact) => (
+            <Badge key={fact} label={fact} tone="neutral" />
+          ))}
+        </View>
+      ) : null}
+
+      {shown ? (
+        <>
+          <DayMeals day={shown} today={today} />
+          {days.length > 1 ? (
+            <Button
+              className="mt-3"
+              label="The whole week"
+              onPress={() => setWeekOpen(true)}
+              variant="outline"
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      {monthEnd ? (
+        <View className="mt-3">
+          <Text className="mb-1.5" variant="label">
+            Last day of every month
+          </Text>
+          <Card>
+            <Text className="font-semibold text-foreground">
+              {monthEnd.items.join(", ")}
+            </Text>
+            {monthEnd.note ? <Text variant="caption">{monthEnd.note}</Text> : null}
+          </Card>
+        </View>
+      ) : null}
+
+      <Sheet onClose={() => setWeekOpen(false)} open={weekOpen} tall title="The week">
+        <View className="gap-4 pb-2">
+          {days.map((row) => (
+            <DayMeals day={row} key={row.day} today={today} />
+          ))}
+        </View>
+      </Sheet>
+    </View>
+  );
+}
+
+/** One day's meals, with the day heading outside the card as lists do here. */
+function DayMeals({ day, today }: { day: RoutineDay; today: string }) {
+  return (
+    <View>
+      <Text className="mb-1.5" variant="label">
+        {day.day === today ? `Today · ${dayLabel(day.day)}` : dayLabel(day.day)}
+      </Text>
+      <Card>
+        {day.meals.map((meal, index) => (
+          <View key={meal.type}>
+            {index > 0 ? <RowDivider /> : null}
+            <FactRow
+              label={meal.timing ? `${meal.label} · ${meal.timing}` : meal.label}
+              value={meal.items.join(", ")}
+            />
+          </View>
+        ))}
+      </Card>
+    </View>
   );
 }
 

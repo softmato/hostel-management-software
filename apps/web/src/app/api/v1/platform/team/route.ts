@@ -2,7 +2,11 @@ import type { NextRequest } from "next/server";
 
 import { requireSuperadminPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { listTeamRegistrations, listTeamRoster } from "@/modules/team/team.service";
+import {
+  listTeamInvites,
+  listTeamRegistrations,
+  listTeamRoster,
+} from "@/modules/team/team.service";
 
 export const runtime = "nodejs";
 
@@ -16,12 +20,13 @@ export async function GET(request: NextRequest) {
   try {
     await requireSuperadminPrincipal(request);
 
-    const [roster, registrations] = await Promise.all([
+    const [roster, registrations, invites] = await Promise.all([
       listTeamRoster(),
       listTeamRegistrations(),
+      listTeamInvites(),
     ]);
 
-    return successResponse({ ...roster, ...registrations }, "Team loaded");
+    return successResponse({ ...roster, ...registrations, ...invites }, "Team loaded");
   } catch (error) {
     return handleRouteError(error);
   }

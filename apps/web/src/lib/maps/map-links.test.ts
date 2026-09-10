@@ -36,6 +36,15 @@ describe("parseMapLink", () => {
     });
   });
 
+  it("defers a share.google link, which is what the Share sheet hands out now", () => {
+    // A real hostel arrived with exactly this shape, and it used to be read as
+    // an ordinary place name — so the paste produced no pin and no explanation.
+    expect(parseMapLink("https://share.google/g7znZy6lJWDsMM2rq")).toEqual({
+      kind: "shortLink",
+      url: "https://share.google/g7znZy6lJWDsMM2rq",
+    });
+  });
+
   it("reads an OpenStreetMap permalink", () => {
     expect(
       parseMapLink(

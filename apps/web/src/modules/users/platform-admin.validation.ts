@@ -63,6 +63,13 @@ export const platformAdminBulkInviteSchema = z.object({
 
 export const platformAdminEmailCheckSchema = z.object({
   email: z.string().trim().email("Enter a complete email address."),
+  /**
+   * The grade about to be offered, when the caller knows it. Only one answer
+   * depends on it — an address that already holds *this* role has nothing to be
+   * granted — so the field stays optional and the check falls back to treating
+   * any platform grade as taken.
+   */
+  role: invitableRoleSchema.optional(),
 });
 
 /**

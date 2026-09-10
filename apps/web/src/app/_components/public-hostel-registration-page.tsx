@@ -45,7 +45,19 @@ import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
 import { HostelRegistrationProgress } from "./hostel-registration-progress";
 import { StepFlow, StepRail } from "./registration-step-shell";
-import { acceptAttribute, uploadHint } from "@/lib/uploads/accepts";
+import {
+  cityOptions,
+  facilityOptions,
+  FileUploadArea,
+  ID_PROOF_TYPES,
+  numberValue,
+  RULES_TEMPLATES,
+  roomTypeOptions,
+  type IdProofType,
+  type RulesTemplate,
+  type UploadedFile,
+} from "./registration-fields";
+import { acceptAttribute } from "@/lib/uploads/accepts";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 
@@ -66,13 +78,6 @@ type RoomConfig = {
   roomType: string;
   securityDeposit: string;
   vacantBeds: string;
-};
-
-type UploadedFile = {
-  id: string;
-  name: string;
-  url: string;
-  uploading: boolean;
 };
 
 type DraftData = {
@@ -166,140 +171,6 @@ function markerToApplication(marker: SubmittedMarker): OwnerApplication {
   };
 }
 
-const facilityOptions = [
-  "Wi-Fi",
-  "Study Room",
-  "CCTV",
-  "Hot Water",
-  "Laundry",
-  "Meals",
-  "Parking",
-  "Power Backup",
-  "RO Water",
-  "Housekeeping",
-  "Common Room",
-  "First Aid",
-  "Generator",
-  "Garden",
-];
-
-const cityOptions = [
-  "Kathmandu",
-  "Lalitpur",
-  "Bhaktapur",
-  "Pokhara",
-  "Butwal",
-  "Biratnagar",
-  "Dharan",
-  "Chitwan",
-  "Birgunj",
-  "Nepalgunj",
-];
-
-const roomTypeOptions = [
-  "Single Room",
-  "Double Sharing",
-  "Triple Sharing",
-  "Four Sharing",
-  "Dormitory",
-];
-
-const ID_PROOF_TYPES = [
-  "Citizenship",
-  "National Identity Card (NID)",
-  "Passport",
-] as const;
-type IdProofType = (typeof ID_PROOF_TYPES)[number] | "";
-
-type RulesTemplate = { body: string; id: string; name: string; summary: string };
-
-const RULES_TEMPLATES: RulesTemplate[] = [
-  {
-    body: [
-      "HOSTEL RULES & POLICIES",
-      "",
-      "1. Entry & Exit",
-      "   - Main gate closes at 10:00 PM. Late entry requires prior warden approval.",
-      "   - Residents must sign the in/out register when leaving overnight.",
-      "",
-      "2. Visitors",
-      "   - Visitors are allowed only in the common area between 9:00 AM and 7:00 PM.",
-      "   - Visitors are not permitted inside resident rooms.",
-      "",
-      "3. Conduct",
-      "   - Smoking, alcohol, and any illegal substances are strictly prohibited.",
-      "   - Maintain silence after 10:00 PM to respect fellow residents.",
-      "",
-      "4. Payments",
-      "   - Monthly rent is due within the first 5 days of each month.",
-      "   - A one-month security deposit is required at the time of admission.",
-      "",
-      "5. Property & Safety",
-      "   - Residents are responsible for damage to hostel property.",
-      "   - Report any maintenance or safety issue to the warden immediately.",
-    ].join("\n"),
-    id: "standard",
-    name: "Standard House Rules",
-    summary: "General discipline, timings, visitors, and payment terms.",
-  },
-  {
-    body: [
-      "HOSTEL RULES & POLICIES (STUDENT / STRICT)",
-      "",
-      "1. Study Environment",
-      "   - Study hours 7:00 PM - 9:00 PM are strictly quiet hours.",
-      "   - No loud music or gatherings on weekdays.",
-      "",
-      "2. Timings",
-      "   - Gate closes at 9:00 PM on weekdays, 10:00 PM on weekends.",
-      "   - Attendance is taken every night; guardians are notified of absences.",
-      "",
-      "3. Visitors & Guests",
-      "   - Opposite-gender visitors are not allowed beyond the reception.",
-      "   - Overnight guests are not permitted.",
-      "",
-      "4. Prohibited",
-      "   - Smoking, alcohol, drugs, and weapons are strictly banned.",
-      "   - Cooking inside rooms is not allowed.",
-      "",
-      "5. Discipline",
-      "   - Repeated violations may lead to termination of accommodation.",
-      "   - Rent must be cleared by the 5th of every month.",
-    ].join("\n"),
-    id: "student-strict",
-    name: "Student Hostel (Strict)",
-    summary: "Stricter timings, study hours, and guardian notifications.",
-  },
-  {
-    body: [
-      "HOSTEL RULES & POLICIES (FLEXIBLE / WORKING PROFESSIONALS)",
-      "",
-      "1. Access",
-      "   - 24/7 access with secure keycard/biometric entry.",
-      "   - Please be considerate of others when returning late.",
-      "",
-      "2. Common Areas",
-      "   - Kitchen and lounge are shared - clean up after use.",
-      "   - Quiet hours are observed from 11:00 PM to 6:00 AM.",
-      "",
-      "3. Visitors",
-      "   - Guests are welcome in common areas until 9:00 PM.",
-      "   - Inform reception in advance for any guest.",
-      "",
-      "4. Payments",
-      "   - Rent is due by the 7th of each month.",
-      "   - One-month deposit, refundable on proper checkout with notice.",
-      "",
-      "5. Community",
-      "   - No smoking indoors; designated areas only.",
-      "   - Respect shared spaces and fellow residents.",
-    ].join("\n"),
-    id: "flexible",
-    name: "Working Professionals (Flexible)",
-    summary: "24/7 access, shared spaces, lighter restrictions.",
-  },
-];
-
 const ROOM_TYPE_META: Record<string, { icon: LucideIcon; tone: string }> = {
   "Double Sharing": { icon: Users, tone: "bg-blue-50 text-blue-600" },
   Dormitory: { icon: Building2, tone: "bg-amber-50 text-amber-600" },
@@ -376,11 +247,6 @@ function createRoom(roomType = "Single Room"): RoomConfig {
     securityDeposit: "",
     vacantBeds: "",
   };
-}
-
-function numberValue(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 const FIELD_KEY_STEP: Record<string, number> = {
@@ -469,101 +335,6 @@ function PortalsCard({ className }: { className?: string }) {
  * wizard persists document URLs into the saved draft, but accept rules, hint
  * copy and the upload itself all come from the universal uploader.
  */
-function FileUploadArea({
-  files,
-  onFileSelect,
-  onFilesDropped,
-  onRemove,
-  accept = acceptAttribute("document"),
-  maxFiles = 1,
-  label = "Upload file",
-  hint,
-}: {
-  files: UploadedFile[];
-  onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-  onFilesDropped?: (files: File[]) => Promise<void>;
-  onRemove: (id: string) => void;
-  accept?: string;
-  maxFiles?: number;
-  label?: string;
-  hint?: string;
-}) {
-  const canAdd = files.length < maxFiles;
-  const [isDragging, setIsDragging] = useState(false);
-
-  return (
-    <div className="space-y-2">
-      {files.map((f) => (
-        <div
-          key={f.id}
-          className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            {f.uploading ? (
-              <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
-            ) : (
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                {f.name.match(/\.(jpe?g|png|webp)/i) ? (
-                  <ImageIcon className="size-4" />
-                ) : (
-                  <FileText className="size-4" />
-                )}
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-foreground">{f.name}</p>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {f.uploading ? "Uploading…" : "Uploaded"}
-              </p>
-            </div>
-          </div>
-          <button
-            className="ml-2 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600"
-            onClick={() => onRemove(f.id)}
-            type="button"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      ))}
-      {canAdd ? (
-        <label
-          className={cn(
-            "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border px-4 py-4 text-center transition hover:border-brand-teal hover:bg-brand-teal/5",
-            isDragging && "border-solid border-brand-teal bg-brand-teal/5",
-          )}
-          onDragLeave={() => setIsDragging(false)}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setIsDragging(true);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setIsDragging(false);
-            void onFilesDropped?.(Array.from(event.dataTransfer.files ?? []));
-          }}
-        >
-          <Upload className="size-4 text-muted-foreground" />
-          <span className="text-xs font-semibold text-foreground">
-            {isDragging ? "Drop to upload" : label}
-          </span>
-          <span className="text-[11px] text-muted-foreground">
-            {hint ?? uploadHint("document", accept)}
-          </span>
-          <input
-            accept={accept}
-            className="sr-only"
-            hidden
-            multiple={maxFiles > 1}
-            onChange={onFileSelect}
-            type="file"
-          />
-        </label>
-      ) : null}
-    </div>
-  );
-}
-
 export function PublicHostelRegistrationPage() {
   const siteName = useSiteConfig().identity.siteName;
   // Approval re-issues an existing resident card as an owner card, so anyone

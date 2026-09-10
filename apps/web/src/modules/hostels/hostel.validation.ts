@@ -82,20 +82,45 @@ export const platformHostelCreateSchema = z.object({
     city: z.string().trim().min(2).max(120).default("Kathmandu"),
     lat: z.coerce.number().min(-90).max(90).optional(),
     lng: z.coerce.number().min(-180).max(180).optional(),
+    /*
+     * MANUAL when somebody placed the pin on the building — an agent standing
+     * in the lobby, or an owner dragging the marker onto their own gate. The
+     * geocoder refuses to move a MANUAL pin, so recording *how* the coordinates
+     * arrived is what stops the next nearby-places sweep sliding a hand-placed
+     * hostel back to the middle of its neighbourhood.
+     */
+    locationSource: z.enum(["MANUAL", "GEOCODED"]).optional(),
     province: z.string().trim().max(120).optional(),
   }),
   name: z.string().trim().min(2).max(160),
   notes: z.string().trim().max(1000).optional(),
   ownerId: objectIdSchema,
+  /*
+   * `kind` and `roomType` are declared here because the model has always stored
+   * them and every reader — the listing cover, the gallery, the per-room strip —
+   * routes on them (`lib/hostel-photos.ts`). Without them on the way in, a form
+   * that uploaded a categorised photo had the category stripped by zod and every
+   * shot landed as INTERIOR, which is the default `kindOf` falls back to.
+   *
+   * `roomType` is only meaningful on a ROOM photo; the registration schema
+   * checks it names a room type that was actually submitted.
+   *
+   * The cap moved from 20 to 40 with the same change. Twenty was enough while a
+   * hostel had one undifferentiated pile of photos; a full setup is three
+   * exteriors, a handful of interiors and a few shots of each room type, which
+   * passes twenty before it has covered five room types.
+   */
   photos: z
     .array(
       z.object({
         alt: z.string().trim().max(120).optional(),
         fileAssetId: objectIdSchema.optional(),
+        kind: z.enum(["EXTERIOR", "INTERIOR", "ROOM"]).default("INTERIOR"),
+        roomType: z.string().trim().min(1).max(80).optional(),
         url: photoUrlSchema,
       }),
     )
-    .max(20)
+    .max(40)
     .default([]),
   pricing: z
     .object({
@@ -125,6 +150,13 @@ export const publicHostelApplicationCreateSchema = platformHostelCreateSchema
 
 export const platformHostelListQuerySchema = z.object({
   ...paginationQuerySchema,
+  /**
+   * Archived hostels are a separate queue, never mixed into the live one — the
+   * approval queue is a list of decisions to make, and a hostel that is gone
+   * from the site is not one of them. `only` is how the Archived tab asks for
+   * them; everything else on the platform gets the default.
+   */
+  archived: z.enum(["exclude", "only"]).default("exclude"),
   status: z
     .enum(["DRAFT", "PENDING_APPROVAL", "APPROVED", "PUBLISHED", "REJECTED", "SUSPENDED"])
     .optional(),
@@ -140,6 +172,13 @@ export const hostelRejectSchema = z.object({
 // Unpublishing pulls a live listing out of public search, so the owner is owed
 // an explanation — the reason is required and goes straight into their email.
 export const hostelUnpublishSchema = z.object({
+  reason: z.string().trim().min(3).max(1000),
+});
+
+// Archiving takes a hostel off the site, out of its own portal, and starts a
+// 60-day countdown to erasure. The reason is required for the same purpose the
+// audit row exists: so whoever finds the archived hostel later knows why.
+export const hostelArchiveSchema = z.object({
   reason: z.string().trim().min(3).max(1000),
 });
 

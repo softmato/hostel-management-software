@@ -171,9 +171,23 @@ const hostelSchema = new Schema(
     updatedBy: { ref: "User", type: Schema.Types.ObjectId },
     isDemoData: { type: Boolean, default: false },
     demoDataLabel: { type: String, trim: true },
+    // Archived, not erased. Every read in the app already filters `isDeleted`,
+    // so setting it is what takes a hostel off the public site, out of search
+    // and out of its own portal — `billing/subscription-access.ts` refuses an
+    // archived hostel, which locks its staff out without a separate check.
     isDeleted: { type: Boolean, default: false },
     deletedAt: Date,
     deletedBy: { ref: "User", type: Schema.Types.ObjectId },
+    /**
+     * When the archive stops being reversible and the row is erased for good —
+     * `deletedAt + 60 days`, mirroring the account deletion grace period
+     * (PRIVACY_POLICY.md §8.3). The `hostel-purge` cron sweeps on this alone,
+     * so a hostel archived before the field existed is never picked up by
+     * accident: it has no purge date and stays archived until somebody sets one.
+     */
+    purgeScheduledAt: Date,
+    /** Why it was archived. Shown to the superadmin on the Archived queue. */
+    archiveReason: { type: String, trim: true },
   },
   { timestamps: true },
 );
@@ -191,6 +205,8 @@ hostelSchema.index(
 hostelSchema.index({ status: 1, "location.area": 1, hostelType: 1 });
 hostelSchema.index({ verificationStatus: 1, status: 1 });
 hostelSchema.index({ ownerId: 1, status: 1 });
+// The only query the purge cron runs.
+hostelSchema.index({ isDeleted: 1, purgeScheduledAt: 1 });
 hostelSchema.index({
   "pricing.monthlyRentMin": 1,
   "pricing.monthlyRentMax": 1,

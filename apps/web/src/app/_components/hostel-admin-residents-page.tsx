@@ -1171,7 +1171,12 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <InitialsAvatar name={fullName} size="sm" tone="admin" />
+                          <InitialsAvatar
+                            image={resident.account?.image}
+                            name={fullName}
+                            size="sm"
+                            tone="admin"
+                          />
                           <div className="min-w-0">
                             <p className="font-semibold text-foreground">{fullName}</p>
                             {resident.isDemoData ? (
@@ -1271,6 +1276,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
                   <InitialsAvatar
+                    image={selectedResident.account?.image}
                     name={`${selectedResident.firstName} ${selectedResident.lastName}`}
                     size="lg"
                     tone="admin"

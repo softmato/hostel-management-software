@@ -308,18 +308,25 @@ body {
     @apply rounded-lg border border-input-border bg-surface px-3 py-2 text-sm shadow-sm transition;
   }
 
+  /*
+   * A form field.
+   *
+   * `--input-border` draws the edge; `--field` paints the face. The second half
+   * matters as much as the first inside `.app-card`, which is `bg-surface` — a
+   * field that is also `bg-surface` is a rectangle of card with a line around
+   * it, and a form of them reads as ruled paper rather than as boxes waiting
+   * for an answer.
+   *
+   * Native selects and date inputs are included deliberately: left alone they
+   * keep the user-agent chrome and sit visibly lighter than the text fields
+   * beside them.
+   */
   .input-field {
-    @apply h-11 rounded-lg border border-input-border bg-surface px-3 text-sm font-normal outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15;
+    @apply h-11 rounded-lg border border-input-border bg-field px-3 text-sm font-normal text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15;
   }
 
-  /*
-   * Native controls that are not `.input-field` but read as one — the file
-   * inputs, date pickers and selects that browsers paint themselves. Without
-   * this they keep the user-agent border and sit visibly lighter than the
-   * fields beside them.
-   */
   .input-field:disabled {
-    @apply cursor-not-allowed opacity-60;
+    @apply cursor-not-allowed bg-muted opacity-60;
   }
 }
 

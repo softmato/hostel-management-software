@@ -456,6 +456,8 @@ export type AdminInvoiceRow = {
   resident: {
     fullName: string;
     id: string;
+    /** Their profile picture. Pass it through `useAvatarSource()`, never raw. */
+    image?: string | null;
     moveInDate: string;
     phone?: string;
     roomNumber?: string | null;
@@ -580,7 +582,14 @@ export async function getAdminLedger() {
 /* -------------------------------------------------------------------------- */
 
 export type AdminNightStatusRow = {
-  resident: { fullName: string; id: string; roomType?: string; status: string };
+  resident: {
+    fullName: string;
+    id: string;
+    /** Their profile picture. Pass it through `useAvatarSource()`, never raw. */
+    image?: string | null;
+    roomType?: string;
+    status: string;
+  };
   status: { checkedAt: string | null; note: string; source: string; status: string };
 };
 

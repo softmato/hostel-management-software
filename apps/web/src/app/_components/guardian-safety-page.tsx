@@ -92,7 +92,12 @@ export const GuardianSafetyPageContent = memo(function GuardianSafetyPageContent
           <div className="grid gap-5 xl:grid-cols-[1.4fr_0.9fr]">
             <SectionCard title="Resident Safety Overview">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                <InitialsAvatar name={residentName} size="lg" tone="guardian" />
+                <InitialsAvatar
+                  image={dashboard.resident.image}
+                  name={residentName}
+                  size="lg"
+                  tone="guardian"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-lg font-bold text-foreground">{residentName}</p>

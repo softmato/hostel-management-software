@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/layout";
-import { Avatar } from "@/components/ui/avatar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { CardRow, ListRow } from "@/components/ui/list-row";
 import { Money as Amount } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
@@ -659,14 +659,20 @@ export default function AdminMoneyScreen() {
                     <CardRow
                       key={row.resident.id}
                       /*
-                       * The face, not a generic person glyph. Almost nobody here
-                       * has a photo, so this is the initial circle — coloured
-                       * from the name, which is what lets two adjacent rows of a
-                       * forty-person roster tell themselves apart before either
-                       * is read. Residents already does this; Money was drawing
-                       * the same people as forty identical outlines.
+                       * The face — their own card photo, and the initial circle
+                       * for anyone who has not uploaded one, coloured from the
+                       * name so two adjacent rows of a forty-person roster tell
+                       * themselves apart before either is read. Residents
+                       * already does this; Money was drawing the same people as
+                       * forty identical outlines.
                        */
-                      left={<Avatar name={row.resident.fullName} size="md" />}
+                      left={
+                        <PersonAvatar
+                          image={row.resident.image}
+                          name={row.resident.fullName}
+                          size="md"
+                        />
+                      }
                       /*
                        * Opens the row rather than dialling. Calling used to be
                        * its only action because "editing an invoice, waiving a

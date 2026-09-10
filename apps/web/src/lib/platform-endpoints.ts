@@ -38,6 +38,12 @@ export const platformEndpoints = {
   /** Prefix form for `useInvalidateResources` — drops every hostel detail. */
   hostelDetails: "/api/v1/platform/hostels/*",
   hostels: withFullPage("/api/v1/platform/hostels"),
+  /**
+   * The Archived queue. A separate cache key from `hostels` on purpose — the
+   * two lists are disjoint, and one endpoint returning either would make an
+   * invalidation of the live queue silently drop the archived one too.
+   */
+  hostelsArchived: withFullPage("/api/v1/platform/hostels?archived=only"),
   listingFlag: (flagId: string) => `/api/v1/platform/listing-flags/${flagId}`,
   listingFlags: withFullPage("/api/v1/platform/listing-flags"),
   payments: "/api/v1/platform/payments",

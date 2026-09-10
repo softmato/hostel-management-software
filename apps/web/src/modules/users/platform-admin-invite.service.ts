@@ -82,6 +82,8 @@ type InviteRecord = {
 type UserLookup = {
   _id: Types.ObjectId;
   email?: string;
+  /** Only ever set by the availability check, which deliberately reads it. */
+  isDeleted?: boolean;
   name?: string;
   role?: string;
   status?: string;
@@ -142,8 +144,11 @@ export type EmailAvailabilityResult = {
   reason:
     | "FREE"
     | "PUBLIC_ACCOUNT"
-    | "ALREADY_PLATFORM_ADMIN"
+    | "ALREADY_HAS_THIS_ROLE"
+    | "OTHER_PLATFORM_ROLE"
     | "OTHER_ROLE"
+    | "SUSPENDED_ACCOUNT"
+    | "CLOSED_ACCOUNT"
     | "INVITE_PENDING"
     | "COOK_INVITE_PENDING"
     | "GUARDIAN_INVITE_PENDING";
@@ -157,36 +162,62 @@ export type EmailAvailabilityResult = {
  * What this address is already being used for, phrased so a superadmin can act
  * on it without opening another screen.
  *
- * Four places can hold a claim on an address, and all four are checked:
+ * ## An address in use elsewhere no longer blocks the invitation
  *
- * - an existing `User`, whatever its role — the identity store every portal
- *   shares, so a resident, a warden and a cook all surface here;
- * - a platform admin invitation that is still outstanding;
- * - a cook invitation that has been sent but not accepted;
- * - a guardian invitation in the same state.
+ * This check used to refuse any address that already carried a role — a
+ * resident, a warden, a cook, the public account behind a service provider —
+ * on the reasoning that a platform grant would silently strip that account of
+ * its tenant scope. The reasoning was sound and the remedy was wrong. The
+ * people a platform hires as field agents are very often already *in* the
+ * system: the warden who knows every hostel on the street is exactly who you
+ * want registering them, and telling a superadmin to use a different address
+ * means telling a real person to open a second mailbox to do their second job.
  *
- * The last two have no `User` behind them yet, which is exactly why they need
- * checking separately: the address is spoken for, and whichever invitation is
- * accepted second would fail at accept time with nothing on screen to explain
- * why. Better to say so now.
+ * So the takeover is allowed, and made reversible instead of forbidden. The
+ * displaced role is written to `User.previousRole` on accept and handed back by
+ * "remove from team", which is what turns a one-way door into a decision
+ * somebody can undo. What survives here is only the reporting: the sentence
+ * says *which* account is about to change hands, so nobody types an address and
+ * discovers afterwards that they moved a warden off their hostel.
  *
- * A `PUBLIC` account is the one "already in use" that does not block. It is
- * somebody who signed up to browse hostels, and raising exactly that account is
- * what `createPlatformAdmin` has always done — refusing it would mean a
- * colleague who once looked at a listing could never be given access. It is
- * reported as `UPGRADEABLE` so the sentence on screen says which account is
- * about to change hands, rather than pretending the address was free.
+ * Three things still refuse, and none of them is about the address being busy:
+ *
+ * - the account already holds the exact role being offered, so there is
+ *   nothing for an acceptance to do;
+ * - it already holds one of the *other* platform grades, which is a privilege
+ *   change and belongs on the admin roster where the last-superadmin guard
+ *   lives, not in an invite box;
+ * - the account has been closed (soft-deleted). Its address is still held by
+ *   the unique index, so a fresh account cannot be minted on it and the grant
+ *   would otherwise fail at accept time as a duplicate-key error.
+ *
+ * A suspended account does *not* refuse. Suspension is frequently how somebody
+ * left the team in the first place, and a superadmin deliberately typing that
+ * address is the decision to let them back in — so it is reported, and
+ * accepting reactivates.
  */
 export async function checkPlatformAdminEmail(
   rawEmail: string,
+  /**
+   * The grade the caller is about to offer. Optional because the type-ahead
+   * endpoint answers before a role has been chosen; with it absent, any
+   * platform grade already on the address reads as "already has access".
+   */
+  role?: PlatformAdminInviteRole,
 ): Promise<EmailAvailabilityResult> {
   await connectToDatabase();
 
   const email = normalizeEmail(rawEmail);
 
   const [user, pendingInvite, pendingCook, pendingGuardian] = await Promise.all([
-    UserModel.findOne({ email, isDeleted: { $ne: true } })
-      .select("email name role status")
+    /*
+     * Soft-deleted accounts are looked up too, unlike everywhere else in this
+     * file. They are invisible to the product but still own their address as
+     * far as the unique index is concerned, so leaving them out would turn a
+     * closed account into an unexplained 500 at accept time.
+     */
+    UserModel.findOne({ email })
+      .select("email isDeleted name role status")
       .lean<UserLookup | null>(),
     PlatformAdminInviteModel.findOne({ email, status: "PENDING" })
       .select("expiresAt role")
@@ -204,21 +235,48 @@ export async function checkPlatformAdminEmail(
       .lean<{ _id: Types.ObjectId } | null>(),
   ]);
 
-  if (user && INVITABLE_ROLES.includes(user.role as PlatformAdminInviteRole)) {
+  if (user?.isDeleted) {
     return {
       availability: "TAKEN",
-      message: `${email} is already ${ROLE_DESCRIPTIONS[user.role ?? ""] ?? "a platform admin"}. Change their access level on the roster below instead.`,
-      reason: "ALREADY_PLATFORM_ADMIN",
+      message: `${email} belongs to a closed account. The address stays reserved until that account is purged, so it cannot be invited yet.`,
+      reason: "CLOSED_ACCOUNT",
       sendable: false,
     };
   }
 
-  if (user && user.role !== Role.PUBLIC) {
+  if (user && role && user.role === role) {
     return {
       availability: "TAKEN",
-      message: `${email} already belongs to ${ROLE_DESCRIPTIONS[user.role ?? ""] ?? "another account"}. Platform access needs its own address.`,
-      reason: "OTHER_ROLE",
+      message: `${email} is already ${ROLE_DESCRIPTIONS[user.role ?? ""] ?? "on the team"}. There is nothing left for an invitation to grant.`,
+      reason: "ALREADY_HAS_THIS_ROLE",
       sendable: false,
+    };
+  }
+
+  if (user && INVITABLE_ROLES.includes(user.role as PlatformAdminInviteRole)) {
+    return {
+      availability: "TAKEN",
+      message: `${email} is already ${ROLE_DESCRIPTIONS[user.role ?? ""] ?? "a platform admin"}. Change their access level on the admin roster instead.`,
+      reason: role ? "OTHER_PLATFORM_ROLE" : "ALREADY_HAS_THIS_ROLE",
+      sendable: false,
+    };
+  }
+
+  /*
+   * Every remaining branch is sendable. They differ only in what the superadmin
+   * is told they are about to do, and they run most-consequential first: taking
+   * an account off the role it is living on is a bigger fact about this address
+   * than a cook invitation nobody has opened.
+   */
+
+  const dormant = user?.status === "SUSPENDED" || user?.status === "ARCHIVED";
+
+  if (user && user.role !== Role.PUBLIC) {
+    return {
+      availability: "UPGRADEABLE",
+      message: `${email} currently belongs to ${ROLE_DESCRIPTIONS[user.role ?? ""] ?? "another account"}. Accepting moves that same account onto the field team${dormant ? " and reactivates it" : ""} — their present access ends, and comes back if you remove them from the team later.`,
+      reason: "OTHER_ROLE",
+      sendable: true,
     };
   }
 
@@ -226,30 +284,39 @@ export async function checkPlatformAdminEmail(
     const expired = pendingInvite.expiresAt.getTime() < Date.now();
 
     return {
-      availability: "TAKEN",
+      availability: "UPGRADEABLE",
       message: expired
-        ? `${email} has an invitation that has run out. Withdraw it below, then send a fresh one.`
-        : `${email} already has a ${roleLabel(pendingInvite.role)} invitation waiting to be accepted. Withdraw it below to send a different one.`,
+        ? `${email} has an invitation that has run out. Sending again replaces it with a fresh link.`
+        : `${email} already has a ${roleLabel(pendingInvite.role)} invitation waiting. Sending again withdraws that one and replaces it.`,
       reason: "INVITE_PENDING",
-      sendable: false,
+      sendable: true,
     };
   }
 
   if (pendingCook) {
     return {
-      availability: "TAKEN",
-      message: `${email} has an unaccepted cook invitation from a hostel. Whichever invitation is accepted second would be refused, so use a different address.`,
+      availability: "UPGRADEABLE",
+      message: `${email} also has an unaccepted cook invitation from a hostel. Whichever link is opened second will be refused, so tell them which one to use.`,
       reason: "COOK_INVITE_PENDING",
-      sendable: false,
+      sendable: true,
     };
   }
 
   if (pendingGuardian) {
     return {
-      availability: "TAKEN",
-      message: `${email} has an unaccepted guardian invitation from a resident. Whichever invitation is accepted second would be refused, so use a different address.`,
+      availability: "UPGRADEABLE",
+      message: `${email} also has an unaccepted guardian invitation from a resident. Whichever link is opened second will be refused, so tell them which one to use.`,
       reason: "GUARDIAN_INVITE_PENDING",
-      sendable: false,
+      sendable: true,
+    };
+  }
+
+  if (dormant) {
+    return {
+      availability: "UPGRADEABLE",
+      message: `${email} has a suspended account. Accepting the invitation reactivates it and puts them on the field team.`,
+      reason: "SUSPENDED_ACCOUNT",
+      sendable: true,
     };
   }
 
@@ -283,6 +350,13 @@ export type InvitePlatformAdminInput = {
  * Mails an invitation. The availability check above runs again here rather than
  * being trusted from the client: the field on screen was checked while somebody
  * was typing, and the address could have been claimed in between.
+ *
+ * Sending to an address that already has an invitation waiting **replaces** it
+ * rather than refusing. A superadmin who types the same address twice is asking
+ * for the person to get a link they can use, and the old one is usually the
+ * reason they are asking — it went to spam, or it expired. The previous token
+ * is dropped, so exactly one live link exists per address at any moment, which
+ * is also what the partial unique index on `email` insists on.
  */
 export async function invitePlatformAdmin(
   input: InvitePlatformAdminInput,
@@ -296,11 +370,24 @@ export async function invitePlatformAdmin(
     throw new PlatformAdminInviteError("Email is required.", "EMAIL_REQUIRED", 422);
   }
 
-  const availability = await checkPlatformAdminEmail(email);
+  const availability = await checkPlatformAdminEmail(email, input.role);
 
   if (!availability.sendable) {
     throw new PlatformAdminInviteError(availability.message, availability.reason, 409);
   }
+
+  /*
+   * Superseded rather than left to collide. The index would reject the insert
+   * below with a duplicate-key error, which reaches the superadmin as a 500 on
+   * the one address they most wanted to retry.
+   */
+  await PlatformAdminInviteModel.updateMany(
+    { email, status: "PENDING" },
+    {
+      $set: { revokedAt: new Date(), revokedBy: principal.userId, status: "REVOKED" },
+      $unset: { tokenHash: "" },
+    },
+  );
 
   const token = issueToken();
   const invite = (await PlatformAdminInviteModel.create({
@@ -390,7 +477,23 @@ export async function invitePlatformAdmins(
     sent: boolean;
   }[] = [];
 
+  /*
+   * A pasted list repeats addresses more often than anyone expects. Sending
+   * twice is not harmless now that a second send supersedes the first: the
+   * recipient would get two mails and only the later link would work, so the
+   * duplicate is dropped here and the first spelling of the row wins.
+   */
+  const seen = new Set<string>();
+
   for (const invitation of input.invitations) {
+    const key = normalizeEmail(invitation.email);
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+
     try {
       const result = await invitePlatformAdmin(
         { ...invitation, role: input.role },
@@ -566,15 +669,22 @@ export type AcceptPlatformAdminInvitationInput = {
  *
  * - **No account on the address.** One is created `INVITED`, verified, with no
  *   password hash at all. First Google sign-in activates it.
- * - **A PUBLIC account exists.** Only the role changes. Status and credentials
- *   are left exactly as they are — a suspended account must not come back to
- *   life holding a platform role, and an account somebody already signs into
- *   should not have its sign-in altered by a grant.
+ * - **An account exists, on any non-platform role.** That same account is moved
+ *   onto the granted role and its old one is parked in `previousRole`. A
+ *   resident, a warden, a cook and the public account behind a service provider
+ *   are all accepted here.
  *
- * Any other role on the address is refused. The availability check makes that
- * unreachable from the UI, but an invitation sent yesterday can land on an
- * address that became a resident this morning, and a platform role must never
- * be the thing that quietly strips a tenant scope.
+ * The second branch used to refuse anything but PUBLIC, on the grounds that a
+ * platform role must never quietly strip a tenant scope. It still must not —
+ * what changed is that stripping is no longer the only way to do this. The
+ * displaced role is written down and handed back by `removeTeamMember`, and
+ * nothing keyed on the account is deleted on the way, so the scope is parked
+ * rather than lost. See `checkPlatformAdminEmail` for why refusing outright was
+ * the wrong remedy.
+ *
+ * An address that already holds one of the platform grades is still refused —
+ * that is a privilege change, and it belongs on the admin roster where the
+ * last-superadmin guard lives.
  */
 export async function acceptPlatformAdminInvitation(
   input: AcceptPlatformAdminInvitationInput,
@@ -609,24 +719,58 @@ export async function acceptPlatformAdminInvitation(
     );
   }
 
-  if (existing && existing.role !== Role.PUBLIC) {
-    throw new PlatformAdminInviteError(
-      "This address now belongs to another kind of account, so the invitation cannot be accepted. Ask the platform team to invite a different address.",
-      "EMAIL_ALREADY_HAS_ROLE",
-      409,
-    );
-  }
-
   let userId: string;
   let accountCreated = false;
+  let displacedRole: string | null = null;
 
   if (existing) {
-    // Role only. See the note above on why status and credentials are untouched.
+    /*
+     * The role is taken over, whatever it was. A resident, a warden, a cook or
+     * the public account behind a service provider all arrive here, and all of
+     * them are moved onto the platform grade the invitation offers.
+     *
+     * `role` holds one value, so the old one is written to `previousRole` on
+     * the way past. That single field is the whole reason this is allowed to be
+     * a takeover rather than a refusal: "remove from team" reads it back and
+     * puts the account where it was, so a warden who spends a season on the
+     * field team returns to their hostel rather than to PUBLIC.
+     *
+     * `hostelIds` and every tenant row keyed on this account are left exactly
+     * as they are. They are inert while a platform role is on the account —
+     * nothing reads them for a PLATFORM_AGENT — and they are what makes the
+     * restore mean something rather than being a role with nothing behind it.
+     */
+    if (existing.role !== invite.role) {
+      displacedRole = existing.role;
+      existing.previousRole = existing.role;
+    }
+
     existing.role = invite.role;
+
+    /*
+     * Reactivated, and only from the two dormant states. A superadmin typing
+     * this exact address is a deliberate grant of access, and suspension is
+     * frequently how the person left the team in the first place — refusing to
+     * lift it would make "invite them back" quietly do nothing. INVITED is left
+     * alone because the first sign-in is what clears it, and ACTIVE needs no help.
+     */
+    if (existing.status === "SUSPENDED" || existing.status === "ARCHIVED") {
+      existing.status = "ACTIVE";
+    }
 
     if (invite.phone && !existing.phone) {
       existing.phone = invite.phone;
     }
+
+    /*
+     * A session the account is already holding carries the *old* role in a
+     * signed token, and the symptom of leaving it alone is nasty: the team desk
+     * renders and every call inside it 403s. Bumping the version makes the
+     * refresh fail, which sends them to sign in again and mints a token that
+     * says what they now are. (The token in hand still works until it expires;
+     * the role heal in `browser-api` spends that window trying to refresh.)
+     */
+    existing.tokenVersion = (existing.tokenVersion ?? 0) + 1;
 
     await existing.save();
     userId = String(existing._id);
@@ -678,6 +822,12 @@ export async function acceptPlatformAdminInvitation(
     entityType: "PlatformAdminInvite",
     metadata: {
       accountCreated,
+      /*
+       * The role this acceptance took the account off, or null. The one fact
+       * that makes a takeover auditable rather than a role appearing out of
+       * nowhere — and the one to read if a restore ever has to be done by hand.
+       */
+      displacedRole,
       email: invite.email,
       invitedBy: invite.invitedBy?.toString(),
       role: invite.role,
@@ -687,6 +837,7 @@ export async function acceptPlatformAdminInvitation(
   return {
     accepted: true,
     accountCreated,
+    displacedRole,
     email: invite.email,
     role: invite.role,
     roleLabel: roleLabel(invite.role),

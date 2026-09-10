@@ -37,6 +37,11 @@ export type Hostel = {
   };
   hostelType: "BOYS" | "GIRLS" | "CO_LIVING";
   id: string;
+  /** Archive state — only ever populated on the platform's own reads. */
+  archivedAt?: string | null;
+  archiveReason?: string;
+  isArchived?: boolean;
+  purgeScheduledAt?: string | null;
   isDemoData?: boolean;
   location: {
     address?: string;

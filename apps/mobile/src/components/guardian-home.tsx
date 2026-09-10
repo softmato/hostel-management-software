@@ -9,6 +9,7 @@ import {
   PaintedAmount,
   PortalHeroCard,
 } from "@/components/portal-shared";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { formatMoney, heroAmountSize, maskMoney } from "@/lib/format";
@@ -31,7 +32,7 @@ import { formatMoney, heroAmountSize, maskMoney } from "@/lib/format";
  * quiet line, and a themed second register below a rule. What differs is the
  * content, which is the whole of the difference between the roles.
  *
- * ## No photograph, deliberately
+ * ## No photograph of the building, deliberately
  *
  * `GuardianDashboard.hostel` carries a name, a contact and a location and **no
  * photo URL**. `<PortalHeroCard>` draws `HeroOrnament` — two soft discs bled off
@@ -39,6 +40,10 @@ import { formatMoney, heroAmountSize, maskMoney } from "@/lib/format";
  * this needs. Adding a photo field to the guardian payload would mean shipping
  * the building's picture to an account that is not a resident of it, for
  * decoration.
+ *
+ * The *ward's* face is a different thing and does lead the card: it is their
+ * own child, the picture the resident chose for themselves, and it is the one
+ * piece of this screen a parent recognises before reading a word of it.
  *
  * ## The figure is conditional, and the card does not pretend otherwise
  *
@@ -57,6 +62,7 @@ export function GuardianWardHero({
   relation,
   roomLabel,
   unpaidCount,
+  wardImage,
   wardName,
   footer,
 }: {
@@ -70,6 +76,8 @@ export function GuardianWardHero({
   relation: string;
   roomLabel: string;
   unpaidCount: number;
+  /** Their `User.image`, or null. Drawn as an initial when they have no photo. */
+  wardImage?: string | null;
   wardName: string;
   /** The themed lower register — the call action. */
   footer?: React.ReactNode;
@@ -89,9 +97,17 @@ export function GuardianWardHero({
     <PortalHeroCard footer={footer} photoUrl={null}>
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1" style={{ gap: HERO_LINE_GAP }}>
-          <Text className="font-semibold text-white" numberOfLines={1} style={{ fontSize: 18 }}>
-            {wardName}
-          </Text>
+          <View className="flex-row items-center gap-2.5">
+            <PersonAvatar image={wardImage} name={wardName} size="sm" />
+
+            <Text
+              className="flex-1 font-semibold text-white"
+              numberOfLines={1}
+              style={{ fontSize: 18 }}
+            >
+              {wardName}
+            </Text>
+          </View>
 
           {/*
             Two rows with a glyph each rather than one string joined by a `·`.

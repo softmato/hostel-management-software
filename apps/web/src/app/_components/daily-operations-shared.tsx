@@ -101,7 +101,14 @@ export type GuardianDashboard = {
     month: string;
     receiptNumber: string;
   }>;
-  resident: { fullName: string; id: string; roomType: string; status: string };
+  resident: {
+    fullName: string;
+    id: string;
+    /** Their profile picture — the photo on their ID card, or null. */
+    image: string | null;
+    roomType: string;
+    status: string;
+  };
   /** `asOf` is a **date** (`YYYY-MM-DD`), truncated deliberately: the exact time
    * a resident was checked is the surveillance detail PHASES.md §4.1 forbids
    * showing a guardian. Null when `canViewSafety` is false. */

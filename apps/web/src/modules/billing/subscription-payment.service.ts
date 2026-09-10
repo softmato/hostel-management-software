@@ -155,24 +155,37 @@ export async function openSubscriptionCheckout(
 /* ── Cash ──────────────────────────────────────────────────────────────── */
 
 /**
- * Records cash an agent took in the field, already settled.
+ * Records money an agent took in the field, already settled.
  *
- * Cash has no pending state — the notes are in the agent's hand at the moment
- * they type the number, so there is nothing to wait for. `collectedBy` is
- * required and is the field the team roster reads to answer "who collected how
- * much"; a cash row without one would be money the platform received from
- * nobody.
+ * Two methods arrive here and they differ only in who is holding the money
+ * afterwards. `CASH` is notes in the agent's hand. `SOFTMATO` is the owner
+ * scanning a QR while the agent watches — the funds go to the platform's
+ * account rather than the agent's pocket, so nothing is owed back, but the
+ * *claim* that it happened comes from the same person either way.
+ *
+ * ## Why a QR payment settles here rather than waiting for a webhook
+ *
+ * Because there is no webhook yet. The gateway is mocked, so the alternative is
+ * a `PENDING` row that nothing will ever confirm and an owner who paid staring
+ * at an unpaid invoice. An honest manual entry beats a promise the system
+ * cannot keep — and `isMocked` is written on the row so it can never later be
+ * mistaken for a reconciled settlement. When a real merchant account lands,
+ * this branch narrows back to cash and the QR returns to the rail.
+ *
+ * `collectedBy` is required on both and is the field the team roster reads to
+ * answer "who collected how much": a row without one would be money the
+ * platform received from nobody.
  */
-export async function recordCashPayment(
+export async function recordFieldCollection(
   invoiceId: string,
-  input: { amount: number },
+  input: { amount: number; method: "CASH" | "SOFTMATO"; reference?: string },
   agentId: string,
 ) {
   await connectToDatabase();
 
   if (!agentId) {
     throw new SubscriptionError(
-      "Cash has to be attributed to the person who collected it.",
+      "A field collection has to be attributed to the person who took it.",
       "COLLECTOR_REQUIRED",
       422,
     );
@@ -194,13 +207,23 @@ export async function recordCashPayment(
     collectedBy: agentId,
     hostelId: invoice.hostelId,
     invoiceId: invoice._id,
-    method: "CASH",
+    /*
+     * A QR collection is mocked money until there is a gateway to corroborate
+     * it. Cash never claims to be on a rail in the first place, so it is not
+     * marked — `isMocked` means "this asserts a gateway settlement that did not
+     * go through a gateway", which is true of exactly one of these two.
+     */
+    isMocked: input.method === "SOFTMATO",
+    method: input.method,
     recordedBy: agentId,
     status: "PENDING",
     subscriptionId: invoice.subscriptionId,
   });
 
-  return settlePayment(String(payment._id), { actorId: agentId });
+  return settlePayment(String(payment._id), {
+    actorId: agentId,
+    gatewayReference: input.reference,
+  });
 }
 
 /* ── Settling ──────────────────────────────────────────────────────────── */
