@@ -28,6 +28,9 @@ whichever machine is serving Metro, so a phone on the same Wi-Fi reaches
 | `npm run mobile:build:test` | Bundle for Android without EAS; proves it compiles |
 | `npm run mobile:build:preview` | EAS internal APK |
 
+Releasing, and what an over-the-air update can and cannot change:
+[`docs/MOBILE_RELEASE.md`](../../docs/MOBILE_RELEASE.md).
+
 ### Before you build
 
 Confirm the app identifiers in [`app.json`](app.json) first — `android.package`
