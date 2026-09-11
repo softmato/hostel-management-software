@@ -20,7 +20,6 @@ import { serviceProviderApprovedEmail } from "@hostel/shared/email/templates/ser
 import { serviceProviderRegistrationReceivedEmail } from "@hostel/shared/email/templates/service-provider/registration-received";
 import { serviceProviderRejectedEmail } from "@hostel/shared/email/templates/service-provider/provider-rejected";
 import { loadSiteConfig } from "@/lib/site-config-server";
-import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
 import { normalizeProviderCategories } from "@/modules/service-providers/service-provider.validation";
 import { notifyStaffOfJobProgress } from "@/modules/maintenance/maintenance-notify";
 import {
@@ -602,6 +601,19 @@ async function updateProviderStatus(
   // card — the conversion the registration form warned them about. Records that
   // predate the `userId` link have no account to re-issue against.
   if (status === "APPROVED" && provider.userId) {
+    /*
+     * Imported at the call site, not at module scope. `sendIdCardEmail` reaches
+     * `platform-id-card.server` and through it `@napi-rs/canvas`, a ~26 MB
+     * prebuilt binary that `serverExternalPackages` copies out of node_modules
+     * into the bundle of every function that can reach it. A static import here
+     * put that binary into 82 functions — every route that touches
+     * `hostel.service` — for one call that issues a card. A dynamic import
+     * keeps it in the handful that actually render one.
+     */
+    const { sendIdCardEmail } = await import(
+      "@/modules/users/id-card-delivery.service"
+    );
+
     await sendIdCardEmail(provider.userId.toString(), "SERVICE_PROVIDER");
   }
 

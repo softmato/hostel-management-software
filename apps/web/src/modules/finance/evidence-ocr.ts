@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import { loadSharp } from "@/lib/sharp";
 import {
   type EvidenceReadFailure,
@@ -71,55 +69,6 @@ export const OCR_FLAGS = {
 } as const;
 
 /**
- * How long a single recognition may take before we give up on it.
- *
- * The resident is watching an upload progress bar, and a claim that hangs is
- * worse than a claim with no OCR signal. Eight seconds is comfortably above a
- * warm worker's typical second-and-a-half on a phone screenshot and well below
- * anything a person would call broken.
- */
-const OCR_TIMEOUT_MS = 8_000;
-
-/**
- * How long the whole attempt may take — **worker creation included**.
- *
- * {@link OCR_TIMEOUT_MS} guarded only `recognize()`, which left the expensive,
- * failure-prone half of the operation unguarded: building the worker spawns a
- * thread, loads a WASM core and reads a language model, and until this existed
- * it could take forever without anything noticing.
- *
- * It did. In production `createWorker` never settled — the worker thread came
- * up but never signalled ready — so `readEvidenceText` waited on it with no
- * deadline, the read route's `reading` stage never ended, and the stream stayed
- * open until the platform killed the function. What the resident saw was a
- * claim form that sat on "Reading the amount and transaction ID…" until the
- * client gave up, and then told them their receipt could not be read. Which
- * unlocks submit — so the phone accepted files this module had already decided
- * were not payments, purely because its verdict never arrived.
- *
- * Rule 2 at the top of this file says a slow worker degrades to "no signal".
- * This is the line that makes that true rather than aspirational: past this
- * budget the answer is null, which every caller already handles.
- *
- * Larger than the recognition budget because it covers strictly more work, and
- * a cold container legitimately pays for the core and the model once.
- */
-const RECOGNITION_BUDGET_MS = 20_000;
-
-/** Rejects once `ms` has passed, so an unbounded await cannot outlive it. */
-function deadline(ms: number): { promise: Promise<never>; cancel: () => void } {
-  let timer: NodeJS.Timeout | undefined;
-  const promise = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error("EVIDENCE_OCR_DEADLINE")), ms);
-  });
-
-  return { cancel: () => clearTimeout(timer), promise };
-}
-
-/** Longest edge we feed the recogniser. Beyond this, accuracy stops improving. */
-const MAX_EDGE = 1600;
-
-/**
  * Exported because "switched off" and "tried and failed" must not look the same
  * to the caller. A hostel that turns OCR off gets no evidence flags at all and
  * keeps `Approve all` working exactly as it did before; a recogniser that fails
@@ -127,113 +76,6 @@ const MAX_EDGE = 1600;
  */
 export function isEvidenceOcrEnabled(): boolean {
   return (process.env.EVIDENCE_OCR ?? "on").toLowerCase() !== "off";
-}
-
-type Worker = {
-  recognize(input: Buffer): Promise<{ data: { text?: string } }>;
-  terminate(): Promise<unknown>;
-};
-
-/**
- * One worker per process, created on first use.
- *
- * Loading the WASM core and the language model costs seconds; doing it per claim
- * would make this the slowest thing in the request. A serverless container
- * handles many claims over its life, so the cache is what makes the feature
- * affordable — and a cold container simply pays it once.
- */
-let workerPromise: Promise<Worker | null> | null = null;
-
-/**
- * The directory holding `eng.traineddata`, shipped with the app.
- *
- * **Vendored rather than downloaded, and that is a correctness fix, not a
- * speed one.** This used to pass no `langPath`, which makes tesseract.js fetch
- * the 5 MB model from the jsdelivr CDN on first use and write it beside the
- * process. On a serverless deployment both halves of that are wrong: the
- * filesystem is read-only, so the write always fails and the download is
- * repeated for the life of every container, and the fetch itself is on the
- * critical path of a request a resident is watching.
- *
- * When that fetch hung, so did the read — see {@link RECOGNITION_BUDGET_MS} for
- * the second half of the fix. Pointing at a local file removes the network from
- * this path altogether.
- *
- * `process.cwd()` is the app root both under `next dev` and in a Vercel lambda,
- * where the file arrives through `outputFileTracingIncludes` in next.config.ts.
- * That entry is load-bearing: without it the model is absent in production and
- * this is back to having no recogniser.
- */
-const TESSDATA_PATH = path.join(process.cwd(), "tessdata");
-
-async function getWorker(): Promise<Worker | null> {
-  workerPromise ??= (async () => {
-    try {
-      // Imported dynamically and deliberately: this is a large optional
-      // dependency, and a deployment without it must lose the signal rather
-      // than the ability to submit a claim.
-      const { createWorker } = await import("tesseract.js");
-
-      return (await createWorker("eng", undefined, {
-        // Read the model off disk, never from the network.
-        langPath: TESSDATA_PATH,
-        // No cache read, no cache write. The cache exists to save the download
-        // this no longer performs, and its write is a guaranteed failure on a
-        // read-only filesystem — one logged exception per worker, every worker.
-        cacheMethod: "none",
-        // The vendored file is the plain model, not the compressed one. Left
-        // unset, tesseract.js looks for `eng.traineddata.gz`, does not find it,
-        // and the load never completes — the exact hang this module is being
-        // fixed for, reproduced from a different direction.
-        gzip: false,
-      })) as unknown as Worker;
-    } catch {
-      return null;
-    }
-  })();
-
-  return workerPromise;
-}
-
-/** Drops the cached worker so the next call rebuilds it. */
-async function resetWorker(worker: Worker | null) {
-  workerPromise = null;
-
-  try {
-    await worker?.terminate();
-  } catch {
-    // A worker we are abandoning anyway.
-  }
-}
-
-/**
- * Grey, upright, right-sized and contrast-normalised.
- *
- * Not decoration: a 4000px dark-mode screenshot recognises noticeably worse than
- * the same image normalised, and `rotate()` with no argument applies the EXIF
- * orientation a phone camera leaves behind — without it a sideways photo of a
- * bank slip reads as nothing at all.
- */
-async function prepare(bytes: Buffer | Uint8Array): Promise<Buffer | null> {
-  const sharp = await loadSharp();
-
-  // Null is already this function's "no read" answer, and the caller treats it
-  // as an unread image rather than an error.
-  if (!sharp) {
-    return null;
-  }
-
-  try {
-    return await sharp(bytes)
-      .rotate()
-      .greyscale()
-      .resize({ fit: "inside", height: MAX_EDGE, width: MAX_EDGE, withoutEnlargement: true })
-      .normalise()
-      .png()
-      .toBuffer();
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -253,8 +95,8 @@ async function prepare(bytes: Buffer | Uint8Array): Promise<Buffer | null> {
  */
 async function readPdfText(bytes: Buffer | Uint8Array): Promise<string | null> {
   try {
-    // Dynamic for the same reason as tesseract: a large optional dependency whose
-    // absence must cost a signal, not a claim.
+    // Dynamic on purpose: a large optional dependency whose absence must cost a
+    // signal, not a claim.
     const { extractText, getDocumentProxy } = await import("unpdf");
     // `unpdf` mutates the buffer it is handed, and these bytes are also hashed and
     // perceptually compared by the caller. A copy costs a few hundred KB once.
@@ -276,9 +118,11 @@ export function isPdfEvidence(mimeType: string | undefined): boolean {
 /**
  * Upright, right-sized, and otherwise left alone.
  *
- * **The opposite of {@link prepare}, and deliberately so.** That chain was tuned
- * for Tesseract, which reads a high-contrast bitonal image best; every step in
- * it actively hurts a document recogniser. Greyscale throws away the colour
+ * **Deliberately minimal, and that is a correction.** This module used to carry
+ * a second preparation chain — greyscale, `normalise()`, downscale to 1600 —
+ * tuned for the local recogniser, which reads a high-contrast bitonal image
+ * best. Every step in it actively hurts a document recogniser, and it went with
+ * that engine. Greyscale throws away the colour
  * Vision uses to segment a receipt card from the page behind it. `normalise()`
  * stretches the histogram and distorts the anti-aliasing that mobile text is
  * drawn with. Downscaling to 1600 discards resolution the recogniser can use.
@@ -414,18 +258,17 @@ export async function readEvidence(
     return gemini;
   }
 
-  if (mode === "shadow") {
-    return readShadowed(bytes);
-  }
-
-  const text = await readWithTesseract(bytes);
-
-  return text === null
-    ? { failure: "unknown", result: null }
-    : {
-        failure: null,
-        result: { engine: "tesseract", ms: 0, text, words: [] },
-      };
+  /*
+   * No engine is credentialled, so nothing looked at this image.
+   *
+   * Distinct from `unknown` on purpose. This module's governing rule is that a
+   * read producing nothing must say *why* — the one time it did not, the
+   * recogniser was dead in production for weeks and the only visible symptom
+   * was residents being told their receipts were unreadable. "Nobody here is
+   * configured to read this" is an operator's problem with an operator's fix,
+   * and it must never reach anyone dressed up as a bad photograph.
+   */
+  return { failure: "not-configured", result: null };
 }
 
 /**
@@ -449,75 +292,6 @@ function worthAskingTheOtherEngine(failure: EvidenceReadFailure | null): boolean
 }
 
 /**
- * Runs both engines, lets the old one decide, and records where they disagree.
- *
- * The rollout lever. Behaviour is identical to `tesseract` mode — every flag,
- * every refusal, every autofilled field comes from the same read it does today —
- * so switching this on changes nothing a resident or a warden can see. What it
- * produces is the evidence for the cutover: real files, both engines, and a log
- * of every case where the answers differ on something that matters.
- *
- * **Deliberately not a fallback.** Both results exist here and it would be easy
- * to return whichever one is non-null. That is exactly the mistake the engine
- * contract forbids: a Vision read standing in for a failed Tesseract read (or
- * the reverse) is a confirmation signal produced by an engine nobody chose, and
- * a false confirmation is worse than no signal.
- */
-async function readShadowed(bytes: Buffer | Uint8Array): Promise<EvidenceRead> {
-  const prepared = await prepareForVision(bytes);
-  const [tesseractText, vision] = await Promise.all([
-    readWithTesseract(bytes),
-    prepared
-      ? readWithVision(prepared)
-      : Promise.resolve({ failure: "unknown" as const, result: null }),
-  ]);
-
-  logDivergence(tesseractText, vision.result);
-
-  return tesseractText === null
-    ? { failure: "unknown", result: null }
-    : {
-        failure: null,
-        result: { engine: "tesseract", ms: 0, text: tesseractText, words: [] },
-      };
-}
-
-/**
- * One line per file where the two engines would fill the form differently.
- *
- * **Fields, not text.** Character-level similarity is the wrong measure: an
- * engine can get 95% of a receipt right and corrupt the one transaction id the
- * claim turns on, and it can also differ on whitespace across the whole page
- * while agreeing on every fact. What matters is whether the resident would end
- * up submitting a different number, so that is what is compared.
- *
- * No text is logged — a payment screenshot's text is account numbers and
- * balances, and this module's third rule is that none of it is stored.
- */
-function logDivergence(tesseractText: string | null, vision: OcrResult) {
-  const mine = tesseractText ? extractClaimFields(tesseractText) : {};
-  const theirs = vision ? extractClaimFields(vision.text) : {};
-  const differences = (["amount", "transactionCode", "method"] as const).filter(
-    (field) => mine[field] !== theirs[field],
-  );
-
-  if (differences.length === 0 && Boolean(tesseractText) === Boolean(vision)) {
-    return;
-  }
-
-  console.info(
-    "[evidence-shadow]",
-    JSON.stringify({
-      differences,
-      tesseractRead: tesseractText !== null,
-      visionMs: vision?.ms ?? null,
-      visionRead: vision !== null,
-      visionWords: vision?.words.length ?? 0,
-    }),
-  );
-}
-
-/**
  * The text on the evidence, or null when there is none to be had.
  *
  * The narrow contract every existing caller was written against, kept as a thin
@@ -529,78 +303,6 @@ export async function readEvidenceText(
   mimeType?: string,
 ): Promise<string | null> {
   return (await readEvidence(bytes, mimeType)).result?.text ?? null;
-}
-
-/** The old engine. Kept whole, and reached only when it is the chosen one. */
-async function readWithTesseract(
-  bytes: Buffer | Uint8Array,
-): Promise<string | null> {
-  const prepared = await prepare(bytes);
-
-  if (!prepared) return null;
-
-  /*
-   * One deadline over the whole attempt.
-   *
-   * `getWorker()` is inside it, which is the point: it was the unguarded await,
-   * and an unguarded await on a worker that never comes up is a request that
-   * never ends. Everything past this line is best-effort work the caller is
-   * happy to lose — never a reason for a resident to be stuck on a form.
-   */
-  const budget = deadline(RECOGNITION_BUDGET_MS);
-  let worker: Worker | null = null;
-
-  try {
-    worker = await Promise.race([getWorker(), budget.promise]);
-
-    if (!worker) return null;
-
-    /*
-     * The `catch` is not dead code: when the budget or the recognition timeout
-     * wins the race below, nothing is left awaiting this promise, and a worker
-     * we then terminate rejects it. Unhandled, that takes the process down.
-     */
-    const recognition = worker
-      .recognize(prepared)
-      .then((result) => result.data.text ?? "")
-      .catch(() => null);
-    let timer: NodeJS.Timeout | undefined;
-
-    try {
-      const text = await Promise.race([
-        recognition,
-        budget.promise,
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), OCR_TIMEOUT_MS);
-        }),
-      ]);
-
-      if (text === null) {
-        // The worker is still busy with the recognition we abandoned, so it
-        // cannot be reused — dropping it is cheaper than queueing behind it.
-        void resetWorker(worker);
-
-        return null;
-      }
-
-      return text.trim() || null;
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    /*
-     * The budget expired, or the worker threw.
-     *
-     * Dropped either way. A worker we timed out on is a worker whose state we
-     * cannot describe — mid-recognition, or never started — and the next
-     * resident deserves a fresh one rather than a queue behind this.
-     */
-    void resetWorker(worker);
-
-    return null;
-  } finally {
-    budget.cancel();
-  }
 }
 
 /** Devanagari digits, which Nepali banking apps mix into otherwise Latin text. */

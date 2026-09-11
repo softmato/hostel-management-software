@@ -83,7 +83,7 @@ vi.mock("@/modules/finance/evidence-ocr", async (importOriginal) => ({
 
     return text === null
       ? { failure: "unknown", result: null }
-      : { failure: null, result: { engine: "tesseract", ms: 0, text, words: [] } };
+      : { failure: null, result: { engine: "vision", ms: 0, text, words: [] } };
   },
 }));
 

@@ -47,7 +47,7 @@ export type OcrResult = {
   words: OcrWord[];
 } | null;
 
-export type EvidenceEngine = "gemini" | "tesseract" | "vision";
+export type EvidenceEngine = "gemini" | "vision";
 
 /**
  * Which engine reads images, and whether the other one shadows it.
@@ -62,32 +62,31 @@ export type EvidenceEngine = "gemini" | "tesseract" | "vision";
  *   when there is no Cloud Vision credential, which is the standing situation:
  *   Vision needs billing enabled and billing needs a payment card. Gemini's free
  *   tier needs neither, and its key is already in this repo.
- * - `tesseract` — the old engine, kept only so a deployment with no remote
- *   credentials still reads PDFs and can still read images badly rather than not
- *   at all. **It does not run in the Vercel lambda**, so in production it is a
- *   placeholder rather than a fallback.
- * - `shadow` — both run; Tesseract's answer drives behaviour and the divergence
- *   is logged. The rollout lever, and the only mode that costs two reads.
+ * - `none` — no engine holds a credential, so no image is read at all. Not a
+ *   silent state: it surfaces as `not-configured`, which is an operator's
+ *   problem with an operator's fix and must never be reported to a resident as
+ *   an unreadable photograph. PDFs still read perfectly in this mode — their
+ *   text layer is extracted, not recognised, and needs no vendor.
  * - `vision+gemini` — Vision reads, and Gemini reads only when Vision did not
  *   answer at all. **The production mode**, and the one exception to the
  *   no-fallback rule above — because that rule was written against Tesseract,
  *   and Gemini is not Tesseract. Tesseract scores 16% all-critical on the real
  *   corpus and Gemini 68%, so Gemini's answer is a second opinion rather than a
  *   fuzzy guess that manufactures the false confirmations the rule exists to
- *   prevent. What it guards against is the failure this pipeline has already
+ *   prevent. Tesseract itself is gone: it never ran in the Vercel lambda, and
+ *   carrying it cost ~3.4 GB of function storage per deployment to ship a WASM
+ *   core and a 5 MB language model into 426 functions that never called it. What it guards against is the failure this pipeline has already
  *   suffered twice: one remote dependency goes away — an expired card, a lapsed
  *   billing account, a revoked key, a spent quota — and takes every receipt read
  *   on the platform down with it, silently.
  */
-export type EvidenceEngineMode = EvidenceEngine | "shadow" | "vision+gemini";
+export type EvidenceEngineMode = EvidenceEngine | "none" | "vision+gemini";
 
 export function evidenceEngineMode(): EvidenceEngineMode {
   const configured = (process.env.EVIDENCE_ENGINE ?? "").toLowerCase();
 
   if (
     configured === "gemini" ||
-    configured === "shadow" ||
-    configured === "tesseract" ||
     configured === "vision" ||
     configured === "vision+gemini"
   ) {
@@ -103,8 +102,11 @@ export function evidenceEngineMode(): EvidenceEngineMode {
    * once — the recogniser was dead in production for weeks while every local run
    * stayed green, because nothing anywhere said which engine was live.
    *
-   * Vision leads because it measures word boxes and Gemini does not. Tesseract
-   * is last because in the runtime that matters it does not run at all.
+   * Vision leads because it measures word boxes and Gemini does not. With
+   * neither credential there is no last resort to fall back to — there used to
+   * be one, and it was a placeholder that could not run in this runtime, which
+   * is worse than an honest `none`: it made an unconfigured deployment look
+   * configured.
    */
   const vision = Boolean(process.env.GCP_VISION_SA_KEY);
   const gemini = Boolean((process.env.GEMINI_API_KEYS ?? "").trim());
@@ -125,7 +127,7 @@ export function evidenceEngineMode(): EvidenceEngineMode {
   if (vision) return "vision";
   if (gemini) return "gemini";
 
-  return "tesseract";
+  return "none";
 }
 
 /**

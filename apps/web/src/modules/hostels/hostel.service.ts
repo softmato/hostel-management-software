@@ -29,7 +29,6 @@ import {
 } from "@/modules/food/food-routine.service";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import { sendEmail } from "@hostel/shared/email/sender";
-import { sendIdCardEmail } from "@/modules/users/id-card-delivery.service";
 import { hostelApprovedEmail } from "@hostel/shared/email/templates/hostel/hostel-approved";
 import { hostelPublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-published";
 import { hostelUnpublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-unpublished";
@@ -1819,6 +1818,19 @@ export async function approvePlatformHostel(hostelId: string, principal: ApiPrin
 
     // Approval re-issues any ID card this owner already holds as an owner card
     // — the conversion the registration form warned them about.
+    /*
+     * Imported at the call site, not at module scope. `sendIdCardEmail` reaches
+     * `platform-id-card.server` and through it `@napi-rs/canvas`, a ~26 MB
+     * prebuilt binary that `serverExternalPackages` copies out of node_modules
+     * into the bundle of every function that can reach it. A static import here
+     * put that binary into 82 functions — every route that touches
+     * `hostel.service` — for one call that issues a card. A dynamic import
+     * keeps it in the handful that actually render one.
+     */
+    const { sendIdCardEmail } = await import(
+      "@/modules/users/id-card-delivery.service"
+    );
+
     await sendIdCardEmail(ownerInfo.owner.id.toString(), "HOSTEL_OWNER");
 
     /*

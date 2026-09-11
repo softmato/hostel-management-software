@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 describe("evidenceEngineMode — an explicit setting", () => {
-  it.each(["gemini", "shadow", "tesseract", "vision", "vision+gemini"])(
+  it.each(["gemini", "vision", "vision+gemini"])(
     "honours %s",
     (mode) => {
       process.env.EVIDENCE_ENGINE = mode;
@@ -84,8 +84,8 @@ describe("evidenceEngineMode — resolved from credentials", () => {
     expect(evidenceEngineMode()).toBe("gemini");
   });
 
-  it("falls all the way to tesseract when nothing is configured", () => {
-    expect(evidenceEngineMode()).toBe("tesseract");
+  it("resolves to none when nothing is configured", () => {
+    expect(evidenceEngineMode()).toBe("none");
   });
 
   /*
@@ -97,7 +97,7 @@ describe("evidenceEngineMode — resolved from credentials", () => {
   it("does not count a blank Gemini key as a credential", () => {
     process.env.GEMINI_API_KEYS = "   ";
 
-    expect(evidenceEngineMode()).toBe("tesseract");
+    expect(evidenceEngineMode()).toBe("none");
   });
 
   it("does not count a blank Vision key as a credential", () => {

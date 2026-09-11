@@ -47,38 +47,47 @@ const SECURITY_HEADERS = [
  * Both spellings on purpose: npm hoists `@img/*` to the workspace root, but a
  * platform-specific reinstall can land it beside the app instead. A glob that
  * matches nothing is a no-op.
+ *
+ * **Scoped to linux-x64, which is the only thing Vercel runs.** This used to be
+ * a bare `@img/**` and that swept up whatever else npm had left in the tree —
+ * the build host's own binaries and the wasm32 fallback — none of which a lambda
+ * can load. Measured against a real build it was 46 MB copied into 37 functions
+ * where ~19 MB was the linux pair and the rest was ballast.
+ *
+ * `sharp-libvips-linux-x64` is listed explicitly rather than left to the tracer:
+ * it is the RPATH `dlopen` target of `sharp-linux-x64/sharp.node`, and a
+ * `dlopen` is the one hop a static trace cannot follow. That is the omission
+ * that produced `ERR_DLOPEN_FAILED: libvips-cpp.so` in production.
  */
 const SHARP_NATIVE = [
-  "../../node_modules/@img/**/*",
-  "./node_modules/@img/**/*",
+  "../../node_modules/@img/sharp-linux-x64/**/*",
+  "../../node_modules/@img/sharp-libvips-linux-x64/**/*",
+  "./node_modules/@img/sharp-linux-x64/**/*",
+  "./node_modules/@img/sharp-libvips-linux-x64/**/*",
 ];
 
 /**
- * What the recogniser needs at runtime, none of which the tracer can find.
+ * `@napi-rs/canvas`, which only the three routes that issue an ID card need.
  *
- * Three separate hops it cannot follow, and missing any one of them broke OCR
- * in production while every local run stayed green:
+ * **A dynamic `import()` does not keep a package out of a bundle.** That was the
+ * assumption, and it is wrong: `@vercel/nft` follows `await import("literal")`
+ * exactly as it follows a static import, because it has to — the module must be
+ * on disk for the runtime to load it later. Deferring the *load* does nothing
+ * about the *trace*.
  *
- * 1. **The worker script.** `tesseract.js` spawns `new Worker(workerPath)` where
- *    `workerPath` is built with `path.join(__dirname, …)` at runtime. A computed
- *    path is invisible to a static trace, so the file was simply absent — and
- *    `new Worker` on a missing path never signals ready, which is why the read
- *    hung rather than failed.
- * 2. **The WASM cores.** `worker-script/node/getCore.js` picks one of six builds
- *    by `require`ing a name it assembles from runtime SIMD feature detection.
- *    Also invisible, also fatal.
- * 3. **The language model.** `tessdata/eng.traineddata`, which
- *    `evidence-ocr.ts` now reads off disk instead of fetching from a CDN. It is
- *    data, so nothing `require`s it at all.
+ * So the 26 MB binary reached every function that could transitively see
+ * `id-card-delivery.service` — 82 of them, including the public landing page and
+ * `sitemap.xml` — for a card that is rendered on hostel approval, service
+ * provider approval, and a resident saving their identity. Measured: 2.16 GB of
+ * function storage per deployment.
  *
- * ~20 MB, listed only on the two subtrees that actually recognise anything.
+ * Excluding it everywhere and adding it back on those three paths is the only
+ * mechanism that actually moves it, because it operates on the trace rather than
+ * on the module graph.
  */
-const TESSERACT_RUNTIME = [
-  "../../node_modules/tesseract.js/src/**/*",
-  "./node_modules/tesseract.js/src/**/*",
-  "../../node_modules/tesseract.js-core/**/*",
-  "./node_modules/tesseract.js-core/**/*",
-  "./tessdata/**/*",
+const CANVAS_NATIVE = [
+  "../../node_modules/@napi-rs/canvas*/**/*",
+  "./node_modules/@napi-rs/canvas*/**/*",
 ];
 
 const nextConfig: NextConfig = {
@@ -90,25 +99,12 @@ const nextConfig: NextConfig = {
    * bundling, so the gap only shows up in the running app.
    */
   /**
-   * `tesseract.js` is here for the same reason and the same trap: it resolves its
-   * WASM core and language model out of `node_modules` at runtime and starts a
-   * worker to run them. Bundled, those paths do not exist — and because the
-   * evidence recogniser degrades to "no signal" on any failure, it would fail
-   * *silently*: every claim flagged `EVIDENCE_NOT_MACHINE_CHECKED`, no error
-   * anywhere, and it works under vitest.
-   */
-  /**
    * `unpdf` reads the text layer of PDF receipts. It carries its own pdf.js build
    * and resolves it at runtime, so it is external for the same reason as the two
    * above — and with the same silent failure if it is wrong, since a PDF that
    * cannot be read degrades to "no signal" rather than to an error.
    */
-  serverExternalPackages: [
-    "@napi-rs/canvas",
-    "tesseract.js",
-    "tesseract.js-core",
-    "unpdf",
-  ],
+  serverExternalPackages: ["@napi-rs/canvas", "unpdf"],
   /**
    * Where the dependency trace starts. Explicit because this is a workspace: the
    * packages below are hoisted to the repo root, and an inferred root of
@@ -129,11 +125,59 @@ const nextConfig: NextConfig = {
    * feature rather than the route. Listed per route subtree rather than
    * globally: it is ~30 MB, and only the image paths decode anything.
    */
+  /**
+   * Nothing gets the canvas binary unless the next block hands it back. Keyed
+   * `**` because the leak was everywhere, and an allowlist is the only shape
+   * that stays correct when somebody imports the delivery service somewhere new.
+   */
+  outputFileTracingExcludes: {
+    "**": [
+      ...CANVAS_NATIVE,
+      /*
+       * Static assets, the mobile app, and test files have no business in a
+       * serverless bundle — and were costing ~1 GB per deployment sitting in one.
+       *
+       * They arrive through `lib/load-root-env`, which hunts the repo-root `.env`
+       * by walking `process.cwd()`, `..` and `../..`. A trace cannot resolve a
+       * path built that way, so `@vercel/nft` falls back to sweeping in the
+       * candidate directories — and `instrumentation.ts` imports that module, so
+       * every function inherits the sweep. Measured: `public/` copied into 426
+       * functions, `apps/mobile/assets` into 426, plus `.test.ts` files and
+       * mobile `README.md`s. It is the same mechanism that was attaching the
+       * 5 MB OCR language model to `/api/v1/auth/login`.
+       *
+       * `public/**` is safe to drop here: Next serves it as static output from
+       * the CDN, which `outputFileTracing*` does not govern. No function reads it.
+       */
+      "./public/**/*",
+      "../mobile/**/*",
+      "./src/**/*.test.ts",
+      "./src/**/*.test.tsx",
+    ],
+  },
   outputFileTracingIncludes: {
     "/api/v1/files/**": SHARP_NATIVE,
-    "/api/v1/hostel-admin/finance/**": [...SHARP_NATIVE, ...TESSERACT_RUNTIME],
+    "/api/v1/hostel-admin/finance/**": SHARP_NATIVE,
     "/api/v1/public/files/**": SHARP_NATIVE,
-    "/api/v1/resident/finance/**": [...SHARP_NATIVE, ...TESSERACT_RUNTIME],
+    "/api/v1/resident/finance/**": SHARP_NATIVE,
+    /*
+     * The three card issuers, and the only places `renderIdCardPng` is reached.
+     *
+     * **The dynamic segment is `*`, not `[id]`.** These keys are globs, and in a
+     * glob `[id]` is a character class matching the single letter `i` or `d` —
+     * so `/api/v1/platform/hostels/[id]/approve` matches nothing at all, and
+     * matches it silently. Written that way first, and the build was green:
+     * approval simply shipped without the binary it loads, which surfaces as a
+     * 500 the first time somebody approves a hostel. `*` matches one path
+     * segment, `[id]` included.
+     *
+     * Only `/approve` on each: `sendIdCardEmail` is called behind a
+     * `status === "APPROVED"` guard, and the import that reaches it is dynamic,
+     * so reject and hide never load the binary and do not need to carry it.
+     */
+    "/api/v1/platform/hostels/*/approve": CANVAS_NATIVE,
+    "/api/v1/platform/service-providers/*/approve": CANVAS_NATIVE,
+    "/api/v1/users/resident-identity": CANVAS_NATIVE,
   },
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];
