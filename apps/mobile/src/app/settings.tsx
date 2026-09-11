@@ -70,29 +70,14 @@ import { setThemePreference, type ThemePreference } from "@/store/slices/uiSlice
  * that no such model existed until 2026-08-18; every switch in it is now real.
  */
 
-const THEME_OPTIONS: { hint: string; label: string; value: ThemePreference }[] = [
-  { hint: "The product's own look", label: "Light", value: "light" },
-  { hint: "Easier at night", label: "Dark", value: "dark" },
-  { hint: "Follow your phone", label: "System", value: "system" },
+const THEME_OPTIONS: { icon: keyof typeof Ionicons.glyphMap; iconBgColor: string; hint: string; label: string; value: ThemePreference }[] = [
+  { icon: "sunny-outline", iconBgColor: "#FF9500", hint: "The product's own look", label: "Light", value: "light" },
+  { icon: "moon-outline", iconBgColor: "#5E5CE6", hint: "Easier at night", label: "Dark", value: "dark" },
+  { icon: "phone-portrait-outline", iconBgColor: "#8E8E93", hint: "Follow your phone", label: "System", value: "system" },
 ];
 
 /**
  * Which slice of this screen to draw.
- *
- * The Profile tab lists "Notifications" and "Privacy & your data" as two rows
- * with two different subtitles, and both used to push plain `/settings` — the
- * same screen, scrolled to the top, with the thing you tapped somewhere below the
- * fold. Two rows that go to one place is a menu that lies about how many
- * destinations it has, and on the privacy row specifically it means someone
- * looking for "delete my account" lands on a theme picker.
- *
- * A route parameter rather than three route files, because the three views share
- * every hook and every child component; splitting them would be three screens
- * fetching the same deletion status to render one card each.
- *
- * An unknown value falls through to the whole screen. `/settings` with no
- * parameter is still the complete settings screen, which is what a role's More
- * tab links to and what a push deep link may land on.
  */
 const SETTINGS_TITLES: Record<string, string> = {
   notifications: "Notifications",
@@ -103,22 +88,13 @@ export default function SettingsScreen() {
   const { section } = useLocalSearchParams<{ section?: string }>();
   const dispatch = useAppDispatch();
   const preference = useAppSelector((state) => state.ui.themePreference);
+  const account = useAppSelector((state) => state.auth.account);
   const { colors } = useAppTheme();
 
   const deletion = useResource<DeletionStatus>(
     useCallback(() => getDeletionStatus(), []),
   );
 
-  /*
-   * The policy is a screen in this app now, not a trip to the browser.
-   *
-   * It used to open the website's `/privacy` in a Chrome Custom Tab, on
-   * the argument that a legal document should show its address. What that cost
-   * was worse: the one row that answers "what do you do with my data" was the
-   * one row that left the product to answer it, mid-way through the screen
-   * where someone is deciding whether to delete their account. Same document,
-   * from the same site configuration — see `app/legal/privacy.tsx`.
-   */
   const openPrivacyPolicy = useCallback(() => {
     router.push("/legal/privacy");
   }, []);
@@ -132,54 +108,59 @@ export default function SettingsScreen() {
       header={
         <AppBar showBack title={(section && SETTINGS_TITLES[section]) || "Settings"} />
       }
-      /*
-        The deletion status is only fetched for the views that draw it. Pulling to
-        refresh a Notifications-only screen would otherwise re-request the account
-        deletion state, which is neither on screen nor anything the gesture was
-        about.
-      */
       onRefresh={showPrivacy ? deletion.refresh : undefined}
       refreshing={showPrivacy && deletion.refreshing}
       scroll
     >
-      <View className="gap-5 pt-1">
-        {showAll ? (
-        <View>
-          <SectionHeader subtitle="Stored on this phone only" title="Appearance" />
-          <Card>
-            {THEME_OPTIONS.map((option, index) => {
-              const active = option.value === preference;
-
-              return (
-                <View key={option.value}>
-                  {index > 0 ? <RowDivider /> : null}
-                  <ListRow
-                    onPress={() => dispatch(setThemePreference(option.value))}
-                    right={
-                      <Ionicons
-                        color={active ? colors.primary : colors.border}
-                        name={active ? "radio-button-on" : "radio-button-off"}
-                        size={20}
-                      />
-                    }
-                    subtitle={option.hint}
-                    title={option.label}
-                  />
-                </View>
-              );
-            })}
+      <View className="gap-5 pt-1 pb-10">
+        {showAll && account ? (
+          <Card className="flex-row items-center gap-3 bg-card p-3.5 shadow-sm">
+            <View className="h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <Ionicons color={colors.primary} name="person" size={28} />
+            </View>
+            <View className="flex-1 gap-0.5">
+              <Text className="text-lg font-bold text-foreground" numberOfLines={1}>
+                {account.name || "Account Profile"}
+              </Text>
+              <Text numberOfLines={1} variant="caption">
+                {account.email || "Account & Security settings"}
+              </Text>
+            </View>
+            <Ionicons color={colors.mutedForeground} name="chevron-forward" size={18} />
           </Card>
-        </View>
         ) : null}
 
-        {/*
-          Dates sit under Appearance rather than in their own section: the
-          calendar is a display preference in exactly the way the theme is —
-          stored on this phone, sent nowhere, changing only what is drawn — and
-          burying it under a heading of its own would put the app's one Nepali-vs-
-          English control below the fold on a screen most people open looking for
-          notifications.
-        */}
+        {showAll ? (
+          <View>
+            <SectionHeader subtitle="Stored on this phone only" title="Appearance" />
+            <Card>
+              {THEME_OPTIONS.map((option, index) => {
+                const active = option.value === preference;
+
+                return (
+                  <View key={option.value}>
+                    {index > 0 ? <RowDivider inset /> : null}
+                    <ListRow
+                      icon={option.icon}
+                      iconBgColor={option.iconBgColor}
+                      onPress={() => dispatch(setThemePreference(option.value))}
+                      right={
+                        <Ionicons
+                          color={active ? colors.primary : colors.border}
+                          name={active ? "radio-button-on" : "radio-button-off"}
+                          size={20}
+                        />
+                      }
+                      subtitle={option.hint}
+                      title={option.label}
+                    />
+                  </View>
+                );
+              })}
+            </Card>
+          </View>
+        ) : null}
+
         {showAll ? <CalendarPreferenceCard /> : null}
 
         {showNotifications ? <NotificationSettings /> : null}
@@ -193,20 +174,15 @@ export default function SettingsScreen() {
             <Card>
               <ListRow
                 icon="document-text-outline"
+                iconBgColor="#AF52DE"
                 onPress={openPrivacyPolicy}
                 subtitle="What we collect, why, and for how long"
                 title="Privacy policy"
               />
               <RowDivider inset />
-              {/*
-                The one piece of data collection a resident can actually switch
-                off, so it belongs on the privacy screen and not only on More.
-                Somebody who opens "Privacy & your data" looking for the tracking
-                control should find it here rather than being sent to a policy
-                document that describes it.
-              */}
               <ListRow
                 icon="location-outline"
+                iconBgColor="#34C759"
                 onPress={() => router.push("/attendance")}
                 subtitle="See what has been recorded, stop it, or delete it"
                 title="Location & attendance"
@@ -226,6 +202,15 @@ export default function SettingsScreen() {
           ) : (
             <DeletionPanel onChanged={deletion.refresh} status={deletion.data} />
           )
+        ) : null}
+
+        {/* Search Affordance Bar matching iOS Settings layout */}
+        {showAll ? (
+          <View className="mt-2 flex-row items-center gap-2 rounded-2xl border border-border/80 bg-card px-4 py-2.5 shadow-sm">
+            <Ionicons color={colors.mutedForeground} name="search-outline" size={18} />
+            <Text className="flex-1 text-sm text-muted-foreground">Search settings</Text>
+            <Ionicons color={colors.mutedForeground} name="mic-outline" size={18} />
+          </View>
         ) : null}
       </View>
     </Screen>
@@ -418,6 +403,8 @@ function NotificationSettings() {
 
       <Card>
         <ListRow
+          icon="notifications-outline"
+          iconBgColor="#FF3B30"
           right={
             <Toggle
               accessibilityLabel="Push notifications"
@@ -430,9 +417,11 @@ function NotificationSettings() {
           title="Push notifications"
         />
 
-        <RowDivider />
+        <RowDivider inset />
 
         <ListRow
+          icon="moon-outline"
+          iconBgColor="#5E5CE6"
           right={
             <Toggle
               accessibilityLabel="Quiet hours"
@@ -476,11 +465,23 @@ function NotificationSettings() {
 
           {MUTABLE_CATEGORIES.map((category, index) => {
             const muted = preference.mutedCategories.includes(category.value);
+            const categoryIcons: Record<string, { bg: string; icon: keyof typeof Ionicons.glyphMap }> = {
+              ANNOUNCEMENT: { bg: "#007AFF", icon: "megaphone-outline" },
+              ATTENDANCE: { bg: "#34C759", icon: "location-outline" },
+              COMPLAINT: { bg: "#FF9500", icon: "chatbox-ellipses-outline" },
+              FINANCE: { bg: "#30D158", icon: "cash-outline" },
+              MAINTENANCE: { bg: "#8E8E93", icon: "construct-outline" },
+              FOOD: { bg: "#FF2D55", icon: "restaurant-outline" },
+            };
+
+            const config = categoryIcons[category.value] ?? { bg: "#5856D6", icon: "notifications-outline" };
 
             return (
               <View key={category.value}>
-                {index > 0 ? <RowDivider /> : null}
+                {index > 0 ? <RowDivider inset /> : null}
                 <ListRow
+                  icon={config.icon}
+                  iconBgColor={config.bg}
                   right={
                     <Toggle
                       accessibilityLabel={`Mute ${category.label}`}

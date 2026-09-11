@@ -14,7 +14,7 @@ export type HostelFiltersState = {
    * is the one the API filters on server-side.
    */
   diet: string;
-  facilities: string;
+  facilities: string[];
   food: string;
   query: string;
   room: string;
@@ -28,7 +28,7 @@ export const initialHostelFilters: HostelFiltersState = {
   budget: "Any Budget",
   college: "All Colleges",
   diet: "Any",
-  facilities: "All Facilities",
+  facilities: [],
   food: "Any",
   query: "",
   room: "All Room Types",

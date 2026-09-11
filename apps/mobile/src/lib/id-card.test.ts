@@ -7,11 +7,16 @@ import {
   emptyIdentityDraft,
   hasIdCard,
   hasIdentityErrors,
+  firstIncompleteIdentityStep,
   idCardNoun,
   idCardTypeForAccount,
+  IDENTITY_STEP_FIELDS,
+  IDENTITY_STEPS,
+  identityStepComplete,
   type IdentityDraft,
   toProfileInput,
   validateIdentity,
+  validateIdentityStep,
 } from "@/lib/id-card";
 import type { Identity, IdentityProfile } from "@/lib/identity-api";
 
@@ -23,12 +28,14 @@ function identity(overrides: Partial<Identity> = {}): Identity {
     cardType: "RESIDENT",
     hasPhoto: false,
     hasProfile: true,
+    hasSignatureImage: false,
     lastSharedAt: null,
     photoUpdatedAt: null,
     residentId: "HH-4K7M-9XQ2",
     shareCount: 0,
     shareUrl: "https://softmato.com/resident-id/HH-4K7M-9XQ2",
     sharingEnabled: true,
+    signatureUpdatedAt: null,
     updatedAt: "2026-08-16T10:00:00.000Z",
     ...overrides,
   };
@@ -47,6 +54,7 @@ function profile(overrides: Partial<IdentityProfile> = {}): IdentityProfile {
     occupation: "STUDENT",
     primaryEmail: "sita.sharma@example.com",
     primaryPhone: "9800011122",
+    signature: "M10 10L20 20L30 30L40 40M100 50L110 60L120 70L130 80",
     ...overrides,
   };
 }
@@ -62,6 +70,7 @@ function validDraft(overrides: Partial<IdentityDraft> = {}): IdentityDraft {
     guardianRelation: "Father",
     primaryEmail: "sita@example.com",
     primaryPhone: "9800011122",
+    signature: "M10 10L20 20L30 30L40 40M100 50L110 60L120 70L130 80",
     ...overrides,
   };
 }
@@ -207,6 +216,7 @@ describe("validateIdentity", () => {
       "guardianRelation",
       "primaryEmail",
       "primaryPhone",
+      "signature",
     ]);
   });
 
@@ -335,5 +345,94 @@ describe("draftFromProfile", () => {
     const payload = toProfileInput(draftFromProfile(profile({ age: 21 })));
 
     expect("age" in payload).toBe(false);
+  });
+});
+
+const NO_ASSETS = { hasPhoto: false, hasSignatureImage: false };
+const BOTH_ASSETS = { hasPhoto: true, hasSignatureImage: true };
+
+describe("the step split", () => {
+  /*
+   * The split is a filter over `validateIdentity`, not a second copy of the
+   * rules — so the thing worth asserting is that the filter loses nothing. A
+   * field owned by no step is a field whose error can never be shown, and the
+   * user meets that as a Create button that refuses with no red anywhere.
+   */
+  it("gives every rule somewhere to be displayed", () => {
+    const owned = new Set(Object.values(IDENTITY_STEP_FIELDS).flat());
+    const everyError = validateIdentity(emptyIdentityDraft());
+
+    for (const field of Object.keys(everyError)) {
+      expect(owned.has(field as keyof IdentityDraft)).toBe(true);
+    }
+  });
+
+  it("claims each field exactly once", () => {
+    const seen = Object.values(IDENTITY_STEP_FIELDS).flat();
+
+    expect(seen.length).toBe(new Set(seen).size);
+  });
+
+  it("flags only the step being left", () => {
+    const blank = emptyIdentityDraft();
+
+    expect(Object.keys(validateIdentityStep("about", blank))).toEqual([
+      "fullName",
+      "gender",
+    ]);
+    // The guardian is required too, and is three screens away — a Continue on
+    // About you that turned the Guardian fields red would be pointing at a
+    // screen the user has not seen.
+    expect(validateIdentityStep("about", blank).guardianName).toBeUndefined();
+  });
+
+  it("counts a photographed signature as a signed card", () => {
+    const drawn = validDraft();
+    const photographed = validDraft({
+      signature: "",
+      signatureImageUri: "file:///tmp/signature.jpg",
+    });
+
+    expect(identityStepComplete("signature", drawn, NO_ASSETS)).toBe(true);
+    expect(identityStepComplete("signature", photographed, NO_ASSETS)).toBe(true);
+    expect(
+      identityStepComplete("signature", validDraft({ signature: "" }), NO_ASSETS),
+    ).toBe(false);
+    // Already on the record from a previous save, with nothing re-sent.
+    expect(
+      identityStepComplete("signature", validDraft({ signature: "" }), BOTH_ASSETS),
+    ).toBe(true);
+  });
+
+  it("treats the photo as an upload rather than as a draft field", () => {
+    expect(identityStepComplete("photo", validDraft(), NO_ASSETS)).toBe(false);
+    expect(identityStepComplete("photo", validDraft(), BOTH_ASSETS)).toBe(true);
+  });
+
+  it("sends the user to the first thing that is actually missing", () => {
+    expect(firstIncompleteIdentityStep(emptyIdentityDraft(), NO_ASSETS)).toBe("about");
+    expect(firstIncompleteIdentityStep(validDraft(), NO_ASSETS)).toBe("photo");
+    expect(firstIncompleteIdentityStep(validDraft(), BOTH_ASSETS)).toBeNull();
+  });
+
+  it("ends on Review, which owns no fields of its own", () => {
+    expect(IDENTITY_STEPS.at(-1)?.key).toBe("review");
+    expect(IDENTITY_STEP_FIELDS.review).toEqual([]);
+  });
+});
+
+describe("toProfileInput with a photographed signature", () => {
+  it("omits the stroke field entirely rather than sending an empty one", () => {
+    const input = toProfileInput(
+      validDraft({ signature: "", signatureImageUri: "file:///tmp/signature.jpg" }),
+    );
+
+    // `""` would fail the server's stroke grammar before it ever looked at the
+    // asset id sitting beside it on the envelope.
+    expect("signature" in input).toBe(false);
+  });
+
+  it("still sends strokes when that is what was drawn", () => {
+    expect(toProfileInput(validDraft()).signature).toContain("M10 10");
   });
 });

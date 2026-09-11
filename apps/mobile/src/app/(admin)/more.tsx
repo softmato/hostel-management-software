@@ -49,104 +49,91 @@ const MANAGE_ROWS: {
   icon: keyof typeof Ionicons.glyphMap;
   subtitle: string;
   title: string;
+  tone?: "brand" | "danger" | "neutral" | "success" | "warning";
 }[] = [
   {
     href: "/manage/finance",
     icon: "cash-outline",
     subtitle: "Rate cards, the billing run, payment setup and reconciliation",
     title: "Finance",
+    tone: "success",
   },
   {
-    /*
-      The one row in this list with no tile in Home's `ServiceGrid`, and the
-      divergence is deliberate: Home reaches the ledger from "Waiting for you",
-      four cells above where the tile would sit, and two doors to one screen
-      inside a single scroll is what that row's own rules forbid. This screen has
-      no "Waiting for you", so here it is a row like any other.
-    */
     href: "/manage/finance/statement",
     icon: "receipt-outline",
     subtitle: "Every payment received, day by day, searchable and exportable",
     title: "Statement",
+    tone: "success",
   },
   {
     href: "/(admin)/residents",
     icon: "people-outline",
     subtitle: "Register, move in and out, activation codes, guardians",
     title: "Residents",
+    tone: "brand",
   },
   {
-    /*
-      Added when the Store took roll call's cell in Home's shortcut row. This
-      list and Home's `ServiceGrid` are the same destinations in the same order,
-      bar the `Statement` row above — a tile added there is a row added here in
-      the same breath, or a hostel owner ends up learning two maps of one
-      product.
-    */
     href: "/manage/roll-call",
     icon: "moon-outline",
     subtitle: "Who is in tonight, who is out, and who has not been verified",
     title: "Night status",
+    tone: "brand",
   },
   {
-    /*
-      Today *is* the complaint queue — the section under the roll call is the
-      whole of it, replies included — so this row opens it rather than a screen
-      of its own. It moved here off Home's "Waiting for you" card; see
-      `WaitingActions` for the trade that made.
-    */
     href: "/(admin)/today",
     icon: "chatbox-ellipses-outline",
     subtitle: "What residents have raised, and what is still unanswered",
     title: "Complaints",
+    tone: "warning",
   },
   {
     href: "/manage/rooms",
     icon: "bed-outline",
     subtitle: "Room types, beds, vacancies and their photos",
     title: "Rooms",
+    tone: "brand",
   },
   {
     href: "/manage/notices",
     icon: "megaphone-outline",
     subtitle: "Schedule, target and expire a notice",
     title: "Notices",
+    tone: "warning",
   },
   {
     href: "/manage/food",
     icon: "restaurant-outline",
     subtitle: "The weekly menu, meal times and the cook's login",
     title: "Food",
+    tone: "danger",
   },
   {
     href: "/manage/maintenance",
     icon: "construct-outline",
     subtitle: "The repair queue, its notes, and the approved providers",
     title: "Maintenance",
+    tone: "neutral",
   },
   {
     href: "/manage/reports",
     icon: "bar-chart-outline",
     subtitle: "Collection, occupancy, complaints, roll call, food and growth",
     title: "Reports",
+    tone: "brand",
   },
   {
-    /*
-      The one row on this screen about money going *out* of the hostel rather
-      than into it. Finance above is the rate cards the residents are billed
-      from; this is the plan the hostel is billed on, and the subtitle leads
-      with the days left because that is the only thing anyone opens it for.
-    */
     href: "/manage/billing",
     icon: "card-outline",
     subtitle: "Days left on your plan, and every invoice and receipt from us",
     title: "Billing",
+    tone: "danger",
   },
   {
     href: "/manage/settings",
     icon: "settings-outline",
     subtitle: "Hostel profile, photos, wardens and the hostel-wide switches",
     title: "Settings",
+    tone: "neutral",
   },
 ];
 
@@ -155,11 +142,7 @@ export default function AdminMoreScreen() {
   const preference = useAppSelector((state) => state.ui.themePreference);
   const dispatch = useAppDispatch();
   const { colors } = useAppTheme();
-  /*
-   * The same key Home reads, so whichever of the two loads first fills in the
-   * other. It is also in the portal's warm-up, which is why this screen's header
-   * is usually already named by the time it is opened.
-   */
+
   const query = adminQuery.hostel();
   const hostel = useResource<AdminHostel | null>(query.load, {
     cacheKey: query.key,
@@ -195,18 +178,6 @@ export default function AdminMoreScreen() {
       refreshing={hostel.refreshing}
       scroll
     >
-      {/*
-        Deliberately the calmest screen in the group, and the only one with no
-        coloured object on it at all.
-
-        Every other admin tab leads with something painted, because each of them
-        is *about* a live figure — money collected, who is accounted for, what is
-        waiting. This one is a list of doors, and a settings page that opens with
-        a saturated banner is a settings page shouting about itself. What it
-        leads with instead is the account, which is the one thing this screen
-        genuinely needs to state: half the rows below can be refused by a
-        capability, and this is what says which account is being refused.
-      */}
       <View className="gap-5 pt-1">
         <Card className="flex-row items-center gap-3">
           <Avatar name={hostel.data?.name ?? account?.name} size="lg" />
@@ -231,13 +202,6 @@ export default function AdminMoreScreen() {
               </View>
             ) : null}
 
-            {/*
-              Both flags, and both only when a single hostel resolved. They fail
-              differently and a reader has to be able to tell which: `DRAFT` is
-              the owner's own doing and they fix it in Settings, whereas
-              pending verification is on the platform and no amount of editing
-              moves it.
-            */}
             {hostel.data ? (
               <View className="flex-row flex-wrap gap-1.5 pt-0.5">
                 <Badge
@@ -257,21 +221,6 @@ export default function AdminMoreScreen() {
           </View>
         </Card>
 
-        {/*
-          Eight separate cards, not eight rows in one.
-
-          A bordered box around a list is a claim that the things inside it
-          belong together, and these do not: Finance, Rooms, Food and Reports
-          share nothing but a screen. Inside one card with hairlines between them
-          they read as a table to be worked down in order. As separate cards with
-          air between them they read as what they are — a shelf of doors, and you
-          want exactly one.
-
-          The tinted square in front of each is doing the real work. It is the
-          same green on all eight rather than eight different tints: the glyph
-          tells them apart, and a colour per door would be inventing eight
-          meanings the app does not otherwise have.
-        */}
         <View>
           <SectionHeader
             subtitle="Everything the portal does, without leaving the app"
@@ -283,11 +232,10 @@ export default function AdminMoreScreen() {
                 icon={row.icon}
                 key={row.href}
                 onPress={() => router.push(row.href)}
-                // Same trigger as Home's Manage grid, which lists these same
-                // eight doors — see `prefetchAdminRoute`.
                 onPressIn={() => prefetchAdminRoute(row.href)}
                 subtitle={row.subtitle}
                 title={row.title}
+                tone={row.tone}
               />
             ))}
           </View>
@@ -298,6 +246,7 @@ export default function AdminMoreScreen() {
           <Card padding="px-4 py-1">
             <ListRow
               icon="search-outline"
+              iconBgColor="#007AFF"
               onPress={() => router.push("/hostels")}
               subtitle="See your listing the way a student does"
               title="Browse hostels"
@@ -305,13 +254,8 @@ export default function AdminMoreScreen() {
             <RowDivider inset />
             <ListRow
               icon="people-outline"
+              iconBgColor="#FF2D55"
               onPress={() => router.push("/community")}
-              /*
-                The same trigger the Manage rows above use, pointed at the one
-                registry that is not `admin-queries.ts`: the board is
-                platform-wide, so `prefetchAdminRoute` deliberately does not know
-                this route. See `lib/community-queries.ts`.
-              */
               onPressIn={prefetchCommunity}
               subtitle="What residents are saying, platform-wide"
               title="Community"
@@ -324,6 +268,7 @@ export default function AdminMoreScreen() {
           <Card padding="px-4 py-1">
             <ListRow
               icon={preference === "dark" ? "moon-outline" : "sunny-outline"}
+              iconBgColor={preference === "dark" ? "#5E5CE6" : "#FF9500"}
               onPress={() => dispatch(setThemePreference(nextTheme))}
               subtitle={`Currently ${preference}`}
               title="Theme"
@@ -332,6 +277,7 @@ export default function AdminMoreScreen() {
             <RowDivider inset />
             <ListRow
               icon="notifications-outline"
+              iconBgColor="#FF3B30"
               onPress={() => router.push("/notifications")}
               subtitle="Everything the platform has sent you"
               title="Notifications"
@@ -339,6 +285,7 @@ export default function AdminMoreScreen() {
             <RowDivider inset />
             <ListRow
               icon="shield-checkmark-outline"
+              iconBgColor="#AF52DE"
               onPress={() => router.push("/settings")}
               subtitle="Privacy policy and account deletion"
               title="Privacy & account"
@@ -349,6 +296,7 @@ export default function AdminMoreScreen() {
         <Card padding="px-4 py-1">
           <ListRow
             icon="log-out-outline"
+            iconBgColor="#FF3B30"
             onPress={signOut}
             right={
               <Ionicons

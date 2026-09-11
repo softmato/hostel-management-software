@@ -26,6 +26,7 @@ import type {
   IdentityProfileInput,
   Occupation,
 } from "@/lib/identity-api";
+import { isSignatureComplete } from "@/lib/signature";
 
 /** `platform-id-card.ts`'s palette, verbatim. */
 export const CARD_COLORS = {
@@ -159,6 +160,8 @@ export type IdCard = {
   rows: [string, string][];
   /** What is printed under the name, uppercased and letterspaced by the view. */
   role: string;
+  /** Stroke data for the back's signature panel, or null before one was drawn. */
+  signature: string | null;
   title: string;
 };
 
@@ -237,8 +240,9 @@ export function buildIdCard(
       ["DOB", cardDate(profile?.dateOfBirth) ?? "—"],
       ["BLOOD", bloodGroup ?? "—"],
       ["PHONE", profile?.primaryPhone ?? "—"],
-      ["E-MAIL", profile?.primaryEmail ?? identity.accountEmail ?? "—"],
+      ["E-MAIL", identity.accountEmail ?? profile?.primaryEmail ?? "—"],
     ],
+    signature: profile?.signature ?? null,
     title: variant.title,
   };
 }
@@ -264,6 +268,16 @@ export type IdentityDraft = Record<IdentityTextField, string> & {
   governmentIdType: GovernmentIdType | "";
   interests: string[];
   occupation: Occupation;
+  /** Stroke data from the pad — `""` until something is drawn. */
+  signature: string;
+  /**
+   * A local `file://` uri of a photographed signature, before it is uploaded.
+   *
+   * The two signature fields are exclusive: setting one clears the other, so
+   * the draft can never describe a card with two signatures on it. The server
+   * enforces the same rule from the other side.
+   */
+  signatureImageUri: string;
 };
 
 export type IdentityTextField =
@@ -328,6 +342,8 @@ export function emptyIdentityDraft(): IdentityDraft {
     secondGuardianName: "",
     secondGuardianPhone: "",
     secondGuardianRelation: "",
+    signature: "",
+    signatureImageUri: "",
   };
 }
 
@@ -374,6 +390,8 @@ export function draftFromProfile(profile: IdentityProfile | null): IdentityDraft
     secondGuardianName: text(profile.secondGuardianName),
     secondGuardianPhone: text(profile.secondGuardianPhone),
     secondGuardianRelation: text(profile.secondGuardianRelation),
+    signature: text(profile.signature),
+    signatureImageUri: "",
   };
 }
 
@@ -435,6 +453,16 @@ export function validateIdentity(draft: IdentityDraft): IdentityErrors {
     errors.guardianPhone = guardianPhone;
   }
 
+  /*
+   * Either form will do. A photographed signature has no strokes to measure, so
+   * the only thing to check is that a file was chosen — the server re-checks
+   * that it is an image the account owns, which is not a claim a client can
+   * make for itself.
+   */
+  if (!isSignatureComplete(draft.signature) && !draft.signatureImageUri.trim()) {
+    errors.signature = "Sign your card — draw it, or photograph it on paper.";
+  }
+
   /* Optional-when-filled from here down. */
 
   if (text("dateOfBirth") && !ISO_DATE.test(text("dateOfBirth"))) {
@@ -488,6 +516,182 @@ export function validateIdentity(draft: IdentityDraft): IdentityErrors {
   }
 
   return errors;
+}
+
+/**
+ * The form as a sequence of screens.
+ *
+ * ## Why it is a sequence at all
+ *
+ * The thing being collected here is a KYC pack: name, address, guardian,
+ * government ID, a face and a signature. As one page it was a wall — seven
+ * cards, thirty-odd fields, a signature pad at the bottom — and the shape of a
+ * wall is that you cannot tell from the top whether you are five minutes or
+ * twenty from the end. One question-group per screen with a counter above it
+ * answers that before the first field is touched, which is the entire reason
+ * every bank app these residents use collects exactly this data exactly this
+ * way.
+ *
+ * ## The order is not arbitrary
+ *
+ * Easy and personal first (name, phone), dull in the middle (address, study),
+ * and the two that need the camera last. Somebody who opens the form on a bus
+ * can get six steps in and only then be asked to point a camera at their face.
+ *
+ * ## Every step is a step, including the optional one
+ *
+ * "Study or work" asks for nothing required, and it still gets its own screen
+ * with a Skip. Folding it into a neighbour to save a tap would make one screen
+ * two jobs, and a step that can be dismissed in one tap costs less than a
+ * screen that has to be read twice.
+ */
+export type IdentityStep =
+  | "about"
+  | "contact"
+  | "address"
+  | "work"
+  | "guardian"
+  | "preferences"
+  | "photo"
+  | "signature"
+  | "review";
+
+export const IDENTITY_STEPS: readonly {
+  key: IdentityStep;
+  /** Shown under the counter in the header, and as the screen's own lead line. */
+  subtitle: string;
+  title: string;
+}[] = [
+  { key: "about", subtitle: "As written on your ID", title: "About you" },
+  { key: "contact", subtitle: "How a hostel reaches you", title: "Contact" },
+  { key: "address", subtitle: "Where you are from", title: "Address" },
+  { key: "work", subtitle: "Optional — skip if neither fits", title: "Study or work" },
+  {
+    key: "guardian",
+    subtitle: "One reachable adult, at least",
+    title: "Guardian and emergency",
+  },
+  {
+    key: "preferences",
+    subtitle: "Food, safety notes and your ID document",
+    title: "Preferences and ID",
+  },
+  { key: "photo", subtitle: "Goes on the front of your card", title: "Your photo" },
+  { key: "signature", subtitle: "Goes on the back of your card", title: "Your signature" },
+  { key: "review", subtitle: "Check it, then create your ID", title: "Review" },
+];
+
+/**
+ * Which draft fields each step owns.
+ *
+ * The validation rules themselves are **not** duplicated per step —
+ * {@link validateIdentity} stays the single statement of what the server will
+ * accept, and a step is a filter over its result. Splitting the rules instead
+ * would mean two places to change when the server's schema moves, and the one
+ * that gets forgotten is always the one a user meets.
+ *
+ * `photo` owns no draft field: whether there is a photograph is a fact about an
+ * upload rather than about the draft, so that step's completeness is decided by
+ * the screen — see {@link identityStepComplete}.
+ */
+export const IDENTITY_STEP_FIELDS: Record<IdentityStep, readonly (keyof IdentityDraft)[]> =
+  {
+    about: ["fullName", "dateOfBirth", "gender", "bloodGroup"],
+    address: ["permanentAddress", "city", "province"],
+    contact: ["primaryPhone", "alternatePhone", "primaryEmail", "backupEmail"],
+    guardian: [
+      "guardianName",
+      "guardianRelation",
+      "guardianPhone",
+      "guardianEmail",
+      "secondGuardianName",
+      "secondGuardianRelation",
+      "secondGuardianPhone",
+      "secondGuardianEmail",
+      "emergencyContactName",
+      "emergencyContactRelation",
+      "emergencyContactPhone",
+    ],
+    photo: [],
+    preferences: [
+      "dietaryPreference",
+      "budgetRange",
+      "interests",
+      "medicalNotes",
+      "governmentIdType",
+      "governmentIdNumber",
+    ],
+    /* Nothing of its own: Review shows every step and edits none of them. */
+    review: [],
+    signature: ["signature", "signatureImageUri"],
+    work: ["occupation", "institution", "courseOrDesignation"],
+  };
+
+/** Just this step's problems, so a Continue press cannot flag a later screen. */
+export function validateIdentityStep(
+  step: IdentityStep,
+  draft: IdentityDraft,
+): IdentityErrors {
+  const all = validateIdentity(draft);
+  const errors: IdentityErrors = {};
+
+  for (const field of IDENTITY_STEP_FIELDS[step]) {
+    if (all[field]) {
+      errors[field] = all[field];
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Whether a step is done, for the tick beside it on Review and for the tracker.
+ *
+ * `assets` carries the two facts the draft cannot hold: whether a photograph
+ * exists (freshly picked, or already on the record from a previous save) and
+ * whether the signature is a photograph rather than strokes.
+ */
+export function identityStepComplete(
+  step: IdentityStep,
+  draft: IdentityDraft,
+  assets: { hasPhoto: boolean; hasSignatureImage: boolean },
+): boolean {
+  if (step === "photo") {
+    return assets.hasPhoto;
+  }
+
+  if (step === "signature") {
+    /*
+     * Three ways to be signed, and the draft holds two of them: strokes drawn
+     * just now, a photograph taken just now, or a photograph already on the
+     * record from a previous save with nothing re-sent this time.
+     */
+    return (
+      assets.hasSignatureImage ||
+      Boolean(draft.signatureImageUri.trim()) ||
+      isSignatureComplete(draft.signature)
+    );
+  }
+
+  return !hasIdentityErrors(validateIdentityStep(step, draft));
+}
+
+/**
+ * The first step still missing something, or `null` when the form is ready.
+ *
+ * Used to send somebody straight to what is wrong instead of walking them
+ * through nine screens to find it — the Review screen's "Some details need
+ * fixing" jumps here.
+ */
+export function firstIncompleteIdentityStep(
+  draft: IdentityDraft,
+  assets: { hasPhoto: boolean; hasSignatureImage: boolean },
+): IdentityStep | null {
+  return (
+    IDENTITY_STEPS.map((step) => step.key).find(
+      (key) => key !== "review" && !identityStepComplete(key, draft, assets),
+    ) ?? null
+  );
 }
 
 export function hasIdentityErrors(errors: IdentityErrors): boolean {
@@ -564,5 +768,12 @@ export function toProfileInput(draft: IdentityDraft): IdentityProfileInput {
     occupation: draft.occupation,
     primaryEmail: draft.primaryEmail.trim().toLowerCase(),
     primaryPhone: draft.primaryPhone.trim(),
+    /*
+     * Omitted entirely when the signature is a photograph, rather than sent as
+     * `""`. The server takes the *absence* of strokes beside a
+     * `signatureAssetId` as the instruction to store the image, and an empty
+     * string would fail the stroke grammar before it got that far.
+     */
+    ...(draft.signatureImageUri.trim() ? {} : { signature: draft.signature }),
   };
 }

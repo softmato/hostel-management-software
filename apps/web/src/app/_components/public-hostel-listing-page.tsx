@@ -26,6 +26,7 @@ import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 import { HostelCard, HostelListCard, NepalBannerGraphic, PublicShell } from "./shared";
 import { hasFood, mapPublicHostelToSummary } from "./public-hostel-data";
+import { facilityOptions } from "./registration-fields";
 
 function hostelTypeQuery(value: string) {
   if (value === "Boys") return "BOYS";
@@ -111,6 +112,8 @@ function PublicHostelListingPageContent() {
   const mobileFiltersOpen = useUiStore((state) => state.mobileFiltersOpen);
   const setMobileFiltersOpen = useUiStore((state) => state.setMobileFiltersOpen);
 
+  const [facilitySearch, setFacilitySearch] = useState("");
+
   // Seed the filters from the deep link (zustand action, not React setState —
   // safe inside an effect). The hero search resolves a sentence into these
   // params before navigating here, so arriving pre-filtered is the normal path.
@@ -126,7 +129,12 @@ function PublicHostelListingPageContent() {
     if (area) patch.area = area;
 
     const facility = params.get("facility");
-    if (facility) patch.facilities = facility;
+    if (facility) {
+      patch.facilities = facility
+        .split(",")
+        .map((f) => f.trim())
+        .filter(Boolean);
+    }
 
     const room = params.get("roomType");
     if (room) patch.room = room;
@@ -162,7 +170,7 @@ function PublicHostelListingPageContent() {
 
     return {
       area: selectedArea !== "All Areas" ? selectedArea : undefined,
-      facility: selectedFacilities !== "All Facilities" ? selectedFacilities : undefined,
+      facility: selectedFacilities.length > 0 ? selectedFacilities.join(",") : undefined,
       food: dietQuery(selectedDiet),
       maxPrice: budget.maxPrice,
       minPrice: budget.minPrice,
@@ -510,36 +518,59 @@ function PublicHostelListingPageContent() {
 
               {/* Facilities */}
               <div className="space-y-2 pt-2 border-t border-border/60">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Facilities
-                </p>
-                <div className="space-y-2">
-                  {[
-                    "All Facilities",
-                    "Wi-Fi",
-                    "Food",
-                    "CCTV",
-                    "Hot Water",
-                    "Laundry",
-                    "Study Room",
-                  ].map((facVal) => {
-                    const active = selectedFacilities === facVal;
-                    return (
-                      <label
-                        key={facVal}
-                        className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-foreground"
-                      >
-                        <input
-                          type="radio"
-                          name="facilities"
-                          checked={active}
-                          onChange={() => update({ facilities: facVal })}
-                          className="size-3.5 text-brand-teal border-border focus:ring-brand-teal"
-                        />
-                        <span>{facVal}</span>
-                      </label>
-                    );
-                  })}
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Facilities {selectedFacilities.length > 0 ? `(${selectedFacilities.length})` : ""}
+                  </p>
+                  {selectedFacilities.length > 0 ? (
+                    <button
+                      className="text-[10px] font-bold text-brand-teal hover:underline"
+                      onClick={() => update({ facilities: [] })}
+                      type="button"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="relative flex items-center rounded-lg border border-border bg-muted px-2.5 py-1.5 focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15 transition mb-2">
+                  <Search className="size-3 text-muted-foreground shrink-0" />
+                  <input
+                    aria-label="Filter facilities"
+                    className="ml-1.5 w-full bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
+                    onChange={(e) => setFacilitySearch(e.target.value)}
+                    placeholder="Filter amenities..."
+                    value={facilitySearch}
+                  />
+                </div>
+
+                <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-thin pr-1">
+                  {facilityOptions
+                    .filter((facVal) =>
+                      facVal.toLowerCase().includes(facilitySearch.trim().toLowerCase()),
+                    )
+                    .map((facVal) => {
+                      const active = selectedFacilities.includes(facVal);
+                      return (
+                        <label
+                          key={facVal}
+                          className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-foreground py-0.5"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            onChange={() => {
+                              const next = active
+                                ? selectedFacilities.filter((f) => f !== facVal)
+                                : [...selectedFacilities, facVal];
+                              update({ facilities: next });
+                            }}
+                            className="size-3.5 rounded border-border text-brand-teal focus:ring-brand-teal"
+                          />
+                          <span>{facVal}</span>
+                        </label>
+                      );
+                    })}
                 </div>
               </div>
 

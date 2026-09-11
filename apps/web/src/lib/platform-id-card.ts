@@ -21,6 +21,8 @@
  * linked straight to R2.
  */
 
+import { drawSignature } from "@/lib/signature";
+
 /** Logical drawing units. Roughly ID-1 portrait (54 × 86 mm). */
 export const CARD_WIDTH = 640;
 export const CARD_HEIGHT = 1000;
@@ -50,6 +52,15 @@ export type IdCardData = {
   qr?: HTMLImageElement | null;
   residentId: string;
   role: string;
+  /** Stroke data from lib/signature.ts, drawn above the back's signature rule. */
+  signature?: string | null;
+  /**
+   * A photographed signature, for holders who signed on paper. Takes
+   * precedence over the strokes when both somehow arrive: the record only ever
+   * stores one, so two means something upstream is confused, and the image is
+   * the one a person can look at and recognise as theirs.
+   */
+  signatureImage?: HTMLImageElement | null;
   siteLabel: string;
 };
 
@@ -137,7 +148,29 @@ export function idCardNoun(cardType: PlatformIdCardType = "RESIDENT") {
   return CARD_NOUNS[cardType];
 }
 
-const SANS = '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif';
+/**
+ * The browser stack. Inter is the app's own face; the rest is what a machine
+ * without it should reach for.
+ */
+const SANS_BROWSER = '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif';
+
+let SANS = SANS_BROWSER;
+
+/**
+ * Narrows the stack for the server renderer, which registers Inter itself.
+ *
+ * A fallback is exactly what hid the blank-card bug: the same painter drew a
+ * perfect card on Windows (Segoe UI installed) and an empty one on Vercel (no
+ * fonts at all), so nothing in local development or CI could see it. On the
+ * server the stack is Inter alone, so a registration failure shows up as a
+ * blank render in a test rather than as an email to a resident.
+ *
+ * Process-wide by design: `platform-id-card.server.ts` is the only caller and
+ * it is never bundled for the browser.
+ */
+export function setIdCardFontStack(stack: string) {
+  SANS = stack;
+}
 
 const font = (weight: number, size: number) => `${weight} ${size}px ${SANS}`;
 
@@ -520,6 +553,38 @@ function drawFront(ctx: CanvasRenderingContext2D, data: IdCardData) {
   ctx.letterSpacing = "0px";
 }
 
+/** Where the signature sits on the back. `id-card-face.tsx` mirrors these numbers. */
+const SIGNATURE_BOX = { height: 80, width: 240, x: 338, y: 726 };
+
+/**
+ * A photographed signature, fitted into the same box the drawn one gets.
+ *
+ * `contain`, never `cover`: a signature cropped to fill a 3:1 box loses its
+ * ends, and the ends are the part a person recognises. Whatever paper the
+ * photograph came on stays as it is — the capture already cropped to the guide
+ * frame, and trying to key out a background here would eat thin strokes along
+ * with it.
+ */
+function drawSignatureImage(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  box: { height: number; width: number; x: number; y: number },
+) {
+  const width = image.width || box.width;
+  const height = image.height || box.height;
+  const scale = Math.min(box.width / width, box.height / height);
+  const drawWidth = width * scale;
+  const drawHeight = height * scale;
+
+  ctx.drawImage(
+    image,
+    box.x + (box.width - drawWidth) / 2,
+    box.y + (box.height - drawHeight) / 2,
+    drawWidth,
+    drawHeight,
+  );
+}
+
 function drawBack(ctx: CanvasRenderingContext2D, data: IdCardData) {
   const variant = variantOf(data);
 
@@ -575,19 +640,29 @@ function drawBack(ctx: CanvasRenderingContext2D, data: IdCardData) {
   ctx.font = font(500, 15);
   ctx.fillText(`Issued ${data.issuedOn}`, 62, y + 126);
 
-  // Signature rule, as on the reference back face.
+  /*
+   * Signature rule, as on the reference back face — in the right-hand column,
+   * because the left one holds the id and issue date, which run down to ~y 760
+   * and would sit on top of the ink.
+   */
+  if (data.signatureImage) {
+    drawSignatureImage(ctx, data.signatureImage, SIGNATURE_BOX);
+  } else {
+    drawSignature(ctx, data.signature, SIGNATURE_BOX, INK);
+  }
+
   ctx.strokeStyle = HAIRLINE;
   ctx.lineWidth = 2;
   ctx.setLineDash([10, 8]);
   ctx.beginPath();
-  ctx.moveTo(62, 812);
-  ctx.lineTo(320, 812);
+  ctx.moveTo(SIGNATURE_BOX.x, 812);
+  ctx.lineTo(SIGNATURE_BOX.x + SIGNATURE_BOX.width, 812);
   ctx.stroke();
   ctx.setLineDash([]);
 
   ctx.fillStyle = MUTED;
   ctx.font = font(600, 14);
-  ctx.fillText("Cardholder signature", 62, 838);
+  ctx.fillText("Cardholder signature", SIGNATURE_BOX.x, 838);
 
   ctx.fillStyle = INK;
   ctx.font = font(700, 15);

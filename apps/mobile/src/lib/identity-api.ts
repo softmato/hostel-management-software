@@ -110,6 +110,15 @@ export type IdentityProfile = {
   secondGuardianName?: string;
   secondGuardianPhone?: string;
   secondGuardianRelation?: string;
+  /**
+   * Stroke data (`lib/signature.ts`) — the drawn signature.
+   *
+   * Optional because it is one of *two* ways to sign: the other is a photograph
+   * of a signature on paper, which is not in the profile at all but an asset
+   * handle, surfaced as `identity.hasSignatureImage`. The server insists on
+   * exactly one and clears whichever was not chosen.
+   */
+  signature?: string;
 };
 
 /** What the save endpoint accepts — `age` is derived and must not be sent back. */
@@ -128,6 +137,12 @@ export type Identity = {
   hasPhoto: boolean;
   /** False until the first successful save. Without it there is no card and no id. */
   hasProfile: boolean;
+  /**
+   * True when the back of the card is signed with a photograph rather than with
+   * `profile.signature`. The bytes come from
+   * `/users/resident-identity/signature` — see `identitySignatureSource`.
+   */
+  hasSignatureImage: boolean;
   lastSharedAt: string | null;
   /** Cache-buster for the photo URL — bump it and the phone refetches. */
   photoUpdatedAt: string | null;
@@ -135,6 +150,8 @@ export type Identity = {
   shareCount: number;
   shareUrl: string | null;
   sharingEnabled: boolean;
+  /** Cache-buster for the signature URL, exactly as `photoUpdatedAt` is. */
+  signatureUpdatedAt: string | null;
   updatedAt: string | null;
 };
 
@@ -171,14 +188,39 @@ export async function getIdentityQr() {
   return unwrap(response);
 }
 
-/** PUT, not POST — one profile per account, upserted. Returns the whole identity. */
+/**
+ * PUT, not POST — one profile per account, upserted. Returns the whole identity.
+ *
+ * `photoAssetId` attaches an already-uploaded photo in the same write; the
+ * first save is refused without one. The server also overwrites
+ * `primaryEmail` with the sign-in email whenever the account has one, and
+ * answers 409 `RESIDENT_EMAIL_TAKEN` when a typed one belongs to someone else.
+ */
 export async function saveIdentity(input: {
+  photoAssetId?: string;
   profile: IdentityProfileInput;
+  /**
+   * A photographed signature, uploaded through `uploadAsset` first. Sending
+   * this *and* `profile.signature` is refused — the card has one signature
+   * line, so the server will not be handed two candidates for it.
+   */
+  signatureAssetId?: string;
   sharingEnabled: boolean;
 }) {
   const response = await api.put<ApiEnvelope<IdentityResponse>>(
     "/users/resident-identity",
     input,
+  );
+
+  return unwrap(response);
+}
+
+export type EmailCheckStatus = "AVAILABLE" | "TAKEN" | "YOURS";
+
+/** The form's live check. Rate limited server-side; the save re-checks anyway. */
+export async function checkIdentityEmail(email: string) {
+  const response = await api.get<ApiEnvelope<{ email: string; status: EmailCheckStatus }>>(
+    `/users/resident-identity/email-check?email=${encodeURIComponent(email)}`,
   );
 
   return unwrap(response);
@@ -237,5 +279,29 @@ export function identityPhotoSource(
   return {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     uri: `${API_BASE_URL}/api/v1/users/resident-identity/photo?v=${version}`,
+  };
+}
+
+/**
+ * An `<Image source>` for a photographed signature.
+ *
+ * Same arrangement and the same reasoning as {@link identityPhotoSource}: the
+ * endpoint streams rather than redirecting, so the bearer header has nowhere to
+ * leak to, and the `v=` query is what stops `expo-image`'s disk cache from
+ * showing the signature this one replaced.
+ */
+export function identitySignatureSource(
+  identity: Pick<Identity, "hasSignatureImage" | "signatureUpdatedAt">,
+  token: string | null | undefined,
+) {
+  if (!identity.hasSignatureImage) {
+    return null;
+  }
+
+  const version = encodeURIComponent(identity.signatureUpdatedAt ?? "1");
+
+  return {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    uri: `${API_BASE_URL}/api/v1/users/resident-identity/signature?v=${version}`,
   };
 }

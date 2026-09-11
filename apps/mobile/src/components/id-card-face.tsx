@@ -3,9 +3,11 @@ import { Image } from "expo-image";
 import { useState } from "react";
 import { View } from "react-native";
 
+import { SignatureInk } from "@/components/signature-pad";
 import { Text } from "@/components/ui/text";
 import { APP_NAME } from "@/constants/branding";
 import { CARD_ASPECT, CARD_COLORS, type IdCard } from "@/lib/id-card";
+import { signatureStrokes } from "@/lib/signature";
 
 /**
  * One face of the ID card.
@@ -50,6 +52,9 @@ const { brand: BRAND, hairline: HAIRLINE, ink: INK, muted: MUTED, paper: PAPER }
 
 /** The portrait placeholder's wash — `#e4f2ea` in `drawPortrait`. */
 const PLACEHOLDER = "#e4f2ea";
+
+/** `platform-id-card.ts`'s `SIGNATURE_BOX`, in card units. */
+const SIGNATURE_BOX = { height: 80, width: 240, x: 338, y: 726 };
 
 export function IdCardFace({
   card,
@@ -742,12 +747,41 @@ function CardBack({
         </Text>
       </View>
 
-      <Rule dashed from={62} s={s} to={320} y={812} />
+      {/*
+        The web's `SIGNATURE_BOX` — the right-hand column, since the id and
+        issue date on the left run down to where the ink would be.
+      */}
+      {card.signature ? (
+        <View
+          style={{
+            height: SIGNATURE_BOX.height * s,
+            left: SIGNATURE_BOX.x * s,
+            position: "absolute",
+            top: SIGNATURE_BOX.y * s,
+            width: SIGNATURE_BOX.width * s,
+          }}
+        >
+          <SignatureInk
+            color={INK}
+            height={SIGNATURE_BOX.height * s}
+            strokes={signatureStrokes(card.signature)}
+            width={SIGNATURE_BOX.width * s}
+          />
+        </View>
+      ) : null}
+
+      <Rule
+        dashed
+        from={SIGNATURE_BOX.x}
+        s={s}
+        to={SIGNATURE_BOX.x + SIGNATURE_BOX.width}
+        y={812}
+      />
 
       <Line
         baseline={838}
         color={MUTED}
-        left={62}
+        left={SIGNATURE_BOX.x}
         right={CARD_W - 62}
         s={s}
         size={14}

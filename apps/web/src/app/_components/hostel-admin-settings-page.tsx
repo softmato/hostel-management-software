@@ -69,11 +69,13 @@ const ATTENDANCE_ENDPOINT = "/api/v1/hostel-admin/attendance/settings";
 const COOK_ENDPOINT = "/api/v1/hostel-admin/cook-portal";
 const COMMUNITY_ENDPOINT = "/api/v1/hostel-admin/settings/community";
 
-function SectionIcon({ icon: Icon, label }: { icon: typeof MapPin; label: string }) {
+function SectionIcon({ icon: Icon, bg = "bg-blue-500", label }: { icon: typeof MapPin; bg?: string; label: string }) {
   return (
     <span className="flex items-center gap-2">
-      <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
-      {label}
+      <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${bg} text-white shadow-sm`}>
+        <Icon aria-hidden="true" className="size-4" />
+      </span>
+      <span className="font-medium">{label}</span>
     </span>
   );
 }

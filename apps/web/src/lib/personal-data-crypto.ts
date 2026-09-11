@@ -1,4 +1,10 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+} from "node:crypto";
 
 /**
  * Envelope encryption for the personal data users hand us once and re-share
@@ -54,6 +60,18 @@ function encryptionKey() {
 /** Test helper — forces the next call to re-read the environment. */
 export function resetPersonalDataKeyCache() {
   cachedKey = null;
+}
+
+/**
+ * A blind index: lets one encrypted field be matched for equality without
+ * storing it in plaintext. Keyed off the same secret (with its own label), so
+ * a database dump cannot be brute-forced against a list of known addresses
+ * without the key too.
+ */
+export function personalLookupHash(value: string) {
+  return createHmac("sha256", encryptionKey())
+    .update(`lookup:v1:${value.trim().toLowerCase()}`)
+    .digest("base64url");
 }
 
 export function isPersonalDataEncryptionConfigured() {

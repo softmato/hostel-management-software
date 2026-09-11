@@ -143,6 +143,12 @@ type ScreenProps = {
   padded?: boolean;
   refreshing?: boolean;
   scroll?: boolean;
+  /**
+   * Pauses the page scroll without unmounting it — for a child that needs the
+   * vertical drag itself, like the signature pad. On Android the native
+   * ScrollView takes a vertical drag from any JS responder, whatever it asks.
+   */
+  scrollEnabled?: boolean;
 };
 
 export function Screen({
@@ -159,6 +165,7 @@ export function Screen({
   padded = true,
   refreshing = false,
   scroll = false,
+  scrollEnabled = true,
 }: ScreenProps) {
   const insets = useSystemInsets();
   const { colors } = useAppTheme();
@@ -223,6 +230,7 @@ export function Screen({
       contentContainerStyle={{ paddingBottom: contentBottomPad }}
       keyboardShouldPersistTaps="handled"
       onScroll={scrollHandler}
+      scrollEnabled={scrollEnabled}
       refreshControl={
         onRefresh ? (
           <RefreshControl

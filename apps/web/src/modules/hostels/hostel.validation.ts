@@ -210,7 +210,7 @@ export const hostelResubmitDocumentsSchema = z.object({
 
 export const publicHostelListQuerySchema = z.object({
   area: z.string().trim().min(1).max(120).optional(),
-  facility: z.string().trim().min(1).max(80).optional(),
+  facility: z.string().trim().min(1).max(500).optional(),
   food: z.enum(["veg", "non-veg"]).optional(),
   maxPrice: z.coerce.number().nonnegative().optional(),
   minPrice: z.coerce.number().nonnegative().optional(),

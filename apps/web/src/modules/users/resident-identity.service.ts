@@ -4,7 +4,11 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
-import { decryptPersonalData, encryptPersonalData } from "@/lib/personal-data-crypto";
+import {
+  decryptPersonalData,
+  encryptPersonalData,
+  personalLookupHash,
+} from "@/lib/personal-data-crypto";
 import { getPresignedReadUrl } from "@/lib/r2";
 import { siteUrl } from "@/lib/site";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
@@ -41,6 +45,8 @@ type ProfileRecord = {
   photoAssetId?: Types.ObjectId | null;
   photoUpdatedAt?: Date | null;
   shareCount?: number;
+  signatureAssetId?: Types.ObjectId | null;
+  signatureUpdatedAt?: Date | null;
   sharingEnabled?: boolean;
   updatedAt?: Date;
   userId: Types.ObjectId;
@@ -279,6 +285,16 @@ export async function getResidentIdentity(userId: string) {
       shareCount: record?.shareCount ?? 0,
       shareUrl: user.userResidentId ? residentIdShareUrl(user.userResidentId) : null,
       sharingEnabled: record?.sharingEnabled ?? true,
+      /*
+       * Whether the back of the card is signed with a photograph rather than
+       * with the strokes in `profile.signature`. The bytes are not here: they
+       * are streamed by `/users/resident-identity/signature`, same-origin, for
+       * the same reason the photo is — a canvas that draws a cross-origin image
+       * is tainted and cannot be exported. The timestamp is the cache key, so
+       * re-signing never shows the previous signature.
+       */
+      hasSignatureImage: Boolean(record?.signatureAssetId),
+      signatureUpdatedAt: record?.signatureUpdatedAt?.toISOString() ?? null,
       updatedAt: record?.updatedAt?.toISOString() ?? null,
     },
     profile: profile
@@ -305,6 +321,48 @@ export async function getResidentIdentityQr(userId: string) {
   };
 }
 
+export type ResidentEmailStatus = "AVAILABLE" | "TAKEN" | "YOURS";
+
+/**
+ * Whether an address is free to go on this account's card.
+ *
+ * TAKEN when it is another account's sign-in email, or another card's primary
+ * email — the second found through the blind index, since the profile itself
+ * is encrypted and cannot be searched.
+ */
+async function residentEmailStatus(
+  userId: Types.ObjectId,
+  email: string,
+): Promise<ResidentEmailStatus> {
+  const normalized = email.trim().toLowerCase();
+  const [account, card] = await Promise.all([
+    UserModel.findOne({ email: normalized, isDeleted: { $ne: true } })
+      .select("_id")
+      .lean<{ _id: Types.ObjectId } | null>(),
+    UserResidentProfileModel.exists({
+      isDeleted: { $ne: true },
+      primaryEmailHash: personalLookupHash(normalized),
+      userId: { $ne: userId },
+    }),
+  ]);
+
+  if (account && !account._id.equals(userId)) {
+    return "TAKEN";
+  }
+
+  if (card) {
+    return "TAKEN";
+  }
+
+  return account ? "YOURS" : "AVAILABLE";
+}
+
+export async function checkResidentEmail(userId: string, email: string) {
+  await connectToDatabase();
+
+  return { email, status: await residentEmailStatus(normalizeUserId(userId), email) };
+}
+
 export async function saveResidentIdentity(
   userId: string,
   input: ResidentIdentitySaveInput,
@@ -319,7 +377,38 @@ export async function saveResidentIdentity(
     throw new ResidentIdentityError("User was not found.", "USER_NOT_FOUND", 404);
   }
 
-  const residentId = user.userResidentId || (await mintResidentId(userId));
+  /*
+   * The card's email is the sign-in email whenever the account has one. The
+   * clients show it read-only, but that was only ever a client promise — a
+   * direct PUT could put somebody else's address on a card. Now the server
+   * decides, and only an account with no email of its own may type one, which
+   * then has to be free.
+   */
+  const profile: ResidentProfileData = user.email
+    ? { ...input.profile, primaryEmail: user.email.toLowerCase() }
+    : input.profile;
+
+  if (
+    profile.backupEmail &&
+    profile.backupEmail.toLowerCase() === profile.primaryEmail.toLowerCase()
+  ) {
+    throw new ResidentIdentityError(
+      "The backup email must be different from your account email.",
+      "RESIDENT_BACKUP_EMAIL_SAME",
+      422,
+    );
+  }
+
+  if (
+    !user.email &&
+    (await residentEmailStatus(user._id, profile.primaryEmail)) === "TAKEN"
+  ) {
+    throw new ResidentIdentityError(
+      "That email is already used by another account. Use a different one.",
+      "RESIDENT_EMAIL_TAKEN",
+      409,
+    );
+  }
 
   // Only the *first* completed save mints a card; later edits are just edits and
   // must not re-send the card email every time someone fixes a typo.
@@ -327,25 +416,91 @@ export async function saveResidentIdentity(
     isDeleted: { $ne: true },
     userId: user._id,
   })
-    .select("completedAt")
-    .lean<{ completedAt?: Date } | null>();
+    .select("completedAt photoAssetId signatureAssetId")
+    .lean<{
+      completedAt?: Date;
+      photoAssetId?: Types.ObjectId | null;
+      signatureAssetId?: Types.ObjectId | null;
+    } | null>();
   const isFirstCard = !existing?.completedAt;
+
+  // Checked before the id is minted, so a refused save leaves no half-card.
+  const photo = input.photoAssetId
+    ? await loadOwnedImageAsset(user._id, input.photoAssetId, "photo")
+    : null;
+
+  if (!photo && !existing?.photoAssetId) {
+    throw new ResidentIdentityError(
+      "Add a photo of yourself — it goes on the front of your card.",
+      "PHOTO_REQUIRED",
+      422,
+    );
+  }
+
+  const signatureImage = input.signatureAssetId
+    ? await loadOwnedImageAsset(user._id, input.signatureAssetId, "signature")
+    : null;
+
+  /*
+   * A signature can be drawn on the screen or photographed off paper, and the
+   * card has room for exactly one. The rule cannot live in the schema: the
+   * strokes ride inside the encrypted profile, the photograph is a handle on
+   * the envelope, and whether the *record* already carries one is a third fact
+   * neither of them can see. So all three are weighed here.
+   */
+  const hasNewSignature = Boolean(profile.signature || signatureImage);
+
+  /*
+   * Only the photographed one has a "still there from last time" state. Drawn
+   * strokes live inside `encryptedData`, which every save rewrites whole, so a
+   * client that edits a profile and omits them is asking for them to be gone —
+   * the edit screen resends what it was given for exactly this reason.
+   */
+  if (!hasNewSignature && !existing?.signatureAssetId) {
+    throw new ResidentIdentityError(
+      "Sign your card — draw it on the screen or photograph your signature on paper.",
+      "SIGNATURE_REQUIRED",
+      422,
+    );
+  }
+
+  const residentId = user.userResidentId || (await mintResidentId(userId));
+  const photoUpdatedAt = new Date();
 
   await UserResidentProfileModel.findOneAndUpdate(
     { userId: user._id },
     {
       $set: {
         completedAt: new Date(),
-        encryptedData: encryptPersonalData(input.profile),
+        encryptedData: encryptPersonalData(profile),
         isDeleted: false,
         payloadVersion: 1,
+        primaryEmailHash: personalLookupHash(profile.primaryEmail),
         sharingEnabled: input.sharingEnabled,
         updatedBy: user._id,
+        ...(photo ? { photoAssetId: photo._id, photoUpdatedAt } : {}),
+        ...(signatureImage
+          ? { signatureAssetId: signatureImage._id, signatureUpdatedAt: photoUpdatedAt }
+          : {}),
       },
+      /*
+       * Switching from a photographed signature back to a drawn one has to
+       * *remove* the handle, not merely stop writing it. Left in place, the
+       * card painter would find both and the back of the card would show
+       * whichever the drawing order happened to favour — a signature the holder
+       * had already replaced.
+       */
+      ...(profile.signature
+        ? { $unset: { signatureAssetId: "", signatureUpdatedAt: "" } }
+        : {}),
       $setOnInsert: { createdBy: user._id },
     },
     { new: true, upsert: true },
   );
+
+  if (photo) {
+    await syncAvatarWithCardPhoto(user._id, { version: photoUpdatedAt });
+  }
 
   await AuditLogModel.create({
     action: "RESIDENT_PROFILE_SAVED",
@@ -467,12 +622,47 @@ async function syncAvatarWithCardPhoto(
  * than taken on trust — otherwise anyone could point their card at somebody
  * else's private upload and then read it back through the photo proxy below.
  */
-export async function setResidentIdentityPhoto(userId: string, photoAssetId: string) {
-  await connectToDatabase();
+/**
+ * The three questions worth asking about any image handed in by id: does it
+ * exist, does it belong to the caller, and is it actually an image.
+ *
+ * Written once and parameterised by `kind` because the card now takes two
+ * uploads — the holder's face, and a signature photographed off paper — and
+ * both are attached the same way: bytes go to R2 through the universal
+ * uploader, and only the FileAsset id reaches this service. An id from a
+ * request is a claim about ownership, never proof of it, so the check has to
+ * happen server-side on every path that accepts one. Duplicating it per field
+ * is how one of them eventually ends up missing a clause.
+ *
+ * Error codes stay per-kind so a client can tell the user which upload went
+ * wrong rather than saying "an image" and leaving them to guess.
+ */
+const ASSET_KINDS = {
+  photo: {
+    forbidden: "PHOTO_FORBIDDEN",
+    notAnImage: "PHOTO_NOT_AN_IMAGE",
+    notFound: "PHOTO_NOT_FOUND",
+    notFoundMessage: "That upload could not be found. Please pick the photo again.",
+    notImageMessage: "Your ID card photo has to be an image.",
+  },
+  signature: {
+    forbidden: "SIGNATURE_FORBIDDEN",
+    notAnImage: "SIGNATURE_NOT_AN_IMAGE",
+    notFound: "SIGNATURE_NOT_FOUND",
+    notFoundMessage:
+      "That signature upload could not be found. Photograph your signature again.",
+    notImageMessage: "Your signature has to be a photo.",
+  },
+} as const;
 
-  const owner = normalizeUserId(userId);
+async function loadOwnedImageAsset(
+  owner: Types.ObjectId,
+  assetId: string,
+  kind: keyof typeof ASSET_KINDS,
+) {
+  const messages = ASSET_KINDS[kind];
   const asset = await FileAssetModel.findOne({
-    _id: photoAssetId,
+    _id: assetId,
     isDeleted: { $ne: true },
     status: "ACTIVE",
   })
@@ -480,29 +670,29 @@ export async function setResidentIdentityPhoto(userId: string, photoAssetId: str
     .lean<PhotoAssetRecord | null>();
 
   if (!asset) {
-    throw new ResidentIdentityError(
-      "That upload could not be found. Please pick the photo again.",
-      "PHOTO_NOT_FOUND",
-      404,
-    );
+    throw new ResidentIdentityError(messages.notFoundMessage, messages.notFound, 404);
   }
 
   if (!asset.ownerId || asset.ownerId.toString() !== owner.toString()) {
     throw new ResidentIdentityError(
       "That upload does not belong to you.",
-      "PHOTO_FORBIDDEN",
+      messages.forbidden,
       403,
     );
   }
 
   if (!asset.mimeType?.startsWith("image/")) {
-    throw new ResidentIdentityError(
-      "Your ID card photo has to be an image.",
-      "PHOTO_NOT_AN_IMAGE",
-      422,
-    );
+    throw new ResidentIdentityError(messages.notImageMessage, messages.notAnImage, 422);
   }
 
+  return asset;
+}
+
+export async function setResidentIdentityPhoto(userId: string, photoAssetId: string) {
+  await connectToDatabase();
+
+  const owner = normalizeUserId(userId);
+  const asset = await loadOwnedImageAsset(owner, photoAssetId, "photo");
   const photoUpdatedAt = new Date();
   const updated = await UserResidentProfileModel.findOneAndUpdate(
     { isDeleted: { $ne: true }, userId: owner },
@@ -633,6 +823,43 @@ export async function readResidentIdentityPhoto(userId: string) {
   return streamCardPhoto(record.photoAssetId, {
     missing: "Your photo is no longer available. Please upload it again.",
     unavailable: "Could not load your photo right now.",
+  });
+}
+
+/**
+ * The photographed signature, for the holder themselves.
+ *
+ * Same shape and the same reasoning as {@link readResidentIdentityPhoto}: no id
+ * in the path, so it can only ever answer with the caller's own, and the bytes
+ * come back through our origin rather than as a redirect to R2 so the card
+ * canvas can draw them and still be exported.
+ *
+ * This is the one asset on the card that a hostel is never shown. The scan
+ * endpoints hand over a face and a set of details so a warden can fill a
+ * registration form; a signature is the part of the document that authorises
+ * things, and there is no registration step that needs it.
+ */
+export async function readResidentIdentitySignature(userId: string) {
+  await connectToDatabase();
+
+  const record = await UserResidentProfileModel.findOne({
+    isDeleted: { $ne: true },
+    userId: normalizeUserId(userId),
+  })
+    .select("signatureAssetId")
+    .lean<ProfileRecord | null>();
+
+  if (!record?.signatureAssetId) {
+    throw new ResidentIdentityError(
+      "You have not photographed a signature.",
+      "SIGNATURE_MISSING",
+      404,
+    );
+  }
+
+  return streamCardPhoto(record.signatureAssetId, {
+    missing: "Your signature is no longer available. Photograph it again.",
+    unavailable: "Could not load your signature right now.",
   });
 }
 

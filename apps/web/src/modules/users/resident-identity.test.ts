@@ -14,7 +14,49 @@ const validProfile = {
   guardianRelation: "Mother",
   primaryEmail: "Asha@Example.com",
   primaryPhone: "9800000000",
+  signature: "M10 10L20 20L30 30L40 40M100 50L110 60L120 70L130 80",
 };
+
+describe("signature", () => {
+  /**
+   * A *missing* signature is legal here and refused a layer up.
+   *
+   * There are two ways to sign now — strokes in the profile, or a photograph of
+   * a signature on paper, which arrives as an asset id on the save envelope
+   * rather than inside the profile at all. This schema cannot see that field,
+   * and neither field can see whether the record already carries one, so
+   * "there has to be a signature" is `saveResidentIdentity`'s call
+   * (`SIGNATURE_REQUIRED`). What stays enforced here is that anything
+   * *presented* as strokes is real strokes.
+   */
+  it("allows the strokes to be absent, since they are one of two ways to sign", () => {
+    const without = { ...validProfile } as Partial<typeof validProfile>;
+    delete without.signature;
+
+    expect(residentProfileDataSchema.safeParse(without).success).toBe(true);
+  });
+
+  it("rejects a blank or out-of-box signature", () => {
+    expect(
+      residentProfileDataSchema.safeParse({ ...validProfile, signature: "M1 1L2 2" }).success,
+    ).toBe(false);
+    expect(
+      residentProfileDataSchema.safeParse({
+        ...validProfile,
+        signature: "M10 10L20 20L30 30L40 40M100 50L110 60L120 70L130 900",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects anything but M/L and integers", () => {
+    expect(
+      residentProfileDataSchema.safeParse({
+        ...validProfile,
+        signature: `${validProfile.signature}<script>`,
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("normalizeResidentId", () => {
   it("accepts the canonical format", () => {

@@ -90,6 +90,18 @@ const CANVAS_NATIVE = [
   "./node_modules/@napi-rs/canvas*/**/*",
 ];
 
+/**
+ * Inter, for the same three routes.
+ *
+ * A lambda has no system fonts, and `fillText` against an unresolvable family
+ * draws nothing without throwing — so the card PNGs attached to those emails
+ * arrived as shapes with every glyph missing, and the renderer's own `catch`
+ * never fired. The tracer cannot find these on its own: nothing `require`s a
+ * `.ttf`, and `id-card-fonts.ts` resolves the directory at runtime precisely so
+ * that nft does *not* sweep it.
+ */
+const ID_CARD_FONTS = ["./src/lib/fonts/*.ttf"];
+
 const nextConfig: NextConfig = {
   transpilePackages: ["@hostel/db", "@hostel/shared"],
   /**
@@ -175,9 +187,9 @@ const nextConfig: NextConfig = {
      * `status === "APPROVED"` guard, and the import that reaches it is dynamic,
      * so reject and hide never load the binary and do not need to carry it.
      */
-    "/api/v1/platform/hostels/*/approve": CANVAS_NATIVE,
-    "/api/v1/platform/service-providers/*/approve": CANVAS_NATIVE,
-    "/api/v1/users/resident-identity": CANVAS_NATIVE,
+    "/api/v1/platform/hostels/*/approve": [...CANVAS_NATIVE, ...ID_CARD_FONTS],
+    "/api/v1/platform/service-providers/*/approve": [...CANVAS_NATIVE, ...ID_CARD_FONTS],
+    "/api/v1/users/resident-identity": [...CANVAS_NATIVE, ...ID_CARD_FONTS],
   },
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];

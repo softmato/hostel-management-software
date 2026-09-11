@@ -2523,7 +2523,7 @@ export async function listPublicHostels(query: PublicHostelListQuery) {
 
   const filter: {
     $or?: Array<Record<string, RegExp>>;
-    facilities?: string;
+    facilities?: string | { $all: string[] };
     "food.hasNonVeg"?: true;
     "food.hasVeg"?: true;
     "location.area"?: RegExp;
@@ -2556,7 +2556,16 @@ export async function listPublicHostels(query: PublicHostelListQuery) {
   }
 
   if (query.facility) {
-    filter.facilities = query.facility;
+    const list = query.facility
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    if (list.length === 1) {
+      filter.facilities = list[0];
+    } else if (list.length > 1) {
+      filter.facilities = { $all: list };
+    }
   }
 
   if (query.food === "veg") {

@@ -18,6 +18,8 @@ export function ListRow({
   busy = false,
   className = "",
   icon,
+  iconBgColor,
+  iconColor,
   left,
   onPress,
   onPressIn,
@@ -26,44 +28,19 @@ export function ListRow({
   title,
   value,
 }: {
-  /**
-   * This row's own action is at the server.
-   *
-   * A row is a button here as often as a `<Button>` is — saving a card photo,
-   * removing one, acknowledging an alert — and a row that fires a request and
-   * then looks exactly as it did before is the complaint this prop answers. The
-   * chevron becomes a spinner, so the row keeps its shape, and the press is
-   * refused until the answer lands.
-   */
   busy?: boolean;
   className?: string;
   icon?: keyof typeof Ionicons.glyphMap;
-  /**
-   * Replaces the icon circle — an `<Avatar>`, a thumbnail, a checkbox.
-   *
-   * Takes precedence over `icon` rather than rendering beside it: a row with
-   * both a face and a symbol in front of the text has two leading columns and
-   * no clear subject.
-   */
+  /** Background color for iOS-style colorful square icon tile (e.g. "#FF9500") */
+  iconBgColor?: string;
+  /** Foreground icon color override (defaults to white if iconBgColor is present) */
+  iconColor?: string;
   left?: ReactNode;
   onPress?: () => void;
-  /**
-   * Touch-down, before the press resolves.
-   *
-   * One use only: starting the fetch the destination is about to make, so the
-   * screen behind the row is already loading while the finger is still on it.
-   * See `prefetchAdminRoute` in `lib/admin-queries.ts`.
-   *
-   * It must stay side-effect-free beyond that — this fires on a press that is
-   * then dragged off and cancelled, so anything that *changes* something would
-   * happen without the user having chosen it.
-   */
   onPressIn?: () => void;
-  /** Replaces the chevron/value slot entirely — a switch, a pill, a button. */
   right?: ReactNode;
   subtitle?: string;
   title: string;
-  /** Right-aligned secondary text, e.g. an amount. */
   value?: string;
 }) {
   const { colors } = useAppTheme();
@@ -72,8 +49,17 @@ export function ListRow({
     <View className={`min-h-14 flex-row items-center gap-3 py-3 ${className}`}>
       {left ??
         (icon ? (
-          <View className="h-9 w-9 items-center justify-center rounded-full bg-muted">
-            <Ionicons color={colors.mutedForeground} name={icon} size={18} />
+          <View
+            className={`h-8 w-8 items-center justify-center ${
+              iconBgColor ? "rounded-[9px] shadow-sm" : "rounded-full bg-muted"
+            }`}
+            style={iconBgColor ? { backgroundColor: iconBgColor } : undefined}
+          >
+            <Ionicons
+              color={iconColor ?? (iconBgColor ? "#FFFFFF" : colors.mutedForeground)}
+              name={icon}
+              size={18}
+            />
           </View>
         ) : null)}
 
@@ -126,7 +112,7 @@ export function ListRow({
 
 /** A hairline between rows. Inset past the icon column so it reads as a group. */
 export function RowDivider({ inset = false }: { inset?: boolean }) {
-  return <View className={`h-px bg-border ${inset ? "ml-12" : ""}`} />;
+  return <View className={`h-px bg-border/60 ${inset ? "ml-[52px]" : ""}`} />;
 }
 
 const CARD_ROW_TONES = {

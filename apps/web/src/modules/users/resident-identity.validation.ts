@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import {
+  SIGNATURE_HEIGHT,
+  SIGNATURE_WIDTH,
+  signatureStrokes,
+} from "@/lib/signature";
+
 /**
  * The "fill it once, reuse it everywhere" personal profile. Every field here is
  * encrypted at rest — see lib/personal-data-crypto.ts.
@@ -73,6 +79,43 @@ const optionalEmail = z.preprocess(
   blankToUndefined,
   z.string().trim().toLowerCase().email().optional(),
 );
+
+/*
+ * The cardholder signature — format in lib/signature.ts. Nothing but `M`/`L`
+ * and integers is accepted: it is drawn into `<canvas>` and native views, never
+ * parsed as markup, but a grammar this small leaves nothing to inject even if
+ * it one day were.
+ */
+const SIGNATURE_PATTERN = /^(?:[ML]\d{1,3} \d{1,3})+$/;
+const SIGNATURE_MIN_POINTS = 8;
+
+const signature = z
+  .string({ error: "Sign in the box before saving." })
+  .max(16_000, "That signature is too detailed. Clear it and sign again.")
+  .refine(
+    (value) => value.startsWith("M") && SIGNATURE_PATTERN.test(value),
+    "That signature could not be read. Clear it and sign again.",
+  )
+  .refine((value) => {
+    const points = signatureStrokes(value).flat();
+
+    return (
+      points.length >= SIGNATURE_MIN_POINTS &&
+      points.every(([x, y]) => x <= SIGNATURE_WIDTH && y <= SIGNATURE_HEIGHT)
+    );
+  }, "Sign in the box before saving.");
+
+/**
+ * Optional *here* and required by the service.
+ *
+ * A signature can now arrive two ways — drawn on the screen as the strokes
+ * above, or photographed off paper and uploaded as an image, which comes in on
+ * the envelope as `signatureAssetId` rather than inside the profile. Neither
+ * field can see the other from where it is declared, and neither knows what is
+ * already on the record, so "there has to be a signature" is decided in
+ * `saveResidentIdentity` — exactly as the card photo already is.
+ */
+const optionalSignature = z.preprocess(blankToUndefined, signature.optional());
 
 /** A `<select>` whose placeholder option carries `value=""`. */
 const optionalEnum = <T extends readonly [string, ...string[]]>(values: T) =>
@@ -148,6 +191,12 @@ export const residentProfileDataSchema = z
     /* Government ID — hostels are legally required to record one. */
     governmentIdType: optionalEnum(GOVERNMENT_ID_TYPE_VALUES),
     governmentIdNumber: optionalText(40),
+
+    /*
+     * Printed on the back of the card. Personal, so it lives in the blob —
+     * unlike a photographed signature, which is bytes in R2 behind a handle.
+     */
+    signature: optionalSignature,
   })
   .refine((value) => !value.backupEmail || value.backupEmail !== value.primaryEmail, {
     message: "The backup email must be different from your account email.",
@@ -156,9 +205,31 @@ export const residentProfileDataSchema = z
 
 export type ResidentProfileData = z.infer<typeof residentProfileDataSchema>;
 
-export const residentIdentitySaveSchema = z.object({
-  profile: residentProfileDataSchema,
-  sharingEnabled: z.boolean().default(true),
+const assetId = z.string().regex(/^[a-f\d]{24}$/i, "That is not a valid upload id.");
+
+export const residentIdentitySaveSchema = z
+  .object({
+    /**
+     * The card photo, attached in the same write as the details. Required by the
+     * service on the first save unless one is already on the record; ownership of
+     * the asset is re-checked there, never trusted from here.
+     */
+    photoAssetId: assetId.optional(),
+    profile: residentProfileDataSchema,
+    /**
+     * A photographed signature, uploaded through the same pipeline as the photo.
+     * The drawn alternative is `profile.signature`.
+     */
+    signatureAssetId: assetId.optional(),
+    sharingEnabled: z.boolean().default(true),
+  })
+  .refine((value) => !(value.profile.signature && value.signatureAssetId), {
+    message: "Send either a drawn signature or a photographed one, not both.",
+    path: ["signatureAssetId"],
+  });
+
+export const residentEmailCheckSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
 });
 
 export const residentIdentitySharingSchema = z.object({
@@ -171,7 +242,7 @@ export const residentIdentitySharingSchema = z.object({
  * FileAsset id it minted. Ownership of that asset is re-checked server-side.
  */
 export const residentIdentityPhotoSchema = z.object({
-  photoAssetId: z.string().regex(/^[a-f\d]{24}$/i, "That is not a valid upload id."),
+  photoAssetId: assetId,
 });
 
 /**

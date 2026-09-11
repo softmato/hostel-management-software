@@ -18,6 +18,12 @@ const userResidentProfileSchema = new Schema(
     /** Schema version of the decrypted payload, so future migrations can branch. */
     payloadVersion: { type: Number, default: 1 },
     completedAt: Date,
+    /**
+     * HMAC of the card's primary email (`personalLookupHash`), never the address
+     * itself — the one field that must be matchable, so no two cards can claim
+     * the same email while the blob stays opaque.
+     */
+    primaryEmailHash: { type: String, default: null },
     /*
      * The ID-card photo. Deliberately NOT inside `encryptedData`: the bytes live
      * in R2 as a PRIVATE FileAsset and this is only an opaque handle to them, so
@@ -27,6 +33,19 @@ const userResidentProfileSchema = new Schema(
     photoAssetId: { ref: "FileAsset", type: Schema.Types.ObjectId },
     /** Cache-buster for the photo proxy — a new photo must not serve a stale one. */
     photoUpdatedAt: Date,
+    /*
+     * A photographed signature, for holders who signed on paper instead of on
+     * the screen. The drawn alternative lives inside `encryptedData` as stroke
+     * data; exactly one of the two is ever set, and `saveResidentIdentity`
+     * clears whichever one was not chosen so the card can never hold two
+     * different signatures and have to guess.
+     *
+     * Same handle-not-bytes arrangement as the photo above, and the same
+     * PRIVATE bucket: a signature is the most forgeable thing on the card.
+     */
+    signatureAssetId: { ref: "FileAsset", type: Schema.Types.ObjectId },
+    /** Cache-buster for the signature proxy, as above. */
+    signatureUpdatedAt: Date,
     /** Bumped every time a hostel pulls this profile via QR / resident id. */
     shareCount: { type: Number, default: 0, min: 0 },
     lastSharedAt: Date,
@@ -43,6 +62,7 @@ const userResidentProfileSchema = new Schema(
 );
 
 userResidentProfileSchema.index({ userId: 1 }, { unique: true });
+userResidentProfileSchema.index({ primaryEmailHash: 1 });
 
 export const UserResidentProfileModel =
   models.UserResidentProfile ||

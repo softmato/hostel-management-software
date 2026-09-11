@@ -42,6 +42,18 @@ export const facilityOptions = [
   "First Aid",
   "Generator",
   "Garden",
+  "Personal Cupboard (Daraz)",
+  "Personal Table & Chair",
+  "Attached Bathroom",
+  "Balcony",
+  "Bedding & Mattress",
+  "Shoe Rack",
+  "Iron & Laundry Board",
+  "Solar Water Heater",
+  "Refrigerator",
+  "Gym / Fitness Area",
+  "Elevator",
+  "Fire Extinguisher",
 ];
 
 export const cityOptions = [

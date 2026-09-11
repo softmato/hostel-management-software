@@ -1,15 +1,38 @@
-"use client";
-
 import {
+  AlertCircle,
+  ArrowRight,
+  Briefcase,
+  Building,
+  Calendar,
   Camera,
   Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Copy,
+  CreditCard,
   Download,
+  Edit2,
+  FileText,
+  GraduationCap,
+  HeartPulse,
+  Home,
   Loader2,
+  Mail,
+  MapPin,
+  PenTool,
+  Phone,
+  Plus,
   QrCode,
   RotateCw,
+  Shield,
   ShieldCheck,
+  Sliders,
+  Sparkles,
   Trash2,
+  Upload,
+  User,
+  Utensils,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -27,7 +50,9 @@ import {
 import { createPortal } from "react-dom";
 
 import { PhotoCropper } from "@/components/photo-cropper";
+import { SignaturePad } from "@/components/signature-pad";
 import { useSiteConfig } from "@/components/site-config-provider";
+import { WebCameraModal } from "@/components/web-camera-modal";
 import { refreshSession } from "@/lib/auth-refresh";
 import { acceptAttribute, uploadHint } from "@/lib/uploads/accepts";
 import { uploadFile } from "@/lib/uploads/uploader";
@@ -40,6 +65,20 @@ import {
   type IdCardData,
   type PlatformIdCardType,
 } from "@/lib/platform-id-card";
+import {
+  IDENTITY_STEPS,
+  IDENTITY_STEP_FIELDS,
+  draftFromProfile,
+  emptyIdentityDraft,
+  firstIncompleteIdentityStep,
+  identityStepComplete,
+  validateIdentity,
+  validateIdentityStep,
+  type IdentityDraft,
+  type IdentityErrors,
+  type IdentityStep,
+} from "@/lib/id-card-steps";
+import { isSignatureComplete } from "@/lib/signature";
 import { cn } from "@/lib/utils";
 
 /*
@@ -116,6 +155,8 @@ type ResidentIdentity = {
   cardRole?: string | null;
   hasPhoto: boolean;
   hasProfile: boolean;
+  hasSignatureImage?: boolean;
+  signatureUpdatedAt?: string | null;
   lastSharedAt: string | null;
   photoUpdatedAt: string | null;
   residentId: string | null;
@@ -158,6 +199,8 @@ type ResidentProfile = {
   secondGuardianName?: string;
   secondGuardianPhone?: string;
   secondGuardianRelation?: string;
+  /** Stroke data (lib/signature.ts). Absent on profiles saved before it existed. */
+  signature?: string;
 };
 
 type IdentityResponse = {
@@ -238,9 +281,11 @@ function Modal({
 function Field({
   defaultValue,
   hint,
+  hintTone,
   label,
   max,
   name,
+  onChange,
   placeholder,
   readOnly,
   required,
@@ -248,9 +293,12 @@ function Field({
 }: {
   defaultValue?: string;
   hint?: string;
+  /** Colours the hint and the border — the live email check's verdict. */
+  hintTone?: "danger" | "success";
   label: string;
   max?: string;
   name: string;
+  onChange?: (value: string) => void;
   placeholder?: string;
   readOnly?: boolean;
   required?: boolean;
@@ -261,36 +309,106 @@ function Field({
       {label}
       {required ? <span className="text-danger"> *</span> : null}
       <input
+        aria-invalid={hintTone === "danger" || undefined}
         className={cn(
           "mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground outline-none transition placeholder:text-foreground/45 focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15",
           readOnly && "cursor-not-allowed bg-muted/50",
+          hintTone === "danger" && "border-danger",
         )}
         defaultValue={defaultValue}
         max={max}
         name={name}
+        onChange={onChange ? (event) => onChange(event.currentTarget.value) : undefined}
         placeholder={placeholder}
         readOnly={readOnly}
         required={required}
         type={type}
       />
       {hint ? (
-        <span className="mt-1 block text-xs font-medium text-foreground/75">{hint}</span>
+        <span
+          aria-live="polite"
+          className={cn(
+            "mt-1 block text-xs font-medium text-foreground/75",
+            hintTone === "danger" && "text-danger",
+            hintTone === "success" && "text-brand-teal",
+          )}
+        >
+          {hint}
+        </span>
       ) : null}
     </label>
   );
 }
+
+type EmailCheck = "idle" | "checking" | "AVAILABLE" | "TAKEN" | "YOURS";
+
+/**
+ * Asks the server whether an address is free once typing pauses. Each new
+ * keystroke cancels the pending ask, so only the address the person settled on
+ * is ever checked — and a slow answer for an older address cannot overwrite a
+ * newer one. The save re-checks; this only makes the refusal arrive early.
+ */
+function useEmailCheck(email: string, enabled: boolean): EmailCheck {
+  const [state, setState] = useState<EmailCheck>("idle");
+
+  useEffect(() => {
+    const value = email.trim().toLowerCase();
+
+    if (!enabled || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      setState("idle");
+      return;
+    }
+
+    let current = true;
+    setState("checking");
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await browserApi<{ status: Exclude<EmailCheck, "idle" | "checking"> }>(
+          `/api/v1/users/resident-identity/email-check?email=${encodeURIComponent(value)}`,
+        );
+
+        if (current) {
+          setState(result.status);
+        }
+      } catch {
+        // Rate limited or offline: say nothing rather than guess. The save decides.
+        if (current) {
+          setState("idle");
+        }
+      }
+    }, 600);
+
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [email, enabled]);
+
+  return state;
+}
+
+const EMAIL_CHECK_HINTS: Record<EmailCheck, { text?: string; tone?: "danger" | "success" }> = {
+  AVAILABLE: { text: "✓ Available", tone: "success" },
+  checking: { text: "Checking…" },
+  idle: {},
+  TAKEN: { text: "Already used by another account. Use a different email.", tone: "danger" },
+  YOURS: { text: "✓ This is your account's email", tone: "success" },
+};
 
 function SelectField({
   children,
   defaultValue,
   label,
   name,
+  onChange,
   required,
 }: {
   children: ReactNode;
   defaultValue?: string;
   label: string;
   name: string;
+  onChange?: (e: ChangeEvent<HTMLSelectElement>) => void;
   required?: boolean;
 }) {
   return (
@@ -301,6 +419,7 @@ function SelectField({
         className="mt-1.5 h-11 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground outline-none transition focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15"
         defaultValue={defaultValue}
         name={name}
+        onChange={onChange}
         required={required}
       >
         {children}
@@ -385,6 +504,7 @@ const FIELD_LABELS: Record<string, string> = {
   profile: "Profile",
   secondGuardianEmail: "Second guardian email",
   secondGuardianPhone: "Second guardian phone",
+  signature: "Signature",
 };
 
 /* ── The one-time profile form ── */
@@ -420,6 +540,15 @@ function ProfileForm({
   profile: ResidentProfile | null;
   reason: ProfilePromptReason;
 }) {
+  const [draft, setDraft] = useState<IdentityDraft>(() =>
+    draftFromProfile(profile),
+  );
+
+  const [stepKey, setStepKey] = useState<IdentityStep>(() =>
+    identity.hasProfile ? "review" : "about",
+  );
+
+  const [stepErrors, setStepErrors] = useState<IdentityErrors>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showSecondGuardian, setShowSecondGuardian] = useState(
@@ -428,72 +557,238 @@ function ProfileForm({
   const errorRef = useRef<HTMLDivElement>(null);
   const copy = PROMPT_COPY[reason];
 
-  // The form is long enough that a message at the top can land off-screen after
-  // a failed submit from the bottom. Bring it into view and move focus to it, so
-  // it is announced to screen readers rather than silently rendered.
-  useEffect(() => {
-    if (!error) {
+  const emailLocked = Boolean(identity.accountEmail);
+  const [email, setEmail] = useState(
+    identity.accountEmail ?? profile?.primaryEmail ?? "",
+  );
+  const emailCheck = useEmailCheck(email, !emailLocked);
+  const emailHint = emailLocked
+    ? { text: "Your sign-in email — filled in for you.", tone: undefined }
+    : EMAIL_CHECK_HINTS[emailCheck];
+
+  // Signature state
+  const [signatureMode, setSignatureMode] = useState<"draw" | "photo">(
+    identity.hasSignatureImage ? "photo" : "draw",
+  );
+  const [signatureAssetId, setSignatureAssetId] = useState<string | null>(null);
+  const [signaturePreview, setSignaturePreview] = useState<string | null>(
+    identity.hasSignatureImage ? identitySignatureUrl(identity) : null,
+  );
+  const [uploadingSignature, setUploadingSignature] = useState(false);
+  const signatureInputRef = useRef<HTMLInputElement>(null);
+
+  // Photo state
+  const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [photoAssetId, setPhotoAssetId] = useState<string | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(
+    identity.hasPhoto ? identityPhotoUrl(identity) : null,
+  );
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Camera modal state
+  const [cameraModal, setCameraModal] = useState<{
+    aspectRatio: number;
+    facingMode: "environment" | "user";
+    target: "photo" | "signature";
+    title: string;
+  } | null>(null);
+
+  const stepIndex = IDENTITY_STEPS.findIndex((s) => s.key === stepKey);
+  const stepInfo = IDENTITY_STEPS[stepIndex] ?? IDENTITY_STEPS[0];
+
+  function updateField<K extends keyof IdentityDraft>(key: K, value: IdentityDraft[K]) {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+    if (stepErrors[key]) {
+      setStepErrors((prev) => {
+        const copyErrs = { ...prev };
+        delete copyErrs[key];
+        return copyErrs;
+      });
+    }
+  }
+
+  function handlePhotoPicked(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (file) {
+      setError("");
+      setPendingPhoto(file);
+    }
+  }
+
+  async function handleCroppedPhoto(cropped: File) {
+    setPendingPhoto(null);
+    setPhotoPreview(URL.createObjectURL(cropped));
+    setUploadingPhoto(true);
+
+    try {
+      const uploaded = await uploadFile(cropped, {
+        accessLevel: "PRIVATE",
+        kind: "image",
+        label: "ID card photo",
+        silent: true,
+        target: "asset",
+      });
+
+      if (uploaded?.assetId) {
+        setPhotoAssetId(uploaded.assetId);
+      } else {
+        setPhotoPreview(identity.hasPhoto ? identityPhotoUrl(identity) : null);
+        setError("That photo could not be uploaded. Please try another one.");
+      }
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
+  async function handleCroppedSignature(cropped: File) {
+    setSignaturePreview(URL.createObjectURL(cropped));
+    updateField("signatureImageUri", URL.createObjectURL(cropped));
+    updateField("signature", "");
+    setUploadingSignature(true);
+
+    try {
+      const uploaded = await uploadFile(cropped, {
+        accessLevel: "PRIVATE",
+        kind: "image",
+        label: "ID card signature",
+        silent: true,
+        target: "asset",
+      });
+
+      if (uploaded?.assetId) {
+        setSignatureAssetId(uploaded.assetId);
+      } else {
+        setError("That signature photo could not be uploaded. Please try another one.");
+      }
+    } finally {
+      setUploadingSignature(false);
+    }
+  }
+
+  function handleCameraCapture(file: File) {
+    if (!cameraModal) return;
+    const target = cameraModal.target;
+    setCameraModal(null);
+
+    if (target === "photo") {
+      void handleCroppedPhoto(file);
+    } else {
+      void handleCroppedSignature(file);
+    }
+  }
+
+  function handleNext() {
+    setError("");
+    if (stepKey === "contact") {
+      updateField("primaryEmail", email);
+    }
+
+    const currentErrors = validateIdentityStep(stepKey, draft);
+    if (Object.keys(currentErrors).length > 0) {
+      setStepErrors(currentErrors);
+      setError("Please fix the highlighted fields to continue.");
       return;
     }
 
-    errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    errorRef.current?.focus({ preventScroll: true });
-  }, [error]);
+    setStepErrors({});
+    const nextIdx = Math.min(IDENTITY_STEPS.length - 1, stepIndex + 1);
+    setStepKey(IDENTITY_STEPS[nextIdx].key);
+  }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function handleSkip() {
+    setError("");
+    setStepErrors({});
+    const nextIdx = Math.min(IDENTITY_STEPS.length - 1, stepIndex + 1);
+    setStepKey(IDENTITY_STEPS[nextIdx].key);
+  }
+
+  function handleBack() {
+    setError("");
+    setStepErrors({});
+    const prevIdx = Math.max(0, stepIndex - 1);
+    setStepKey(IDENTITY_STEPS[prevIdx].key);
+  }
+
+  async function handleSubmit(event?: FormEvent) {
+    if (event) event.preventDefault();
     setError("");
 
-    const form = new FormData(event.currentTarget);
-    const text = (name: string) => {
-      const value = form.get(name);
-      return typeof value === "string" ? value.trim() : "";
-    };
-    const optional = (name: string) => text(name) || undefined;
+    const hasPhoto = Boolean(photoAssetId || identity.hasPhoto);
+    const hasSignatureImage = Boolean(signatureAssetId || identity.hasSignatureImage);
+
+    if (!hasPhoto) {
+      setError("Add a photo of yourself — it goes on the front of your card.");
+      setStepKey("photo");
+      return;
+    }
+
+    if (
+      !hasSignatureImage &&
+      !draft.signatureImageUri.trim() &&
+      !isSignatureComplete(draft.signature)
+    ) {
+      setError("Sign your card — draw it, or photograph it on paper.");
+      setStepKey("signature");
+      return;
+    }
+
+    const allErrors = validateIdentity(draft);
+    if (Object.keys(allErrors).length > 0) {
+      const firstBad = firstIncompleteIdentityStep(draft, { hasPhoto, hasSignatureImage });
+      if (firstBad) {
+        setStepKey(firstBad);
+        setStepErrors(validateIdentityStep(firstBad, draft));
+      }
+      setError("Please fix the highlighted details before saving.");
+      return;
+    }
 
     setSaving(true);
 
     try {
+      const profileData = {
+        alternatePhone: draft.alternatePhone.trim() || undefined,
+        backupEmail: draft.backupEmail.trim() || undefined,
+        bloodGroup: draft.bloodGroup,
+        budgetRange: draft.budgetRange.trim() || undefined,
+        city: draft.city.trim() || undefined,
+        courseOrDesignation: draft.courseOrDesignation.trim() || undefined,
+        dateOfBirth: draft.dateOfBirth.trim() || undefined,
+        dietaryPreference: draft.dietaryPreference,
+        emergencyContactName: draft.emergencyContactName.trim() || undefined,
+        emergencyContactPhone: draft.emergencyContactPhone.trim() || undefined,
+        emergencyContactRelation: draft.emergencyContactRelation.trim() || undefined,
+        fullName: draft.fullName.trim(),
+        gender: draft.gender,
+        governmentIdNumber: draft.governmentIdNumber.trim() || undefined,
+        governmentIdType: draft.governmentIdType || undefined,
+        guardianEmail: draft.guardianEmail.trim() || undefined,
+        guardianName: draft.guardianName.trim(),
+        guardianPhone: draft.guardianPhone.trim(),
+        guardianRelation: draft.guardianRelation.trim(),
+        institution: draft.institution.trim() || undefined,
+        interests: draft.interests.map((i) => i.trim()).filter(Boolean).slice(0, 12),
+        medicalNotes: draft.medicalNotes.trim() || undefined,
+        occupation: draft.occupation,
+        permanentAddress: draft.permanentAddress.trim() || undefined,
+        primaryEmail: (email || draft.primaryEmail).trim().toLowerCase(),
+        primaryPhone: draft.primaryPhone.trim(),
+        province: draft.province.trim() || undefined,
+        secondGuardianEmail: draft.secondGuardianEmail.trim() || undefined,
+        secondGuardianName: draft.secondGuardianName.trim() || undefined,
+        secondGuardianPhone: draft.secondGuardianPhone.trim() || undefined,
+        secondGuardianRelation: draft.secondGuardianRelation.trim() || undefined,
+        ...(signatureAssetId ? {} : { signature: draft.signature }),
+        ...(signatureAssetId ? { signatureAssetId } : {}),
+      };
+
       const next = await browserApi<IdentityResponse>("/api/v1/users/resident-identity", {
         body: JSON.stringify({
-          profile: {
-            alternatePhone: optional("alternatePhone"),
-            backupEmail: optional("backupEmail"),
-            bloodGroup: text("bloodGroup"),
-            budgetRange: optional("budgetRange"),
-            city: optional("city"),
-            courseOrDesignation: optional("courseOrDesignation"),
-            dateOfBirth: optional("dateOfBirth"),
-            dietaryPreference: text("dietaryPreference"),
-            emergencyContactName: optional("emergencyContactName"),
-            emergencyContactPhone: optional("emergencyContactPhone"),
-            emergencyContactRelation: optional("emergencyContactRelation"),
-            fullName: text("fullName"),
-            gender: text("gender"),
-            governmentIdNumber: optional("governmentIdNumber"),
-            governmentIdType: optional("governmentIdType"),
-            guardianEmail: optional("guardianEmail"),
-            guardianName: text("guardianName"),
-            guardianPhone: text("guardianPhone"),
-            guardianRelation: text("guardianRelation"),
-            institution: optional("institution"),
-            interests: text("interests")
-              .split(",")
-              .map((entry) => entry.trim())
-              .filter(Boolean)
-              .slice(0, 12),
-            medicalNotes: optional("medicalNotes"),
-            occupation: text("occupation"),
-            permanentAddress: optional("permanentAddress"),
-            primaryEmail: text("primaryEmail"),
-            primaryPhone: text("primaryPhone"),
-            province: optional("province"),
-            secondGuardianEmail: optional("secondGuardianEmail"),
-            secondGuardianName: optional("secondGuardianName"),
-            secondGuardianPhone: optional("secondGuardianPhone"),
-            secondGuardianRelation: optional("secondGuardianRelation"),
-          },
-          sharingEnabled: form.get("sharingEnabled") === "on",
+          profile: profileData,
+          ...(photoAssetId ? { photoAssetId } : {}),
+          sharingEnabled: identity.sharingEnabled,
         }),
         method: "PUT",
       });
@@ -506,22 +801,91 @@ function ProfileForm({
     }
   }
 
+  const hasPhotoAsset = Boolean(photoAssetId || identity.hasPhoto);
+  const hasSignatureAsset = Boolean(signatureAssetId || identity.hasSignatureImage);
+
   return (
     <Modal onClose={onClose} subtitle={copy.subtitle} title={copy.title} wide>
-      <form className="space-y-6" onSubmit={handleSubmit}>
-        <div className="flex gap-3 rounded-xl border border-brand-teal/25 bg-brand-teal-soft/35 p-4">
-          <ShieldCheck className="size-5 shrink-0 text-brand-teal" />
-          <p className="text-sm leading-relaxed text-foreground">
-            Everything below is encrypted before it is stored. Nobody can read it from
-            your resident ID alone — a hostel only receives it when you show them your QR
-            code or hand over your ID, and you can switch sharing off at any time.
-          </p>
+      {cameraModal ? (
+        <WebCameraModal
+          aspectRatio={cameraModal.aspectRatio}
+          facingMode={cameraModal.facingMode}
+          onCapture={handleCameraCapture}
+          onClose={() => setCameraModal(null)}
+          title={cameraModal.title}
+        />
+      ) : null}
+
+      {pendingPhoto ? (
+        <PhotoCropper
+          file={pendingPhoto}
+          onCancel={() => setPendingPhoto(null)}
+          onCropped={handleCroppedPhoto}
+        />
+      ) : null}
+
+      <div className="space-y-6">
+        {/* Step Meter Header */}
+        <div className="space-y-4 border-b border-border pb-4">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 no-scrollbar scroll-smooth">
+            {IDENTITY_STEPS.map((s, idx) => {
+              const IconComp = s.iconName === "User" ? User : s.iconName === "Phone" ? Phone : s.iconName === "MapPin" ? MapPin : s.iconName === "Briefcase" ? Briefcase : s.iconName === "Shield" ? Shield : s.iconName === "Sliders" ? Sliders : s.iconName === "Camera" ? Camera : s.iconName === "PenTool" ? PenTool : ShieldCheck;
+              const isCurrent = s.key === stepKey;
+              const isDone =
+                idx < stepIndex ||
+                identityStepComplete(s.key, draft, {
+                  hasPhoto: hasPhotoAsset,
+                  hasSignatureImage: hasSignatureAsset,
+                });
+
+              return (
+                <button
+                  key={s.key}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-all",
+                    isCurrent
+                      ? "bg-brand-teal text-white shadow-sm ring-2 ring-brand-teal/30"
+                      : isDone
+                        ? "bg-brand-teal/15 text-brand-teal hover:bg-brand-teal/25"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80",
+                  )}
+                  onClick={() => {
+                    if (isDone || idx <= stepIndex) setStepKey(s.key);
+                  }}
+                  type="button"
+                >
+                  {isDone && !isCurrent ? (
+                    <CheckCircle2 className="size-3.5" />
+                  ) : (
+                    <IconComp className="size-3.5" />
+                  )}
+                  <span>{s.title}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-foreground">
+              <span className="flex items-center gap-1.5 text-brand-teal font-extrabold uppercase tracking-wider">
+                <Sparkles className="size-3.5" />
+                Step {stepIndex + 1} of {IDENTITY_STEPS.length} — {stepInfo.title}
+              </span>
+              <span>{Math.round(((stepIndex + 1) / IDENTITY_STEPS.length) * 100)}% Complete</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-gradient-to-r from-brand-teal to-emerald-400 transition-all duration-300 ease-out"
+                style={{ width: `${((stepIndex + 1) / IDENTITY_STEPS.length) * 100}%` }}
+              />
+            </div>
+          </div>
         </div>
 
         {error ? (
           <div
             aria-live="assertive"
-            className="rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm font-semibold text-danger outline-none ring-danger/30 focus-visible:ring-2"
+            className="rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm font-semibold text-danger outline-none"
             ref={errorRef}
             role="alert"
             tabIndex={-1}
@@ -530,338 +894,950 @@ function ProfileForm({
           </div>
         ) : null}
 
-        <div className="space-y-3">
-          <SectionTitle label="About you" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Field
-              defaultValue={profile?.fullName ?? identity.accountName}
-              label="Full name"
-              name="fullName"
-              placeholder="As written on your ID"
-              required
-            />
-            <Field
-              defaultValue={profile?.dateOfBirth}
-              hint="Used to show your age to the hostel."
-              label="Date of birth"
-              max={new Date().toISOString().slice(0, 10)}
-              name="dateOfBirth"
-              type="date"
-            />
-            <SelectField
-              defaultValue={profile?.gender ?? ""}
-              label="Gender"
-              name="gender"
-              required
-            >
-              <option disabled value="">
-                Select gender
-              </option>
-              <option value="MALE">Male</option>
-              <option value="FEMALE">Female</option>
-              <option value="OTHER">Other</option>
-              <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
-            </SelectField>
-            <SelectField
-              defaultValue={profile?.bloodGroup ?? "UNKNOWN"}
-              label="Blood group"
-              name="bloodGroup"
-            >
-              {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((group) => (
-                <option key={group} value={group}>
-                  {group}
-                </option>
-              ))}
-              <option value="UNKNOWN">I do not know</option>
-            </SelectField>
-          </div>
-        </div>
+        {/* Step Contents */}
+        {stepKey === "about" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                <User className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Personal Profile</h4>
+                <p className="text-xs text-muted-foreground">Enter your name exactly as shown on your citizenship or government ID.</p>
+              </div>
+            </div>
 
-        <div className="space-y-3">
-          <SectionTitle label="How to reach you" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Field
-              defaultValue={profile?.primaryPhone}
-              label="Phone"
-              name="primaryPhone"
-              placeholder="98XXXXXXXX"
-              required
-              type="tel"
-            />
-            <Field
-              defaultValue={profile?.alternatePhone}
-              label="Alternate phone"
-              name="alternatePhone"
-              placeholder="Optional"
-              type="tel"
-            />
-            <Field
-              defaultValue={profile?.primaryEmail ?? identity.accountEmail ?? ""}
-              hint="This is your sign-in email and cannot be changed here."
-              label="Account email"
-              name="primaryEmail"
-              readOnly={Boolean(identity.accountEmail)}
-              required
-              type="email"
-            />
-            <Field
-              defaultValue={profile?.backupEmail}
-              hint="A second email in case we cannot reach the first."
-              label="Backup email"
-              name="backupEmail"
-              placeholder="Optional"
-              type="email"
-            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Field
+                  defaultValue={draft.fullName || identity.accountName}
+                  hint={stepErrors.fullName}
+                  hintTone={stepErrors.fullName ? "danger" : undefined}
+                  label="Full name"
+                  name="fullName"
+                  onChange={(val) => updateField("fullName", val)}
+                  placeholder="As written on your ID"
+                  required
+                />
+              </div>
+              <div>
+                <Field
+                  defaultValue={draft.dateOfBirth}
+                  hint={stepErrors.dateOfBirth || "Used to display your age on your resident card."}
+                  hintTone={stepErrors.dateOfBirth ? "danger" : undefined}
+                  label="Date of birth"
+                  max={new Date().toISOString().slice(0, 10)}
+                  name="dateOfBirth"
+                  onChange={(val) => updateField("dateOfBirth", val)}
+                  type="date"
+                />
+              </div>
+              <div>
+                <SelectField
+                  defaultValue={draft.gender}
+                  label="Gender"
+                  name="gender"
+                  onChange={(e) => updateField("gender", e.target.value)}
+                  required
+                >
+                  <option disabled value="">
+                    Select gender
+                  </option>
+                  <option value="MALE">Male</option>
+                  <option value="FEMALE">Female</option>
+                  <option value="OTHER">Other</option>
+                  <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
+                </SelectField>
+                {stepErrors.gender ? (
+                  <p className="mt-1 text-xs font-semibold text-danger">{stepErrors.gender}</p>
+                ) : null}
+              </div>
+              <div>
+                <SelectField
+                  defaultValue={draft.bloodGroup || "UNKNOWN"}
+                  label="Blood group"
+                  name="bloodGroup"
+                  onChange={(e) => updateField("bloodGroup", e.target.value)}
+                >
+                  {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((group) => (
+                    <option key={group} value={group}>
+                      {group}
+                    </option>
+                  ))}
+                  <option value="UNKNOWN">I do not know</option>
+                </SelectField>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="space-y-3">
-          <SectionTitle label="Where you are from" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {stepKey === "contact" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                <Phone className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Contact Methods</h4>
+                <p className="text-xs text-muted-foreground">Hostels and emergency services use this phone and email to reach you.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Field
+                  defaultValue={draft.primaryPhone}
+                  hint={stepErrors.primaryPhone}
+                  hintTone={stepErrors.primaryPhone ? "danger" : undefined}
+                  label="Phone number"
+                  name="primaryPhone"
+                  onChange={(val) => updateField("primaryPhone", val)}
+                  placeholder="98XXXXXXXX"
+                  required
+                  type="tel"
+                />
+              </div>
+              <div>
+                <Field
+                  defaultValue={draft.alternatePhone}
+                  hint={stepErrors.alternatePhone}
+                  hintTone={stepErrors.alternatePhone ? "danger" : undefined}
+                  label="Alternate phone"
+                  name="alternatePhone"
+                  onChange={(val) => updateField("alternatePhone", val)}
+                  placeholder="Optional"
+                  type="tel"
+                />
+              </div>
+              <div>
+                <Field
+                  defaultValue={email}
+                  hint={stepErrors.primaryEmail || emailHint.text}
+                  hintTone={stepErrors.primaryEmail ? "danger" : emailHint.tone}
+                  label="Account email"
+                  name="primaryEmail"
+                  onChange={(val) => {
+                    setEmail(val);
+                    updateField("primaryEmail", val);
+                  }}
+                  readOnly={emailLocked}
+                  required
+                  type="email"
+                />
+              </div>
+              <div>
+                <Field
+                  defaultValue={draft.backupEmail}
+                  hint={stepErrors.backupEmail || "Second email in case primary is unreachable."}
+                  hintTone={stepErrors.backupEmail ? "danger" : undefined}
+                  label="Backup email"
+                  name="backupEmail"
+                  onChange={(val) => updateField("backupEmail", val)}
+                  placeholder="Optional"
+                  type="email"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {stepKey === "address" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                <MapPin className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Permanent Residence</h4>
+                <p className="text-xs text-muted-foreground">Your permanent home address recorded for residency verification.</p>
+              </div>
+            </div>
+
             <Field
-              defaultValue={profile?.permanentAddress}
+              defaultValue={draft.permanentAddress}
+              hint={stepErrors.permanentAddress}
+              hintTone={stepErrors.permanentAddress ? "danger" : undefined}
               label="Permanent address"
               name="permanentAddress"
-              placeholder="Street / tole, ward"
+              onChange={(val) => updateField("permanentAddress", val)}
+              placeholder="Street / tole, ward, house number"
             />
-            <Field defaultValue={profile?.city} label="City" name="city" />
-            <Field
-              defaultValue={profile?.province}
-              label="Province / state"
-              name="province"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {/*
-            Nothing in this section is required — plenty of residents are just
-            living here. The hint and the spelled-out "neither" option exist so
-            the form says that, instead of leaving people to guess from the
-            absence of an asterisk.
-          */}
-          <SectionTitle hint="Optional — skip it if neither applies" label="Study or work" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <SelectField
-              defaultValue={profile?.occupation ?? "STUDENT"}
-              label="I am a"
-              name="occupation"
-            >
-              <option value="STUDENT">Student</option>
-              <option value="WORKING_PROFESSIONAL">Working professional</option>
-              <option value="OTHER">Neither — just living here</option>
-            </SelectField>
-            <Field
-              defaultValue={profile?.institution}
-              hint="Leave blank if this does not apply."
-              label="College / company"
-              name="institution"
-            />
-            <Field
-              defaultValue={profile?.courseOrDesignation}
-              label="Course / job title"
-              name="courseOrDesignation"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <SectionTitle label="Guardian" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Field
-              defaultValue={profile?.guardianName}
-              label="Guardian name"
-              name="guardianName"
-              required
-            />
-            <Field
-              defaultValue={profile?.guardianRelation}
-              label="Relation"
-              name="guardianRelation"
-              placeholder="Father, mother, uncle…"
-              required
-            />
-            <Field
-              defaultValue={profile?.guardianPhone}
-              label="Guardian phone"
-              name="guardianPhone"
-              required
-              type="tel"
-            />
-            <Field
-              defaultValue={profile?.guardianEmail}
-              hint="Lets the hostel invite them to the guardian portal."
-              label="Guardian email"
-              name="guardianEmail"
-              type="email"
-            />
-          </div>
-
-          {showSecondGuardian ? (
-            <div className="grid gap-4 rounded-xl border border-border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field
-                defaultValue={profile?.secondGuardianName}
-                label="Second guardian name"
-                name="secondGuardianName"
+                defaultValue={draft.city}
+                label="City / Municipality"
+                name="city"
+                onChange={(val) => updateField("city", val)}
+                placeholder="e.g. Kathmandu, Pokhara"
               />
               <Field
-                defaultValue={profile?.secondGuardianRelation}
-                label="Relation"
-                name="secondGuardianRelation"
-              />
-              <Field
-                defaultValue={profile?.secondGuardianPhone}
-                label="Second guardian phone"
-                name="secondGuardianPhone"
-                type="tel"
-              />
-              <Field
-                defaultValue={profile?.secondGuardianEmail}
-                label="Second guardian email"
-                name="secondGuardianEmail"
-                type="email"
+                defaultValue={draft.province}
+                label="Province / State"
+                name="province"
+                onChange={(val) => updateField("province", val)}
+                placeholder="e.g. Bagmati Province"
               />
             </div>
-          ) : (
-            <button
-              className="text-xs font-bold text-brand-teal transition hover:underline"
-              onClick={() => setShowSecondGuardian(true)}
-              type="button"
-            >
-              + Add a second guardian
-            </button>
-          )}
-        </div>
+          </div>
+        )}
 
-        <div className="space-y-3">
-          <SectionTitle label="Emergency contact" />
-          <p className="text-sm text-foreground">
-            Leave blank to use your guardian as the emergency contact.
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {stepKey === "work" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                <Briefcase className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Occupation & Institution</h4>
+                <p className="text-xs text-muted-foreground">Select your current status for resident profiling.</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-foreground">I am a</label>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {[
+                  { desc: "College or university student", icon: GraduationCap, key: "STUDENT", title: "Student" },
+                  { desc: "Working professional or employee", icon: Briefcase, key: "WORKING_PROFESSIONAL", title: "Working Professional" },
+                  { desc: "Staying for personal reasons or travel", icon: Home, key: "OTHER", title: "Neither (Personal Stay)" },
+                ].map((opt) => {
+                  const IconC = opt.icon;
+                  const isSelected = (draft.occupation || "STUDENT") === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      className={cn(
+                        "flex flex-col items-start rounded-xl border p-3.5 text-left transition",
+                        isSelected
+                          ? "border-brand-teal bg-brand-teal/10 shadow-sm ring-2 ring-brand-teal/20"
+                          : "border-border bg-surface hover:bg-muted/40",
+                      )}
+                      onClick={() => updateField("occupation", opt.key)}
+                      type="button"
+                    >
+                      <div className="flex w-full items-center justify-between">
+                        <IconC className={cn("size-5", isSelected ? "text-brand-teal" : "text-foreground/60")} />
+                        {isSelected ? <CheckCircle2 className="size-4 text-brand-teal" /> : null}
+                      </div>
+                      <span className="mt-2 text-xs font-extrabold text-foreground">{opt.title}</span>
+                      <span className="mt-0.5 text-[11px] text-muted-foreground leading-tight">{opt.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 pt-2">
+              <Field
+                defaultValue={draft.institution}
+                hint="College or company name"
+                label="College / Company"
+                name="institution"
+                onChange={(val) => updateField("institution", val)}
+                placeholder="e.g. Apex College / Nabil Bank"
+              />
+              <Field
+                defaultValue={draft.courseOrDesignation}
+                label="Course / Job title"
+                name="courseOrDesignation"
+                onChange={(val) => updateField("courseOrDesignation", val)}
+                placeholder="e.g. BBA / Software Engineer"
+              />
+            </div>
+          </div>
+        )}
+
+        {stepKey === "guardian" && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                <Shield className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Guardian & Emergency Contacts</h4>
+                <p className="text-xs text-muted-foreground">At least one reachable adult contact is required for your safety.</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <SectionTitle label="Primary Guardian" />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  defaultValue={draft.guardianName}
+                  hint={stepErrors.guardianName}
+                  hintTone={stepErrors.guardianName ? "danger" : undefined}
+                  label="Guardian name"
+                  name="guardianName"
+                  onChange={(val) => updateField("guardianName", val)}
+                  required
+                />
+                <Field
+                  defaultValue={draft.guardianRelation}
+                  hint={stepErrors.guardianRelation}
+                  hintTone={stepErrors.guardianRelation ? "danger" : undefined}
+                  label="Relation"
+                  name="guardianRelation"
+                  onChange={(val) => updateField("guardianRelation", val)}
+                  placeholder="Father, mother, uncle…"
+                  required
+                />
+                <Field
+                  defaultValue={draft.guardianPhone}
+                  hint={stepErrors.guardianPhone}
+                  hintTone={stepErrors.guardianPhone ? "danger" : undefined}
+                  label="Guardian phone"
+                  name="guardianPhone"
+                  onChange={(val) => updateField("guardianPhone", val)}
+                  required
+                  type="tel"
+                />
+                <Field
+                  defaultValue={draft.guardianEmail}
+                  hint={stepErrors.guardianEmail || "For guardian portal access."}
+                  hintTone={stepErrors.guardianEmail ? "danger" : undefined}
+                  label="Guardian email"
+                  name="guardianEmail"
+                  onChange={(val) => updateField("guardianEmail", val)}
+                  type="email"
+                />
+              </div>
+            </div>
+
+            {showSecondGuardian ? (
+              <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
+                <SectionTitle label="Second Guardian (Optional)" />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    defaultValue={draft.secondGuardianName}
+                    label="Second guardian name"
+                    name="secondGuardianName"
+                    onChange={(val) => updateField("secondGuardianName", val)}
+                  />
+                  <Field
+                    defaultValue={draft.secondGuardianRelation}
+                    label="Relation"
+                    name="secondGuardianRelation"
+                    onChange={(val) => updateField("secondGuardianRelation", val)}
+                  />
+                  <Field
+                    defaultValue={draft.secondGuardianPhone}
+                    label="Phone"
+                    name="secondGuardianPhone"
+                    onChange={(val) => updateField("secondGuardianPhone", val)}
+                    type="tel"
+                  />
+                  <Field
+                    defaultValue={draft.secondGuardianEmail}
+                    label="Email"
+                    name="secondGuardianEmail"
+                    onChange={(val) => updateField("secondGuardianEmail", val)}
+                    type="email"
+                  />
+                </div>
+              </div>
+            ) : (
+              <button
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-teal hover:underline"
+                onClick={() => setShowSecondGuardian(true)}
+                type="button"
+              >
+                <Plus className="size-3.5" />
+                Add a second guardian
+              </button>
+            )}
+
+            <div className="space-y-3 border-t border-border pt-3">
+              <SectionTitle hint="Leave blank to use primary guardian" label="Emergency Contact" />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Field
+                  defaultValue={draft.emergencyContactName}
+                  label="Name"
+                  name="emergencyContactName"
+                  onChange={(val) => updateField("emergencyContactName", val)}
+                />
+                <Field
+                  defaultValue={draft.emergencyContactRelation}
+                  label="Relation"
+                  name="emergencyContactRelation"
+                  onChange={(val) => updateField("emergencyContactRelation", val)}
+                />
+                <Field
+                  defaultValue={draft.emergencyContactPhone}
+                  label="Phone"
+                  name="emergencyContactPhone"
+                  onChange={(val) => updateField("emergencyContactPhone", val)}
+                  type="tel"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {stepKey === "preferences" && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                <Sliders className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Preferences & Identification</h4>
+                <p className="text-xs text-muted-foreground">Select your dietary preferences and specify your government proof of identity.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SelectField
+                defaultValue={draft.dietaryPreference || "NO_PREFERENCE"}
+                label="Food preference"
+                name="dietaryPreference"
+                onChange={(e) => updateField("dietaryPreference", e.target.value)}
+              >
+                <option value="NO_PREFERENCE">No preference</option>
+                <option value="VEG">Vegetarian</option>
+                <option value="NON_VEG">Non-vegetarian</option>
+                <option value="EGGETARIAN">Eggetarian</option>
+                <option value="VEGAN">Vegan</option>
+              </SelectField>
+              <Field
+                defaultValue={draft.budgetRange}
+                hint="Prefills inquiry forms"
+                label="Monthly budget range"
+                name="budgetRange"
+                onChange={(val) => updateField("budgetRange", val)}
+                placeholder="e.g. 8000-12000"
+              />
+            </div>
+
             <Field
-              defaultValue={profile?.emergencyContactName}
-              label="Name"
-              name="emergencyContactName"
+              defaultValue={draft.interests?.join(", ")}
+              hint="Comma separated. Used for roommate suggestions."
+              label="Interests & Hobbies"
+              name="interests"
+              onChange={(val) =>
+                updateField(
+                  "interests",
+                  val.split(",").map((i) => i.trim()).filter(Boolean),
+                )
+              }
+              placeholder="e.g. Football, Music, Coding"
             />
-            <Field
-              defaultValue={profile?.emergencyContactRelation}
-              label="Relation"
-              name="emergencyContactRelation"
+
+            <label className="block text-xs font-bold text-foreground">
+              Medical Notes / Allergies
+              <textarea
+                className="mt-1.5 min-h-20 w-full rounded-lg border border-border bg-background p-3 text-sm font-normal text-foreground outline-none focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15"
+                defaultValue={draft.medicalNotes}
+                maxLength={500}
+                onChange={(e) => updateField("medicalNotes", e.target.value)}
+                placeholder="Anything the hostel warden should know in an emergency."
+              />
+            </label>
+
+            {/* Visual Government ID Selector Cards */}
+            <div className="border-t border-border pt-4 space-y-3">
+              <SectionTitle label="Government Proof of Identity" />
+              <p className="text-xs text-muted-foreground">Select the type of government document you hold:</p>
+              
+              <div className="grid gap-2.5 sm:grid-cols-3">
+                {[
+                  { icon: CreditCard, key: "CITIZENSHIP", label: "Citizenship Card" },
+                  { icon: ShieldCheck, key: "NATIONAL_ID", label: "National ID" },
+                  { icon: FileText, key: "PASSPORT", label: "Passport" },
+                  { icon: CreditCard, key: "DRIVING_LICENSE", label: "Driving License" },
+                  { icon: GraduationCap, key: "STUDENT_ID", label: "Student ID" },
+                  { icon: FileText, key: "OTHER", label: "Other Document" },
+                ].map((doc) => {
+                  const DocIcon = doc.icon;
+                  const isSel = (draft.governmentIdType || "") === doc.key;
+                  return (
+                    <button
+                      key={doc.key}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl border p-3 text-left transition",
+                        isSel
+                          ? "border-brand-teal bg-brand-teal/10 shadow-sm ring-2 ring-brand-teal/20"
+                          : "border-border bg-surface hover:bg-muted/40",
+                      )}
+                      onClick={() => updateField("governmentIdType", doc.key)}
+                      type="button"
+                    >
+                      <DocIcon className={cn("size-4 shrink-0", isSel ? "text-brand-teal" : "text-foreground/60")} />
+                      <span className="text-xs font-bold text-foreground truncate flex-1">{doc.label}</span>
+                      {isSel ? <CheckCircle2 className="size-4 text-brand-teal shrink-0" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {draft.governmentIdType ? (
+                <div className="pt-2">
+                  <Field
+                    defaultValue={draft.governmentIdNumber}
+                    hint="Document / Certificate number"
+                    label={`${draft.governmentIdType.replace(/_/g, " ")} Number`}
+                    name="governmentIdNumber"
+                    onChange={(val) => updateField("governmentIdNumber", val)}
+                    placeholder="Enter document number"
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {stepKey === "photo" && (
+          <div className="space-y-5 text-center">
+            <div className="flex items-center justify-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5 text-left">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm shrink-0">
+                <Camera className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Front-Facing Passport Photo</h4>
+                <p className="text-xs text-muted-foreground">Align your face in the middle frame. Printed on the front of your ID card.</p>
+              </div>
+            </div>
+
+            {/* Passport Frame Preview */}
+            <div className="relative mx-auto flex size-40 items-center justify-center overflow-hidden rounded-2xl border-2 border-brand-teal bg-slate-900 shadow-xl">
+              {photoPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img alt="Card photo" className="size-full object-cover" src={photoPreview} />
+              ) : (
+                <div className="flex flex-col items-center gap-2 p-4 text-center">
+                  <Camera className="size-10 text-white/50 animate-pulse" />
+                  <span className="text-[11px] font-bold text-white/70">Align face in box</span>
+                </div>
+              )}
+
+              <div className="pointer-events-none absolute inset-2 rounded-xl border border-dashed border-white/40" />
+
+              {uploadingPhoto ? (
+                <span className="absolute inset-0 grid place-items-center bg-slate-950/70 backdrop-blur-xs">
+                  <Loader2 className="size-8 animate-spin text-brand-teal" />
+                </span>
+              ) : null}
+            </div>
+
+            {/* Photo Guidelines Checklist */}
+            <div className="mx-auto max-w-sm rounded-xl border border-border bg-muted/30 p-3 text-left space-y-1.5 text-xs text-foreground/80">
+              <div className="flex items-center gap-2 font-bold text-foreground">
+                <CheckCircle2 className="size-3.5 text-brand-teal" />
+                <span>Face centered with good lighting</span>
+              </div>
+              <div className="flex items-center gap-2 font-bold text-foreground">
+                <CheckCircle2 className="size-3.5 text-brand-teal" />
+                <span>Plain background, no sunglasses or hats</span>
+              </div>
+            </div>
+
+            <input
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoPicked}
+              ref={photoInputRef}
+              type="file"
             />
-            <Field
-              defaultValue={profile?.emergencyContactPhone}
-              label="Phone"
-              name="emergencyContactPhone"
-              type="tel"
-            />
+
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+              <button
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand-teal px-5 text-xs font-extrabold text-white shadow-lg transition hover:brightness-110 disabled:opacity-60"
+                disabled={uploadingPhoto}
+                onClick={() =>
+                  setCameraModal({
+                    aspectRatio: 1,
+                    facingMode: "user",
+                    target: "photo",
+                    title: "Take photo for ID card",
+                  })
+                }
+                type="button"
+              >
+                <Camera className="size-4" />
+                Take Photo with Camera
+              </button>
+
+              <button
+                className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-surface px-5 text-xs font-extrabold text-foreground transition hover:bg-muted disabled:opacity-60"
+                disabled={uploadingPhoto}
+                onClick={() => photoInputRef.current?.click()}
+                type="button"
+              >
+                <Upload className="size-4" />
+                {photoPreview ? "Upload Different File" : "Upload Photo File"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {stepKey === "signature" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
+              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                <PenTool className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-heading text-sm font-extrabold text-foreground">Official Card Signature</h4>
+                <p className="text-xs text-muted-foreground">Draw on screen or photograph your signature on white paper.</p>
+              </div>
+            </div>
+
+            <div className="flex rounded-xl border border-border bg-muted p-1">
+              <button
+                className={cn(
+                  "flex-1 rounded-lg py-2.5 text-xs font-extrabold transition",
+                  signatureMode === "draw"
+                    ? "bg-surface text-brand-teal shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSignatureMode("draw")}
+                type="button"
+              >
+                <PenTool className="inline-block size-3.5 mr-1.5" />
+                Draw Signature
+              </button>
+              <button
+                className={cn(
+                  "flex-1 rounded-lg py-2.5 text-xs font-extrabold transition",
+                  signatureMode === "photo"
+                    ? "bg-surface text-brand-teal shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSignatureMode("photo")}
+                type="button"
+              >
+                <Camera className="inline-block size-3.5 mr-1.5" />
+                Photograph on Paper
+              </button>
+            </div>
+
+            {signatureMode === "draw" ? (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-foreground flex items-center justify-between">
+                  <span>Draw your signature inside the grid box:</span>
+                  {draft.signature ? <span className="text-brand-teal font-extrabold">Signature captured ✓</span> : null}
+                </p>
+                <SignaturePad
+                  onChange={(val) => {
+                    updateField("signature", val);
+                    updateField("signatureImageUri", "");
+                    setSignatureAssetId(null);
+                    setSignaturePreview(null);
+                  }}
+                  value={draft.signature}
+                />
+              </div>
+            ) : (
+              <div className="space-y-4 text-center">
+                <div className="mx-auto flex h-32 w-80 max-w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-background p-3 shadow-inner">
+                  {signaturePreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img alt="Signature" className="max-h-full object-contain" src={signaturePreview} />
+                  ) : (
+                    <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+                      <Camera className="size-8 opacity-40" />
+                      <p className="text-xs font-semibold">Photograph signature on clean white paper</p>
+                    </div>
+                  )}
+                </div>
+
+                <input
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.currentTarget.files?.[0];
+                    e.currentTarget.value = "";
+                    if (f) void handleCroppedSignature(f);
+                  }}
+                  ref={signatureInputRef}
+                  type="file"
+                />
+
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-teal px-4 text-xs font-bold text-white shadow transition hover:brightness-110 disabled:opacity-60"
+                    disabled={uploadingSignature}
+                    onClick={() =>
+                      setCameraModal({
+                        aspectRatio: 3,
+                        facingMode: "environment",
+                        target: "signature",
+                        title: "Photograph signature on paper",
+                      })
+                    }
+                    type="button"
+                  >
+                    <Camera className="size-4" />
+                    Photograph Signature
+                  </button>
+
+                  <button
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-xs font-bold text-foreground transition hover:bg-muted disabled:opacity-60"
+                    disabled={uploadingSignature}
+                    onClick={() => signatureInputRef.current?.click()}
+                    type="button"
+                  >
+                    <Upload className="size-4" />
+                    Upload Image File
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {stepKey === "review" && (
+          <div className="space-y-5">
+            {/* Top Verification Status Banner */}
+            <div className="rounded-2xl border border-brand-teal/20 bg-gradient-to-br from-brand-teal/5 via-background to-brand-teal/10 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
+                    <ShieldCheck className="size-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-heading text-sm font-extrabold text-foreground">KYC Verification Summary</h4>
+                    <p className="text-xs text-muted-foreground">Review documents and profile accuracy before saving</p>
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-extrabold",
+                    hasPhotoAsset && (hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature))
+                      ? "bg-brand-teal/15 text-brand-teal"
+                      : "bg-warning/15 text-warning",
+                  )}
+                >
+                  {hasPhotoAsset && (hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature))
+                    ? "Ready to Issue ✓"
+                    : "Action Needed"}
+                </span>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3 pt-1">
+                <div className="flex items-center gap-2 rounded-xl border border-brand-teal/30 bg-brand-teal/10 p-2.5 text-xs font-extrabold text-brand-teal">
+                  <CheckCircle2 className="size-4 shrink-0" />
+                  <span>1. Details & Contact Verified</span>
+                </div>
+                <div className={cn("flex items-center gap-2 rounded-xl border p-2.5 text-xs font-extrabold transition", hasPhotoAsset ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal" : "border-warning/40 bg-warning/10 text-warning")}>
+                  <Camera className="size-4 shrink-0" />
+                  <span>2. Photo ({hasPhotoAsset ? "Attached ✓" : "Missing"})</span>
+                </div>
+                <div className={cn("flex items-center gap-2 rounded-xl border p-2.5 text-xs font-extrabold transition", hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature) ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal" : "border-warning/40 bg-warning/10 text-warning")}>
+                  <PenTool className="size-4 shrink-0" />
+                  <span>3. Signature ({hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature) ? "Signed ✓" : "Missing"})</span>
+                </div>
+              </div>
+            </div>
+
+            {(!hasPhotoAsset ||
+              (!hasSignatureAsset &&
+                !draft.signatureImageUri.trim() &&
+                !isSignatureComplete(draft.signature))) && (
+              <div className="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-3.5 text-xs font-bold text-warning">
+                <AlertCircle className="size-5 shrink-0" />
+                <div>
+                  <p>Some details need fixing before creating your ID card.</p>
+                  <button
+                    className="mt-1 underline font-extrabold"
+                    onClick={() => {
+                      const firstBad = firstIncompleteIdentityStep(draft, {
+                        hasPhoto: hasPhotoAsset,
+                        hasSignatureImage: hasSignatureAsset,
+                      });
+                      if (firstBad) setStepKey(firstBad);
+                    }}
+                    type="button"
+                  >
+                    Go to incomplete step →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Fact Cards */}
+            <div className="grid gap-3.5 sm:grid-cols-2">
+              <ReviewFactCard
+                title="About you"
+                onEdit={() => setStepKey("about")}
+                rows={[
+                  ["Full Name", draft.fullName || identity.accountName],
+                  ["Date of Birth", draft.dateOfBirth || "—"],
+                  ["Gender", draft.gender || "—"],
+                  ["Blood Group", draft.bloodGroup || "—"],
+                ]}
+              />
+
+              <ReviewFactCard
+                title="Contact"
+                onEdit={() => setStepKey("contact")}
+                rows={[
+                  ["Phone", draft.primaryPhone || "—"],
+                  ["Alternate", draft.alternatePhone || "—"],
+                  ["Account Email", email || "—"],
+                  ["Backup Email", draft.backupEmail || "—"],
+                ]}
+              />
+
+              <ReviewFactCard
+                title="Address"
+                onEdit={() => setStepKey("address")}
+                rows={[
+                  ["Permanent Address", draft.permanentAddress || "—"],
+                  ["City", draft.city || "—"],
+                  ["Province", draft.province || "—"],
+                ]}
+              />
+
+              <ReviewFactCard
+                title="Study or work"
+                onEdit={() => setStepKey("work")}
+                rows={[
+                  ["Occupation", draft.occupation || "—"],
+                  ["College / Company", draft.institution || "—"],
+                  ["Course / Title", draft.courseOrDesignation || "—"],
+                ]}
+              />
+
+              <ReviewFactCard
+                title="Guardian & Emergency"
+                onEdit={() => setStepKey("guardian")}
+                rows={[
+                  ["Guardian", `${draft.guardianName} (${draft.guardianRelation || "—"})`],
+                  ["Phone", draft.guardianPhone || "—"],
+                  ["Emergency Contact", draft.emergencyContactName ? `${draft.emergencyContactName} (${draft.emergencyContactPhone})` : "Guardian"],
+                ]}
+              />
+
+              <ReviewFactCard
+                title="Preferences & ID"
+                onEdit={() => setStepKey("preferences")}
+                rows={[
+                  ["Food Preference", draft.dietaryPreference || "—"],
+                  ["Budget", draft.budgetRange || "—"],
+                  ["Govt ID", draft.governmentIdType ? `${draft.governmentIdType}: ${draft.governmentIdNumber}` : "—"],
+                ]}
+              />
+
+              <ReviewFactCard
+                title="Photo"
+                onEdit={() => setStepKey("photo")}
+                rows={[
+                  ["Card Photo", hasPhotoAsset ? "Uploaded ✓" : "Missing ✕"],
+                ]}
+              />
+
+              <ReviewFactCard
+                title="Signature"
+                onEdit={() => setStepKey("signature")}
+                rows={[
+                  ["Card Signature", hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature) ? "Provided ✓" : "Missing ✕"],
+                ]}
+              />
+            </div>
+
+            <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/20 p-3.5">
+              <input
+                className="mt-0.5 size-4 cursor-pointer rounded border-border"
+                defaultChecked={identity.sharingEnabled}
+                onChange={(e) => {
+                  identity.sharingEnabled = e.target.checked;
+                }}
+                type="checkbox"
+              />
+              <span className="text-xs leading-relaxed text-foreground font-medium">
+                Let a hostel load these details when I show them my QR code or give them my
+                resident ID. You can turn this off later.
+              </span>
+            </label>
+          </div>
+        )}
+
+        {/* Footer controls */}
+        <div className="flex items-center justify-between border-t border-border pt-4">
+          <div>
+            {stepIndex > 0 && (
+              <button
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2.5 text-xs font-bold text-foreground transition hover:bg-muted"
+                onClick={handleBack}
+                type="button"
+              >
+                <ChevronLeft className="size-4" />
+                Back
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {stepKey === "work" && (
+              <button
+                className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2.5 text-xs font-bold text-foreground transition hover:bg-muted"
+                onClick={handleSkip}
+                type="button"
+              >
+                Skip
+              </button>
+            )}
+
+            {stepKey !== "review" ? (
+              <button
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-teal px-5 py-2.5 text-xs font-bold text-white shadow transition hover:brightness-110"
+                onClick={handleNext}
+                type="button"
+              >
+                Continue
+                <ChevronRight className="size-4" />
+              </button>
+            ) : (
+              <button
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-brand-teal px-6 text-sm font-bold text-white shadow transition hover:brightness-110 disabled:opacity-60"
+                disabled={saving}
+                onClick={() => void handleSubmit()}
+                type="button"
+              >
+                {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+                {saving ? "Saving…" : "Save my details"}
+              </button>
+            )}
           </div>
         </div>
-
-        <div className="space-y-3">
-          <SectionTitle label="Stay preferences and safety" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <SelectField
-              defaultValue={profile?.dietaryPreference ?? "NO_PREFERENCE"}
-              label="Food preference"
-              name="dietaryPreference"
-            >
-              <option value="NO_PREFERENCE">No preference</option>
-              <option value="VEG">Vegetarian</option>
-              <option value="NON_VEG">Non-vegetarian</option>
-              <option value="EGGETARIAN">Eggetarian</option>
-              <option value="VEGAN">Vegan</option>
-            </SelectField>
-            <Field
-              defaultValue={profile?.budgetRange}
-              hint="Prefills your future inquiries."
-              label="Monthly budget"
-              name="budgetRange"
-              placeholder="8000-12000"
-            />
-          </div>
-          <Field
-            defaultValue={profile?.interests?.join(", ")}
-            hint="Comma separated. Used for roommate and hostel suggestions."
-            label="Interests"
-            name="interests"
-            placeholder="Football, music, coding"
-          />
-          <label className="block text-xs font-bold text-foreground">
-            Allergies or medical notes
-            <textarea
-              className="mt-1.5 min-h-20 w-full rounded-lg border border-border bg-background p-3 text-sm font-normal text-foreground outline-none transition placeholder:text-foreground/45 focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15"
-              defaultValue={profile?.medicalNotes}
-              maxLength={500}
-              name="medicalNotes"
-              placeholder="Anything the hostel should know in an emergency."
-            />
-          </label>
-        </div>
-
-        <div className="space-y-3">
-          <SectionTitle label="Government ID" />
-          <p className="text-sm text-foreground">
-            Hostels are required to record one. Filling it here means you do not have to
-            read it out at the desk.
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <SelectField
-              defaultValue={profile?.governmentIdType ?? ""}
-              label="ID type"
-              name="governmentIdType"
-            >
-              <option value="">Not now</option>
-              <option value="CITIZENSHIP">Citizenship</option>
-              <option value="NATIONAL_ID">National ID</option>
-              <option value="PASSPORT">Passport</option>
-              <option value="DRIVING_LICENSE">Driving license</option>
-              <option value="STUDENT_ID">Student ID</option>
-              <option value="OTHER">Other</option>
-            </SelectField>
-            <Field
-              defaultValue={profile?.governmentIdNumber}
-              label="ID number"
-              name="governmentIdNumber"
-            />
-          </div>
-        </div>
-
-        <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/20 p-3">
-          <input
-            className="mt-0.5 size-4 cursor-pointer rounded border-border"
-            defaultChecked={identity.sharingEnabled}
-            name="sharingEnabled"
-            type="checkbox"
-          />
-          <span className="text-sm leading-relaxed text-foreground">
-            Let a hostel load these details when I show them my QR code or give them my
-            resident ID. You can turn this off later and your data stays saved.
-          </span>
-        </label>
-
-        <div className="flex flex-col gap-2 sm:flex-row-reverse">
-          <button
-            className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-brand-teal text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-60"
-            disabled={saving}
-            type="submit"
-          >
-            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-            {saving ? "Saving…" : "Save my details"}
-          </button>
-          <button
-            className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-5 text-sm font-bold text-foreground transition hover:bg-muted sm:flex-none"
-            onClick={() => {
-              snoozePrompt();
-              onClose();
-            }}
-            type="button"
-          >
-            Not now
-          </button>
-        </div>
-      </form>
+      </div>
     </Modal>
+  );
+}
+
+function ReviewFactCard({
+  onEdit,
+  rows,
+  title,
+}: {
+  onEdit: () => void;
+  rows: [string, string][];
+  title: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-surface p-3.5 shadow-sm space-y-2">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-extrabold uppercase tracking-wide text-foreground">
+          {title}
+        </h4>
+        <button
+          className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-teal hover:underline"
+          onClick={onEdit}
+          type="button"
+        >
+          <Edit2 className="size-3" />
+          Edit
+        </button>
+      </div>
+      <div className="space-y-1 text-xs">
+        {rows.map(([label, val]) => (
+          <div className="flex justify-between gap-2" key={label}>
+            <span className="text-muted-foreground font-semibold">{label}:</span>
+            <span className="font-bold text-foreground truncate">{val}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -896,7 +1872,11 @@ function formatCardDate(value?: string | null) {
 function buildIdCardData(
   identity: ResidentIdentity,
   profile: ResidentProfile | null,
-  images: { photo: HTMLImageElement | null; qr: HTMLImageElement | null },
+  images: {
+    photo: HTMLImageElement | null;
+    qr: HTMLImageElement | null;
+    signatureImage?: HTMLImageElement | null;
+  },
   brandName: string,
 ): IdCardData {
   return {
@@ -907,13 +1887,15 @@ function buildIdCardData(
     bloodGroup:
       profile?.bloodGroup && profile.bloodGroup !== "UNKNOWN" ? profile.bloodGroup : null,
     dateOfBirth: formatCardDate(profile?.dateOfBirth),
-    email: profile?.primaryEmail ?? identity.accountEmail,
+    email: identity.accountEmail ?? profile?.primaryEmail,
     fullName: profile?.fullName ?? identity.accountName,
     issuedOn: formatCardDate(identity.updatedAt ?? new Date().toISOString()),
     phone: profile?.primaryPhone,
     photo: images.photo,
     qr: images.qr,
     residentId: identity.residentId ?? "—",
+    signature: profile?.signature ?? null,
+    signatureImage: images.signatureImage ?? null,
     // An approved provider's trade (or "Hostel Owner") outranks the resident
     // profile's course/occupation — it is what the card is now for.
     role:
@@ -931,6 +1913,15 @@ function identityPhotoUrl(identity: ResidentIdentity) {
   return identity.hasPhoto
     ? `/api/v1/users/resident-identity/photo?v=${encodeURIComponent(
         identity.photoUpdatedAt ?? "1",
+      )}`
+    : null;
+}
+
+/** Same-origin URL of the stored signature image, cache-busted by its last write. */
+function identitySignatureUrl(identity: ResidentIdentity) {
+  return identity.hasSignatureImage
+    ? `/api/v1/users/resident-identity/signature?v=${encodeURIComponent(
+        identity.signatureUpdatedAt ?? "1",
       )}`
     : null;
 }
@@ -954,6 +1945,7 @@ function IdCardPanel({
   const [images, setImages] = useState<{
     photo: HTMLImageElement | null;
     qr: HTMLImageElement | null;
+    signatureImage?: HTMLImageElement | null;
   }>({ photo: null, qr: null });
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -994,6 +1986,7 @@ function IdCardPanel({
   }
 
   const photoUrl = identityPhotoUrl(identity);
+  const signatureUrl = identitySignatureUrl(identity);
 
   useEffect(() => {
     let active = true;
@@ -1032,9 +2025,10 @@ function IdCardPanel({
     let active = true;
 
     async function loadImages() {
-      const [photo, qr] = await Promise.all([
+      const [photo, qr, signatureImage] = await Promise.all([
         loadCardImage(photoUrl),
         loadCardImage(qrDataUrl),
+        loadCardImage(signatureUrl),
       ]);
 
       await document.fonts?.ready?.catch?.(() => undefined);
@@ -1049,7 +2043,7 @@ function IdCardPanel({
         setError("Your saved photo could not be loaded. Try uploading it again.");
       }
 
-      setImages({ photo: photo ?? localPhotoRef.current, qr });
+      setImages({ photo: photo ?? localPhotoRef.current, qr, signatureImage });
     }
 
     void loadImages();
@@ -1057,7 +2051,7 @@ function IdCardPanel({
     return () => {
       active = false;
     };
-  }, [photoUrl, qrDataUrl]);
+  }, [photoUrl, qrDataUrl, signatureUrl]);
 
   const siteName = useSiteConfig().identity.siteName;
   const cardData = useMemo<IdCardData>(
@@ -1708,6 +2702,7 @@ export function ResidentIdCard() {
   const [images, setImages] = useState<{
     photo: HTMLImageElement | null;
     qr: HTMLImageElement | null;
+    signatureImage?: HTMLImageElement | null;
   }>({ photo: null, qr: null });
   const [state, setState] = useState<"error" | "loading" | "ready">("loading");
   const [face, setFace] = useState<"back" | "front">("front");
@@ -1759,11 +2754,12 @@ export function ResidentIdCard() {
         return;
       }
 
-      const [qrPayload, photo] = await Promise.all([
+      const [qrPayload, photo, signatureImage] = await Promise.all([
         browserApi<{ qrDataUrl: string | null }>(
           "/api/v1/users/resident-identity/qr",
         ).catch(() => ({ qrDataUrl: null })),
         loadCardImage(identityPhotoUrl(identity)),
+        loadCardImage(identitySignatureUrl(identity)),
       ]);
       const qr = await loadCardImage(qrPayload.qrDataUrl);
 
@@ -1772,7 +2768,7 @@ export function ResidentIdCard() {
       await document.fonts?.ready?.catch?.(() => undefined);
 
       if (active) {
-        setImages({ photo, qr });
+        setImages({ photo, qr, signatureImage });
       }
     }
 

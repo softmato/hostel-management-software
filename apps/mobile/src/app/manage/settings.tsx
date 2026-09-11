@@ -464,6 +464,7 @@ export default function ManageSettingsScreen() {
           <Card padding="px-4 py-1">
             <ListRow
               icon="business-outline"
+              iconBgColor="#007AFF"
               onPress={() => openPanel("about")}
               subtitle={hostel.description ? "Name, description, type" : "No description yet"}
               title="About"
@@ -471,6 +472,7 @@ export default function ManageSettingsScreen() {
             <RowDivider inset />
             <ListRow
               icon="call-outline"
+              iconBgColor="#34C759"
               onPress={() => openPanel("contact")}
               subtitle={hostel.contact.phone || "No phone on file"}
               title="Contact"
@@ -478,6 +480,7 @@ export default function ManageSettingsScreen() {
             <RowDivider inset />
             <ListRow
               icon="location-outline"
+              iconBgColor="#FF3B30"
               onPress={() => openPanel("location")}
               subtitle={
                 [hostel.location.area, hostel.location.city].filter(Boolean).join(", ") ||
@@ -488,6 +491,7 @@ export default function ManageSettingsScreen() {
             <RowDivider inset />
             <ListRow
               icon="cash-outline"
+              iconBgColor="#30D158"
               onPress={() => openPanel("pricing")}
               subtitle={
                 hostel.pricing.monthlyRentMin
@@ -499,6 +503,7 @@ export default function ManageSettingsScreen() {
             <RowDivider inset />
             <ListRow
               icon="sparkles-outline"
+              iconBgColor="#AF52DE"
               onPress={() => openPanel("facilities")}
               subtitle={`${hostel.facilities.length} listed`}
               title="Facilities"
@@ -506,6 +511,7 @@ export default function ManageSettingsScreen() {
             <RowDivider inset />
             <ListRow
               icon="document-text-outline"
+              iconBgColor="#FF9500"
               onPress={() => openPanel("rules")}
               subtitle={`${hostel.rules.length} listed`}
               title="House rules"
@@ -513,6 +519,7 @@ export default function ManageSettingsScreen() {
             <RowDivider inset />
             <ListRow
               icon="bed-outline"
+              iconBgColor="#5E5CE6"
               onPress={() => router.push("/manage/rooms")}
               subtitle={`${hostel.roomConfigurations.length} room type(s)`}
               title="Rooms and beds"
@@ -626,6 +633,7 @@ export default function ManageSettingsScreen() {
           <Card padding="px-4 py-1">
             <ListRow
               icon="people-outline"
+              iconBgColor="#30B0C7"
               onPress={() => router.push("/manage/wardens")}
               subtitle="Invite, suspend and set what each one may do"
               title="Wardens"
@@ -633,6 +641,7 @@ export default function ManageSettingsScreen() {
             <RowDivider inset />
             <ListRow
               icon="gift-outline"
+              iconBgColor="#FF2D55"
               onPress={() => router.push("/manage/referrals")}
               subtitle="Confirm who joined, and record the reward"
               title="Referrals"
@@ -772,6 +781,7 @@ export default function ManageSettingsScreen() {
           <Card padding="px-4 py-1">
             <ListRow
               icon="mail-outline"
+              iconBgColor="#8E8E93"
               onPress={() => openPanel("change")}
               subtitle="Hostel name past the limit, owner name, owner email"
               title="Request a change"

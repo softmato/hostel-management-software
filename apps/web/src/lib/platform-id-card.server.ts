@@ -1,7 +1,12 @@
 import {
+  ensureIdCardFonts,
+  ID_CARD_SERVER_FONT_STACK,
+} from "@/lib/id-card-fonts";
+import {
   CARD_HEIGHT,
   CARD_WIDTH,
   drawIdCard,
+  setIdCardFontStack,
   type IdCardData,
   type IdCardFace,
 } from "@/lib/platform-id-card";
@@ -33,6 +38,8 @@ type CardImages = {
   photo?: Buffer | null;
   /** PNG bytes of the share QR. */
   qr?: Buffer | null;
+  /** A photographed signature, when the holder signed on paper instead. */
+  signature?: Buffer | null;
 };
 
 /**
@@ -48,6 +55,26 @@ export async function renderIdCardPng(
   images: CardImages = {},
 ): Promise<Buffer | null> {
   try {
+    /*
+     * Before anything is drawn. A lambda has no system fonts, and `fillText`
+     * against a family that cannot be resolved draws nothing and throws
+     * nothing — which is how blank cards were emailed for weeks while every
+     * local render looked right.
+     */
+    if (!(await ensureIdCardFonts())) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          action: "id_card_render_failed",
+          message: "Inter is not registered with the canvas font database",
+        }),
+      );
+
+      return null;
+    }
+
+    setIdCardFontStack(ID_CARD_SERVER_FONT_STACK);
+
     const { createCanvas, loadImage } = await import("@napi-rs/canvas");
 
     const canvas = createCanvas(CARD_WIDTH * RENDER_SCALE, CARD_HEIGHT * RENDER_SCALE);
@@ -57,9 +84,10 @@ export async function renderIdCardPng(
 
     // A missing or corrupt photo/QR degrades the card rather than losing it —
     // the renderer already falls back to initials and an empty QR frame.
-    const [photo, qr] = await Promise.all([
+    const [photo, qr, signatureImage] = await Promise.all([
       images.photo ? loadImage(images.photo).catch(() => null) : null,
       images.qr ? loadImage(images.qr).catch(() => null) : null,
+      images.signature ? loadImage(images.signature).catch(() => null) : null,
     ]);
 
     // The napi context and images are API-compatible with the DOM ones the
@@ -68,6 +96,7 @@ export async function renderIdCardPng(
       ...data,
       photo: (photo ?? null) as unknown as HTMLImageElement | null,
       qr: (qr ?? null) as unknown as HTMLImageElement | null,
+      signatureImage: (signatureImage ?? null) as unknown as HTMLImageElement | null,
     }, face);
 
     return await canvas.encode("png");

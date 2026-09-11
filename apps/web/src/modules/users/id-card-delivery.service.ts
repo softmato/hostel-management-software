@@ -6,6 +6,7 @@ import {
   getResidentIdentity,
   getResidentIdentityQr,
   readResidentIdentityPhoto,
+  readResidentIdentitySignature,
 } from "@/modules/users/resident-identity.service";
 import { idCardIssuedEmail } from "@hostel/shared/email/templates/account/id-card-issued";
 import { sendEmail } from "@hostel/shared/email/sender";
@@ -50,6 +51,22 @@ async function readPhotoBytes(userId: string) {
   }
 }
 
+/**
+ * A photographed signature, for holders who signed on paper rather than on the
+ * screen. Null is the ordinary case — most sign with a finger, and those
+ * strokes travel inside the profile — so this degrades exactly as the photo
+ * does rather than holding up the email.
+ */
+async function readSignatureBytes(userId: string) {
+  try {
+    const signature = await readResidentIdentitySignature(userId);
+
+    return Buffer.from(await new Response(signature.body).arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 /** The share QR as PNG bytes, decoded from the data URL the identity mints. */
 async function readQrBytes(userId: string) {
   try {
@@ -73,10 +90,11 @@ export async function sendIdCardEmail(userId: string, cardType: PlatformIdCardTy
       return { sent: false as const, reason: "no_card" as const };
     }
 
-    const [{ identity: siteIdentity }, photo, qr] = await Promise.all([
+    const [{ identity: siteIdentity }, photo, qr, signature] = await Promise.all([
       loadSiteConfig(),
       readPhotoBytes(userId),
       readQrBytes(userId),
+      identity.hasSignatureImage ? readSignatureBytes(userId) : null,
     ]);
 
     const cardLabel = CARD_LABELS[cardType];
@@ -99,12 +117,13 @@ export async function sendIdCardEmail(userId: string, cardType: PlatformIdCardTy
       phone: profile?.primaryPhone ?? null,
       residentId: identity.residentId,
       role: roleLine,
+      signature: profile?.signature ?? null,
       siteLabel: new URL(siteUrl()).host,
     };
 
     const [front, back] = await Promise.all([
-      renderIdCardPng(data, "front", { photo, qr }),
-      renderIdCardPng(data, "back", { photo, qr }),
+      renderIdCardPng(data, "front", { photo, qr, signature }),
+      renderIdCardPng(data, "back", { photo, qr, signature }),
     ]);
 
     if (!front) {
