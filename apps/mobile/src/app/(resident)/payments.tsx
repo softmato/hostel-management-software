@@ -299,6 +299,9 @@ export default function ResidentPaymentsScreen() {
 
   const { claims, credit } = finance.data;
   const openClaims = claims.filter((claim) => claim.status !== "APPROVED");
+  // A rejected claim stays listed so its reason is readable, but it is no
+  // longer waiting on anyone — the pill counts only the ones still undecided.
+  const pendingClaims = openClaims.filter((claim) => claim.status === "PENDING").length;
   const shownClaims = allClaims ? openClaims : openClaims.slice(0, CLAIM_PREVIEW);
 
   return (
@@ -311,7 +314,7 @@ export default function ResidentPaymentsScreen() {
       scroll
     >
       <ResidentDuesCard
-        claimsPending={openClaims.length}
+        claimsPending={pendingClaims}
         /*
           One line, and only when there is something to pay. The heading is an
           instruction rather than a label — `Pay this next` names the invoice the
@@ -460,8 +463,14 @@ export default function ResidentPaymentsScreen() {
                   />
                 ) : undefined
               }
-              subtitle="Waiting on the hostel to verify"
-              title="Pending claims"
+              subtitle={
+                pendingClaims === openClaims.length
+                  ? "Waiting on the hostel to verify"
+                  : pendingClaims > 0
+                    ? `${pendingClaims} waiting on the hostel`
+                    : "Not accepted by the hostel"
+              }
+              title={pendingClaims === openClaims.length ? "Pending claims" : "Your claims"}
             />
 
             <Card padding="px-4 py-1">
