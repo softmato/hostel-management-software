@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Chip } from "@/components/ui/layout";
 import { ListRow } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Select } from "@/components/ui/select";
@@ -43,6 +44,20 @@ import { openAssetViewer } from "@/lib/asset-viewer";
 import { formatMoney, humanizeEnum } from "@/lib/format";
 import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
 import { toastError, toastSuccess } from "@/lib/toast";
+
+/**
+ * One-tap rejection reasons — the same sentences the web review queue offers
+ * (`CLAIM_REJECTION_REASONS` on the server, minus `OTHER`, which is the text
+ * box). A tap fills the box, so the admin can still edit it before sending.
+ */
+const QUICK_REJECT_REASONS = [
+  "The amount does not match this invoice.",
+  "We have not received this payment yet.",
+  "The screenshot is unreadable — please send a clearer one.",
+  "This payment has already been recorded.",
+  "The payment went to an account we do not use.",
+  "This payment belongs to a different month.",
+];
 
 /**
  * The four unprompted things, fetched **once for the whole admin group**.
@@ -353,8 +368,22 @@ export function useAlertActions() {
             ? "The resident is shown this reason, so it should tell them what to do next."
             : "The resident is shown this reply on their complaint."}
         </Text>
+        {pending?.mode === "reject" ? (
+          <View className="flex-row flex-wrap gap-2">
+            {QUICK_REJECT_REASONS.map((reason) => (
+              <Chip
+                key={reason}
+                label={reason}
+                onPress={() => setNote(reason)}
+                tone={note === reason ? "brand" : "neutral"}
+              />
+            ))}
+          </View>
+        ) : null}
         <Input
-          autoFocus
+          // Reject leads with the one-tap reasons; a keyboard up on open would
+          // cover them.
+          autoFocus={pending?.mode !== "reject"}
           maxLength={pending?.mode === "reject" ? 500 : 2000}
           multiline
           numberOfLines={4}
