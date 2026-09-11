@@ -16,3 +16,14 @@
 **/.classpath
 **/.project
 **/.settings/**/*
+
+# Buildship also compiles into Eclipse's default output folder, `bin/`, which
+# for the two Gradle plugins below node_modules is a copy of `src/main/kotlin`,
+# and the Kotlin Gradle plugin keeps session state in `.kotlin/`. Fingerprint's
+# defaults skip `build/` and `.gradle/` in the same places but not these, so an
+# import moved expo-modules-core and expo-updates on 2026-09-11. Scoped to
+# Gradle project roots on purpose: a package-level `bin/` (expo/bin) is real.
+**/android/bin/**/*
+**/android/.kotlin/**/*
+**/*-gradle-plugin/bin/**/*
+**/*-gradle-plugin/.kotlin/**/*

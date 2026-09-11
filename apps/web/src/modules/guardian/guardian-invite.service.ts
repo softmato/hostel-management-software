@@ -16,6 +16,7 @@ import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
 import { GuardianModel } from "@hostel/db/models/Guardian";
 import { GuardianPermissionModel } from "@hostel/db/models/GuardianPermission";
 import { GuardianServiceError } from "@/modules/guardian/guardian.service";
+import { releaseGuardianAccounts } from "@/modules/guardian/guardian-account";
 import { guardianInvitationEmail } from "@hostel/shared/email/templates/guardian/invitation";
 import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
 import {
@@ -360,6 +361,7 @@ export async function revokeGuardianAccess(accessId: string, principal: ApiPrinc
     { _id: access._id },
     { $set: { status: "REVOKED" }, $unset: { invitationToken: "" } },
   );
+  await releaseGuardianAccounts([access.userId], resident.hostelId);
   await AuditLogModel.create({
     action: "GUARDIAN_ACCESS_REVOKED",
     actorId: principal.userId,

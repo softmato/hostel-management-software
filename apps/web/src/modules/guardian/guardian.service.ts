@@ -212,12 +212,23 @@ function serializeGuardianAccess(access: GuardianAccessRecord) {
 }
 
 async function loadGuardianAccess(principal: ApiPrincipal) {
-  const access = await GuardianAccessModel.findOne({
-    status: { $in: ["ACTIVE", "USED"] },
-    userId: normalizeObjectId(principal.userId, "user id"),
-  }).lean<GuardianAccessRecord | null>();
+  // One account can hold several access rows — a guardian invited again after
+  // their ward was deleted and re-registered keeps the old USED row too. Newest
+  // first, and the first whose ward is still on the books wins: an unsorted
+  // findOne kept handing back the dead link and 404ed a guardian who had a
+  // perfectly good one.
+  const accesses = (
+    await GuardianAccessModel.find({
+      status: { $in: ["ACTIVE", "USED"] },
+      userId: normalizeObjectId(principal.userId, "user id"),
+    })
+      .sort({ createdAt: -1 })
+      .lean<GuardianAccessRecord[]>()
+  )
+    // Out-of-scope rows are reported exactly like a genuine miss (RULES.md §3).
+    .filter((access) => principal.hostelIds.includes(access.hostelId.toString()));
 
-  if (!access) {
+  if (accesses.length === 0) {
     throw new GuardianServiceError(
       "Guardian access was not found for this account.",
       "GUARDIAN_ACCESS_NOT_FOUND",
@@ -225,56 +236,52 @@ async function loadGuardianAccess(principal: ApiPrincipal) {
     );
   }
 
-  if (!principal.hostelIds.includes(access.hostelId.toString())) {
-    // Reported exactly like a genuine miss (RULES.md §3).
-    throw new GuardianServiceError(
-      "Guardian access was not found for this account.",
-      "GUARDIAN_ACCESS_NOT_FOUND",
-      404,
-    );
-  }
+  for (const access of accesses) {
+    const [resident, guardian] = await Promise.all([
+      ResidentModel.findOne({
+        _id: access.residentId,
+        hostelId: access.hostelId,
+        isDeleted: false,
+      }).lean<ResidentRecord | null>(),
+      GuardianModel.findOne({
+        _id: access.guardianId,
+        hostelId: access.hostelId,
+        residentId: access.residentId,
+      }).lean<GuardianRecord | null>(),
+    ]);
 
-  const [resident, guardian, permission] = await Promise.all([
-    ResidentModel.findOne({
-      _id: access.residentId,
-      hostelId: access.hostelId,
-      isDeleted: false,
-    }).lean<ResidentRecord | null>(),
-    GuardianModel.findOne({
-      _id: access.guardianId,
-      hostelId: access.hostelId,
-      residentId: access.residentId,
-    }).lean<GuardianRecord | null>(),
-    GuardianPermissionModel.findOne({
+    if (!resident || !guardian) {
+      continue;
+    }
+
+    const permission = await GuardianPermissionModel.findOne({
       guardianAccessId: access._id,
-    }).lean<GuardianPermissionRecord | null>(),
-  ]);
+    }).lean<GuardianPermissionRecord | null>();
 
-  if (!resident || !guardian) {
-    throw new GuardianServiceError(
-      "Guardian resident link was not found.",
-      "GUARDIAN_LINK_NOT_FOUND",
-      404,
-    );
+    return {
+      access,
+      guardian,
+      // Default-deny (PRD.md §10). A missing or partial permission document means
+      // the resident has not shared that field, never "share everything" — the
+      // guardian dashboard is opt-in field by field.
+      permission: {
+        canViewComplaintStatus:
+          permission?.canViewComplaintStatus ?? access.allowComplaintStatus ?? false,
+        canViewFood: permission?.canViewFood ?? false,
+        canViewNotices: permission?.canViewNotices ?? false,
+        canViewPayments: permission?.canViewPayments ?? false,
+        canViewReceipts: permission?.canViewReceipts ?? false,
+        canViewSafety: permission?.canViewSafety ?? false,
+      },
+      resident,
+    };
   }
 
-  return {
-    access,
-    guardian,
-    // Default-deny (PRD.md §10). A missing or partial permission document means
-    // the resident has not shared that field, never "share everything" — the
-    // guardian dashboard is opt-in field by field.
-    permission: {
-      canViewComplaintStatus:
-        permission?.canViewComplaintStatus ?? access.allowComplaintStatus ?? false,
-      canViewFood: permission?.canViewFood ?? false,
-      canViewNotices: permission?.canViewNotices ?? false,
-      canViewPayments: permission?.canViewPayments ?? false,
-      canViewReceipts: permission?.canViewReceipts ?? false,
-      canViewSafety: permission?.canViewSafety ?? false,
-    },
-    resident,
-  };
+  throw new GuardianServiceError(
+    "Guardian resident link was not found.",
+    "GUARDIAN_LINK_NOT_FOUND",
+    404,
+  );
 }
 
 function serializePayment(payment: LedgerInvoice) {

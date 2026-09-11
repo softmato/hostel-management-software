@@ -258,11 +258,14 @@ same pass strips the deprecated `package=` attribute out of their
 `AndroidManifest.xml`. None of it changes what the build produces. All of it
 changes the hash.
 
-`.fingerprintignore` now covers the Buildship files; fingerprint's own defaults
-only skip `android/build`, `android/.gradle` and `android/.cxx`. The manifest
-rewrite cannot be covered the same way — a library's manifest is a real native
-input and has to stay hashed — so the rule is to reinstall before releasing from
-a tree whose Android project has been opened in an IDE:
+`.fingerprintignore` now covers the Buildship files — `.classpath`, `.project`,
+`.settings/`, and the `bin/` and `.kotlin/` output it compiles into inside
+`android/` and the `*-gradle-plugin` directories (a `bin/` copy of their Kotlin
+sources is what moved `expo-modules-core` and `expo-updates`). Fingerprint's own
+defaults only skip `build/`, `.gradle/` and `.cxx/` in those places. The
+manifest rewrite cannot be covered the same way — a library's manifest is a real
+native input and has to stay hashed — so the rule is to reinstall before
+releasing from a tree whose Android project has been opened in an IDE:
 
 ```bash
 cd apps/mobile && npm ci

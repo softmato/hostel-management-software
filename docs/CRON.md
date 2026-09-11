@@ -1,442 +1,172 @@
-# CRON.md — Scheduled Jobs
+# CRON.md — Scheduled jobs (cron-job.org)
+
+16 jobs. Each block below gives you exactly what to paste into the cron-job.org form.
+
+## Same on every job
+
+| Field | Tab | Value |
+| --- | --- | --- |
+| Request method | Advanced | `POST` |
+| Headers → Add → Key | Advanced | `x-cron-secret` |
+| Headers → Add → Value | Advanced | the `CRON_SECRET` value from Vercel → Settings → Environment Variables |
+| Time zone | Advanced | `Asia/Kathmandu` |
+| Request body | Advanced | empty |
+| Timeout | Advanced | `30` seconds |
+| Requires HTTP authentication | Advanced | off |
+| Enable job | Common | on |
+| Save responses in job history | Common | on |
+| Notify me when execution fails | Common | on |
+| Execution schedule | Common | pick **Custom**, paste the crontab from the job's block |
+
+All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu`.
+
+---
 
-This project runs scheduled maintenance via **[cron-job.org](https://cron-job.org)** (external
-scheduler), not Vercel Cron. Each cron endpoint is a normal API route protected by a shared secret.
+## 1. Gateway expiry sweep
+
+- Title: `Gateway expiry sweep`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/gateway-expiry-sweep`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `*/5 * * * *` (every 5 minutes)
 
-## Authentication
+## 2. Notification dispatch
+
+- Title: `Notification dispatch`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/notification-dispatch`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `*/15 * * * *` (every 15 minutes)
 
-Cron endpoints authorize with the `CRON_SECRET` env var, sent in a **header only** — never a
-`?key=` query param (a secret in a URL leaks into access logs, CDN/proxy logs, browser history, and
-the `Referer` header of outbound navigations). Comparison is timing-safe. Helper:
-[`apps/web/src/lib/cron-auth.ts`](../apps/web/src/lib/cron-auth.ts) → `validateCronRequest(request)`.
+## 3. Meal call reminders
+
+- Title: `Meal call reminders`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/meal-call-reminders`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `*/15 * * * *` (every 15 minutes, never slower)
 
-Send the secret as either:
+## 4. Night status prompt
+
+- Title: `Night status prompt`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/night-status-prompt`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `*/15 * * * *` (every 15 minutes, never slower)
 
-- `x-cron-secret: <CRON_SECRET>`  ← use this on cron-job.org
-- `Authorization: Bearer <CRON_SECRET>`
+## 5. Push receipts
+
+- Title: `Push receipts`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/push-receipts`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `0 * * * *` (every hour, on the hour)
 
-Set `CRON_SECRET` in the deployed environment (a long random string; rotate before production —
-the dev value in `.env` is a placeholder).
+## 6. Refresh nearby places
 
-## Endpoints
+- Title: `Refresh nearby places`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/refresh-nearby-places`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `0 * * * *` (every hour, on the hour)
 
-### Purge expired OTP challenges
+## 7. Billing cycle
 
-`POST /api/v1/cron/purge-expired-otps`
+- Title: `Billing cycle`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/billing-cycle`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `15 0 * * *` (every day at 00:15)
 
-Deletes `OtpChallenge` documents whose `expiresAt` has passed. The collection also has a TTL index,
-so this is an explicit backup sweep (MongoDB's TTL monitor runs on its own ~60s cadence and can lag
-under load). Idempotent. Returns `{ deleted: <count> }`.
+## 8. Payment reminders
 
-- Recommended schedule: daily (e.g. `0 3 * * *`).
+- Title: `Payment reminders`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/payment-reminders`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 7 * * *` (every day at 07:45)
 
-### Refresh nearby places
+## 9. Purge expired OTPs
 
-`POST /api/v1/cron/refresh-nearby-places`
+- Title: `Purge expired OTPs`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/purge-expired-otps`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 8 * * *` (every day at 08:45)
 
-Re-fetches stale or missing nearby-place caches for published hostels (ARCHITECTURE.md §4.5).
-Processes a small batch per run to respect the Nominatim/Overpass rate limits, so caches fill in
-over several runs. Idempotent.
+## 10. Account purge
 
-- Recommended schedule: hourly (e.g. `0 * * * *`).
+- Title: `Account purge`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/account-purge`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 8 * * *` (every day at 08:45)
 
-### Monthly billing cycle
+## 11. Hostel purge
 
-`POST /api/v1/cron/billing-cycle`
+- Title: `Hostel purge`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/hostel-purge`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 8 * * *` (every day at 08:45)
 
-Issues the month's `Invoice` rows for every hostel — the single billing path of
-FINANCE_IMPLEMENTATION_PLAN.md item 2.5 (target §6.1), replacing the three that
-disagreed with each other. Amounts come from the hostel's `FeeSchedule` and the
-per-resident override, prorated for mid-month move-ins **and move-outs**; nothing
-is guessed and nothing is billed as a silent zero.
+## 12. Ledger drift
 
-Idempotent: the double-billing index makes a second run a no-op, so a retried or
-double-scheduled invocation cannot bill anyone twice. Accepts `?period=YYYY-MM`
-to re-run a specific month; defaults to the current one in UTC.
+- Title: `Ledger drift`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/ledger-drift`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 8 * * *` (every day at 08:45)
 
-Returns `{ period, invoicesIssued, totalBilled, hostels, failedHostels }`. **Read
-`failedHostels`.** A hostel whose room types do not map to a bed type has no fee
-schedule and fails here by design (plan §7.3) — that is a data problem to fix in
-the fee editor, not a run to ignore, and one hostel's failure never stops the
-others.
+## 13. Complaint SLA
 
-- Recommended schedule: monthly on the 1st, early morning (e.g. `0 1 1 * *`).
+- Title: `Complaint SLA`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/complaint-sla`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 9 * * *` (every day at 09:45)
 
-### Payment reminders and overdue chases
+## 14. Attendance maintenance
 
-`POST /api/v1/cron/payment-reminders`
+- Title: `Attendance maintenance`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/attendance-maintenance`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 10 * * *` (every day at 10:45)
 
-Walks open payments across every hostel (PHASES.md §3.1 "Payment System") and:
+## 15. Gateway health
 
-- climbs **three notices before the bill is late** — the hostel's own window
-  (`paymentReminderDaysBefore` on the `operations` platform setting, **7 days**
-  by default), then 3 days out, then the due day itself;
-- flips past-due invoices to `OVERDUE` and climbs a **terminating** ladder:
-  first overdue notice → second at day 3 → up to four weekly chases → escalation
-  to the hostel's admins → stop. After the stop the software never contacts the
-  resident about that invoice again;
-- writes an in-app `Notification` in every case, whether or not payment email is
-  switched on.
+- Title: `Gateway health`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/gateway-health`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `15 12 * * *` (every day at 12:15)
 
-**The stage is recorded per invoice, not computed from today's date**
-(FINANCE_IMPLEMENTATION_PLAN.md item 5.2, target §10.3). The job this replaced
-compared the day offset to an exact number, so one missed run skipped that
-resident permanently and silently. A late run now still climbs the rung it
-missed, and a second run the same day does nothing. A failed send does not
-advance the stage, so it is retried rather than skipped.
+## 16. Gateway settlement recon
 
-Returns `{ scanned, reminded, overdueNotified, markedOverdue, escalated, stopped }`
-and writes a `ReconciliationRun` of kind `DUNNING` — the old version returned
-statistics to nobody, which is why a job that had stopped working looked exactly
-like a month when everyone paid on time.
+- Title: `Gateway settlement recon`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/gateway-settlement-recon`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `45 9 * * 1` (every Monday at 09:45)
 
-- Recommended schedule: daily, early morning local time (e.g. `0 2 * * *`).
+---
 
-### Ledger drift check
+**Billing cycle runs daily on purpose.** Rent is billed per Bikram Sambat month,
+and a BS month doesn't start on a fixed Gregorian date. A run just after Nepal
+midnight bills each month on its first day. Every other day's run answers
+`ALREADY_BILLED` and changes nothing.
 
-`POST /api/v1/cron/ledger-drift`
+## Check it works
 
-Verifies that the finance ledger still agrees with itself, per hostel
-(FINANCE_IMPLEMENTATION_PLAN.md item 5.1, target §10.1). Six checks: a stored
-`InvoiceBalance` that disagrees with the sum of its settled events, an invoice
-status that disagrees with its balance, an invoice marked `PAID` whose events sum
-short, a settled credit with no live receipt, a live receipt with no settled
-event, a `PENDING` event past its expiry that was never swept — plus a
-verification of the finance audit hash chain.
+Press **TEST RUN** after creating each job.
 
-**It reports and never corrects, and that is deliberate.** A drift means
-something wrote where it should not have; recomputing the projection would erase
-the only evidence that path exists. Every finding is a row on a
-`ReconciliationRun`, one run per hostel, so a job that has been throwing for a
-fortnight is visible rather than silent. `WARN` means it found something,
-`FAIL` means the job itself broke — one hostel's failure never stops the others.
+| Response | Meaning |
+| --- | --- |
+| `200` | Working |
+| `401 UNAUTHORIZED` | Header key or value is wrong |
+| `500 CRON_NOT_CONFIGURED` | `CRON_SECRET` isn't set in Vercel. Add it and redeploy |
+| `405` | Method isn't `POST` |
 
-Read-only, therefore safe to run at any time and as often as you like. Returns
-`{ scanned, findings, hostels }`.
-
-- Recommended schedule: nightly (e.g. `0 3 * * *`).
-
-### Gateway checkout expiry sweep
-
-`POST /api/v1/cron/gateway-expiry-sweep`
-
-Closes gateway checkout attempts whose payment window has passed
-(FINANCE_IMPLEMENTATION_PLAN.md item 6.2, target §6.5).
-
-**It asks the provider before writing anything off.** The failure this exists to
-prevent is our callback endpoint being down for an hour while a resident pays
-successfully — a clock-only sweep would record that payment as abandoned, and the
-resident would have the provider's receipt proving otherwise. So the clock
-decides when to *ask*, never what the answer is: an attempt that turns out to
-have succeeded settles here instead of expiring, and one whose provider cannot be
-reached is left alone for the next run rather than expired on a guess.
-
-Batched at 100 attempts per run, each costing one call to its provider. Returns
-`{ expired, settled }`.
-
-- Recommended schedule: every 5 minutes (e.g. `*/5 * * * *`). Confirm the
-  scheduler tier supports that cadence; every 15 minutes still works, it just
-  leaves stale attempts on the resident's screen longer.
-
-### Gateway health check
-
-`POST /api/v1/cron/gateway-health`
-
-Answers one question per hostel and provider: **is the online checkout actually
-working** (FINANCE_IMPLEMENTATION_PLAN.md item 6.7)?
-
-**The failure it catches is invisible from every other screen.** A broken
-checkout and a quiet month look identical — no settlements, invoices staying
-open, nobody complaining yet — and the owner finds out when a resident rings to
-say the payment button has not worked since the 3rd. The signal that separates
-them is whether residents are *starting* payments that never complete: attempts
-with no successes is `FAILING`, no attempts at all is `QUIET`. It is not an
-uptime check; a gateway can answer our pings and still fail every resident
-because a key was rotated at the bank.
-
-Writes a `ReconciliationRun` per hostel and emails the hostel's admins when a
-provider is failing or degraded — throttled to once a day per provider, and a
-worsening status always sends. Recoveries are never mailed. Returns
-`{ checked, findings, notified, hostels }`.
-
-- Recommended schedule: daily (e.g. `30 6 * * *`).
-
-### Gateway settlement reconciliation
-
-`POST /api/v1/cron/gateway-settlement-recon`
-
-Weekly reconciliation of gateway payments (item 6.7, target §10.2).
-
-**Neither eSewa nor Khalti publishes a bulk settlement report**, which is what
-§10.2 assumed would exist. So this reconciles the way that is actually
-available: it asks the provider again about every attempt closed unpaid in the
-last fortnight, and cross-checks intents against the ledger both ways.
-
-The recheck is the part that recovers money — an attempt that completed after
-the expiry sweep gave up is cash in the hostel's account against an invoice that
-says unpaid, and nothing else will ever notice. It settles what it finds. The two
-cross-checks only report, like the drift job: a reconciliation that silently
-repairs destroys the evidence that the path producing the discrepancy exists.
-
-Returns `{ rechecked, recovered, findings, hostels }`.
-
-- Recommended schedule: weekly (e.g. `0 4 * * 1`). The fortnight window means
-  consecutive runs overlap, so a missed week is not a gap.
-
-### Complaint SLA breach check
-
-`POST /api/v1/cron/complaint-sla`
-
-Finds complaints that are still open (`PENDING` / `IN_PROGRESS`) and past `slaDueAt`, stamps
-`slaBreachedAt`, and alerts the hostel's admins by email plus an in-app `Notification`
-(PHASES.md §4.1). The SLA window itself comes from the `operations` setting `complaintSlaHours`
-(default 72) and is applied when the complaint is filed.
-
-Idempotent by construction: the job only selects complaints where `slaBreachedAt` is missing, so a
-breached complaint is alerted exactly once no matter how often the job runs. Returns
-`{ flagged, hostelsNotified, scanned }`.
-
-- Recommended schedule: daily (e.g. `0 4 * * *`).
-
-### Attendance maintenance (absence alerts + retention purge)
-
-`POST /api/v1/cron/attendance-maintenance`
-
-For every hostel with `attendance.enabled`, this job does two things (PHASES.md §4.1,
-PRIVACY_POLICY.md):
-
-1. **Absence alerts** — counts each active resident's consecutive absent days (`OUTSIDE`,
-   `UNKNOWN`, or no reading at all) and opens an `AttendanceAlert` once the streak reaches the
-   hostel's `absenceAlertDays` (default 14). An alert already open is updated with the new day
-   count rather than re-raised, and a resident who is seen again has their alert auto-resolved.
-2. **Retention purge** — deletes `AttendanceLog` rows older than the hostel's `retentionDays`
-   (default 600, platform maximum 1095).
-
-Returns `{ alertsRaised, alertsUpdated, hostelsProcessed, logsPurged }`.
-
-- Recommended schedule: daily (e.g. `0 5 * * *`).
-
-### Account deletion purge
-
-`POST /api/v1/cron/account-purge`
-
-Permanently erases accounts whose 60-day grace period has run out (ARCHITECTURE.md §13.1
-step 4, PRIVACY_POLICY.md §8.3).
-
-A request qualifies only when `scheduledDeletionAt` is set **and** past, and it is neither
-cancelled nor already executed. A `PLATFORM_REVIEW` request that no superadmin has approved
-has no `scheduledDeletionAt` at all, so this job can never pick one up by accident.
-
-Each account is purged first and marked `executed` afterwards, so a crash part-way through
-leaves the request due and the next run finishes it. One account failing does not strand the
-rest of the batch. Returns `{ due, failed, purged }`.
-
-- Recommended schedule: daily (e.g. `0 3 * * *`).
-
-### Hostel archive purge
-
-`POST /api/v1/cron/hostel-purge`
-
-Permanently erases hostels whose 60-day archive grace period has run out.
-
-A superadmin archives a hostel from the Hostel Approvals queue. That sets `isDeleted`,
-which takes it off the public site, out of search and out of its own portal immediately,
-and sets `purgeScheduledAt` 60 days out. Until that date passes the archive is reversible
-with **Restore**; after it, this job erases the hostel and everything scoped to it —
-residents, the ledger, complaints, maintenance, food, attendance, notices, community
-posts, subscriptions, store orders, and the R2 objects behind its file assets.
-
-A hostel qualifies only when `purgeScheduledAt` is set **and** past, so one archived
-before that field existed has no purge date and can never be swept up by accident.
-
-The R2 objects go first: deleting a `FileAsset` row before its bytes leaves an object
-nothing can name and nothing will ever find, billing for storage forever. The `Hostel`
-row goes last, so a crash part-way through leaves it archived and still due, and the next
-run finishes the job. One hostel failing does not strand the rest of the batch. The
-`AuditLog` row — including a final `HOSTEL_PURGED` — is the one thing deliberately kept.
-Returns `{ due, failed, purged }`.
-
-A superadmin can also erase an already-archived hostel immediately with
-`DELETE /api/v1/platform/hostels/{id}`, which runs the same code. It refuses any hostel
-that is not already archived: there is no path from live to erased in one step.
-
-- Recommended schedule: daily (e.g. `0 3 * * *`), alongside `account-purge`.
-
-### Dispatch scheduled notifications
-
-`POST /api/v1/cron/notification-dispatch`
-
-Sends every `NotificationCampaign` whose `scheduledFor` has passed and is still `SCHEDULED`
-(PHASES.md §5.1). A campaign written without a `scheduledFor` never reaches this job — it fans out
-in the request that created it.
-
-Each campaign is **claimed** first: the job flips it out of `SCHEDULED` with a conditional update
-before writing any receipts, so two overlapping runs cannot deliver the same broadcast twice. A
-campaign whose fan-out throws is marked `FAILED` with the reason rather than retried forever.
-
-Returns `{ dispatched, failed, recipients, scanned }`.
-
-- Recommended schedule: every 15 minutes (e.g. `*/15 * * * *`). The interval is the worst-case
-  delay between the time an admin picked and the notification landing, so pick it to taste — the
-  job is cheap when nothing is due.
-
-### Check push delivery receipts
-
-`POST /api/v1/cron/push-receipts`
-
-Reads the delivery receipt for every push Expo accepted. **This is the only job that can answer
-whether a notification actually reached a phone**, and it is not optional monitoring — without it
-the product cannot tell a working push pipeline from a completely broken one.
-
-Expo answers a send with a *ticket*, and a ticket only means the message was queued. FCM and APNS
-give their verdict minutes later in a *receipt*, so `sendPushToUsers` records the accepted ticket
-ids (`PushTicket`) and this job collects the answers.
-
-That gap was a real outage, not a hypothetical one: every push in the product was undeliverable
-while the send path counted them as sent, because Expo returned `ok` for each one and the receipts —
-which nothing fetched — carried `FCM 403 PERMISSION_DENIED` on `cloudmessaging.messages.create`. The
-FCM service account held by the EAS project had lost that permission. Fixing it is an **EAS/Google
-Cloud** change, not a code one; this job is what makes it visible within the hour instead of never.
-
-Failures are logged at `error`. A credential failure is reported separately from an ordinary
-delivery failure, with the remedy, under `push_transport_misconfigured`. Only a receipt saying
-`DeviceNotRegistered` revokes a token — a refused transport is our problem, not the recipient's, and
-must never cost them their registration.
-
-Returns `{ checked, delivered, expired, failed, revoked }`.
-
-- Recommended schedule: hourly (e.g. `0 * * * *`). Receipts are not ready immediately — tickets
-  younger than a minute are left for the next pass — and Expo keeps them for about a day.
-
-### Meal call reminders
-
-`POST /api/v1/cron/meal-call-reminders`
-
-Tells each hostel's cooks that a meal's **Food ready** button has gone live. The button unlocks
-half an hour before that meal's serving time — the hostel's own `FoodRoutine.timings`, parsed by
-[`packages/shared/src/food/meal-window.ts`](../packages/shared/src/food/meal-window.ts), which the
-mobile cook portal and `announceFoodReady` both read so the button and the API cannot disagree.
-Without this job the kitchen only learns the gate opened by looking at the app.
-
-Skips a meal not on today's weekday routine, one already announced today, and a hostel with nobody
-`ACTIVE` on its cook roster. Idempotent: each send is claimed in `MealCallReminder` under the
-hostel, the meal and the **Nepali** day before it goes out, so overlapping or retried runs cannot
-buzz a kitchen twice. Those rows expire after a week.
-
-Returns `{ due, sent, skipped }`.
-
-- Recommended schedule: every 15 minutes (`*/15 * * * *`). **Not wider than that** — a meal is only
-  reminded about within 45 minutes of coming due, so a slower cadence silently drops meals rather
-  than delivering them late.
-
-### Night status prompts
-
-`POST /api/v1/cron/night-status-prompt`
-
-Asks each hostel's residents whether they are in the hostel tonight, at the hour that hostel chose
-(`HostelSettings.attendance.nightStatus.promptTime`, default `20:00`, editable by a warden from the
-app or the web — it is one field on one document, so one edit moves both surfaces).
-
-The push carries a `categoryId`, so the handset draws the app's registered action buttons under the
-notification: **Inside**, **At home**, and **Outside…**, the last opening the notification's own
-inline text field. The answer posts from a background handler with the app never coming to the
-foreground. A build too old to know the category still gets an ordinary notification that opens the
-night-status screen on tap.
-
-Skips a hostel with the prompt switched off, one whose hour is unreadable or outside 17:00–23:45
-(see [`night-window.ts`](../packages/shared/src/night/night-window.ts) for why those are the
-bounds), and any resident who is not `ACTIVE`, has no user account, or **has already answered
-tonight**. A hostel with nobody left to ask is not claimed, so an answer withdrawn later in the
-window can still be re-prompted.
-
-Idempotent: each hostel's night is claimed in `NightStatusPrompt` under the hostel and the
-**night** key — 17:00 to 17:00, not the calendar day — before anything is sent, so overlapping or
-retried runs cannot ask a hostel twice. Those rows expire after a week.
-
-Returns `{ due, sent, skipped, residents }`.
-
-- Recommended schedule: every 15 minutes (`*/15 * * * *`). **Not wider than that** — a hostel is
-  only prompted within 45 minutes of its hour, so a slower cadence silently drops nights. A prompt
-  four hours late is worse than none: it wakes people who already answered and went to bed.
-
-## Every job, and what to register
-
-The full set to create on cron-job.org. All are `POST`, all take the
-`x-cron-secret` header, none take a body or a query string.
-
-| Job | Path (`/api/v1/cron/...`) | Schedule | Why that cadence |
-| --- | --- | --- | --- |
-| Monthly billing cycle | `billing-cycle` | `0 1 1 * *` | Issues the month's rent invoices. See the timing note below. |
-| Payment reminders and chases | `payment-reminders` | `0 2 * * *` | Daily; the ladder is self-healing, so a missed day is not a skipped resident. |
-| Gateway checkout expiry sweep | `gateway-expiry-sweep` | `*/5 * * * *` | Stale checkouts sit on a resident's screen until this runs. |
-| Dispatch scheduled notifications | `notification-dispatch` | `*/15 * * * *` | The interval is the worst-case delay on a scheduled broadcast. |
-| Check push delivery receipts | `push-receipts` | `0 * * * *` | Receipts are not ready immediately and survive a day, so hourly is ample. |
-| Meal call reminders | `meal-call-reminders` | `*/15 * * * *` | The cook is only reminded within 45 minutes of a meal coming due. |
-| Night status prompts | `night-status-prompt` | `*/15 * * * *` | A hostel is only prompted within 45 minutes of its own hour. |
-| Refresh nearby places | `refresh-nearby-places` | `0 * * * *` | Fills caches a batch at a time inside the Nominatim rate limit. |
-| Purge expired OTPs | `purge-expired-otps` | `0 3 * * *` | Backup for the TTL index. |
-| Account deletion purge | `account-purge` | `0 3 * * *` | Executes 60-day grace periods that have run out. |
-| Hostel archive purge | `hostel-purge` | `0 3 * * *` | Erases hostels whose 60-day archive grace period has run out. |
-| Ledger drift check | `ledger-drift` | `0 3 * * *` | Read-only; reports, never corrects. |
-| Complaint SLA breach check | `complaint-sla` | `0 4 * * *` | Alerts once per breached complaint. |
-| Gateway settlement reconciliation | `gateway-settlement-recon` | `0 4 * * 1` | Weekly, with a fortnight window so a missed week is not a gap. |
-| Attendance maintenance | `attendance-maintenance` | `0 5 * * *` | Absence alerts plus the retention purge. |
-| Gateway health check | `gateway-health` | `30 6 * * *` | Daily; a broken checkout and a quiet month look identical without it. |
-
-### Timing note: the rent month is billed in arrears
-
-As shipped, `billing-cycle` runs on the **1st** and bills the month it wakes up
-in, and `runBillingCycle` dates each invoice `periodBounds(period).end` — the
-**last day** of that month. So September's rent is invoiced on 1 September and
-due 30 September, and the dunning ladder above hangs off that due date: a notice
-on 23, 27 and 30 September, then the overdue rungs into October.
-
-A hostel that collects rent **in advance** wants the opposite shape — the
-invoice raised about a week *before* the month starts, due on the 1st, with the
-same three notices landing before the month begins. That is not a scheduling
-change on its own: moving the cron to `0 1 24 * *` would re-bill the *current*
-month, because the run derives its period from today's date
-(`periodOf(new Date())` in the route). Billing a month in advance needs the
-period selection and the invoice due date changed together, and it moves the due
-date of every hostel already on the platform. Left as-is deliberately; raise it
-before changing it.
-
-**Mid-month intakes do not wait for this job.** Registering a resident raises
-their move-in month's rent immediately and prorated, through the same
-`runBillingCycle` restricted to that one resident and period
-(`raiseFirstMonthInvoice`), so somebody admitted on the 20th owes the remaining
-days of that month from the day they are admitted. The cron has them from the
-following month onward.
-
-> **Note on the `operations` platform setting.** Several runtime knobs live in a single
-> `PlatformSetting` document keyed `operations`: `qrActivationExpiryDays`,
-> `paymentReminderDaysBefore`, `foodReadyCooldownMinutes`, `complaintSlaHours`,
-> `sendNoticeEmails`, `sendPaymentEmails`, `sendComplaintEmails`, `receiptNumberPrefix`, and the
-> Phase 5 ceilings `maxInsideZoneRadiusMeters`, `maxNearbyZoneRadiusMeters`,
-> `maxAttendanceRetentionDays`. Reads never throw — a missing or malformed document falls back to
-> the shipped defaults. Writes go through `PUT /api/v1/platform/operations-config` (superadmin
-> only), which *does* throw on an invalid value so the person editing sees it.
-
-> Per-hostel attendance settings (geofence radii, ping times, alert threshold, retention) live on
-> `HostelSettings.attendance` instead, because they are a property of the building, not the
-> platform.
-
-> Later phases add more cron jobs here (soft-deleted account purge). Each one reuses
-> `validateCronRequest` and is added to this list.
-
-## cron-job.org setup (per job)
-
-- **Method:** `POST`
-- **URL:** the deployed endpoint, e.g. `https://your-domain.com/api/v1/cron/purge-expired-otps`
-  (no query parameters)
-- **Headers:** add `x-cron-secret` with the value of the deployed `CRON_SECRET`
-  (cron-job.org: job → *Advanced* → *Headers*)
-- **Body:** none
-- **Schedule:** as listed per endpoint above
-
-## Troubleshooting `Unauthorized` / `500`
-
-1. `500 CRON_NOT_CONFIGURED` → `CRON_SECRET` is not set in the deployed environment.
-2. `401 UNAUTHORIZED` → the header value doesn't match the deployed `CRON_SECRET`, or you're calling
-   the wrong domain, or the job still uses a retired `?key=` query param instead of the header.
-3. Confirm the method is `POST`.
+The auth check is in [`apps/web/src/lib/cron-auth.ts`](../apps/web/src/lib/cron-auth.ts). A new
+cron route uses `validateCronRequest` and gets a block above.

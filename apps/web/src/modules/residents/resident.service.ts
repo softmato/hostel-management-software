@@ -12,7 +12,9 @@ import { demoteToPublicAccount } from "@/modules/auth/auth.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { GuardianModel } from "@hostel/db/models/Guardian";
+import { GuardianAccessModel } from "@hostel/db/models/GuardianAccess";
 import { HostelModel } from "@hostel/db/models/Hostel";
+import { releaseGuardianAccounts } from "@/modules/guardian/guardian-account";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { sendEmail } from "@hostel/shared/email/sender";
@@ -1447,6 +1449,23 @@ export async function deleteResident(
   if (resident.status !== "MOVED_OUT") {
     await releaseBedForRoomType(resident.hostelId, resident.roomType);
   }
+
+  // A guardian's view of this resident goes with the profile. Left ACTIVE or
+  // USED, the row keeps matching the guardian's login and their dashboard 404s
+  // on a ward who is no longer here. A guardian left with no ward is handed back
+  // the account they had before, the same as the resident's own below.
+  const liveGuardianAccess = {
+    hostelId: resident.hostelId,
+    residentId: resident._id,
+    status: { $in: ["ACTIVE", "USED"] },
+  };
+  const guardianUserIds = await GuardianAccessModel.distinct("userId", liveGuardianAccess);
+
+  await GuardianAccessModel.updateMany(liveGuardianAccess, {
+    $set: { status: "REVOKED" },
+    $unset: { invitationToken: "" },
+  });
+  await releaseGuardianAccounts(guardianUserIds, resident.hostelId);
 
   // The account outlives the resident profile: losing your room does not lose
   // you your login. Drop this hostel from its scope and, once no resident

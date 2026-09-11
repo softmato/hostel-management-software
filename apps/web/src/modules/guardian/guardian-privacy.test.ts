@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   foodRoutine: vi.fn(),
   guardianAccessCreate: vi.fn(),
+  guardianAccessFind: vi.fn(),
   guardianAccessFindOne: vi.fn(),
   guardianFindOne: vi.fn(),
   guardianPermissionFindOne: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
 vi.mock("@hostel/db/models/GuardianAccess", () => ({
   GuardianAccessModel: {
     create: mocks.guardianAccessCreate,
+    find: mocks.guardianAccessFind,
     findOne: mocks.guardianAccessFindOne,
     updateMany: vi.fn(),
     updateOne: vi.fn(),
@@ -117,18 +119,20 @@ function setPermissions(permissions: Record<string, boolean> | null) {
 describe("guardian dashboard privacy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.guardianAccessFindOne.mockReturnValue(
-      leanResult({
-        _id: accessId,
-        accessCode: "AB12CD",
-        allowComplaintStatus: false,
-        expiresAt: new Date("2031-01-01T00:00:00.000Z"),
-        guardianId,
-        hostelId: new Types.ObjectId(hostelId),
-        phone: "9800000000",
-        residentId,
-        status: "USED",
-      }),
+    mocks.guardianAccessFind.mockReturnValue(
+      queryResult([
+        {
+          _id: accessId,
+          accessCode: "AB12CD",
+          allowComplaintStatus: false,
+          expiresAt: new Date("2031-01-01T00:00:00.000Z"),
+          guardianId,
+          hostelId: new Types.ObjectId(hostelId),
+          phone: "9800000000",
+          residentId,
+          status: "USED",
+        },
+      ]),
     );
     mocks.residentFindOne.mockReturnValue(
       leanResult({
@@ -215,6 +219,42 @@ describe("guardian dashboard privacy", () => {
       ]),
     );
     mocks.foodRoutine.mockResolvedValue({ days: [] });
+  });
+
+  it("skips an access row whose ward was deleted and serves the live one", async () => {
+    // The shape that 404ed on a real phone: one guardian account, two USED rows,
+    // one pointing at a resident who has since been deleted.
+    const liveAccessId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0e4");
+    const accessRow = (id: Types.ObjectId) => ({
+      _id: id,
+      accessCode: "AB12CD",
+      expiresAt: new Date("2031-01-01T00:00:00.000Z"),
+      guardianId,
+      hostelId: new Types.ObjectId(hostelId),
+      phone: "9800000000",
+      residentId,
+      status: "USED",
+    });
+    const accessQuery = queryResult([accessRow(accessId), accessRow(liveAccessId)]);
+    mocks.guardianAccessFind.mockReturnValue(accessQuery);
+    mocks.residentFindOne.mockReturnValueOnce(leanResult(null));
+    setPermissions(null);
+
+    const { dashboard } = await getGuardianDashboard(guardianPrincipal);
+
+    expect(accessQuery.sort).toHaveBeenCalledWith({ createdAt: -1 });
+    expect(dashboard.resident.fullName).toBe("Asha Rai");
+    expect(mocks.guardianPermissionFindOne).toHaveBeenCalledWith({
+      guardianAccessId: liveAccessId,
+    });
+  });
+
+  it("reports a missing link when every access row points at a deleted ward", async () => {
+    mocks.residentFindOne.mockReturnValue(leanResult(null));
+
+    await expect(getGuardianDashboard(guardianPrincipal)).rejects.toThrow(
+      "Guardian resident link was not found.",
+    );
   });
 
   it("returns nothing but the basics when no permission document exists", async () => {

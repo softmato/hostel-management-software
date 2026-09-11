@@ -14,9 +14,10 @@ export const maxDuration = 60;
 /**
  * Cron: issue the month's invoices for every hostel (target §6.1, plan §9).
  *
- * Monthly on the 1st — see `docs/CRON.md`. Idempotent: the double-billing index
- * makes a second run a no-op, so a retried or double-scheduled invocation cannot
- * bill anyone twice.
+ * Daily, just after Nepal midnight — see `docs/CRON.md`. A BS month has no fixed
+ * Gregorian start, so only a daily run bills it on its first day. Idempotent: the
+ * double-billing index makes a second run a no-op, so a retried or
+ * double-scheduled invocation cannot bill anyone twice.
  *
  * **The response body is the run record, and it is meant to be read.** Hostels
  * that could not be billed come back as rows carrying their error code — a
