@@ -77,6 +77,26 @@ describe("promoteAccountToResident", () => {
     mocks.memberUpdateMany.mockResolvedValue({ acknowledged: true });
   });
 
+  /*
+   * `linkResidentAccount` reads a throw as "not promoted" and unlinks the
+   * resident row. A throw *after* the account write — the audit row, the last
+   * thing here — would leave a login holding the hostel with no row behind it,
+   * which is the stray-hostel defect this ordering exists to prevent.
+   */
+  it("keeps a promotion that landed when its audit row will not save", async () => {
+    mocks.userFindOne.mockReturnValue(lean(account()));
+    mocks.auditCreate.mockRejectedValueOnce(new Error("audit write refused"));
+
+    const result = await promoteAccountToResident({
+      hostelId,
+      performedBy: "actor-1",
+      userId,
+    });
+
+    expect(mocks.userUpdateOne).toHaveBeenCalledTimes(1);
+    expect(result.user.role).toBe(Role.RESIDENT);
+  });
+
   it("promotes a public account and clears nothing", async () => {
     mocks.userFindOne.mockReturnValue(lean(account()));
 

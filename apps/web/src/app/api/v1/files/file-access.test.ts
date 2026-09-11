@@ -19,13 +19,22 @@ import { Role } from "@/lib/roles";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
+  findCurrentResident: vi.fn(),
   findOne: vi.fn(),
   loadApiPrincipal: vi.fn(),
   presignedReadUrl: vi.fn(),
   presignedUploadUrl: vi.fn(),
+  ResidentAccessError: class ResidentAccessError extends Error {},
 }));
 
 vi.mock("@/lib/api-auth", () => ({ loadApiPrincipal: mocks.loadApiPrincipal }));
+
+vi.mock("@/lib/db", () => ({ connectToDatabase: vi.fn() }));
+
+vi.mock("@/modules/residents/resident-access", () => ({
+  findCurrentResident: mocks.findCurrentResident,
+  ResidentAccessError: mocks.ResidentAccessError,
+}));
 
 vi.mock("@hostel/db/models/FileAsset", () => ({
   FileAssetModel: { create: mocks.create, findOne: mocks.findOne },
@@ -89,6 +98,11 @@ beforeEach(() => {
     ...doc,
     _id: { toString: () => "new-asset" },
   }));
+  // No live resident profile unless a test says otherwise, so the token rule is
+  // what every older case below exercises.
+  mocks.findCurrentResident.mockRejectedValue(
+    new mocks.ResidentAccessError("Resident profile was not found for this account."),
+  );
 });
 
 describe("GET /api/v1/files/[assetId]/url", () => {
@@ -178,6 +192,55 @@ describe("POST /api/v1/files/presign", () => {
     expect(mocks.create).toHaveBeenCalledWith(
       expect.objectContaining({ hostelId: HOSTEL_A, ownerId: RESIDENT_USER }),
     );
+  });
+
+  /*
+   * The live defect: a resident whose account had picked up a second hostel
+   * with no profile behind it. The invoice loaded (its route reads the profile)
+   * and every proof upload was refused, because "exactly one hostel" on the
+   * token resolved to nothing.
+   */
+  it("scopes a resident's proof to their profile's hostel when the token carries two", async () => {
+    mocks.loadApiPrincipal.mockResolvedValue({
+      hostelIds: [HOSTEL_A, HOSTEL_B],
+      role: Role.RESIDENT,
+      userId: RESIDENT_USER,
+    });
+    mocks.findCurrentResident.mockResolvedValue({ hostelId: { toString: () => HOSTEL_B } });
+
+    const response = await POST(presignRequest(proofBody));
+
+    expect(response.status).toBe(200);
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ hostelId: HOSTEL_B, ownerId: RESIDENT_USER }),
+    );
+  });
+
+  it("still refuses a resident's proof when no profile and no single hostel resolve", async () => {
+    mocks.loadApiPrincipal.mockResolvedValue({
+      hostelIds: [HOSTEL_A, HOSTEL_B],
+      role: Role.RESIDENT,
+      userId: RESIDENT_USER,
+    });
+
+    const response = await POST(presignRequest(proofBody));
+
+    expect(response.status).toBe(422);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("does not swallow a database failure while looking up the resident", async () => {
+    mocks.loadApiPrincipal.mockResolvedValue({
+      hostelIds: [HOSTEL_A],
+      role: Role.RESIDENT,
+      userId: RESIDENT_USER,
+    });
+    mocks.findCurrentResident.mockRejectedValue(new Error("connection reset"));
+
+    const response = await POST(presignRequest(proofBody));
+
+    expect(response.status).toBe(500);
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("refuses a financial upload whose hostel cannot be resolved", async () => {

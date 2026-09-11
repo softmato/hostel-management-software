@@ -19,8 +19,9 @@
  *
  * `kind: "PAYMENT_PROOF"` is not decoration: the presign route refuses a
  * financial asset that is not tenant-scoped, because money evidence that is not
- * hostel-scoped cannot be authorised on read. A resident's principal carries
- * exactly one hostel, so the server resolves it without the client sending one.
+ * hostel-scoped cannot be authorised on read. The server resolves a resident's
+ * hostel from their live resident profile — the same one the claim is checked
+ * against — so the client never sends one.
  */
 
 import { File, UploadType } from "expo-file-system";

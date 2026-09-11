@@ -162,21 +162,35 @@ export async function promoteAccountToResident(input: {
   };
 
   if (input.performedBy) {
-    await AuditLogModel.create({
-      action: "USER_ROLE_UPGRADED",
-      actorId: input.performedBy,
-      entityId: String(user._id),
-      entityType: "User",
-      hostelId: hostelId.toString(),
-      metadata: {
-        clearedMemberships: clearedMemberships.length,
-        clearedRole,
-        email: user.email,
-        previousRole,
-        reactivatedInvite: activatedInvite,
-        role: Role.RESIDENT,
-      },
-    });
+    /*
+     * Never fatal, like the stand-down above. The account is a resident by now,
+     * and `linkResidentAccount` reads a throw from here as "not promoted" and
+     * unlinks the resident row — which would leave a login holding this hostel
+     * with no row pointing back at it. A missing audit line is worth a log
+     * entry, not that.
+     */
+    try {
+      await AuditLogModel.create({
+        action: "USER_ROLE_UPGRADED",
+        actorId: input.performedBy,
+        entityId: String(user._id),
+        entityType: "User",
+        hostelId: hostelId.toString(),
+        metadata: {
+          clearedMemberships: clearedMemberships.length,
+          clearedRole,
+          email: user.email,
+          previousRole,
+          reactivatedInvite: activatedInvite,
+          role: Role.RESIDENT,
+        },
+      });
+    } catch (error) {
+      logger.error("Could not audit a resident promotion; the promotion stands.", {
+        error: error instanceof Error ? error.message : String(error),
+        userId: user._id.toString(),
+      });
+    }
   }
 
   return {

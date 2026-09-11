@@ -56,6 +56,11 @@ vi.mock("@hostel/db/models/HostelPageView", () => ({
 }));
 vi.mock("@hostel/db/models/Inquiry", () => ({ InquiryModel: { countDocuments: vi.fn() } }));
 vi.mock("@/lib/r2", () => ({ getPresignedReadUrl: vi.fn() }));
+// `lookupResidentProfile` asks whether they already live somewhere. Nobody is the
+// case this file is about, and unmocked it waits on a database that is not there.
+vi.mock("@/modules/residents/live-residency", () => ({
+  findLiveResidency: async () => null,
+}));
 vi.mock("@/lib/personal-data-crypto", () => ({
   decryptPersonalData: () => ({
     fullName: "Siddhant Yadav",

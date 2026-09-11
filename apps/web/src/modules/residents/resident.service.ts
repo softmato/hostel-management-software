@@ -472,6 +472,7 @@ async function linkResidentAccount(
   }
 
   const email = account.email;
+  const userId = account.userId;
 
   try {
     const hostel = await HostelModel.findById(hostelId)
@@ -479,31 +480,19 @@ async function linkResidentAccount(
       .lean<{ name?: string } | null>();
 
     /*
-     * The account, not the address, and residency wins.
+     * Same guard the QR flow enforces: one live resident profile per account,
+     * so a returning resident cannot end up occupying two beds at once.
      *
-     * `registerOrUpgradeUserByEmail` used to do this, and it did two things
-     * wrong for an intake. It re-derived the account from the email string —
-     * throwing away the exact row `findAccountForIntake` had already resolved,
-     * and matching a second row on the same mailbox instead — and it refused to
-     * change the role of anything that was not already PUBLIC. Between them,
-     * somebody with an unaccepted warden invitation on their address was
-     * registered, invoiced and welcomed, and then left signed in as a public
-     * user with no portal. `promoteAccountToResident` takes the id and clears
-     * whatever stood in the way, reporting what it cleared so the resident can
-     * be told.
+     * **Asked before anything is written.** It used to run after the promotion
+     * below, so a refusal returned `ACCOUNT_ALREADY_LINKED` over an account that
+     * had already been handed this hostel. On 2026-09-11 a second hostel scanned
+     * somebody who lived elsewhere; the link was refused and their login kept
+     * both hostels for good — two `hostelIds` on every token, and everything that
+     * resolves "the" hostel as the only one on the token treated them as
+     * belonging to none. `createResident` now refuses that intake earlier, but
+     * `updateResidentStatus` links through here with no such check, and two
+     * hostels racing on one person get past it.
      */
-    const upgrade = await promoteAccountToResident({
-      hostelId,
-      name: `${resident.firstName} ${resident.lastName}`.trim(),
-      performedBy: principal.userId,
-      phone: resident.phone,
-      userId: account.userId,
-    });
-
-    const userId = normalizeObjectId(upgrade.user.id, "user id");
-
-    // Same guard the QR flow enforces: one live resident profile per account,
-    // so a returning resident cannot end up occupying two beds at once.
     const conflicting = await ResidentModel.findOne({
       _id: { $ne: resident._id },
       isDeleted: false,
@@ -516,6 +505,12 @@ async function linkResidentAccount(
     }
 
     /*
+     * The row first, then the account.
+     *
+     * So a hostel only ever lands on a login whose resident row already points
+     * back at it — which is what lets `deleteResident`'s `$pull`, keyed off
+     * `resident.userId`, always take it off again.
+     *
      * The account, and **only** the account.
      *
      * This used to `$set: { status: "ACTIVE" }` as well, and that write ran
@@ -544,6 +539,40 @@ async function linkResidentAccount(
         },
       },
     );
+
+    /*
+     * The account, not the address, and residency wins.
+     *
+     * `registerOrUpgradeUserByEmail` used to do this, and it did two things
+     * wrong for an intake. It re-derived the account from the email string —
+     * throwing away the exact row `findAccountForIntake` had already resolved,
+     * and matching a second row on the same mailbox instead — and it refused to
+     * change the role of anything that was not already PUBLIC. Between them,
+     * somebody with an unaccepted warden invitation on their address was
+     * registered, invoiced and welcomed, and then left signed in as a public
+     * user with no portal. `promoteAccountToResident` takes the id and clears
+     * whatever stood in the way, reporting what it cleared so the resident can
+     * be told.
+     *
+     * A refusal — an administrator account on the address — unlinks the row
+     * again rather than leaving it pointing at a login that is not a resident.
+     * That is the whole rollback: the promotion refuses before it writes, and
+     * once its one write has landed it does not throw.
+     */
+    const upgrade = await promoteAccountToResident({
+      hostelId,
+      name: `${resident.firstName} ${resident.lastName}`.trim(),
+      performedBy: principal.userId,
+      phone: resident.phone,
+      userId,
+    }).catch(async (error: unknown) => {
+      await ResidentModel.updateOne(
+        { _id: resident._id, userId },
+        { $set: { updatedBy: principal.userId }, $unset: { userId: "" } },
+      );
+
+      throw error;
+    });
 
     await auditResidentAction(
       principal,

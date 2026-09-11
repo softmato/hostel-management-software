@@ -1,31 +1,53 @@
 import type { NextRequest } from "next/server";
 
+import type { ApiPrincipal } from "@/lib/api-auth";
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
+import { connectToDatabase } from "@/lib/db";
 import { isFileAssetKind, isFinancialAssetKind } from "@/lib/file-asset-kinds";
 import { validateFileAssetMetadata } from "@/lib/file-assets";
 import { Role } from "@/lib/roles";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { bucketForAccessLevel, getPresignedUploadUrl, generateFileKey } from "@/lib/r2";
+import {
+  ResidentAccessError,
+  findCurrentResident,
+} from "@/modules/residents/resident-access";
 
 export const runtime = "nodejs";
 
 /**
  * Which hostel an asset belongs to, or null when it genuinely belongs to none
  * (a platform admin's own upload). An explicit `hostelId` must be one the caller
- * can reach; otherwise a caller scoped to exactly one hostel gets that one,
- * which covers every resident and single-hostel staff member without the client
- * having to know its own tenancy.
+ * can reach; otherwise a caller scoped to exactly one hostel gets that one.
+ *
+ * A resident is answered from their resident profile first, because that is the
+ * hostel `submitClaim` checks a payment proof against (`assertClaimAssetUsable`).
+ * The token's `hostelIds` is the account's whole scope, not the resident's
+ * tenancy, and it can carry more than one: an account added to a second hostel
+ * that never got a profile there kept both. "Exactly one" then resolved to
+ * nothing and every proof upload was refused, while the invoice beside it —
+ * which goes through `findCurrentResident` — loaded fine.
  */
-function resolveAssetHostelId(
-  principal: { hostelIds: string[]; role: Role },
-  requested?: string,
-) {
+async function resolveAssetHostelId(principal: ApiPrincipal, requested?: string) {
   if (requested) {
     const allowed =
       principal.role === Role.SUPERADMIN || principal.hostelIds.includes(requested);
 
     return allowed ? requested : null;
+  }
+
+  if (principal.role === Role.RESIDENT) {
+    const resident = await findCurrentResident(principal).catch((error: unknown) => {
+      // No live profile is not a failure here — a resident between hostels can
+      // still upload a non-financial file, and falls through to the token.
+      if (error instanceof ResidentAccessError) return null;
+      throw error;
+    });
+
+    if (resident) {
+      return resident.hostelId.toString();
+    }
   }
 
   return principal.hostelIds.length === 1 ? principal.hostelIds[0] : null;
@@ -71,11 +93,13 @@ export async function POST(request: NextRequest) {
       return errorResponse(validation, "FILE_TYPE_NOT_ALLOWED", 422);
     }
 
-    if (requestedHostelId && !resolveAssetHostelId(principal, requestedHostelId)) {
+    await connectToDatabase();
+
+    const hostelId = await resolveAssetHostelId(principal, requestedHostelId);
+
+    if (requestedHostelId && !hostelId) {
       return errorResponse("Access denied", "FORBIDDEN", 403);
     }
-
-    const hostelId = resolveAssetHostelId(principal, requestedHostelId);
 
     // Money evidence that is not tenant-scoped cannot be authorized on read, so
     // it must never be created. Failing here is loud and fixable; failing on

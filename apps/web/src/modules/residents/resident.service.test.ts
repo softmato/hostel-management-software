@@ -165,6 +165,7 @@ import {
   createResident,
   listResidents,
 } from "@/modules/residents/resident.service";
+import { UserServiceError } from "@/modules/users/user.service";
 
 const hostelId = "64f0f0f0f0f0f0f0f0f0f0f4";
 const otherHostelId = "64f0f0f0f0f0f0f0f0f0f0f5";
@@ -1334,6 +1335,127 @@ describe("resident management service behavior", () => {
       linked: false,
       reason: "ACCOUNT_HAS_NO_EMAIL",
     });
+  });
+
+  /*
+   * The live defect (2026-09-11): a second hostel scanned somebody who already
+   * lived elsewhere. The link was refused — but only after their account had
+   * been promoted and handed the second hostel, so the login carried two
+   * hostels for good and every "the one hostel on the token" lookup treated
+   * them as unscoped.
+   *
+   * The intake's own lives-elsewhere check (`residentFind`, empty here) is what
+   * normally stops this earlier. `updateResidentStatus` has no such check, and
+   * two hostels racing on one person get past it — both land here.
+   */
+  it("refuses an account that lives elsewhere before promoting it", async () => {
+    const accountId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "asha@example.com", status: "ACTIVE" }),
+    );
+    serviceMocks.userFindOne.mockReturnValueOnce(
+      queryResult({ _id: accountId, email: "asha@example.com" }),
+    );
+    serviceMocks.residentFindOne
+      // The same-hostel duplicate check: nobody.
+      .mockReturnValueOnce(queryResult(null))
+      // The link's one-profile-per-account check: their other home.
+      .mockReturnValueOnce(
+        queryResult(
+          residentRecord({
+            _id: new Types.ObjectId(),
+            hostelId: new Types.ObjectId(otherHostelId),
+            status: "ACTIVE",
+            userId: accountId,
+          }),
+        ),
+      );
+
+    const result = await createResident(
+      {
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+        userResidentId: "hh4k7m9xq2",
+      },
+      staffPrincipal,
+    );
+
+    expect(result.accountLink).toMatchObject({
+      linked: false,
+      reason: "ACCOUNT_ALREADY_LINKED",
+    });
+    // Nothing written against the account: no role, no hostel.
+    expect(serviceMocks.promoteAccountToResident).not.toHaveBeenCalled();
+    // And the row was never pointed at it either.
+    for (const [, update] of serviceMocks.residentUpdateOne.mock.calls) {
+      expect((update as { $set?: Record<string, unknown> }).$set ?? {}).not.toHaveProperty(
+        "userId",
+      );
+    }
+  });
+
+  /*
+   * Row first, then account — so a hostel only ever lands on a login whose
+   * resident row points back at it. When the promotion is refused, the row is
+   * unpointed again rather than left naming an account that is not a resident.
+   */
+  it("links the row before promoting, and unlinks it when promotion is refused", async () => {
+    const adminId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fb");
+
+    serviceMocks.residentCreate.mockResolvedValueOnce(
+      residentRecord({ email: "owner@example.com", status: "ACTIVE" }),
+    );
+    serviceMocks.userFind.mockReturnValueOnce(
+      queryResult([{ _id: adminId, email: "owner@example.com", role: Role.HOSTEL_ADMIN }]),
+    );
+    serviceMocks.promoteAccountToResident.mockRejectedValueOnce(
+      new UserServiceError(
+        "This email belongs to an administrator account, which an intake may not change.",
+        "ROLE_TOO_PRIVILEGED",
+        409,
+      ),
+    );
+
+    const result = await createResident(
+      {
+        email: "owner@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9800000000",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(result.accountLink).toMatchObject({
+      linked: false,
+      reason: "ROLE_TOO_PRIVILEGED",
+    });
+
+    type Update = { $set?: Record<string, unknown>; $unset?: Record<string, unknown> };
+    const calls = serviceMocks.residentUpdateOne.mock.calls as [
+      Record<string, unknown>,
+      Update,
+    ][];
+    const linkAt = calls.findIndex(([, update]) => update.$set?.userId);
+    const unlinkAt = calls.findIndex(([, update]) => update.$unset?.userId !== undefined);
+
+    expect(calls[linkAt]?.[1].$set?.userId).toEqual(adminId);
+    expect(serviceMocks.residentUpdateOne.mock.invocationCallOrder[linkAt]).toBeLessThan(
+      serviceMocks.promoteAccountToResident.mock.invocationCallOrder[0],
+    );
+    // Only while it still names this account — never another link's.
+    expect(calls[unlinkAt]?.[0]).toMatchObject({ userId: adminId });
   });
 
   it("keeps the scanned id off the resident record", async () => {
