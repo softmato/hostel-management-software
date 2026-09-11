@@ -17,6 +17,7 @@ import { UserModel } from "@hostel/db/models/User";
 import { Role } from "@hostel/shared/types/roles";
 import type { PlatformIdCardType } from "@/lib/platform-id-card";
 import { UserResidentProfileModel } from "@hostel/db/models/UserResidentProfile";
+import { findLiveResidency } from "@/modules/residents/live-residency";
 import type {
   ResidentProfileData,
   residentIdentitySaveSchema,
@@ -886,7 +887,26 @@ export async function lookupResidentProfile(
     userId: user._id,
   }).catch(() => null);
 
+  const profile = readProfile(record);
+
+  /*
+   * Whether they already live somewhere — this hostel or any other — asked
+   * now, while the warden is still looking at who they scanned, rather than
+   * after they have picked a bed. Both the sign-in address and the profile's
+   * own address are tried: a hostel that registered them by hand holds the
+   * second, with no account on the row at all.
+   *
+   * Returned, not thrown. The details still load, because the warden is
+   * entitled to see who is standing in front of them; `createResident` is what
+   * actually refuses.
+   */
+  const occupancy = await findLiveResidency(
+    { emails: [user.email, profile.primaryEmail], userIds: [user._id] },
+    scopedHostelId,
+  );
+
   return {
+    occupancy,
     /*
      * Not the photo, and not a URL to it: the bytes are streamed by
      * `/hostel-admin/resident-scan/photo`, which takes the same resident ID and
@@ -900,7 +920,7 @@ export async function lookupResidentProfile(
       hasPhoto: Boolean(record.photoAssetId),
       updatedAt: record.photoUpdatedAt?.toISOString() ?? null,
     },
-    prefill: toResidentPrefill(readProfile(record)),
+    prefill: toResidentPrefill(profile),
     residentId,
     sharedAt: new Date().toISOString(),
   };

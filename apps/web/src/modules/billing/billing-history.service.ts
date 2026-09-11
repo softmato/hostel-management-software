@@ -11,6 +11,7 @@ import {
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
+import { hostelDaysBetween } from "@hostel/shared/calendar/bs";
 
 /**
  * Everything a hostel's own billing screen shows: what was billed, what was
@@ -94,24 +95,41 @@ export interface BillingPaymentRow {
  * a part-day differently on the one screen where an owner is deciding whether
  * to renew today or tomorrow.
  *
- * It counts **whole days from now to the end of the paid period**, floored, and
- * clamps at zero. Floored because a plan with eleven and a half days left has
- * eleven full days left — telling an owner "12" and then having it read "11"
- * two hours later is how a countdown loses its reader's trust. Zero means the
- * period has run out, which is a real state and not an error.
+ * ## Counted in Nepal days, so it moves once, at midnight
+ *
+ * Every figure here is a count of **calendar days in Kathmandu**, never of
+ * elapsed milliseconds. The first cut floored milliseconds, so a count moved at
+ * whatever minute the period happened to end — "3 days left" at breakfast,
+ * "2" by lunch, on the same day. Counted between days, it changes at midnight
+ * in Nepal and nowhere else, and a client that re-asks when the day turns is
+ * right all day.
+ *
+ * `daysRemaining` counts **today in**: 31 on the first day of a 31-day month,
+ * 1 on its last, 0 once it has run out — a real state, not an error.
+ * `daysToDue` counts **to** the day: 3 on Bhadra 26 for a due on Bhadra 29, and
+ * 0 on Bhadra 29 itself, which the screens word as the last day to pay.
  */
 export interface BillingPlan {
+  /**
+   * When the stretch now running began. For a team-filed hostel that is the
+   * day it was filed — it is live before it has paid — and for a public one
+   * the day it paid.
+   */
   activatedAt: string | null;
   /** Still owed on the invoice being paid. `0` when nothing is open. */
   amountDue: number;
   /** Settled so far against that same invoice. */
   amountPaid: number;
   cycleLabel: string | null;
-  /** Null before the first activation — nothing has been paid for yet. */
+  /**
+   * The last instant the plan covers — the end of a Nepal day. Null until the
+   * plan starts, which is not the same as until it is paid: a team hostel's
+   * runs while its balance is still owed.
+   */
   currentPeriodEnd: string | null;
-  /** Whole days left on the paid period. Null when no period is running. */
+  /** Days left on the plan, today included. Null when no period is running. */
   daysRemaining: number | null;
-  /** Whole days until `dueBy`, the same floor as `daysRemaining`. */
+  /** Days until the day in `dueBy`; 0 on that day. */
   daysToDue: number | null;
   /**
    * The deadline on a shortfall. The subscription's own when a team
@@ -121,6 +139,12 @@ export interface BillingPlan {
   dueBy: string | null;
   /** When the window to pay opened: the open invoice's issue. */
   dueFrom: string | null;
+  /**
+   * How many days the running stretch spans, both ends included — what
+   * `daysRemaining` is a share of. Sent rather than left for the client to
+   * derive so the bar and the count under it move on the same midnight.
+   */
+  periodDays: number | null;
   /** The catalogue id — what a client ranks the plan's mark by. */
   planId: string | null;
   planName: string | null;
@@ -137,13 +161,28 @@ export interface BillingHistory {
   plan: BillingPlan | null;
 }
 
-/** Whole days from now until an instant, floored, never negative. */
+/** Nepal days from today to the day `end` falls on: 0 on that day and after. */
 export function daysUntil(end: Date | null | undefined, now = new Date()) {
   if (!end) return null;
 
-  const millis = end.getTime() - now.getTime();
+  return end.getTime() <= now.getTime() ? 0 : Math.max(0, hostelDaysBetween(now, end));
+}
 
-  return millis <= 0 ? 0 : Math.floor(millis / 86_400_000);
+/** Nepal days left through the day `end` falls on, today included; 0 once past. */
+export function daysLeftThrough(end: Date | null | undefined, now = new Date()) {
+  if (!end) return null;
+
+  return end.getTime() <= now.getTime() ? 0 : hostelDaysBetween(now, end) + 1;
+}
+
+/** Nepal days from `start`'s day through `end`'s, both included. */
+export function daysSpanned(
+  start: Date | null | undefined,
+  end: Date | null | undefined,
+) {
+  if (!start || !end) return null;
+
+  return Math.max(1, hostelDaysBetween(start, end) + 1);
 }
 
 const CYCLE_LABELS: Record<string, string> = {
@@ -239,6 +278,9 @@ export async function getBillingHistory(
   const openDue = open ? Math.max(0, open.amount - openPaid) : 0;
   const dueBy =
     subscription?.dueBy ?? (openDue > 0 ? (open?.dueAt ?? null) : null);
+  // One clock for every count in the payload, so none of them can straddle a
+  // midnight the others did not.
+  const now = new Date();
 
   return {
     docsUrl: softmatoDocsUrl(),
@@ -309,10 +351,14 @@ export async function getBillingHistory(
             ? (CYCLE_LABELS[subscription.cycle] ?? subscription.cycle)
             : null,
           currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
-          daysRemaining: daysUntil(subscription.currentPeriodEnd),
-          daysToDue: daysUntil(dueBy),
+          daysRemaining: daysLeftThrough(subscription.currentPeriodEnd, now),
+          daysToDue: daysUntil(dueBy, now),
           dueBy: dueBy?.toISOString() ?? null,
           dueFrom: dueBy ? (open?.issuedAt?.toISOString() ?? null) : null,
+          periodDays: daysSpanned(
+            subscription.activatedAt,
+            subscription.currentPeriodEnd,
+          ),
           planId: subscription.planId ?? null,
           planName: subscription.planName ?? null,
           price: subscription.cycleTotal ?? null,

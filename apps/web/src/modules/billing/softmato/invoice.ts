@@ -2,6 +2,8 @@ import "server-only";
 
 import type { Invoice, Presentation } from "@softmato/sdk";
 
+import { bsMonthsEnd } from "@hostel/shared/calendar/bs";
+
 import { softmato } from "./client";
 import { rupeesToPaisa } from "./money";
 import { customerExternalRef, invoiceExternalRef } from "./refs";
@@ -91,6 +93,15 @@ export async function ensureSoftmatoInvoice(
  * extends rather than overlaps — otherwise an owner who pays a week ahead of
  * time buys a week they already had. Falls back to now for a first purchase,
  * and for a subscription whose period has already lapsed.
+ *
+ * ## Bikram Sambat months, ending on a Nepal day
+ *
+ * A monthly plan taken on Bhadra 26 runs **through Aswin 25**, and `endsAt` is
+ * the last instant of that day in Kathmandu — the same shape as a due
+ * (`graceDeadline`), so a count of days left on it moves at midnight and never
+ * mid-afternoon. It used to be `setMonth` on the purchase instant: 11 September
+ * to 11 October at 11:15, thirty days where the owner's own calendar has 31,
+ * ending partway through a day nobody could name.
  */
 export function servicePeriod(
   cycleMonths: number,
@@ -99,11 +110,8 @@ export function servicePeriod(
 ): { endsAt: Date; startsAt: Date } {
   const startsAt =
     currentPeriodEnd && currentPeriodEnd.getTime() > now.getTime()
-      ? new Date(currentPeriodEnd)
+      ? new Date(currentPeriodEnd.getTime() + 1)
       : new Date(now);
 
-  const endsAt = new Date(startsAt);
-  endsAt.setMonth(endsAt.getMonth() + cycleMonths);
-
-  return { endsAt, startsAt };
+  return { endsAt: bsMonthsEnd(startsAt, cycleMonths), startsAt };
 }

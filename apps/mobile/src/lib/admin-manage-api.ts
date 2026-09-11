@@ -1406,9 +1406,32 @@ export type ResidentPrefill = {
  */
 export type ResidentPrefillPhoto = { hasPhoto: boolean; updatedAt: string | null };
 
+/**
+ * Where the scanned person already lives, when they live anywhere —
+ * `lookupResidentProfile`'s `occupancy`.
+ *
+ * Matched by their account and by email. `residentId` is set only when it is
+ * **this** hostel's own record; another hostel's is never sent. The server
+ * refuses the registration either way, so this is what lets the screen say so
+ * before the warden has picked a bed rather than after.
+ */
+export type ResidentOccupancy = {
+  hostelId: string;
+  hostelName: string;
+  residentId: string | null;
+  sameHostel: boolean;
+  status: "ACTIVE" | "PENDING" | "SUSPENDED";
+};
+
 export async function lookupResidentProfile(residentId: string) {
   const response = await api.get<
     ApiEnvelope<{
+      /*
+       * Optional because an API deployed before it existed does not send it,
+       * and absent reads as "no conflict found" — the create call still
+       * refuses on a server that has the check.
+       */
+      occupancy?: ResidentOccupancy | null;
       photo: ResidentPrefillPhoto;
       prefill: ResidentPrefill;
       residentId: string;
@@ -2516,21 +2539,37 @@ export type PlanBillingPayment = {
 };
 
 export type PlanBillingPlan = {
+  /**
+   * When the stretch now running began — the day a team hostel was filed (it
+   * is live before it has paid), or the day a public one paid.
+   */
   activatedAt: string | null;
   /** Still owed on the invoice being paid. `0` when nothing is open. */
   amountDue: number;
   /** Settled so far against that same invoice. */
   amountPaid: number;
   cycleLabel: string | null;
+  /**
+   * The last instant the plan covers. Null until the plan starts, which is not
+   * the same as until it is paid: a team hostel's runs while it still owes.
+   */
   currentPeriodEnd: string | null;
-  /** Whole days left on the paid period. Null when no period is running. */
+  /**
+   * Days left on the plan, today included, in Nepal days — so it moves at
+   * midnight in Kathmandu and at no other time. Null when nothing is running.
+   */
   daysRemaining: number | null;
-  /** Whole days until `dueBy`, floored on the server like `daysRemaining`. */
+  /** Nepal days until the day in `dueBy`; 0 on that day. */
   daysToDue: number | null;
   /** The last instant of the day the balance must be paid by. */
   dueBy: string | null;
   /** When the window to pay opened — the open invoice's issue. */
   dueFrom: string | null;
+  /**
+   * Days the running stretch spans, both ends included — what `daysRemaining`
+   * is a share of. Absent from a server that predates it.
+   */
+  periodDays?: number | null;
   planId: string | null;
   planName: string | null;
   price: number | null;

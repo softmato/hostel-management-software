@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Poppins } from "next/font/google";
 
 import { MediaViewerProvider } from "@/components/media-viewer";
+import { NotificationSoundListener } from "@/components/notification-sound-listener";
 import { QueryProvider } from "@/components/query-provider";
 import { SiteConfigProvider } from "@/components/site-config-provider";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -76,6 +77,8 @@ export default async function RootLayout({
           </QueryProvider>
           {/* Global feedback surface: live upload progress + one-shot toasts. */}
           <Toaster />
+          {/* Plays our tone for a push when a tab is open to play it. */}
+          <NotificationSoundListener />
         </ThemeProvider>
       </body>
     </html>

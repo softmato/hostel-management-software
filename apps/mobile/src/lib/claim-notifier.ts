@@ -122,10 +122,14 @@ export function notifyClaimOutcome(
            */
           sound: false,
           title: notice.title,
-          ...(Platform.OS === "android" ? { channelId: CLAIM_CHANNEL } : {}),
         },
-        // Immediately.
-        trigger: null,
+        /*
+         * Immediately, on the claim channel. The channel has to ride on the
+         * trigger — in `content` it is ignored and the notice lands on
+         * expo-notifications' fallback channel instead. See `apply()` in
+         * `upload-notifier.ts`.
+         */
+        trigger: { channelId: CLAIM_CHANNEL },
       });
     })
     .catch(() => {

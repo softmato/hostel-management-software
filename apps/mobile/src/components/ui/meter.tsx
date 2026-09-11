@@ -36,6 +36,11 @@ import { Text } from "@/components/ui/text";
  * actually run out. Still derived from the value; the caller only says which
  * way round it is.
  *
+ * `reading="remaining"` is the same meaning drawn the other way: the fill is
+ * what is *left*, so a plan opens as a full bar and empties towards its
+ * renewal — a fuel gauge rather than a usage meter. Brand green down to 40%
+ * left and amber under it, which is exactly `elapsed` past 60%.
+ *
  * ## `animated` fills from empty once
  *
  * The usage-bar treatment: the track fills to its value on arrival, so the eye
@@ -59,11 +64,15 @@ const TONES = {
   warning: "bg-warning",
 } as const;
 
-type Reading = "collected" | "elapsed";
+type Reading = "collected" | "elapsed" | "remaining";
 
 function toneFor(percent: number, reading: Reading): keyof typeof TONES {
   if (reading === "elapsed") {
     return percent >= 60 ? "warning" : "brand";
+  }
+
+  if (reading === "remaining") {
+    return percent < 40 ? "warning" : "brand";
   }
 
   if (percent >= 90) {

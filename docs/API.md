@@ -55,7 +55,9 @@ can return:
 
 Beyond these, each module returns its own specific codes so a client can branch
 without string-matching a message — `RESIDENT_NOT_FOUND`, `RESIDENT_PHONE_TAKEN`,
-`RESIDENT_EMAIL_TAKEN`,
+`RESIDENT_EMAIL_TAKEN`, `RESIDENT_LIVES_ELSEWHERE` / `RESIDENT_ALREADY_HERE` (409:
+the person — matched by account or email — is not moved out of a hostel, this one
+or another; checked before the bed is claimed),
 `ROOM_TYPE_FULL`, `PAYMENT_NOT_FOUND`, `FILE_TOO_LARGE`, `LAST_SUPERADMIN`, and so
 on. A specific code is always preferred over a generic one.
 
@@ -807,7 +809,7 @@ At most **two** emails are held: the account email plus one backup.
 
 | Method | Path | Query | Permission Check (Warden) | Notes |
 |---|---|---|---|---|
-| GET | `/api/v1/hostel-admin/resident-lookup` | `residentId`, `hostelId?` | `registerResidents` | Returns `{ prefill, residentId, sharedAt }` |
+| GET | `/api/v1/hostel-admin/resident-lookup` | `residentId`, `hostelId?` | `registerResidents` | Returns `{ occupancy, photo, prefill, residentId, sharedAt }`. `occupancy` is `null`, or `{ hostelId, hostelName, residentId, sameHostel, status }` when they already live in a hostel (`residentId` only for the caller's own hostel). The details still load; `POST /residents` is what refuses |
 
 `residentId` accepts `HH-4K7M-9XQ2`, `hh4k7m9xq2`, or the full scanned share URL
 (query strings are stripped before parsing).

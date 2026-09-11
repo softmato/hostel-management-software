@@ -22,6 +22,10 @@ import {
   notifyResidentStatusChanged,
 } from "@/modules/residents/resident-changed-notify";
 import { notifyResidentRegistered } from "@/modules/residents/resident-registered-notify";
+import {
+  findLiveResidency,
+  liveResidencyMessage,
+} from "@/modules/residents/live-residency";
 import { wardRegisteredEmail } from "@hostel/shared/email/templates/guardian/ward-registered";
 import { residentAccessClearedEmail } from "@hostel/shared/email/templates/resident/resident-access-cleared";
 import { residentLinkedEmail } from "@hostel/shared/email/templates/resident/resident-linked";
@@ -293,7 +297,13 @@ type IntakeAccount =
   | { email?: undefined; reason: string; userId?: undefined };
 
 async function findAccountForIntake(
-  resident: ResidentRecord,
+  /*
+   * The address on the intake, not a saved resident. `createResident` resolves
+   * the account *before* anything is written — it is how the intake finds out
+   * the person already lives in another hostel — and hands the answer to
+   * `linkResidentAccount` rather than paying for the lookup twice.
+   */
+  intakeEmail: string | undefined,
   scannedResidentId?: string,
 ): Promise<IntakeAccount> {
   const scanned = scannedResidentId ? normalizeResidentId(scannedResidentId) : null;
@@ -324,7 +334,7 @@ async function findAccountForIntake(
     // fatal. The email below is still worth trying.
   }
 
-  const email = resident.email?.trim().toLowerCase();
+  const email = intakeEmail?.trim().toLowerCase();
 
   if (!email) {
     return { reason: "NO_EMAIL" };
@@ -430,6 +440,13 @@ async function linkResidentAccount(
    * later is not a registration and has no confirmation of its own.
    */
   sendWelcome = true,
+  /*
+   * The account `createResident` already resolved before writing anything. It
+   * has to know who the person is up front — that is how it refuses somebody
+   * who lives in another hostel — so it passes the answer on rather than having
+   * this look the same person up a second time.
+   */
+  resolvedAccount?: IntakeAccount,
 ): Promise<ResidentAccountLink> {
   /*
    * The scanned card wins, and it is tried first.
@@ -445,7 +462,8 @@ async function linkResidentAccount(
    *
    * Email stays as the fallback, because the manual path has no card to read.
    */
-  const account = await findAccountForIntake(resident, scannedResidentId);
+  const account =
+    resolvedAccount ?? (await findAccountForIntake(resident.email, scannedResidentId));
 
   if (!account.userId) {
     return { emailed: false, linked: false, reason: account.reason };
@@ -806,6 +824,31 @@ export async function createResident(
     );
   }
 
+  /*
+   * One person, one home — held here, before anything is written.
+   *
+   * The rule used to live only in `linkResidentAccount`, which runs after the
+   * row, the bed and the invoices are committed and answers a conflict with
+   * `linked: false`. So a resident of one hostel could be scanned and admitted
+   * at a second: two rows, two beds, two bills, one login that silently did not
+   * link. Asked on the account the card resolves to and on every address we
+   * hold for them, in any hostel — the same-hostel check above only ever saw
+   * this hostel's phone and email.
+   */
+  const account = await findAccountForIntake(email, input.userResidentId);
+  const residency = await findLiveResidency(
+    { emails: [email, account.email], userIds: [account.userId] },
+    hostelId,
+  );
+
+  if (residency) {
+    throw new ResidentServiceError(
+      liveResidencyMessage(`${input.firstName} ${input.lastName}`, residency),
+      residency.sameHostel ? "RESIDENT_ALREADY_HERE" : "RESIDENT_LIVES_ELSEWHERE",
+      409,
+    );
+  }
+
   // A mistyped referral code fails here, before any bed is spent — the admin
   // clears the field and retries rather than losing the whole intake.
   if (input.referralCode) {
@@ -931,6 +974,7 @@ export async function createResident(
     input.userResidentId,
     // The registration confirmation below replaces the linked-account mail.
     false,
+    account,
   );
 
   /*

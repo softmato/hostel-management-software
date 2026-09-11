@@ -163,10 +163,20 @@ async function apply(notice: UploadNotice | null) {
        */
       sticky: notice.ongoing,
       title: notice.title,
-      ...(Platform.OS === "android" ? { channelId: notice.channel } : {}),
     },
     identifier: UPLOAD_NOTIFICATION_ID,
-    trigger: null,
+    /*
+     * The channel rides on the trigger, not the content. expo-notifications'
+     * Android builder reads it from `trigger.getNotificationChannel()` and
+     * nowhere else; given a `null` trigger it posts on its own fallback channel,
+     * which is IMPORTANCE_HIGH with the system tone — every progress repost
+     * heads-up and loud, the opposite of `uploads`. That is where these were
+     * landing while `channelId` sat in `content`.
+     *
+     * A channel-only trigger still posts immediately, and on iOS, which has no
+     * channels, `parseTrigger` turns it back into `null`.
+     */
+    trigger: { channelId: notice.channel },
   }).catch(() => {
     /*
      * Swallowed on purpose. The shade is the secondary readout; the toaster on

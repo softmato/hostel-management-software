@@ -242,6 +242,14 @@ export function ConfirmDialog({
   }, [onClose, pending]);
 
   /*
+   * A one-button alert has no "walk away" answer. A stray tap on the frost
+   * would otherwise close it and leave the reader on a screen the alert was
+   * there to say they cannot use; Android's back button is the one gesture
+   * that plainly means the action, so it runs it.
+   */
+  const single = cancelLabel === null;
+
+  /*
    * The card is its own component so that its animation values are created
    * fresh on every open. Held up here they would survive the close, and the
    * next question would arrive already settled with no pop at all.
@@ -252,8 +260,10 @@ export function ConfirmDialog({
       confirmLabel={confirmLabel}
       destructive={destructive}
       message={message}
+      onBackdrop={single ? undefined : dismiss}
       onCancel={dismiss}
       onConfirm={confirm}
+      onHardwareBack={single ? confirm : dismiss}
       pending={pending}
       title={title}
     />
@@ -265,17 +275,23 @@ function ConfirmCard({
   confirmLabel,
   destructive,
   message,
+  onBackdrop,
   onCancel,
   onConfirm,
+  onHardwareBack,
   pending,
   title,
 }: {
-  cancelLabel: string;
+  /** `null` draws the confirm alone, full width. */
+  cancelLabel: string | null;
   confirmLabel: string;
   destructive: boolean;
   message?: string;
+  /** Absent for an alert the backdrop must not close. */
+  onBackdrop?: () => void;
   onCancel: () => void;
   onConfirm: () => void;
+  onHardwareBack: () => void;
   pending: boolean;
   title: string;
 }) {
@@ -310,20 +326,20 @@ function ConfirmCard({
    * Without a `Modal` there is nothing between a back press and the screen
    * underneath, so back would navigate away and leave the question sitting on
    * top of wherever it landed. Returning `true` swallows it; while a request is
-   * out `onCancel` is a no-op, so back is inert exactly when the buttons are.
+   * out both handlers are no-ops, so back is inert exactly when the buttons are.
    */
   useEffect(() => {
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
-        onCancel();
+        onHardwareBack();
 
         return true;
       },
     );
 
     return () => subscription.remove();
-  }, [onCancel]);
+  }, [onHardwareBack]);
 
   return (
     <Animated.View
@@ -338,12 +354,14 @@ function ConfirmCard({
       exiting={FadeOut.duration(160)}
       style={StyleSheet.absoluteFill}
     >
-      {/* The backdrop is a target too: tapping outside an alert cancels it. */}
+      {/* The backdrop is a target too: tapping outside an alert cancels it —
+          unless it is a one-button alert, which has nothing to cancel to. */}
       <Pressable
-        accessibilityLabel={cancelLabel}
-        accessibilityRole="button"
+        accessibilityLabel={cancelLabel ?? undefined}
+        accessibilityRole={onBackdrop ? "button" : undefined}
+        accessible={Boolean(onBackdrop)}
         className="flex-1 items-center justify-center px-8"
-        onPress={onCancel}
+        onPress={onBackdrop}
       >
         <AnimatedBlurView
           animatedProps={blurProps}
@@ -438,36 +456,40 @@ function ConfirmCard({
                 />
 
                 <View className="flex-row" style={{ height: ACTION_HEIGHT }}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: pending }}
-                    className="flex-1 items-center justify-center active:opacity-50"
-                    disabled={pending}
-                    onPress={onCancel}
-                  >
-                    {/*
-                      The bold one is the *preferred* action, which for a
-                      destructive question is the one that changes nothing.
-                    */}
-                    <Text
-                      className="text-[17px] font-semibold"
-                      style={{
-                        color: pending
-                          ? colors.mutedForeground
-                          : colors.primary,
-                      }}
-                      variant={null}
-                    >
-                      {cancelLabel}
-                    </Text>
-                  </Pressable>
+                  {cancelLabel === null ? null : (
+                    <>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ disabled: pending }}
+                        className="flex-1 items-center justify-center active:opacity-50"
+                        disabled={pending}
+                        onPress={onCancel}
+                      >
+                        {/*
+                          The bold one is the *preferred* action, which for a
+                          destructive question is the one that changes nothing.
+                        */}
+                        <Text
+                          className="text-[17px] font-semibold"
+                          style={{
+                            color: pending
+                              ? colors.mutedForeground
+                              : colors.primary,
+                          }}
+                          variant={null}
+                        >
+                          {cancelLabel}
+                        </Text>
+                      </Pressable>
 
-                  <View
-                    style={{
-                      backgroundColor: colors.border,
-                      width: StyleSheet.hairlineWidth,
-                    }}
-                  />
+                      <View
+                        style={{
+                          backgroundColor: colors.border,
+                          width: StyleSheet.hairlineWidth,
+                        }}
+                      />
+                    </>
+                  )}
 
                   <Pressable
                     accessibilityRole="button"
@@ -489,7 +511,12 @@ function ConfirmCard({
                       />
                     ) : (
                       <Text
-                        className="text-[17px]"
+                        // Alone, it is the preferred action by definition.
+                        className={
+                          cancelLabel === null
+                            ? "text-[17px] font-semibold"
+                            : "text-[17px]"
+                        }
                         style={{
                           color: destructive
                             ? colors.destructive

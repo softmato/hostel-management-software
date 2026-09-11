@@ -370,10 +370,11 @@ export async function submitPlanPaymentClaim(
   ).lean<{ currentPeriodEnd?: Date | null; dueBy?: Date | null } | null>();
 
   /*
-   * "Your plan works until…" is the paid period when there is one, and the
-   * grace deadline when the hostel is running on a due. Both are dates the
-   * owner can act on; neither is invented here — a missing one drops the
-   * sentence rather than guessing at a day.
+   * "Your plan works until…" is the due while one is open, and the period's
+   * end otherwise. The due comes first because a team hostel's period is
+   * already running while it owes — its end is a month out, and quoting that
+   * to an owner with a balance due in three days would read as more time than
+   * they have. Neither date is invented here; a missing one drops the sentence.
    */
   await deliver(
     "subscription_claim_received",
@@ -386,7 +387,7 @@ export async function submitPlanPaymentClaim(
       planName: invoice.planName,
       reference: input.reference?.trim() || null,
       worksUntil: formatEmailDate(
-        subscription?.currentPeriodEnd ?? subscription?.dueBy ?? null,
+        subscription?.dueBy ?? subscription?.currentPeriodEnd ?? null,
       ),
     }),
   );

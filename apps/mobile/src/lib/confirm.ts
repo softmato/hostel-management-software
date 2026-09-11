@@ -24,8 +24,15 @@
  */
 
 export type ConfirmRequest = {
-  /** The action that walks away. Defaults to the iOS wording. */
-  cancelLabel?: string;
+  /**
+   * The action that walks away. Defaults to the iOS wording.
+   *
+   * `null` makes it a one-button alert: nothing to choose, only something to
+   * acknowledge. The backdrop stops cancelling it and Android's back button
+   * runs the one action instead, because there is no second answer for either
+   * of them to give.
+   */
+  cancelLabel?: string | null;
   confirmLabel: string;
   /** Paints the confirm red. Off for a confirm that only commits something. */
   destructive?: boolean;
@@ -86,10 +93,17 @@ export function getConfirmRequest(): ConfirmRequest | null {
 export function openConfirm(request: ConfirmRequest) {
   counter += 1;
   emit({ ...request, id: counter });
+
+  return counter;
 }
 
-export function closeConfirm() {
-  if (state !== null) {
+/**
+ * Closes whatever is on screen — or, given the id `openConfirm` returned, only
+ * that request. A screen that opened an alert on mount closes it on unmount
+ * with its own id, so leaving cannot take down a question somebody else asked.
+ */
+export function closeConfirm(id?: number) {
+  if (state !== null && (id === undefined || state.id === id)) {
     emit(null);
   }
 }

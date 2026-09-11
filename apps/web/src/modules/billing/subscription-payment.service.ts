@@ -12,6 +12,7 @@ import {
   getSubscriptionState,
   graceDeadline,
   outstandingFor,
+  startPlanPeriod,
   type InvoiceRecord as SubscriptionInvoiceRecord,
 } from "@/modules/billing/subscription.service";
 import { ensureLocalReceiptNumber } from "@/modules/billing/documents/issue";
@@ -485,20 +486,17 @@ async function applySettlement(
   }
 
   if (outstanding <= 0) {
-    const periodEnd = new Date();
-
-    periodEnd.setMonth(periodEnd.getMonth() + (invoice.cycleMonths || 1));
+    /*
+     * The plan runs from the day the hostel went live. A team hostel went live
+     * the day it was filed and its period is already running — `startPlanPeriod`
+     * sees that and leaves it alone. A public hostel goes live now, so its
+     * period starts now; a renewal extends the one in hand.
+     */
+    await startPlanPeriod(invoice, new Date());
 
     await HostelSubscriptionModel.updateOne(
       { _id: subscription._id },
-      {
-        $set: {
-          activatedAt: new Date(),
-          currentPeriodEnd: periodEnd,
-          dueBy: null,
-          status: "ACTIVE",
-        },
-      },
+      { $set: { dueBy: null, status: "ACTIVE" } },
     );
 
     await publishForSubscription(invoice.hostelId, actorId);

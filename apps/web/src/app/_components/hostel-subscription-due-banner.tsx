@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
+import { hostelDaysBetween } from "@hostel/shared/calendar/bs";
 
 /**
  * "Please pay this much within N days" — the due a team registration leaves
@@ -58,11 +59,16 @@ function rupees(amount: number) {
   return `Rs ${amount.toLocaleString("en-IN")}`;
 }
 
-/** Whole days from now until the deadline. Negative once it has passed. */
+/**
+ * Nepal days from today to the deadline's day — 0 on the day itself, negative
+ * once it has passed.
+ *
+ * Between days, not milliseconds. The ceiling this replaces read a due at the
+ * end of Bhadra 29 as "4 days" on the morning of Bhadra 26, while the billing
+ * screen beside it said 3; both now take the day count the server uses.
+ */
 function daysUntil(iso: string) {
-  const target = new Date(iso).getTime();
-
-  return Math.ceil((target - Date.now()) / (24 * 60 * 60 * 1000));
+  return hostelDaysBetween(new Date(), new Date(iso));
 }
 
 export function HostelSubscriptionDueBanner() {
@@ -119,7 +125,9 @@ export function HostelSubscriptionDueBanner() {
               ? "."
               : overdue
                 ? ` — it was due ${Math.abs(remaining)} ${Math.abs(remaining) === 1 ? "day" : "days"} ago.`
-                : ` — please pay within ${remaining} ${remaining === 1 ? "day" : "days"}.`}{" "}
+                : remaining === 0
+                  ? " — today is the last day to pay."
+                  : ` — please pay within ${remaining} ${remaining === 1 ? "day" : "days"}.`}{" "}
           <span className="text-muted-foreground">
             {reviewing
               ? "We will email you within 1–2 working days. Your listing stays live."

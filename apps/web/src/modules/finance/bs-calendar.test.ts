@@ -5,6 +5,7 @@ import {
   bsDayOfMonth,
   bsDaysInMonth,
   bsMonthStart,
+  bsMonthsEnd,
   bsPeriodBounds,
   bsPeriodOf,
   bsPeriodsBetween,
@@ -15,6 +16,8 @@ import {
   formatBsPeriodYear,
   fromBs,
   hostelCalendarDay,
+  hostelDayEnd,
+  hostelDaysBetween,
   isBsPeriod,
   toBs,
 } from "@hostel/shared/calendar/bs";
@@ -27,6 +30,58 @@ import {
  * calendar: Baisakh 1 is New Year, and the Bhadra 2083 anchors are the month the
  * hostel this change came out of was actually billing.
  */
+/**
+ * Days as spans — the arithmetic every due and every plan end is built on,
+ * pinned to the hostel that found it: filed at 11:15 am on Bhadra 26, 2083.
+ */
+describe("days as spans", () => {
+  const filed = new Date("2026-09-11T05:30:31.571Z");
+
+  it("ends a day at its last instant in Kathmandu, three days on for the trial", () => {
+    const due = hostelDayEnd(filed, 3);
+
+    expect(due.toISOString()).toBe("2026-09-14T18:14:59.999Z");
+    expect(formatBsDate(due)).toBe("Bhadra 29, 2083 BS");
+  });
+
+  it("counts between days, so the count moves at midnight and not at lunch", () => {
+    const due = hostelDayEnd(filed, 3);
+
+    // 00:00 and 23:59 on Bhadra 26 are the same day, three before the due.
+    expect(hostelDaysBetween(new Date("2026-09-10T18:15:00Z"), due)).toBe(3);
+    expect(hostelDaysBetween(new Date("2026-09-11T18:14:00Z"), due)).toBe(3);
+    // A minute later it is Bhadra 27.
+    expect(hostelDaysBetween(new Date("2026-09-11T18:15:00Z"), due)).toBe(2);
+  });
+
+  it("runs a monthly plan taken on Bhadra 26 through Aswin 25", () => {
+    const end = bsMonthsEnd(filed, 1);
+
+    expect(end.toISOString()).toBe("2026-10-11T18:14:59.999Z");
+    expect(formatBsDate(end)).toBe("Aswin 25, 2083 BS");
+    // Bhadra has 31 days, so the plan does too — both ends included.
+    expect(hostelDaysBetween(filed, end) + 1).toBe(31);
+  });
+
+  it("renews on a shorter month's last day rather than spilling into the next", () => {
+    const month = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].find(
+      (candidate) => bsDaysInMonth(2083, candidate) > bsDaysInMonth(2083, candidate + 1),
+    );
+
+    expect(month).toBeDefined();
+
+    const lastDay = bsDaysInMonth(2083, month as number);
+    const start = fromBs({ day: lastDay, month: month as number, year: 2083 });
+    const next = (month as number) + 1;
+
+    expect(toBs(bsMonthsEnd(start, 1))).toEqual({
+      day: bsDaysInMonth(2083, next) - 1,
+      month: next,
+      year: 2083,
+    });
+  });
+});
+
 describe("the Bikram Sambat table", () => {
   it("puts Baisakh 1 on the Nepali new year", () => {
     expect(formatBsDate(new Date("2026-04-14T06:00:00.000Z"))).toBe("Baisakh 1, 2083 BS");

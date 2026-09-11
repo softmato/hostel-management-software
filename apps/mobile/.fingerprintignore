@@ -1,0 +1,18 @@
+# Paths @expo/fingerprint must not hash, on top of its own defaults.
+#
+# The runtime version is `fingerprint`, so every file hashed here has to be
+# byte-identical on this laptop and on EAS's clean checkout. When they differ,
+# `eas build` stops at "Configure expo-updates" with a runtime version mismatch,
+# and — worse, because it is silent — an `eas update` published from the laptop
+# is stamped with a runtime version no installed build has, so it reaches
+# nobody. See docs/MOBILE_RELEASE.md §3.3.
+#
+# Eclipse/Buildship writes these into *every* Gradle subproject it imports, and
+# the autolinked native modules under node_modules are subprojects of
+# `android/`. They are IDE bookkeeping — nothing in the build reads them — but
+# fingerprint's defaults only skip `android/build`, `android/.gradle` and
+# `android/.cxx`, so without these three lines an IDE import of the Android
+# project silently moves the runtime version of ten packages.
+**/.classpath
+**/.project
+**/.settings/**/*

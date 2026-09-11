@@ -8,6 +8,7 @@ import { PaintedAmount } from "@/components/portal-shared";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { IconButton } from "@/components/ui/icon-button";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Meter } from "@/components/ui/meter";
 import { Money } from "@/components/ui/money";
@@ -18,6 +19,8 @@ import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { type PortalDates, useDates } from "@/hooks/use-dates";
+import { useHostelDayTurn } from "@/hooks/use-hostel-day-turn";
+import { useMinuteTick } from "@/hooks/use-minute-tick";
 import { useResource } from "@/hooks/use-resource";
 import { useSiteConfig } from "@/hooks/use-site-config";
 import type {
@@ -57,19 +60,22 @@ import { toastError } from "@/lib/toast";
  *    red, with what is left to pay and what has been paid so far. Red is the
  *    one colour this screen reserves for money genuinely owed; a plan merely
  *    coming up for renewal never gets it.
- * 3. **Days left** — a usage-style bar that fills as the window runs down: the
- *    time to pay while something is owed, the paid period once it is not.
+ * 3. **Days left** — the plan's own days, as a bar that opens full and empties
+ *    towards the renewal day. Always the plan, never the window to pay: a team
+ *    hostel's plan runs from the day it is filed, and the deadline already has
+ *    the red block above with its date on it.
  *
  * Then the paperwork. No fact rows restating the pill, no "nothing paid for
  * yet" — which read as a lie to an owner who had just handed an agent Rs 1,400.
  *
  * ## Days are the server's
  *
- * `daysToDue` and `daysRemaining` are computed on the **server** and printed,
+ * `daysRemaining` and `periodDays` are computed on the **server** and printed,
  * never recomputed here. The website shows the same figures from the same
  * fields, and two clients each flooring their own part-day is how one screen
- * says 3 and the other says 2 on the same afternoon. The bar's proportion is
- * drawn locally — it is a shape, not a number anybody quotes back.
+ * says 3 and the other says 2 on the same afternoon. They are counts of Nepal
+ * days, so they change once, at midnight in Kathmandu — and the screen re-asks
+ * then (`useHostelDayTurn`), on a pull, and from the refresh in the header.
  *
  * ## One list, switched, rather than two stacked
  *
@@ -189,10 +195,21 @@ export default function ManageBillingScreen() {
    * there. While loading, or for a hostel with no plan, it is the plain accent
    * bar — reserved paint with nothing on it reads as a rendering fault.
    */
+  // Every count on this screen is a Nepal day; when the day turns, re-ask.
+  useHostelDayTurn(billing.refresh);
+
   const header = (
     <View className="bg-background">
       <AppBar
         accent
+        actions={
+          <IconButton
+            label="Refresh"
+            name="refresh"
+            onPress={billing.refresh}
+            tone="onAccent"
+          />
+        }
         centerTitle
         showBack
         straddle={plan ? STRADDLE : 0}
@@ -223,7 +240,12 @@ export default function ManageBillingScreen() {
   }
 
   return (
-    <Screen header={header} scroll>
+    <Screen
+      header={header}
+      onRefresh={billing.refresh}
+      refreshing={billing.refreshing}
+      scroll
+    >
       <View className="gap-5 pt-2">
         {plan ? (
           <Standing dates={dates} plan={plan} />
@@ -377,57 +399,38 @@ function PlanHead({ plan }: { plan: PlanBillingPlan }) {
 }
 
 /**
- * Where the plan stands: the deadline if money is owed, then the days left.
+ * Where the plan stands: the deadline while money is owed, then the plan's days.
  *
- * The countdown follows whichever window currently matters. While a balance is
- * owed that is the time to pay it — for a hostel an agent filed today, the
- * plan's paid period has not even started, so a bar of it would be empty and
- * say nothing. Once paid, it is the paid period.
+ * The bar is always the **plan**. It used to follow "whichever window mattered",
+ * which while a balance was owed meant the window to pay — on the grounds that a
+ * team hostel's plan had not started. It had: the hostel is live from the day
+ * it is filed. What the owner got was an empty track reading "0% used" beside a
+ * due, answering a question the red block above had already answered with a
+ * date. Now the plan starts when the hostel goes live, the bar opens full, and
+ * the deadline keeps to its own block.
  */
 function Standing({ dates, plan }: { dates: PortalDates; plan: PlanBillingPlan }) {
+  // A clock held in state rather than read in render, so "Pay by" turns into
+  // "Overdue since" on its own the moment the deadline passes.
+  const now = useMinuteTick();
   const owing = Boolean(plan.dueBy) && (plan.amountDue ?? 0) > 0;
+  const running = Boolean(plan.currentPeriodEnd);
 
-  if (owing) {
-    const overdue = Date.parse(plan.dueBy as string) < Date.now();
-
-    return (
-      <View className="gap-3">
-        <PayBy dates={dates} overdue={overdue} plan={plan} />
-        <Countdown
-          dates={dates}
-          days={plan.daysToDue ?? null}
-          end={plan.dueBy}
-          headline={
-            overdue
-              ? "Overdue"
-              : plan.daysToDue === 0
-                ? "Last day to pay"
-                : `${plan.daysToDue} ${plan.daysToDue === 1 ? "day" : "days"} left to pay`
-          }
-          start={plan.dueFrom ?? null}
-        />
-      </View>
-    );
-  }
-
-  if (!plan.currentPeriodEnd) {
+  if (!owing && !running) {
     return null;
   }
 
-  const days = plan.daysRemaining;
-
   return (
-    <Countdown
-      dates={dates}
-      days={days}
-      end={plan.currentPeriodEnd}
-      headline={
-        days === 0
-          ? "This plan has run out"
-          : `${days} ${days === 1 ? "day" : "days"} left on ${plan.planName ?? "your plan"}`
-      }
-      start={plan.activatedAt}
-    />
+    <View className="gap-3">
+      {owing ? (
+        <PayBy
+          dates={dates}
+          overdue={Date.parse(plan.dueBy as string) < now.getTime()}
+          plan={plan}
+        />
+      ) : null}
+      {running ? <PlanDays dates={dates} plan={plan} /> : null}
+    </View>
   );
 }
 
@@ -511,59 +514,37 @@ function PayBy({
 }
 
 /**
- * Days left, as a usage bar.
+ * Days left on the plan, as a bar that empties.
  *
- * The bar fills as the window is used up and animates to its value on arrival —
- * the reading an owner already has from every usage meter on their phone. The
- * figure is the server's; the proportion under it is only a shape. The two
- * ends are labelled so the bar has a scale, in the reader's own calendar and
- * without the year, which the dates above already carry.
+ * Full on the day the plan starts and drawn down a day at a time — a fuel
+ * gauge, which is what "how long have I got" looks like. The count is the
+ * headline and nothing else competes with it: no percentage beside it, because
+ * "31 days left" already is the number and a second one only asks the reader to
+ * reconcile the two.
+ *
+ * Both the count and the bar come from the server's Nepal-day figures
+ * (`daysRemaining` of `periodDays`), so they move together, once, at midnight.
+ * The ends are labelled so the bar has a scale, in the reader's own calendar and
+ * without the year: the day it started and the last day it covers.
  */
-function Countdown({
-  dates,
-  days,
-  end,
-  headline,
-  start,
-}: {
-  dates: PortalDates;
-  days: number | null;
-  end: string | null;
-  headline: string;
-  start: string | null;
-}) {
-  const percent = useMemo(() => {
-    if (!start || !end || days === null) return null;
-
-    const from = Date.parse(start);
-    const to = Date.parse(end);
-
-    if (!(to > from)) return null;
-
-    return Math.max(
-      0,
-      Math.min(100, Math.round(((Date.now() - from) / (to - from)) * 100)),
-    );
-  }, [days, end, start]);
+function PlanDays({ dates, plan }: { dates: PortalDates; plan: PlanBillingPlan }) {
+  const days = plan.daysRemaining ?? 0;
+  const span = plan.periodDays ?? null;
+  const percent = span ? Math.round((days / span) * 100) : null;
 
   return (
     <Card className="gap-3">
-      <View className="flex-row items-baseline justify-between gap-3">
-        <Text className="flex-1" variant="subtitle">
-          {headline}
-        </Text>
-        {percent === null ? null : (
-          <Text variant="caption">{`${percent}% used`}</Text>
-        )}
-      </View>
+      <Text variant="title">
+        {days === 0
+          ? "This plan has run out"
+          : `${days} ${days === 1 ? "day" : "days"} left`}
+      </Text>
 
-      {percent === null ? null : (
-        <Meter animated label={null} percent={percent} reading="elapsed" />
-      )}
+      <Meter animated label={null} percent={percent} reading="remaining" />
 
       <View className="flex-row justify-between gap-3">
-        <Text variant="caption">{start ? dates.dayMonth(start) : ""}</Text>
-        <Text variant="caption">{dates.dayMonth(end)}</Text>
+        <Text variant="caption">{dates.dayMonth(plan.activatedAt)}</Text>
+        <Text variant="caption">{dates.dayMonth(plan.currentPeriodEnd)}</Text>
       </View>
     </Card>
   );

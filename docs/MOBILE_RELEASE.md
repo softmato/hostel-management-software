@@ -245,6 +245,37 @@ eas env:create --name GOOGLE_SERVICES_JSON --type file \
   --environment development --environment preview --environment production --force
 ```
 
+A third input, and the one that fails a build rather than an update:
+**`node_modules` has to be a clean install.** The fingerprint hashes each
+autolinked native package's whole directory, so anything a local tool writes in
+there moves the runtime version on this laptop and nowhere else.
+
+Opening `apps/mobile/android` in an Eclipse-based Gradle IDE does exactly that.
+Buildship drops `.classpath`, `.project` and `.settings/` into every Gradle
+subproject — and for a React Native app the autolinked native modules *are*
+subprojects, so ten of them under `node_modules` get the treatment — while the
+same pass strips the deprecated `package=` attribute out of their
+`AndroidManifest.xml`. None of it changes what the build produces. All of it
+changes the hash.
+
+`.fingerprintignore` now covers the Buildship files; fingerprint's own defaults
+only skip `android/build`, `android/.gradle` and `android/.cxx`. The manifest
+rewrite cannot be covered the same way — a library's manifest is a real native
+input and has to stay hashed — so the rule is to reinstall before releasing from
+a tree whose Android project has been opened in an IDE:
+
+```bash
+cd apps/mobile && npm ci
+```
+
+`npm ci` and never `npm install`: the lockfile is npm 10's, and the npm on this
+machine rewrites it (see the `@emnapi/*` devDependencies and why they are
+pinned). `npm ci` installs the lockfile without touching it.
+
+An `eas build` catches this loudly — it stops at **Configure expo-updates** with
+`Runtime version mismatch` and prints the offending directories. An `eas update`
+does not catch it at all.
+
 The `fingerprint` policy was chosen over `appVersion` for exactly this: with
 `appVersion`, the runtime version only moves when someone remembers to bump it,
 and forgetting means an OTA carrying JS that calls a native module the installed

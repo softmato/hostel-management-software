@@ -119,8 +119,10 @@ import {
   graceDeadline,
   issueSubscriptionInvoice,
   selectPlan,
+  startPlanPeriod,
 } from "@/modules/billing/subscription.service";
 import { settlePayment } from "@/modules/billing/subscription-payment.service";
+import { bsMonthsEnd } from "@hostel/shared/calendar/bs";
 
 const hostelId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a1");
 const otherHostelId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c9");
@@ -201,7 +203,7 @@ function settledTotal(total: number) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getSiteConfigSection.mockResolvedValue(catalog);
-  mocks.getOperationsConfig.mockResolvedValue({ subscriptionDueGraceDays: 15 });
+  mocks.getOperationsConfig.mockResolvedValue({ subscriptionDueGraceDays: 3 });
   mocks.counterFindOneAndUpdate.mockReturnValue(query({ sequence: 1 }));
   mocks.subscriptionUpdateOne.mockResolvedValue({});
   mocks.invoiceUpdateOne.mockResolvedValue({});
@@ -455,6 +457,43 @@ describe("settling", () => {
     );
   });
 
+  /*
+   * A team hostel's plan started the day it was filed. Paying the balance off a
+   * few days later must not start it again from that later day — the owner
+   * would be handed a month ending later than the one on their invoice, and the
+   * bar they have been watching would jump back to full.
+   */
+  it("does not restart a team hostel's plan when the balance is paid off", async () => {
+    const periodEnd = new Date("2026-10-11T18:14:59.999Z");
+
+    arrangeSettlement({ alreadySettled: 1000, amount: 4900, source: "TEAM" });
+    mocks.invoiceFindById.mockReturnValue(
+      query(invoice({ periodEnd, source: "TEAM" })),
+    );
+    mocks.subscriptionFindById.mockReturnValue(
+      query({
+        _id: subscriptionId,
+        activatedAt: new Date("2026-09-11T05:30:31.571Z"),
+        currentPeriodEnd: periodEnd,
+        cycleMonths: 1,
+        source: "TEAM",
+      }),
+    );
+
+    await settlePayment(paymentId.toString(), { actorId });
+
+    expect(mocks.subscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: subscriptionId },
+      { $set: { dueBy: null, status: "ACTIVE" } },
+    );
+    expect(mocks.subscriptionUpdateOne).not.toHaveBeenCalledWith(
+      { _id: subscriptionId },
+      expect.objectContaining({
+        $set: expect.objectContaining({ currentPeriodEnd: expect.anything() }),
+      }),
+    );
+  });
+
   it("does not publish a public hostel that has only part paid", async () => {
     arrangeSettlement({ amount: 2000, source: "PUBLIC" });
 
@@ -539,6 +578,49 @@ describe("the grace deadline", () => {
     const lateUtc = new Date("2026-09-09T23:00:00Z");
 
     expect(graceDeadline(lateUtc, 3).toISOString()).toBe("2026-09-13T18:14:59.999Z");
+  });
+});
+
+describe("the plan's period", () => {
+  // Filed at 11:15 am in Kathmandu on Bhadra 26, 2083 (11 Sep 2026).
+  const filed = new Date("2026-09-11T05:30:31.571Z");
+  // The last instant of Aswin 25: a monthly plan taken on Bhadra 26 renews on
+  // Aswin 26.
+  const throughAswin25 = new Date("2026-10-11T18:14:59.999Z");
+
+  it("starts the day the hostel goes live and runs one Bikram Sambat month", async () => {
+    mocks.subscriptionFindById.mockReturnValue(
+      query({ _id: subscriptionId, activatedAt: null, currentPeriodEnd: null }),
+    );
+
+    await startPlanPeriod(invoice(), filed);
+
+    expect(mocks.subscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: subscriptionId },
+      { $set: { activatedAt: filed, currentPeriodEnd: throughAswin25 } },
+    );
+  });
+
+  it("extends a running period rather than overlapping it", async () => {
+    // Renewed on Aswin 15, ten days before the running month is out.
+    const renewing = new Date("2026-10-01T06:00:00Z");
+
+    mocks.subscriptionFindById.mockReturnValue(
+      query({ _id: subscriptionId, activatedAt: filed, currentPeriodEnd: throughAswin25 }),
+    );
+
+    await startPlanPeriod(invoice(), renewing);
+
+    expect(mocks.subscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: subscriptionId },
+      {
+        $set: {
+          // The stretch still began on Bhadra 26 — the bar spans all of it.
+          activatedAt: filed,
+          currentPeriodEnd: bsMonthsEnd(new Date(throughAswin25.getTime() + 1), 1),
+        },
+      },
+    );
   });
 });
 

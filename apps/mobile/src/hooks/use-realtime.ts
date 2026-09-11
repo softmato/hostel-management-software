@@ -11,8 +11,19 @@ import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
 import { useAppSelector } from "@/hooks/redux";
+import { claimNotificationSound } from "@/lib/notification-sound";
 import { connectRealtime, type RealtimeConnection } from "@/lib/realtime";
+import { playNotificationDrop } from "@/lib/sound-effects";
 import { toastInfo, toastUrgent } from "@/lib/toast";
+
+/**
+ * The socket can deliver in the moment after the app is backgrounded, before
+ * Android suspends it. The push arriving then sounds through its channel with
+ * no handler to see a claim, so a chime here as well would be a second one.
+ */
+function isOnScreen() {
+  return AppState.currentState === "active";
+}
 
 export function useRealtime() {
   const userId = useAppSelector((state) => state.auth.account?.id ?? null);
@@ -36,6 +47,11 @@ export function useRealtime() {
         onAnnouncement: (payload) => {
           const urgent = payload.priority === "URGENT" || payload.priority === "HIGH";
           (urgent ? toastUrgent : toastInfo)(payload.title, payload.body);
+
+          // No push twin to de-duplicate against — a broadcast is socket-only.
+          if (isOnScreen()) {
+            playNotificationDrop();
+          }
         },
         /*
          * Surfaced rather than only badging the bell: the entire reason for
@@ -47,6 +63,12 @@ export function useRealtime() {
         onNotification: (payload) => {
           const urgent = payload.priority === "URGENT" || payload.kind === "ACTION";
           (urgent ? toastUrgent : toastInfo)(payload.title, payload.body);
+
+          // Keyed on the row id, which the push for the same row carries as
+          // `notificationId` — the push handler then shows it silently.
+          if (isOnScreen() && claimNotificationSound(payload.id)) {
+            playNotificationDrop();
+          }
         },
       });
 

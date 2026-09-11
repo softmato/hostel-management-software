@@ -19,6 +19,7 @@ import {
   TOPIC_ENDPOINTS,
   endpointsForTopics,
 } from "@/lib/realtime/channels";
+import { playNotificationSound, primeNotificationSound } from "@/lib/notification-sound";
 import { toast } from "@/stores/toast-store";
 
 /**
@@ -92,6 +93,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
   const clearLive = useCallback(() => setLiveNotifications([]), []);
 
+  // The socket chimes whether or not browser push is on, so a portal tab always
+  // gets the tone ready — see `primeNotificationSound`.
+  useEffect(() => primeNotificationSound(), []);
+
   useEffect(() => {
     let cancelled = false;
     let cleanup: (() => void) | undefined;
@@ -148,6 +153,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             description: payload.body,
             title: payload.title,
           });
+
+          // Keyed on the row id, which the push for the same row carries as
+          // `notificationId` — so whichever lands first sounds, once.
+          void playNotificationSound(payload.id);
         });
 
         channel.bind(REALTIME_EVENT.NOTIFICATION_UPDATED, () => {
@@ -158,12 +167,19 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           REALTIME_EVENT.GLOBAL_ANNOUNCEMENT,
           (payload: {
             body?: string;
+            campaignId?: string;
             priority?: string;
             title?: string;
           }) => {
             if (!payload?.title) {
               return;
             }
+
+            // One broadcast reaches every tab's socket; the campaign id is what
+            // lets them agree to chime once between them.
+            void playNotificationSound(
+              payload.campaignId ? `campaign:${payload.campaignId}` : undefined,
+            );
 
             // Platform-wide, so it is deliberately loud: pinned for URGENT,
             // auto-dismissing otherwise.

@@ -87,6 +87,19 @@ const subscriptionInvoiceSchema = new Schema(
     /** The date the full amount is expected by. */
     dueAt: { default: null, type: Date },
 
+    /**
+     * The period this invoice pays for, fixed at issue — the same pair printed
+     * on the document as its service dates.
+     *
+     * Stored so a settlement can tell whether the period is already running. A
+     * team-filed hostel is live the moment the agent files it, so its plan
+     * starts then; paying the balance off days later must not start it a
+     * second time, and `currentPeriodEnd` already reaching `periodEnd` is how
+     * the settlement knows. Null on invoices raised before this was kept.
+     */
+    periodStart: { default: null, type: Date },
+    periodEnd: { default: null, type: Date },
+
     source: { default: "PUBLIC", enum: ["PUBLIC", "TEAM"], type: String },
     /** The agent who raised it in the field. Null when the owner self-served. */
     agentId: { default: null, ref: "User", type: Schema.Types.ObjectId },

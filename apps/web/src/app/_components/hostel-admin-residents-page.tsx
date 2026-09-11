@@ -96,6 +96,17 @@ import {
  */
 type PrefillPhoto = { residentId: string; updatedAt: string | null };
 
+/**
+ * Where the looked-up person already lives, if anywhere — this hostel or
+ * another. The server refuses the registration either way; this is what lets
+ * the form say so before anyone fills it in.
+ */
+type PrefillOccupancy = {
+  hostelName: string;
+  residentId: string | null;
+  sameHostel: boolean;
+};
+
 /** Shape returned by /api/v1/hostel-admin/resident-lookup. */
 type ResidentPrefill = {
   details: {
@@ -372,6 +383,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [lookupError, setLookupError] = useState("");
   const [prefill, setPrefill] = useState<ResidentPrefill | null>(null);
   const [prefillPhoto, setPrefillPhoto] = useState<PrefillPhoto | null>(null);
+  const [prefillOccupancy, setPrefillOccupancy] = useState<PrefillOccupancy | null>(null);
   /** "identify" asks for the resident ID first; "form" is the actual registration. */
   const [addStep, setAddStep] = useState<"identify" | "form">("identify");
   /** Room type drives the monthly rent, so both are controlled in the form. */ const [
@@ -437,12 +449,14 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
 
     try {
       const result = await browserApi<{
+        occupancy?: PrefillOccupancy | null;
         photo: { hasPhoto: boolean; updatedAt: string | null };
         prefill: ResidentPrefill;
         residentId: string;
       }>(`/api/v1/hostel-admin/resident-lookup?residentId=${encodeURIComponent(query)}`);
 
       setPrefill(result.prefill);
+      setPrefillOccupancy(result.occupancy ?? null);
       setPrefillPhoto(
         result.photo.hasPhoto
           ? { residentId: result.residentId, updatedAt: result.photo.updatedAt }
@@ -454,6 +468,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     } catch (error) {
       setPrefill(null);
       setPrefillPhoto(null);
+      setPrefillOccupancy(null);
       setLookupError(
         error instanceof Error ? error.message : "Could not load that resident ID.",
       );
@@ -465,6 +480,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const clearPrefill = useCallback(() => {
     setPrefill(null);
     setPrefillPhoto(null);
+    setPrefillOccupancy(null);
     setLookupId("");
     setLookupError("");
   }, []);
@@ -911,6 +927,16 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                   Use a different ID
                 </Button>
               </div>
+              {prefillOccupancy ? (
+                <p
+                  className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm font-semibold text-danger"
+                  role="alert"
+                >
+                  {prefillOccupancy.sameHostel
+                    ? `${prefill.resident.firstName} already lives in your hostel. Open their record instead of adding them again.`
+                    : `${prefill.resident.firstName} already lives at ${prefillOccupancy.hostelName}. They can't be added here until ${prefillOccupancy.hostelName} moves them out.`}
+                </p>
+              ) : null}
               <ImportedProfileSummary photo={prefillPhoto} prefill={prefill} />
             </div>
           ) : null}
@@ -1043,7 +1069,11 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
               >
                 Cancel
               </Button>
-              <RoleButton disabled={saveBusy} tone="admin" type="submit">
+              <RoleButton
+                disabled={saveBusy || Boolean(prefill && prefillOccupancy)}
+                tone="admin"
+                type="submit"
+              >
                 {saveBusy ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (

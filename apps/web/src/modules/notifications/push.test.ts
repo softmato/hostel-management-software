@@ -159,6 +159,10 @@ describe("sendPushToUsers", () => {
 
     expect(message.channelId).toBe("urgent");
     expect(message.priority).toBe("high");
+    // iOS keeps the phone's alert tone for an SOS, as the channel does on Android.
+    expect(message.sound).toBe("default");
+    // What lets a foregrounded app keep an SOS audible after the socket chimed.
+    expect(message.data.urgent).toBe(true);
   });
 
   it("carries the product picture on an order push", async () => {
@@ -177,6 +181,9 @@ describe("sendPushToUsers", () => {
     const [message] = JSON.parse(fetchMock.mock.calls[0][1].body);
 
     expect(message.channelId).toBe("default_v2");
+    // Everything else names the app's own tone, which is what iOS plays.
+    expect(message.sound).toBe("water_drop.wav");
+    expect(message.data.urgent).toBe(false);
     expect(message.richContent).toEqual({ image: "https://cdn.example.com/mattress.jpg" });
     expect(message.data.path).toBe("/store/order/order-1");
   });

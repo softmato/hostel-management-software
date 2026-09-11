@@ -15,7 +15,7 @@
  * ship a `calls_v2` id, because its original `calls` channel had been created
  * with a short message chime and could never be corrected in place.
  *
- * ## `sound` is a filename, and ours is `water_drop.mp3`
+ * ## `sound` is a filename, and ours is `water_drop.wav`
  *
  * Android's key takes a *file*, not a value: `customSoundExists` looks the
  * string up with `getIdentifier(name, "raw", packageName)` and
@@ -28,7 +28,13 @@
  *
  * - **The filename is a resource name.** `assertValidAndroidAssetName` rejects
  *   anything but lowercase letters, digits and underscores, which is why the
- *   file is `water_drop.mp3` and not the name it was downloaded under.
+ *   file is `water_drop` and not the name it was downloaded under.
+ * - **It is a WAV because of iOS.** The same `sounds` array is copied into the
+ *   iOS bundle, where the server's `sound: "water_drop.wav"` names it, and iOS
+ *   will not play an MP3 as a notification sound. Android resolves the
+ *   resource by name without its extension, so channels created while the file
+ *   was an MP3 play the WAV with no new ids. The MP3 stays in `assets/` as the
+ *   in-app player's copy — see `lib/sound-effects.ts`.
  * - **It cannot be shipped by an update.** A raw resource lives in the APK, so
  *   this needs `expo run:android` or an EAS build. EAS Update carries JS and
  *   assets, never resources.
@@ -74,6 +80,7 @@ import { Platform } from "react-native";
 
 import { api } from "@/lib/api";
 import { registerNightStatusCategory } from "@/lib/night-status-notification";
+import { claimNotificationSound } from "@/lib/notification-sound";
 import { palette } from "@/constants/theme";
 import { UPLOAD_NOTIFICATION_TYPE } from "@/lib/upload-notification";
 
@@ -89,7 +96,7 @@ const BRAND = palette.light;
  * The raw resource name, as the plugin copied it — extension included, because
  * `filenameToBasename` strips it back off on the native side either way.
  */
-const SOUND = "water_drop.mp3";
+const SOUND = "water_drop.wav";
 
 /**
  * Must match `androidChannel()` in `apps/web/src/modules/notifications/
@@ -148,17 +155,36 @@ function easProjectId(): string | undefined {
  *
  * Android's LOW-importance channel would suppress the heads-up on its own, but
  * iOS has no channels and this handler is the only place to say it.
+ *
+ * ## Sound: once per notification, whichever route got here first
+ *
+ * The same row usually reaches an open app over the socket too, a moment before
+ * its push, and `use-realtime` chimes for it there. So a push only sounds if it
+ * is the first to claim its id — see `lib/notification-sound.ts` — and is
+ * otherwise shown silently rather than chiming a second time.
+ *
+ * Silently means without vibration too: expo-notifications gates vibration on
+ * the same `shouldPlaySound` flag, and a banner that buzzes after the chime
+ * already played is the double alert this is here to stop.
+ *
+ * An urgent push sounds regardless. The socket's drop is the wrong noise for an
+ * SOS, and the phone's alert tone is the one its owner reacts to.
  */
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+
     /*
      * Progress only. A **finished download** is deliberately not suppressed:
      * it is one notification rather than twenty, it is the app's only report
      * that a file now exists, and it is the one the user actually wants to see
      * at the top of the screen. See `DOWNLOAD_CHANNEL`.
      */
-    const isUploadProgress =
-      notification.request.content.data?.type === UPLOAD_NOTIFICATION_TYPE;
+    const isUploadProgress = data?.type === UPLOAD_NOTIFICATION_TYPE;
+
+    // Claimed even when urgent, so the socket does not add a drop to an alert
+    // that already sounded.
+    const firstToSound = !isUploadProgress && claimNotificationSound(data?.notificationId);
 
     /*
      * No `shouldShowAlert`. It was the pre-SDK-52 name for the pair below and
@@ -168,7 +194,8 @@ Notifications.setNotificationHandler({
      * changes nothing about what is shown.
      */
     return {
-      shouldPlaySound: !isUploadProgress,
+      // `urgent` is stamped by `push.service.ts` from the channel it chose.
+      shouldPlaySound: firstToSound || (!isUploadProgress && data?.urgent === true),
       shouldSetBadge: !isUploadProgress,
       shouldShowBanner: !isUploadProgress,
       shouldShowList: true,

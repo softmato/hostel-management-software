@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { IdScanner } from "@/components/manage/id-scanner";
@@ -31,13 +31,15 @@ import {
   type ManagedHostel,
   RESIDENT_TYPES,
   type ResidentIntakeResult,
+  type ResidentOccupancy,
   type ResidentPrefill,
   type ResidentPrefillPhoto,
   type ResidentType,
 } from "@/lib/admin-manage-api";
 import { residentCardPhotoSource } from "@/lib/admin-scan-api";
-import { readApiError } from "@/lib/api-contract";
+import { readApiError, readApiErrorCode } from "@/lib/api-contract";
 import { formatDateIn } from "@/lib/calendar";
+import { openConfirm } from "@/lib/confirm";
 import { humanizeEnum } from "@/lib/format";
 import { dayInputFromNow, startOfDayIso } from "@/lib/manage-dates";
 import {
@@ -116,6 +118,12 @@ const TYPE_OPTIONS = RESIDENT_TYPES.map((value) => ({
 type Identity =
   | {
       kind: "card";
+      /**
+       * Where they already live, if anywhere. Set, it ends the intake at the
+       * details: they are shown, the reason is said, and there is no way on to
+       * the bed step.
+       */
+      occupancy: ResidentOccupancy | null;
       photo: ResidentPrefillPhoto;
       prefill: ResidentPrefill;
       residentId: string;
@@ -192,9 +200,21 @@ export default function NewResidentScreen() {
     setReading(true);
 
     try {
-      const { photo, prefill } = await lookupResidentProfile(residentId);
+      const { occupancy, photo, prefill } = await lookupResidentProfile(residentId);
 
-      setIdentity({ kind: "card", photo, prefill, residentId });
+      /*
+       * Somebody who already lives in a hostel still gets their details drawn —
+       * the warden is entitled to see who they scanned — but the intake stops
+       * there. The alert that says why opens once the details are on screen;
+       * see the effect below.
+       */
+      setIdentity({
+        kind: "card",
+        occupancy: occupancy ?? null,
+        photo,
+        prefill,
+        residentId,
+      });
       setStep("confirm");
     } catch (error) {
       /*
@@ -215,7 +235,60 @@ export default function NewResidentScreen() {
     }
   }, []);
 
+  const rescan = useCallback(() => {
+    setIdentity(null);
+    setScanError(null);
+    setStep("identify");
+  }, []);
+
+  const occupancy = identity?.kind === "card" ? identity.occupancy : null;
+
+  /*
+   * The person already lives in a hostel — say so once their details are on
+   * screen.
+   *
+   * Opened from an effect rather than from `readCard`, and only once the hostel
+   * has loaded: until then this screen is a "Checking which beds are free"
+   * spinner, and an alert over a spinner is an alert about nothing the warden
+   * can see. The ref keeps it to once per scan, so a hostel refetch redrawing
+   * the screen does not ask the same question twice.
+   */
+  const warnedFor = useRef<Identity | null>(null);
+
+  useEffect(() => {
+    if (
+      step !== "confirm" ||
+      !hostel.data ||
+      identity?.kind !== "card" ||
+      !identity.occupancy ||
+      warnedFor.current === identity
+    ) {
+      return;
+    }
+
+    warnedFor.current = identity;
+    showResidencyAlert(
+      residentFullName(identity.prefill),
+      identity.occupancy,
+      rescan,
+    );
+  }, [hostel.data, identity, rescan, step]);
+
   const submit = useCallback(async () => {
+    /*
+     * Unreachable from the footer, which stops at the details for somebody
+     * who lives elsewhere. Held here as well so no other path can reach the
+     * server with a registration it will only refuse.
+     */
+    if (occupancy) {
+      showResidencyAlert(
+        `${person.firstName} ${person.lastName}`,
+        occupancy,
+        rescan,
+      );
+      return;
+    }
+
     if (person.firstName.length < 1 || person.lastName.length < 1) {
       toastError("Name them", "Both names, as they would write them.");
       return;
@@ -281,8 +354,30 @@ export default function NewResidentScreen() {
         userResidentId: identity?.kind === "card" ? identity.residentId : undefined,
       });
     } catch (error) {
-      toastError("Could not register", readApiError(error, "That did not save."));
       setSaving(false);
+
+      const code = readApiErrorCode(error);
+
+      /*
+       * They already live in a hostel. The hand-typed path has no card to have
+       * warned from, so this is the first anyone hears of it — said in the same
+       * alert the scan path uses, not in a toast that is gone before it is read.
+       */
+      if (code === "RESIDENT_LIVES_ELSEWHERE" || code === "RESIDENT_ALREADY_HERE") {
+        openConfirm({
+          cancelLabel: null,
+          confirmLabel: "OK",
+          message: readApiError(error, "They already live in a hostel."),
+          onConfirm: () => {},
+          title:
+            code === "RESIDENT_ALREADY_HERE"
+              ? "Already in your hostel"
+              : "Already in another hostel",
+        });
+        return;
+      }
+
+      toastError("Could not register", readApiError(error, "That did not save."));
       return;
     }
 
@@ -319,7 +414,7 @@ export default function NewResidentScreen() {
      */
     setRegistered(result);
     setStep("collect");
-  }, [identity, moveInDate, person, referralCode, roomType]);
+  }, [identity, moveInDate, occupancy, person, referralCode, rescan, roomType]);
 
   if (step === "identify") {
     return (
@@ -407,7 +502,16 @@ export default function NewResidentScreen() {
     <Screen
       footer={
         step === "confirm" ? (
-          <Button label="Next — bed and money" onPress={() => setStep("terms")} />
+          /*
+           * Somebody who lives in a hostel already stops here. The way on is
+           * replaced rather than disabled: a greyed "Next" asks to be pressed
+           * again, and the only useful thing left to do is scan someone else.
+           */
+          occupancy ? (
+            <Button label="Scan another card" onPress={rescan} />
+          ) : (
+            <Button label="Next — bed and money" onPress={() => setStep("terms")} />
+          )
         ) : (
           <Button label="Register them" loading={saving} onPress={() => void submit()} />
         )
@@ -435,11 +539,7 @@ export default function NewResidentScreen() {
           onChangeLastName={setLastName}
           onChangePhone={setPhone}
           onChangeResidentType={setResidentType}
-          onRescan={() => {
-            setIdentity(null);
-            setScanError(null);
-            setStep("identify");
-          }}
+          onRescan={rescan}
           phone={phone}
           residentType={residentType}
         />
@@ -625,6 +725,19 @@ function ConfirmStep({
           </View>
         </View>
       </View>
+
+      {/* Kept on the page after the alert is closed, so the missing "Next"
+          button is never a mystery. */}
+      {identity.occupancy ? (
+        <View className="rounded-2xl border border-warning/40 bg-warning/10 p-4">
+          <Text className="text-xs font-bold uppercase tracking-wide text-warning">
+            {"Can't be added here"}
+          </Text>
+          <Text className="mt-1 text-sm text-foreground">
+            {residencyMessage(residentFullName(prefill), identity.occupancy)}
+          </Text>
+        </View>
+      ) : null}
 
       <FactCard facts={identityFacts(prefill, dates.calendar)} title="Who they are" />
 
@@ -1325,4 +1438,42 @@ function registeredNote(result: ResidentIntakeResult, contacts: number) {
   ];
 
   return sentences.filter(Boolean).join(" ");
+}
+
+/** Where they live, in the words the alert and the page both say it in. */
+function residencyMessage(name: string, occupancy: ResidentOccupancy) {
+  const who = name.trim() || "This person";
+
+  return occupancy.sameHostel
+    ? `${who} already lives in your hostel. Open their record instead of adding them again.`
+    : `${who} already lives at ${occupancy.hostelName}. They can't be added here until ${occupancy.hostelName} moves them out.`;
+}
+
+/**
+ * The stop, in the app's own alert, over the details it is about.
+ *
+ * Two answers. For this hostel's own resident the useful one is the record they
+ * already have; for somebody else's it is the next card. "Close" leaves the
+ * details up — the warden may still want to read them — with the way on gone.
+ */
+function showResidencyAlert(
+  name: string,
+  occupancy: ResidentOccupancy,
+  onRescan: () => void,
+) {
+  const ownRecord = occupancy.sameHostel ? occupancy.residentId : null;
+
+  openConfirm({
+    cancelLabel: "Close",
+    confirmLabel: ownRecord ? "Open record" : "Scan another",
+    message: residencyMessage(name, occupancy),
+    onConfirm: () => {
+      if (ownRecord) {
+        router.replace(`/manage/resident/${ownRecord}`);
+      } else {
+        onRescan();
+      }
+    },
+    title: occupancy.sameHostel ? "Already in your hostel" : "Already in another hostel",
+  });
 }

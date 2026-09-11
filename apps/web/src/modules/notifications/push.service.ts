@@ -74,7 +74,12 @@ type ExpoPushMessage = {
   data: Record<string, unknown>;
   richContent?: { image: string };
   priority: "default" | "high";
-  sound: "default" | null;
+  /**
+   * iOS only — Android takes its tone from `channelId`. Either `"default"`, the
+   * phone's own tone, or the filename of a sound the app bundles (the `sounds`
+   * array in the mobile `app.json`), extension included.
+   */
+  sound: string | null;
   title: string;
   to: string;
 };
@@ -156,6 +161,19 @@ function androidChannel(category: string, priority: PushPayload["priority"]) {
 
   return "default_v2";
 }
+
+/**
+ * The app's own tone, named for iOS.
+ *
+ * Android already plays it: `default_v2` and `food_v2` were created with it. iOS
+ * has no channels and plays whatever each message names, so it was being told
+ * `"default"` and played the system tone on every notification.
+ *
+ * A WAV, not the MP3 the Android channels were first given — iOS will not play
+ * an MP3 as a notification sound. A build that predates the file plays the
+ * default tone in its place, so older installs are unchanged rather than silent.
+ */
+const APP_NOTIFICATION_SOUND = "water_drop.wav";
 
 function isHighPriority(payload: PushPayload) {
   return (
@@ -452,6 +470,7 @@ export async function sendPushToUsers(
   }
 
   const tokens = devices.expo;
+  const channelId = androidChannel(payload.category, payload.priority);
 
   const data = {
     ...payload.data,
@@ -464,16 +483,25 @@ export async function sendPushToUsers(
      * app builds still route somewhere sensible.
      */
     path: deepLinkForNotification(payload),
+    /*
+     * Whether this went down the urgent channel. A foregrounded app has no other
+     * way to tell, and needs to: it shows a push silently when the socket has
+     * already chimed for the same row, and an SOS must never be the one it
+     * quietens. See `setNotificationHandler` in the app.
+     */
+    urgent: channelId === "urgent",
   };
 
   const messages: ExpoPushMessage[] = tokens.map((token) => ({
     body: payload.body,
     ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
-    channelId: androidChannel(payload.category, payload.priority),
+    channelId,
     data,
     priority: high ? "high" : "default",
     ...(payload.imageUrl ? { richContent: { image: payload.imageUrl } } : {}),
-    sound: "default",
+    // The urgent channel keeps the phone's own alert tone on Android, so iOS
+    // keeps it too: a soft chime is the wrong noise for an SOS.
+    sound: channelId === "urgent" ? "default" : APP_NOTIFICATION_SOUND,
     title: payload.title,
     to: token,
   }));

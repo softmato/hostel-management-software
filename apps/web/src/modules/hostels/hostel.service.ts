@@ -44,6 +44,7 @@ import {
   graceDeadline,
   issueSubscriptionInvoice,
   selectPlan,
+  startPlanPeriod,
 } from "@/modules/billing/subscription.service";
 import {
   recordFieldCollection,
@@ -1395,6 +1396,15 @@ export async function registerTeamHostelApplication(
     requireVerified: false,
     source: "TEAM",
   });
+
+  /*
+   * The hostel is live from this moment — published before paid is the whole
+   * point of a team registration — so its plan starts today, on the period the
+   * invoice was raised for. It used to start only once the balance cleared, so
+   * a team hostel spent its trial with no plan running at all and every screen
+   * counted down the payment window in its place.
+   */
+  await startPlanPeriod(invoice, invoice.issuedAt ?? new Date());
 
   if (input.payment.amount > 0) {
     /*

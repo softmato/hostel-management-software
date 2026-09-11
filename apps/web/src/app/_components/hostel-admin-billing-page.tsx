@@ -290,7 +290,12 @@ function PlanCard({ plan }: { plan: BillingPlan }) {
             This plan has reached the end of its paid period.
           </span>
         ) : plan.currentPeriodEnd ? (
-          <span>Paid through {shortDate(plan.currentPeriodEnd)}</span>
+          // "Runs", not "paid", while a balance is owed: a team hostel's plan
+          // starts the day it is filed, before the money is in.
+          <span>
+            {plan.amountDue > 0 ? "Runs" : "Paid"} through{" "}
+            {shortDate(plan.currentPeriodEnd)}
+          </span>
         ) : plan.amountPaid > 0 ? (
           // A part payment is money received, and saying "nothing paid" beside
           // it read as the payment having been lost.

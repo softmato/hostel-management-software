@@ -130,6 +130,37 @@ export function hostelToday(now: Date = new Date()): Date {
   return hostelCalendarDay(now);
 }
 
+/**
+ * The last instant of the Nepal day `plusDays` after the one `instant` falls on.
+ *
+ * A due, or the end of a plan, is a **day** rather than a timestamp: "pay by
+ * Bhadra 29" means all of Bhadra 29, so the instant is the final millisecond of
+ * that day in Kathmandu — 18:14:59.999 UTC. A negative `plusDays` reaches back,
+ * which is how a period that renews on a day ends the moment before it opens.
+ */
+export function hostelDayEnd(instant: Date, plusDays = 0): Date {
+  const day = hostelCalendarDay(instant).getTime();
+
+  return new Date(
+    day + (plusDays + 1) * MS_PER_DAY - HOSTEL_UTC_OFFSET_MINUTES * MS_PER_MINUTE - 1,
+  );
+}
+
+/**
+ * Whole Nepal calendar days from the day `from` falls on to the day `to` falls
+ * on — negative when `to` is the earlier.
+ *
+ * Counted between days, never between instants, so a count built on it moves
+ * at midnight in Kathmandu and at no other time. Flooring milliseconds instead
+ * moves it at whatever minute the deadline happens to carry, and a "3 days
+ * left" read at breakfast becomes "2" at lunch on the same calendar day.
+ */
+export function hostelDaysBetween(from: Date, to: Date): number {
+  return Math.round(
+    (hostelCalendarDay(to).getTime() - hostelCalendarDay(from).getTime()) / MS_PER_DAY,
+  );
+}
+
 /** The Gregorian year/month/day of the Nepal calendar day an instant falls on. */
 export function hostelDayParts(instant: Date): {
   day: number;
@@ -349,6 +380,33 @@ export function addBsMonths(period: string, delta: number): string {
   const index = parts.year * 12 + (parts.month - 1) + delta;
 
   return formatPeriodKey(Math.floor(index / 12), (index % 12) + 1);
+}
+
+/**
+ * The last instant a plan of `months` BS months, starting on `start`'s Nepal
+ * day, covers.
+ *
+ * The same day of the month, `months` later, is the day it renews on, and the
+ * period ends the moment before that day opens: a monthly plan taken on Bhadra
+ * 26 runs through Aswin 25. Counted in the owner's own calendar because that is
+ * the calendar they will check it against — Bhadra 2083 has 31 days, and a
+ * Gregorian `setMonth` from 11 September gives 30 of them.
+ *
+ * A start on a day the target month does not have (Bhadra 32, into a 30-day
+ * Aswin) renews on that month's last day rather than spilling into the next.
+ */
+export function bsMonthsEnd(start: Date, months: number): Date {
+  const bs = toBs(start);
+  const index = bs.year * 12 + (bs.month - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = (index % 12) + 1;
+  const renews = fromBs({
+    day: Math.min(bs.day, bsDaysInMonth(year, month)),
+    month,
+    year,
+  });
+
+  return hostelDayEnd(renews, -1);
 }
 
 /** The BS month this instant is in — what a billing run wakes up to bill. */

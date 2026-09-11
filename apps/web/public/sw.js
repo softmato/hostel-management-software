@@ -31,6 +31,15 @@
 const FALLBACK_TITLE = "New notification";
 const FALLBACK_URL = "/";
 
+/** Must match `NOTIFICATION_SOUND_MESSAGE` in `src/lib/notification-sound.ts`. */
+const SOUND_MESSAGE = "hostelhub:play-notification-sound";
+
+/**
+ * How long open tabs get to say they played the tone. A frozen background tab
+ * never answers, and a notification is not held back longer than this for it.
+ */
+const SOUND_HANDOFF_MS = 1000;
+
 self.addEventListener("install", () => {
   // No precache to wait for, so take over immediately rather than sitting in
   // "waiting" until every tab is closed — which for a portal somebody keeps
@@ -87,9 +96,63 @@ function safePath(value) {
   return value;
 }
 
+/**
+ * Ask every open tab to play our tone, and report whether one did.
+ *
+ * A notification cannot carry a custom sound — see `lib/notification-sound.ts`
+ * — so the tone has to come from a page. Each tab answers on its own port with
+ * "played", "already" (the socket, or another tab, got there first) or
+ * "failed" (autoplay refused it); the first yes settles it. No tabs, no yes, or
+ * no answer in time all mean the system sound is still wanted.
+ */
+async function askTabsToSound(notificationId) {
+  let clients = [];
+
+  try {
+    clients = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
+  } catch {
+    return false;
+  }
+
+  if (clients.length === 0) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    let waiting = clients.length;
+    const timer = setTimeout(() => resolve(false), SOUND_HANDOFF_MS);
+
+    const answer = (sounded) => {
+      waiting -= 1;
+
+      if (sounded || waiting === 0) {
+        clearTimeout(timer);
+        resolve(sounded);
+      }
+    };
+
+    for (const client of clients) {
+      const channel = new MessageChannel();
+
+      channel.port1.onmessage = (message) =>
+        answer(message.data === "played" || message.data === "already");
+
+      try {
+        client.postMessage({ notificationId, type: SOUND_MESSAGE }, [channel.port2]);
+      } catch {
+        answer(false);
+      }
+    }
+  });
+}
+
 async function showNotification(event) {
   const payload = readPayload(event);
   const url = safePath(payload.url);
+
+  // Urgent pushes are never handed off: an SOS keeps the system sound and its
+  // vibration however many tabs say they chimed.
+  const soundedByTab = payload.urgent ? false : await askTabsToSound(payload.notificationId);
 
   await self.registration.showNotification(payload.title || FALLBACK_TITLE, {
     badge: payload.badge || "/notification-badge.png",
@@ -104,6 +167,10 @@ async function showNotification(event) {
     // correctly on the desktop as well as in the bell.
     renotify: Boolean(payload.tag),
     requireInteraction: Boolean(payload.urgent),
+    // Our tone already played in an open tab; the system's would be a second.
+    // Never true alongside `vibrate` — that pairing throws — which holds
+    // because only urgent pushes vibrate and those are never handed off.
+    silent: soundedByTab,
     tag: payload.tag || undefined,
     // An SOS should be felt, not just seen, on a phone browser.
     vibrate: payload.urgent ? [300, 120, 300, 120, 300] : undefined,

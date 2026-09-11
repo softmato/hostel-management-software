@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { router } from "expo-router";
+import { useEffect, useMemo } from "react";
 
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
 import { StoreCartProvider, useStoreCart } from "@/components/store/store-cart";
+import { closeConfirm, openConfirm } from "@/lib/confirm";
 
 /**
  * The supply store's own tab bar.
@@ -35,6 +37,14 @@ import { StoreCartProvider, useStoreCart } from "@/components/store/store-cart";
  * something *waiting for you*, it is something being done for you, and a
  * permanent "2" on a tab that needs no action is how badges stop meaning
  * anything.
+ *
+ * ## Not open yet
+ *
+ * The store is still being built, so opening it puts up the app's own alert
+ * over the frosted shop: it is coming, and they will be told when it opens.
+ * One button, "Go back", because there is nothing to do here yet. The alert
+ * lives in the layout rather than on the Shop tab so it is said once per visit,
+ * not again on every tab.
  */
 const HIDDEN = [] as const;
 
@@ -54,7 +64,29 @@ function StoreTabs() {
   return <RoleTabs accent="ADMIN" hidden={HIDDEN} tabs={tabs} />;
 }
 
+function leaveStore() {
+  if (router.canGoBack()) {
+    router.back();
+  } else {
+    router.replace("/");
+  }
+}
+
 export default function StoreLayout() {
+  useEffect(() => {
+    const id = openConfirm({
+      cancelLabel: null,
+      confirmLabel: "Go back",
+      message:
+        "We are working on the store. It will be available very soon, and we will notify you when it opens.",
+      onConfirm: leaveStore,
+      title: "Store coming soon",
+    });
+
+    // Leaving by any other route must not strand the alert over the next screen.
+    return () => closeConfirm(id);
+  }, []);
+
   return (
     <StoreCartProvider>
       <StoreTabs />

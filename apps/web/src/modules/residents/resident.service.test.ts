@@ -232,6 +232,9 @@ describe("resident management service behavior", () => {
     vi.clearAllMocks();
     // Intake starts with a duplicate-phone lookup; no match is the normal case.
     serviceMocks.residentFindOne.mockReturnValue(queryResult(null));
+    // Then the platform-wide "do they already live somewhere" check; nobody is
+    // the normal case.
+    serviceMocks.residentFind.mockReturnValue(queryResult([]));
     serviceMocks.getIntakeQuote.mockResolvedValue(quote());
     serviceMocks.raiseAdmissionInvoice.mockResolvedValue({
       raised: false,
@@ -347,6 +350,129 @@ describe("resident management service behavior", () => {
     // The bed must never be claimed for a registration that cannot proceed.
     expect(serviceMocks.claimBedForRoomType).not.toHaveBeenCalled();
     expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The defect, from the field: a student living at one hostel had their card
+   * scanned at a second, and the second hostel's intake went through — a new
+   * row, a second bed, a second bill. The one-home rule was only held by the
+   * account link, which runs after all of that is written and answers a
+   * conflict with `linked: false` instead of an error.
+   */
+  it("refuses somebody the scanned card says already lives at another hostel", async () => {
+    const accountId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fa");
+
+    serviceMocks.userFindOne.mockReturnValueOnce(
+      queryResult({ _id: accountId, email: "asha.login@example.com" }),
+    );
+    serviceMocks.residentFind.mockReturnValueOnce(
+      queryResult([
+        {
+          _id: new Types.ObjectId(),
+          hostelId: new Types.ObjectId(otherHostelId),
+          status: "ACTIVE",
+        },
+      ]),
+    );
+    serviceMocks.hostelFindById.mockReturnValueOnce(
+      queryResult({ name: "Education Light Hostel" }),
+    );
+
+    await expect(
+      createResident(
+        {
+          email: "asha.profile@example.com",
+          firstName: "Asha",
+          lastName: "Rai",
+          moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+          phone: "9811111111",
+          residentType: "STUDENT" as const,
+          roomType,
+          status: "ACTIVE",
+          userResidentId: "HH-4K7M-9XQ2",
+        },
+        staffPrincipal,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "RESIDENT_LIVES_ELSEWHERE",
+      message: expect.stringContaining("Education Light Hostel"),
+      status: 409,
+    });
+
+    // Matched on the account *and* on both addresses, in any hostel.
+    expect(serviceMocks.residentFind).toHaveBeenCalledWith({
+      $or: [
+        { userId: { $in: [accountId] } },
+        {
+          email: {
+            $in: ["asha.profile@example.com", "asha.login@example.com"],
+          },
+        },
+      ],
+      isDeleted: { $ne: true },
+      status: { $in: ["ACTIVE", "PENDING", "SUSPENDED"] },
+    });
+    expect(serviceMocks.claimBedForRoomType).not.toHaveBeenCalled();
+    expect(serviceMocks.residentCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a hand-typed email that is already on another hostel's roll", async () => {
+    serviceMocks.residentFind.mockReturnValueOnce(
+      queryResult([
+        {
+          _id: new Types.ObjectId(),
+          hostelId: new Types.ObjectId(otherHostelId),
+          status: "PENDING",
+        },
+      ]),
+    );
+    serviceMocks.hostelFindById.mockReturnValueOnce(
+      queryResult({ name: "Education Light Hostel" }),
+    );
+
+    await expect(
+      createResident(
+        {
+          email: "Asha@Example.com",
+          firstName: "Asha",
+          lastName: "Rai",
+          moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+          phone: "9811111111",
+          residentType: "STUDENT" as const,
+          roomType,
+          status: "ACTIVE",
+        },
+        staffPrincipal,
+      ),
+    ).rejects.toMatchObject({ errorCode: "RESIDENT_LIVES_ELSEWHERE", status: 409 });
+    expect(serviceMocks.residentFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $or: [{ email: { $in: ["asha@example.com"] } }],
+      }),
+    );
+    expect(serviceMocks.claimBedForRoomType).not.toHaveBeenCalled();
+  });
+
+  it("lets somebody who moved out of their last hostel be registered", async () => {
+    // `find` is asked for live rows only, so a MOVED_OUT row never comes back —
+    // the default empty answer is that case.
+    serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord());
+
+    await createResident(
+      {
+        email: "asha@example.com",
+        firstName: "Asha",
+        lastName: "Rai",
+        moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+        phone: "9811111111",
+        residentType: "STUDENT" as const,
+        roomType,
+        status: "ACTIVE",
+      },
+      staffPrincipal,
+    );
+
+    expect(serviceMocks.residentCreate).toHaveBeenCalled();
   });
 
   /**

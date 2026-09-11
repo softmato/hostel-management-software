@@ -47,7 +47,8 @@
     "check:public-registration": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-public-registration.mjs",
     "check:team-registration": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-team-registration.mjs",
     "dev:mint-session": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-mint-session.mjs",
-    "check:softmato": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-softmato.mjs"
+    "check:softmato": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-softmato.mjs",
+    "repair:plan-trial": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/repair-plan-trial.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",

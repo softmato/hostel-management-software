@@ -17,10 +17,7 @@ import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { ReceiptCounterModel } from "@hostel/db/models/ReceiptCounter";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
-import {
-  HOSTEL_UTC_OFFSET_MINUTES,
-  hostelCalendarDay,
-} from "@hostel/shared/calendar/bs";
+import { hostelDayEnd } from "@hostel/shared/calendar/bs";
 import { cycleMonths, cycleTotal, getPlan } from "@hostel/shared/plans/catalog";
 import type { BillingCycle } from "@hostel/shared/plans/catalog";
 
@@ -96,6 +93,9 @@ export type InvoiceRecord = {
   /** Our own statutory number, when Softmato could not raise theirs. */
   localInvoiceNo?: string | null;
   localIssuedAt?: Date | null;
+  /** The period it pays for, fixed at issue. Null on older invoices. */
+  periodEnd?: Date | null;
+  periodStart?: Date | null;
   planId: string;
   planName: string;
   softmatoInvoiceId?: string | null;
@@ -225,8 +225,6 @@ export async function outstandingFor(invoice: {
 
 /* ── Deadlines ─────────────────────────────────────────────────────────── */
 
-const DAY_MS = 86_400_000;
-
 /**
  * The last instant of the Nepal calendar day `graceDays` after `from`.
  *
@@ -241,11 +239,66 @@ const DAY_MS = 86_400_000;
  * by the end of Bhadra 28.
  */
 export function graceDeadline(from: Date, graceDays: number): Date {
-  const day = hostelCalendarDay(from).getTime();
-  const nextDayOpens =
-    day + (graceDays + 1) * DAY_MS - HOSTEL_UTC_OFFSET_MINUTES * 60_000;
+  return hostelDayEnd(from, graceDays);
+}
 
-  return new Date(nextDayOpens - 1);
+/* ── The plan's period ─────────────────────────────────────────────────── */
+
+/**
+ * Starts the plan running on the period an invoice pays for.
+ *
+ * Called at the two moments a hostel goes live, which are the two moments its
+ * plan starts:
+ *
+ * - a **team** registration, the instant the agent files it — published before
+ *   paid, so the plan runs from that day and "days left" counts down from it;
+ * - a settlement **in full** — a public hostel goes live on paying, and a
+ *   renewal extends the period already running.
+ *
+ * Idempotent on the invoice. When the running period already reaches the
+ * invoice's `periodEnd`, the team registration started it, and paying the
+ * balance off must not start the same month again from a later day.
+ *
+ * `activatedAt` is the start of the stretch now running: kept when a period is
+ * being extended, so the span from it to `currentPeriodEnd` is what has been
+ * bought, and set afresh when nothing was running.
+ */
+export async function startPlanPeriod(
+  invoice: Pick<InvoiceRecord, "cycleMonths" | "periodEnd" | "subscriptionId">,
+  from: Date = new Date(),
+) {
+  const subscription = await HostelSubscriptionModel.findById(
+    invoice.subscriptionId,
+  ).lean<Pick<SubscriptionRecord, "_id" | "activatedAt" | "currentPeriodEnd"> | null>();
+
+  if (!subscription) {
+    return null;
+  }
+
+  const runningEnd = subscription.currentPeriodEnd ?? null;
+
+  if (
+    runningEnd &&
+    invoice.periodEnd &&
+    runningEnd.getTime() >= invoice.periodEnd.getTime()
+  ) {
+    return {
+      activatedAt: subscription.activatedAt ?? null,
+      currentPeriodEnd: runningEnd,
+    };
+  }
+
+  const period = servicePeriod(invoice.cycleMonths || 1, runningEnd, from);
+  const extending = Boolean(runningEnd && runningEnd.getTime() > from.getTime());
+  const activatedAt =
+    extending && subscription.activatedAt ? subscription.activatedAt : period.startsAt;
+
+  await HostelSubscriptionModel.updateOne(
+    { _id: subscription._id },
+    { $set: { activatedAt, currentPeriodEnd: period.endsAt } },
+  );
+
+  return { activatedAt, currentPeriodEnd: period.endsAt };
 }
 
 export async function getOrCreateSubscription(
@@ -555,6 +608,16 @@ export async function issueSubscriptionInvoice(
   const operations = await getOperationsConfig();
   const issuedAt = new Date();
   const dueAt = graceDeadline(issuedAt, operations.subscriptionDueGraceDays);
+  /*
+   * The period, fixed here and printed as the document's service dates. A team
+   * registration starts it the moment the hostel is filed (`startPlanPeriod`),
+   * and a later settlement reads it back to know that has already happened.
+   */
+  const period = servicePeriod(
+    subscription.cycleMonths || 1,
+    subscription.currentPeriodEnd ?? null,
+    issuedAt,
+  );
 
   const owner = await resolveBillingContact(subscription.hostelId);
   const invoiceNumber = await allocateNumber(
@@ -589,6 +652,8 @@ export async function issueSubscriptionInvoice(
     hostelId: subscription.hostelId,
     invoiceNumber,
     issuedAt,
+    periodEnd: period.endsAt,
+    periodStart: period.startsAt,
     planId: subscription.planId,
     planName: subscription.planName,
     source: options.source ?? subscription.source ?? "PUBLIC",
@@ -670,11 +735,16 @@ export async function ensureInvoiceRaised(
   ).lean<SubscriptionRecord | null>();
 
   const catalog = await getSiteConfigSection("plans");
-  const period = servicePeriod(
-    invoice.cycleMonths,
-    subscription?.currentPeriodEnd ?? null,
-    invoice.issuedAt ?? new Date(),
-  );
+  // The stored pair when the invoice has one, so a retry prints the dates the
+  // hostel was already given rather than recomputing them from a later day.
+  const period =
+    invoice.periodStart && invoice.periodEnd
+      ? { endsAt: invoice.periodEnd, startsAt: invoice.periodStart }
+      : servicePeriod(
+          invoice.cycleMonths,
+          subscription?.currentPeriodEnd ?? null,
+          invoice.issuedAt ?? new Date(),
+        );
 
   try {
     const raised = await issueInvoiceDocument({
