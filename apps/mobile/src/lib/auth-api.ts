@@ -18,7 +18,14 @@ export type ApiUser = {
   image: string | null;
   /** Provisioned accounts (cook, warden) must set their own password first. */
   mustChangePassword: boolean;
-  /** Present on /auth/me only. No SERVICE_PROVIDER role exists — this is the flag. */
+  /**
+   * Approved service provider. No SERVICE_PROVIDER role exists — this is the flag.
+   *
+   * On `/auth/me`, every sign-in and every refresh. Still optional: a server
+   * from before sign-ins carried it, or an account cached from one, answers
+   * nothing — which `revalidateSession` reads by the home it implies rather
+   * than as a change.
+   */
   isServiceProvider?: boolean;
   name: string;
   phone: string | null;

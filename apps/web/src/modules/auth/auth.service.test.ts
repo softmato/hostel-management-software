@@ -12,6 +12,7 @@ const serviceMocks = vi.hoisted(() => ({
   sessionSave: vi.fn(),
   sessionUpdateMany: vi.fn(),
   sessionUpdateOne: vi.fn(),
+  serviceProviderExists: vi.fn(),
   signAccessToken: vi.fn(),
   signPurposeToken: vi.fn(),
   signRefreshToken: vi.fn(),
@@ -74,6 +75,10 @@ vi.mock("@hostel/db/models/User", () => ({
     findOne: serviceMocks.userFindOne,
     updateOne: serviceMocks.userUpdateOne,
   },
+}));
+
+vi.mock("@hostel/db/models/ServiceProvider", () => ({
+  ServiceProviderModel: { exists: serviceMocks.serviceProviderExists },
 }));
 
 vi.mock("@hostel/db/models/OAuthAccount", () => ({
@@ -156,6 +161,9 @@ describe("auth service", () => {
     serviceMocks.sessionInstances.length = 0;
     serviceMocks.signAccessToken.mockResolvedValue("access-token");
     serviceMocks.signRefreshToken.mockResolvedValue("refresh-token");
+    // `clearAllMocks` keeps implementations, so an approved listing from one
+    // test would otherwise answer the next one's query.
+    serviceMocks.serviceProviderExists.mockResolvedValue(null);
   });
 
   it("logs in a valid user and creates a hashed refresh session", async () => {
@@ -522,6 +530,74 @@ describe("auth service", () => {
 
       await expect(getCurrentUser("access-token")).resolves.toMatchObject({
         sessionStale: false,
+      });
+    });
+  });
+
+  /**
+   * There is no SERVICE_PROVIDER role, so this flag is the only thing that tells
+   * a client which shell a PUBLIC account belongs in. Sign-ins used to leave it
+   * out, and the phone routed approved providers into the browsing app until
+   * the next resume moved them.
+   */
+  describe("service-provider flag", () => {
+    function signInAs(user: Record<string, unknown>) {
+      serviceMocks.userFindOne.mockReturnValueOnce({
+        select: vi.fn().mockResolvedValue(user),
+      });
+      serviceMocks.verifyPassword.mockResolvedValue(true);
+
+      return login({ identifier: "owner@example.com", password: "ChangeMe123!" });
+    }
+
+    it("tells a sign-in it is an approved provider", async () => {
+      serviceMocks.serviceProviderExists.mockResolvedValue({ _id: "provider-1" });
+
+      await expect(signInAs(createUser({ role: Role.PUBLIC }))).resolves.toMatchObject({
+        user: { isServiceProvider: true },
+      });
+      expect(serviceMocks.serviceProviderExists).toHaveBeenCalledWith({
+        isDeleted: false,
+        status: "APPROVED",
+        userId: "user-1",
+      });
+    });
+
+    it("says false, not nothing, for a public account without an approved listing", async () => {
+      await expect(signInAs(createUser({ role: Role.PUBLIC }))).resolves.toMatchObject({
+        user: { isServiceProvider: false },
+      });
+    });
+
+    it("does not look for a listing on any other role", async () => {
+      await expect(signInAs(createUser({ role: Role.RESIDENT }))).resolves.toMatchObject({
+        user: { isServiceProvider: false },
+      });
+      expect(serviceMocks.serviceProviderExists).not.toHaveBeenCalled();
+    });
+
+    it("answers a refresh and /me the same way a sign-in does", async () => {
+      serviceMocks.serviceProviderExists.mockResolvedValue({ _id: "provider-1" });
+      serviceMocks.userFindOne.mockResolvedValue(createUser({ role: Role.PUBLIC }));
+      serviceMocks.sessionFindOne.mockResolvedValue(createSession());
+      serviceMocks.verifyRefreshToken.mockResolvedValue({
+        role: Role.PUBLIC,
+        sessionId: "session-1",
+        sub: "user-1",
+        tokenType: "refresh",
+      });
+      serviceMocks.verifyAccessToken.mockResolvedValue({
+        hostelIds: [],
+        role: Role.PUBLIC,
+        sub: "user-1",
+        tokenType: "access",
+      });
+
+      await expect(refreshAccessToken("refresh-token")).resolves.toMatchObject({
+        user: { isServiceProvider: true },
+      });
+      await expect(getCurrentUser("access-token")).resolves.toMatchObject({
+        isServiceProvider: true,
       });
     });
   });

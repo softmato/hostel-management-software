@@ -152,15 +152,41 @@ export async function revalidateSession(): Promise<ApiUser | null> {
     }
   }
 
-  const providerChanged = before.account?.isServiceProvider !== account.isServiceProvider;
-  const activationChanged = before.isResidentActivated !== activated;
-
   /*
-   * `mustChangePassword` is deliberately not in this list. It no longer decides
-   * where anyone lands — see `resolveHome` — so a change to it is not a reason
-   * to pull the screen out from under someone mid-launch.
+   * A move is a change of *home*, not of a field.
+   *
+   * The provider and activation flags used to be compared on their own, and
+   * neither is always known. Until 2026-09-11 sign-in payloads left
+   * `isServiceProvider` out, so a fresh sign-in cached `undefined`, the first
+   * `/auth/me` said `false`, and the two compared unequal: the first resume
+   * after signing in — usually a picker closing — replaced the stack with the
+   * resident's home from under "Submit payment proof" while the upload
+   * finished behind it. An older server, or an account cached from one, still
+   * answers that way. `null` activation is the same trap in the other flag.
+   *
+   * `resolveHome` is what every caller does with the answer, and it already
+   * reads a missing flag the way the boot gate does. A changed role still counts
+   * on its own: its token was just rotated above. `mustChangePassword` stays out
+   * because it no longer decides where anyone lands.
    */
-  return roleChanged || providerChanged || activationChanged ? account : null;
+  const homeMoved =
+    homeOf(before.account, before.isResidentActivated) !== homeOf(account, activated);
+
+  return roleChanged || homeMoved ? account : null;
+}
+
+/** Where an account belongs, read the way the boot gate reads it. */
+function homeOf(account: ApiUser | null, isResidentActivated: boolean | null) {
+  return resolveHome(
+    account
+      ? {
+          isApprovedProvider: account.isServiceProvider,
+          // `null` is "not checked yet", not "not activated".
+          isResidentActivated: isResidentActivated ?? true,
+          role: account.role,
+        }
+      : null,
+  );
 }
 
 /**
@@ -198,13 +224,7 @@ export async function adoptRoleChange(): Promise<ApiUser | null> {
     return null;
   }
 
-  router.replace(
-    resolveHome({
-      isApprovedProvider: account.isServiceProvider,
-      isResidentActivated: store.getState().auth.isResidentActivated ?? true,
-      role: account.role,
-    }),
-  );
+  router.replace(homeOf(account, store.getState().auth.isResidentActivated));
 
   return account;
 }

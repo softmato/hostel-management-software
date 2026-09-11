@@ -102,6 +102,34 @@ function publicUser(user: {
   };
 }
 
+/**
+ * Whether the account is an approved service provider.
+ *
+ * There is no SERVICE_PROVIDER role — a provider is a PUBLIC account with an
+ * approved provider record — so neither the web header nor the phone can tell
+ * from the role alone which navigation to draw. Every payload that describes
+ * the signed-in account answers it here: `/me`, every sign-in and every
+ * refresh. Sign-ins used to leave it out, so the phone routed an approved
+ * provider into the browsing app and only moved them to their own tabs on the
+ * next resume, from whatever screen they were on by then.
+ *
+ * Only asked for PUBLIC accounts: no other role can hold a provider listing,
+ * and this runs on every one of those calls.
+ */
+async function isApprovedServiceProvider(user: { _id: unknown; role: Role }) {
+  if (user.role !== Role.PUBLIC) {
+    return false;
+  }
+
+  return Boolean(
+    await ServiceProviderModel.exists({
+      isDeleted: false,
+      status: "APPROVED",
+      userId: user._id,
+    }),
+  );
+}
+
 function normalizeEmail(email?: string | null) {
   return email?.trim().toLowerCase() || undefined;
 }
@@ -245,9 +273,10 @@ export async function issueSessionForUser(
     temporaryCredentialId: options?.temporaryCredentialId,
     userId: safeUser.id,
   };
-  const [accessToken, refreshToken] = await Promise.all([
+  const [accessToken, refreshToken, isServiceProvider] = await Promise.all([
     signAccessToken(tokenInput),
     signRefreshToken(tokenInput),
+    isApprovedServiceProvider(user),
   ]);
 
   session.refreshTokenHash = hashToken(refreshToken);
@@ -258,6 +287,7 @@ export async function issueSessionForUser(
     refreshToken,
     user: {
       ...safeUser,
+      isServiceProvider,
       viaTemporaryCredential: Boolean(options?.temporaryCredentialId),
     },
   };
@@ -751,9 +781,10 @@ export async function refreshAccessToken(refreshToken: string) {
     temporaryCredentialId,
     userId: safeUser.id,
   };
-  const [accessToken, nextRefreshToken] = await Promise.all([
+  const [accessToken, nextRefreshToken, isServiceProvider] = await Promise.all([
     signAccessToken(tokenInput),
     signRefreshToken(tokenInput),
+    isApprovedServiceProvider(user),
   ]);
 
   session.refreshTokenHash = hashToken(nextRefreshToken);
@@ -762,7 +793,11 @@ export async function refreshAccessToken(refreshToken: string) {
   return {
     accessToken,
     refreshToken: nextRefreshToken,
-    user: { ...safeUser, viaTemporaryCredential: Boolean(temporaryCredentialId) },
+    user: {
+      ...safeUser,
+      isServiceProvider,
+      viaTemporaryCredential: Boolean(temporaryCredentialId),
+    },
   };
 }
 
@@ -799,25 +834,9 @@ export async function getCurrentUser(accessToken: string) {
     throw new AuthServiceError("User no longer has access.", "USER_INACTIVE");
   }
 
-  /*
-   * There is no SERVICE_PROVIDER role — a provider is a PUBLIC account with an
-   * approved provider record — so the header cannot tell from the role alone
-   * which navigation to draw. Resolving it here rather than in a second client
-   * request means the answer arrives with the session, in one round trip, and
-   * the nav never renders the wrong set first.
-   *
-   * Only asked for PUBLIC accounts: no other role can hold a provider listing,
-   * and this runs on every /me call.
-   */
-  const isServiceProvider =
-    user.role === Role.PUBLIC &&
-    Boolean(
-      await ServiceProviderModel.exists({
-        isDeleted: false,
-        status: "APPROVED",
-        userId: user._id,
-      }),
-    );
+  // Resolved with the session rather than in a second client request, so the
+  // nav never renders the wrong set first.
+  const isServiceProvider = await isApprovedServiceProvider(user);
 
   const safeUser = publicUser(user);
 
