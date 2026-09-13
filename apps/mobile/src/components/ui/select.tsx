@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode, useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 
+import { FieldLabel } from "@/components/ui/input";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -69,6 +70,8 @@ type SelectProps<T extends string> = {
   /** Border-only emphasis, said by the screen rather than by a validator. See `Input`. */
   tone?: keyof typeof FIELD_TONES;
   value: T | null | undefined;
+  /** `line` matches {@link Input}'s boxless variant. */
+  variant?: "box" | "line";
 };
 
 export function Select<T extends string>({
@@ -82,7 +85,9 @@ export function Select<T extends string>({
   sheetTitle,
   tone,
   value,
+  variant = "box",
 }: SelectProps<T>) {
+  const line = variant === "line";
   const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
 
@@ -105,8 +110,16 @@ export function Select<T extends string>({
       : "border-border";
 
   return (
-    <View className="gap-1.5">
-      {label ? <Text variant="label">{label}</Text> : null}
+    <View className={line ? "gap-1" : "gap-1.5"}>
+      {label ? (
+        line ? (
+          <View style={{ opacity: selected ? 1 : 0 }}>
+            <FieldLabel>{label}</FieldLabel>
+          </View>
+        ) : (
+          <Text variant="label">{label}</Text>
+        )
+      ) : null}
 
       <Pressable
         accessibilityLabel={label}
@@ -121,8 +134,10 @@ export function Select<T extends string>({
           mark takes the gutter instead and the label sits where a leading
           adornment always puts it.
         */
-        className={`h-12 flex-row items-center gap-2.5 rounded-xl border bg-card pr-4 active:opacity-80 ${
-          selected?.leading ? "pl-2.5" : "pl-4"
+        className={`flex-row items-center gap-2.5 active:opacity-80 ${
+          line
+            ? "h-11 border-b"
+            : `h-12 rounded-xl border bg-card pr-4 ${selected?.leading ? "pl-2.5" : "pl-4"}`
         } ${borderTone} ${disabled ? "opacity-50" : ""}`}
         disabled={disabled}
         onPress={() => setOpen(true)}
@@ -141,7 +156,7 @@ export function Select<T extends string>({
         <Text
           className={`flex-1 ${selected ? "text-foreground" : "text-muted-foreground"}`}
         >
-          {selected?.label ?? placeholder}
+          {selected?.label ?? (line && label ? label : placeholder)}
         </Text>
         <Ionicons color={colors.mutedForeground} name="chevron-down" size={18} />
       </Pressable>

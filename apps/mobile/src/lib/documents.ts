@@ -19,6 +19,7 @@ import { Directory, DownloadTask, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
+import { APP_NAME } from "@/constants/branding";
 import { saveSilently } from "@/lib/native-downloads";
 import { readTokens } from "@/lib/session";
 import { toastSuccess } from "@/lib/toast";
@@ -230,7 +231,7 @@ const DOWNLOAD_FOLDER_KEY = "hh_download_folder_uri";
  * gets remembered — so this is never re-created and there is no per-download
  * check for whether it exists.
  */
-const APP_FOLDER = "HostelHub";
+const APP_FOLDER = APP_NAME;
 
 /**
  * `expo-file-system/legacy`, loaded only when a file is actually being saved.
@@ -307,7 +308,7 @@ async function resolveDownloadFolder(saf: LegacyFileSystem["StorageAccessFramewo
   /*
    * One folder of our own inside what they granted, rather than writing loose
    * into it. SAF has no "create if absent", and on the rare second run — a
-   * reinstall over an existing `HostelHub/` — it answers with `HostelHub (1)`
+   * reinstall over an existing `HostelPalika/` — it answers with `HostelPalika (1)`
    * rather than an error. That is why the *result* is what gets remembered:
    * whichever folder this call produced is the folder from then on, so the
    * duplicate is made at most once and never accumulates.
@@ -416,7 +417,7 @@ async function assertMatchesExtension(file: File, extension: string) {
  * Three rungs, best first, and every one of them ends with the file somewhere
  * reachable:
  *
- * 1. **MediaStore** — `Download/HostelHub/`, or `Pictures/HostelHub/` for an
+ * 1. **MediaStore** — `Download/HostelPalika/`, or `Pictures/HostelPalika/` for an
  *    image so it lands in the gallery. No permission, no dialogue, nothing to
  *    remember. Android 10+ and a binary that has the native module. This is
  *    what a download should feel like.
@@ -659,7 +660,7 @@ function readDataUrl(dataUrl: string) {
  * camera roll, not a save, and it costs two more taps and a choice to get there.
  *
  * The native Downloads writer removed the reason for the compromise: the file
- * lands in `Download/HostelHub/` with no permission and no dialogue, and the
+ * lands in `Download/HostelPalika/` with no permission and no dialogue, and the
  * share sheet stays as the bottom rung for the platforms that have nowhere else
  * to put it.
  */

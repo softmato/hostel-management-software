@@ -1,4 +1,5 @@
 import { emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 /** EMAIL_SYSTEM.md §6.1 — a local service provider submitted a directory listing. */
 export function serviceProviderRegistrationReceivedEmail(input: {
@@ -13,7 +14,7 @@ export function serviceProviderRegistrationReceivedEmail(input: {
       bodyHtml: [
         paragraph(`Hi ${escapeHtml(input.fullName)},`),
         paragraph(
-          `Thanks for registering as a <strong>${escapeHtml(input.category)}</strong> on HostelHub. Our team will review your details and documents shortly.`,
+          `Thanks for registering as a <strong>${escapeHtml(input.category)}</strong> on ${PLATFORM_NAME}. Our team will review your details and documents shortly.`,
         ),
         paragraph(
           "You will get another email once your listing is approved and hostels can find you.",

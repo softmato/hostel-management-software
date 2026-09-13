@@ -1,11 +1,11 @@
 import { useFocusEffect } from "expo-router";
-import { type ReactNode, useCallback } from "react";
+import { cssInterop } from "nativewind";
+import { type ReactNode, useCallback, useState } from "react";
+import { RefreshControl, View } from "react-native";
 import {
-  KeyboardAvoidingView,
-  Platform,
-  RefreshControl,
-  View,
-} from "react-native";
+  KeyboardAwareScrollView,
+  KeyboardStickyView,
+} from "react-native-keyboard-controller";
 import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -15,6 +15,15 @@ import { useBottomChrome } from "@/components/bottom-chrome";
 import { TAB_BAR_HEIGHT } from "@/components/tab-bar";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useSystemInsets } from "@/hooks/use-system-insets";
+
+// Third-party scroll view: NativeWind has to be told which props carry classes.
+cssInterop(KeyboardAwareScrollView, {
+  className: "style",
+  contentContainerClassName: "contentContainerStyle",
+});
+
+/** Clearance between a focused field and whatever sits on top of the keyboard. */
+const KEYBOARD_GAP = 16;
 
 /**
  * The outermost element of every screen, and the single place system-bar insets
@@ -92,7 +101,8 @@ export function useOwnScroll(insideTabs = false) {
     onScroll,
     scrollEventThrottle: 16,
     scrollPaddingBottom:
-      (insideTabs ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) + MIN_BOTTOM_PAD,
+      (insideTabs ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) +
+      MIN_BOTTOM_PAD,
   };
 }
 
@@ -220,11 +230,17 @@ export function Screen({
   // for it on top of whatever the bottom edge already claimed.
   const contentBottomPad = reservedBottom + (floating ? FLOATING_CLEARANCE : 0);
 
+  /** The sticky footer rides up on the keyboard, so a focused field has to clear it too. */
+  const [footerHeight, setFooterHeight] = useState(0);
+
   const paddingClass = padded ? "px-5" : "";
   const topPadClass = bleedTop ? "" : "pt-2";
 
   const body = scroll ? (
-    <Animated.ScrollView
+    <KeyboardAwareScrollView
+      // Scrolls only when the focused field would end up under the keyboard or
+      // the footer riding on it; a field already in view is left where it is.
+      bottomOffset={footerHeight + KEYBOARD_GAP}
       className="flex-1"
       contentContainerClassName={`grow ${paddingClass} ${topPadClass} ${contentClassName}`}
       contentContainerStyle={{ paddingBottom: contentBottomPad }}
@@ -245,7 +261,7 @@ export function Screen({
       showsVerticalScrollIndicator={false}
     >
       {children}
-    </Animated.ScrollView>
+    </KeyboardAwareScrollView>
   ) : (
     <View
       className={`flex-1 ${paddingClass} ${contentClassName}`}
@@ -265,42 +281,39 @@ export function Screen({
       {header ?? (bleedTop ? null : <View style={{ height: insets.top }} />)}
 
       {/*
-        The footer is **inside** this, and that is the whole point.
+        Keyboard handling, owned by react-native-keyboard-controller.
 
-        It used to be a sibling below, which meant the keyboard covered the
-        primary action on every form in the app — register, forgot-password,
-        raise-a-complaint, edit ID card, payment claim, night
-        status, leave a review, admin alerts and the hostel inquiry all put their
-        submit button in `footer`. On iOS `behavior="padding"` padded the scroll
-        body and left the footer exactly where it was, under the keyboard; on
-        Android the window's `adjustPan` shoved the whole thing up and pushed the
-        footer off the bottom edge. Either way the button was unreachable, with
-        nothing on screen to say the keyboard had to be dismissed first.
+        The footer rides up on the keyboard (`KeyboardStickyView`), so every
+        form's submit button stays reachable — register, complaints, the ID card
+        flow, payment claims. The body scrolls a focused field into view only
+        when the keyboard or that footer would cover it.
 
-        Android is `undefined` on purpose rather than `"padding"`:
-        `softwareKeyboardLayoutMode` is now `"resize"` (app.json), so the window
-        itself shrinks and the footer rides up with it. Adding padding on top of
-        that would compensate twice and leave a keyboard-height gap.
+        It replaced a `KeyboardAvoidingView` that leaned on Android resizing the
+        window (`softwareKeyboardLayoutMode: "resize"`). Under edge-to-edge the
+        window does not resize, so low fields — step 5 of the ID card — sat
+        under the keyboard while the user typed into them blind.
       */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        className="flex-1"
-      >
+      <View className="flex-1">
         {body}
 
         {footer ? (
-          <View
-            className="border-t border-border bg-background px-5 pt-3"
-            style={{
-              paddingBottom: insideTabs
-                ? tabClearance + MIN_BOTTOM_PAD
-                : Math.max(insets.bottom, MIN_BOTTOM_PAD),
-            }}
-          >
-            {footer}
-          </View>
+          <KeyboardStickyView>
+            <View
+              onLayout={(event) =>
+                setFooterHeight(event.nativeEvent.layout.height)
+              }
+              className="border-t border-border bg-background px-5 pt-3"
+              style={{
+                paddingBottom: insideTabs
+                  ? tabClearance + MIN_BOTTOM_PAD
+                  : Math.max(insets.bottom, MIN_BOTTOM_PAD),
+              }}
+            >
+              {footer}
+            </View>
+          </KeyboardStickyView>
         ) : null}
-      </KeyboardAvoidingView>
+      </View>
 
       {floating ? (
         <Animated.View

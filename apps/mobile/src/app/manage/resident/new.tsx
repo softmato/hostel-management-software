@@ -54,13 +54,14 @@ import {
   residentFullName,
 } from "@/lib/resident-intake";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * Admitting somebody — the one action on the roster that changes the building.
  *
  * ## It opens on a camera, because the resident already typed all of this
  *
- * Everybody who holds a HostelHub ID card filled in a profile to get it: name,
+ * Everybody who holds a HostelPalika ID card filled in a profile to get it: name,
  * address, date of birth, guardians, what they study, what they play. Asking a
  * warden to retype twenty fields that already exist, from a person standing in
  * front of them, is the slowest and least accurate way to obtain data we have.
@@ -441,7 +442,7 @@ export default function NewResidentScreen() {
         onClose={() => router.back()}
         onResidentId={(residentId) => void readCard(residentId)}
         step="Step 1 of 3"
-        subtitle="Scan the QR on their HostelHub card and their details fill themselves in."
+        subtitle={`Scan the QR on their ${APP_NAME} card and their details fill themselves in.`}
         title="Register a new resident"
         tone="brand"
       />

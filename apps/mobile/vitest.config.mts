@@ -36,6 +36,7 @@ export default defineConfig({
        * key an answer under. One file, or "tonight" means three things.
        */
       "@hostel/night": resolve(root, "../../packages/shared/src/night"),
+      "@hostel/brand": resolve(root, "../../packages/shared/src/brand"),
     },
   },
   test: {

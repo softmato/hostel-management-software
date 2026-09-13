@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 
 import { IdScanner } from "@/components/manage/id-scanner";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * The viewfinder — hold a resident's card up and read who they are.
@@ -38,7 +39,7 @@ export default function ScanResidentScreen() {
       manualTitle="Resident ID"
       onClose={() => router.back()}
       onResidentId={(residentId) => router.push(`/manage/scan/${residentId}`)}
-      subtitle="Hold the QR on their HostelHub ID card inside the frame."
+      subtitle={`Hold the QR on their ${APP_NAME} ID card inside the frame.`}
       title="Look up a resident"
       tone="neutral"
     />

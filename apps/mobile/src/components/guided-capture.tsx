@@ -10,6 +10,7 @@ import { Text } from "@/components/ui/text";
 import { useSystemInsets } from "@/hooks/use-system-insets";
 import { centredGuide, cropRectForGuide } from "@/lib/capture-crop";
 import { toastError } from "@/lib/toast";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * A full-screen camera that asks for one specific picture, and crops to the
@@ -56,8 +57,12 @@ const GUIDES = {
     title: "Take your photo",
   },
   signature: {
-    /** The signature box on the card is 3:1; capturing anything else wastes it. */
-    aspectRatio: 3,
+    /**
+     * 2:1, taller than the card's 3:1 box: a 3:1 frame was a sliver of the
+     * viewfinder that a real signature on paper rarely fit inside. Whatever
+     * prints it into a 3:1 box has to fit it, not stretch it.
+     */
+    aspectRatio: 2,
     facing: "back" as const,
     hint: "Sign on white paper and fit it inside the frame.",
     inset: 0.06,
@@ -193,8 +198,8 @@ export function GuidedCapture({
               <Ionicons color="#ffffff" name="camera-outline" size={32} />
               <Text className="text-center text-white/80" variant="body">
                 {permission?.canAskAgain === false
-                  ? "Camera access is off for HostelHub. Turn it on in Settings."
-                  : "HostelHub needs the camera for this."}
+                  ? `Camera access is off for ${APP_NAME}. Turn it on in Settings.`
+                  : `${APP_NAME} needs the camera for this.`}
               </Text>
               <Button
                 label={

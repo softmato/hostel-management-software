@@ -73,6 +73,7 @@ import type {
   publicHostelListQuerySchema,
 } from "@/modules/hostels/hostel.validation";
 import type { z } from "zod";
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 
 type PlatformHostelCreateInput = z.infer<typeof platformHostelCreateSchema>;
 type PublicHostelApplicationCreateInput = z.infer<
@@ -1228,7 +1229,7 @@ export async function assertTeamRegistrationIsNew(input: TeamHostelRegistrationI
 
   if (sameBuilding) {
     throw new HostelServiceError(
-      `"${sameBuilding.name}" in ${input.location.area} is already on HostelHub. If this is a different building, give it a name that tells them apart.`,
+      `"${sameBuilding.name}" in ${input.location.area} is already on ${PLATFORM_NAME}. If this is a different building, give it a name that tells them apart.`,
       "HOSTEL_ALREADY_LISTED",
       409,
     );
@@ -1285,7 +1286,7 @@ export async function assertTeamRegistrationIsNew(input: TeamHostelRegistrationI
 
   if (existing) {
     throw new HostelServiceError(
-      `This owner already has "${existing.name}"${existing.location?.area ? ` in ${existing.location.area}` : ""} on HostelHub. Confirm this is a second, separate building to register it.`,
+      `This owner already has "${existing.name}"${existing.location?.area ? ` in ${existing.location.area}` : ""} on ${PLATFORM_NAME}. Confirm this is a second, separate building to register it.`,
       "OWNER_ALREADY_HAS_HOSTEL",
       409,
     );

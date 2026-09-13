@@ -10,6 +10,7 @@ import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { landingPathForRole } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import { BrandMark } from "@/components/brand-mark";
 import {
   ResidentIdentityCenter,
   requestResidentProfileForm,
@@ -211,9 +212,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
           href="/"
           className="flex items-center gap-2 font-heading text-lg font-semibold text-brand-teal"
         >
-          <span className="flex size-8 items-center justify-center rounded-md bg-brand-teal text-sm font-bold text-white">
-            H
-          </span>
+          <BrandMark adaptive className="h-8" />
         </Link>
 
         {/* Tight at md and roomy from lg: eight destinations plus More do not

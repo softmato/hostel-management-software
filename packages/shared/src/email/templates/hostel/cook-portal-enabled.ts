@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 /**
  * Sent to the hostel admin — cook accounts use a generated address with no real
@@ -28,7 +29,7 @@ export function cookPortalEnabledEmail(input: {
         paragraph(
           "The first cook to sign in will be asked to choose a new password — that becomes the kitchen's shared password, and any other cook signs in with it too. Rotating from your Food page issues a fresh first-time password and retires the old one.",
         ),
-        ctaButton(input.loginUrl, "Open HostelHub login"),
+        ctaButton(input.loginUrl, `Open ${PLATFORM_NAME} login`),
       ].join("\n"),
     }),
   };

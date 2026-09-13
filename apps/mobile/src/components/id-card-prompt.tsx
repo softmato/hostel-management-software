@@ -2,35 +2,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback } from "react";
 import { View } from "react-native";
+import Animated, { ReduceMotion, ZoomIn } from "react-native-reanimated";
 
 import { Button } from "@/components/ui/button";
+import { Lottie } from "@/components/ui/lottie";
 import { Sheet } from "@/components/ui/sheet";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { idCardNoun } from "@/lib/id-card";
 import type { IdCardType } from "@/lib/identity-api";
 
-/**
- * The offer to create an ID card, for an account that has none.
- *
- * ## Why a sheet stands between the button and the form
- *
- * The web's header does this in one step — no card, so the tap opens the profile
- * form directly, with the pitch as the modal's own subtitle (`PROMPT_COPY` in
- * `resident-identity.tsx`). That works because a browser modal shows its title,
- * its subtitle and the first fields together. On a phone the form is a
- * full-screen scroll whose header is "Your details", and dropping someone into
- * thirty fields without first saying what they are for is how a form gets
- * abandoned on the first screen. So the pitch gets the sheet, and the sheet's
- * button opens the form.
- *
- * ## It names the right card
- *
- * A hostel owner and an approved service provider hold the same card in a
- * different variant, and `resolvePlatformIdCard` decides which server-side. The
- * caller derives the same answer from the cached account rather than fetching —
- * see `idCardTypeForAccount` — because the wording is needed at tap time.
- */
+/** The header card button's invitation to make an ID: one animation, one line, one action. */
 export function IdCardPrompt({
   cardType,
   onClose,
@@ -40,9 +22,6 @@ export function IdCardPrompt({
   onClose: () => void;
   open: boolean;
 }) {
-  const { colors } = useAppTheme();
-  const noun = idCardNoun(cardType);
-
   const start = useCallback(() => {
     onClose();
     router.push("/id-card/edit");
@@ -50,27 +29,25 @@ export function IdCardPrompt({
 
   return (
     <Sheet onClose={onClose} open={open}>
-      <View className="gap-5 pb-2 pt-2">
+      <View className="gap-5 pb-2 pt-1">
         <View className="items-center gap-3">
-          <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
-            <Ionicons color={colors.primary} name="card-outline" size={26} />
-          </View>
+          <Lottie loop={false} size={150} source={require("../../assets/lottie/id-card-creation-shett.lottie")} />
           <Text className="text-center" variant="title">
-            Let&apos;s make your {noun} card
+            Let&apos;s make your {idCardNoun(cardType)} card
           </Text>
           <Text className="text-center" variant="muted">
-            Fill your details in once and you get an ID with a QR code. Show it to
-            a hostel and they can complete your registration without you filling
-            in their form — ever again.
+            Fill it in once. Any hostel registers you from its QR code.
           </Text>
         </View>
 
         <View className="gap-3">
           <Point
+            delay={250}
             icon="shield-checkmark-outline"
             text="Stored encrypted against your account. A hostel only sees it when you show them the code."
           />
           <Point
+            delay={400}
             icon="qr-code-outline"
             text="Your card is ready the moment you save — QR code, ID number and all."
           />
@@ -85,11 +62,13 @@ export function IdCardPrompt({
   );
 }
 
-/** One reason, with its icon. Two of them; a third would be a features list. */
+/** The sheet's content mounts each time it opens, so the icon pops in once per open. */
 function Point({
+  delay,
   icon,
   text,
 }: {
+  delay: number;
   icon: keyof typeof Ionicons.glyphMap;
   text: string;
 }) {
@@ -97,7 +76,9 @@ function Point({
 
   return (
     <View className="flex-row gap-3">
-      <Ionicons color={colors.primary} name={icon} size={18} />
+      <Animated.View entering={ZoomIn.delay(delay).springify().reduceMotion(ReduceMotion.System)}>
+        <Ionicons color={colors.primary} name={icon} size={18} />
+      </Animated.View>
       <Text className="flex-1" variant="muted">
         {text}
       </Text>

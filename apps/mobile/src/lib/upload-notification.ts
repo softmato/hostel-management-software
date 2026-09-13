@@ -330,7 +330,7 @@ export type UploadNotice = {
   /** The file to open when this notification is tapped, if there is one. */
   openMimeType: string | null;
   /**
-   * Where that file landed, as a person reads it — `Pictures/HostelHub/x.png`.
+   * Where that file landed, as a person reads it — `Pictures/HostelPalika/x.png`.
    *
    * Carried separately from the body text it also appears in, because the tap
    * handler needs it when the open *fails*: a phone with nothing that reads the

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   Pressable,
   TextInput,
@@ -81,7 +81,23 @@ type InputProps = Omit<TextInputProps, "className"> & {
    * follow the caret reads as a field that is not taking input.
    */
   tone?: keyof typeof FIELD_TONES;
+  /** Rendered inside the field, after the text — a tick, a calendar glyph. */
+  trailing?: ReactNode;
+  /**
+   * `line` drops the box for a bare value over a hairline, with a small caps
+   * label: the minimal form style of the ID card flow.
+   */
+  variant?: "box" | "line";
 };
+
+/** The small uppercase label a `line` field sits under. */
+export function FieldLabel({ children }: { children: ReactNode }) {
+  return (
+    <Text className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </Text>
+  );
+}
 
 export function Input({
   error,
@@ -93,8 +109,11 @@ export function Input({
   onFocus,
   style,
   tone,
+  trailing,
+  variant = "box",
   ...props
 }: InputProps) {
+  const line = variant === "line";
   const { colors } = useAppTheme();
   const [focused, setFocused] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -108,12 +127,21 @@ export function Input({
         : "border-border";
 
   return (
-    <View className="gap-1.5">
-      {label ? <Text variant="label">{label}</Text> : null}
+    <View className={line ? "gap-1" : "gap-1.5"}>
+      {/* A `line` label sits in the field as its placeholder and floats up once there is something to label. */}
+      {label ? (
+        line ? (
+          <View style={{ opacity: focused || props.value ? 1 : 0 }}>
+            <FieldLabel>{label}</FieldLabel>
+          </View>
+        ) : (
+          <Text variant="label">{label}</Text>
+        )
+      ) : null}
 
       <View
-        className={`flex-row rounded-xl border bg-card px-4 ${
-          multiline ? "items-stretch" : "h-12 items-center"
+        className={`flex-row gap-2 ${line ? "border-b" : "rounded-xl border bg-card px-4"} ${
+          multiline ? "items-stretch" : line ? "h-11 items-center" : "h-12 items-center"
         } ${borderTone}`}
         style={multiline ? { minHeight: FIELD_HEIGHT } : undefined}
       >
@@ -130,8 +158,9 @@ export function Input({
           }}
           placeholderTextColor={colors.mutedForeground}
           secureTextEntry={secure && !revealed}
-          style={[multiline ? { paddingTop: 12, textAlignVertical: "top" } : null, style]}
+          style={[multiline ? { paddingTop: line ? 8 : 12, textAlignVertical: "top" } : null, style]}
           {...props}
+          placeholder={line && label && !focused ? label : props.placeholder}
         />
 
         {secure ? (
@@ -146,6 +175,8 @@ export function Input({
             </Text>
           </Pressable>
         ) : null}
+
+        {trailing ?? null}
       </View>
 
       {error ? (
@@ -153,7 +184,9 @@ export function Input({
           {error}
         </Text>
       ) : hint ? (
-        <Text variant="caption">{hint}</Text>
+        <Text className={tone === "success" ? "text-success" : undefined} variant="caption">
+          {hint}
+        </Text>
       ) : null}
     </View>
   );

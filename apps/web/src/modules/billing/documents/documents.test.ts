@@ -39,7 +39,7 @@ const ISSUER: Issuer = {
   legalName: "Softmato Technology Private Limited",
   pan: "623692242",
   phone: "9709155982",
-  productName: "HostelHub",
+  productName: "HostelPalika",
   vatRegistered: false,
 };
 
@@ -188,7 +188,7 @@ describe("renderInvoiceDocument", () => {
         "Staff accounts with per-role permissions",
       ],
       highlights: ["Priority support", "Free onboarding"],
-      planName: "HostelHub Growth — Annual · 12 months",
+      planName: "HostelPalika Growth — Annual · 12 months",
       tagline: "For properties running more than one building.",
     },
     status: "UNPAID" as const,
@@ -224,7 +224,7 @@ describe("renderInvoiceDocument", () => {
       lines: [
         {
           amount: 96_000,
-          description: "HostelHub Growth — annual plan",
+          description: "HostelPalika Growth — annual plan",
           period: "2083-05",
           quantity: 12,
           rate: 8_000,

@@ -148,7 +148,7 @@ describe("the events with their own picture", () => {
 
   it("marks the account holder's own signup the same way", () => {
     const visual = notificationVisual({
-      body: "Welcome to HostelHub.",
+      body: "Welcome to HostelPalika.",
       category: "ACCOUNT",
       title: "Registration successful",
     });

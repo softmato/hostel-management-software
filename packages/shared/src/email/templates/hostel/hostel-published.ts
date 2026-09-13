@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 export function hostelPublishedEmail(input: {
   hostelName: string;
@@ -11,7 +12,7 @@ export function hostelPublishedEmail(input: {
       heading: "Your listing is live 🎉",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> is now published on HostelHub and visible to students searching for a place to stay.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> is now published on ${PLATFORM_NAME} and visible to students searching for a place to stay.`,
         ),
         paragraph(
           "Keep your photos, pricing and vacancy details up to date from your dashboard — listings with current information get more inquiries.",

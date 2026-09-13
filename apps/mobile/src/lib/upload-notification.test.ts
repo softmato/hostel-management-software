@@ -311,7 +311,7 @@ describe("the finished-download notice", () => {
     return {
       ...row(id, "succeeded", { direction: "download", label: "Statement export" }),
       openMimeType: "text/csv",
-      openPath: "Download/HostelHub/hostel-statement.csv",
+      openPath: "Download/HostelPalika/hostel-statement.csv",
       openUri: "content://media/external_primary/downloads/42",
     };
   }
@@ -330,7 +330,7 @@ describe("the finished-download notice", () => {
 
     expect(notice?.title).toBe("Statement export downloaded");
     expect(notice?.body).toBe(
-      "Saved to Download/HostelHub/hostel-statement.csv · Tap to open",
+      "Saved to Download/HostelPalika/hostel-statement.csv · Tap to open",
     );
   });
 
@@ -341,7 +341,7 @@ describe("the finished-download notice", () => {
     expect(notice?.openUri).toBe("content://media/external_primary/downloads/42");
     expect(notice?.openMimeType).toBe("text/csv");
     // Carried for the tap that cannot open it — see `UploadNotice.openPath`.
-    expect(notice?.openPath).toBe("Download/HostelHub/hostel-statement.csv");
+    expect(notice?.openPath).toBe("Download/HostelPalika/hostel-statement.csv");
   });
 
   it("keeps the file after the row it came from has been pruned away", () => {

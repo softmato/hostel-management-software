@@ -109,7 +109,7 @@ async function downloadImage(url) {
       url,
       (async () => {
         const response = await fetch(url, {
-          headers: { "user-agent": "HostelHub store catalogue seed" },
+          headers: { "user-agent": "HostelPalika store catalogue seed" },
         });
 
         if (!response.ok) {

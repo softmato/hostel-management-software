@@ -5,6 +5,7 @@ import {
   paragraph,
   type EmailContent,
 } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 /** EMAIL_SYSTEM.md §9.2. */
 export function accountDeletionCancelledEmail(input: {
@@ -18,7 +19,7 @@ export function accountDeletionCancelledEmail(input: {
       heading: "Your account is active again",
       bodyHtml: [
         paragraph(
-          `${input.userName ? `${escapeHtml(input.userName)}, the` : "The"} deletion request on your HostelHub account has been cancelled. You can sign in again straight away.`,
+          `${input.userName ? `${escapeHtml(input.userName)}, the` : "The"} deletion request on your ${PLATFORM_NAME} account has been cancelled. You can sign in again straight away.`,
         ),
         paragraph(
           "Nothing was deleted. Your profile, history and settings are exactly as you left them.",

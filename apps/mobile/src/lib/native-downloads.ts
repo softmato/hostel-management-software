@@ -7,7 +7,7 @@
  * table of what the other four routes cost.
  *
  * Which folder is the module's decision, not this file's: documents land in
- * `Download/HostelHub/` and images in `Pictures/HostelHub/`, so a saved card
+ * `Download/HostelPalika/` and images in `Pictures/HostelPalika/`, so a saved card
  * turns up in the gallery rather than in a download list. `path` comes back
  * saying which, and every message the user reads is built from it.
  *
@@ -44,7 +44,7 @@ type NativeDownloads = {
 };
 
 export type SavedDownload = {
-  /** Where it landed, as a person reads it — `Download/HostelHub/x.csv`. */
+  /** Where it landed, as a person reads it — `Download/HostelPalika/x.csv`. */
   path: string;
   /**
    * The `content://` handle, which is the only thing that can later be opened.

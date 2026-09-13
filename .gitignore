@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+website_mock_desing_for_portals
 
 # Next.js / React build output
 .next/

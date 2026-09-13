@@ -15,7 +15,6 @@ import {
   Gift,
   Globe,
   HelpCircle,
-  Home,
   LayoutDashboard,
   LayoutTemplate,
   MapPin,
@@ -46,6 +45,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { HostelPreviewLink } from "@/components/hostel-preview-link";
+import { BrandMark } from "@/components/brand-mark";
 import { NotificationBell } from "@/components/notification-bell";
 import { PortalAccount } from "@/components/portal-account";
 import { PortalSearch } from "@/components/portal-search";
@@ -483,14 +483,7 @@ export function PortalShell({
         href="/"
         title={collapsed ? portalName : undefined}
       >
-        <span
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-lg text-white shadow-sm",
-            styles.brandSoft,
-          )}
-        >
-          <Home className="size-4 fill-white/20" />
-        </span>
+        <BrandMark adaptive className="h-7" />
         {collapsed ? null : (
           <div className="min-w-0 leading-tight">
             <p

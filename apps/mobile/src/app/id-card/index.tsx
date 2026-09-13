@@ -12,8 +12,9 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
+import { Lottie } from "@/components/ui/lottie";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -56,7 +57,7 @@ import { uploadAsset } from "@/lib/uploads";
  *
  * Both saves are saves. The card is rasterised with `react-native-view-shot` and
  * the QR arrives from the server as a `data:` PNG, and both then go through
- * `lib/documents.ts` into `Download/HostelHub/` — no share sheet, no "choose an
+ * `lib/documents.ts` into `Download/HostelPalika/` — no share sheet, no "choose an
  * app", no second decision after the one the row already asked for. Sharing is
  * its own row, above, and it sends a link rather than a picture.
  */
@@ -113,18 +114,17 @@ export default function IdCardScreen() {
  */
 function NoCardYet({ cardType }: { cardType: Identity["cardType"] }) {
   return (
-    <EmptyState
-      action={
-        <Button
-          label="Fill it in"
-          onPress={() => router.push("/id-card/edit")}
-        />
-      }
-      description={`Fill in your details once and you get a ${idCardNoun(
-        cardType,
-      )} ID with a QR code. Show it to a hostel and they can complete your registration without you writing anything down.`}
-      title="You don't have an ID card yet"
-    />
+    <View className="gap-4 pt-10">
+      <Lottie size={200} source={require("../../../assets/lottie/id-card-creation-shett.lottie")} />
+      <Text variant="display">Create your digital ID</Text>
+      <Text variant="muted">
+        Fill in your details once and get a {idCardNoun(cardType)} ID with a QR code. A hostel
+        scans it and registers you without paperwork.
+      </Text>
+      <View className="pt-6">
+        <Button label="Fill it in" onPress={() => router.push("/id-card/edit")} />
+      </View>
+    </View>
   );
 }
 

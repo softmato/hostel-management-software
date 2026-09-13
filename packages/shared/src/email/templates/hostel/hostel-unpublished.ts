@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 export function hostelUnpublishedEmail(input: {
   hostelName: string;
@@ -12,7 +13,7 @@ export function hostelUnpublishedEmail(input: {
       heading: "Listing unpublished",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> has been removed from public search results by the HostelHub team.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> has been removed from public search results by the ${PLATFORM_NAME} team.`,
         ),
         paragraph(`Reason: ${escapeHtml(input.reason)}`),
         paragraph(

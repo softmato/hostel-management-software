@@ -32,6 +32,7 @@ import { prepareEvidenceForUpload } from "@/lib/evidence-image";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset, type UploadProgress } from "@/lib/uploads";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * Paying the platform for this hostel's plan — by hand, for now.
@@ -213,7 +214,7 @@ export default function PayPlanScreen() {
          */
         authenticated: false,
         extension: "png",
-        fileName: "HostelHub-payment-QR",
+        fileName: `${APP_NAME}-payment-QR`,
         label: "Payment QR",
         mimeType: "image/png",
         url: qr.url,

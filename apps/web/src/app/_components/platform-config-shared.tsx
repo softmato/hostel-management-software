@@ -225,12 +225,14 @@ export function TextField({
   label,
   onChange,
   placeholder,
+  readOnly,
   value,
 }: {
   hint?: string;
   label: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  readOnly?: boolean;
   value: string;
 }) {
   return (
@@ -242,6 +244,7 @@ export function TextField({
         className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-[12.5px] outline-none transition focus:border-role-platform focus:ring-2 focus:ring-role-platform/15"
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
+        readOnly={readOnly}
         type="text"
         value={value}
       />

@@ -48,6 +48,7 @@ import {
   rupees,
 } from "./registration-fields";
 import { StepFlow, StepRail, type RegistrationStep } from "./registration-step-shell";
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 
 /**
  * The field team's registration form.
@@ -1871,7 +1872,7 @@ export function TeamRegisterHostelPage() {
         >
           <p className="font-semibold">
             {duplicate.code === "HOSTEL_ALREADY_LISTED"
-              ? "This hostel is already on HostelHub"
+              ? `This hostel is already on ${PLATFORM_NAME}`
               : "This owner already has a hostel"}
           </p>
           <p className="mt-1 text-muted-foreground">{duplicate.message}</p>

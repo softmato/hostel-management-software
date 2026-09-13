@@ -21,6 +21,7 @@
 
 import type { PlansCatalog } from "@hostel/plans/catalog";
 
+import { APP_NAME } from "@/constants/branding";
 import { publicApi } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
 
@@ -205,7 +206,7 @@ export const FALLBACK_SITE_CONFIG: MobileSiteConfig = {
   },
   identity: {
     address: "Kathmandu, Nepal",
-    siteName: "HostelHub",
+    siteName: APP_NAME,
     supportEmail: "support@softmato.com",
     supportPhone: "",
     tagline: "",

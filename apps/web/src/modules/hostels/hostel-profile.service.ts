@@ -24,6 +24,7 @@ import {
 } from "@/modules/hostels/hostel.service";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import type { z } from "zod";
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 
 type HostelAdminProfileQuery = z.infer<typeof hostelAdminProfileQuerySchema>;
 type HostelAdminProfileUpdateInput = z.infer<typeof hostelAdminProfileUpdateSchema>;
@@ -306,7 +307,7 @@ export async function requestHostelProfileChange(
           <p>Verify the request, apply it from the platform portal, and the update
           email will acknowledge the hostel owner.</p>
         `,
-        subject: `[HostelHub] Change request: ${changeLabel} — ${hostel.name}`,
+        subject: `[${PLATFORM_NAME}] Change request: ${changeLabel} — ${hostel.name}`,
         to: admin.email,
       }),
     ),

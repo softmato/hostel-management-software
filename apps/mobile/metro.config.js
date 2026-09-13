@@ -70,7 +70,12 @@ const foodRoot = path.resolve(__dirname, "../../packages/shared/src/food");
  * is already a watch folder, and nothing else.
  */
 const nightRoot = path.resolve(__dirname, "../../packages/shared/src/night");
+/** `@hostel/brand/*` — the platform name, shared with the web and the emails. */
+const brandRoot = path.resolve(__dirname, "../../packages/shared/src/brand");
 const baseResolveRequest = config.resolver.resolveRequest;
+
+// `.lottie` is a zip Metro doesn't know; without this `require()` of one fails to resolve.
+config.resolver.assetExts = [...config.resolver.assetExts, "lottie"];
 
 config.watchFolders = [
   ...(config.watchFolders ?? []),
@@ -78,6 +83,7 @@ config.watchFolders = [
   plansRoot,
   foodRoot,
   nightRoot,
+  brandRoot,
 ];
 
 /*
@@ -114,6 +120,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName.startsWith("@hostel/food/")) {
     return {
       filePath: path.join(foodRoot, `${moduleName.slice("@hostel/food/".length)}.ts`),
+      type: "sourceFile",
+    };
+  }
+
+  if (moduleName.startsWith("@hostel/brand/")) {
+    return {
+      filePath: path.join(brandRoot, `${moduleName.slice("@hostel/brand/".length)}.ts`),
       type: "sourceFile",
     };
   }

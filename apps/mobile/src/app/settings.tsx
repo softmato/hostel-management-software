@@ -48,6 +48,7 @@ import {
 } from "@/lib/push-notifications";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { setThemePreference, type ThemePreference } from "@/store/slices/uiSlice";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * Settings — theme, notifications, privacy, and closing the account.
@@ -388,7 +389,7 @@ function NotificationSettings() {
             </Text>
             <Text variant="muted">
               {permission === "blocked"
-                ? "Your phone is blocking them, so we cannot ask again from here. Turn them back on in your phone's settings for HostelHub."
+                ? `Your phone is blocking them, so we cannot ask again from here. Turn them back on in your phone's settings for ${APP_NAME}.`
                 : "Rent reminders, meal announcements and safety alerts arrive as they happen. Everything below still applies once it is on."}
             </Text>
             <Button

@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 export function verificationEmail(input: {
   verifyUrl: string;
@@ -10,7 +11,7 @@ export function verificationEmail(input: {
     html: emailLayout({
       heading: "Verify your email",
       bodyHtml: [
-        paragraph("Welcome to HostelHub! Confirm your email address to activate your account."),
+        paragraph(`Welcome to ${PLATFORM_NAME}! Confirm your email address to activate your account.`),
         ctaButton(input.verifyUrl, "Verify email"),
         paragraph(
           `This link expires in ${input.expiresInHours} hours. If it has expired, request a new verification email from the login page.`,

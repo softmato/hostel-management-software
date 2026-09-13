@@ -175,7 +175,7 @@ function otpDeliveryProvider() {
  * Sends the signup one-time code.
  *
  * This used to call Resend directly with its own hand-rolled HTML, its own
- * `From` header read straight from `RESEND_FROM_EMAIL`, and "HostelHub" hard
+ * `From` header read straight from `RESEND_FROM_EMAIL`, and "HostelPalika" hard
  * coded into the heading, the copy and the subject — so the one email a brand
  * new user is guaranteed to receive was the one email that ignored whatever the
  * platform owner had named the product. It now goes through `sendEmail()` and

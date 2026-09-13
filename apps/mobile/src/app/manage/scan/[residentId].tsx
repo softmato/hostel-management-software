@@ -31,6 +31,7 @@ import {
   humanizeEnum,
 } from "@/lib/format";
 import { paymentStanding } from "@/lib/resident-scan";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * Who this card belongs to, and everything the hostel knows about them.
@@ -631,7 +632,7 @@ function PersonSection({
   return (
     <View className="gap-3">
       <View>
-        <SectionHeader subtitle="From their own HostelHub profile" title="About them" />
+        <SectionHeader subtitle={`From their own ${APP_NAME} profile`} title="About them" />
         <Card className="gap-1">
           <FactRow label="Full name" value={profile.fullName} />
           <FactRow

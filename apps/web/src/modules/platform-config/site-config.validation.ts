@@ -1,3 +1,4 @@
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 import { z } from "zod";
 
 /**
@@ -11,7 +12,8 @@ const optionalUrl = trimmed.max(300).or(z.literal("")).default("");
 
 export const identitySchema = z.object({
   address: trimmed.max(200).default(""),
-  siteName: trimmed.min(1).max(60),
+  /** Pinned: the platform name is a code constant, not something a stored row can rename. */
+  siteName: z.string().optional().transform((): string => PLATFORM_NAME),
   supportEmail: trimmed.email().or(z.literal("")).default(""),
   supportPhone: trimmed.max(40).default(""),
   tagline: trimmed.max(160).default(""),
@@ -231,7 +233,7 @@ export const legalSchema = z.object({
  * section. `identity` is the *site*: the name in the header, the support
  * address in the footer, the tagline on the marketing page. This is the *legal
  * person* whose PAN goes on a tax document — the parent company — and the two
- * are only accidentally similar. HostelHub is the product line printed in the
+ * are only accidentally similar. HostelPalika is the product line printed in the
  * receipt's "For" row; Softmato Technology Private Limited is the entity that
  * received the money, and an accountant reconciling a payment needs the second
  * one.
@@ -265,7 +267,7 @@ export const issuerSchema = z.object({
     .default(""),
   phone: trimmed.max(40).default(""),
   /** The receipt's "For" row — what the money bought, not who sold it. */
-  productName: trimmed.max(60).default(""),
+  productName: z.string().optional().transform((): string => PLATFORM_NAME),
   vatRegistered: z.boolean().default(false),
 });
 

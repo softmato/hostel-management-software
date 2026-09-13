@@ -1,4 +1,4 @@
-export const PRODUCT_NAME = "HostelHub";
+export { PLATFORM_NAME as PRODUCT_NAME, PLATFORM_NAME } from "./brand/brand";
 
 export const API_VERSION = "v1";
 

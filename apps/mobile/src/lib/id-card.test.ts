@@ -63,13 +63,16 @@ function profile(overrides: Partial<IdentityProfile> = {}): IdentityProfile {
 function validDraft(overrides: Partial<IdentityDraft> = {}): IdentityDraft {
   return {
     ...emptyIdentityDraft(),
+    city: "Kathmandu",
     fullName: "Sita Sharma",
     gender: "FEMALE",
     guardianName: "Ram Sharma",
     guardianPhone: "9812345678",
     guardianRelation: "Father",
+    permanentAddress: "Ward 5, Tinkune",
     primaryEmail: "sita@example.com",
     primaryPhone: "9800011122",
+    province: "Bagmati",
     signature: "M10 10L20 20L30 30L40 40M100 50L110 60L120 70L130 80",
     ...overrides,
   };
@@ -201,7 +204,7 @@ describe("idCardTypeForAccount", () => {
 });
 
 describe("validateIdentity", () => {
-  it("passes a draft with only the seven required fields", () => {
+  it("passes a draft with only the required fields", () => {
     expect(hasIdentityErrors(validateIdentity(validDraft()))).toBe(false);
   });
 
@@ -209,13 +212,16 @@ describe("validateIdentity", () => {
     const errors = validateIdentity(emptyIdentityDraft());
 
     expect(Object.keys(errors).sort()).toEqual([
+      "city",
       "fullName",
       "gender",
       "guardianName",
       "guardianPhone",
       "guardianRelation",
+      "permanentAddress",
       "primaryEmail",
       "primaryPhone",
+      "province",
       "signature",
     ]);
   });
@@ -313,7 +319,12 @@ describe("toProfileInput", () => {
 
 describe("draftFromProfile", () => {
   it("round-trips a saved profile back into the form", () => {
-    const saved = profile({ city: "Lalitpur", dateOfBirth: "2004-03-02" });
+    const saved = profile({
+      city: "Lalitpur",
+      dateOfBirth: "2004-03-02",
+      permanentAddress: "Ward 3, Pulchowk",
+      province: "Bagmati",
+    });
     const draft = draftFromProfile(saved);
 
     expect(draft.fullName).toBe(saved.fullName);

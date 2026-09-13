@@ -5,6 +5,7 @@ import {
   paragraph,
   type EmailContent,
 } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 /**
  * EMAIL_SYSTEM.md §9.1. The cancel link is the whole point of this mail: the
@@ -23,7 +24,7 @@ export function accountDeletionRequestedEmail(input: {
       heading: "Account deletion requested",
       bodyHtml: [
         paragraph(
-          `${input.userName ? `${escapeHtml(input.userName)}, we` : "We"} received a request to delete your HostelHub account. Your account is now closed and you will not be able to sign in.`,
+          `${input.userName ? `${escapeHtml(input.userName)}, we` : "We"} received a request to delete your ${PLATFORM_NAME} account. Your account is now closed and you will not be able to sign in.`,
         ),
         paragraph(
           `Nothing is erased yet. Your data is held until <strong>${escapeHtml(input.scheduledDeletionDate)}</strong> — 60 days — and permanently deleted after that.`,

@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 export function hostelApprovedEmail(input: {
   hostelName: string;
@@ -57,7 +58,7 @@ export function hostelApprovedEmail(input: {
       heading: "Hostel approved 🎉",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> has been approved and is now part of HostelHub.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> has been approved and is now part of ${PLATFORM_NAME}.`,
         ),
         ...credentialsBlock,
         ctaButton(input.loginUrl, "Go to your dashboard"),

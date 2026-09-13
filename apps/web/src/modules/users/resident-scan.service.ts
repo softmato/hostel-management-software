@@ -24,6 +24,7 @@ import { NotificationModel } from "@hostel/db/models/Notification";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { UserModel } from "@hostel/db/models/User";
 import { UserResidentProfileModel } from "@hostel/db/models/UserResidentProfile";
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 
 /**
  * Reading somebody's ID card in the corridor.
@@ -248,7 +249,7 @@ async function findScannedAccount(residentIdInput: string) {
 
   if (!user) {
     throw new ResidentIdentityError(
-      "No HostelHub account carries that ID card.",
+      `No ${PLATFORM_NAME} account carries that ID card.`,
       "RESIDENT_PROFILE_NOT_FOUND",
       404,
     );
@@ -297,7 +298,7 @@ export async function scanResidentForHostel(
     ? null
     : record?.completedAt
       ? "They have turned profile sharing off. They can switch it back on from their ID card screen."
-      : "They have not filled in their HostelHub profile, so the card carries nothing but the number.";
+      : `They have not filled in their ${PLATFORM_NAME} profile, so the card carries nothing but the number.`;
 
   const scope = scanScope(principal, options.hostelId);
 

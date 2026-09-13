@@ -28,6 +28,7 @@ import { endSession, startSession } from "@/lib/auth-session";
 import { collectDeviceInfo, collectSessionInfo } from "@/lib/device-info";
 import { toastSuccess } from "@/lib/toast";
 import { setResidentActivated } from "@/store/slices/authSlice";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * Redeeming the QR code that turns an account into a resident.
@@ -143,7 +144,7 @@ export default function ActivateScreen() {
     if (!scanned) {
       // A constant string, so the frames that follow bail out of re-rendering
       // instead of thrashing while the wrong QR is held up to the lens.
-      setScanHint("That's not a HostelHub activation code.");
+      setScanHint(`That's not a ${APP_NAME} activation code.`);
       return;
     }
 
@@ -329,7 +330,7 @@ function Scanner({
           <Text className="text-center" variant="muted">
             {permission.canAskAgain
               ? "Allow the camera to scan your activation code, or type it below."
-              : "Camera access is off for HostelHub. Turn it on in Settings, or type the code below."}
+              : `Camera access is off for ${APP_NAME}. Turn it on in Settings, or type the code below.`}
           </Text>
           <Button
             label={permission.canAskAgain ? "Allow camera" : "Open settings"}

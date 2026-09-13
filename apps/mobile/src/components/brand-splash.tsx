@@ -1,16 +1,47 @@
 import { Image } from "expo-image";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
+  FadeOut,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withTiming,
 } from "react-native-reanimated";
 
-import { APP_NAME, POWERED_BY, logo } from "@/constants/branding";
+import { APP_NAME, APP_NAME_PARTS, POWERED_BY, logo } from "@/constants/branding";
 import { palette } from "@/constants/theme";
+
+/** How long the cold-start cover holds, so the "Powered by" line is actually read. */
+const BOOT_COVER_MS = 1600;
+
+/**
+ * Laid over the whole app once, on cold start, for `BOOT_COVER_MS`.
+ *
+ * Boot is usually faster than a person can read — the gate's `BrandSplash` is
+ * gone in a few frames — so without this the Softmato line never showed. The app
+ * boots underneath; if boot outlasts the cover, the gate's own `BrandSplash` is
+ * already fully drawn below it, so lifting the cover changes nothing visible.
+ */
+export function BootSplashCover() {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(false), BOOT_COVER_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Animated.View exiting={FadeOut.duration(220)} style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
+      <BrandSplash />
+    </Animated.View>
+  );
+}
 
 /**
  * The JS splash, shown over the app while the boot gate decides where to go.
@@ -59,13 +90,18 @@ export function BrandSplash({ message }: { message?: string }) {
             style={{ height: 140, width: 140 }}
             transition={0}
           />
-          <Text className="mt-5 text-3xl font-semibold tracking-tight text-foreground">
-            {APP_NAME}
+          <Text
+            accessibilityLabel={APP_NAME}
+            className="mt-5 text-3xl font-bold tracking-tight"
+            style={{ color: palette.light.foreground }}
+          >
+            {APP_NAME_PARTS.head}
+            <Text style={{ color: palette.light.brand }}>{APP_NAME_PARTS.tail}</Text>
           </Text>
         </Animated.View>
       </View>
 
-      <Animated.View className="items-center pb-14" style={tailStyle}>
+      <Animated.View className="items-center pb-12" style={tailStyle}>
         {message ? (
           <View className="mb-5 flex-row items-center gap-2">
             <ActivityIndicator color={palette.light.brand} size="small" />
@@ -73,9 +109,17 @@ export function BrandSplash({ message }: { message?: string }) {
           </View>
         ) : null}
 
-        <Text className="text-muted-foreground text-xs font-medium uppercase tracking-[2px]">
-          {POWERED_BY}
-        </Text>
+        <View accessibilityLabel={POWERED_BY} className="flex-row items-center gap-2.5">
+          <Text className="text-sm italic" style={{ color: palette.light.mutedForeground }}>
+            Powered by
+          </Text>
+          <Image
+            contentFit="contain"
+            source={logo.softmato}
+            style={{ height: 62, width: 82 }}
+            transition={0}
+          />
+        </View>
       </Animated.View>
     </View>
   );

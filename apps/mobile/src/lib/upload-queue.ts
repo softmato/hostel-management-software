@@ -71,7 +71,7 @@ export type UploadRow = {
    * download that ended in the share sheet: there is nothing left to open.
    */
   openMimeType?: string;
-  /** Where it landed, as a person reads it — `Download/HostelHub/x.csv`. */
+  /** Where it landed, as a person reads it — `Download/HostelPalika/x.csv`. */
   openPath?: string;
   openUri?: string;
   stage: UploadStage;

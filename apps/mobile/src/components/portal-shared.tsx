@@ -500,7 +500,7 @@ const MARK = 24;
  *
  * ## Why the platform sits above the hostel, and does not move
  *
- * Two identities are in play and they answer different questions. *HostelHub* is
+ * Two identities are in play and they answer different questions. *HostelPalika* is
  * the app you opened — chrome, identical in every role, and the public side of
  * the app has always drawn it in exactly this spot. The hostel is the *subject*
  * of the page, and it belongs on the card below. Stacking them the other way

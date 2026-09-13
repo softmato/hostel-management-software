@@ -429,6 +429,23 @@ export function validateIdentity(draft: IdentityDraft): IdentityErrors {
     errors.gender = "Pick one.";
   }
 
+  /*
+   * Required here, optional at the server: the web form and older saves may
+   * still send a profile without an address, but a new card from this app
+   * does not get past step 3 without one.
+   */
+  if (text("permanentAddress").length < 2) {
+    errors.permanentAddress = "Enter your permanent address.";
+  }
+
+  if (text("city").length < 2) {
+    errors.city = "Enter your city.";
+  }
+
+  if (!text("province")) {
+    errors.province = "Pick your province.";
+  }
+
   const primaryPhone = phoneError(draft.primaryPhone, "Your phone number");
 
   if (primaryPhone) {
@@ -562,7 +579,7 @@ export const IDENTITY_STEPS: readonly {
   subtitle: string;
   title: string;
 }[] = [
-  { key: "about", subtitle: "As written on your ID", title: "About you" },
+  { key: "about", subtitle: "Your basic details", title: "About you" },
   { key: "contact", subtitle: "How a hostel reaches you", title: "Contact" },
   { key: "address", subtitle: "Where you are from", title: "Address" },
   { key: "work", subtitle: "Optional — skip if neither fits", title: "Study or work" },

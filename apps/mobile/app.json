@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "HostelHub",
+    "name": "HostelPalika",
     "slug": "hostelproject",
     "owner": "softmatotechnology",
     "version": "0.1.0",
@@ -16,10 +16,10 @@
       ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "HostelHub uses the camera to scan your hostel activation QR code and to attach photos to payment claims, complaints and meals.",
-        "NSLocationWhenInUseUsageDescription": "HostelHub uses your approximate location to sort hostels by how far they are from you, and your precise location while you are navigating to a hostel. Your location is never saved or shared.",
-        "NSPhotoLibraryUsageDescription": "HostelHub needs your photo library so you can attach payment receipts and meal photos.",
-        "NSFaceIDUsageDescription": "HostelHub can use Face ID to unlock the app."
+        "NSCameraUsageDescription": "HostelPalika uses the camera to scan your hostel activation QR code and to attach photos to payment claims, complaints and meals.",
+        "NSLocationWhenInUseUsageDescription": "HostelPalika uses your approximate location to sort hostels by how far they are from you, and your precise location while you are navigating to a hostel. Your location is never saved or shared.",
+        "NSPhotoLibraryUsageDescription": "HostelPalika needs your photo library so you can attach payment receipts and meal photos.",
+        "NSFaceIDUsageDescription": "HostelPalika can use Face ID to unlock the app."
       }
     },
     "android": {
@@ -98,14 +98,14 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow HostelHub to access your photos so you can attach payment receipts and meal photos.",
-          "cameraPermission": "Allow HostelHub to use your camera to scan activation codes and take photos."
+          "photosPermission": "Allow HostelPalika to access your photos so you can attach payment receipts and meal photos.",
+          "cameraPermission": "Allow HostelPalika to use your camera to scan activation codes and take photos."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow HostelHub to use your camera to scan your hostel activation QR code and to photograph an issue you are reporting."
+          "cameraPermission": "Allow HostelPalika to use your camera to scan your hostel activation QR code and to photograph an issue you are reporting."
         }
       ],
       [
@@ -113,20 +113,20 @@
         {
           "isAndroidBackgroundLocationEnabled": false,
           "isIosBackgroundLocationEnabled": false,
-          "locationWhenInUsePermission": "Allow HostelHub to use your approximate location to sort hostels by distance, and your precise location while you are navigating to a hostel. It is never saved or shared."
+          "locationWhenInUsePermission": "Allow HostelPalika to use your approximate location to sort hostels by distance, and your precise location while you are navigating to a hostel. It is never saved or shared."
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow HostelHub to use Face ID to unlock the app."
+          "faceIDPermission": "Allow HostelPalika to use Face ID to unlock the app."
         }
       ],
       "expo-sharing",
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow HostelHub to use the microphone so you can say what is wrong out loud instead of typing it — when you raise an issue, and when a warden reports a repair.",
+          "microphonePermission": "Allow HostelPalika to use the microphone so you can say what is wrong out loud instead of typing it — when you raise an issue, and when a warden reports a repair.",
           "recordAudioAndroid": true,
           "enableBackgroundPlayback": false,
           "enableBackgroundRecording": false

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { toastError } from "@/lib/toast";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * A live camera sitting in the page, with the shots taken so far under it.
@@ -171,7 +172,7 @@ export function PhotoCapture({
               />
               <Text className="text-center" variant="caption">
                 {permission?.canAskAgain === false
-                  ? "Camera access is off for HostelHub. Turn it on in Settings, or attach a photo you already have."
+                  ? `Camera access is off for ${APP_NAME}. Turn it on in Settings, or attach a photo you already have.`
                   : "Show your hostel what is wrong. One tap, no typing."}
               </Text>
               <Button

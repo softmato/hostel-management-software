@@ -2,26 +2,27 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { Children, useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, View, type ViewStyle } from "react-native";
 import Animated, {
+  FadeIn,
   FadeInLeft,
   FadeInRight,
   ReduceMotion,
 } from "react-native-reanimated";
 
 import { GuidedCapture, type GuideShape } from "@/components/guided-capture";
-import { SignaturePad } from "@/components/signature-pad";
+import { SignatureInk, SignaturePad } from "@/components/signature-pad";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
-import { Card, SectionHeader, SectionLink } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { FactRow } from "@/components/ui/layout";
-import { Meter } from "@/components/ui/meter";
+import { ChoiceChips } from "@/components/ui/choice-chips";
+import { FieldLabel, Input } from "@/components/ui/input";
+import { Lottie } from "@/components/ui/lottie";
 import { Screen } from "@/components/ui/screen";
-import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { Sheet } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -58,6 +59,13 @@ import {
   type Occupation,
   saveIdentity,
 } from "@/lib/identity-api";
+import {
+  clearIdentityDraft,
+  type IdentityDraftSnapshot,
+  readIdentityDraft,
+  saveIdentityDraft,
+} from "@/lib/identity-draft";
+import { signatureStrokes } from "@/lib/signature";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
 
@@ -153,7 +161,9 @@ const ID_TYPE_OPTIONS: { label: string; value: GovernmentIdType }[] = [
 ];
 
 const GENDER_LABELS = new Map(GENDER_OPTIONS.map((o) => [o.value, o.label]));
-const OCCUPATION_LABELS = new Map(OCCUPATION_OPTIONS.map((o) => [o.value, o.label]));
+const OCCUPATION_LABELS = new Map(
+  OCCUPATION_OPTIONS.map((o) => [o.value, o.label]),
+);
 const DIET_LABELS = new Map(DIET_OPTIONS.map((o) => [o.value, o.label]));
 const ID_TYPE_LABELS = new Map(ID_TYPE_OPTIONS.map((o) => [o.value, o.label]));
 
@@ -207,8 +217,29 @@ function useEmailCheck(email: string, enabled: boolean): EmailCheck {
 }
 
 export default function EditIdentityScreen() {
-  const identity = useResource<IdentityResponse>(useCallback(() => getIdentity(), []));
+  const identity = useResource<IdentityResponse>(
+    useCallback(() => getIdentity(), []),
+  );
   const account = useAppSelector((state) => state.auth.account);
+  const accountId = account?.id ?? "";
+  /** `undefined` while the phone is still being asked for a saved draft. */
+  const [stored, setStored] = useState<
+    IdentityDraftSnapshot | null | undefined
+  >(undefined);
+
+  useEffect(() => {
+    let live = true;
+
+    void readIdentityDraft(accountId).then((snapshot) => {
+      if (live) {
+        setStored(snapshot);
+      }
+    });
+
+    return () => {
+      live = false;
+    };
+  }, [accountId]);
 
   // Named from the cached account, so the title is right from the first frame
   // — the loading and error states render this same bar.
@@ -219,19 +250,36 @@ export default function EditIdentityScreen() {
     }),
   );
 
-  if (identity.loading) {
+  if (identity.loading || stored === undefined) {
     return (
+      // Drawn as step 1 itself, so arriving from "Create my card" reads as one move.
       <Screen
-        header={<AppBar showBack subtitle="Loading your details" title="Your ID" />}
+        header={
+          <AppBar
+            centerTitle
+            showBack
+            title={`Step 1 of ${IDENTITY_STEPS.length}`}
+          />
+        }
       >
-        <LoadingState />
+        <View className="gap-6 pt-2">
+          <View className="gap-1">
+            <Text variant="title">{IDENTITY_STEPS[0]!.title}</Text>
+            <Text variant="muted">{IDENTITY_STEPS[0]!.subtitle}</Text>
+          </View>
+          {[0, 1, 2, 3].map((row) => (
+            <Skeleton height={44} key={row} />
+          ))}
+        </View>
       </Screen>
     );
   }
 
   if (identity.error || !identity.data) {
     return (
-      <Screen header={<AppBar showBack subtitle="Your details" title="Your ID" />}>
+      <Screen
+        header={<AppBar showBack subtitle="Your details" title="Your ID" />}
+      >
         <ErrorState
           message={identity.error ?? "Your details could not be loaded."}
           onRetry={identity.reload}
@@ -240,29 +288,48 @@ export default function EditIdentityScreen() {
     );
   }
 
-  return <IdentityWizard cardNoun={cardNoun} response={identity.data} />;
+  return (
+    <IdentityWizard
+      accountId={accountId}
+      cardNoun={cardNoun}
+      response={identity.data}
+      stored={stored}
+    />
+  );
 }
 
 /** What each step screen is handed. Keeps the field helpers out of nine props. */
 type FormControl = {
   draft: IdentityDraft;
   errors: IdentityErrors;
-  set: <K extends keyof IdentityDraft>(field: K, value: IdentityDraft[K]) => void;
+  set: <K extends keyof IdentityDraft>(
+    field: K,
+    value: IdentityDraft[K],
+  ) => void;
 };
 
 const REVIEW_INDEX = IDENTITY_STEPS.length - 1;
 
 function IdentityWizard({
+  accountId,
   cardNoun,
   response,
+  stored,
 }: {
+  accountId: string;
   cardNoun: string;
   response: IdentityResponse;
+  /** The autosaved form from last time, which outranks the server's copy. */
+  stored: IdentityDraftSnapshot | null;
 }) {
   const token = useAppSelector((state) => state.auth.accessToken);
   const { identity, profile } = response;
 
   const [draft, setDraft] = useState<IdentityDraft>(() => {
+    if (stored) {
+      return stored.draft;
+    }
+
     const loaded = draftFromProfile(profile);
 
     return {
@@ -274,12 +341,19 @@ function IdentityWizard({
   });
   // Raw comma-separated text: a chip editor cannot express "still typing".
   const [interestsText, setInterestsText] = useState(
-    (profile?.interests ?? []).join(", "),
+    stored?.interestsText ?? (profile?.interests ?? []).join(", "),
   );
-  const [sharingEnabled, setSharingEnabled] = useState(identity.sharingEnabled);
+  // Changed from the card screen, not here; the save sends it back unchanged.
+  const [sharingEnabled] = useState(
+    stored?.sharingEnabled ?? identity.sharingEnabled,
+  );
   const [errors, setErrors] = useState<IdentityErrors>({});
   const [saving, setSaving] = useState(false);
   const [signing, setSigning] = useState(false);
+  /** Terms and privacy consent; only a first save asks, and Create waits on it. */
+  const [agreed, setAgreed] = useState(false);
+  /** A first save lands on the success screen before the card. */
+  const [done, setDone] = useState(false);
 
   const isFirstSave = !identity.hasProfile;
 
@@ -288,24 +362,92 @@ function IdentityWizard({
    * change one thing, and nine screens between them and it is nine screens of
    * other people's decisions.
    */
-  const [index, setIndex] = useState(isFirstSave ? 0 : REVIEW_INDEX);
+  const [index, setIndex] = useState(
+    stored?.index ?? (isFirstSave ? 0 : REVIEW_INDEX),
+  );
   /** Which way the next screen slides in from. */
   const [forward, setForward] = useState(true);
 
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [photoAssetId, setPhotoAssetId] = useState<string | null>(null);
-  const [signatureUri, setSignatureUri] = useState<string | null>(null);
-  const [signatureAssetId, setSignatureAssetId] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useState<string | null>(
+    stored?.photoUri ?? null,
+  );
+  const [photoAssetId, setPhotoAssetId] = useState<string | null>(
+    stored?.photoAssetId ?? null,
+  );
+  const [signatureUri, setSignatureUri] = useState<string | null>(
+    stored?.signatureUri ?? null,
+  );
+  const [signatureAssetId, setSignatureAssetId] = useState<string | null>(
+    stored?.signatureAssetId ?? null,
+  );
+
+  /*
+   * Autosave: one second after the last change, the whole form goes to the
+   * phone. The first snapshot is the form as it opened, and nothing is written
+   * until something differs from it — opening and leaving is not a draft.
+   * `saved` stops a timer from the last keystroke re-writing a draft the
+   * successful save has just cleared.
+   */
+  const snapshot = useMemo<IdentityDraftSnapshot>(
+    () => ({
+      draft,
+      index,
+      interestsText,
+      photoAssetId,
+      photoUri,
+      sharingEnabled,
+      signatureAssetId,
+      signatureUri,
+    }),
+    [
+      draft,
+      index,
+      interestsText,
+      photoAssetId,
+      photoUri,
+      sharingEnabled,
+      signatureAssetId,
+      signatureUri,
+    ],
+  );
+  const opened = useRef(JSON.stringify(snapshot));
+  const saved = useRef(false);
+
+  useEffect(() => {
+    if (JSON.stringify(snapshot) === opened.current) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (!saved.current) {
+        void saveIdentityDraft(accountId, snapshot);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [accountId, snapshot]);
+
+  useEffect(() => {
+    if (stored) {
+      toastSuccess("Picked up where you left off");
+    }
+    // Once, for the draft this screen opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [uploading, setUploading] = useState<null | GuideShape>(null);
   const [camera, setCamera] = useState<null | GuideShape>(null);
 
-  const photoSource = photoUri ? { uri: photoUri } : identityPhotoSource(identity, token);
+  const photoSource = photoUri
+    ? { uri: photoUri }
+    : identityPhotoSource(identity, token);
   const signatureSource = signatureUri
     ? { uri: signatureUri }
     : identitySignatureSource(identity, token);
 
   const hasPhoto = Boolean(photoAssetId || identity.hasPhoto);
-  const hasSignatureImage = Boolean(signatureAssetId || identity.hasSignatureImage);
+  const hasSignatureImage = Boolean(
+    signatureAssetId || identity.hasSignatureImage,
+  );
 
   const emailLocked = Boolean(identity.accountEmail);
   const emailCheck = useEmailCheck(draft.primaryEmail, !emailLocked);
@@ -316,7 +458,9 @@ function IdentityWizard({
       // The error under a field is about what *was* there. Clearing it as soon
       // as the field is touched is the difference between a form that corrects
       // you and one that nags.
-      setErrors((current) => (current[field] ? { ...current, [field]: undefined } : current));
+      setErrors((current) =>
+        current[field] ? { ...current, [field]: undefined } : current,
+      );
     },
     [],
   );
@@ -349,7 +493,8 @@ function IdentityWizard({
     const found = validateIdentityStep(step.key, full);
 
     if (!emailLocked && step.key === "contact" && emailCheck === "TAKEN") {
-      found.primaryEmail = "Already used by another account. Use a different one.";
+      found.primaryEmail =
+        "Already used by another account. Use a different one.";
     }
 
     if (step.key === "photo" && !hasPhoto) {
@@ -400,7 +545,10 @@ function IdentityWizard({
           set("signatureImageUri", "");
         }
 
-        toastError(`Could not upload that ${label.toLowerCase()}`, readApiError(caught));
+        toastError(
+          `Could not upload that ${label.toLowerCase()}`,
+          readApiError(caught),
+        );
       } finally {
         setUploading(null);
       }
@@ -435,7 +583,8 @@ function IdentityWizard({
     const found = validateIdentity(full);
 
     if (!emailLocked && emailCheck === "TAKEN") {
-      found.primaryEmail = "Already used by another account. Use a different one.";
+      found.primaryEmail =
+        "Already used by another account. Use a different one.";
     }
 
     setErrors(found);
@@ -449,7 +598,9 @@ function IdentityWizard({
     const incomplete = firstIncompleteIdentityStep(full, assets);
 
     if (incomplete || hasIdentityErrors(found)) {
-      const target = IDENTITY_STEPS.findIndex((entry) => entry.key === incomplete);
+      const target = IDENTITY_STEPS.findIndex(
+        (entry) => entry.key === incomplete,
+      );
 
       toastError("Some details need fixing", "The ones in red.");
 
@@ -470,23 +621,21 @@ function IdentityWizard({
         sharingEnabled,
       });
 
-      toastSuccess(
-        isFirstSave ? "Your ID is ready" : "Details saved",
-        isFirstSave
-          ? "Any hostel can now register you from your QR code or your ID."
-          : undefined,
-      );
+      saved.current = true;
+      void clearIdentityDraft(accountId);
 
       if (isFirstSave) {
         // The save minted the id; `/auth/me`'s `userResidentId` is now stale.
-        // Not awaited — the card below does not depend on it.
+        // Not awaited — the card does not depend on it.
         void revalidateSession();
-        // `replace`: backing out of the card should leave, not reopen the form.
-        router.replace("/id-card");
+        // The success screen's button `replace`s to the card, so backing out
+        // of the card leaves rather than reopening the form.
+        setDone(true);
 
         return;
       }
 
+      toastSuccess("Details saved");
       router.back();
     } catch (caught) {
       toastError("Could not save your details", readApiError(caught));
@@ -494,6 +643,7 @@ function IdentityWizard({
       setSaving(false);
     }
   }, [
+    accountId,
     assets,
     emailCheck,
     emailLocked,
@@ -509,49 +659,82 @@ function IdentityWizard({
 
   const control: FormControl = { draft, errors, set };
   const onReview = step.key === "review";
+  const animation = STEP_ANIMATIONS[step.key];
+
+  if (done) {
+    return (
+      <Screen
+        footer={
+          <Button
+            label="View my ID"
+            onPress={() => router.replace("/id-card")}
+          />
+        }
+        header={<AppBar title="" />}
+      >
+        <View className="flex-1 items-center justify-center gap-3 px-4 pt-16">
+          <Lottie loop={false} size={180} source={SUCCESS_ANIMATION} />
+          <Text className="text-center" variant="title">
+            Your ID is ready!
+          </Text>
+          <Text className="text-center" variant="muted">
+            Any hostel can now register you from your QR code or your {cardNoun}{" "}
+            ID.
+          </Text>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <>
       <Screen
         footer={
-          onReview ? (
-            <Button
-              label={isFirstSave ? "Create my ID" : "Save changes"}
-              loading={saving}
-              onPress={() => void submit()}
-            />
-          ) : (
-            <View className="flex-row gap-3">
-              <View className="w-28">
-                <Button label="Back" onPress={back} variant="outline" />
-              </View>
-              <View className="flex-1">
-                <Button
-                  label={continueLabel(step.key, full, assets)}
-                  onPress={advance}
-                />
-              </View>
-            </View>
-          )
+          <Button
+            label={
+              onReview
+                ? isFirstSave
+                  ? "Create my ID"
+                  : "Save changes"
+                : continueLabel(step.key, full, assets)
+            }
+            // Looks off until the terms are ticked, but still answers a tap with why.
+            className={onReview && isFirstSave && !agreed ? "opacity-50" : undefined}
+            loading={onReview && saving}
+            onPress={
+              onReview
+                ? () => {
+                    if (isFirstSave && !agreed) {
+                      toastError(
+                        "Agree to the terms first",
+                        "Tick the Terms and Privacy Policy box above.",
+                      );
+
+                      return;
+                    }
+
+                    void submit();
+                  }
+                : advance
+            }
+          />
         }
         header={
-          <>
-            <AppBar
-              onBack={back}
-              showBack
-              subtitle={`Step ${index + 1} of ${IDENTITY_STEPS.length}`}
-              title={step.title}
-            />
-            <View className="px-4 pb-3">
-              <Meter
-                animated
-                height={4}
-                label={null}
-                percent={((index + 1) / IDENTITY_STEPS.length) * 100}
-                reading="elapsed"
-              />
-            </View>
-          </>
+          <AppBar
+            actions={
+              step.key === "work" ? (
+                <Pressable hitSlop={10} onPress={() => goTo(index + 1, true)}>
+                  <Text className="text-primary" variant="label">
+                    Skip
+                  </Text>
+                </Pressable>
+              ) : undefined
+            }
+            centerTitle
+            onBack={back}
+            showBack
+            title={`Step ${index + 1} of ${IDENTITY_STEPS.length}`}
+          />
         }
         scroll
         scrollEnabled={!signing}
@@ -563,13 +746,28 @@ function IdentityWizard({
           is a jump rather than a transition.
         */}
         <Animated.View
-          className="gap-6 pt-1"
+          className="gap-6 pb-4 pt-2"
           entering={(forward ? FadeInRight : FadeInLeft)
             .duration(220)
             .reduceMotion(ReduceMotion.System)}
           key={step.key}
         >
-          <Text variant="muted">{step.subtitle}</Text>
+          <View className="gap-1">
+            <Text variant="title">{step.title}</Text>
+            <Text variant="muted">{step.subtitle}</Text>
+          </View>
+
+          {animation ? (
+            <View className="items-center">
+              {/* The location and guardian artwork carry more padding in their frames than the others. */}
+              <Lottie
+                size={
+                  step.key === "address" || step.key === "guardian" ? 170 : 120
+                }
+                source={animation}
+              />
+            </View>
+          ) : null}
 
           {step.key === "about" ? <AboutStep control={control} /> : null}
           {step.key === "contact" ? (
@@ -619,8 +817,10 @@ function IdentityWizard({
                   false,
                 )
               }
-              onSharingChange={setSharingEnabled}
-              sharingEnabled={sharingEnabled}
+              agreed={isFirstSave ? agreed : null}
+              onAgreedChange={setAgreed}
+              photoSource={photoSource}
+              signatureSource={signatureSource}
             />
           ) : null}
         </Animated.View>
@@ -644,6 +844,15 @@ function IdentityWizard({
   );
 }
 
+/* `require` paths are case-sensitive on the Linux build machines — `Location` keeps its capital. */
+const STEP_ANIMATIONS: Partial<Record<IdentityStep, number>> = {
+  about: require("../../../assets/lottie/about.lottie"),
+  address: require("../../../assets/lottie/Location.lottie"),
+  guardian: require("../../../assets/lottie/guardian.lottie"),
+  work: require("../../../assets/lottie/work.lottie"),
+};
+const SUCCESS_ANIMATION = require("../../../assets/lottie/success.lottie");
+
 /**
  * "Skip" rather than "Continue" on a step where nothing has been filled in and
  * nothing is required — so the way past it is stated rather than guessed at.
@@ -653,9 +862,11 @@ function continueLabel(
   draft: IdentityDraft,
   assets: { hasPhoto: boolean; hasSignatureImage: boolean },
 ): string {
-  const optional = step === "work" || step === "address" || step === "preferences";
+  const optional = step === "work" || step === "preferences";
   const untouched =
-    optional && !hasIdentityErrors(validateIdentityStep(step, draft)) && isBlank(step, draft);
+    optional &&
+    !hasIdentityErrors(validateIdentityStep(step, draft)) &&
+    isBlank(step, draft);
 
   if (untouched) {
     return "Skip";
@@ -669,7 +880,11 @@ function continueLabel(
 /** Whether an optional step has been left entirely alone. */
 function isBlank(step: IdentityStep, draft: IdentityDraft): boolean {
   if (step === "address") {
-    return !draft.permanentAddress.trim() && !draft.city.trim() && !draft.province.trim();
+    return (
+      !draft.permanentAddress.trim() &&
+      !draft.city.trim() &&
+      !draft.province.trim()
+    );
   }
 
   if (step === "work") {
@@ -684,41 +899,55 @@ function isBlank(step: IdentityStep, draft: IdentityDraft): boolean {
   );
 }
 
+const PROVINCES = [
+  "Koshi",
+  "Madhesh",
+  "Bagmati",
+  "Gandaki",
+  "Lumbini",
+  "Karnali",
+  "Sudurpashchim",
+];
+
+const INTEREST_PRESETS = [
+  "Music",
+  "Sports",
+  "Travel",
+  "Books",
+  "Movies",
+  "Gaming",
+  "Cooking",
+  "Art",
+];
+
 /* ── steps ── */
 
 function AboutStep({ control }: { control: FormControl }) {
+  const { draft, errors, set } = control;
+
   return (
-    <Group title="About you">
-      <TextField
-        control={control}
-        label="Full name"
-        name="fullName"
-        placeholder="As written on your ID"
-        required
+    <View className="gap-6">
+      <TextField control={control} label="Full name" name="fullName" required />
+      <ChoiceChips
+        columns={2}
+        error={errors.gender}
+        label="Gender *"
+        onToggle={(value) => set("gender", value)}
+        options={GENDER_OPTIONS}
+        value={draft.gender}
       />
-      <TextField
-        control={control}
-        label="Date of birth"
-        name="dateOfBirth"
-        placeholder="YYYY-MM-DD"
+      <DatePickerField control={control} name="dateOfBirth" />
+      <ChoiceChips
+        columns={4}
+        label="Blood group"
+        // Tapping the chosen group again takes it back to "not known".
+        onToggle={(value) =>
+          set("bloodGroup", draft.bloodGroup === value ? "UNKNOWN" : value)
+        }
+        options={BLOOD_OPTIONS.filter((option) => option.value !== "UNKNOWN")}
+        value={draft.bloodGroup}
       />
-      <Row>
-        <Select
-          error={control.errors.gender}
-          label="Gender *"
-          onChange={(value) => control.set("gender", value)}
-          options={GENDER_OPTIONS}
-          placeholder="Select"
-          value={control.draft.gender || null}
-        />
-        <Select
-          label="Blood group"
-          onChange={(value) => control.set("bloodGroup", value)}
-          options={BLOOD_OPTIONS}
-          value={control.draft.bloodGroup}
-        />
-      </Row>
-    </Group>
+    </View>
   );
 }
 
@@ -731,22 +960,24 @@ function ContactStep({
   control: FormControl;
   locked: boolean;
 }) {
-  const status: { hint?: string; tone?: "success" } = locked
-    ? { hint: "Your sign-in email — filled in for you." }
+  const { colors } = useAppTheme();
+  const good = !locked && (check === "AVAILABLE" || check === "YOURS");
+  const hint = locked
+    ? "Your sign-in email — filled in for you."
     : check === "checking"
-      ? { hint: "Checking…" }
+      ? "Checking…"
       : check === "AVAILABLE"
-        ? { hint: "✓ Available", tone: "success" }
+        ? "Looks good!"
         : check === "YOURS"
-          ? { hint: "✓ Your account's email", tone: "success" }
-          : {};
+          ? "Your account's email"
+          : undefined;
 
   return (
-    <Group title="Contact">
+    <View className="gap-6">
       <TextField
         control={control}
         keyboardType="phone-pad"
-        label="Phone"
+        label="Main phone"
         name="primaryPhone"
         placeholder="98XXXXXXXX"
         required
@@ -754,140 +985,294 @@ function ContactStep({
       <TextField
         control={control}
         keyboardType="phone-pad"
-        label="Alternate phone"
+        label="Second phone"
         name="alternatePhone"
+        placeholder="98XXXXXXXX"
       />
       <Input
         autoCapitalize="none"
         autoComplete="email"
         editable={!locked}
         error={control.errors.primaryEmail}
-        hint={status.hint}
+        hint={hint}
         keyboardType="email-address"
-        label="Email *"
+        label="Main email *"
         onChangeText={(value) => control.set("primaryEmail", value)}
-        tone={status.tone}
+        tone={good ? "success" : undefined}
+        trailing={
+          good ? (
+            <Ionicons
+              color={colors.primary}
+              name="checkmark-circle"
+              size={18}
+            />
+          ) : null
+        }
         value={control.draft.primaryEmail}
+        variant="line"
       />
       <TextField
         control={control}
+        hint="Must be different from your main email."
         keyboardType="email-address"
         label="Backup email"
         name="backupEmail"
       />
-    </Group>
+    </View>
   );
 }
 
 function AddressStep({ control }: { control: FormControl }) {
+  const current = control.draft.province.trim();
+  // A province typed before this became a picker still shows, rather than vanishing.
+  const provinces =
+    current && !PROVINCES.includes(current)
+      ? [...PROVINCES, current]
+      : PROVINCES;
+
   return (
-    <Group title="Address">
-      <TextField control={control} label="Permanent address" multiline name="permanentAddress" />
-      <Row>
-        <TextField control={control} label="City" name="city" />
-        <TextField control={control} label="Province" name="province" />
-      </Row>
-    </Group>
+    <View className="gap-6">
+      <TextField
+        control={control}
+        label="Permanent address"
+        name="permanentAddress"
+        placeholder="Ward 5, Tinkune"
+        required
+      />
+      <TextField
+        control={control}
+        label="City"
+        name="city"
+        placeholder="Kathmandu"
+        required
+      />
+      <Select
+        error={control.errors.province}
+        label="Province *"
+        onChange={(value) => control.set("province", value)}
+        options={provinces.map((name) => ({ label: name, value: name }))}
+        placeholder="Select"
+        value={current || null}
+        variant="line"
+      />
+    </View>
   );
 }
 
 function WorkStep({ control }: { control: FormControl }) {
   return (
-    <Group subtitle="Nothing here is required" title="Study or work">
-      <Select
-        label="I am a"
-        onChange={(value) => control.set("occupation", value)}
+    <View className="gap-6">
+      <ChoiceChips
+        label="Occupation"
+        onToggle={(value) => control.set("occupation", value)}
         options={OCCUPATION_OPTIONS}
         value={control.draft.occupation}
       />
-      <TextField control={control} label="College / company" name="institution" />
-      <TextField control={control} label="Course / job title" name="courseOrDesignation" />
-    </Group>
+      <TextField
+        control={control}
+        label="Institution"
+        name="institution"
+        placeholder="College or company"
+      />
+      <TextField
+        control={control}
+        label="Course or designation"
+        name="courseOrDesignation"
+        placeholder="BSc. Computer Science"
+      />
+    </View>
   );
 }
 
 function GuardianStep({ control }: { control: FormControl }) {
-  const { colors } = useAppTheme();
-  const [showSecond, setShowSecond] = useState(
-    Boolean(control.draft.secondGuardianName || control.draft.secondGuardianPhone),
-  );
+  const { draft, errors } = control;
+  const has = (...fields: IdentityTextField[]) =>
+    fields.some((field) => draft[field].trim());
+  const failing = (...fields: IdentityTextField[]) =>
+    fields.some((field) => errors[field]);
+
+  const second = [
+    "secondGuardianName",
+    "secondGuardianRelation",
+    "secondGuardianPhone",
+    "secondGuardianEmail",
+  ] as const;
+  const emergency = [
+    "emergencyContactName",
+    "emergencyContactRelation",
+    "emergencyContactPhone",
+  ] as const;
 
   return (
-    <>
-      <Group title="Guardian">
-        <TextField control={control} label="Name" name="guardianName" required />
-        <Row>
-          <TextField
-            control={control}
-            label="Relation"
-            name="guardianRelation"
-            placeholder="Father, mother…"
-            required
-          />
-          <TextField
-            control={control}
-            keyboardType="phone-pad"
-            label="Phone"
-            name="guardianPhone"
-            required
-          />
-        </Row>
+    <View>
+      <Accordion
+        caption="The hostel's first call about you"
+        defaultOpen
+        forceOpen={failing(
+          "guardianName",
+          "guardianRelation",
+          "guardianPhone",
+          "guardianEmail",
+        )}
+        title="Primary guardian *"
+      >
+        <TextField
+          control={control}
+          label="Name"
+          name="guardianName"
+          required
+        />
+        <TextField
+          control={control}
+          label="Relation"
+          name="guardianRelation"
+          placeholder="Father, mother…"
+          required
+        />
+        <TextField
+          control={control}
+          keyboardType="phone-pad"
+          label="Phone"
+          name="guardianPhone"
+          required
+        />
         <TextField
           control={control}
           keyboardType="email-address"
           label="Email"
           name="guardianEmail"
         />
+      </Accordion>
 
-        {showSecond ? (
-          <View className="gap-3 border-t border-border pt-3">
-            <Text variant="label">Second guardian</Text>
-            <TextField control={control} label="Name" name="secondGuardianName" />
-            <Row>
-              <TextField control={control} label="Relation" name="secondGuardianRelation" />
-              <TextField
-                control={control}
-                keyboardType="phone-pad"
-                label="Phone"
-                name="secondGuardianPhone"
-              />
-            </Row>
-            <TextField
-              control={control}
-              keyboardType="email-address"
-              label="Email"
-              name="secondGuardianEmail"
-            />
-          </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            className="flex-row items-center gap-1.5 self-start py-1 active:opacity-70"
-            onPress={() => setShowSecond(true)}
-          >
-            <Ionicons color={colors.primary} name="add" size={16} />
-            <Text className="text-primary" variant="label">
-              Add a second guardian
-            </Text>
-          </Pressable>
-        )}
-      </Group>
+      <Accordion
+        caption="Optional — another parent or relative"
+        defaultOpen={has(...second)}
+        forceOpen={failing(...second)}
+        title="Second guardian"
+      >
+        <TextField control={control} label="Name" name="secondGuardianName" />
+        <TextField
+          control={control}
+          label="Relation"
+          name="secondGuardianRelation"
+        />
+        <TextField
+          control={control}
+          keyboardType="phone-pad"
+          label="Phone"
+          name="secondGuardianPhone"
+        />
+        <TextField
+          control={control}
+          keyboardType="email-address"
+          label="Email"
+          name="secondGuardianEmail"
+        />
+      </Accordion>
 
-      <Group subtitle="Blank = your guardian" title="Emergency contact">
+      <Accordion
+        caption="Optional — only if someone other than your guardian should be called in an emergency. Left blank, we call your guardian."
+        defaultOpen={has(...emergency)}
+        forceOpen={failing(...emergency)}
+        title="Emergency contact"
+      >
         <TextField control={control} label="Name" name="emergencyContactName" />
-        <Row>
-          <TextField control={control} label="Relation" name="emergencyContactRelation" />
-          <TextField
-            control={control}
-            keyboardType="phone-pad"
-            label="Phone"
-            name="emergencyContactPhone"
-          />
-        </Row>
-      </Group>
-    </>
+        <TextField
+          control={control}
+          label="Relation"
+          name="emergencyContactRelation"
+        />
+        <TextField
+          control={control}
+          keyboardType="phone-pad"
+          label="Phone"
+          name="emergencyContactPhone"
+        />
+      </Accordion>
+    </View>
   );
 }
+
+/**
+ * A section that folds away. Closing it only hides the fields — what was typed
+ * stays in the draft — and a section holding an error is held open so the red
+ * line under a field can never be folded out of sight.
+ */
+function Accordion({
+  caption,
+  children,
+  defaultOpen = false,
+  forceOpen = false,
+  title,
+}: {
+  caption: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  forceOpen?: boolean;
+  title: string;
+}) {
+  const { colors } = useAppTheme();
+  const [open, setOpen] = useState(defaultOpen);
+  const shown = open || forceOpen;
+
+  return (
+    <View className="border-b border-border">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: shown }}
+        className="flex-row items-center gap-3 py-4 active:opacity-70"
+        onPress={() => setOpen(!shown)}
+      >
+        <View className="flex-1 gap-0.5">
+          <Text variant="subtitle">{title}</Text>
+          <Text variant="caption">{caption}</Text>
+        </View>
+        <Ionicons
+          color={colors.mutedForeground}
+          name={shown ? "chevron-up" : "chevron-down"}
+          size={20}
+        />
+      </Pressable>
+
+      {shown ? (
+        <Animated.View
+          className="gap-6 pb-6"
+          entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+        >
+          {children}
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Short chip labels; the long ones in `DIET_OPTIONS` still read out on Review. */
+const DIET_CHIPS: { label: string; value: DietaryPreference }[] = [
+  { label: "Any", value: "NO_PREFERENCE" },
+  { label: "Veg", value: "VEG" },
+  { label: "Non-veg", value: "NON_VEG" },
+  { label: "Egg", value: "EGGETARIAN" },
+  { label: "Vegan", value: "VEGAN" },
+];
+
+/** Budget is free text at the server; these are the ranges a hostel actually prices in. */
+const BUDGET_CHIPS = [
+  { label: "Under 8k", value: "0-8000" },
+  { label: "8k – 12k", value: "8000-12000" },
+  { label: "12k – 18k", value: "12000-18000" },
+  { label: "18k +", value: "18000+" },
+];
+
+/** `""` is "Not now": the ID is optional, and saying so is a choice rather than a gap. */
+const ID_TYPE_CHIPS: { label: string; value: GovernmentIdType | "" }[] = [
+  { label: "Not now", value: "" },
+  { label: "Citizenship", value: "CITIZENSHIP" },
+  { label: "National ID", value: "NATIONAL_ID" },
+  { label: "Passport", value: "PASSPORT" },
+  { label: "License", value: "DRIVING_LICENSE" },
+  { label: "Student ID", value: "STUDENT_ID" },
+  { label: "Other", value: "OTHER" },
+];
 
 function PreferencesStep({
   control,
@@ -898,51 +1283,121 @@ function PreferencesStep({
   interestsText: string;
   onInterestsChange: (value: string) => void;
 }) {
+  const { draft, errors, set } = control;
+  const chosen = interestsText
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  // Values saved before these chips existed stay visible and removable.
+  const interests = [...new Set([...INTEREST_PRESETS, ...chosen])].map(
+    (name) => ({
+      label: name,
+      value: name,
+    }),
+  );
+  const budget = draft.budgetRange.trim();
+  const budgets =
+    budget && !BUDGET_CHIPS.some((chip) => chip.value === budget)
+      ? [...BUDGET_CHIPS, { label: budget, value: budget }]
+      : BUDGET_CHIPS;
+
   return (
-    <>
-      <Group title="Preferences and safety">
-        <Row>
-          <Select
-            label="Food"
-            onChange={(value) => control.set("dietaryPreference", value)}
-            options={DIET_OPTIONS}
-            value={control.draft.dietaryPreference}
-          />
-          <TextField
-            control={control}
-            label="Monthly budget"
-            name="budgetRange"
-            placeholder="8000-12000"
-          />
-        </Row>
-        <Input
-          error={control.errors.interests}
-          label="Interests"
-          onChangeText={onInterestsChange}
-          placeholder="Football, music, coding"
-          value={interestsText}
+    <View className="gap-7">
+      <StepSection title="Food and budget">
+        <ChoiceChips
+          label="Dietary preference"
+          onToggle={(value) => set("dietaryPreference", value)}
+          options={DIET_CHIPS}
+          value={draft.dietaryPreference}
         />
+        <ChoiceChips
+          columns={2}
+          label="Monthly budget (NPR)"
+          // Tapping the chosen range again clears it — budget is optional.
+          onToggle={(value) =>
+            set("budgetRange", budget === value ? "" : value)
+          }
+          options={budgets}
+          value={budget}
+        />
+      </StepSection>
+
+      <StepSection caption="Pick any that fit" title="Interests">
+        <ChoiceChips
+          error={errors.interests}
+          onToggle={(value) =>
+            onInterestsChange(
+              (chosen.includes(value)
+                ? chosen.filter((entry) => entry !== value)
+                : [...chosen, value]
+              ).join(", "),
+            )
+          }
+          options={interests}
+          value={chosen}
+        />
+      </StepSection>
+
+      <StepSection
+        caption="Only staff see this, and only in an emergency"
+        title="Health"
+      >
         <TextField
           control={control}
           label="Allergies or medical notes"
           multiline
           name="medicalNotes"
         />
-      </Group>
+      </StepSection>
 
-      <Group subtitle="Saves reading it out at the desk" title="Government ID">
-        <Row>
-          <Select
-            label="Type"
-            onChange={(value) => control.set("governmentIdType", value)}
-            options={ID_TYPE_OPTIONS}
-            placeholder="Not now"
-            value={control.draft.governmentIdType || null}
+      <StepSection
+        caption="Saves reading it out at the hostel desk"
+        title="Government ID"
+      >
+        <ChoiceChips
+          columns={2}
+          onToggle={(value) => {
+            const clearing = value === "" || draft.governmentIdType === value;
+
+            set("governmentIdType", clearing ? "" : value);
+            // A number with no type is a number nobody can check, so it goes with the type.
+            if (clearing) {
+              set("governmentIdNumber", "");
+            }
+          }}
+          options={ID_TYPE_CHIPS}
+          value={draft.governmentIdType}
+        />
+        {draft.governmentIdType ? (
+          <TextField
+            control={control}
+            label="ID number"
+            name="governmentIdNumber"
           />
-          <TextField control={control} label="Number" name="governmentIdNumber" />
-        </Row>
-      </Group>
-    </>
+        ) : null}
+      </StepSection>
+    </View>
+  );
+}
+
+/** A titled group inside a step, split from the one above by a hairline. */
+function StepSection({
+  caption,
+  children,
+  title,
+}: {
+  caption?: string;
+  children: React.ReactNode;
+  title: string;
+}) {
+  return (
+    <View className="gap-4 pt-2">
+      <View className="gap-0.5">
+        <Text variant="subtitle">{title}</Text>
+        {caption ? <Text variant="caption">{caption}</Text> : null}
+      </View>
+      {children}
+    </View>
   );
 }
 
@@ -960,38 +1415,54 @@ function PhotoStep({
   const { colors } = useAppTheme();
 
   return (
-    <View className="items-center gap-5 pt-2">
-      <View className="size-40 items-center justify-center overflow-hidden rounded-full border-2 border-border bg-muted">
-        {source ? (
-          <Image
-            contentFit="cover"
-            source={source}
-            style={{ height: "100%", width: "100%" }}
-          />
-        ) : (
-          <Ionicons color={colors.mutedForeground} name="person" size={64} />
-        )}
+    <View className="gap-6">
+      <View className="items-center py-2">
+        <View
+          className="items-center justify-center rounded-full border-2 border-primary p-1.5"
+          style={{ height: 212, width: 212 }}
+        >
+          <View className="size-full items-center justify-center overflow-hidden rounded-full bg-muted">
+            {source ? (
+              <Image
+                contentFit="cover"
+                source={source}
+                style={{ height: "100%", width: "100%" }}
+              />
+            ) : (
+              <Ionicons
+                color={colors.mutedForeground}
+                name="person"
+                size={84}
+              />
+            )}
+          </View>
+        </View>
       </View>
 
-      <Text className="px-6 text-center" variant="muted">
-        Face the camera in good light, with nothing covering your face. This is the
-        picture a warden checks you against.
-      </Text>
-
-      <View className="w-full gap-3">
+      <View className="gap-3">
         <Button
           disabled={busy}
-          label={source ? "Take it again" : "Take my photo"}
+          label={source ? "Take again" : "Take photo"}
           loading={busy}
           onPress={onOpenCamera}
         />
-        {/* The second answer to the question, not a peer of it. */}
         <Button
           disabled={busy}
           label="Choose from gallery"
           onPress={onPickFromLibrary}
           variant="outline"
         />
+      </View>
+
+      <View className="flex-row items-center gap-2">
+        <Ionicons
+          color={colors.mutedForeground}
+          name="information-circle-outline"
+          size={18}
+        />
+        <Text className="flex-1" variant="caption">
+          Make sure your face is well lit and clearly visible.
+        </Text>
       </View>
     </View>
   );
@@ -1012,274 +1483,330 @@ function SignatureStep({
   onSigningChange: (active: boolean) => void;
   source: { uri: string } | null;
 }) {
-  /*
-   * Opens on whichever one they already have. A holder who photographed their
-   * signature last time and came back to change something else should not find
-   * an empty drawing pad where their signature was.
-   */
-  const [mode, setMode] = useState<"draw" | "photo">(hasImage ? "photo" : "draw");
+  const [mode, setMode] = useState<"draw" | "photo">(
+    hasImage ? "photo" : "draw",
+  );
+  // Remounting the pad is how "Draw again" empties it — its strokes are its own state.
+  const [padKey, setPadKey] = useState(0);
+  const showImage =
+    Boolean(control.draft.signatureImageUri) || (mode === "photo" && hasImage);
 
   return (
-    <View className="gap-4">
-      <Segmented
-        onChange={(value) => {
-          setMode(value);
-          onSigningChange(false);
-        }}
-        options={[
-          { label: "Draw it", value: "draw" as const },
-          { label: "Photograph it", value: "photo" as const },
-        ]}
-        value={mode}
-      />
-
-      {mode === "draw" ? (
+    <View className="gap-6">
+      {showImage && source ? (
+        <View
+          className="overflow-hidden rounded-2xl border border-dashed border-muted-foreground/50"
+          style={{ aspectRatio: 1.4 }}
+        >
+          <Image
+            contentFit="contain"
+            source={source}
+            style={{ height: "100%", width: "100%" }}
+          />
+        </View>
+      ) : (
         <SignaturePad
           error={control.errors.signature}
+          key={padKey}
           onActiveChange={onSigningChange}
           onChange={(value) => {
             control.set("signature", value);
-            // Drawing replaces a photographed signature; the card holds one.
             control.set("signatureImageUri", "");
           }}
           value={control.draft.signature}
         />
-      ) : (
-        <View className="gap-4">
-          <View className="h-32 items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted">
-            {source ? (
-              <Image
-                contentFit="contain"
-                source={source}
-                style={{ height: "100%", width: "100%" }}
-              />
-            ) : (
-              <Text variant="caption">Nothing photographed yet</Text>
-            )}
-          </View>
-
-          <Text variant="muted">
-            Sign on a clean white sheet, lay it flat and fill the frame. The picture
-            is cropped to the frame and printed on the back of your card.
-          </Text>
-
-          <Button
-            disabled={busy}
-            label={source ? "Photograph it again" : "Open the camera"}
-            loading={busy}
-            onPress={onOpenCamera}
-          />
-
-          {control.errors.signature ? (
-            <Text className="text-destructive" variant="caption">
-              {control.errors.signature}
-            </Text>
-          ) : null}
-        </View>
       )}
+
+      <View className="gap-3">
+        <Button
+          label="Draw again"
+          onPress={() => {
+            control.set("signature", "");
+            control.set("signatureImageUri", "");
+            setMode("draw");
+            setPadKey((key) => key + 1);
+            onSigningChange(false);
+          }}
+        />
+        <Button
+          disabled={busy}
+          label={showImage ? "Photograph it again" : "Photograph it on paper"}
+          loading={busy}
+          onPress={() => {
+            setMode("photo");
+            onOpenCamera();
+          }}
+          variant="outline"
+        />
+      </View>
+
+      {showImage && control.errors.signature ? (
+        <Text className="text-destructive" variant="caption">
+          {control.errors.signature}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 /**
- * Everything that was entered, as facts with a per-section Edit.
- *
- * Read-only on purpose. A review screen that is also editable is the same wall
- * of fields the steps just took apart, and it removes the one thing a review is
- * for: seeing what you are about to submit at a glance.
+ * Every step as one folded row: done tick, title, Edit. Tapping the row opens
+ * what was entered, read-only — a review that is also editable is the same
+ * wall of fields the steps took apart. Edit is the only way back into a step.
  */
 function ReviewStep({
+  agreed,
   assets,
   cardNoun,
   draft,
   interestsText,
   onEdit,
-  onSharingChange,
-  sharingEnabled,
+  onAgreedChange,
+  photoSource,
+  signatureSource,
 }: {
+  /** `null` on an edit: the card already exists, so consent was given. */
+  agreed: boolean | null;
+  onAgreedChange: (value: boolean) => void;
   assets: { hasPhoto: boolean; hasSignatureImage: boolean };
   cardNoun: string;
   draft: IdentityDraft;
   interestsText: string;
   onEdit: (step: IdentityStep) => void;
-  onSharingChange: (value: boolean) => void;
-  sharingEnabled: boolean;
+  photoSource: { uri: string } | null;
+  signatureSource: { uri: string } | null;
 }) {
   const { colors } = useAppTheme();
-  const dash = (value: string) => value.trim() || "—";
+  const [signatureWidth, setSignatureWidth] = useState(0);
+  const [openStep, setOpenStep] = useState<IdentityStep | null>(null);
+  const dash = (value: string | undefined) => value?.trim() || "—";
+
+  const facts: Record<Exclude<IdentityStep, "review">, [string, string][]> = {
+    about: [
+      ["Full name", dash(draft.fullName)],
+      ["Gender", dash(GENDER_LABELS.get(draft.gender as Gender))],
+      ["Date of birth", formatDate(draft.dateOfBirth) ?? "—"],
+      ["Blood group", draft.bloodGroup === "UNKNOWN" ? "—" : draft.bloodGroup],
+    ],
+    address: [
+      ["Permanent address", dash(draft.permanentAddress)],
+      ["City", dash(draft.city)],
+      ["Province", dash(draft.province)],
+    ],
+    contact: [
+      ["Main phone", dash(draft.primaryPhone)],
+      ["Second phone", dash(draft.alternatePhone)],
+      ["Main email", dash(draft.primaryEmail)],
+      ["Backup email", dash(draft.backupEmail)],
+    ],
+    guardian: [
+      ["Guardian", dash(draft.guardianName)],
+      ["Relation", dash(draft.guardianRelation)],
+      ["Phone", dash(draft.guardianPhone)],
+      ["Email", dash(draft.guardianEmail)],
+      ["Second guardian", dash(draft.secondGuardianName)],
+      [
+        "Emergency contact",
+        draft.emergencyContactName.trim() || "Your guardian",
+      ],
+    ],
+    photo: [["Photo", assets.hasPhoto ? "Added" : "Not added yet"]],
+    preferences: [
+      ["Food", dash(DIET_LABELS.get(draft.dietaryPreference))],
+      ["Monthly budget", dash(draft.budgetRange)],
+      ["Interests", dash(interestsText)],
+      ["Medical notes", dash(draft.medicalNotes)],
+      [
+        "Government ID",
+        draft.governmentIdType
+          ? `${ID_TYPE_LABELS.get(draft.governmentIdType) ?? ""} ${draft.governmentIdNumber}`.trim()
+          : "Not now",
+      ],
+    ],
+    signature: [
+      [
+        "Signature",
+        assets.hasSignatureImage || draft.signatureImageUri
+          ? "Photographed"
+          : draft.signature
+            ? "Drawn"
+            : "Not signed yet",
+      ],
+    ],
+    work: [
+      ["Occupation", dash(OCCUPATION_LABELS.get(draft.occupation))],
+      ["Institution", dash(draft.institution)],
+      ["Course or designation", dash(draft.courseOrDesignation)],
+    ],
+  };
+
+  const steps = IDENTITY_STEPS.filter((entry) => entry.key !== "review");
+  const incomplete = steps.find(
+    (entry) => !identityStepComplete(entry.key, draft, assets),
+  );
 
   return (
-    <View className="gap-6">
-      <Section
-        complete={identityStepComplete("about", draft, assets)}
-        onEdit={() => onEdit("about")}
-        title="About you"
-      >
-        <FactRow label="Full name" value={dash(draft.fullName)} />
-        <FactRow label="Date of birth" value={dash(draft.dateOfBirth)} />
-        <FactRow
-          label="Gender"
-          value={GENDER_LABELS.get(draft.gender as Gender) ?? "—"}
-        />
-        <FactRow
-          label="Blood group"
-          value={draft.bloodGroup === "UNKNOWN" ? "—" : draft.bloodGroup}
-        />
-      </Section>
+    <View className="gap-5">
+      <View>
+        {steps.map((entry, position) => {
+          const complete = identityStepComplete(entry.key, draft, assets);
+          const open = openStep === entry.key;
 
-      <Section
-        complete={identityStepComplete("contact", draft, assets)}
-        onEdit={() => onEdit("contact")}
-        title="Contact"
-      >
-        <FactRow label="Phone" value={dash(draft.primaryPhone)} />
-        <FactRow label="Alternate phone" value={dash(draft.alternatePhone)} />
-        <FactRow label="Email" value={dash(draft.primaryEmail)} />
-        <FactRow label="Backup email" value={dash(draft.backupEmail)} />
-      </Section>
+          return (
+            <View key={entry.key}>
+              {position > 0 ? (
+                <View className="mx-4 h-px bg-border/20" />
+              ) : null}
+              <View className="flex-row items-center gap-3 py-3.5">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: open }}
+                  className="flex-1 flex-row items-center gap-3 active:opacity-70"
+                  onPress={() => setOpenStep(open ? null : entry.key)}
+                >
+                  <Ionicons
+                    color={complete ? colors.primary : colors.warning}
+                    name={complete ? "checkmark-circle" : "alert-circle"}
+                    size={22}
+                  />
+                  <Text className="flex-1" variant="label">
+                    {position + 1}. {entry.title}
+                  </Text>
+                  <Ionicons
+                    color={colors.mutedForeground}
+                    name={open ? "chevron-up" : "chevron-down"}
+                    size={18}
+                  />
+                </Pressable>
+                <Pressable hitSlop={10} onPress={() => onEdit(entry.key)}>
+                  <Text className="text-primary" variant="label">
+                    Edit
+                  </Text>
+                </Pressable>
+              </View>
 
-      <Section
-        complete={identityStepComplete("address", draft, assets)}
-        onEdit={() => onEdit("address")}
-        title="Address"
-      >
-        <FactRow label="Permanent address" value={dash(draft.permanentAddress)} />
-        <FactRow label="City" value={dash(draft.city)} />
-        <FactRow label="Province" value={dash(draft.province)} />
-      </Section>
+              {open ? (
+                <Animated.View
+                  className="gap-2.5 pb-4 pl-9"
+                  entering={FadeIn.duration(160).reduceMotion(
+                    ReduceMotion.System,
+                  )}
+                >
+                  {entry.key === "photo" && photoSource ? (
+                    <Image
+                      contentFit="cover"
+                      source={photoSource}
+                      style={{ borderRadius: 48, height: 96, width: 96 }}
+                    />
+                  ) : null}
+                  {entry.key === "signature" ? (
+                    assets.hasSignatureImage || draft.signatureImageUri ? (
+                      signatureSource ? (
+                        <Image
+                          contentFit="contain"
+                          source={signatureSource}
+                          style={{ aspectRatio: 3, width: "100%" }}
+                        />
+                      ) : null
+                    ) : draft.signature ? (
+                      <View
+                        onLayout={(event) =>
+                          setSignatureWidth(event.nativeEvent.layout.width)
+                        }
+                        style={{ aspectRatio: 3, width: "100%" }}
+                      >
+                        {signatureWidth > 0 ? (
+                          <SignatureInk
+                            color={colors.foreground}
+                            height={signatureWidth / 3}
+                            strokes={signatureStrokes(draft.signature)}
+                            width={signatureWidth}
+                          />
+                        ) : null}
+                      </View>
+                    ) : null
+                  ) : null}
+                  {facts[entry.key as Exclude<IdentityStep, "review">].map(
+                    ([label, value]) => (
+                      <View className="flex-row gap-3" key={label}>
+                        <Text className="w-32" variant="caption">
+                          {label}
+                        </Text>
+                        <Text
+                          className="flex-1 text-foreground"
+                          variant="caption"
+                        >
+                          {value}
+                        </Text>
+                      </View>
+                    ),
+                  )}
+                </Animated.View>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
 
-      <Section
-        complete={identityStepComplete("work", draft, assets)}
-        onEdit={() => onEdit("work")}
-        title="Study or work"
-      >
-        <FactRow
-          label="I am a"
-          value={OCCUPATION_LABELS.get(draft.occupation) ?? "—"}
-        />
-        <FactRow label="College / company" value={dash(draft.institution)} />
-        <FactRow label="Course / job title" value={dash(draft.courseOrDesignation)} />
-      </Section>
-
-      <Section
-        complete={identityStepComplete("guardian", draft, assets)}
-        onEdit={() => onEdit("guardian")}
-        title="Guardian and emergency"
-      >
-        <FactRow label="Guardian" value={dash(draft.guardianName)} />
-        <FactRow label="Relation" value={dash(draft.guardianRelation)} />
-        <FactRow label="Phone" value={dash(draft.guardianPhone)} />
-        {draft.secondGuardianName.trim() ? (
-          <FactRow label="Second guardian" value={draft.secondGuardianName} />
-        ) : null}
-        <FactRow
-          label="Emergency contact"
-          value={dash(draft.emergencyContactName) === "—"
-            ? "Your guardian"
-            : draft.emergencyContactName}
-        />
-      </Section>
-
-      <Section
-        complete={identityStepComplete("preferences", draft, assets)}
-        onEdit={() => onEdit("preferences")}
-        title="Preferences and ID"
-      >
-        <FactRow
-          label="Food"
-          value={DIET_LABELS.get(draft.dietaryPreference) ?? "—"}
-        />
-        <FactRow label="Monthly budget" value={dash(draft.budgetRange)} />
-        <FactRow label="Interests" value={dash(interestsText)} />
-        <FactRow label="Medical notes" value={dash(draft.medicalNotes)} />
-        <FactRow
-          label="Government ID"
-          value={
-            draft.governmentIdType
-              ? `${ID_TYPE_LABELS.get(draft.governmentIdType) ?? draft.governmentIdType} ${dash(draft.governmentIdNumber)}`
-              : "—"
-          }
-        />
-      </Section>
-
-      <Section
-        complete={assets.hasPhoto}
-        onEdit={() => onEdit("photo")}
-        title="Your photo"
-      >
-        <FactRow label="Photo" value={assets.hasPhoto ? "Added" : "Not added yet"} />
-      </Section>
-
-      <Section
-        complete={identityStepComplete("signature", draft, assets)}
-        onEdit={() => onEdit("signature")}
-        title="Your signature"
-      >
-        <FactRow
-          label="Signature"
-          value={
-            assets.hasSignatureImage || draft.signatureImageUri
-              ? "Photographed"
-              : draft.signature
-                ? "Drawn"
-                : "Not signed yet"
-          }
-        />
-      </Section>
-
-      <Card>
+      {incomplete ? (
         <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{ checked: sharingEnabled }}
-          className="flex-row items-center gap-3 active:opacity-70"
-          onPress={() => onSharingChange(!sharingEnabled)}
+          className="flex-row items-center gap-2 rounded-xl bg-warning-soft px-4 py-3 active:opacity-70"
+          onPress={() => onEdit(incomplete.key)}
         >
-          <Ionicons
-            color={sharingEnabled ? colors.primary : colors.mutedForeground}
-            name={sharingEnabled ? "checkbox" : "square-outline"}
-            size={22}
-          />
-          <Text className="flex-1" variant="muted">
-            Let a hostel load these details from my QR code or {cardNoun} ID. I can
-            turn this off later.
+          <Ionicons color={colors.warning} name="alert-circle" size={18} />
+          <Text className="flex-1 text-warning" variant="label">
+            Some details need fixing — {incomplete.title}
           </Text>
         </Pressable>
-      </Card>
-    </View>
-  );
-}
+      ) : (
+        <View className="flex-row items-center gap-2 rounded-xl bg-brand-soft px-4 py-3">
+          <Ionicons color={colors.primary} name="checkmark-circle" size={18} />
+          <Text className="flex-1 text-primary" variant="label">
+            All details look good!
+          </Text>
+        </View>
+      )}
 
-/** One reviewed section: heading, a tick when it is done, and an Edit. */
-function Section({
-  children,
-  complete,
-  onEdit,
-  title,
-}: {
-  children: React.ReactNode;
-  complete: boolean;
-  onEdit: () => void;
-  title: string;
-}) {
-  const { colors } = useAppTheme();
-
-  return (
-    <View>
-      <SectionHeader
-        action={<SectionLink label="Edit" onPress={onEdit} />}
-        title={title}
-      />
-      <Card>
-        {children}
-        {complete ? null : (
-          <View className="flex-row items-center gap-2 pt-2">
-            <Ionicons color={colors.warning} name="alert-circle" size={16} />
-            <Text className="flex-1 text-warning" variant="caption">
-              Something here still needs filling in.
+      {agreed === null ? null : (
+        <View className="flex-row items-start gap-3">
+          <Pressable
+            accessibilityLabel="I agree to the Terms and Privacy Policy"
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreed }}
+            hitSlop={10}
+            onPress={() => onAgreedChange(!agreed)}
+          >
+            <Ionicons
+              color={agreed ? colors.primary : colors.mutedForeground}
+              name={agreed ? "checkbox" : "square-outline"}
+              size={22}
+            />
+          </Pressable>
+          <Text
+            className="flex-1"
+            onPress={() => onAgreedChange(!agreed)}
+            variant="caption"
+          >
+            By creating your {cardNoun} ID you agree to our{" "}
+            <Text
+              className="text-primary"
+              onPress={() => router.push("/legal/terms")}
+              variant="caption"
+            >
+              Terms
+            </Text>{" "}
+            and{" "}
+            <Text
+              className="text-primary"
+              onPress={() => router.push("/legal/privacy")}
+              variant="caption"
+            >
+              Privacy Policy
             </Text>
-          </View>
-        )}
-      </Card>
+            .
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -1288,6 +1815,7 @@ function Section({
 
 function TextField({
   control,
+  hint,
   keyboardType,
   label,
   multiline,
@@ -1296,6 +1824,7 @@ function TextField({
   required,
 }: {
   control: FormControl;
+  hint?: string;
   keyboardType?: "email-address" | "phone-pad";
   label: string;
   multiline?: boolean;
@@ -1307,42 +1836,215 @@ function TextField({
     <Input
       autoCapitalize={keyboardType === "email-address" ? "none" : "sentences"}
       error={control.errors[name]}
+      hint={hint}
       keyboardType={keyboardType}
       label={required ? `${label} *` : label}
       multiline={multiline}
       onChangeText={(value) => control.set(name, value)}
       placeholder={placeholder}
-      style={multiline ? { height: 88 } : undefined}
       value={control.draft[name]}
+      variant="line"
     />
   );
 }
 
-/** One section: heading outside, fields inside one card. */
-function Group({
-  children,
-  subtitle,
-  title,
+function DatePickerField({
+  control,
+  name = "dateOfBirth",
 }: {
-  children: React.ReactNode;
-  subtitle?: string;
-  title: string;
+  control: FormControl;
+  name: IdentityTextField;
 }) {
+  const { colors } = useAppTheme();
+  const [open, setOpen] = useState(false);
+  const rawValue = control.draft[name] || "";
+  const [year, setYear] = useState(2000);
+  const [month, setMonth] = useState(1);
+  const [day, setDay] = useState(1);
+
+  const days = new Date(year, month, 0).getDate();
+  const years = Array.from(
+    { length: 77 },
+    (_, i) => new Date().getFullYear() - i,
+  );
+  const pad = (value: number) => String(value).padStart(2, "0");
+
+  const openCalendar = () => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawValue);
+
+    if (match) {
+      setYear(Number(match[1]));
+      setMonth(Number(match[2]));
+      setDay(Number(match[3]));
+    }
+
+    setOpen(true);
+  };
+
   return (
-    <View>
-      <SectionHeader subtitle={subtitle} title={title} />
-      <Card className="gap-3">{children}</Card>
+    <View className="gap-1">
+      <View style={{ opacity: rawValue ? 1 : 0 }}>
+        <FieldLabel>Date of birth</FieldLabel>
+      </View>
+      <Pressable
+        accessibilityLabel="Date of birth"
+        accessibilityRole="button"
+        className={`h-11 flex-row items-center border-b active:opacity-70 ${
+          control.errors[name] ? "border-destructive" : "border-border"
+        }`}
+        onPress={openCalendar}
+      >
+        <Text
+          className={`flex-1 text-base ${rawValue ? "text-foreground" : "text-muted-foreground"}`}
+        >
+          {formatDate(rawValue) ?? "Date of birth"}
+        </Text>
+        <Ionicons color={colors.primary} name="calendar-outline" size={20} />
+      </Pressable>
+      {control.errors[name] ? (
+        <Text className="text-destructive" variant="caption">
+          {control.errors[name]}
+        </Text>
+      ) : null}
+
+      <Sheet
+        footer={
+          <Button
+            label={`Set ${day} ${MONTHS[month - 1]} ${year}`}
+            onPress={() => {
+              control.set(name, `${year}-${pad(month)}-${pad(day)}`);
+              setOpen(false);
+            }}
+          />
+        }
+        onClose={() => setOpen(false)}
+        open={open}
+        tall
+        title="Date of birth"
+      >
+        <View className="gap-6 pb-2">
+          <View className="gap-2">
+            <FieldLabel>Year</FieldLabel>
+            <ScrollView
+              contentContainerStyle={{ gap: 8 }}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ flexGrow: 0, height: 40 }}
+            >
+              {years.map((value) => (
+                <CalendarCell
+                  key={value}
+                  label={String(value)}
+                  on={value === year}
+                  onPress={() => {
+                    setYear(value);
+                    setDay((current) =>
+                      Math.min(current, new Date(value, month, 0).getDate()),
+                    );
+                  }}
+                  style={{ height: 40, paddingHorizontal: 14 }}
+                />
+              ))}
+            </ScrollView>
+          </View>
+
+          <View className="gap-2">
+            <FieldLabel>Month</FieldLabel>
+            <View
+              className="flex-row flex-wrap"
+              style={{ marginHorizontal: -4 }}
+            >
+              {MONTHS.map((label, position) => (
+                <View key={label} style={{ padding: 4, width: "25%" }}>
+                  <CalendarCell
+                    label={label.slice(0, 3)}
+                    on={position + 1 === month}
+                    onPress={() => {
+                      setMonth(position + 1);
+                      setDay((current) =>
+                        Math.min(
+                          current,
+                          new Date(year, position + 1, 0).getDate(),
+                        ),
+                      );
+                    }}
+                    style={{ height: 40 }}
+                  />
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View className="gap-2">
+            <FieldLabel>Day</FieldLabel>
+            <View
+              className="flex-row flex-wrap"
+              style={{ marginHorizontal: -3 }}
+            >
+              {Array.from({ length: days }, (_, i) => i + 1).map((value) => (
+                <View key={value} style={{ padding: 3, width: `${100 / 7}%` }}>
+                  <CalendarCell
+                    label={String(value)}
+                    on={value === day}
+                    onPress={() => setDay(value)}
+                    style={{ aspectRatio: 1 }}
+                  />
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Sheet>
     </View>
   );
 }
 
-/** Two short fields side by side, each taking half the row. */
-function Row({ children }: { children: React.ReactNode }) {
+/** One tappable year, month or day. Sized by explicit styles so nothing wraps into its neighbour. */
+function CalendarCell({
+  label,
+  on,
+  onPress,
+  style,
+}: {
+  label: string;
+  on: boolean;
+  onPress: () => void;
+  style: ViewStyle;
+}) {
   return (
-    <View className="flex-row gap-3">
-      {Children.map(children, (child) => (
-        <View className="flex-1">{child}</View>
-      ))}
-    </View>
+    <Pressable
+      className={`items-center justify-center rounded-full active:opacity-70 ${on ? "bg-primary" : "bg-muted"}`}
+      onPress={onPress}
+      style={style}
+    >
+      <Text
+        className={`text-sm ${on ? "font-semibold text-primary-foreground" : "text-foreground"}`}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
+}
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** `2001-09-17` → `17 September 2001`; `null` for anything that is not a date. */
+function formatDate(iso: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const month = match ? MONTHS[Number(match[2]) - 1] : undefined;
+
+  return match && month ? `${Number(match[3])} ${month} ${match[1]}` : null;
 }

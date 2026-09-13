@@ -16,7 +16,8 @@
     "./calendar/*": "./src/calendar/*.ts",
     "./plans/*": "./src/plans/*.ts",
     "./food/*": "./src/food/*.ts",
-    "./night/*": "./src/night/*.ts"
+    "./night/*": "./src/night/*.ts",
+    "./brand/*": "./src/brand/*.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

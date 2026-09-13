@@ -1,3 +1,5 @@
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
+
 import { DEFAULT_PLANS } from "./plans.defaults";
 import type { SiteConfig } from "./site-config.validation";
 
@@ -575,7 +577,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   },
   identity: {
     address: "Kathmandu, Nepal",
-    siteName: "HostelHub",
+    siteName: PLATFORM_NAME,
     /**
      * Published in the public footer, so it has to be a domain that exists.
      * The previous default was `support@hostelhub.com.np` — a plausible-looking
@@ -601,7 +603,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
     legalName: "Softmato Technology Private Limited",
     pan: "623692242",
     phone: "9709155982",
-    productName: "HostelHub",
+    productName: PLATFORM_NAME,
     vatRegistered: false,
   },
   legal: {

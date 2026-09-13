@@ -84,6 +84,18 @@ export function SignatureInk({
 }
 
 /**
+ * The pad is taller than the signature it records — 1.4:1 on screen, so there is
+ * room to sign — while strokes are still stored in the card's 3:1 space. The
+ * stored band sits centred, and a touch above or below it lands on its edge.
+ */
+const PAD_RATIO = 1.4;
+
+/** Distance from the pad's top edge to the top of the stored 3:1 band. */
+function bandInset(padWidth: number): number {
+  return (padWidth / PAD_RATIO - padWidth / (SIGNATURE_WIDTH / SIGNATURE_HEIGHT)) / 2;
+}
+
+/**
  * Where the holder signs. Owns its strokes while drawing and reports the
  * serialised value on every lift of the finger.
  *
@@ -115,11 +127,12 @@ export function SignaturePad({
 
   const responder = useMemo(() => {
     const toPoint = (x: number, y: number): [number, number] => {
-      const scale = SIGNATURE_WIDTH / (widthRef.current || 1);
+      const padWidth = widthRef.current || 1;
+      const scale = SIGNATURE_WIDTH / padWidth;
 
       return [
         Math.min(SIGNATURE_WIDTH, Math.max(0, x * scale)),
-        Math.min(SIGNATURE_HEIGHT, Math.max(0, y * scale)),
+        Math.min(SIGNATURE_HEIGHT, Math.max(0, (y - bandInset(padWidth)) * scale)),
       ];
     };
 
@@ -165,31 +178,26 @@ export function SignaturePad({
     onChange("");
   };
 
-  const height = width / 3;
+  const height = width / PAD_RATIO;
 
   return (
     <View className="gap-1.5">
       <View
-        className={`overflow-hidden rounded-xl border bg-card ${
-          error ? "border-destructive" : "border-border"
+        className={`overflow-hidden rounded-2xl border border-dashed ${
+          error ? "border-destructive" : "border-muted-foreground/50"
         }`}
         onLayout={(event) => {
           widthRef.current = event.nativeEvent.layout.width;
           setWidth(event.nativeEvent.layout.width);
         }}
-        style={{ aspectRatio: 3 }}
+        style={{ aspectRatio: PAD_RATIO }}
         {...responder.panHandlers}
       >
-        <View
-          className="absolute border-b border-dashed border-border"
-          pointerEvents="none"
-          style={{ bottom: "24%", left: 20, right: 20 }}
-        />
         {strokes.length === 0 ? (
           <Text
-            className="absolute"
+            className="absolute text-center"
             pointerEvents="none"
-            style={{ bottom: "8%", left: 20 }}
+            style={{ bottom: 12, left: 0, right: 0 }}
             variant="muted"
           >
             Sign here with your finger

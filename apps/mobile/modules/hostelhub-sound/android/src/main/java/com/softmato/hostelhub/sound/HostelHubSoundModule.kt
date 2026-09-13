@@ -21,7 +21,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * stream instead: its volume, the ringer mode, and Do Not Disturb, which mutes
  * that stream.
  */
-class HostelHubSoundModule : Module() {
+class HostelPalikaSoundModule : Module() {
   /** The tone still playing, so a second arrival restarts rather than overlaps. */
   private var current: Ringtone? = null
 

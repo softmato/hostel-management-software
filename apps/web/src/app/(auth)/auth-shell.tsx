@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { BrandMark } from "@/components/brand-mark";
 import { useSiteConfig } from "@/components/site-config-provider";
 
 type AuthShellProps = {
@@ -38,18 +39,7 @@ function SiteWordmark() {
 
   return (
     <Link className="flex items-center gap-2 transition hover:opacity-80" href="/">
-      <svg
-        fill="none"
-        height="22"
-        viewBox="0 0 24 24"
-        width="22"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M3 9.5L12 3L21 9.5V20C21 20.5523 20.5523 21 20 21H14V14H10V21H4C3.44772 21 3 20.5523 3 20V9.5Z"
-          fill="#0A8A4B"
-        />
-      </svg>
+      <BrandMark className="h-[22px]" />
       <span className="font-heading text-[19px] font-extrabold tracking-tight text-[#0F172A]">
         {head}
         {rest.length ? <span className="text-[#0A8A4B]"> {rest.join(" ")}</span> : null}

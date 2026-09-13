@@ -9,6 +9,7 @@ import * as SystemUI from "expo-system-ui";
 import { useEffect, useRef } from "react";
 import { Platform, StatusBar as RNStatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 import { Provider } from "react-redux";
@@ -538,16 +539,19 @@ export default function RootLayout() {
         */}
         <PersistGate loading={<BrandSplash />} persistor={persistor}>
           <SafeAreaProvider>
-            <BottomSheetModalProvider>
-              {/*
-                At the root, not inside the tab navigator: the signed-out home
-                is a plain stack with a floating Log in pill and no tabs, and it
-                must hide and return on scroll exactly like a tab bar does.
-              */}
-              <BottomChromeProvider>
-                <RootShell />
-              </BottomChromeProvider>
-            </BottomSheetModalProvider>
+            {/* Drives `Screen`'s keyboard-aware scroll and sticky footer on both platforms. */}
+            <KeyboardProvider>
+              <BottomSheetModalProvider>
+                {/*
+                  At the root, not inside the tab navigator: the signed-out home
+                  is a plain stack with a floating Log in pill and no tabs, and it
+                  must hide and return on scroll exactly like a tab bar does.
+                */}
+                <BottomChromeProvider>
+                  <RootShell />
+                </BottomChromeProvider>
+              </BottomSheetModalProvider>
+            </KeyboardProvider>
           </SafeAreaProvider>
         </PersistGate>
       </Provider>

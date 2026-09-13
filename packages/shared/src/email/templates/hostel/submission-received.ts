@@ -1,4 +1,5 @@
 import { emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 export function hostelSubmissionReceivedEmail(input: {
   hostelName: string;
@@ -14,7 +15,7 @@ export function hostelSubmissionReceivedEmail(input: {
       bodyHtml: [
         paragraph(greeting),
         paragraph(
-          `Thanks for registering <strong>${escapeHtml(input.hostelName)}</strong> on HostelHub. Our team will review your details and documents shortly.`,
+          `Thanks for registering <strong>${escapeHtml(input.hostelName)}</strong> on ${PLATFORM_NAME}. Our team will review your details and documents shortly.`,
         ),
         paragraph(
           "You will get another email as soon as your hostel is approved (with your admin access) or if we need anything else from you.",

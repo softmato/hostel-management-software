@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 
+import { BrandMark } from "@/components/brand-mark";
 import { Role } from "@/lib/roles";
 
 type GoogleAuthUser = {
@@ -257,19 +258,7 @@ export function GoogleAuthButton({
           <div className="flex flex-col items-center max-w-sm px-6 text-center">
             {/* Animated Logo / Icon Wrapper */}
             <div className="relative mb-8 flex items-center justify-center size-20 rounded-2xl bg-[#0A8A4B]/10 text-[#0A8A4B] shadow-inner">
-              <svg
-                width="40"
-                height="40"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="animate-pulse"
-              >
-                <path
-                  d="M3 9.5L12 3L21 9.5V20C21 20.5523 20.5523 21 20 21H14V14H10V21H4C3.44772 21 3 20.5523 3 20V9.5Z"
-                  fill="currentColor"
-                />
-              </svg>
+              <BrandMark className="h-8 animate-pulse" />
               {/* Spinning Ring */}
               <div className="absolute -inset-2.5 rounded-3xl border-2 border-[#0A8A4B]/20 border-t-[#0A8A4B] animate-spin" />
             </div>

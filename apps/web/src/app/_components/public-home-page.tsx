@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Droplet,
   Headphones,
-  Home,
   LockKeyhole,
   MessageSquare,
   MoreHorizontal,
@@ -26,6 +25,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -754,7 +754,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
               href="/"
               className="flex items-center gap-2 font-heading text-2xl font-bold text-brand-teal"
             >
-              <Home className="size-7 fill-brand-teal/10" />
+              <BrandMark adaptive className="h-7" />
               {identity.siteName}
             </Link>
             <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">

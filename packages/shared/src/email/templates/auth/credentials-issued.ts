@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 export function credentialsIssuedEmail(input: {
   roleLabel: string;
@@ -8,12 +9,12 @@ export function credentialsIssuedEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: "Your HostelHub account credentials",
+    subject: `Your ${PLATFORM_NAME} account credentials`,
     html: emailLayout({
       heading: "Your account is ready",
       bodyHtml: [
         paragraph(
-          `A HostelHub account has been created for you with the role <strong>${escapeHtml(input.roleLabel)}</strong>.`,
+          `A ${PLATFORM_NAME} account has been created for you with the role <strong>${escapeHtml(input.roleLabel)}</strong>.`,
         ),
         paragraph(
           `Email: <strong>${escapeHtml(input.email)}</strong><br/>Temporary password: <strong>${escapeHtml(input.temporaryPassword)}</strong>`,

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { ResidentIdSharePage } from "@/app/_components/resident-id-share-page";
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 
 type PageParams = {
   params: Promise<{ residentId: string }>;
@@ -8,7 +9,7 @@ type PageParams = {
 
 export const metadata: Metadata = {
   title: "Resident ID",
-  description: "Share your HostelHub resident ID with a hostel.",
+  description: `Share your ${PLATFORM_NAME} resident ID with a hostel.`,
   // A resident ID is personal to one account — it has no business in search.
   robots: { index: false, follow: false },
 };

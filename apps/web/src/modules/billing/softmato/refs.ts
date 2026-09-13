@@ -26,7 +26,7 @@ import "server-only";
  * transformation rather than a lookup.
  *
  * The prefix is there so a Softmato admin reading a list of references can see
- * at a glance which product and which kind of billing it came from. HostelHub
+ * at a glance which product and which kind of billing it came from. HostelPalika
  * bills residents too, one level down, and that money never touches this rail —
  * the prefix keeps the distinction visible if it ever does.
  */

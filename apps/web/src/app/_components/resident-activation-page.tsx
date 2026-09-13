@@ -8,6 +8,7 @@ import {
   MapPin,
   QrCode,
 } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -291,18 +292,7 @@ export const ResidentActivationPageContent = memo(
             {/* Logo */}
             <div className="flex items-center gap-2.5 text-[#0A8A4B]">
               <div className="flex items-center justify-center size-9 bg-[#0A8A4B]/10 rounded-xl">
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M3 9.5L12 3L21 9.5V20C21 20.5523 20.5523 21 20 21H14V14H10V21H4C3.44772 21 3 20.5523 3 20V9.5Z"
-                    fill="currentColor"
-                  />
-                </svg>
+                <BrandMark className="h-[18px]" />
               </div>
               <span className="font-heading text-2xl font-extrabold text-[#0F172A] tracking-tight">
                 <SiteName />

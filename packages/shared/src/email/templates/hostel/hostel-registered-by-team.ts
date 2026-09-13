@@ -1,5 +1,6 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
 import { formatRupees } from "../billing/subscription-invoice";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 /**
  * What an owner gets when our own field team registered them.
@@ -29,7 +30,7 @@ export function hostelRegisteredByTeamEmail(input: {
 
   return {
     category: "info",
-    subject: `${input.hostelName} is live on HostelHub`,
+    subject: `${input.hostelName} is live on ${PLATFORM_NAME}`,
     html: emailLayout({
       heading: "Your listing is live 🎉",
       bodyHtml: [

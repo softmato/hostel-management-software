@@ -21,7 +21,7 @@ import java.io.File
  * See `../../../../../../../README.md` for why none of the permission-based
  * routes work on a modern Android and why this one needs nothing.
  */
-class HostelHubDownloadsModule : Module() {
+class HostelPalikaDownloadsModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("HostelHubDownloads")
 
@@ -96,8 +96,8 @@ class HostelHubDownloadsModule : Module() {
    * which is why documents worked and pictures did not.
    *
    * The subfolder name is the same either way, so everything the app saves is
-   * still under one name the user recognises — `Pictures/HostelHub/` for the
-   * card and the QR, `Download/HostelHub/` for statements and receipts, which is
+   * still under one name the user recognises — `Pictures/HostelPalika/` for the
+   * card and the QR, `Download/HostelPalika/` for statements and receipts, which is
    * where a person looks for each of them anyway.
    *
    * Only images are split out. Video and audio have their own collections too,
@@ -183,7 +183,7 @@ class HostelHubDownloadsModule : Module() {
   /**
    * The existing row for this exact folder and name, if there is one.
    *
-   * `RELATIVE_PATH` is stored with a trailing slash — `Pictures/HostelHub/` — so
+   * `RELATIVE_PATH` is stored with a trailing slash — `Pictures/HostelPalika/` — so
    * the match has to carry one too or it silently selects nothing, which is the
    * shape of bug that looks like the query working.
    */

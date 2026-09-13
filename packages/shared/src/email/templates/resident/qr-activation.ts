@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 export function residentQrActivationEmail(input: {
   activationUrl: string;
@@ -15,17 +16,17 @@ export function residentQrActivationEmail(input: {
     <img src="${escapeHtml(input.qrImageUrl)}" alt="Activation QR code" width="200" height="200" style="border:1px solid #dbeee8;border-radius:12px;" />
   </p>`
     : paragraph(
-        "Scan the QR code in the HostelHub app, or use the code below on the web.",
+        `Scan the QR code in the ${PLATFORM_NAME} app, or use the code below on the web.`,
       );
 
   return {
     category: "security",
-    subject: `Activate your HostelHub account — ${input.hostelName}`,
+    subject: `Activate your ${PLATFORM_NAME} account — ${input.hostelName}`,
     html: emailLayout({
       heading: "Activate your resident account",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> has set up your resident account on HostelHub.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> has set up your resident account on ${PLATFORM_NAME}.`,
         ),
         qrBlock,
         paragraph(

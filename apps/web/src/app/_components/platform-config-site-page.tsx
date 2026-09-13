@@ -51,8 +51,10 @@ export const PlatformConfigSitePageContent = memo(
           >
             <div className="grid gap-3 sm:grid-cols-2">
               <TextField
+                hint="Set in code (packages/shared/src/brand/brand.ts)."
                 label="Site name"
-                onChange={(siteName) => setValue("identity", { ...identity, siteName })}
+                onChange={() => undefined}
+                readOnly
                 value={identity.siteName}
               />
               <TextField

@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 /**
  * Sent the moment a resident is bound to a hostel and their existing account is
@@ -19,7 +20,7 @@ export function residentLinkedEmail(input: {
       heading: "Welcome to your resident portal",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> has added you as a resident on HostelHub.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> has added you as a resident on ${PLATFORM_NAME}.`,
         ),
         paragraph(
           "Nothing to activate and no new password to remember — just sign in the way you always do, with the same email and password or with Google, and you will land straight on your resident dashboard.",

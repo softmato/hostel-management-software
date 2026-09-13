@@ -1,8 +1,7 @@
-# Brand assets — ALL PLACEHOLDERS
+# Brand assets
 
-Every PNG in this folder is generated, not designed: a green (`#0a8a4b`) rounded
-square with a white "H". They exist so the app builds and the splash screen is not
-blank. **Replace them when the real logo arrives.**
+Generated from the HostelPalika logos (HP mark, wordmark) and Softmato's logo.
+Full-resolution trimmed copies live in `apps/web/public/brand/`.
 
 | File | Used for | Required size |
 |---|---|---|
@@ -14,6 +13,8 @@ blank. **Replace them when the real logo arrives.**
 | `logo-mark.png` | In-app logo on light surfaces + the JS splash | 512×512, transparent, green art |
 | `logo-mark-light.png` | In-app logo on dark surfaces | 512×512, transparent, white art |
 | `favicon.png` | Web build tab icon | 96×96 |
+| `wordmark.png` | The full HostelPalika lockup | trimmed, transparent |
+| `powered-by-softmato.png` | "Powered by" logo on the JS splash | trimmed, transparent |
 
 Swapping the files is the whole job — no code references a colour or a shape,
 only these paths (via `src/constants/branding.ts`).

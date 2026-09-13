@@ -21,23 +21,23 @@ const BASE: EmailIdentity = {
   domain: "softmato.com",
   mailboxes: { ...DEFAULT_MAILBOXES },
   replyTo: "support@softmato.com",
-  senderName: "HostelHub",
+  senderName: "HostelPalika",
 };
 
 describe("fromHeaderFor", () => {
   it("sends each category from its own mailbox", () => {
-    expect(fromHeaderFor("info", BASE)).toBe("HostelHub <info@softmato.com>");
-    expect(fromHeaderFor("alert", BASE)).toBe("HostelHub Alerts <alert@softmato.com>");
+    expect(fromHeaderFor("info", BASE)).toBe("HostelPalika <info@softmato.com>");
+    expect(fromHeaderFor("alert", BASE)).toBe("HostelPalika Alerts <alert@softmato.com>");
     expect(fromHeaderFor("billing", BASE)).toBe(
-      "HostelHub Billing <billing@softmato.com>",
+      "HostelPalika Billing <billing@softmato.com>",
     );
     expect(fromHeaderFor("security", BASE)).toBe(
-      "HostelHub Security <security@softmato.com>",
+      "HostelPalika Security <security@softmato.com>",
     );
     expect(fromHeaderFor("support", BASE)).toBe(
-      "HostelHub Support <support@softmato.com>",
+      "HostelPalika Support <support@softmato.com>",
     );
-    expect(fromHeaderFor("noreply", BASE)).toBe("HostelHub <noreply@softmato.com>");
+    expect(fromHeaderFor("noreply", BASE)).toBe("HostelPalika <noreply@softmato.com>");
   });
 
   it("produces a usable header for every category", () => {
@@ -58,9 +58,9 @@ describe("fromHeaderFor", () => {
       mailboxes: { ...BASE.mailboxes, alert: "urgent", billing: "accounts" },
     };
 
-    expect(fromHeaderFor("alert", renamed)).toBe("HostelHub Alerts <urgent@softmato.com>");
+    expect(fromHeaderFor("alert", renamed)).toBe("HostelPalika Alerts <urgent@softmato.com>");
     expect(fromHeaderFor("billing", renamed)).toBe(
-      "HostelHub Billing <accounts@softmato.com>",
+      "HostelPalika Billing <accounts@softmato.com>",
     );
   });
 
@@ -68,13 +68,13 @@ describe("fromHeaderFor", () => {
     const blank = { ...BASE, mailboxes: { ...BASE.mailboxes, billing: "" } };
 
     expect(fromHeaderFor("billing", blank)).toBe(
-      "HostelHub Billing <billing@softmato.com>",
+      "HostelPalika Billing <billing@softmato.com>",
     );
   });
 
   it("tolerates a domain typed with a leading @", () => {
     expect(fromHeaderFor("info", { ...BASE, domain: "@softmato.com" })).toBe(
-      "HostelHub <info@softmato.com>",
+      "HostelPalika <info@softmato.com>",
     );
   });
 
@@ -101,7 +101,7 @@ describe("fromHeaderFor", () => {
 
   it("falls back to the product name when the sender name is only punctuation", () => {
     expect(fromHeaderFor("info", { ...BASE, senderName: '<<>>",;' })).toBe(
-      "HostelHub <info@softmato.com>",
+      "HostelPalika <info@softmato.com>",
     );
   });
 });
@@ -336,7 +336,7 @@ describe("loadEmailIdentity", () => {
 
     await expect(loadEmailIdentity()).resolves.toMatchObject({
       domain: "softmato.com",
-      senderName: "HostelHub",
+      senderName: "HostelPalika",
     });
   });
 });

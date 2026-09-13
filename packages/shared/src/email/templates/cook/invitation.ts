@@ -1,4 +1,5 @@
 import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { PLATFORM_NAME } from "../../../brand/brand";
 
 /**
  * Sent to a cook's own mailbox when a hostel admin invites them by email.
@@ -21,7 +22,7 @@ export function cookInvitationEmail(input: {
       heading: "You have been invited to run the kitchen",
       bodyHtml: [
         paragraph(
-          `Hello ${escapeHtml(input.cookName)}, <strong>${escapeHtml(input.hostelName)}</strong> has invited you to their kitchen on HostelHub.`,
+          `Hello ${escapeHtml(input.cookName)}, <strong>${escapeHtml(input.hostelName)}</strong> has invited you to their kitchen on ${PLATFORM_NAME}.`,
         ),
         paragraph(
           "Accepting turns this email address into your cook sign-in. You will be able to tell residents that a meal is ready and post photos of what was served — and nothing else: the account cannot see resident records, money or complaints.",

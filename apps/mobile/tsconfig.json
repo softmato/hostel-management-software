@@ -8,7 +8,8 @@
       "@hostel/calendar/*": ["../../packages/shared/src/calendar/*"],
       "@hostel/plans/*": ["../../packages/shared/src/plans/*"],
       "@hostel/food/*": ["../../packages/shared/src/food/*"],
-      "@hostel/night/*": ["../../packages/shared/src/night/*"]
+      "@hostel/night/*": ["../../packages/shared/src/night/*"],
+      "@hostel/brand/*": ["../../packages/shared/src/brand/*"]
     }
   },
   "include": [
@@ -18,7 +19,8 @@
     "../../packages/shared/src/calendar/**/*.ts",
     "../../packages/shared/src/plans/**/*.ts",
     "../../packages/shared/src/food/**/*.ts",
-    "../../packages/shared/src/night/**/*.ts"
+    "../../packages/shared/src/night/**/*.ts",
+    "../../packages/shared/src/brand/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", ".expo", "android", "ios"]
 }

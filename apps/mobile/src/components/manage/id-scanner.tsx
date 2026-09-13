@@ -32,6 +32,7 @@ import {
   normalizeResidentId,
   residentIdError,
 } from "@/lib/resident-id";
+import { APP_NAME } from "@/constants/branding";
 
 /**
  * The camera surface both card readers are built from.
@@ -167,7 +168,7 @@ export function IdScanner({
     if (!residentId) {
       // A constant string, so the frames that follow bail out of re-rendering
       // rather than thrashing while the wrong code is held up to the lens.
-      setLocalHint("That is not a HostelHub ID card.");
+      setLocalHint(`That is not a ${APP_NAME} ID card.`);
       return;
     }
 
@@ -268,7 +269,7 @@ export function IdScanner({
               <Text className="text-center text-sm text-white/80">
                 {permission.canAskAgain
                   ? "Allow the camera to read their card, or type the ID underneath it."
-                  : "Camera access is off for HostelHub. Turn it on in Settings, or type the ID printed under the QR."}
+                  : `Camera access is off for ${APP_NAME}. Turn it on in Settings, or type the ID printed under the QR.`}
               </Text>
               <Button
                 label={permission.canAskAgain ? "Allow camera" : "Open settings"}
@@ -505,7 +506,7 @@ function ScanWindow({
 
       {/*
         Suppressed while busy. The two say different things about the same
-        moment — "that is not a HostelHub ID card" under "Fetching their
+        moment — "that is not a HostelPalika ID card" under "Fetching their
         details" is a screen contradicting itself — and the overlay is the one
         describing what is happening now.
       */}
