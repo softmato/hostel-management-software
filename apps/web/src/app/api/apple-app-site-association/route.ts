@@ -44,6 +44,7 @@ const APP_LINK_COMPONENTS = [
   { "/": "/ref/*", comment: "Referral links — see lib/referral-link.ts" },
   { "/": "/inquiry", comment: "Referred inquiry form" },
   { "/": "/guardian-invite", comment: "Guardian invitation" },
+  { "/": "/community/*", comment: "Shared community post" },
 ];
 
 export function GET() {

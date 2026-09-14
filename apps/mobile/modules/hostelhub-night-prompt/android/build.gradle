@@ -1,0 +1,34 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.softmato.hostelhub'
+version = '1.0.0'
+
+android {
+  namespace "com.softmato.hostelhub.nightprompt"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+/*
+ * expo-notifications is not a Gradle project in this build: SDK 57 links it as
+ * the prebuilt artifact in its own `local-maven-repo`, which autolinking adds to
+ * every project's repositories. The version is read from the installed package
+ * so an Expo upgrade cannot leave this pointing at an artifact that is gone.
+ */
+def expoNotificationsVersion = new groovy.json.JsonSlurper()
+  .parse(new File(rootDir, "../node_modules/expo-notifications/package.json"))
+  .version
+
+dependencies {
+  // The FCM service here extends expo-notifications' own, so every message this
+  // module does not handle goes exactly where it went before. `compileOnly`:
+  // the app already ships both, and this must use the app's copies.
+  compileOnly "host.exp.exponent:expo.modules.notifications:${expoNotificationsVersion}"
+  compileOnly 'com.google.firebase:firebase-messaging:25.0.1'
+  implementation 'androidx.core:core:1.17.0'
+}

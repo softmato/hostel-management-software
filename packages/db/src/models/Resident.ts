@@ -74,6 +74,27 @@ const residentSchema = new Schema(
      * nobody can explain at the counter.
      */
     referralCode: { type: String, trim: true, uppercase: true },
+    /**
+     * For a resident who was already living here when the hostel joined: the
+     * last BS month (`2083-05`) they had fully paid before that. Billing never
+     * issues rent for this month or any earlier one. Null for everyone who came
+     * in through the normal intake (docs/EXISTING_RESIDENTS.md).
+     */
+    paidTill: { type: String, default: null, trim: true },
+    /** The existing-residents list this resident was added from, if any. */
+    existingListId: {
+      ref: "ExistingResidentList",
+      default: null,
+      type: Schema.Types.ObjectId,
+    },
+    /**
+     * Somebody signed in with this resident's email and said "this is not me"
+     * (docs/EXISTING_RESIDENTS.md). The email was typed by the hostel, so this is
+     * how a typo stops a stranger being asked again. Cleared when the hostel
+     * changes the email on the record.
+     */
+    accountLinkDeclinedAt: { type: Date, default: null },
+    accountLinkDeclinedBy: { ref: "User", type: Schema.Types.ObjectId, default: null },
     residentType: {
       type: String,
       enum: ["STUDENT", "WORKING_PROFESSIONAL", "OTHER"],

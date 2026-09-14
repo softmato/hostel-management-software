@@ -90,7 +90,7 @@ import {
   getMoveInChecklist,
   getMoveOutChecklist,
   getPaymentProfile,
-  getReportsOverview,
+  getPerformanceReport,
   getResident,
   getResidentLedger,
   listFeeSchedules,
@@ -115,7 +115,7 @@ import {
   type MoveOutChecklist,
   type PaymentProfile,
   type ReferralsPayload,
-  type ReportsOverview,
+  type PerformanceReport,
   type ResidentEmergencyContact,
   type ResidentGuardian,
   type ResidentLedger,
@@ -390,19 +390,21 @@ async function loadSettings(): Promise<AdminSettingsData> {
 export type AdminReportsData = {
   attendance: AttendanceAnalytics | null;
   food: FoodAnalytics | null;
-  overview: ReportsOverview | null;
+  report: PerformanceReport;
 };
 
 async function loadReports(month: string): Promise<AdminReportsData> {
-  const [overview, attendance, food] = await Promise.all([
-    getReportsOverview(month).catch(() => null),
+  const [report, attendance, food] = await Promise.all([
+    // Not tolerant: without the report there is no screen, so its failure is
+    // the screen's error state rather than an empty page.
+    getPerformanceReport(month),
     getAttendanceAnalytics(30).catch(() => null),
     // `reports/food` wants `manageFood`, while the other two only want staff —
     // so this is the one a warden most often cannot see, and it fails alone.
     getFoodAnalytics(30).catch(() => null),
   ]);
 
-  return { attendance, food, overview };
+  return { attendance, food, report };
 }
 
 /* -------------------------------------------------------------------------- */

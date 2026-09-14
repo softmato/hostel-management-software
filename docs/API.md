@@ -168,6 +168,17 @@ Rows are flagged where reality differs from the original plan:
 | POST | `/api/v1/auth/forgot-password` | none | `{ email }` | Sends password reset email |
 | POST | `/api/v1/auth/reset-password` | none | `{ token, newPassword }` | Resets password with token from email |
 
+### 2.0 Residency invite (signed-in PUBLIC accounts)
+
+A hostel has this account's **verified** email on a resident record nobody is
+linked to. The account confirms before it is linked. See `docs/EXISTING_RESIDENTS.md`.
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| GET | `/api/v1/account/residency-invite` | — | `{ invite: { residentId, hostelName, firstName, roomType, dueAmount, paidTill } \| null }`. Null for unverified emails, non-PUBLIC roles, and after "This is not me" |
+| POST | `/api/v1/account/residency-invite/[residentId]/accept` | — | Links the account and returns a RESIDENT session (cookies; `refreshToken` for mobile clients), same shape as `/resident/activate`. 409 when the account already lives elsewhere |
+| POST | `/api/v1/account/residency-invite/[residentId]/decline` | — | Stops the question for that email and tells hostel staff to check it |
+
 ### 2.1 Temporary access logins (all authenticated roles)
 
 A second, expiring username + password that opens **the owner's own account** —
@@ -336,12 +347,24 @@ All routes require `role IN (HOSTEL_ADMIN, WARDEN)` **and** the resolved `hostel
 | POST | `/api/v1/hostel-admin/night-status` | `{ residentId, date, status, source: 'manual', overrideReason }` | `updateNightStatus` | Manual night status entry/override |
 | POST | `/api/v1/hostel-admin/residents/[id]/move-in` | `{ items[], depositAmount }` | `registerResidents` | Create move-in checklist |
 | POST | `/api/v1/hostel-admin/residents/[id]/move-out` | `{ items[], exitDate, depositRefund? }` | `registerResidents` | Create move-out checklist |
+| GET | `/api/v1/hostel-admin/residents/existing` | `?hostelId=` | `registerResidents` | The open existing-residents list, its check (problems per line, what each line will bill), room types with free beds and normal rent, and the last "Add all" result. See `docs/EXISTING_RESIDENTS.md` |
+| PUT | `/api/v1/hostel-admin/residents/existing` | `{ rows: [{ id?, fullName, phone, email, roomType, monthlyRent: number\|null, depositPaid, paidTill: "YYYY-MM"\|null, oldDues, joinedDate\|null }] }` (max 500) | `registerResidents` | Replace the list's rows not yet added. Rows already added are kept as stored |
+| DELETE | `/api/v1/hostel-admin/residents/existing` | — | `registerResidents` | Remove rows not yet added |
+| POST | `/api/v1/hostel-admin/residents/existing/file` | `{ fileName, contentBase64 }` (.xlsx/.xls/.csv, ≤ 2 MB) | `registerResidents` | Read a filled file onto the list → `{ read, notes[], view }`. `notes` names cells that could not be read |
+| GET | `/api/v1/hostel-admin/residents/existing/template` | — | `registerResidents` | Blank Excel file (Residents sheet + "How to fill" sheet with this hostel's room types) |
+| POST | `/api/v1/hostel-admin/residents/existing/add` | — | `registerResidents` | Add every checked line as an ACTIVE resident with `paidTill`; bill unpaid months after `paidTill` and one "Old dues" bill; no admission fee, no message. 422 `EXISTING_RESIDENTS_NOT_READY` (details: `check`), 409 `EXISTING_RESIDENTS_BUSY`. Safe to retry → `{ result: { added, billsRaised, problems[] }, view }` |
 | GET | `/api/v1/hostel-admin/service-providers` | `?category=, area=, availability=` | — | Search approved providers |
 | GET | `/api/v1/hostel-admin/maintenance/requests` | `?status=, page=` | `manageMaintenance` | List maintenance requests |
 | POST | `/api/v1/hostel-admin/maintenance/requests` | `{ category, description, urgency, roomId?, bedId?, providerId? }` | `manageMaintenance` | Create maintenance request |
 | PATCH | `/api/v1/hostel-admin/maintenance/requests/[id]/status` | `{ status?, providerId?, costNote? }` | `manageMaintenance` | Update maintenance request |
 | GET | `/api/v1/hostel-admin/inquiries` | `?status=, page=` | — | Inquiries for this hostel |
 | PATCH | `/api/v1/hostel-admin/inquiries/[id]/status` | `{ status, followedUpAt? }` | — | Mark inquiry as contacted/converted/closed |
+
+**Existing residents for the field team.** The same six routes are mounted at
+`/api/v1/team/hostels/{id}/existing-residents` (`/file`, `/template`, `/add`) for a
+`PLATFORM_AGENT` who filed that hostel (`HostelSubscription.agentId`) or a
+`SUPERADMIN`. Any other hostel id is a 404. The team and the hostel share one open
+list per hostel.
 
 ---
 
@@ -361,6 +384,8 @@ All routes require `role = RESIDENT`; every query is scoped to `resident.id` der
 | GET | `/api/v1/resident/complaints` | `?page=` | Own complaints |
 | POST | `/api/v1/resident/complaints` | `{ category, title, description, photoUrl?, isAnonymous }` | Create complaint |
 | GET | `/api/v1/resident/night-status` | `?startDate=, endDate=` | Own night status history/summary |
+| GET | `/api/v1/resident/night-status/history` | — | `{ nights: [{ night, status, reasonCode, note, source, answeredAt, changes }] }` — one entry per night, newest first, from the first recorded night to tonight (max 60); unanswered nights are `NOT_VERIFIED` with `answeredAt: null` |
+| POST | `/api/v1/resident/night-status/answer` | `{ status: INSIDE_HOSTEL \| OUTSIDE_HOSTEL, reasonCode?, note? }` | A button on the nightly prompt. **No session** — `Authorization: Bearer <answerToken>`, the purpose token each resident's copy of the prompt push carries (`nightAnswerData`). Scoped to one resident, hostel and night; `410 NIGHT_STATUS_ANSWER_STALE` once that night has ended |
 | POST | `/api/v1/resident/sos` | — | Triggers SOS alert, creates NightStatusLog with `status: SOS`, sends urgent emails (EMAIL_SYSTEM.md §5.1) |
 | POST | `/api/v1/resident/reviews` | `{ overallRating, foodRating?, cleanlinessRating?, safetyRating?, roomRating?, locationRating?, managementRating?, comment? }` | Only `overallRating` is required. One per hostel, enforced at DB level; re-submitting updates. Visible publicly after submit |
 | GET | `/api/v1/resident/referral` | — | Own referral code, shareable link, referral list with rewards, and `summary: { sent, joined, converted, rewardApprovedAmount, rewardPaidAmount }`. The code is minted lazily on first access |

@@ -117,7 +117,7 @@ const MANAGE_ROWS: {
   {
     href: "/manage/reports",
     icon: "bar-chart-outline",
-    subtitle: "Collection, occupancy, complaints, roll call, food and growth",
+    subtitle: "Rent, residents, listing reach, and the month as a PDF",
     title: "Reports",
     tone: "brand",
   },

@@ -23,6 +23,7 @@ import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
 import type { MealType, RoutineDay } from "@/lib/food-week";
 import type { NightStatusReasonCode } from "@/lib/night-status-actions";
+import type { NightHistoryEntry } from "@/lib/night-status-history";
 import type { SosAlert } from "@/lib/safety-api";
 
 /* -------------------------------------------------------------------------- */
@@ -283,6 +284,18 @@ export async function setResidentNightStatus(input: {
   );
 
   return unwrap(response).status;
+}
+
+/**
+ * `GET /resident/night-status/history` — one entry per night, newest first,
+ * from the first recorded night up to tonight (at most 60).
+ */
+export async function getResidentNightStatusHistory(): Promise<NightHistoryEntry[]> {
+  const response = await api.get<ApiEnvelope<{ nights: NightHistoryEntry[] }>>(
+    "/resident/night-status/history",
+  );
+
+  return unwrap(response).nights ?? [];
 }
 
 /* -------------------------------------------------------------------------- */

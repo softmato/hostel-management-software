@@ -187,6 +187,67 @@ describe("sendPushToUsers", () => {
     expect(message.richContent).toEqual({ image: "https://cdn.example.com/mattress.jpg" });
     expect(message.data.path).toBe("/store/order/order-1");
   });
+
+  it("sends a push with buttons data-only to an Android build that draws it, and only there", async () => {
+    mocks.find.mockReturnValue({
+      select: () => ({
+        lean: () =>
+          Promise.resolve([
+            {
+              capabilities: ["draws-category-pushes"],
+              platform: "ANDROID",
+              token: "new-android",
+              userId: "user-1",
+            },
+            { capabilities: [], platform: "ANDROID", token: "old-android", userId: "user-2" },
+            {
+              capabilities: ["draws-category-pushes"],
+              platform: "IOS",
+              token: "iphone",
+              userId: "user-2",
+            },
+          ]),
+      }),
+    });
+    const fetchMock = expoRespondsWith([{ status: "ok" }, { status: "ok" }, { status: "ok" }]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendPushToUsers(["user-1", "user-2"], {
+      body: "Your hostel checks in at 20:00.",
+      category: "NIGHT_STATUS",
+      categoryId: "night-status",
+      data: { night: "2026-09-14" },
+      dataByUser: { "user-1": { answerToken: "one" }, "user-2": { answerToken: "two" } },
+      priority: "NORMAL",
+      title: "Are you in the hostel tonight?",
+    });
+
+    const [drawn, oldBuild, iphone] = JSON.parse(fetchMock.mock.calls[0][1].body);
+
+    // A title would make FCM draw it without the app, and without the buttons.
+    expect(drawn.title).toBeUndefined();
+    expect(drawn.body).toBeUndefined();
+    expect(drawn.priority).toBe("high");
+    expect(drawn.data.draw).toEqual({
+      body: "Your hostel checks in at 20:00.",
+      categoryId: "night-status",
+      channelId: "default_v2",
+      title: "Are you in the hostel tonight?",
+    });
+    expect(drawn.data.night).toBe("2026-09-14");
+    // Each phone carries only its own resident's answer token.
+    expect(drawn.data.answerToken).toBe("one");
+    expect(oldBuild.data.answerToken).toBe("two");
+    expect(iphone.data.answerToken).toBe("two");
+
+    // A build that cannot draw it would show nothing, so it keeps the old message.
+    expect(oldBuild.title).toBe("Are you in the hostel tonight?");
+    expect(oldBuild.categoryId).toBe("night-status");
+    // APNs draws the buttons itself.
+    expect(iphone.title).toBe("Are you in the hostel tonight?");
+    expect(iphone.categoryId).toBe("night-status");
+    expect(iphone.data.draw).toBeUndefined();
+  });
 });
 
 describe("deepLinkForNotification", () => {

@@ -79,6 +79,48 @@ async function moneyBySubscription(subscriptionIds: Types.ObjectId[]) {
   return byId;
 }
 
+
+/**
+ * The hostel an agent may keep working on after filing it — the existing
+ * residents list is filled in with the owner after the hostel is published.
+ *
+ * Only the agent who filed it (`agentId` on its subscription), and a superadmin.
+ * Any other hostel is a 404, not a 403: an agent has no business learning that a
+ * hostel id they guessed exists.
+ */
+export async function assertAgentFiledHostel(
+  principal: { role: string; userId: string },
+  hostelId: string,
+): Promise<Types.ObjectId> {
+  const notFound = Object.assign(new Error("Hostel was not found."), {
+    errorCode: "NOT_FOUND",
+    status: 404,
+  });
+
+  if (!Types.ObjectId.isValid(hostelId)) {
+    throw notFound;
+  }
+
+  const id = new Types.ObjectId(hostelId);
+
+  if (principal.role === Role.SUPERADMIN) {
+    return id;
+  }
+
+  await connectToDatabase();
+
+  const filed = await HostelSubscriptionModel.exists({
+    agentId: new Types.ObjectId(principal.userId),
+    hostelId: id,
+  });
+
+  if (!filed) {
+    throw notFound;
+  }
+
+  return id;
+}
+
 /**
  * Every hostel one agent has filed, what it owes, and who to ring about it.
  *

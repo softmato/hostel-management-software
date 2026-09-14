@@ -19,12 +19,12 @@ export const maxDuration = 60;
  * field — without the app ever opening. See
  * `night-status-prompt.service.ts` for the whole design.
  *
- * Idempotent: each hostel's night is claimed in `NightStatusPrompt` before the
- * send, so overlapping or retried runs cannot ask a hostel twice.
+ * Idempotent: each round of a hostel's night is claimed in `NightStatusPrompt`
+ * before the send, so overlapping or retried runs cannot ask twice in a round.
  *
- * Must run **often**: a hostel is only prompted within 45 minutes of its hour
- * (`PROMPT_GRACE_MINUTES`), so a cadence wider than that silently drops nights.
- * Every 15 minutes.
+ * Must run **every 15 minutes**: whoever has not answered is asked again every
+ * 15, 30 or 60 minutes (`promptRound`), and a cadence wider than the interval
+ * silently skips rounds.
  *
  * Auth: `x-cron-secret` (or `Authorization: Bearer <CRON_SECRET>`) header only.
  * Scheduled via cron-job.org with a POST request — see `docs/CRON.md`.

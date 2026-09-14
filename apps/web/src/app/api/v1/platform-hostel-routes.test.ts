@@ -57,6 +57,10 @@ vi.mock("@/modules/hostels/hostel.service", () => ({
   unpublishPlatformHostel: routeMocks.unpublishPlatformHostel,
 }));
 
+vi.mock("@/modules/hostels/hostel-impression.service", () => ({
+  recordListingAppearances: vi.fn(),
+}));
+
 vi.mock("@/modules/hostels/hostel-inquiry.service", () => ({
   addHostelAdminInquiryNote: routeMocks.addHostelAdminInquiryNote,
   listHostelAdminInquiries: routeMocks.listHostelAdminInquiries,

@@ -5,6 +5,7 @@ import { HostelAdminBillingPageContent } from "@/app/_components/hostel-admin-bi
 import { HostelAdminCommunityPageContent } from "@/app/_components/hostel-admin-community-page";
 import { HostelAdminComplaintsPage } from "@/app/_components/hostel-admin-complaints-page";
 import { HostelAdminDashboardPageContent } from "@/app/_components/hostel-admin-dashboard-page";
+import { HostelAdminExistingResidentsPage } from "@/app/_components/hostel-admin-existing-residents-page";
 import { HostelAdminFeeSchedulePageContent } from "@/app/_components/hostel-admin-fee-schedule-page";
 import { HostelAdminFoodPage } from "@/app/_components/hostel-admin-food-page";
 import { HostelAdminInquiriesPageContent } from "@/app/_components/hostel-admin-inquiries-page";
@@ -68,6 +69,7 @@ export const HOSTEL_ADMIN_SCREENS: Record<string, (slug: string) => ReactNode> =
   referrals: () => <HostelAdminReferralsPageContent />,
   reports: () => <HostelAdminReportsPageContent />,
   residents: () => <HostelAdminResidentsPage />,
+  "existing-residents": () => <HostelAdminExistingResidentsPage />,
   rooms: () => <HostelAdminRoomsPageContent />,
   // Merged into Maintenance — kept so bookmarked provider links still resolve.
   "service-providers": () => <HostelAdminMaintenancePageContent />,

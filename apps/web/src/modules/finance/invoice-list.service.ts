@@ -20,6 +20,7 @@ import {
   listResidentInvoices,
 } from "@/modules/finance/ledger-read.service";
 import type { LedgerInvoice } from "@/modules/finance/ledger-read.service";
+import { paidBeforeJoining } from "@/modules/finance/paid-till";
 import { countableResidentIds } from "@/modules/finance/resident-scope";
 import { listReviewQueue } from "@/modules/finance/review.service";
 import {
@@ -334,6 +335,8 @@ type ResidentRow = {
   monthlyFee?: number | null;
   moveInDate?: Date;
   moveOutDate?: Date | null;
+  /** Months up to here were paid before the hostel joined — never billed. */
+  paidTill?: string | null;
   phone?: string;
   roomNumber?: string;
   roomType?: string;
@@ -368,7 +371,7 @@ type ResidentRow = {
  *   type: no rate card covers the month and the owner has listed no rent
  *   against it. Needs a person.
  * - `NOT_YET_RESIDENT`, `ALREADY_MOVED_OUT`, `NO_BILLABLE_DAYS`,
- *   `ZERO_CHARGE` — the run's own skip reasons. Nothing is owed, and that is
+ *   `PAID_BEFORE_JOINING`, `ZERO_CHARGE` — the run's own skip reasons. Nothing is owed, and that is
  *   correct rather than broken.
  */
 export type NotBilled = {
@@ -383,6 +386,10 @@ function priceUnbilled(
   listed: ListedRoomRates,
   period: string,
 ): NotBilled {
+  if (paidBeforeJoining(resident.paidTill, period)) {
+    return { amount: 0, reason: "PAID_BEFORE_JOINING" };
+  }
+
   try {
     const charge = resolveMonthlyCharge(
       {
@@ -533,7 +540,7 @@ export async function getInvoiceMatrix(
       status: "ACTIVE",
     })
       .select(
-        "bedType firstName lastName monthlyFee moveInDate moveOutDate phone roomNumber roomType userId",
+        "bedType firstName lastName monthlyFee moveInDate moveOutDate paidTill phone roomNumber roomType userId",
       )
       .lean<ResidentRow[]>(),
     InvoiceModel.find({ hostelId, period, status: { $ne: "VOID" } }).lean<

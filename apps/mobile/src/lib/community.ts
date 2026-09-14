@@ -354,13 +354,17 @@ export const MAX_REPORT_REASON = 500;
  * are visible before the reader has to swipe. It is also the leading chip, so it
  * is the one word whose length is paid for on every screen.
  */
+/**
+ * The board's two rooms: everything, and the viewer's own hostel.
+ *
+ * No "Public" chip and no other hostels' spaces — a resident, warden or cook
+ * reads the whole feed or their own hostel, and nothing in between.
+ */
 export function spaceChips(spaces: CommunitySpaces | null): CommunitySpace[] {
   const viewer = spaces?.viewer;
-  const hostels = (spaces?.spaces ?? []).filter((space) => space.id !== "public");
 
   return [
     { id: "all", isMine: false, name: "All", postCount: 0 },
-    ...(spaces?.spaces ?? []).filter((space) => space.id === "public"),
     ...(viewer?.hostelId
       ? [
           {
@@ -371,9 +375,6 @@ export function spaceChips(spaces: CommunitySpaces | null): CommunitySpace[] {
           },
         ]
       : []),
-    // The viewer's own hostel is already offered as "mine"; listing it twice
-    // would be two chips that fetch the same posts.
-    ...hostels.filter((space) => space.id !== viewer?.hostelId),
   ];
 }
 

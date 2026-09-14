@@ -143,6 +143,50 @@ notification is dismissed.
   /api/v1/cron/night-status-prompt`, `*/15 * * * *`, `x-cron-secret` header.
   Without it nothing is ever sent. See `docs/CRON.md`.
 
+- ☑ 23. **Android drew the prompt with no buttons.** Expo sends a push with a
+  title as an FCM *notification message*, which the Firebase SDK draws itself
+  while the app is backgrounded or killed — it never reads the app's
+  categories. `push.service.ts` now sends a button-carrying push to Android
+  **data-only** (title/body in `data.draw`, priority high), and the background
+  task draws it as a local notification with the category (`lib/drawn-push.ts`).
+  Only to tokens whose app declared `draws-category-pushes` at registration
+  (`DeviceToken.capabilities`), because an older build would show nothing. iOS
+  keeps the ordinary message — APNs draws the buttons itself. Needs the web
+  deploy before the cron's prompts use it.
+
+- ☐ 24. **Answers never reached the server, and a tap took ~12 s.** Measured on
+  the handset: a tap on a closed app booted React Native before the handler
+  ran, then posted with the stored 15-minute access token → `401`, so every
+  answer sat in the queue until the app was next opened. Fixed by:
+  - an **answer token** in each resident's copy of the push
+    (`nightAnswerData`, purpose token scoped to user + hostel + night, expires
+    at 17:00 next day) and `POST /api/v1/resident/night-status/answer` that
+    accepts only it;
+  - **`modules/hostelhub-night-prompt`** (Android): an FCM service extending
+    expo's that draws the prompt natively, a receiver that writes the answer
+    to disk, replaces the prompt with "Sending…" at once and posts on
+    `goAsync()`, a JobScheduler retry when offline, and the four presets
+    (`At a friend's`, `Travelling`, `Working late`, `Hospital`) as reply
+    choices on `Outside…`. JS keeps the fallback path for iOS / older builds
+    and takes over native leftovers on foreground.
+  Ticks when: web deployed, native build installed, all three buttons answer
+  with the app closed and the board shows the answer.
+
+- ☐ 25. **Ask again until answered.** `repeatEveryMinutes` (15/30/60, default
+  30) replaces `remindAfterMinutes`; `promptRound` in `night-window.ts` gives
+  the round, the window closes at min(hour + 5 h, 01:00). Each round is claimed
+  as `kind: PROMPT | REMINDER_<n>` (the existing unique index is on `kind`).
+  Bell row only on the first ask of the night. Native Android cancels then
+  re-posts so a repeat alerts. Also: a queued answer older than tonight's
+  standing one is ignored (`answeredAt`), and a new answer clears the old
+  note/reason (`$unset`). Ticks when deployed and a second round is seen on
+  the handset.
+- ☐ 26. **Resident history + admin edit time.** `GET
+  /resident/night-status/history` + `app/night-status-history.tsx`; Night
+  status / Attendance rows under the home action row; "Edit time" on
+  `manage/roll-call.tsx` opening the shared `NightStatusPromptCard`. Ticks when
+  seen on the handset.
+
 ### Close-out
 
 - ☐ 18. Verify on the handset: prompt arrives, all three buttons answer with the

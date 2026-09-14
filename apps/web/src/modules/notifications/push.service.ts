@@ -52,8 +52,17 @@ const MAX_MESSAGES_PER_REQUEST = 100;
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * The capability an install declares when its JavaScript draws a data-only
+ * message itself, buttons included. Must equal `APP_DRAWS_CATEGORY_PUSHES` in
+ * `apps/mobile/src/lib/night-status-actions.ts`; see `drawnByTheApp` below for
+ * why the message has to be sent that way at all.
+ */
+export const APP_DRAWS_CATEGORY_PUSHES = "draws-category-pushes";
+
 type ExpoPushMessage = {
-  body: string;
+  /** Absent on a data-only message — see `drawnByTheApp`. */
+  body?: string;
   /**
    * The notification category the handset should render this under — which is
    * what puts **buttons** on it.
@@ -79,8 +88,8 @@ type ExpoPushMessage = {
    * phone's own tone, or the filename of a sound the app bundles (the `sounds`
    * array in the mobile `app.json`), extension included.
    */
-  sound: string | null;
-  title: string;
+  sound?: string | null;
+  title?: string;
   to: string;
 };
 
@@ -102,6 +111,12 @@ export type PushPayload = {
    */
   categoryId?: string;
   data?: Record<string, unknown>;
+  /**
+   * Extra data for one recipient's phones only, keyed by user id — for what
+   * must not be shared across an audience, like the night-status answer token.
+   * Never sent to browsers.
+   */
+  dataByUser?: Record<string, Record<string, unknown>>;
   hostelId?: string;
   imageUrl?: string;
   notificationId?: string;
@@ -185,6 +200,7 @@ function isHighPriority(payload: PushPayload) {
 }
 
 type DeviceRow = {
+  capabilities?: string[] | null;
   expirationTime?: number | null;
   keys?: { auth?: string; p256dh?: string } | null;
   platform?: string;
@@ -212,14 +228,21 @@ async function activeDevicesFor(userIds: string[]) {
     status: "ACTIVE",
     userId: { $in: userIds },
   })
-    .select({ expirationTime: 1, keys: 1, platform: 1, token: 1, userId: 1 })
+    .select({
+      capabilities: 1,
+      expirationTime: 1,
+      keys: 1,
+      platform: 1,
+      token: 1,
+      userId: 1,
+    })
     .lean<DeviceRow[]>();
 
   // One person can hold several devices, and a reinstall can leave two rows
   // pointing at the same token before the old one is pruned. De-duplicate, or
   // that phone buzzes twice for one event.
   const seen = new Set<string>();
-  const expo: string[] = [];
+  const expo: ExpoDevice[] = [];
   const web: (WebPushTarget & { userId: string })[] = [];
 
   for (const row of rows ?? []) {
@@ -239,10 +262,55 @@ async function activeDevicesFor(userIds: string[]) {
       continue;
     }
 
-    expo.push(row.token);
+    expo.push({
+      capabilities: row.capabilities ?? [],
+      platform: row.platform,
+      token: row.token,
+      userId: String(row.userId ?? ""),
+    });
   }
 
   return { expo, web };
+}
+
+type ExpoDevice = {
+  capabilities: string[];
+  platform?: string;
+  token: string;
+  userId: string;
+};
+
+/**
+ * Whether this message has to be drawn by the app rather than by the OS.
+ *
+ * ## Why an Android message with buttons cannot carry a title
+ *
+ * Expo sends a message with a title to FCM as a *notification message*. While
+ * the app is backgrounded or killed — which is every night at eight — the
+ * Firebase SDK draws that itself, straight into the shade, and never calls
+ * `expo-notifications`. The Firebase SDK knows nothing about the categories the
+ * app registered, so the resident gets the question with no way to answer it.
+ * `ExpoHandlingDelegate` says as much: "when the app is in background, only
+ * data-only notifications reach this point".
+ *
+ * So on Android the title and body travel inside `data`, the message goes out
+ * data-only, and the app's background task draws it as a local notification
+ * with the category attached — the one path on which Android does look the
+ * buttons up.
+ *
+ * iOS is untouched: APNs draws the category's buttons from `aps.category`
+ * itself, and a data-only push there is a throttled background wake that a
+ * force-quit app never receives.
+ *
+ * Only rows that declared {@link APP_DRAWS_CATEGORY_PUSHES}: an older build
+ * would take the data-only message and show nothing.
+ */
+function drawnByTheApp(device: ExpoDevice, payload: PushPayload) {
+  return (
+    Boolean(payload.categoryId) &&
+    device.platform === "ANDROID" &&
+    device.capabilities.includes(APP_DRAWS_CATEGORY_PUSHES)
+  );
 }
 
 /**
@@ -492,19 +560,46 @@ export async function sendPushToUsers(
     urgent: channelId === "urgent",
   };
 
-  const messages: ExpoPushMessage[] = tokens.map((token) => ({
-    body: payload.body,
-    ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
-    channelId,
-    data,
-    priority: high ? "high" : "default",
-    ...(payload.imageUrl ? { richContent: { image: payload.imageUrl } } : {}),
-    // The urgent channel keeps the phone's own alert tone on Android, so iOS
-    // keeps it too: a soft chime is the wrong noise for an SOS.
-    sound: channelId === "urgent" ? "default" : APP_NOTIFICATION_SOUND,
-    title: payload.title,
-    to: token,
-  }));
+  const messages: ExpoPushMessage[] = tokens.map((device) => {
+    const deviceData = { ...data, ...payload.dataByUser?.[device.userId] };
+
+    return drawnByTheApp(device, payload)
+      ? {
+          data: {
+            ...deviceData,
+            draw: {
+              body: payload.body,
+              categoryId: payload.categoryId,
+              channelId,
+              title: payload.title,
+            },
+          },
+          /*
+           * `high` whatever the payload's priority. Android holds back a
+           * normal-priority data message while the phone dozes, and unlike a
+           * notification message there is nothing for the OS to show meanwhile —
+           * an eight o'clock question would surface whenever the phone next
+           * woke. FCM allows high priority for a message that ends in a visible
+           * notification, which this always does. The channel above is still
+           * the ordinary one, so it does not buzz like an alert.
+           */
+          priority: "high",
+          to: device.token,
+        }
+      : {
+          body: payload.body,
+          ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
+          channelId,
+          data: deviceData,
+          priority: high ? "high" : "default",
+          ...(payload.imageUrl ? { richContent: { image: payload.imageUrl } } : {}),
+          // The urgent channel keeps the phone's own alert tone on Android, so
+          // iOS keeps it too: a soft chime is the wrong noise for an SOS.
+          sound: channelId === "urgent" ? "default" : APP_NOTIFICATION_SOUND,
+          title: payload.title,
+          to: device.token,
+        };
+  });
 
   let sent = 0;
   const dead: string[] = [];

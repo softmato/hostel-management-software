@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 import type { z } from "zod";
 
+import { afterResponse } from "@/lib/after-response";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import {
@@ -24,6 +25,7 @@ import {
   createInAppNotification,
   createOrUpdateBatchedNotification,
 } from "@/modules/notifications/notification.service";
+import { notifyHostelOfNewPost } from "@/modules/community/community-notify";
 import { getCommunitySettings } from "@/modules/community/community-settings";
 import {
   REPORT_QUEUE_THRESHOLD,
@@ -726,6 +728,19 @@ export async function createCommunityPost(
 
   await publishCommunityChange(post);
 
+  // After the response: a hostel of a hundred is a hundred rows and pushes, and
+  // the author should not wait on them to see their own post land.
+  afterResponse(() =>
+    notifyHostelOfNewPost({
+      authorName: decorated?.authorName ?? "Someone",
+      authorUserId: principal.userId,
+      body: post.body,
+      hostelId: post.hostelId,
+      hostelName: decorated?.hostelName,
+      postId: post._id.toString(),
+    }),
+  );
+
   return { post: decorated };
 }
 
@@ -1232,6 +1247,18 @@ export async function createCommunityAnnouncement(
   const [decorated] = await decoratePosts([post], principal, true);
 
   await publishCommunityChange(post);
+
+  afterResponse(() =>
+    notifyHostelOfNewPost({
+      authorName: decorated?.authorName ?? "Hostel staff",
+      authorUserId: principal.userId,
+      body: post.body,
+      hostelId: post.hostelId,
+      hostelName: decorated?.hostelName,
+      isAnnouncement: true,
+      postId: post._id.toString(),
+    }),
+  );
 
   return { post: decorated };
 }

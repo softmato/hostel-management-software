@@ -27,6 +27,7 @@ import { parseNightStatusAction } from "@/lib/night-status-actions";
 import {
   flushNightStatusQueue,
   handleNightStatusResponse,
+  collapseNightPrompts,
 } from "@/lib/night-status-notification";
 import { marksRoleChange, resolvePushPath } from "@/lib/push-link";
 import {
@@ -260,6 +261,9 @@ export function usePush() {
       if (marksRoleChange(notification.request.content.data)) {
         void adoptRoleChange().catch(() => null);
       }
+
+      // A new round of the night prompt replaces the unanswered one.
+      void collapseNightPrompts({ keepLatest: true });
     });
 
     return () => received.remove();
@@ -269,6 +273,16 @@ export function usePush() {
     if (!userId) {
       return;
     }
+
+    /*
+     * Once on start as well. `AppState` only reports a *change*, and a cold
+     * start opens already active — so an app launched from closed, which is
+     * the usual way a resident comes back after answering from the shade,
+     * never sent the queue at all. Seen on a real phone: seven answers still
+     * queued after the app had been opened.
+     */
+    void flushNightStatusQueue(nightKey()).catch(() => undefined);
+    void collapseNightPrompts({ keepLatest: true });
 
     /*
      * Permission can be revoked from system settings while the app sits in the
@@ -289,6 +303,7 @@ export function usePush() {
          * it was ever posted.
          */
         void flushNightStatusQueue(nightKey()).catch(() => undefined);
+        void collapseNightPrompts({ keepLatest: true });
       }
     });
 

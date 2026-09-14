@@ -111,6 +111,8 @@ export function notBilledReason(row: AdminInvoiceRow): string | null {
       return "They had already moved out.";
     case "NO_BILLABLE_DAYS":
       return "No days of this month are billable.";
+    case "PAID_BEFORE_JOINING":
+      return "Already paid to the hostel before it joined.";
     case "ZERO_CHARGE":
       return "Their rent is set to zero.";
     default:

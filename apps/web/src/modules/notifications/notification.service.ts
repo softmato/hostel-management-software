@@ -456,6 +456,9 @@ export async function saveDeviceToken(
     { token: input.token },
     {
       $set: {
+        // Replaced, not merged: an older build re-registering the same token
+        // must lose what a newer one declared.
+        capabilities: input.capabilities ?? [],
         deviceId: input.deviceId,
         lastSeenAt: new Date(),
         platform: input.platform,

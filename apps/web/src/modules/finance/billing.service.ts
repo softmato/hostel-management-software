@@ -18,6 +18,7 @@ import type {
   ListedRoomRates,
 } from "@/modules/finance/fee-schedule.service";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import { paidBeforeJoining } from "@/modules/finance/paid-till";
 import { sumAmounts } from "@/modules/finance/money";
 import { allocateReferenceCode } from "@/modules/finance/reference-sequence.service";
 import { HostelModel } from "@hostel/db/models/Hostel";
@@ -63,6 +64,8 @@ export type BillingSkipReason =
   | "ALREADY_MOVED_OUT"
   | "NOT_YET_RESIDENT"
   | "NO_BILLABLE_DAYS"
+  /** Already paid to the hostel before it joined us — see `Resident.paidTill`. */
+  | "PAID_BEFORE_JOINING"
   | "ZERO_CHARGE";
 
 export type BillingSkip = {
@@ -107,6 +110,7 @@ export type BillingCycleInput = {
 
 type BillableResidentRow = BillableResident & {
   hostelId: Types.ObjectId;
+  paidTill?: string | null;
   status?: string;
 };
 
@@ -174,6 +178,13 @@ export function planBillingCycle(
 
   for (const resident of residents) {
     const residentId = resident._id.toString();
+
+    // Checked before pricing: a month already settled at the counter before the
+    // hostel joined is not owed, whatever the rate card says about it.
+    if (paidBeforeJoining(resident.paidTill, period)) {
+      skipped.push({ reason: "PAID_BEFORE_JOINING", residentId });
+      continue;
+    }
 
     try {
       const charge = resolveMonthlyCharge(resident, schedule, listed);

@@ -2,6 +2,7 @@
 
 import {
   Download,
+  FileSpreadsheet,
   Loader2,
   Lock,
   MoreHorizontal,
@@ -14,6 +15,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import {
   memo,
   useCallback,
@@ -53,6 +55,7 @@ import {
   useResidentContacts,
   useResidents,
 } from "@/hooks/use-hostel-admin";
+import { useWorkspaceHref } from "@/hooks/use-workspace-href";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 
@@ -393,6 +396,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [monthlyFee, setMonthlyFee] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const { confirm, confirmDialog } = useConfirm();
+  const workspaceHref = useWorkspaceHref();
   const [saveBusy, setSaveBusy] = useState(false);
 
   const selectedResident =
@@ -793,6 +797,12 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
       <PortalPageHeader
         actions={
           <>
+            <RoleButton asChild tone="admin" variant="outline">
+              <Link href={workspaceHref("/hostel-admin/existing-residents")}>
+                <FileSpreadsheet className="size-4" />
+                Add existing residents
+              </Link>
+            </RoleButton>
             <RoleButton
               onClick={() => handleGenerateActivation(activeResidentId)}
               tone="admin"

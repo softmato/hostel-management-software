@@ -339,7 +339,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
           </div>
         </div>
 
-        <div className="mx-auto relative z-10 grid min-h-[75vh] max-w-[1448px] gap-6 px-4 pt-24 pb-10 sm:px-6 sm:pt-32 lg:gap-10 lg:pb-12 lg:grid-cols-[0.88fr_1fr] lg:items-center">
+        <div className="mx-auto relative z-10 grid max-w-[1448px] gap-6 px-4 pt-20 pb-10 sm:px-6 sm:pt-24 lg:min-h-[75vh] lg:gap-10 lg:pt-32 lg:pb-12 lg:grid-cols-[0.88fr_1fr] lg:items-center">
           <div className="py-4 lg:py-10">
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3.5 py-1.5 text-xs font-semibold text-foreground shadow-sm">
               <ShieldCheck className="size-4 text-brand-teal" />
@@ -351,7 +351,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
             <p className="mt-5 max-w-md text-sm leading-relaxed text-muted-foreground">
               {hero.subheadline}
             </p>
-            <div className="mt-8 flex max-w-lg items-center gap-2 rounded-lg border border-border bg-card p-1.5 shadow-md focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15 transition">
+            <div className="mt-6 flex max-w-lg items-center gap-2 sm:mt-8 rounded-lg border border-border bg-card p-1.5 shadow-md focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15 transition">
               <Search className="ml-2 size-5 shrink-0 text-muted-foreground sm:ml-3" />
               <input
                 aria-label="Search hostels"
@@ -386,11 +386,17 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
             </div>
           </div>
 
-          <div className="relative flex justify-start sm:justify-end lg:py-10 lg:pr-8">
-            {/* Overlay card matching the reference image */}
-            <div className="rounded-xl border border-border/80 bg-card/95 backdrop-blur-sm p-4 shadow-2xl flex gap-4 w-full max-w-[320px] lg:mt-36 transition hover:scale-[1.01]">
+          <div className="relative lg:flex lg:justify-end lg:py-10 lg:pr-8">
+            {/* Below lg the half-page photo is hidden, so the hero carries its
+                own: a rounded panel with the card straddling its bottom edge. */}
+            <div
+              aria-hidden
+              className="h-56 rounded-2xl bg-cover bg-center sm:h-72 md:h-80 lg:hidden"
+              style={{ backgroundImage: `url("${PUBLIC_HERO_IMAGE}")` }}
+            />
+            <div className="relative mx-3 -mt-16 flex max-w-[360px] gap-4 rounded-xl border border-border/80 bg-card/95 p-4 shadow-2xl backdrop-blur-sm transition hover:scale-[1.01] sm:mx-6 lg:m-0 lg:mt-36 lg:w-[320px] lg:max-w-none">
               <div
-                className="size-24 rounded-lg bg-cover bg-center shrink-0 shadow-sm"
+                className="size-20 rounded-lg bg-cover bg-center shrink-0 shadow-sm sm:size-24"
                 style={{
                   backgroundImage: `url("${heroHostel?.image ?? PUBLIC_HERO_IMAGE}")`,
                 }}

@@ -53,6 +53,9 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `*/15 * * * *` (every 15 minutes, never slower)
+- Each run asks whoever has not answered, once per round: at the hostel's hour,
+  then every `repeatEveryMinutes` (15 / 30 / 60, default 30) until five hours
+  later or 01:00, whichever is first. A slower cadence skips rounds.
 
 ## 5. Push receipts
 

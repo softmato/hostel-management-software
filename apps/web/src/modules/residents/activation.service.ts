@@ -213,18 +213,25 @@ async function renderActivationQr(code: string) {
   }
 }
 
-export async function generateActivationCode(
-  residentId: string,
-  input: ActivationCodeGenerateInput,
-  principal: ApiPrincipal,
-) {
-  await connectToDatabase();
 
-  const resident = await findAdminResident(residentId, principal, input.hostelId);
+
+/**
+ * A fresh activation code for one resident, cancelling any still pending.
+ *
+ * The scope check is the caller's: `generateActivationCode` does it for a hostel
+ * screen, and the existing-residents list does it for the whole list before it
+ * gets here — a field agent adding a hostel's residents has no hostel on their
+ * token, so the per-resident admin lookup would refuse them.
+ */
+export async function issueActivationCode(
+  resident: { _id: Types.ObjectId; hostelId: Types.ObjectId },
+  principal: ApiPrincipal,
+  expiresInHours?: number,
+) {
   const config = await getOperationsConfig();
   const code = generatePlainCode();
-  const expiresInHours = input.expiresInHours ?? config.qrActivationExpiryDays * 24;
-  const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+  const hours = expiresInHours ?? config.qrActivationExpiryDays * 24;
+  const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
 
   await QRActivationModel.updateMany(
     {
@@ -249,6 +256,22 @@ export async function generateActivationCode(
     activation._id,
     "RESIDENT_ACTIVATION_CODE_GENERATED",
     { residentId: resident._id.toString() },
+  );
+
+  return { activation, code, expiresAt };
+}
+export async function generateActivationCode(
+  residentId: string,
+  input: ActivationCodeGenerateInput,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const resident = await findAdminResident(residentId, principal, input.hostelId);
+  const { activation, code, expiresAt } = await issueActivationCode(
+    resident,
+    principal,
+    input.expiresInHours,
   );
 
   const delivery = input.sendEmail

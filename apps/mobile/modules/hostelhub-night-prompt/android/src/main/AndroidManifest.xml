@@ -1,0 +1,25 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!--
+      Priority 1 beats expo-notifications' own service, declared at -1 so that an
+      app's service can take over. Everything this one does not handle is passed
+      to that service's code by inheritance.
+    -->
+    <service
+      android:name=".NightPromptMessagingService"
+      android:exported="false">
+      <intent-filter android:priority="1">
+        <action android:name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+
+    <receiver
+      android:name=".NightPromptActionReceiver"
+      android:exported="false" />
+
+    <service
+      android:name=".NightPromptRetryJob"
+      android:exported="false"
+      android:permission="android.permission.BIND_JOB_SERVICE" />
+  </application>
+</manifest>

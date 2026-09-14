@@ -47,7 +47,7 @@ const PAGE_TOP = PAGE.height - MARGIN;
  * a Devanagari hostel name, an em dash, a rupee sign. Sanitising beats crashing
  * a download, and the same trade is documented in `receipt-pdf.ts`.
  */
-function sanitize(text: string): string {
+export function sanitize(text: string): string {
   return text
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')

@@ -26,7 +26,11 @@ import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
-import { DEFAULT_PROMPT_TIME } from "@hostel/shared/night/night-window";
+import {
+  DEFAULT_PROMPT_TIME,
+  DEFAULT_REPEAT_EVERY_MINUTES,
+  repeatEveryMinutes,
+} from "@hostel/shared/night/night-window";
 import {
   findCurrentResident,
   normalizeObjectId,
@@ -57,8 +61,8 @@ export type NightStatusPromptConfig = {
   promptEnabled: boolean;
   /** `HH:mm` in Nepal, 17:00-23:45. */
   promptTime: string;
-  /** Minutes after the prompt to chase non-responders. `0` is off. */
-  remindAfterMinutes: number;
+  /** How often non-responders are asked again, until the window closes. */
+  repeatEveryMinutes: number;
 };
 
 export type AttendanceConfig = {
@@ -84,7 +88,7 @@ export const ATTENDANCE_DEFAULTS: AttendanceConfig = {
   nightStatus: {
     promptEnabled: true,
     promptTime: DEFAULT_PROMPT_TIME,
-    remindAfterMinutes: 0,
+    repeatEveryMinutes: DEFAULT_REPEAT_EVERY_MINUTES,
   },
   pingTimes: ["06:00", "08:00", "22:00"],
   retentionDays: 600,
@@ -195,8 +199,15 @@ export async function getAttendanceConfig(
      * missing whichever fields that client did not care about.
      */
     nightStatus: {
-      ...ATTENDANCE_DEFAULTS.nightStatus,
-      ...(stored.nightStatus ?? {}),
+      promptEnabled:
+        stored.nightStatus?.promptEnabled ?? ATTENDANCE_DEFAULTS.nightStatus.promptEnabled,
+      promptTime:
+        stored.nightStatus?.promptTime || ATTENDANCE_DEFAULTS.nightStatus.promptTime,
+      /*
+       * Picked field by field rather than spread, so the `remindAfterMinutes`
+       * still stored on older documents never reaches a client.
+       */
+      repeatEveryMinutes: repeatEveryMinutes(stored.nightStatus?.repeatEveryMinutes),
     },
   };
 }

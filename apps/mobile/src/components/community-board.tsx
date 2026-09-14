@@ -2,19 +2,27 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { BlurView } from "expo-blur";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
+  StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import Animated from "react-native-reanimated";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { CommunityPostCard } from "@/components/community-post-card";
 import { AppBar } from "@/components/ui/app-bar";
-import { Card } from "@/components/ui/card";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Screen, useOwnScroll } from "@/components/ui/screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
@@ -28,7 +36,6 @@ import {
   type CommunityFeed,
   type CommunityMedia,
   type CommunityPost,
-  type CommunitySpace,
   type CommunitySpaces,
   createCommunityPost,
   getCommunityFeed,
@@ -93,9 +100,9 @@ import { uploadAsset } from "@/lib/uploads";
  * ## What the redesign changed, and what it could not
  *
  * The header, the chip row, the sort strip and the composer follow the mockup:
- * a titled bar with the bell, one search pill with the space picker inside it,
- * chips that end in a `+`, an underlined sort strip, and a composer that leads
- * with the viewer's own face.
+ * a titled bar with the bell, one search pill, an All / own-hostel chip pair,
+ * an underlined sort strip, and a composer that leads with the viewer's own face.
+ * Posts sit flat on the page between hairlines — no card boxes.
  *
  * Two things in the mockup are **not** here, because nothing behind them exists:
  *
@@ -110,10 +117,22 @@ import { uploadAsset } from "@/lib/uploads";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
-/** The search pill and the button living inside it — `discovery-header`'s sizes. */
-const SEARCH_HEIGHT = 46;
-const FIELD_BUTTON = 32;
+/** The chip row, and the floating search field that grows out of its first button. */
+const ROW_HEIGHT = 38;
 const FIELD_GLYPH = 16;
+const SEARCH_MS = 240;
+/** Clearance between a focused comment field and the top of the keyboard. */
+const KEYBOARD_GAP = 24;
+/** How far the header behind an open search is pushed back. "A bit", not a smear. */
+const SEARCH_BLUR = 22;
+
+/*
+ * `intensity` is a native prop, so ramping the blur means animated props, not a
+ * style — the same reason `confirm-dialog.tsx` gives. No `blurTarget` here: this
+ * view lives inside the app's own blur target, and Android cannot capture a
+ * target from a view drawn within it, so Android gets expo-blur's frosted tint.
+ */
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
 /** The composer's avatar, and the author avatar on a card. Kept in step. */
 const AVATAR = 38;
@@ -140,7 +159,7 @@ export function CommunityBoard({
   insideTabs = false,
   showBack = false,
 }: CommunityBoardProps) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
 
   /*
    * The feed hides and restores the tab bar like every other screen does.
@@ -167,7 +186,10 @@ export function CommunityBoard({
   const [sort, setSort] = useState<"new" | "top">(DEFAULT_SORT);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [spacePicker, setSpacePicker] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [rowWidth, setRowWidth] = useState(0);
+  const searchInput = useRef<TextInput>(null);
+  const searchProgress = useSharedValue(0);
 
   /*
    * Page 1 goes through `useResource` like every other GET in the app — it already
@@ -289,6 +311,55 @@ export function CommunityBoard({
     firstPage.refresh();
   }, [firstPage, resetTail, spaces]);
 
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    searchProgress.set(
+      withTiming(1, { duration: SEARCH_MS, easing: Easing.out(Easing.cubic) }),
+    );
+    searchInput.current?.focus();
+  }, [searchProgress]);
+
+  /** Closing keeps the phrase — it stays in the row as the "searched" pill. */
+  const closeSearch = useCallback(() => {
+    searchInput.current?.blur();
+    setSearchOpen(false);
+    searchProgress.set(
+      withTiming(0, { duration: SEARCH_MS, easing: Easing.in(Easing.cubic) }),
+    );
+  }, [searchProgress]);
+
+  /** The X: throws the phrase away and returns to the plain feed. */
+  const cancelSearch = useCallback(() => {
+    setSearch("");
+    closeSearch();
+  }, [closeSearch]);
+
+  /** The keyboard's search key runs it now rather than after the debounce. */
+  const submitSearch = useCallback(() => {
+    setQuery(search.trim());
+    resetTail();
+    closeSearch();
+  }, [closeSearch, resetTail, search]);
+
+  const searchBarStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(searchProgress.value, [0, 0.35], [0, 1], "clamp"),
+    width: interpolate(
+      searchProgress.value,
+      [0, 1],
+      [ROW_HEIGHT, Math.max(rowWidth, ROW_HEIGHT)],
+    ),
+  }));
+
+  const blurProps = useAnimatedProps(() => ({
+    intensity: searchProgress.value * SEARCH_BLUR,
+  }));
+
+  const blurStyle = useAnimatedStyle(() => ({
+    opacity: searchProgress.value,
+  }));
+
+  const searched = search.trim();
+
   const appBar = (
     <AppBar
       actions={
@@ -310,115 +381,86 @@ export function CommunityBoard({
   const header = (
     <View className="gap-3 pb-1">
       {/*
-        One pill holding the glyph, the field, the clear button and the space
-        picker — `discovery-header`'s shape, at its measurements, because the two
-        search rows in this app should not be two different controls. A bare
-        `TextInput` rather than the design system's `Input` for the same reason it
-        gives: `Input` carries its own label, border and height, all of which
-        fight a field that lives inside a pill.
+        One row: search, All, and the viewer's hostel. Search is an icon until
+        tapped; once a phrase has been searched and the field closed, the icon
+        becomes a pill carrying that phrase, which reopens the field.
       */}
       <View
-        className="flex-row items-center gap-2 rounded-2xl border border-border bg-card"
-        style={{ height: SEARCH_HEIGHT, paddingLeft: 12, paddingRight: 6 }}
+        className="flex-row items-center gap-2"
+        onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+        style={{ height: ROW_HEIGHT }}
       >
-        <Ionicons color={colors.mutedForeground} name="search" size={FIELD_GLYPH} />
-
-        <TextInput
-          className="h-full flex-1 text-base text-foreground"
-          onChangeText={setSearch}
-          placeholder="Search in community…"
-          placeholderTextColor={colors.mutedForeground}
-          returnKeyType="search"
-          value={search}
-        />
-
-        {search ? (
+        {searched ? (
           <Pressable
-            accessibilityLabel="Clear search"
+            accessibilityLabel={`Searched for ${searched}. Edit search`}
             accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => setSearch("")}
+            className="max-w-[45%] flex-row items-center gap-1.5 rounded-full px-3 active:opacity-70"
+            onPress={openSearch}
+            style={{
+              borderColor: colors.primary,
+              borderWidth: 1,
+              height: ROW_HEIGHT,
+            }}
           >
-            <Ionicons
-              color={colors.mutedForeground}
-              name="close-circle"
-              size={FIELD_GLYPH}
-            />
-          </Pressable>
-        ) : null}
-
-        {/*
-          The mockup's slider button. It opens the space list rather than a
-          filters panel, because space is the only filter this feed has that the
-          controls below cannot already reach in one tap: sort is the strip and
-          the query is this field, but the chip row runs off the side of the
-          screen once more than three hostels have posted.
-        */}
-        <Pressable
-          accessibilityLabel="Choose a space"
-          accessibilityRole="button"
-          className="items-center justify-center rounded-xl active:opacity-80"
-          onPress={() => setSpacePicker(true)}
-          style={{
-            backgroundColor: colors.muted,
-            height: FIELD_BUTTON,
-            width: FIELD_BUTTON,
-          }}
-        >
-          <Ionicons
-            color={colors.foreground}
-            name="options-outline"
-            size={FIELD_GLYPH}
-          />
-        </Pressable>
-      </View>
-
-      <ScrollView
-        contentContainerClassName="gap-2 pr-1"
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
-        {chips.map((chip) => {
-          const active = chip.id === space;
-
-          return (
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-              className={`justify-center rounded-full border px-4 active:opacity-70 ${
-                active ? "border-primary bg-primary" : "border-border bg-card"
-              }`}
-              key={chip.id}
-              onPress={() => chooseSpace(chip.id)}
-              style={{ height: 38 }}
+            <Ionicons color={colors.primary} name="search" size={14} />
+            <Text
+              numberOfLines={1}
+              style={{ color: colors.primary, flexShrink: 1, fontSize: 13, fontWeight: "600" }}
             >
-              <Text
-                className={`text-sm font-medium ${
-                  active ? "text-primary-foreground" : "text-foreground"
-                }`}
-              >
-                {chip.name}
-              </Text>
+              {searched}
+            </Text>
+            <Pressable
+              accessibilityLabel="Clear search"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={cancelSearch}
+            >
+              <Ionicons color={colors.primary} name="close" size={14} />
             </Pressable>
-          );
-        })}
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityLabel="Search the community"
+            accessibilityRole="search"
+            className="items-center justify-center rounded-full active:opacity-70"
+            onPress={openSearch}
+            style={{
+              backgroundColor: colors.muted,
+              height: ROW_HEIGHT,
+              width: ROW_HEIGHT,
+            }}
+          >
+            <Ionicons color={colors.foreground} name="search" size={17} />
+          </Pressable>
+        )}
 
-        {/*
-          The `+` that closes the row. It is the same destination as the slider
-          button above — deliberately, because they answer the same question from
-          the two places somebody asks it: the button when they have not started
-          scrolling the chips, this when they have run out of them.
-        */}
-        <Pressable
-          accessibilityLabel="All spaces"
-          accessibilityRole="button"
-          className="items-center justify-center rounded-full border border-border bg-card active:opacity-70"
-          onPress={() => setSpacePicker(true)}
-          style={{ height: 38, width: 38 }}
-        >
-          <Ionicons color={colors.foreground} name="add" size={18} />
-        </Pressable>
-      </ScrollView>
+          {chips.map((chip) => {
+            const active = chip.id === space;
+
+            return (
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                className="shrink justify-center rounded-full px-4 active:opacity-70"
+                key={chip.id}
+                onPress={() => chooseSpace(chip.id)}
+                style={{
+                  backgroundColor: active ? colors.primary : colors.muted,
+                  height: 36,
+                }}
+              >
+                <Text
+                  numberOfLines={1}
+                  className={`text-sm font-medium ${
+                    active ? "text-primary-foreground" : "text-foreground"
+                  }`}
+                >
+                  {chip.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+      </View>
 
       {/*
         An underlined strip rather than the filled pills this row used to be.
@@ -471,23 +513,76 @@ export function CommunityBoard({
       {canPost ? (
         <Composer onPosted={afterPost} spaces={spaces.data} />
       ) : spaces.data ? (
-        <Card>
-          <Text variant="muted">
-            Sign in to post, comment and react. Reading is open to everyone.
-          </Text>
-        </Card>
+        <Text className="py-2" variant="muted">
+          Sign in to post, comment and react. Reading is open to everyone.
+        </Text>
       ) : null}
-    </View>
-  );
 
-  const picker = (
-    <SpacePicker
-      chips={chips}
-      onClose={() => setSpacePicker(false)}
-      onPick={chooseSpace}
-      open={spacePicker}
-      selected={space}
-    />
+      {/*
+        The header behind an open search, frosted a little. Tapping it closes the
+        field and keeps whatever was typed as the searched pill.
+      */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          { pointerEvents: searchOpen ? "auto" : "none" },
+          blurStyle,
+        ]}
+      >
+        <Pressable
+          accessibilityLabel="Close search"
+          onPress={closeSearch}
+          style={StyleSheet.absoluteFill}
+        >
+          <AnimatedBlurView
+            animatedProps={blurProps}
+            style={StyleSheet.absoluteFill}
+            tint={isDark ? "dark" : "light"}
+          />
+        </Pressable>
+      </Animated.View>
+
+      {/*
+        The floating field. It grows out of the search button's spot to the
+        row's full width, over the chips, with its own X at the end.
+      */}
+      <Animated.View
+        className="absolute left-0 top-0 flex-row items-center gap-2 overflow-hidden rounded-full border border-primary bg-background"
+        style={[
+          {
+            height: ROW_HEIGHT,
+            paddingHorizontal: 12,
+            pointerEvents: searchOpen ? "auto" : "none",
+          },
+          searchBarStyle,
+        ]}
+      >
+        <Ionicons color={colors.primary} name="search" size={FIELD_GLYPH} />
+
+        <TextInput
+          className="h-full flex-1 text-base text-foreground"
+          onChangeText={setSearch}
+          onSubmitEditing={submitSearch}
+          placeholder="Search in community…"
+          placeholderTextColor={colors.mutedForeground}
+          ref={searchInput}
+          returnKeyType="search"
+          style={{ paddingVertical: 0 }}
+          value={search}
+        />
+
+        <Pressable
+          accessibilityLabel="Close and clear search"
+          accessibilityRole="button"
+          className="h-7 w-7 items-center justify-center rounded-full active:opacity-70"
+          hitSlop={8}
+          onPress={cancelSearch}
+          style={{ backgroundColor: colors.muted }}
+        >
+          <Ionicons color={colors.foreground} name="close" size={15} />
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 
   if (firstPage.loading) {
@@ -535,8 +630,8 @@ export function CommunityBoard({
           ) : null
         }
         ListHeaderComponent={header}
+        ItemSeparatorComponent={FeedDivider}
         contentContainerStyle={{
-          gap: 12,
           paddingBottom: feedScroll.scrollPaddingBottom,
           paddingHorizontal: 20,
           paddingTop: 8,
@@ -549,15 +644,26 @@ export function CommunityBoard({
         onRefresh={refresh}
         onScroll={feedScroll.onScroll}
         refreshing={firstPage.refreshing}
+        /*
+          The keyboard-aware scroller under the list, so a comment or reply field
+          opened on a post low in the feed scrolls up above the keyboard instead
+          of being hidden by it. `<Screen scroll>` does the same for every form.
+        */
+        renderScrollComponent={(props) => (
+          <KeyboardAwareScrollView {...props} bottomOffset={KEYBOARD_GAP} />
+        )}
         renderItem={({ item }) => (
           <CommunityPostCard canPost={canPost} onChanged={afterPost} post={item} />
         )}
         scrollEventThrottle={feedScroll.scrollEventThrottle}
       />
-
-      {picker}
     </Screen>
   );
+}
+
+/** Posts sit flat on the page, split by a hairline instead of boxed in cards. */
+function FeedDivider() {
+  return <View className="h-px bg-border" />;
 }
 
 /** The sort strip. Two entries, because the API's `sort` enum has two values. */
@@ -628,47 +734,6 @@ function NotificationBell() {
   );
 }
 
-/** Every space the chip row holds, as a list that does not run off the screen. */
-function SpacePicker({
-  chips,
-  onClose,
-  onPick,
-  open,
-  selected,
-}: {
-  chips: CommunitySpace[];
-  onClose: () => void;
-  onPick: (id: string) => void;
-  open: boolean;
-  selected: string;
-}) {
-  return (
-    <Sheet bare onClose={onClose} open={open} title="Spaces">
-      {chips.map((chip) => (
-        <SheetRow
-          key={chip.id}
-          label={chip.name}
-          onPress={() => {
-            onPick(chip.id);
-            onClose();
-          }}
-          selected={chip.id === selected}
-          /*
-           * `postCount` is 0 on the two synthetic chips `spaceChips` prepends —
-           * they stand for "everything" and "my hostel" and count nothing — so
-           * the subtitle is only drawn where it is a real figure.
-           */
-          subtitle={
-            chip.postCount > 0
-              ? `${chip.postCount} ${chip.postCount === 1 ? "post" : "posts"}`
-              : undefined
-          }
-        />
-      ))}
-    </Sheet>
-  );
-}
-
 /**
  * The composer.
  *
@@ -703,12 +768,8 @@ function SpacePicker({
  * `PUBLIC` for them because there is no narrower room to fall back to, so the
  * line states where the post is going and does not pretend to ask.
  *
- * ## The border is brand-coloured, and only here
- *
- * It is the one element on the screen the mockup outlines. That is doing a job:
- * the composer is a card in a column of cards that are otherwise all *posts*,
- * and without it the reader's first impression of the feed is somebody else's
- * empty post. Every other card keeps `border-border`.
+ * No box around it: the field is a filled pill and a hairline below separates
+ * the composer from the first post, the same divider the posts use.
  */
 function Composer({
   onPosted,
@@ -798,7 +859,7 @@ function Composer({
   const audience = membersOnly ? audiences.restricted : audiences.open;
 
   return (
-    <View className="gap-3 rounded-2xl border border-primary bg-card p-3">
+    <View className="gap-3 border-b border-border pb-4 pt-1">
       <View className="flex-row items-start gap-2.5">
         {avatarUrl ? (
           <Image
@@ -824,13 +885,14 @@ function Composer({
           that cannot show it is the reason people post half a thought.
         */}
         <TextInput
-          className="flex-1 rounded-xl border border-border px-3 text-base text-foreground"
+          className="flex-1 rounded-2xl px-4 text-base text-foreground"
           maxLength={MAX_POST_BODY}
           multiline
           onChangeText={setBody}
           placeholder="What's on your mind?"
           placeholderTextColor={colors.mutedForeground}
           style={{
+            backgroundColor: colors.muted,
             maxHeight: 132,
             minHeight: AVATAR,
             paddingTop: 9,

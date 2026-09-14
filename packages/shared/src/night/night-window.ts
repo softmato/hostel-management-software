@@ -44,7 +44,7 @@
  * which night that was. So the window is 17:00–23:45 and both ends are real.
  */
 
-import { nepalDayKey, nepalMinuteOfDay } from "../food/meal-window";
+import { NEPAL_OFFSET_MINUTES, nepalDayKey, nepalMinuteOfDay } from "../food/meal-window";
 
 /**
  * A night runs 17:00 → 17:00. Not configurable; see the note above.
@@ -60,8 +60,8 @@ export const EARLIEST_PROMPT_MINUTE = NIGHT_STARTS_AT_HOUR * 60;
 /**
  * Nor after 23:45, so the prompt and the night it asks about share a date.
  *
- * 23:45 rather than 23:59 because the job that sends it runs on a cadence and
- * needs somewhere to land; see {@link PROMPT_GRACE_MINUTES}.
+ * 23:45 rather than 23:59 because the job that sends it runs on a fifteen-minute
+ * cadence and the first round needs a run to land in.
  */
 export const LATEST_PROMPT_MINUTE = 23 * 60 + 45;
 
@@ -69,20 +69,25 @@ export const LATEST_PROMPT_MINUTE = 23 * 60 + 45;
 export const DEFAULT_PROMPT_TIME = "20:00";
 
 /**
- * How late the prompt may still go out after its minute has passed.
+ * How long a hostel keeps asking after its hour: five hours, but never past
+ * {@link LAST_ASK_MINUTE_OF_NIGHT}.
  *
- * The sender runs on an external schedule (`docs/CRON.md`) rather than holding a
- * timer, so it cannot ask "is it exactly 20:00" — it asks "did 20:00 pass since
- * a little while ago". Wide enough to survive a missed run or two on a
- * fifteen-minute cadence; narrow enough that a scheduler outage over dinner does
- * not deliver "are you in tonight?" at half past eleven.
- *
- * Past this the hostel is simply not prompted that night. That is the right
- * failure: a resident can still answer from the app, and a notification that
- * arrives four hours late is worse than none — it wakes people who already went
- * to bed having answered, which is how this category gets muted for good.
+ * The owner's rule. Whoever has not answered is asked again, round after round,
+ * until the window closes — so an eight o'clock hostel asks until one, and a
+ * six o'clock hostel until eleven.
  */
-export const PROMPT_GRACE_MINUTES = 45;
+export const PROMPT_WINDOW_MINUTES = 5 * 60;
+
+/**
+ * 01:00, counted in minutes from the night's 17:00 start. Nobody is asked about
+ * tonight after this, whatever the hostel's hour: a question at two in the
+ * morning wakes people who are asleep, which is how this category gets muted.
+ */
+export const LAST_ASK_MINUTE_OF_NIGHT = 8 * 60;
+
+/** How often an unanswered resident is asked again, and the choices offered. */
+export const DEFAULT_REPEAT_EVERY_MINUTES = 30;
+export const REPEAT_EVERY_OPTIONS = [15, 30, 60] as const;
 
 /**
  * `"20:00"` → minutes since midnight, or `null` if it is not a clock time.
@@ -124,6 +129,21 @@ export function nightKey(instant: Date = new Date()): string {
   return nepalDayKey(new Date(instant.getTime() - NIGHT_STARTS_AT_HOUR * 3_600_000));
 }
 
+/**
+ * The instant a night ends: 17:00 in Nepal on the day after its key.
+ *
+ * What an answer token for that night expires at — an answer given after this
+ * would be filed against the next night, which it is not about.
+ */
+export function nightEndsAt(night: string): Date {
+  const [year, month, day] = night.split("-").map(Number);
+
+  return new Date(
+    Date.UTC(year, month - 1, day + 1, NIGHT_STARTS_AT_HOUR) -
+      NEPAL_OFFSET_MINUTES * 60_000,
+  );
+}
+
 /** Whether two instants fall in the same night. */
 export function isSameNight(a: Date, b: Date): boolean {
   return nightKey(a) === nightKey(b);
@@ -150,70 +170,73 @@ export function isCurrentNight(
   return Number.isNaN(date.getTime()) ? false : isSameNight(date, now);
 }
 
+/** A stored interval, or the default when it is not one of the offered choices. */
+export function repeatEveryMinutes(value: number | null | undefined): number {
+  return REPEAT_EVERY_OPTIONS.includes(value as (typeof REPEAT_EVERY_OPTIONS)[number])
+    ? (value as number)
+    : DEFAULT_REPEAT_EVERY_MINUTES;
+}
+
+/** Minutes since this night's 17:00 start, so 01:00 sorts after 23:00. */
+function minuteOfNight(now: Date): number {
+  return (nepalMinuteOfDay(now) - NIGHT_STARTS_AT_HOUR * 60 + 1440) % 1440;
+}
+
+/** The last minute of asking for a prompt hour, as a minute of the night. */
+function askingEndsMinuteOfNight(promptMinute: number): number {
+  return Math.min(
+    promptMinute - NIGHT_STARTS_AT_HOUR * 60 + PROMPT_WINDOW_MINUTES,
+    LAST_ASK_MINUTE_OF_NIGHT,
+  );
+}
+
 /**
- * Whether a hostel's prompt came due within this run's window.
+ * `"20:00"` → `"01:00"`: when a hostel with this hour stops asking. `null` for
+ * an hour that is not valid. For the settings screens, which say it out loud.
+ */
+export function askingEndsAt(promptTime: string | null | undefined): string | null {
+  const promptMinute = parsePromptTime(promptTime);
+
+  if (promptMinute === null) {
+    return null;
+  }
+
+  const minuteOfDay =
+    (askingEndsMinuteOfNight(promptMinute) + NIGHT_STARTS_AT_HOUR * 60) % 1440;
+
+  return formatPromptTime(minuteOfDay);
+}
+
+/**
+ * Which round of asking this instant falls in, or `null` outside the window.
+ *
+ * Round 0 starts at the hostel's hour; round *n* starts `n × every` minutes
+ * later; the last round is the one that starts before the window closes. The
+ * sender claims each round once, so a job running every fifteen minutes asks
+ * once per round however many times it runs inside one — and a run that was
+ * missed costs that round, never a burst of catch-up notifications.
  *
  * Pure, and separated from everything that touches a database, because this is
- * the part with a timezone and an off-by-one in it — the same split
- * `dueMeals` uses in `meal-call-reminder.service.ts`.
- *
- * Deliberately **not** "is the current minute >= the prompt minute". That is
- * true for the rest of the evening, so a job running every fifteen minutes
- * would send the prompt, then send it again at 20:15, 20:30 and every run until
- * midnight. The claim row would stop the duplicates, but relying on a unique
- * index to paper over an always-true predicate means the *first* run after a
- * deploy at 23:00 still buzzes everybody. The window is what makes the question
- * "did it just become due", which is the question actually being asked.
+ * the part with a timezone and an off-by-one in it — the same split `dueMeals`
+ * uses in `meal-call-reminder.service.ts`.
  */
-export function promptIsDue(
+export function promptRound(
   promptTime: string | null | undefined,
+  every: number | null | undefined,
   now: Date = new Date(),
-): boolean {
-  return minuteIsDue(parsePromptTime(promptTime), now);
-}
-
-/**
- * Whether the optional follow-up chase came due within this run's window.
- *
- * `remindAfterMinutes` of `0` is off, which is the default — one notification a
- * night is the promise, and a second one has to be deliberately asked for.
- *
- * A reminder that would land after midnight is **not** sent. It would be
- * delivered on the calendar day after the night it is asking about, while the
- * claim row and every board query key it under the night — and a resident woken
- * at 00:30 to be asked about a night they are already asleep through is the
- * single fastest way to get this category muted. A hostel that sets 22:00 with a
- * 180-minute chase gets the prompt and no chase, which is the right failure.
- */
-export function reminderIsDue(
-  promptTime: string | null | undefined,
-  remindAfterMinutes: number | null | undefined,
-  now: Date = new Date(),
-): boolean {
+): number | null {
   const promptMinute = parsePromptTime(promptTime);
-  const after = remindAfterMinutes ?? 0;
 
-  if (promptMinute === null || after <= 0) {
-    return false;
+  if (promptMinute === null) {
+    return null;
   }
 
-  const reminderMinute = promptMinute + after;
+  const start = promptMinute - NIGHT_STARTS_AT_HOUR * 60;
+  const at = minuteOfNight(now);
 
-  // Past midnight. See the note above.
-  if (reminderMinute > LATEST_PROMPT_MINUTE) {
-    return false;
+  if (at < start || at >= askingEndsMinuteOfNight(promptMinute)) {
+    return null;
   }
 
-  return minuteIsDue(reminderMinute, now);
-}
-
-/** The shared window test. See {@link promptIsDue} for why it is a window. */
-function minuteIsDue(minute: number | null, now: Date): boolean {
-  if (minute === null) {
-    return false;
-  }
-
-  const minuteOfDay = nepalMinuteOfDay(now);
-
-  return minuteOfDay >= minute && minuteOfDay <= minute + PROMPT_GRACE_MINUTES;
+  return Math.floor((at - start) / repeatEveryMinutes(every));
 }

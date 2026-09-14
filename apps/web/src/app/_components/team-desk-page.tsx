@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Building2, Phone, Plus, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, Phone, Plus, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -183,7 +183,7 @@ export function TeamDeskPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
                   <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -203,6 +203,9 @@ export function TeamDeskPage() {
                   </th>
                   <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Status
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Residents
                   </th>
                 </tr>
               </thead>
@@ -282,6 +285,17 @@ export function TeamDeskPage() {
                             ? "Paid"
                             : row.subscriptionStatus}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {/* The people already living there are filled in with the
+                          owner after publishing, so the way back is on the row. */}
+                      <Link
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal hover:underline"
+                        href={`/team/hostels/${row.hostelId}/residents`}
+                      >
+                        <Users className="size-3.5" />
+                        Add residents
+                      </Link>
                     </td>
                   </tr>
                 ))}

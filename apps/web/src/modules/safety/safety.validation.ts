@@ -30,6 +30,12 @@ export const nightStatusReasonSchema = z.enum([
 
 export const nightStatusUpdateSchema = z.object({
   /**
+   * When the resident actually answered, for an answer that waited in a queue.
+   * An answer older than the one already recorded tonight is ignored rather than
+   * written over it — see `updateResidentNightStatus`.
+   */
+  answeredAt: z.iso.datetime().optional(),
+  /**
    * What they typed, when they typed anything.
    *
    * 1000 was the old cap and it stays, even though the notification's inline

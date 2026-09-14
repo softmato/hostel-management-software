@@ -66,6 +66,11 @@
               "scheme": "https",
               "host": "hostel-management-software-web.vercel.app",
               "path": "/guardian-invite"
+            },
+            {
+              "scheme": "https",
+              "host": "hostel-management-software-web.vercel.app",
+              "pathPrefix": "/community/"
             }
           ]
         }

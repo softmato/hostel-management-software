@@ -65,6 +65,13 @@ export type QueuedNightStatus = NightStatusAnswer & {
   night?: string;
   /** When the resident actually answered, not when it was finally sent. */
   answeredAt: string;
+  /**
+   * The prompt's own credential for this answer, and where it posts — see
+   * `postAnswer`. Scoped to this one night and expired with it, so keeping it
+   * beside the entry costs nothing once the entry is stale.
+   */
+  answerToken?: string;
+  answerPath?: string;
 };
 
 async function readRaw(): Promise<QueuedNightStatus[]> {

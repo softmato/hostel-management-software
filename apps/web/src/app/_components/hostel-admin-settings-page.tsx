@@ -32,7 +32,7 @@ type AttendanceSettings = {
     promptEnabled: boolean;
     /** `HH:mm` in Nepal. The server refuses anything outside 17:00-23:45. */
     promptTime: string;
-    remindAfterMinutes: number;
+    repeatEveryMinutes: number;
   };
   pingTimes: string[];
   retentionDays: number;
@@ -125,7 +125,7 @@ export const HostelAdminSettingsPageContent = memo(
               nightStatus: {
                 promptEnabled: field(form, "promptEnabled") === "true",
                 promptTime: field(form, "promptTime"),
-                remindAfterMinutes: Number(field(form, "remindAfterMinutes")),
+                repeatEveryMinutes: Number(field(form, "repeatEveryMinutes")),
               },
               retentionDays: Number(field(form, "retentionDays")),
             }),
@@ -313,19 +313,18 @@ export const HostelAdminSettingsPageContent = memo(
                   ))}
                 </Select>
                 {/*
-                  The follow-up chase. `0` is off and is the default — one
-                  notification a night is the promise. A chase that would land
-                  after midnight is dropped by the server rather than delivered.
+                  Whoever has not answered is asked again on this interval,
+                  replacing the unanswered notification, until five hours after
+                  the hour or 01:00 — see `promptRound`.
                 */}
                 <Select
-                  defaultValue={String(attendance.nightStatus.remindAfterMinutes)}
-                  label="Chase whoever has not answered"
-                  name="remindAfterMinutes"
+                  defaultValue={String(attendance.nightStatus.repeatEveryMinutes)}
+                  label="Ask again if not answered"
+                  name="repeatEveryMinutes"
                 >
-                  <option value="0">Do not chase</option>
-                  <option value="30">30 minutes later</option>
-                  <option value="60">1 hour later</option>
-                  <option value="120">2 hours later</option>
+                  <option value="15">Every 15 minutes</option>
+                  <option value="30">Every 30 minutes</option>
+                  <option value="60">Every hour</option>
                 </Select>
               </div>
               <div className="flex justify-end">

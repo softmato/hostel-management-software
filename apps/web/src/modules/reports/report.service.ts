@@ -56,7 +56,7 @@ function normalizeObjectIds(values: string[]) {
   return values.map((value) => normalizeObjectId(value, "hostel id"));
 }
 
-function hostelFilter(principal: ApiPrincipal, requestedHostelId?: string) {
+export function hostelFilter(principal: ApiPrincipal, requestedHostelId?: string) {
   if (requestedHostelId) {
     assertHostelAccess(principal, requestedHostelId);
     return { hostelId: normalizeObjectId(requestedHostelId, "hostel id") };
@@ -129,7 +129,7 @@ async function countVacantBeds(hostelIds: Types.ObjectId[]) {
  * (`month`, `dueAmount`, `paidAmount`) stay behind the facade instead of being
  * hard-coded here, where the cutover would have to unpick them.
  */
-function ledgerScopeFrom(
+export function ledgerScopeFrom(
   scoped: { hostelId: Types.ObjectId | { $in: Types.ObjectId[] } },
   extra: Omit<LedgerScope, "hostelId" | "hostelIds"> = {},
 ): LedgerScope {
@@ -382,7 +382,7 @@ type PlatformPaymentProofRecord = {
 };
 
 /** Claims waiting on a human, in whatever scope the caller is reporting on. */
-const PENDING_CLAIM_FILTER = { source: "RESIDENT_CLAIM", status: "PENDING" };
+export const PENDING_CLAIM_FILTER = { source: "RESIDENT_CLAIM", status: "PENDING" };
 
 // Read-only, platform-wide roll-up of resident payment records (no hostel
 // scoping) for the Platform Owner "Payments" tab. Manual/gateway billing stays
@@ -633,7 +633,7 @@ type ResidentNameRecord = {
   roomType?: string;
 };
 
-function collectionRate(due: number, paid: number) {
+export function collectionRate(due: number, paid: number) {
   return due > 0 ? Number(((paid / due) * 100).toFixed(1)) : 0;
 }
 

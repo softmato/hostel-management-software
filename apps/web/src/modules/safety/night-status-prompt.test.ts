@@ -1,14 +1,20 @@
 import { Types } from "mongoose";
 import { describe, expect, it } from "vitest";
 
-import { duePrompts, promptMessage } from "@/modules/safety/night-status-prompt.service";
+import { verifyAccessToken, verifyPurposeToken } from "@/lib/auth";
+import {
+  duePrompts,
+  nightAnswerData,
+  promptMessage,
+} from "@/modules/safety/night-status-prompt.service";
 import {
   isCurrentNight,
   isSameNight,
+  nightEndsAt,
   nightKey,
   parsePromptTime,
-  promptIsDue,
-  reminderIsDue,
+  askingEndsAt,
+  promptRound,
 } from "@hostel/shared/night/night-window";
 
 /**
@@ -125,29 +131,54 @@ describe("isCurrentNight", () => {
   });
 });
 
-describe("promptIsDue", () => {
-  it("is due on the minute and through the grace window", () => {
-    expect(promptIsDue("20:00", nepal("2026-09-08", "20:00"))).toBe(true);
-    expect(promptIsDue("20:00", nepal("2026-09-08", "20:44"))).toBe(true);
+describe("promptRound", () => {
+  it("is round 0 from the hostel's hour until the first repeat", () => {
+    expect(promptRound("20:00", 30, nepal("2026-09-08", "20:00"))).toBe(0);
+    expect(promptRound("20:00", 30, nepal("2026-09-08", "20:29"))).toBe(0);
+    expect(promptRound("20:00", 30, nepal("2026-09-08", "20:30"))).toBe(1);
   });
 
-  it("is not due before the hour", () => {
-    expect(promptIsDue("20:00", nepal("2026-09-08", "19:59"))).toBe(false);
+  it("is not asking before the hour", () => {
+    expect(promptRound("20:00", 30, nepal("2026-09-08", "19:59"))).toBeNull();
   });
 
-  it("stops being due once the grace window closes", () => {
-    // The important half. "minuteOfDay >= promptMinute" is true for the rest of
-    // the evening, which would re-send on every run until midnight — the claim
-    // row would stop the duplicates, but the first run after a deploy at 23:00
-    // would still buzz everybody.
-    expect(promptIsDue("20:00", nepal("2026-09-08", "20:46"))).toBe(false);
-    expect(promptIsDue("20:00", nepal("2026-09-08", "23:30"))).toBe(false);
+  it("keeps asking past midnight and stops at 01:00", () => {
+    // The owner's rule: five hours after the hour, never past one in the morning.
+    expect(promptRound("20:00", 30, nepal("2026-09-09", "00:59"))).toBe(9);
+    expect(promptRound("20:00", 30, nepal("2026-09-09", "01:00"))).toBeNull();
+    expect(promptRound("20:00", 30, nepal("2026-09-09", "03:00"))).toBeNull();
   });
 
-  it("is never due for an unreadable or out-of-range hour", () => {
-    expect(promptIsDue("16:00", nepal("2026-09-08", "16:00"))).toBe(false);
-    expect(promptIsDue("nonsense", nepal("2026-09-08", "20:00"))).toBe(false);
-    expect(promptIsDue(null, nepal("2026-09-08", "20:00"))).toBe(false);
+  it("stops five hours after an early hour", () => {
+    expect(promptRound("18:00", 60, nepal("2026-09-08", "22:59"))).toBe(4);
+    expect(promptRound("18:00", 60, nepal("2026-09-08", "23:00"))).toBeNull();
+  });
+
+  it("caps a late hour at 01:00 rather than five hours on", () => {
+    expect(promptRound("22:30", 30, nepal("2026-09-09", "00:59"))).toBe(4);
+    expect(promptRound("22:30", 30, nepal("2026-09-09", "01:30"))).toBeNull();
+  });
+
+  it("uses 30 minutes for an interval that is not one of the choices", () => {
+    // Including the `remindAfterMinutes: 0` older documents still carry.
+    for (const every of [undefined, null, 0, 45, 180]) {
+      expect(promptRound("20:00", every, nepal("2026-09-08", "21:00"))).toBe(2);
+    }
+  });
+
+  it("is never asking for an unreadable or out-of-range hour", () => {
+    expect(promptRound("16:00", 30, nepal("2026-09-08", "16:00"))).toBeNull();
+    expect(promptRound("nonsense", 30, nepal("2026-09-08", "20:00"))).toBeNull();
+    expect(promptRound(null, 30, nepal("2026-09-08", "20:00"))).toBeNull();
+  });
+});
+
+describe("askingEndsAt", () => {
+  it("names the time a hostel stops asking", () => {
+    expect(askingEndsAt("20:00")).toBe("01:00");
+    expect(askingEndsAt("18:15")).toBe("23:15");
+    expect(askingEndsAt("23:45")).toBe("01:00");
+    expect(askingEndsAt("nonsense")).toBeNull();
   });
 });
 
@@ -186,7 +217,7 @@ describe("duePrompts", () => {
     for (const rows of [noSettingsDocument, noAttendanceBlock, noNightStatusKey]) {
       expect(duePrompts(rows, nepal("2026-09-08", "20:10"))).toHaveLength(1);
       // And at the default hour, not at some other one.
-      expect(duePrompts(rows, nepal("2026-09-08", "21:10"))).toHaveLength(0);
+      expect(duePrompts(rows, nepal("2026-09-08", "19:50"))).toHaveLength(0);
     }
   });
 
@@ -205,7 +236,7 @@ describe("duePrompts", () => {
       expect(duePrompts(settings({ promptTime }), nepal("2026-09-08", "20:10"))).toHaveLength(
         1,
       );
-      expect(duePrompts(settings({ promptTime }), nepal("2026-09-08", "21:10"))).toHaveLength(
+      expect(duePrompts(settings({ promptTime }), nepal("2026-09-08", "19:50"))).toHaveLength(
         0,
       );
     }
@@ -228,48 +259,22 @@ describe("duePrompts", () => {
   });
 });
 
-describe("reminderIsDue", () => {
-  it("is off unless a hostel asked for it", () => {
-    // One notification a night is the promise; a second has to be asked for.
-    expect(reminderIsDue("20:00", 0, nepal("2026-09-08", "21:00"))).toBe(false);
-    expect(reminderIsDue("20:00", undefined, nepal("2026-09-08", "21:00"))).toBe(false);
+describe("duePrompts and the repeats", () => {
+  it("returns one candidate per hostel per run, with its round", () => {
+    const rows = settings({ promptTime: "20:00", repeatEveryMinutes: 30 });
+
+    expect(duePrompts(rows, nepal("2026-09-08", "20:05"))).toEqual([
+      expect.objectContaining({ kind: "PROMPT", round: 0 }),
+    ]);
+    expect(duePrompts(rows, nepal("2026-09-08", "21:05"))).toEqual([
+      expect.objectContaining({ kind: "REMINDER", round: 2 }),
+    ]);
   });
 
-  it("comes due the configured number of minutes after the prompt", () => {
-    expect(reminderIsDue("20:00", 60, nepal("2026-09-08", "21:00"))).toBe(true);
-    expect(reminderIsDue("20:00", 60, nepal("2026-09-08", "20:59"))).toBe(false);
-    expect(reminderIsDue("20:00", 60, nepal("2026-09-08", "21:46"))).toBe(false);
-  });
+  it("stops asking when the window closes", () => {
+    const rows = settings({ promptTime: "20:00", repeatEveryMinutes: 30 });
 
-  it("never lands after midnight", () => {
-    /*
-     * A chase at 00:30 would be delivered on the calendar day after the night
-     * it asks about, while the claim row keys it under the night — and it wakes
-     * somebody who is already asleep. The prompt still goes; only the chase is
-     * dropped.
-     */
-    expect(reminderIsDue("22:00", 180, nepal("2026-09-09", "01:00"))).toBe(false);
-    expect(reminderIsDue("22:00", 180, nepal("2026-09-08", "23:30"))).toBe(false);
-  });
-});
-
-describe("duePrompts and the chase", () => {
-  it("never returns both kinds for one hostel in one run", () => {
-    // Two claims and two notifications inside the same minute.
-    const rows = settings({ promptTime: "20:00", remindAfterMinutes: 30 });
-
-    for (const time of ["20:00", "20:30", "20:40", "21:00"]) {
-      const due = duePrompts(rows, nepal("2026-09-08", time));
-
-      expect(due.length).toBeLessThanOrEqual(1);
-    }
-  });
-
-  it("asks first, then chases", () => {
-    const rows = settings({ promptTime: "20:00", remindAfterMinutes: 60 });
-
-    expect(duePrompts(rows, nepal("2026-09-08", "20:05"))[0]?.kind).toBe("PROMPT");
-    expect(duePrompts(rows, nepal("2026-09-08", "21:05"))[0]?.kind).toBe("REMINDER");
+    expect(duePrompts(rows, nepal("2026-09-09", "01:05"))).toHaveLength(0);
   });
 });
 
@@ -294,5 +299,29 @@ describe("promptMessage", () => {
     const { body, title } = promptMessage("20:00");
 
     expect(`${title} ${body}`).not.toMatch(/\bInside\b|\bOutside\b/);
+  });
+});
+
+describe("the answer token", () => {
+  it("expires when its night ends, at 17:00 the next day in Nepal", () => {
+    expect(nightEndsAt("2026-09-14")).toEqual(nepal("2026-09-15", "17:00"));
+    // Month and year roll over like any other day.
+    expect(nightEndsAt("2026-12-31")).toEqual(nepal("2027-01-01", "17:00"));
+  });
+
+  it("names the resident, hostel and night, and cannot pass as an access token", async () => {
+    process.env.JWT_ACCESS_SECRET ??= "test-access-secret";
+
+    const { answerPath, answerToken } = await nightAnswerData(
+      { hostelId: "hostel-1", night: "2026-09-14", userId: "user-1" },
+      nepal("2026-09-14", "20:00"),
+    );
+    const claims = await verifyPurposeToken(answerToken, "night-status-answer");
+
+    expect(answerPath).toBe("/api/v1/resident/night-status/answer");
+    expect(claims).toMatchObject({ hostelId: "hostel-1", night: "2026-09-14", sub: "user-1" });
+    // Twenty-one hours from 20:00 to 17:00 the next day.
+    expect(Number(claims.exp) - Number(claims.iat)).toBeGreaterThan(20 * 3600);
+    await expect(verifyAccessToken(answerToken)).rejects.toThrow();
   });
 });

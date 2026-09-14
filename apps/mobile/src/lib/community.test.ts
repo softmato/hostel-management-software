@@ -309,13 +309,13 @@ describe("nextVote", () => {
 });
 
 describe("spaceChips", () => {
-  it("flattens the web's rail into one row, in its order", () => {
-    expect(spaceChips(spaces()).map((chip) => chip.name)).toEqual([
-      "All",
-      "Public",
-      "Green View",
-      "Blue Sky",
-    ]);
+  it("is All and the viewer's own hostel, nothing else", () => {
+    expect(
+      spaceChips(
+        spaces({ hostelId: "h1", hostelName: "Green View", spaceType: "HOSTEL" }),
+      ).map((chip) => chip.name),
+    ).toEqual(["All", "Green View"]);
+    expect(spaceChips(spaces()).map((chip) => chip.name)).toEqual(["All"]);
   });
 
   it("offers 'mine' only to a viewer who has a hostel", () => {

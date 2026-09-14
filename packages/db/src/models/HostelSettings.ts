@@ -86,11 +86,12 @@ const hostelSettingsSchema = new Schema(
              */
             promptTime: { default: "20:00", type: String },
             /**
-             * Minutes after the prompt to chase whoever still has not answered.
-             * `0` is off, which is the default — one notification a night is
-             * the promise, and a second one has to be asked for.
+             * How often whoever has not answered is asked again: 15, 30 or 60
+             * minutes, until five hours after `promptTime` or 01:00. Anything
+             * else — including the `remindAfterMinutes` this replaced, still on
+             * older documents — reads as the default 30. See `promptRound`.
              */
-            remindAfterMinutes: { default: 0, max: 180, min: 0, type: Number },
+            repeatEveryMinutes: { default: 30, enum: [15, 30, 60], type: Number },
           },
           default: () => ({}),
         },

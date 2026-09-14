@@ -30,3 +30,6 @@ export const reportQuerySchema = z.object({
     .regex(/^\d{4}-\d{2}$/)
     .optional(),
 });
+
+/** A BS month (`2083-05`), defaulting to this one — see `performance-report.service.ts`. */
+export const performanceReportQuerySchema = reportQuerySchema;

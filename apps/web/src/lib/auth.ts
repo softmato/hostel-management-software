@@ -139,12 +139,14 @@ async function verifyToken(
 
 export type PurposeTokenPurpose =
   | "cancel-account-deletion"
+  | "night-status-answer"
   | "password-reset"
   | "verify-email";
 
 export type PurposeTokenPayload = JWTPayload & {
   tokenType: PurposeTokenPurpose;
   tokenVersion?: number;
+  [claim: string]: unknown;
 };
 
 /**
@@ -157,8 +159,11 @@ export async function signPurposeToken(input: {
   purpose: PurposeTokenPurpose;
   ttlSeconds: number;
   tokenVersion?: number;
+  /** Extra claims that narrow what the token is good for. */
+  claims?: Record<string, string>;
 }) {
   return new SignJWT({
+    ...input.claims,
     tokenType: input.purpose,
     ...(input.tokenVersion !== undefined ? { tokenVersion: input.tokenVersion } : {}),
   })

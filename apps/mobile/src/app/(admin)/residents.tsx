@@ -152,6 +152,15 @@ export default function AdminResidentsScreen() {
     />
   );
 
+  const existingEntry = (
+    <CardRow
+      icon="document-text-outline"
+      onPress={() => router.push("/manage/existing-residents")}
+      subtitle="Upload an Excel file or add them one by one"
+      title="Add existing residents"
+    />
+  );
+
   if (residents.loading) {
     return (
       <Screen header={header} insideTabs>
@@ -188,6 +197,8 @@ export default function AdminResidentsScreen() {
       scroll
     >
       <View className="gap-4 pt-1">
+        {roster.total === 0 ? existingEntry : null}
+
         <Segmented
           onChange={setSegment}
           options={[
@@ -301,6 +312,14 @@ export default function AdminResidentsScreen() {
             })}
           </View>
         )}
+
+        {/*
+          People who were already living here before the hostel joined come in
+          through their own list — the joining flow would charge them an
+          admission fee. Up top while the roster is empty, which is exactly when
+          a new hostel needs it; at the foot once it is not.
+        */}
+        {roster.total > 0 ? existingEntry : null}
 
         <Text className="px-1" variant="caption">
           Tap anyone to open their record — details, status, activation code, guardians

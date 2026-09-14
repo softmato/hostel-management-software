@@ -94,6 +94,8 @@ export const notificationCampaignListQuerySchema = z.object({
 });
 
 export const deviceTokenSaveSchema = z.object({
+  /** See `DeviceToken.capabilities`. Absent from every build that predates it. */
+  capabilities: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
   deviceId: z.string().trim().max(160).optional(),
   platform: z.enum(["IOS", "ANDROID", "WEB"]),
   token: z.string().trim().min(8).max(4096),

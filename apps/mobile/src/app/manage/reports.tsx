@@ -1,24 +1,31 @@
-import { useCallback, useMemo, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { Download } from "lucide-react-native";
+import { type ReactNode, useCallback, useState } from "react";
+import { Pressable, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
-import { Chip, StatTile } from "@/components/ui/layout";
+import { DataCard } from "@/components/ui/data-card";
+import { Chip, FactRow, Grid, InfoTile, StatTile } from "@/components/ui/layout";
 import { Meter } from "@/components/ui/meter";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { Segmented } from "@/components/ui/segmented";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { Sheet, SheetRow } from "@/components/ui/sheet";
+import { Skeleton, SkeletonCard, SkeletonTiles } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
-  type CountMap,
+  type MonthCompare,
+  type PerformanceReport,
   REPORT_EXPORTS,
   type ReportExport,
-  type ReportsOverview,
+  performanceReportPdfPath,
 } from "@/lib/admin-manage-api";
 import { type AdminReportsData, adminQuery } from "@/lib/admin-queries";
 import { API_BASE_URL } from "@/lib/api";
@@ -28,47 +35,82 @@ import { formatMoney, humanizeEnum } from "@/lib/format";
 import { toastError } from "@/lib/toast";
 
 /**
- * Reports — the whole portal page, minus its tables.
+ * Reports — the hostel's month, and the PDF of it.
  *
- * ## One request, not seven
+ * ## What changed, and why
  *
- * `reports/overview` returns payments, complaints, maintenance, occupancy, food,
- * inquiries, referrals, night status and public visibility together. The six
- * narrower `reports/*` routes are cuts of the same numbers for other screens, so
- * calling them here would be six requests for figures already in hand. Only the
- * two analytics panels are separate, because they are windowed (`?days=`) and
- * the overview is not.
+ * This screen used to be the portal's Reports page squeezed onto a phone: four
+ * headline tiles, an export row, three tabs, and under them every breakdown the
+ * overview endpoint returns — payment statuses, complaint categories, referral
+ * rewards, zone chips — as chips and meters. All true, and an owner opening it
+ * could not tell what mattered. It now answers four questions, in order: how
+ * much rent came in, who lives here and who is in tonight, how many people saw
+ * the listing, and what is still open. Everything else is one tile away.
  *
- * ## What a phone does with a report
+ * ## The screen and the PDF are one payload
  *
- * The web draws a bar chart, three breakdown lists and a seven-column ledger
- * table. A phone gets the same *facts* in the shapes it can actually render: a
- * meter for every rate, a compact month strip for the trend, and breakdowns as
- * chips. The ledger table becomes the five most recent entries as rows — the
- * whole thing is what the CSV export is for, and that button is at the top.
+ * Both read `reports/performance` for the chosen BS month. Download fetches
+ * the same figures as a two-page PDF, so what the owner sends on is what they
+ * were looking at when they pressed the button.
  *
- * ## Exports are aggregates
+ * ## A month, or right now
  *
- * The four CSVs carry no resident phone number and no address. Worth saying
- * where somebody might otherwise assume the opposite, because they are shared
- * out of the app through the OS share sheet — into mail, into Drive, into
- * whatever is installed.
+ * Rent, move-ins, page views and complaints raised are counted inside the
+ * month. Who lives here, who is in tonight and how many beds are free have no
+ * history, so they are always *now* — the section says so rather than letting
+ * an earlier month's report imply otherwise.
  *
  * ## Attendance can say when, never where
  *
- * The attendance panel is built from zone rows. Coordinates are discarded as
- * each ping lands and a test enforces it, so "outside on eleven nights" is
- * sayable and "outside *at* somewhere" is not, by construction.
+ * The night check-ins sheet is built from zone rows. Coordinates are discarded
+ * as each ping lands and a test enforces it.
  */
 
-type Tab = "money" | "operations" | "growth";
+/** How far the month card rides up onto the painted bar. */
+const STRADDLE = 26;
 
-function rateTone(rate: number): "danger" | "success" | "warning" {
+const LIFT = {
+  elevation: 8,
+  shadowColor: "#000000",
+  shadowOffset: { height: 6, width: 0 },
+  shadowOpacity: 0.13,
+  shadowRadius: 16,
+} as const;
+
+type SheetName = "exports" | "food" | "month" | "night" | null;
+
+function rateTone(rate: number | null): "danger" | "neutral" | "success" | "warning" {
+  if (rate === null) {
+    return "neutral";
+  }
+
   if (rate >= 85) {
     return "success";
   }
 
   return rate >= 60 ? "warning" : "danger";
+}
+
+/** `1 bed`, `4 beds`. */
+function plural(value: number, noun: string) {
+  return `${value.toLocaleString("en-IN")} ${noun}${value === 1 ? "" : "s"}`;
+}
+
+function percent(rate: number | null) {
+  return rate === null ? "—" : `${Math.round(rate)}%`;
+}
+
+/** `+20% vs Shrawan` — the line under a listing figure. */
+function changeLine({ current, previous }: MonthCompare, previousName: string) {
+  if (previous === 0) {
+    return current === 0 ? `None in ${previousName} either` : `None in ${previousName}`;
+  }
+
+  const delta = Math.round(((current - previous) / previous) * 100);
+
+  return delta === 0
+    ? `Same as ${previousName}`
+    : `${delta > 0 ? "+" : ""}${delta}% vs ${previousName}`;
 }
 
 /** `1110` → `18:30`. The analytics service reports minutes since midnight. */
@@ -77,10 +119,7 @@ function clockTime(minutes: number | null) {
     return "—";
   }
 
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-
-  return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
 function delayLabel(minutes: number | null) {
@@ -95,68 +134,196 @@ function delayLabel(minutes: number | null) {
   return minutes > 0 ? `${minutes} min late` : `${Math.abs(minutes)} min early`;
 }
 
-function Breakdown({ empty, map }: { empty: string; map: CountMap }) {
-  const entries = Object.entries(map).filter(([, count]) => count > 0);
+/* -------------------------------------------------------------------------- */
+/* Header                                                                     */
+/* -------------------------------------------------------------------------- */
 
-  if (entries.length === 0) {
-    return <Text variant="muted">{empty}</Text>;
-  }
+/**
+ * The month this report is about, and the button that downloads it.
+ *
+ * On the bar's edge because it is what everything under it depends on: change
+ * the month and every figure below changes with it, and the PDF is of this
+ * month. Putting Download beside the month rather than at the foot of a long
+ * scroll is so the answer to "can I get this as a file" is visible on arrival.
+ */
+function MonthCard({
+  caption,
+  downloading,
+  label,
+  onDownload,
+  onPick,
+}: {
+  caption: string;
+  downloading: boolean;
+  /** `null` while the report has not arrived — the card draws skeletons. */
+  label: string | null;
+  onDownload: () => void;
+  onPick: () => void;
+}) {
+  const { colors } = useAppTheme();
 
   return (
-    <View className="flex-row flex-wrap gap-2">
-      {entries.map(([key, count]) => (
-        <Chip key={key} label={`${humanizeEnum(key)} · ${count}`} />
-      ))}
+    <View className="px-5" style={{ marginTop: -STRADDLE }}>
+      <View
+        className="flex-row items-center gap-3 rounded-2xl border border-border bg-card p-3"
+        style={LIFT}
+      >
+        <Pressable
+          accessibilityHint="Choose another month"
+          accessibilityLabel={label ? `Report for ${label}` : "Report month"}
+          accessibilityRole="button"
+          className="flex-1 flex-row items-center gap-3 active:opacity-70"
+          disabled={label === null}
+          onPress={onPick}
+        >
+          <View className="h-10 w-10 items-center justify-center rounded-2xl bg-brand-soft">
+            <Ionicons color={colors.primary} name="calendar-outline" size={18} />
+          </View>
+
+          {label === null ? (
+            <View className="flex-1 gap-1.5">
+              <Skeleton height={14} width="60%" />
+              <Skeleton height={10} width="40%" />
+            </View>
+          ) : (
+            <View className="flex-1">
+              <View className="flex-row items-center gap-1">
+                <Text className="shrink" numberOfLines={1} variant="subtitle">
+                  {label}
+                </Text>
+                <Ionicons color={colors.mutedForeground} name="chevron-down" size={14} />
+              </View>
+              <Text numberOfLines={1} variant="caption">
+                {caption}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+
+        <Button
+          disabled={label === null}
+          icon={Download}
+          label="PDF"
+          loading={downloading}
+          onPress={onDownload}
+          size="sm"
+        />
+      </View>
     </View>
   );
 }
 
-/**
- * Billed against collected, one column per month.
- *
- * Deliberately not a charting library. Twelve pairs of bars is a layout, not a
- * visualisation problem, and every chart package for React Native brings either
- * SVG or a native module for what `View`s with a percentage height already do.
- */
-function CollectionStrip({ points }: { points: ReportsOverview["payments"]["monthly"] }) {
-  const peak = Math.max(1, ...points.map((point) => Math.max(point.due, point.collected)));
+/* -------------------------------------------------------------------------- */
+/* Rent                                                                       */
+/* -------------------------------------------------------------------------- */
 
-  if (points.length === 0) {
-    return <Text variant="muted">No billing history yet.</Text>;
+/**
+ * Billed against collected, six months, the selected one last.
+ *
+ * Six equal columns rather than a scroller: six months always fit a phone, and
+ * a strip that scrolls sideways hides the month the owner picked off the edge.
+ * Plain `View`s with percentage heights — twelve bars is layout, not charting.
+ */
+function TrendBars({ trend }: { trend: PerformanceReport["finance"]["trend"] }) {
+  const dates = useDates();
+  const peak = Math.max(0, ...trend.map((point) => Math.max(point.billed, point.collected)));
+
+  if (peak === 0) {
+    return <Text variant="muted">Nothing was billed in these six months.</Text>;
   }
 
   return (
-    <ScrollView contentContainerClassName="gap-3 pr-2" horizontal showsHorizontalScrollIndicator={false}>
-      {points.map((point) => (
-        <View className="items-center gap-1.5" key={point.month}>
-          <View className="h-24 flex-row items-end gap-1">
+    <View className="gap-3">
+      <View className="flex-row">
+        {trend.map((point, index) => {
+          const selected = index === trend.length - 1;
+
+          return (
             <View
-              className="w-3 rounded-t bg-muted-foreground/40"
-              style={{ height: `${Math.max(2, (point.due / peak) * 100)}%` }}
-            />
-            <View
-              className="w-3 rounded-t bg-primary"
-              style={{ height: `${Math.max(2, (point.collected / peak) * 100)}%` }}
-            />
-          </View>
-          <Text className="text-[10px]" variant="caption">
-            {point.month.slice(5)}
-          </Text>
+              accessibilityLabel={`${dates.period(point.month)}: ${formatMoney(point.collected)} of ${formatMoney(point.billed)}`}
+              className="flex-1 items-center gap-1.5"
+              key={point.month}
+            >
+              <View className="h-24 flex-row items-end gap-1">
+                <View
+                  className="w-2.5 rounded-t bg-muted"
+                  style={{ height: `${Math.max(2, (point.billed / peak) * 100)}%` }}
+                />
+                <View
+                  className={`w-2.5 rounded-t ${selected ? "bg-primary" : "bg-primary/50"}`}
+                  style={{
+                    height: `${Math.max(2, (Math.min(point.collected, peak) / peak) * 100)}%`,
+                  }}
+                />
+              </View>
+              <Text
+                className={`text-[10px] ${selected ? "font-semibold text-foreground" : "text-muted-foreground"}`}
+                numberOfLines={1}
+                variant={null}
+              >
+                {dates.periodMonth(point.month)}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <View className="flex-row items-center gap-4">
+        <View className="flex-row items-center gap-1.5">
+          <View className="h-2.5 w-2.5 rounded-sm bg-muted" />
+          <Text variant="caption">Billed</Text>
         </View>
-      ))}
-    </ScrollView>
+        <View className="flex-row items-center gap-1.5">
+          <View className="h-2.5 w-2.5 rounded-sm bg-primary" />
+          <Text variant="caption">Collected</Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
-/*
- * `ReportsData` and its loader are `adminQuery.reports(month)` — see
- * `lib/admin-queries.ts`.
- */
+/* -------------------------------------------------------------------------- */
+/* Loading                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function ReportsSkeleton() {
+  return (
+    <View className="gap-5 pt-2">
+      <SkeletonCard rows={3} />
+      <SkeletonCard rows={4} />
+      <SkeletonTiles columns={3} />
+      <SkeletonTiles columns={2} />
+    </View>
+  );
+}
+
+function Section({
+  children,
+  subtitle,
+  title,
+}: {
+  children: ReactNode;
+  subtitle?: string;
+  title: string;
+}) {
+  return (
+    <View>
+      <SectionHeader subtitle={subtitle} title={title} />
+      {children}
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Screen                                                                     */
+/* -------------------------------------------------------------------------- */
 
 export default function ManageReportsScreen() {
   const dates = useDates();
+  const { colors } = useAppTheme();
   const [month, setMonth] = useState("");
-  const [tab, setTab] = useState<Tab>("money");
+  const [sheet, setSheet] = useState<SheetName>(null);
+  const [downloading, setDownloading] = useState(false);
   const [exporting, setExporting] = useState<ReportExport | "">("");
 
   const query = adminQuery.reports(month);
@@ -165,26 +332,44 @@ export default function ManageReportsScreen() {
     topics: query.topics,
   });
 
-  const overview = reports.data?.overview ?? null;
-  const months = useMemo(() => [...(overview?.months ?? [])].reverse(), [overview]);
+  const report = reports.data?.report ?? null;
+  const attendance = reports.data?.attendance ?? null;
+  const foodTiming = reports.data?.food ?? null;
 
-  const exportCsv = useCallback(async (report: ReportExport) => {
-    setExporting(report);
+  const downloadPdf = useCallback(async () => {
+    if (!report) {
+      return;
+    }
+
+    setDownloading(true);
 
     try {
-      /*
-       * A download, not a share. These four are spreadsheets an owner keeps and
-       * hands to an accountant, and being asked "share to…" after pressing
-       * Export re-opens a decision they already made. `downloadToDevice` reports
-       * into the global toaster and the notification shade on its own, so
-       * `exporting` is now only here to stop a second tap.
-       */
+      // A download, not a share — `downloadToDevice` reports into the toaster
+      // and the notification shade itself, so this state only stops a second tap.
+      await downloadToDevice({
+        extension: "pdf",
+        fileName: `performance-${report.period.month}`,
+        label: `${dates.period(report.period.month)} report`,
+        mimeType: "application/pdf",
+        url: `${API_BASE_URL}${performanceReportPdfPath(report.period.month)}`,
+      });
+    } catch (error) {
+      toastError("Could not download", readApiError(error, "The report did not download."));
+    } finally {
+      setDownloading(false);
+    }
+  }, [dates, report]);
+
+  const exportCsv = useCallback(async (entry: ReportExport) => {
+    setExporting(entry);
+
+    try {
       await downloadToDevice({
         extension: "csv",
-        fileName: `${report}-report`,
-        label: `${humanizeEnum(report)} report`,
+        fileName: `${entry}-report`,
+        label: `${humanizeEnum(entry)} spreadsheet`,
         mimeType: "text/csv",
-        url: `${API_BASE_URL}/api/v1/hostel-admin/reports/export?report=${report}`,
+        url: `${API_BASE_URL}/api/v1/hostel-admin/reports/export?report=${entry}`,
       });
     } catch (error) {
       toastError("Could not export", readApiError(error, "The export did not download."));
@@ -193,17 +378,30 @@ export default function ManageReportsScreen() {
     }
   }, []);
 
+  const header = (
+    <View className="bg-background">
+      <AppBar accent centerTitle showBack straddle={STRADDLE} title="Reports" />
+      <MonthCard
+        caption={report?.period.isCurrent ? "This month so far" : "Whole month"}
+        downloading={downloading}
+        label={report ? dates.period(report.period.month) : null}
+        onDownload={() => void downloadPdf()}
+        onPick={() => setSheet("month")}
+      />
+    </View>
+  );
+
   if (reports.loading) {
     return (
-      <Screen header={<AppBar accent centerTitle showBack title="Reports" />}>
-        <LoadingState label="Counting everything" />
+      <Screen header={header} scroll>
+        <ReportsSkeleton />
       </Screen>
     );
   }
 
-  if (reports.error || !overview) {
+  if (reports.error || !report) {
     return (
-      <Screen header={<AppBar accent centerTitle showBack title="Reports" />}>
+      <Screen header={header}>
         <ErrorState
           message={reports.error ?? "Reports could not be loaded."}
           onRetry={reports.reload}
@@ -212,486 +410,354 @@ export default function ManageReportsScreen() {
     );
   }
 
-  const { complaints, food, inquiries, maintenance, occupancy, payments, referrals, visibility } =
-    overview;
-  const selected = payments.selectedMonth;
-  const attendance = reports.data?.attendance ?? null;
-  const foodTiming = reports.data?.food ?? null;
+  const { beds, finance, listing, operations, residents } = report;
+  const monthName = dates.periodMonth(report.period.month);
+  const previousName = dates.periodMonth(report.period.previousMonth);
+  const { now, tonight } = residents;
+
+  const detailTiles = [
+    <InfoTile
+      badge={operations.complaints.open}
+      caption={
+        operations.complaints.pastSla > 0
+          ? `${operations.complaints.pastSla} past due`
+          : `${operations.complaints.raised} raised in ${monthName}`
+      }
+      icon="chatbox-ellipses-outline"
+      key="complaints"
+      label="Complaints"
+      onPress={() => router.push("/(admin)/today")}
+      tone={operations.complaints.pastSla > 0 ? "danger" : "warning"}
+    />,
+    <InfoTile
+      badge={operations.repairs.open}
+      caption={`${operations.repairs.completed} done in ${monthName}`}
+      icon="construct-outline"
+      key="repairs"
+      label="Repairs"
+      onPress={() => router.push("/manage/maintenance")}
+      tone="neutral"
+    />,
+    attendance ? (
+      <InfoTile
+        caption="Last 30 days"
+        icon="moon-outline"
+        key="night"
+        label="Night check-ins"
+        onPress={() => setSheet("night")}
+      />
+    ) : null,
+    foodTiming ? (
+      <InfoTile
+        caption="Last 30 days"
+        icon="restaurant-outline"
+        key="food"
+        label="Meal timing"
+        onPress={() => setSheet("food")}
+        tone="success"
+      />
+    ) : null,
+    <InfoTile
+      icon="gift-outline"
+      key="referrals"
+      label="Referrals"
+      onPress={() => router.push("/manage/referrals")}
+      tone="brand"
+    />,
+    <InfoTile
+      caption="CSV"
+      icon="grid-outline"
+      key="exports"
+      label="Spreadsheets"
+      onPress={() => setSheet("exports")}
+      tone="neutral"
+    />,
+  ].filter((tile): tile is NonNullable<typeof tile> => tile !== null);
 
   return (
-    <Screen
-      header={
-        <AppBar
-          accent
-          centerTitle
-          showBack
-          subtitle={`As of ${dates.date(overview.generatedAt)}`}
-          title="Reports"
-        />
-      }
-      onRefresh={reports.refresh}
-      refreshing={reports.refreshing}
-      scroll
-    >
-      <View className="gap-5 pt-1">
-        {/*
-          The four headline figures sit above the tabs rather than inside one:
-          they are the answer to "how is the hostel doing", which is the question
-          somebody opened this screen with, and burying them one tap deep would
-          make the first thing on screen a tab bar.
-        */}
-        <View className="gap-3">
-          <View className="flex-row gap-3">
-            <StatTile
-              icon="bed-outline"
-              label="Occupancy"
-              tone={rateTone(occupancy.occupancyRate)}
-              trend={`${occupancy.occupiedBeds} of ${occupancy.totalBeds} beds`}
-              value={`${occupancy.occupancyRate}%`}
+    <Screen header={header} onRefresh={reports.refresh} refreshing={reports.refreshing} scroll>
+      <View className="gap-6 pt-2">
+        {/* ------------------------------------------------------------ rent */}
+        <Section title="Rent">
+          <View className="gap-3">
+            <DataCard
+              footer={{
+                left:
+                  finance.previous.collectionRate === null
+                    ? `${previousName}: nothing billed`
+                    : `${previousName}: ${percent(finance.previous.collectionRate)}`,
+                pill:
+                  finance.collectionRate === null
+                    ? "Nothing billed"
+                    : `${percent(finance.collectionRate)} collected`,
+                right:
+                  finance.pendingProofs > 0 ? `${plural(finance.pendingProofs, "proof")} to check` : "",
+              }}
+              meta={`Billed for ${monthName}`}
+              onPress={() => router.push("/(admin)/money")}
+              segments={[{ label: "Collected", tone: "brand", value: finance.collected }]}
+              stats={[
+                { label: "Billed", value: formatMoney(finance.billed) },
+                { label: "Collected", value: formatMoney(finance.collected) },
+                { label: "Still owed", value: formatMoney(finance.outstanding) },
+              ]}
+              title={`Rent for ${monthName}`}
+              total={finance.billed}
             />
-            <StatTile
-              icon="trending-up-outline"
-              label="Collected"
-              tone={rateTone(payments.collectionRate)}
-              trend={`${formatMoney(payments.totalPaid)} of ${formatMoney(payments.totalDue)}`}
-              value={`${payments.collectionRate}%`}
-            />
-          </View>
-          <View className="flex-row gap-3">
-            <StatTile
-              icon="cash-outline"
-              label="Outstanding"
-              tone={payments.outstanding > 0 ? "warning" : "success"}
-              trend={`${payments.pendingProofs} proof(s) to check`}
-              value={formatMoney(payments.outstanding)}
-            />
-            <StatTile
-              icon="alert-circle-outline"
-              label="Open issues"
-              tone={complaints.slaBreached > 0 ? "danger" : "neutral"}
-              trend={`${complaints.open} complaint(s), ${maintenance.open} repair(s)`}
-              value={String(complaints.open + maintenance.open)}
-            />
-          </View>
-        </View>
 
-        <View>
-          <SectionHeader
-            subtitle="Aggregates only — no names, phone numbers or addresses"
-            title="Export"
-          />
-          <ScrollView contentContainerClassName="gap-2 pr-4" horizontal showsHorizontalScrollIndicator={false}>
-            {REPORT_EXPORTS.map((entry) => (
-              <Button
-                key={entry.report}
-                label={entry.label}
-                loading={exporting === entry.report}
-                onPress={() => void exportCsv(entry.report)}
-                size="sm"
-                variant="outline"
+            <Card className="gap-4">
+              <TrendBars trend={finance.trend} />
+              <View className="border-t border-border">
+                <FactRow
+                  label="Owed across all months"
+                  value={<Money owed={finance.outstandingAllTime > 0} value={finance.outstandingAllTime} />}
+                />
+              </View>
+            </Card>
+          </View>
+        </Section>
+
+        {/* ------------------------------------------------------- residents */}
+        <Section subtitle="Living here and tonight are as of now" title="Residents">
+          <View className="gap-3">
+            <DataCard
+              footer={{
+                left: `${now.active} active`,
+                right: [
+                  now.pending > 0 ? `${now.pending} pending` : "",
+                  now.suspended > 0 ? `${now.suspended} suspended` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+              }}
+              meta={`${now.total} living here`}
+              onPress={() => router.push("/manage/roll-call")}
+              segments={[
+                { label: `${tonight.inside} inside`, tone: "success", value: tonight.inside },
+                { label: `${tonight.outside} outside`, tone: "neutral", value: tonight.outside },
+              ]}
+              stats={[
+                { label: "Inside", value: String(tonight.inside) },
+                { label: "Outside", value: String(tonight.outside) },
+                { label: "No answer", value: String(tonight.notAnswered) },
+              ]}
+              title="Tonight"
+              total={now.total}
+            />
+
+            <View className="flex-row gap-3">
+              <StatTile
+                icon="log-in-outline"
+                label="Moved in"
+                tone={residents.movedIn > 0 ? "success" : "neutral"}
+                trend={`in ${monthName}`}
+                value={String(residents.movedIn)}
               />
-            ))}
-          </ScrollView>
-        </View>
+              <StatTile
+                icon="log-out-outline"
+                label="Moved out"
+                tone="neutral"
+                trend={`in ${monthName}`}
+                value={String(residents.movedOut)}
+              />
+              <StatTile
+                icon="bed-outline"
+                label="Occupancy"
+                onPress={() => router.push("/manage/rooms")}
+                tone={rateTone(beds.occupancyRate)}
+                trend={`${plural(beds.vacant, "bed")} free`}
+                value={percent(beds.occupancyRate)}
+              />
+            </View>
+          </View>
+        </Section>
 
-        <Segmented
-          onChange={setTab}
-          options={[
-            { label: "Money", value: "money" },
-            { label: "Operations", value: "operations" },
-            { label: "Growth", value: "growth" },
-          ]}
-          value={tab}
-        />
-
-        {/* ---------------------------------------------------------------- */}
-        {tab === "money" ? (
-          <View className="gap-5">
-            <View>
-              <SectionHeader
-                action={
-                  months.length > 0 ? (
-                    <Text variant="caption">{dates.period(selected.month)}</Text>
-                  ) : undefined
+        {/* --------------------------------------------------------- listing */}
+        <Section subtitle={`${monthName} against ${previousName}`} title="Public listing">
+          <View className="gap-3">
+            <View className="flex-row gap-3">
+              <StatTile
+                icon="search-outline"
+                label="Seen in search"
+                trend={changeLine(listing.appearances, previousName)}
+                value={listing.appearances.current.toLocaleString("en-IN")}
+              />
+              <StatTile
+                icon="eye-outline"
+                label="Page views"
+                trend={changeLine(listing.views, previousName)}
+                value={listing.views.current.toLocaleString("en-IN")}
+              />
+            </View>
+            <View className="flex-row gap-3">
+              <StatTile
+                icon="people-outline"
+                label="Visitors"
+                trend={changeLine(listing.visitors, previousName)}
+                value={listing.visitors.current.toLocaleString("en-IN")}
+              />
+              <StatTile
+                icon="chatbubbles-outline"
+                label="Inquiries"
+                onPress={() => router.push("/manage/inquiries")}
+                tone="brand"
+                trend={`${listing.inquiriesConverted} moved in`}
+                value={String(listing.inquiries.current)}
+              />
+            </View>
+            <Card>
+              <FactRow
+                label="Rating"
+                value={
+                  listing.rating.average === null
+                    ? "No reviews yet"
+                    : `★ ${listing.rating.average.toFixed(1)} · ${plural(listing.rating.total, "review")}`
                 }
-                subtitle="Billed against collected, month by month"
-                title="Collection"
               />
-              <Card className="gap-4">
-                <CollectionStrip points={payments.monthly} />
+            </Card>
+          </View>
+        </Section>
 
-                <View className="flex-row items-center gap-3">
-                  <Chip label="Billed" />
-                  <Chip label="Collected" tone="brand" />
-                </View>
+        {/* --------------------------------------------------------- details */}
+        <Section title="Details">
+          <Grid maxColumns={3}>{detailTiles}</Grid>
+        </Section>
 
-                <View className="gap-2 border-t border-border pt-3">
-                  <View className="flex-row items-center justify-between">
-                    <Text variant="label">This month billed</Text>
-                    <Money value={selected.totalDue} />
-                  </View>
-                  <View className="flex-row items-center justify-between">
-                    <Text variant="label">Collected</Text>
-                    <Money value={selected.totalPaid} />
-                  </View>
-                  <View className="flex-row items-center justify-between">
-                    <Text variant="label">Still owed</Text>
-                    <Money owed value={selected.outstanding} />
-                  </View>
-                  <Meter
-                    label={`${selected.collectionRate}% collected`}
-                    percent={selected.collectionRate}
-                  />
-                </View>
-              </Card>
+        <Text className="text-center" variant="caption">
+          {`Figures as of ${dates.dateTime(report.generatedAt)}`}
+        </Text>
+      </View>
+
+      {/* ----------------------------------------------------------- sheets */}
+      <Sheet bare onClose={() => setSheet(null)} open={sheet === "month"} title="Report month">
+        {report.period.months.map((option, index) => {
+          const selected = option === report.period.month;
+
+          return (
+            <SheetRow
+              key={option}
+              label={dates.period(option)}
+              onPress={() => {
+                setSheet(null);
+                // The current month is the default key, so picking it again
+                // reuses the cached report instead of fetching it twice.
+                setMonth(index === 0 ? "" : option);
+              }}
+              selected={selected}
+              subtitle={index === 0 ? "This month so far" : undefined}
+              trailing={
+                selected ? <Ionicons color={colors.primary} name="checkmark" size={20} /> : undefined
+              }
+            />
+          );
+        })}
+      </Sheet>
+
+      <Sheet bare onClose={() => setSheet(null)} open={sheet === "exports"} title="Spreadsheets">
+        {REPORT_EXPORTS.map((entry) => (
+          <SheetRow
+            key={entry.report}
+            label={entry.label}
+            onPress={() => {
+              if (!exporting) {
+                void exportCsv(entry.report);
+              }
+            }}
+            subtitle="CSV, all months. No phone numbers or addresses"
+            trailing={<Ionicons color={colors.mutedForeground} name="download-outline" size={20} />}
+          />
+        ))}
+      </Sheet>
+
+      <Sheet onClose={() => setSheet(null)} open={sheet === "night"} title="Night check-ins">
+        {attendance ? (
+          <View className="gap-4 pb-2">
+            <Text variant="caption">
+              {`Last ${attendance.summary.windowDays} days · ${plural(attendance.summary.pings, "check-in")}`}
+            </Text>
+            <Meter
+              label={`${Math.round(attendance.summary.averageAttendanceRate * 100)}% accounted for`}
+              percent={attendance.summary.averageAttendanceRate * 100}
+            />
+            <View className="flex-row flex-wrap gap-2">
+              <Chip label={`Inside · ${attendance.summary.zones.inside}`} tone="brand" />
+              <Chip label={`Nearby · ${attendance.summary.zones.nearby}`} />
+              <Chip label={`Outside · ${attendance.summary.zones.outside}`} />
             </View>
 
-            {months.length > 1 ? (
-              <View>
-                <SectionHeader subtitle="Report on an earlier billing month" title="Month" />
-                <ScrollView
-                  contentContainerClassName="gap-2 pr-4"
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                >
-                  <Chip
-                    label="Latest"
-                    onPress={() => setMonth("")}
-                    tone={month === "" ? "brand" : "neutral"}
-                  />
-                  {months.map((option) => (
-                    <Chip
-                      key={option}
-                      label={dates.period(option)}
-                      onPress={() => setMonth(option)}
-                      tone={month === option ? "brand" : "neutral"}
+            {attendance.frequentlyAbsent.length > 0 ? (
+              <View className="gap-3 border-t border-border pt-3">
+                <Text variant="label">Most often away</Text>
+                {attendance.frequentlyAbsent.slice(0, 5).map((resident) => (
+                  <View className="flex-row items-center justify-between gap-3" key={resident.residentId}>
+                    <View className="flex-1">
+                      <Text numberOfLines={1}>{resident.name}</Text>
+                      <Text variant="caption">
+                        {`Away ${resident.outside} of ${plural(resident.total, "night")}`}
+                      </Text>
+                    </View>
+                    <Badge
+                      label={`${Math.round(resident.attendanceRate * 100)}%`}
+                      tone={resident.attendanceRate < 0.5 ? "warning" : "neutral"}
                     />
-                  ))}
-                </ScrollView>
+                  </View>
+                ))}
               </View>
             ) : null}
 
-            <View>
-              <SectionHeader title="How people pay" />
-              <Card className="gap-3">
-                <View className="gap-2">
-                  <Text variant="label">By status</Text>
-                  <Breakdown empty="No payment records yet." map={payments.byStatus} />
-                </View>
-                <View className="gap-2 border-t border-border pt-3">
-                  <Text variant="label">By method</Text>
-                  <Breakdown empty="No method recorded yet." map={payments.byMethod} />
-                </View>
-              </Card>
-            </View>
-
-            <View>
-              <SectionHeader
-                subtitle="The last few entries in the ledger"
-                title="Recent payments"
-              />
-              <Card className="gap-3">
-                {payments.recent.length === 0 ? (
-                  <Text variant="muted">No payments recorded yet.</Text>
-                ) : (
-                  payments.recent.slice(0, 6).map((row, index, rows) => (
-                    <View
-                      /*
-                       * The divider is drawn per row and skipped on the last —
-                       * NativeWind compiles a class list at bundle time and has
-                       * no `last:` variant, so a `last:border-b-0` here would
-                       * silently resolve to nothing and leave a hairline under
-                       * the final row.
-                       */
-                      className={`flex-row items-center justify-between gap-3 ${
-                        index === rows.length - 1 ? "" : "border-b border-border pb-3"
-                      }`}
-                      key={row.id}
-                    >
-                      <View className="flex-1">
-                        <Text numberOfLines={1} variant="label">
-                          {row.residentName}
-                        </Text>
-                        <Text variant="caption">
-                          {`${dates.period(row.month)} · ${row.roomType || "—"}${row.method ? ` · ${humanizeEnum(row.method)}` : ""}`}
-                        </Text>
-                      </View>
-                      <View className="items-end">
-                        <Money value={row.paidAmount} />
-                        <Badge
-                          label={humanizeEnum(row.status)}
-                          tone={row.status === "PAID" ? "success" : "warning"}
-                        />
-                      </View>
-                    </View>
-                  ))
-                )}
-              </Card>
-            </View>
+            <Text variant="caption">
+              Zones only — a check-in says inside, nearby or outside, never where.
+            </Text>
           </View>
         ) : null}
+      </Sheet>
 
-        {/* ---------------------------------------------------------------- */}
-        {tab === "operations" ? (
-          <View className="gap-5">
-            <View>
-              <SectionHeader
-                subtitle={
-                  complaints.averageResolutionDays === null
-                    ? "Nothing resolved yet"
-                    : `Resolved in ${complaints.averageResolutionDays} day(s) on average`
-                }
-                title="Complaints"
+      <Sheet onClose={() => setSheet(null)} open={sheet === "food"} title="Meal timing">
+        {foodTiming ? (
+          <View className="gap-4 pb-2">
+            <View className="flex-row gap-3">
+              <StatTile
+                icon="notifications-outline"
+                label="Announced"
+                value={String(foodTiming.summary.totalAnnouncements)}
               />
-              <Card className="gap-3">
-                <View className="flex-row gap-3">
-                  <StatTile
-                    icon="chatbox-ellipses-outline"
-                    label="Open"
-                    tone={complaints.open > 0 ? "warning" : "success"}
-                    value={String(complaints.open)}
-                  />
-                  <StatTile
-                    icon="checkmark-done-outline"
-                    label="Resolved"
-                    tone="success"
-                    value={String(complaints.resolved)}
-                  />
-                  <StatTile
-                    icon="time-outline"
-                    label="Past SLA"
-                    tone={complaints.slaBreached > 0 ? "danger" : "neutral"}
-                    value={String(complaints.slaBreached)}
-                  />
-                </View>
-                <Breakdown empty="Nothing raised yet." map={complaints.byCategory} />
-              </Card>
+              <StatTile
+                icon="checkmark-circle-outline"
+                label="On time"
+                tone="success"
+                value={String(foodTiming.summary.onTimeAnnouncements)}
+              />
+              <StatTile
+                icon="time-outline"
+                label="Late"
+                tone={foodTiming.summary.lateAnnouncements > 0 ? "warning" : "neutral"}
+                value={String(foodTiming.summary.lateAnnouncements)}
+              />
             </View>
 
-            <View>
-              <SectionHeader title="Maintenance" />
-              <Card className="gap-3">
-                <View className="flex-row gap-3">
-                  <StatTile
-                    icon="construct-outline"
-                    label="Open"
-                    tone={maintenance.open > 0 ? "warning" : "success"}
-                    value={String(maintenance.open)}
-                  />
-                  <StatTile
-                    icon="checkmark-circle-outline"
-                    label="Completed"
-                    tone="success"
-                    value={String(maintenance.completed)}
-                  />
-                  <StatTile
-                    icon="list-outline"
-                    label="All time"
-                    value={String(maintenance.total)}
-                  />
-                </View>
-                <Breakdown empty="No repairs logged." map={maintenance.byCategory} />
-              </Card>
-            </View>
-
-            <View>
-              <SectionHeader
-                subtitle={
-                  attendance
-                    ? `Last ${attendance.summary.windowDays} days · ${attendance.summary.pings} check-in(s)`
-                    : "Not available"
-                }
-                title="Night status"
-              />
-              <Card className="gap-3">
-                {attendance === null ? (
-                  <Text variant="muted">
-                    This account cannot read attendance analytics.
+            {foodTiming.byMeal.map((meal) => (
+              <View className="flex-row items-center justify-between gap-3" key={meal.mealType}>
+                <View className="flex-1">
+                  <Text variant="label">{humanizeEnum(meal.mealType)}</Text>
+                  <Text variant="caption">
+                    {`Usually ready ${clockTime(meal.averageReadyMinutes)}${meal.scheduledTiming ? ` · scheduled ${meal.scheduledTiming}` : ""}`}
                   </Text>
-                ) : (
-                  <>
-                    <Meter
-                      label={`${Math.round(attendance.summary.averageAttendanceRate * 100)}% accounted for`}
-                      percent={attendance.summary.averageAttendanceRate * 100}
-                    />
-                    <Breakdown
-                      empty="No check-ins in the window."
-                      map={attendance.summary.zones}
-                    />
-                    <Text variant="caption">
-                      Zones only. A check-in records inside, nearby or outside — the
-                      coordinates are discarded as it lands, so this can say when
-                      somebody was away and never where they were.
-                    </Text>
-
-                    {attendance.frequentlyAbsent.length > 0 ? (
-                      <View className="gap-2 border-t border-border pt-3">
-                        <Text variant="label">Most often away</Text>
-                        {attendance.frequentlyAbsent.slice(0, 5).map((resident) => (
-                          <View
-                            className="flex-row items-center justify-between gap-3"
-                            key={resident.residentId}
-                          >
-                            <View className="flex-1">
-                              <Text numberOfLines={1}>{resident.name}</Text>
-                              <Text variant="caption">
-                                {`${resident.outside} away of ${resident.total} night(s)`}
-                              </Text>
-                            </View>
-                            <Badge
-                              label={`${Math.round(resident.attendanceRate * 100)}%`}
-                              tone={resident.attendanceRate < 0.5 ? "warning" : "neutral"}
-                            />
-                          </View>
-                        ))}
-                      </View>
-                    ) : null}
-                  </>
-                )}
-              </Card>
-            </View>
-
-            <View>
-              <SectionHeader
-                subtitle={
-                  food.averageRating === null
-                    ? "No feedback yet"
-                    : `${food.averageRating.toFixed(1)} ★ from ${food.feedbackCount} rating(s)`
-                }
-                title="Food"
-              />
-              <Card className="gap-3">
-                {foodTiming === null ? (
-                  <Text variant="muted">
-                    Meal-timing analytics need the food permission, which this account
-                    does not have.
-                  </Text>
-                ) : (
-                  <>
-                    <View className="flex-row gap-3">
-                      <StatTile
-                        icon="notifications-outline"
-                        label="Announced"
-                        value={String(foodTiming.summary.totalAnnouncements)}
-                      />
-                      <StatTile
-                        icon="checkmark-circle-outline"
-                        label="On time"
-                        tone="success"
-                        value={String(foodTiming.summary.onTimeAnnouncements)}
-                      />
-                      <StatTile
-                        icon="time-outline"
-                        label="Late"
-                        tone={foodTiming.summary.lateAnnouncements > 0 ? "warning" : "neutral"}
-                        value={String(foodTiming.summary.lateAnnouncements)}
-                      />
-                    </View>
-
-                    {foodTiming.byMeal.map((meal) => (
-                      <View
-                        className="flex-row items-center justify-between gap-3"
-                        key={meal.mealType}
-                      >
-                        <View className="flex-1">
-                          <Text variant="label">{humanizeEnum(meal.mealType)}</Text>
-                          <Text variant="caption">
-                            {`Usually ready ${clockTime(meal.averageReadyMinutes)}${meal.scheduledTiming ? ` · scheduled ${meal.scheduledTiming}` : ""}`}
-                          </Text>
-                        </View>
-                        <Badge
-                          label={delayLabel(meal.averageDelayMinutes)}
-                          tone={
-                            meal.averageDelayMinutes === null
-                              ? "neutral"
-                              : meal.averageDelayMinutes > 10
-                                ? "warning"
-                                : "success"
-                          }
-                        />
-                      </View>
-                    ))}
-                  </>
-                )}
-              </Card>
-            </View>
-          </View>
-        ) : null}
-
-        {/* ---------------------------------------------------------------- */}
-        {tab === "growth" ? (
-          <View className="gap-5">
-            <View>
-              <SectionHeader
-                subtitle={`${inquiries.converted} of ${inquiries.total} became residents`}
-                title="Inquiries"
-              />
-              <Card className="gap-3">
-                <Meter
-                  label={`${Math.round(inquiries.conversionRate)}% converted`}
-                  percent={inquiries.conversionRate}
+                </View>
+                <Badge
+                  label={delayLabel(meal.averageDelayMinutes)}
+                  tone={
+                    meal.averageDelayMinutes === null
+                      ? "neutral"
+                      : meal.averageDelayMinutes > 10
+                        ? "warning"
+                        : "success"
+                  }
                 />
-                <Breakdown empty="No inquiries yet." map={inquiries.byStatus} />
-              </Card>
-            </View>
-
-            <View>
-              <SectionHeader
-                subtitle="How often the public listing is opened"
-                title="Visibility"
-              />
-              <Card>
-                <View className="flex-row gap-3">
-                  <StatTile
-                    icon="eye-outline"
-                    label="30 days"
-                    value={String(visibility.publicViewsLast30Days)}
-                  />
-                  <StatTile
-                    icon="people-outline"
-                    label="Visitors"
-                    value={String(visibility.uniquePublicVisitors)}
-                  />
-                  <StatTile
-                    icon="albums-outline"
-                    label="All time"
-                    value={String(visibility.totalPublicViews)}
-                  />
-                </View>
-              </Card>
-            </View>
-
-            <View>
-              <SectionHeader
-                subtitle={`${referrals.joined} of ${referrals.total} referrals joined`}
-                title="Referrals"
-              />
-              <Card className="gap-3">
-                <View className="flex-row items-center justify-between">
-                  <Text variant="label">Rewards promised</Text>
-                  <Money value={referrals.rewardTotalAmount} />
-                </View>
-                <View className="flex-row items-center justify-between">
-                  <Text variant="label">Approved</Text>
-                  <Money value={referrals.rewardApprovedAmount} />
-                </View>
-                <View className="flex-row items-center justify-between">
-                  <Text variant="label">Paid out</Text>
-                  <Money value={referrals.rewardPaidAmount} />
-                </View>
-                <Breakdown empty="Nobody has referred anyone yet." map={referrals.byStatus} />
-              </Card>
-            </View>
-
-            <View>
-              <SectionHeader subtitle="Where residents are tonight" title="Night status now" />
-              <Card>
-                <Breakdown empty="Nothing recorded tonight." map={overview.nightStatus} />
-              </Card>
-            </View>
+              </View>
+            ))}
           </View>
         ) : null}
-      </View>
+      </Sheet>
     </Screen>
   );
 }

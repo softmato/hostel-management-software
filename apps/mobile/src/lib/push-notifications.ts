@@ -78,7 +78,9 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
-import { api } from "@/lib/api";
+import { api, API_BASE_URL } from "@/lib/api";
+import { APP_DRAWS_CATEGORY_PUSHES } from "@/lib/drawn-push";
+import { configureNativeNightPrompt } from "@/lib/night-prompt-native";
 import { registerNightStatusCategory } from "@/lib/night-status-notification";
 import { claimNotificationSound } from "@/lib/notification-sound";
 import { palette } from "@/constants/theme";
@@ -396,6 +398,9 @@ export async function registerPushToken(
    */
   await registerNightStatusCategory();
 
+  // Before the token is sent, so it is in place before the first prompt.
+  configureNativeNightPrompt(API_BASE_URL);
+
   const token = await fetchExpoPushToken();
 
   if (!token) {
@@ -408,6 +413,12 @@ export async function registerPushToken(
 
   try {
     await api.post("/mobile/device-token", {
+      /*
+       * Android only: this build draws a data-only push with buttons itself,
+       * so the server may send it that way. iOS draws the buttons from APNs and
+       * must keep the ordinary message. See `lib/drawn-push.ts`.
+       */
+      capabilities: Platform.OS === "android" ? [APP_DRAWS_CATEGORY_PUSHES] : [],
       // `deviceTokenSaveSchema` accepts IOS | ANDROID | WEB. Neither of the
       // other two can be reached from this app, and an unrecognised value is a
       // 400 that would read as a token problem.

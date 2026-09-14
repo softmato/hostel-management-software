@@ -43,12 +43,21 @@ const nightStatusPromptSchema = new Schema(
      * optional later chase at `remindAfterMinutes`, claimed separately so
      * sending one never consumes the other's slot.
      */
+    /**
+     * `PROMPT` for the first round of a night, `REMINDER_<n>` for round n.
+     *
+     * The round lives in this string, not only in `round`, because the unique
+     * index below is on `kind` and is already built in production: a plain
+     * `REMINDER` for every later round would make round 2 collide with round 1
+     * and silently never send. No enum, for the same reason.
+     */
     kind: {
       default: "PROMPT",
-      enum: ["PROMPT", "REMINDER"],
       required: true,
       type: String,
     },
+    /** Which round of asking this was: 0 at the hostel's hour, then 1, 2, … */
+    round: { default: 0, min: 0, type: Number },
     /** The hostel's own setting at send time, quoted in the message. */
     promptTime: { trim: true, type: String },
     /** How many residents this actually reached. Read by the cron's report. */

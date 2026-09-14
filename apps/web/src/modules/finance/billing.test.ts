@@ -275,6 +275,23 @@ describe("skips and failures are returned, never swallowed", () => {
     ]);
   });
 
+  it("skips a month already paid before the hostel joined, and bills the month after", async () => {
+    // An existing resident added with "Rent paid till Bhadra 2083".
+    mocks.residentFind.mockReturnValue(lean([resident({ paidTill: BHADRA })]));
+
+    const bhadraRun = await runBillingCycle({ hostelId, period: BHADRA }, principal);
+
+    expect(mocks.invoiceCreate).not.toHaveBeenCalled();
+    expect(bhadraRun.skipped).toEqual([
+      { reason: "PAID_BEFORE_JOINING", residentId: residentA.toString() },
+    ]);
+
+    const aswinRun = await runBillingCycle({ hostelId, period: "2083-06" }, principal);
+
+    expect(aswinRun.billed).toHaveLength(1);
+    expect(aswinRun.totalBilled).toBe(12000);
+  });
+
   it("reports an unmappable room type rather than guessing a rate", async () => {
     mocks.residentFind.mockReturnValue(
       lean([resident({ bedType: null, roomType: "Shared" })]),

@@ -39,7 +39,42 @@
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 
-import { handleNightStatusResponse } from "@/lib/night-status-notification";
+import { readDrawnPush, type DrawnPush } from "@/lib/drawn-push";
+import {
+  handleNightStatusResponse,
+  registerNightStatusCategory,
+} from "@/lib/night-status-notification";
+
+/**
+ * Put a data-only push in the shade, with its category's buttons.
+ *
+ * The category is re-declared first. This may be a cold process the OS started
+ * for this message alone, on an install whose last launch predates the
+ * category — and a local notification naming a category Android has not been
+ * told about is drawn without buttons, which is the bug this path exists to
+ * fix. Re-declaring an existing category is a no-op write.
+ *
+ * The identifier is the push's notification row when it has one, otherwise the
+ * category: a reminder then replaces the unanswered prompt instead of stacking
+ * a second copy of the same question under it.
+ */
+async function drawPush(push: DrawnPush) {
+  await registerNightStatusCategory();
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      body: push.body,
+      categoryIdentifier: push.categoryId,
+      data: push.data,
+      title: push.title,
+    },
+    identifier:
+      typeof push.data.notificationId === "string" && push.data.notificationId
+        ? push.data.notificationId
+        : push.categoryId,
+    trigger: push.channelId ? { channelId: push.channelId } : null,
+  });
+}
 
 /**
  * Names the task in the OS's own registry, so it survives an app upgrade and
@@ -66,14 +101,21 @@ TaskManager.defineTask<Notifications.NotificationTaskPayload>(
 
     /*
      * The payload is a union: a *response* when a button was tapped, and a bare
-     * notification when one merely arrived. Only the first is ours — a
-     * notification that arrived and was not answered is not an answer, and
-     * treating it as one would mark residents present for having a phone.
+     * message when one merely arrived. A message that arrived is never an
+     * answer — treating it as one would mark residents present for having a
+     * phone — but it may be the prompt itself, sent data-only so that this
+     * process can draw it with its buttons. See `lib/drawn-push.ts`.
      *
      * `"actionIdentifier" in data` is the discriminator the library's own
      * example uses.
      */
     if (!("actionIdentifier" in data)) {
+      const drawn = readDrawnPush(data);
+
+      if (drawn) {
+        await drawPush(drawn).catch(() => undefined);
+      }
+
       return;
     }
 

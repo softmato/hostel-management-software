@@ -1,5 +1,6 @@
 import type { Types } from "mongoose";
 
+import { signPurposeToken } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { sendPushToUsers } from "@/modules/notifications/push.service";
@@ -11,10 +12,10 @@ import { ResidentModel } from "@hostel/db/models/Resident";
 import {
   DEFAULT_PROMPT_TIME,
   formatPromptTime,
+  nightEndsAt,
   nightKey,
   parsePromptTime,
-  promptIsDue,
-  reminderIsDue,
+  promptRound,
 } from "@hostel/shared/night/night-window";
 
 /**
@@ -50,9 +51,19 @@ import {
  * scheduler with everything else (`docs/CRON.md`). Same shape, same reasoning,
  * as `meal-call-reminder.service.ts`, which this deliberately mirrors.
  *
- * That cadence is why {@link promptIsDue} asks a *window* question rather than
- * an instant one, and why each send is claimed in `NightStatusPrompt` before it
- * goes out. See that model for the failure it prevents.
+ * That cadence is why the question is "which round of asking is this?"
+ * ({@link promptRound}) rather than "is it exactly 20:00", and why each round is
+ * claimed in `NightStatusPrompt` before it goes out. See that model for the
+ * failure it prevents.
+ *
+ * ## Asked again until answered
+ *
+ * Whoever has not answered is asked again every `repeatEveryMinutes` (30 by
+ * default) until five hours after the hostel's hour or 01:00, whichever comes
+ * first. Each round replaces the unanswered notification on Android rather than
+ * stacking a second one under it — same tag in `modules/hostelhub-night-prompt`,
+ * same identifier in the JavaScript path. Only the first round writes a bell
+ * row; a bell holding ten copies of one question is the bell nobody opens.
  *
  * ## Who is skipped, and why each one
  *
@@ -87,7 +98,7 @@ type SettingsRecord = {
     nightStatus?: {
       promptEnabled?: boolean;
       promptTime?: string;
-      remindAfterMinutes?: number;
+      repeatEveryMinutes?: number;
     };
   };
   hostelId: Types.ObjectId;
@@ -104,10 +115,12 @@ type ResidentRecord = {
 export type PromptCandidate = {
   hostelId: Types.ObjectId;
   /**
-   * `PROMPT` is the hostel's own hour. `REMINDER` is the optional later chase,
-   * claimed under its own key so sending one never consumes the other's slot.
+   * `PROMPT` is round 0, at the hostel's own hour. `REMINDER` is every round
+   * after it, for whoever still has not answered.
    */
   kind: "PROMPT" | "REMINDER";
+  /** Which round of tonight's asking this is; see `promptRound`. */
+  round: number;
   /** The hostel's own setting, quoted back in the message. */
   promptTime: string;
 };
@@ -155,19 +168,15 @@ export function duePrompts(
       continue;
     }
 
-    if (promptIsDue(promptTime, now)) {
-      candidates.push({ hostelId: row.hostelId, kind: "PROMPT", promptTime });
-      continue;
-    }
+    const round = promptRound(promptTime, config?.repeatEveryMinutes, now);
 
-    /*
-     * The chase, for whoever still has not answered. Off by default and only
-     * reachable once the first ask's window has closed — `continue` above means
-     * a hostel is never a candidate for both in one run, which would claim two
-     * rows and send two notifications inside the same minute.
-     */
-    if (reminderIsDue(promptTime, config?.remindAfterMinutes, now)) {
-      candidates.push({ hostelId: row.hostelId, kind: "REMINDER", promptTime });
+    if (round !== null) {
+      candidates.push({
+        hostelId: row.hostelId,
+        kind: round === 0 ? "PROMPT" : "REMINDER",
+        promptTime,
+        round,
+      });
     }
   }
 
@@ -213,6 +222,46 @@ export function promptMessage(promptTime: string, kind: "PROMPT" | "REMINDER" = 
  * reason that file's is not free to change.
  */
 export const NIGHT_STATUS_CATEGORY = "night-status";
+
+/** Where a button on the prompt posts, with the token below instead of a session. */
+export const NIGHT_STATUS_ANSWER_PATH = "/api/v1/resident/night-status/answer";
+
+/**
+ * What one resident's copy of the prompt carries so its buttons can answer.
+ *
+ * ## Why the push carries its own credential
+ *
+ * The prompt is answered from the shade, usually hours after the app last ran.
+ * The phone's access token lives fifteen minutes, so by eight o'clock it has
+ * expired, and refreshing it from a background process races the app's own
+ * rotation — which is how a resident gets logged out for answering. Every
+ * answer tapped on a real phone was coming back 401 and waiting in a queue for
+ * the next time the app was opened.
+ *
+ * So each resident's copy carries a token good for exactly one thing: setting
+ * that resident's night status, in that hostel, for that night. It expires when
+ * the night does, it is signed as a purpose token so it can never pass as an
+ * access token, and it opens nothing else.
+ */
+export async function nightAnswerData(
+  input: { hostelId: string; night: string; userId: string },
+  now: Date = new Date(),
+) {
+  const ttlSeconds = Math.max(
+    60,
+    Math.floor((nightEndsAt(input.night).getTime() - now.getTime()) / 1000),
+  );
+
+  return {
+    answerPath: NIGHT_STATUS_ANSWER_PATH,
+    answerToken: await signPurposeToken({
+      claims: { hostelId: input.hostelId, night: input.night },
+      purpose: "night-status-answer",
+      ttlSeconds,
+      userId: input.userId,
+    }),
+  };
+}
 
 /**
  * Sends tonight's prompts. Idempotent per hostel and night.
@@ -345,20 +394,40 @@ export async function runNightStatusPrompts(
      * this one, retried — already holds this night, and losing that race is a
      * successful outcome rather than an error to report.
      */
+    /*
+     * Whether anybody in this hostel has been asked tonight yet. Usually the
+     * same as "round 0", but not after a missed run or a prompt switched on at
+     * 21:40: whoever is asked first must get the question, not "still waiting".
+     */
+    const firstOfNight = !(await NightStatusPromptModel.exists({
+      hostelId: candidate.hostelId,
+      night,
+    }));
+
     try {
       await NightStatusPromptModel.create({
         hostelId: candidate.hostelId,
-        kind: candidate.kind,
+        /*
+         * The round is folded into `kind` because `kind` is what the unique
+         * index covers — `{ hostelId, night, kind }`, already built in
+         * production. A separate `round` field would need that index dropped
+         * first, or every round after the first would collide on "REMINDER".
+         */
+        kind: candidate.round === 0 ? "PROMPT" : `REMINDER_${candidate.round}`,
         night,
         notifiedCount: userIds.length,
         promptTime: candidate.promptTime,
+        round: candidate.round,
       });
     } catch {
       skipped += 1;
       continue;
     }
 
-    const { body, title } = promptMessage(candidate.promptTime, candidate.kind);
+    const { body, title } = promptMessage(
+      candidate.promptTime,
+      firstOfNight ? "PROMPT" : "REMINDER",
+    );
 
     /*
      * The bell row, one per resident, with the same three answers as buttons.
@@ -375,7 +444,7 @@ export async function runNightStatusPrompts(
      * from.
      */
     await Promise.all(
-      userIds.map((userId) =>
+      (firstOfNight ? userIds : []).map((userId) =>
         createInAppNotification({
           actions: [
             {
@@ -412,12 +481,22 @@ export async function runNightStatusPrompts(
       ),
     );
 
+    const dataByUser = Object.fromEntries(
+      await Promise.all(
+        userIds.map(async (userId) => [
+          userId,
+          await nightAnswerData({ hostelId, night, userId }, now),
+        ]),
+      ),
+    );
+
     const result = await sendPushToUsers(userIds, {
       body,
       category: "NIGHT_STATUS",
       /* The buttons. Everything above is what happens when they are not there. */
       categoryId: NIGHT_STATUS_CATEGORY,
       data: { kind: candidate.kind, night, promptTime: candidate.promptTime },
+      dataByUser,
       hostelId,
       priority: "NORMAL",
       title,

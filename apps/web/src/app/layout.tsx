@@ -6,6 +6,7 @@ import { NotificationSoundListener } from "@/components/notification-sound-liste
 import { QueryProvider } from "@/components/query-provider";
 import { SiteConfigProvider } from "@/components/site-config-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ResidencyInvitePrompt } from "@/components/residency-invite-prompt";
 import { Toaster } from "@/components/toaster";
 import { siteUrl } from "@/lib/site";
 import { loadSiteConfig } from "@/lib/site-config-server";
@@ -79,6 +80,8 @@ export default async function RootLayout({
           <Toaster />
           {/* Plays our tone for a push when a tab is open to play it. */}
           <NotificationSoundListener />
+          {/* "Your hostel added you as a resident" — asked once, on any page. */}
+          <ResidencyInvitePrompt />
         </ThemeProvider>
       </body>
     </html>

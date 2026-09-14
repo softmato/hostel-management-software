@@ -20,6 +20,7 @@ import { AssetViewer } from "@/components/asset-viewer";
 import { BootSplashCover, BrandSplash } from "@/components/brand-splash";
 import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { UploadToaster } from "@/components/upload-toaster";
+import { ResidencyInviteHost } from "@/components/residency-invite-host";
 import { useAppDispatch } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { usePush } from "@/hooks/use-push";
@@ -379,6 +380,8 @@ function RootShell() {
         <Stack.Screen name="complaints/[id]" />
         {/* Reached from More and from the dashboard's night-status card. */}
         <Stack.Screen name="night-status" />
+        {/* The resident's own record of those answers, night by night. */}
+        <Stack.Screen name="night-status-history" />
         {/*
           What the app has recorded about where the resident was, and the two
           controls over it. At the root beside `night-status` because the two are
@@ -440,6 +443,7 @@ function RootShell() {
         <Stack.Screen name="manage/finance/payment-setup" />
         <Stack.Screen name="manage/finance/gateway/[provider]" />
         <Stack.Screen name="manage/statements" />
+        <Stack.Screen name="manage/existing-residents" />
         <Stack.Screen name="manage/resident/[id]" />
         {/* Bottom, like every other "fill this in and finish" form in the app. */}
         <Stack.Screen
@@ -508,6 +512,12 @@ function RootShell() {
         navigator — this one has to draw over the tab bar and the SOS button.
       */}
       <AssetViewer />
+
+      {/*
+        "Your hostel added you as a resident" — at the root so it reaches a
+        signed-in public account on any screen, and on the way back from a push.
+      */}
+      <ResidencyInviteHost />
       </BlurTargetView>
 
       {/*

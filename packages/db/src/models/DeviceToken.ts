@@ -58,6 +58,19 @@ const deviceTokenSchema = new Schema(
      * subscribed" can tell which one to turn off. Never used for delivery.
      */
     userAgent: { trim: true, type: String },
+    /**
+     * What this install's JavaScript says it can do, re-sent on every
+     * registration so an upgrade or a downgrade corrects it.
+     *
+     * Exists for one delivery decision in `push.service.ts`: an Android message
+     * that should carry action buttons has to go out **data-only** so the app
+     * draws it — a message with a title is drawn by the OS itself, which never
+     * looks at the app's categories. A build that cannot draw it would receive
+     * that data-only message and show nothing at all, so it is only ever sent to
+     * a row that declared it. Empty on every row written before this existed,
+     * which is exactly the set of builds that must keep the ordinary message.
+     */
+    capabilities: { default: [], type: [String] },
     lastSeenAt: { default: Date.now, type: Date },
     status: {
       default: "ACTIVE",

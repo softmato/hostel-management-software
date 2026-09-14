@@ -1,9 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { readApiError } from "@/lib/api-contract";
@@ -253,27 +251,14 @@ export function CommentThread({
                       </View>
 
                       {replyingTo === comment.id ? (
-                        <View className="mt-1 gap-2">
-                          <Input
+                        <View className="mt-1">
+                          <CommentInput
                             autoFocus
-                            maxLength={MAX_COMMENT_BODY}
-                            multiline
+                            busy={replying}
                             onChangeText={setReplyDraft}
+                            onSend={() => void submitReply(comment.id)}
                             placeholder="Write a reply…"
-                            style={{
-                              height: 60,
-                              paddingTop: 10,
-                              textAlignVertical: "top",
-                            }}
                             value={replyDraft}
-                          />
-                          <Button
-                            className="self-end"
-                            disabled={!replyDraft.trim()}
-                            label="Reply"
-                            loading={replying}
-                            onPress={() => void submitReply(comment.id)}
-                            size="sm"
                           />
                         </View>
                       ) : null}
@@ -284,6 +269,68 @@ export function CommentThread({
             </View>
           );
         })}
+    </View>
+  );
+}
+
+/**
+ * The comment and reply field: a filled pill with its send button inside it,
+ * instead of a bordered box with a button stacked under it.
+ */
+export function CommentInput({
+  autoFocus,
+  busy,
+  onChangeText,
+  onSend,
+  placeholder,
+  value,
+}: {
+  autoFocus?: boolean;
+  busy: boolean;
+  onChangeText: (text: string) => void;
+  onSend: () => void;
+  placeholder: string;
+  value: string;
+}) {
+  const { colors } = useAppTheme();
+  const ready = value.trim().length > 0 && !busy;
+
+  return (
+    <View
+      className="flex-row items-end gap-2 rounded-3xl pl-4 pr-1.5"
+      style={{ backgroundColor: colors.muted, minHeight: 44, paddingVertical: 4 }}
+    >
+      <TextInput
+        autoFocus={autoFocus}
+        className="flex-1 text-base text-foreground"
+        maxLength={MAX_COMMENT_BODY}
+        multiline
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.mutedForeground}
+        style={{ maxHeight: 110, paddingBottom: 8, paddingTop: 8 }}
+        value={value}
+      />
+
+      <Pressable
+        accessibilityLabel="Send"
+        accessibilityRole="button"
+        accessibilityState={{ busy, disabled: !ready }}
+        className="h-9 w-9 items-center justify-center rounded-full active:opacity-80"
+        disabled={!ready}
+        onPress={onSend}
+        style={{ backgroundColor: ready ? colors.primary : "transparent" }}
+      >
+        {busy ? (
+          <ActivityIndicator color={colors.primary} size="small" />
+        ) : (
+          <Ionicons
+            color={ready ? colors.primaryForeground : colors.mutedForeground}
+            name="send"
+            size={15}
+          />
+        )}
+      </Pressable>
     </View>
   );
 }

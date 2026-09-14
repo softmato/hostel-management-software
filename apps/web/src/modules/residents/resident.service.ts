@@ -72,7 +72,7 @@ type EmergencyContactCreateInput = z.infer<typeof emergencyContactCreateSchema>;
 
 type ResidentStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "MOVED_OUT";
 
-type ResidentRecord = {
+export type ResidentRecord = {
   _id: Types.ObjectId;
   admissionFee?: number | null;
   admissionFeeDiscount?: number;
@@ -239,7 +239,7 @@ function serializeEmergencyContact(contact: EmergencyContactRecord) {
   };
 }
 
-async function auditResidentAction(
+export async function auditResidentAction(
   principal: ApiPrincipal,
   hostelId: Types.ObjectId,
   residentId: Types.ObjectId,
@@ -298,7 +298,7 @@ type IntakeAccount =
   | { email: string; reason?: undefined; userId: Types.ObjectId }
   | { email?: undefined; reason: string; userId?: undefined };
 
-async function findAccountForIntake(
+export async function findAccountForIntake(
   /*
    * The address on the intake, not a saved resident. `createResident` resolves
    * the account *before* anything is written — it is how the intake finds out
@@ -425,7 +425,7 @@ export type ResidentAccountLink = {
  * redeem a code. Nothing here may fail the registration itself — the resident
  * record and their bed are already committed by the time this runs.
  */
-async function linkResidentAccount(
+export async function linkResidentAccount(
   resident: ResidentRecord,
   hostelId: Types.ObjectId,
   principal: ApiPrincipal,
@@ -1280,6 +1280,11 @@ export async function updateResident(
     {
       $set: {
         ...residentUpdate,
+        // A corrected email is a new question: whoever owns the new address has
+        // not said "this is not me" yet (`residency-invite.service.ts`).
+        ...(nextEmail && nextEmail !== normalizedEmail(resident.email)
+          ? { accountLinkDeclinedAt: null, accountLinkDeclinedBy: null }
+          : {}),
         updatedBy: principal.userId,
       },
     },

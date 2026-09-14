@@ -4,15 +4,15 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Linking, Pressable, Share, View } from "react-native";
 
-import { CommentThread } from "@/components/community-comment-thread";
+import { CommentInput, CommentThread } from "@/components/community-comment-thread";
 import { ReactionBar } from "@/components/community-reaction-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { API_BASE_URL } from "@/lib/api";
 import { openAssetViewer } from "@/lib/asset-viewer";
 import { readApiError } from "@/lib/api-contract";
 import {
@@ -38,7 +38,6 @@ import {
   avatarTone,
   commentCountLabel,
   feedTime,
-  MAX_COMMENT_BODY,
   MAX_REPORT_REASON,
   nextReaction,
   reactionTally,
@@ -318,7 +317,7 @@ export function CommunityPostCard({
   const [tone, ink] = avatarTone(post.authorName);
 
   return (
-    <Card className="gap-3">
+    <View className="gap-3 py-4">
       <View className="flex-row items-start gap-3">
         {avatarUrl ? (
           <Image
@@ -395,11 +394,11 @@ export function CommunityPostCard({
         a "9 reactions" sitting under a tray whose own numbers add up to nine is
         the same fact twice.
       */}
-      <View className="flex-row items-center justify-between">
+      <View className="-mx-2 flex-row items-center justify-between">
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ expanded }}
-          className="flex-row items-center gap-1.5 py-0.5 active:opacity-70"
+          className="flex-row items-center gap-2 rounded-full px-3 py-2.5 active:opacity-70"
           hitSlop={6}
           onPress={toggleThread}
           onPressIn={warmComments}
@@ -414,7 +413,7 @@ export function CommunityPostCard({
 
         <Pressable
           accessibilityRole="button"
-          className="flex-row items-center gap-1.5 py-0.5 active:opacity-70"
+          className="flex-row items-center gap-2 rounded-full px-3 py-2.5 active:opacity-70"
           hitSlop={6}
           onPress={() => void share()}
         >
@@ -424,26 +423,15 @@ export function CommunityPostCard({
       </View>
 
       {expanded ? (
-        <View className="gap-3 border-t border-border pt-3">
+        <View className="gap-4 pt-1">
           {canPost ? (
-            <View className="gap-2">
-              <Input
-                maxLength={MAX_COMMENT_BODY}
-                multiline
-                onChangeText={setDraft}
-                placeholder="Add a comment…"
-                style={{ height: 64, paddingTop: 10, textAlignVertical: "top" }}
-                value={draft}
-              />
-              <Button
-                className="self-end"
-                disabled={!draft.trim()}
-                label="Comment"
-                loading={commenting}
-                onPress={() => void comment()}
-                size="sm"
-              />
-            </View>
+            <CommentInput
+              busy={commenting}
+              onChangeText={setDraft}
+              onSend={() => void comment()}
+              placeholder="Add a comment…"
+              value={draft}
+            />
           ) : (
             <Text variant="caption">Sign in to comment.</Text>
           )}
@@ -514,13 +502,18 @@ export function CommunityPostCard({
         open={reportOpen}
         postId={post.id}
       />
-    </Card>
+    </View>
   );
 }
 
-/** The permalink a share points at — the web route, which the app also handles. */
+/**
+ * The permalink a share points at: the web's `/community/<id>` page on the
+ * server this app talks to. The app claims that path (Android intent filter,
+ * iOS `apple-app-site-association`), so on a phone with the app it opens
+ * `app/community/[postId].tsx`; anywhere else it opens the web page.
+ */
 function communityPostLink(postId: string) {
-  return `https://softmato.com/community/${postId}`;
+  return `${API_BASE_URL}/community/${postId}`;
 }
 
 /**

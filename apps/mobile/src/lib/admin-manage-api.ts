@@ -671,104 +671,8 @@ export async function removeCook(cookId: string) {
 /* Reports                                                                    */
 /* -------------------------------------------------------------------------- */
 
-/** `{ PENDING: 4, PAID: 12 }` — the shape every breakdown in the overview uses. */
+/** `{ PENDING: 4, PAID: 12 }` — the shape every status breakdown uses. */
 export type CountMap = Record<string, number>;
-
-export type MonthlyPoint = { collected: number; due: number; month: string };
-
-/**
- * `GET /hostel-admin/reports/overview` — every service in the hostel in one
- * payload.
- *
- * The portal's Reports page is this one call plus the two analytics panels, so
- * the six other `reports/*` routes are not gaps: `reports/payments`,
- * `reports/complaints` and the rest are narrower cuts of the same figures, used
- * by other screens. Adding calls to them here would be four more requests for
- * numbers already in hand.
- */
-export type ReportsOverview = {
-  complaints: {
-    averageResolutionDays: number | null;
-    byCategory: CountMap;
-    byStatus: CountMap;
-    open: number;
-    resolved: number;
-    slaBreached: number;
-    total: number;
-  };
-  food: { averageRating: number | null; feedbackCount: number };
-  generatedAt: string;
-  inquiries: { byStatus: CountMap; conversionRate: number; converted: number; total: number };
-  maintenance: {
-    byCategory: CountMap;
-    byStatus: CountMap;
-    completed: number;
-    open: number;
-    total: number;
-  };
-  /** Billing periods with records, oldest first. */
-  months: string[];
-  nightStatus: CountMap;
-  occupancy: {
-    byStatus: CountMap;
-    occupancyRate: number;
-    occupiedBeds: number;
-    residents: number;
-    totalBeds: number;
-    vacantBeds: number;
-  };
-  payments: {
-    byMethod: CountMap;
-    byStatus: CountMap;
-    collectionRate: number;
-    monthly: MonthlyPoint[];
-    outstanding: number;
-    pendingProofs: number;
-    recent: {
-      dueAmount: number;
-      dueDate: string | null;
-      id: string;
-      method: string;
-      month: string;
-      paidAmount: number;
-      paidDate: string | null;
-      residentName: string;
-      roomType: string;
-      status: string;
-    }[];
-    selectedMonth: {
-      collectionRate: number;
-      month: string;
-      outstanding: number;
-      totalDue: number;
-      totalPaid: number;
-    };
-    totalDue: number;
-    totalPaid: number;
-  };
-  referrals: {
-    byStatus: CountMap;
-    joined: number;
-    rewardApprovedAmount: number;
-    rewardPaidAmount: number;
-    rewardTotalAmount: number;
-    total: number;
-  };
-  visibility: {
-    publicViewsLast30Days: number;
-    totalPublicViews: number;
-    uniquePublicVisitors: number;
-  };
-};
-
-export async function getReportsOverview(month?: string) {
-  const response = await api.get<ApiEnvelope<{ overview: ReportsOverview }>>(
-    "/hostel-admin/reports/overview",
-    { params: { month: month || undefined } },
-  );
-
-  return unwrap(response).overview;
-}
 
 /**
  * `GET /hostel-admin/reports/attendance`.
@@ -849,6 +753,78 @@ export const REPORT_EXPORTS = [
 ] as const;
 
 export type ReportExport = (typeof REPORT_EXPORTS)[number]["report"];
+
+/** A figure beside the same figure last month. `change` is a percent; `null` when last month was 0. */
+export type MonthCompare = { change: number | null; current: number; previous: number };
+
+/**
+ * `GET /hostel-admin/reports/performance` — the hostel's month on one page.
+ *
+ * The Reports screen and the downloadable PDF (`reports/performance/pdf`) are
+ * the same payload, so what the owner reads is what they download. Dated
+ * figures are inside `period.month`; `residents.now`, `residents.tonight` and
+ * `beds` are as they stand at `generatedAt`. Mirrors
+ * `apps/web/src/modules/reports/performance-report.service.ts`.
+ */
+export type PerformanceReport = {
+  beds: { occupancyRate: number | null; occupied: number; total: number; vacant: number };
+  finance: {
+    billed: number;
+    collected: number;
+    /** `null` when nothing was billed. */
+    collectionRate: number | null;
+    methods: { count: number; method: string }[];
+    outstanding: number;
+    outstandingAllTime: number;
+    pendingProofs: number;
+    previous: { billed: number; collected: number; collectionRate: number | null };
+    /** Six BS months ending at `period.month`, oldest first. */
+    trend: { billed: number; collected: number; collectionRate: number | null; month: string }[];
+  };
+  generatedAt: string;
+  hostelName: string;
+  listing: {
+    appearances: MonthCompare;
+    inquiries: MonthCompare;
+    inquiriesConverted: number;
+    rating: { average: number | null; newThisMonth: number; total: number };
+    views: MonthCompare;
+    visitors: MonthCompare;
+  };
+  operations: {
+    complaints: { open: number; pastSla: number; raised: number; resolved: number };
+    repairs: { completed: number; open: number; raised: number };
+  };
+  period: {
+    end: string;
+    isCurrent: boolean;
+    month: string;
+    /** Newest first. */
+    months: string[];
+    previousMonth: string;
+    start: string;
+  };
+  residents: {
+    movedIn: number;
+    movedOut: number;
+    now: { active: number; pending: number; suspended: number; total: number };
+    tonight: { inside: number; night: string; notAnswered: number; outside: number };
+  };
+};
+
+export async function getPerformanceReport(month?: string) {
+  const response = await api.get<ApiEnvelope<{ report: PerformanceReport }>>(
+    "/hostel-admin/reports/performance",
+    { params: { month: month || undefined } },
+  );
+
+  return unwrap(response).report;
+}
+
+/** Where `downloadToDevice` fetches the PDF from. Relative to `API_BASE_URL`. */
+export function performanceReportPdfPath(month: string) {
+  return `/api/v1/hostel-admin/reports/performance/pdf?month=${encodeURIComponent(month)}`;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Wardens                                                                    */
@@ -996,8 +972,8 @@ export type NightStatusPromptSettings = {
   promptEnabled: boolean;
   /** `HH:mm` in Nepal. The server refuses anything outside 17:00-23:45. */
   promptTime: string;
-  /** Minutes after the prompt to chase non-responders. `0` is off. */
-  remindAfterMinutes: number;
+  /** How often non-responders are asked again: 15, 30 or 60. See `promptRound`. */
+  repeatEveryMinutes: number;
 };
 
 export type AttendanceSettings = {

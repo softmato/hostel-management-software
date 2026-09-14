@@ -1893,7 +1893,9 @@ export function TeamRegisterHostelPage() {
         // Nothing to do — a leftover draft is a stale form, not a lost hostel.
       }
 
-      router.push(`/team?registered=${result.hostel.id}`);
+      // Straight on to the people already living there — the owner is usually
+      // still at the counter, which is the easiest moment to fill that list.
+      router.push(`/team/hostels/${result.hostel.id}/residents?published=1`);
     } catch (err) {
       setSubmitting(false);
 

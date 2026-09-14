@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -14,6 +15,7 @@ import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
+import { collapseNightPrompts } from "@/lib/night-status-notification";
 import { readApiError } from "@/lib/api-contract";
 import {
   NIGHT_STATUS_REASONS,
@@ -44,13 +46,11 @@ import { toastError, toastSuccess } from "@/lib/toast";
  * happen: no alert row, no fan-out, no notification, just the word "SOS" on the
  * warden's roster. `lib/night-status.ts` holds the subset and the reasoning.
  *
- * ## There is no history section
+ * ## History is its own screen
  *
- * Every change appends a `NightStatusLog` and **nothing anywhere reads it** — no
- * resident route, no admin route, no aggregation (§1 of
- * `docs/MOBILE_APP_PHASES.md`). An empty "History" heading would suggest the
- * feature exists and is broken; its absence suggests nothing at all, which is
- * accurate.
+ * Every change appends a `NightStatusLog`, and `night-status-history.tsx` reads
+ * it back night by night. It is linked from "Right now" rather than listed
+ * under the form, so answering tonight stays the one thing this screen asks.
  *
  * ## The reason list is what the notification cannot draw
  *
@@ -190,6 +190,8 @@ function NightStatusForm({
       });
 
       onChanged(next);
+      // Answered here, so the prompts waiting in the shade are done with.
+      void collapseNightPrompts({ keepLatest: false });
       toastSuccess("Status updated", "Your hostel can see this now.");
     } catch (caught) {
       toastError("Could not update your status", readApiError(caught));
@@ -228,6 +230,17 @@ function NightStatusForm({
               {standing.answered ? "" : " — that was an earlier night"}
             </Text>
           ) : null}
+
+          <Pressable
+            accessibilityRole="button"
+            className="self-start pt-1 active:opacity-70"
+            hitSlop={8}
+            onPress={() => router.push("/night-status-history")}
+          >
+            <Text className="text-primary" variant="label">
+              See history
+            </Text>
+          </Pressable>
         </Card>
 
         {standing.sosNotice ? (

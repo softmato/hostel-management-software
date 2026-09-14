@@ -73,7 +73,8 @@ export const attendanceSettingsSchema = z.object({
           { message: "The check-in time must be between 17:00 and 23:45." },
         )
         .optional(),
-      remindAfterMinutes: z.number().int().min(0).max(180).optional(),
+      /** See `promptRound` in `night-window.ts`. */
+      repeatEveryMinutes: z.union([z.literal(15), z.literal(30), z.literal(60)]).optional(),
     })
     .optional(),
 });

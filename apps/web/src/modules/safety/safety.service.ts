@@ -15,6 +15,11 @@ import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { SOSAlertModel } from "@hostel/db/models/SOSAlert";
 import { fanOutSOSAlert } from "@/modules/safety/safety-notify";
+import {
+  NIGHT_HISTORY_LIMIT,
+  type NightHistoryLog,
+  nightHistory,
+} from "@/modules/safety/night-status-history";
 import { nightKey } from "@hostel/shared/night/night-window";
 import {
   findCurrentResident,
@@ -277,20 +282,28 @@ async function writeNightStatus(
         checkedAt: now,
         hostelId: resident.hostelId,
         night,
-        note: input.note,
-        /*
-         * Written unconditionally, `undefined` included. A resident who says
-         * "at home" and then corrects it to a typed reason must not keep the
-         * old preset alongside the new sentence — `$set` with `undefined` is
-         * how Mongoose clears it, and leaving it out instead would make the
-         * previous answer sticky.
-         */
-        reasonCode: input.reasonCode,
+        ...(input.note === undefined ? {} : { note: input.note }),
+        ...(input.reasonCode === undefined ? {} : { reasonCode: input.reasonCode }),
         residentId: resident._id,
         source: input.source,
         status: input.status,
         updatedBy: principal.userId,
       },
+      /*
+       * A new answer replaces the whole old one. "Inside" after "Outside · at a
+       * friend's" must not keep the friend's; an answer with no reason must
+       * not keep the last reason. Mongoose strips `undefined` out of `$set`, so
+       * leaving the fields to `$set` made the previous note sticky — seen on
+       * the board as a resident "inside" with an outside reason under it.
+       */
+      ...(input.note === undefined || input.reasonCode === undefined
+        ? {
+            $unset: {
+              ...(input.note === undefined ? { note: 1 } : {}),
+              ...(input.reasonCode === undefined ? { reasonCode: 1 } : {}),
+            },
+          }
+        : {}),
     },
     { new: true, upsert: true },
   ).lean<NightStatusRecord>();
@@ -335,6 +348,31 @@ export async function updateResidentNightStatus(
   await connectToDatabase();
 
   const resident = await findCurrentResident(principal);
+
+  /*
+   * A queued answer arrives late — the phone was offline, or the app was not
+   * opened until later. If the resident has answered again since, the newer
+   * answer stands: posting "at home" from 21:03 at 22:00 must not undo the
+   * "inside" they gave at 21:50. And an answer about an earlier night is not
+   * an answer about tonight at all.
+   */
+  if (input.answeredAt) {
+    const answeredAt = new Date(input.answeredAt);
+    const current = await NightStatusModel.findOne({ residentId: resident._id })
+      .lean<NightStatusRecord | null>();
+    const superseded =
+      nightKey(answeredAt) !== nightKey() ||
+      (current?.night === nightKey() && current.checkedAt > answeredAt);
+
+    if (superseded) {
+      return {
+        resident: serializeResidentSummary(resident),
+        status: serializeNightStatus(current),
+        superseded: true,
+      };
+    }
+  }
+
   const status = await writeNightStatus(resident, principal, {
     note: input.note,
     reasonCode: input.reasonCode,
@@ -362,6 +400,25 @@ export async function getResidentNightStatus(principal: ApiPrincipal) {
     sos,
     status,
   };
+}
+
+/**
+ * The resident's own night-by-night record, from `NightStatusLog`. See
+ * `night-status-history.ts` for what one entry is.
+ */
+export async function getResidentNightStatusHistory(principal: ApiPrincipal) {
+  await connectToDatabase();
+
+  const resident = await findCurrentResident(principal);
+  const since = new Date(Date.now() - (NIGHT_HISTORY_LIMIT + 1) * 24 * 3_600_000);
+  const logs = await NightStatusLogModel.find({
+    createdAt: { $gte: since },
+    residentId: resident._id,
+  })
+    .select({ createdAt: 1, night: 1, nextStatus: 1, note: 1, reasonCode: 1, source: 1 })
+    .lean<NightHistoryLog[]>();
+
+  return { nights: nightHistory(logs ?? [], nightKey()) };
 }
 
 /**

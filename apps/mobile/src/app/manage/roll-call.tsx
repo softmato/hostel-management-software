@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
 import { AdminRollCallCard } from "@/components/admin-rollcall-card";
+import { NightStatusPromptCard } from "@/components/night-status-prompt-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { PersonAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,10 @@ import {
   MAX_ROLL_CALL_PAGES,
 } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
+import {
+  type AttendanceSettings,
+  getAttendanceSettings,
+} from "@/lib/admin-manage-api";
 import { humanizeEnum } from "@/lib/format";
 import {
   filterRollCall,
@@ -37,6 +42,7 @@ import {
   type RollCallSegment,
 } from "@/lib/roll-call";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { askingEndsAt } from "@hostel/night/night-window";
 
 /**
  * Tonight's roll call, in full — and the screen that now owns it.
@@ -86,6 +92,16 @@ export default function ManageRollCallScreen() {
     cacheKey: rollQuery.key,
     topics: rollQuery.topics,
   });
+
+  /*
+   * The prompt's hour, read beside the roster so "Edit time" sits where a
+   * warden notices nobody has answered yet. A failed read (a staff role
+   * without settings access) hides the row rather than the board.
+   */
+  const promptSettings = useResource<AttendanceSettings>(
+    useCallback(() => getAttendanceSettings(), []),
+  );
+  const [editingTime, setEditingTime] = useState(false);
 
   const [segment, setSegment] = useState<RollCallSegment>("unverified");
   const [query, setQuery] = useState("");
@@ -195,6 +211,30 @@ export default function ManageRollCallScreen() {
         <View className="gap-4 pt-1">
           <AdminRollCallCard date={dates.dateLong(new Date())} summary={night.summary} />
 
+          {promptSettings.data ? (
+            <CardRow
+              icon="time-outline"
+              onPress={() => setEditingTime(true)}
+              right={
+                <Text className="text-primary" variant="label">
+                  Edit time
+                </Text>
+              }
+              subtitle={
+                promptSettings.data.nightStatus.promptEnabled
+                  ? `Again every ${promptSettings.data.nightStatus.repeatEveryMinutes} min until ${
+                      askingEndsAt(promptSettings.data.nightStatus.promptTime) ?? "01:00"
+                    }`
+                  : "Residents are not being notified"
+              }
+              title={
+                promptSettings.data.nightStatus.promptEnabled
+                  ? `Asked at ${promptSettings.data.nightStatus.promptTime}`
+                  : "Night prompt is off"
+              }
+            />
+          ) : null}
+
           <Segmented
             onChange={setSegment}
             options={ROLL_CALL_SEGMENTS.map((entry) => ({
@@ -282,6 +322,19 @@ export default function ManageRollCallScreen() {
           ) : null}
         </View>
       </Screen>
+
+      <Sheet
+        onClose={() => setEditingTime(false)}
+        open={editingTime}
+        title="Night status prompt"
+      >
+        {promptSettings.data ? (
+          <NightStatusPromptCard
+            onSaved={() => void promptSettings.reload()}
+            settings={promptSettings.data.nightStatus}
+          />
+        ) : null}
+      </Sheet>
 
       <Sheet
         footer={<Button label="Save status" loading={saving} onPress={() => void submitMark()} />}
