@@ -723,16 +723,42 @@ export async function login(input: LoginInput, context?: RequestContext) {
   return issueSessionForUser(user, context);
 }
 
-export async function refreshAccessToken(refreshToken: string) {
+/*
+ * How long a refresh token that was just rotated away still buys an access
+ * token. A browser fires several refreshes at once — two tabs, the proxy and a
+ * page's 401 handler, a burst of link prefetches — and all of them carry the
+ * same cookie. Only one can rotate it; without this window every other one
+ * failed with INVALID_SESSION and the user landed on /login. A reuse only ever
+ * gets a 15-minute access token, never a new refresh token.
+ */
+const REFRESH_REUSE_WINDOW_MS = 60 * 1000;
+
+export async function refreshAccessToken(
+  refreshToken: string,
+  options: { allowRecentReuse?: boolean } = {},
+) {
   await connectToDatabase();
 
   const payload = await verifyRefreshToken(refreshToken);
   const refreshTokenHash = hashToken(refreshToken);
+  const now = new Date();
   const session = await SessionModel.findOne({
     _id: payload.sessionId,
-    expiresAt: { $gt: new Date() },
-    refreshTokenHash,
+    expiresAt: { $gt: now },
     revokedAt: null,
+    ...(options.allowRecentReuse
+      ? {
+          $or: [
+            { refreshTokenHash },
+            {
+              previousRefreshTokenHash: refreshTokenHash,
+              refreshTokenRotatedAt: {
+                $gt: new Date(now.getTime() - REFRESH_REUSE_WINDOW_MS),
+              },
+            },
+          ],
+        }
+      : { refreshTokenHash }),
   });
 
   if (!session) {
@@ -772,7 +798,6 @@ export async function refreshAccessToken(refreshToken: string) {
     );
   }
 
-  session.lastSeenAt = new Date();
   const safeUser = publicUser(user);
   const tokenInput = {
     hostelIds: safeUser.hostelIds,
@@ -781,18 +806,43 @@ export async function refreshAccessToken(refreshToken: string) {
     temporaryCredentialId,
     userId: safeUser.id,
   };
-  const [accessToken, nextRefreshToken, isServiceProvider] = await Promise.all([
+  const [accessToken, signedRefreshToken, isServiceProvider] = await Promise.all([
     signAccessToken(tokenInput),
     signRefreshToken(tokenInput),
     isApprovedServiceProvider(user),
   ]);
 
-  session.refreshTokenHash = hashToken(nextRefreshToken);
-  await session.save();
+  // Compare-and-set on the presented hash: two requests that both read the
+  // session before either wrote would otherwise each rotate, and the loser's
+  // token — already handed to the client — would be dead on arrival.
+  const rotation =
+    session.refreshTokenHash === refreshTokenHash
+      ? await SessionModel.updateOne(
+          { _id: session._id, refreshTokenHash },
+          {
+            $set: {
+              lastSeenAt: now,
+              previousRefreshTokenHash: refreshTokenHash,
+              refreshTokenHash: hashToken(signedRefreshToken),
+              refreshTokenRotatedAt: now,
+            },
+          },
+        )
+      : null;
+  const rotated = rotation?.modifiedCount === 1;
+
+  if (!rotated) {
+    if (!options.allowRecentReuse) {
+      throw new AuthServiceError("Refresh session is invalid.", "INVALID_SESSION");
+    }
+
+    await SessionModel.updateOne({ _id: session._id }, { $set: { lastSeenAt: now } });
+  }
 
   return {
     accessToken,
-    refreshToken: nextRefreshToken,
+    // null on a reuse: the client keeps the refresh token the winning request set.
+    refreshToken: rotated ? signedRefreshToken : null,
     user: {
       ...safeUser,
       isServiceProvider,

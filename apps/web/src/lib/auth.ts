@@ -3,7 +3,11 @@ import "@/lib/load-root-env";
 import { createHash } from "node:crypto";
 import { jwtVerify, SignJWT, type JWTPayload } from "jose";
 
-export { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/auth-cookies";
+export {
+  ACCESS_TOKEN_COOKIE,
+  LEGACY_REFRESH_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+} from "@/lib/auth-cookies";
 import { Role } from "@/lib/roles";
 
 type TokenType = "access" | "refresh";

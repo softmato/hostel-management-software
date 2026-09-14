@@ -164,6 +164,7 @@ describe("auth service", () => {
     // `clearAllMocks` keeps implementations, so an approved listing from one
     // test would otherwise answer the next one's query.
     serviceMocks.serviceProviderExists.mockResolvedValue(null);
+    serviceMocks.sessionUpdateOne.mockResolvedValue({ modifiedCount: 1 });
   });
 
   it("logs in a valid user and creates a hashed refresh session", async () => {
@@ -239,8 +240,54 @@ describe("auth service", () => {
       accessToken: "next-access-token",
       refreshToken: "next-refresh-token",
     });
-    expect(session.refreshTokenHash).toBe("hash:next-refresh-token");
-    expect(session.save).toHaveBeenCalled();
+    expect(serviceMocks.sessionUpdateOne).toHaveBeenCalledWith(
+      { _id: session._id, refreshTokenHash: "hash:old-refresh-token" },
+      {
+        $set: expect.objectContaining({
+          previousRefreshTokenHash: "hash:old-refresh-token",
+          refreshTokenHash: "hash:next-refresh-token",
+        }),
+      },
+    );
+  });
+
+  it("lets a browser reuse a just-rotated token for an access token only", async () => {
+    const session = createSession({ refreshTokenHash: "hash:newer-refresh-token" });
+
+    serviceMocks.verifyRefreshToken.mockResolvedValue({
+      role: Role.SUPERADMIN,
+      sessionId: "session-1",
+      sub: "user-1",
+      tokenType: "refresh",
+    });
+    serviceMocks.sessionFindOne.mockResolvedValue(session);
+    serviceMocks.userFindOne.mockResolvedValue(createUser());
+    serviceMocks.signAccessToken.mockResolvedValue("next-access-token");
+
+    await expect(
+      refreshAccessToken("old-refresh-token", { allowRecentReuse: true }),
+    ).resolves.toMatchObject({ accessToken: "next-access-token", refreshToken: null });
+    await expect(refreshAccessToken("old-refresh-token")).rejects.toMatchObject({
+      errorCode: "INVALID_SESSION",
+    });
+  });
+
+  it("does not hand out a rotated token when a concurrent refresh won", async () => {
+    const session = createSession({ refreshTokenHash: "hash:old-refresh-token" });
+
+    serviceMocks.verifyRefreshToken.mockResolvedValue({
+      role: Role.SUPERADMIN,
+      sessionId: "session-1",
+      sub: "user-1",
+      tokenType: "refresh",
+    });
+    serviceMocks.sessionFindOne.mockResolvedValue(session);
+    serviceMocks.userFindOne.mockResolvedValue(createUser());
+    serviceMocks.sessionUpdateOne.mockResolvedValue({ modifiedCount: 0 });
+
+    await expect(
+      refreshAccessToken("old-refresh-token", { allowRecentReuse: true }),
+    ).resolves.toMatchObject({ refreshToken: null });
   });
 
   it("revokes a refresh session on logout", async () => {
@@ -579,7 +626,9 @@ describe("auth service", () => {
     it("answers a refresh and /me the same way a sign-in does", async () => {
       serviceMocks.serviceProviderExists.mockResolvedValue({ _id: "provider-1" });
       serviceMocks.userFindOne.mockResolvedValue(createUser({ role: Role.PUBLIC }));
-      serviceMocks.sessionFindOne.mockResolvedValue(createSession());
+      serviceMocks.sessionFindOne.mockResolvedValue(
+        createSession({ refreshTokenHash: "hash:refresh-token" }),
+      );
       serviceMocks.verifyRefreshToken.mockResolvedValue({
         role: Role.PUBLIC,
         sessionId: "session-1",

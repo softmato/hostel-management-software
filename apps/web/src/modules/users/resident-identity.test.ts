@@ -7,6 +7,7 @@ import {
 } from "@/modules/users/resident-identity.validation";
 
 const validProfile = {
+  dateOfBirth: "2004-03-02",
   fullName: "Asha Rai",
   gender: "FEMALE",
   guardianName: "Bimala Rai",
@@ -118,13 +119,19 @@ describe("residentProfileDataSchema", () => {
     const parsed = residentProfileDataSchema.parse({
       ...validProfile,
       backupEmail: "",
-      dateOfBirth: "",
       medicalNotes: "",
     });
 
     expect(parsed.backupEmail).toBeUndefined();
-    expect(parsed.dateOfBirth).toBeUndefined();
     expect(parsed.medicalNotes).toBeUndefined();
+  });
+
+  it("requires a date of birth, in the past", () => {
+    for (const dateOfBirth of [undefined, "", "   ", "2999-01-01"]) {
+      expect(
+        residentProfileDataSchema.safeParse({ ...validProfile, dateOfBirth }).success,
+      ).toBe(false);
+    }
   });
 
   it("de-duplicates interests", () => {
@@ -159,7 +166,6 @@ describe("blank form fields", () => {
     "budgetRange",
     "city",
     "courseOrDesignation",
-    "dateOfBirth",
     "dietaryPreference",
     "emergencyContactName",
     "emergencyContactPhone",

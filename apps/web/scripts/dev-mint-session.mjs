@@ -15,7 +15,7 @@
  *
  * Prints the two cookie assignments to paste into the browser.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import mongoose from "mongoose";
 import { SignJWT } from "jose";
 
@@ -61,12 +61,11 @@ if (!user) {
 
 const now = new Date();
 const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-const refreshRaw = randomUUID() + randomUUID();
-
 const session = await sessions.insertOne({
   createdAt: now,
   expiresAt,
-  refreshTokenHash: createHash("sha256").update(refreshRaw).digest("hex"),
+  refreshTokenHash: null,
+  revokedAt: null,
   temporaryCredentialId: null,
   updatedAt: now,
   userId: user._id,
@@ -95,12 +94,19 @@ const refreshToken = await new SignJWT({ ...claims, tokenType: "refresh" })
   .setExpirationTime("30d")
   .sign(secret("JWT_REFRESH_SECRET"));
 
+// The session row stores the hash of the token actually handed out, as login
+// does — hashing anything else leaves a session that can never refresh.
+await sessions.updateOne(
+  { _id: session.insertedId },
+  { $set: { refreshTokenHash: createHash("sha256").update(refreshToken).digest("hex") } },
+);
+
 console.log(`\nUser:  ${user.name ?? "(unnamed)"} <${user.email ?? "no email"}>`);
 console.log(`Role:  ${user.role}`);
 console.log(`Id:    ${String(user._id)}\n`);
 console.log("Paste into the browser console on the target origin:\n");
 console.log(
-  `document.cookie='hostelhub_access_token=${accessToken};path=/';document.cookie='hostelhub_refresh_token=${refreshToken};path=/';location.reload()`,
+  `document.cookie='hostelhub_access_token=${accessToken};path=/';document.cookie='hostelhub_refresh=${refreshToken};path=/';location.reload()`,
 );
 
 await mongoose.disconnect();

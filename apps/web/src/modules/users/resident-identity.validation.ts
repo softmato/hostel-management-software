@@ -131,13 +131,17 @@ export const residentProfileDataSchema = z
   .object({
     /* Identity */
     fullName: z.string().trim().min(2).max(120),
+    // Required: the card prints the resident's age from it.
     dateOfBirth: z.preprocess(
       blankToUndefined,
       z
-        .string()
+        .string({ message: "Enter your date of birth." })
         .trim()
         .regex(/^\d{4}-\d{2}-\d{2}$/, "Use the YYYY-MM-DD format.")
-        .optional(),
+        .refine(
+          (value) => value <= new Date().toISOString().slice(0, 10),
+          "Date of birth can't be in the future.",
+        ),
     ),
     gender: z.enum(GENDER_VALUES),
     bloodGroup: enumWithDefault(BLOOD_GROUP_VALUES, "UNKNOWN"),

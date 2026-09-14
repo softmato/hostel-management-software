@@ -752,10 +752,10 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
           <div>
             <Link
               href="/"
-              className="flex items-center gap-2 font-heading text-2xl font-bold text-brand-teal"
+              aria-label={identity.siteName}
+              className="inline-flex items-center"
             >
-              <BrandMark adaptive className="h-7" />
-              {identity.siteName}
+              <BrandMark adaptive className="h-10" />
             </Link>
             <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">
               {identity.tagline ||

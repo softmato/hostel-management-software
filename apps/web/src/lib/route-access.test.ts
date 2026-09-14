@@ -6,7 +6,9 @@ import {
   isAllowedNextPath,
   isSafeLocalPath,
   protectedRouteRuleForPath,
+  protectedRouteRules,
 } from "@/lib/route-access";
+import { config as proxyConfig } from "@/proxy";
 
 describe("route access", () => {
   it("maps protected portal prefixes to the expected roles", () => {
@@ -161,5 +163,26 @@ describe("route access", () => {
     expect(destinationForRole(Role.WARDEN, "/platform/dashboard")).toBe(
       "/hostel-admin/dashboard",
     );
+  });
+});
+
+describe("proxy matcher", () => {
+  /*
+   * Regression: `/team` had a rule here but no matcher entry, so the proxy
+   * never ran on it and any visitor rendered the field team portal.
+   */
+  it.each(protectedRouteRules.map((rule) => rule.prefix))(
+    "runs the proxy on %s",
+    (prefix) => {
+      const matchers = proxyConfig.matcher as string[];
+      const covered = matchers.some(
+        (m) => m === prefix || m === `${prefix}/:path*` || prefix.startsWith(m.replace("/:path*", "/")),
+      );
+      expect(covered).toBe(true);
+    },
+  );
+
+  it("sends refused team visitors home rather than to login", () => {
+    expect(protectedRouteRuleForPath("/team/register")?.refuseTo).toBe("home");
   });
 });

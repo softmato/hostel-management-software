@@ -1,8 +1,9 @@
 "use client";
 
-import { Bell, Send, Siren } from "lucide-react";
+import { Bell, CalendarClock, Pause, Play, Send, Siren, X } from "lucide-react";
 import { memo, useCallback, useState, type FormEvent } from "react";
 
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import {
   PortalPageHeader,
   RoleButton,
@@ -14,6 +15,7 @@ import { usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
 
 type Urgency = "NORMAL" | "URGENT";
+type Repeat = "NOW" | "ONCE" | "DAILY" | "WEEKLY";
 
 type PushRecord = {
   audience: string;
@@ -21,9 +23,26 @@ type PushRecord = {
   devices: number;
   id: string;
   recipients: number;
+  scheduled: boolean;
   sentAt: string;
   title: string;
   urgency: Urgency;
+};
+
+type ScheduleRecord = {
+  audience: string;
+  body: string;
+  endsOn: string | null;
+  id: string;
+  nextRunAt: string | null;
+  repeat: Exclude<Repeat, "NOW">;
+  runCount: number;
+  startsOn: string;
+  status: "ACTIVE" | "PAUSED";
+  time: string;
+  title: string;
+  urgency: Urgency;
+  weekdays: number[];
 };
 
 const ENDPOINT = "/api/v1/platform/push";
@@ -35,32 +54,115 @@ const AUDIENCE_LABEL: Record<string, string> = {
   RESIDENTS: "Residents",
 };
 
-function shortDateTime(value: string) {
+const REPEAT_LABEL: Record<Repeat, string> = {
+  DAILY: "Daily",
+  NOW: "Now",
+  ONCE: "Once",
+  WEEKLY: "Weekly",
+};
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Nepal is a fixed +5:45 with no daylight saving. */
+function nepalNow() {
+  const local = new Date(Date.now() + (5 * 60 + 45) * 60_000).toISOString();
+
+  return { date: local.slice(0, 10), time: local.slice(11, 16) };
+}
+
+function nepalDateTime(value: string) {
   return new Date(value).toLocaleString("en", {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     month: "short",
+    timeZone: "Asia/Kathmandu",
   });
 }
 
+function describeSchedule(schedule: ScheduleRecord) {
+  const until = schedule.endsOn ? ` until ${schedule.endsOn}` : "";
+
+  if (schedule.repeat === "ONCE") {
+    return `Once on ${schedule.startsOn} at ${schedule.time}`;
+  }
+
+  if (schedule.repeat === "DAILY") {
+    return `Daily at ${schedule.time}${until}`;
+  }
+
+  return `${schedule.weekdays.map((day) => WEEKDAYS[day]).join(", ")} at ${schedule.time}${until}`;
+}
+
+function Segmented<T extends string>({
+  onChange,
+  options,
+  value,
+}: {
+  onChange: (value: T) => void;
+  options: Array<{ icon?: React.ReactNode; label: string; tone?: "destructive"; value: T }>;
+  value: T;
+}) {
+  return (
+    <div
+      className="grid gap-1 rounded-lg border border-border bg-muted p-1"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
+      {options.map((option) => (
+        <button
+          aria-pressed={value === option.value}
+          className={cn(
+            "inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-semibold transition-colors",
+            value === option.value
+              ? option.tone === "destructive"
+                ? "bg-destructive text-white shadow-sm"
+                : "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.icon}
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
- * Superadmin push: a heading, a message and an urgency, straight to every
- * phone and browser of the chosen audience. Urgent rides the urgent Android
- * channel and skips quiet hours — the same rule an SOS follows.
+ * Superadmin push: a heading, a message and an urgency, to every phone and
+ * browser of the chosen audience — now, once later, or on a daily or weekly
+ * repeat. Times are Nepal time; the `platform-push` cron sends them.
  */
 export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
+  const { confirm, confirmDialog } = useConfirm();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [urgency, setUrgency] = useState<Urgency>("NORMAL");
   const [audience, setAudience] = useState("EVERYONE");
+  const [repeat, setRepeat] = useState<Repeat>("NOW");
+  const [date, setDate] = useState(() => nepalNow().date);
+  const [time, setTime] = useState("09:00");
+  const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [endsOn, setEndsOn] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
-  const history = usePortalResource<{ pushes: PushRecord[] }>(ENDPOINT, {
-    errorMessage: "Could not load sent push notifications.",
-  });
-  const pushes = history.data?.pushes ?? [];
+  const resource = usePortalResource<{ pushes: PushRecord[]; schedules: ScheduleRecord[] }>(
+    ENDPOINT,
+    { errorMessage: "Could not load push notifications." },
+  );
+  const pushes = resource.data?.pushes ?? [];
+  const schedules = resource.data?.schedules ?? [];
+
+  const scheduling = repeat !== "NOW";
+  const incomplete =
+    title.trim().length < 2 ||
+    body.trim().length < 2 ||
+    (scheduling && !time) ||
+    (repeat === "WEEKLY" && weekdays.length === 0);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -69,31 +171,80 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
       setMessage("");
 
       try {
-        const result = await browserApi<{ push: PushRecord }>(ENDPOINT, {
-          body: JSON.stringify({ audience, body, title, urgency }),
-          method: "POST",
-        });
+        const result = await browserApi<{ push?: PushRecord; schedule?: ScheduleRecord }>(
+          ENDPOINT,
+          {
+            body: JSON.stringify({
+              audience,
+              body,
+              title,
+              urgency,
+              ...(scheduling
+                ? {
+                    date,
+                    endsOn: repeat !== "ONCE" && endsOn ? endsOn : undefined,
+                    repeat,
+                    time,
+                    weekdays: repeat === "WEEKLY" ? weekdays : [],
+                  }
+                : { repeat: "NOW" }),
+            }),
+            method: "POST",
+          },
+        );
 
         setMessage(
-          `Sent to ${result.push.recipients} account(s) · ${result.push.devices} device(s) took it.`,
+          result.push
+            ? `Sent to ${result.push.recipients} account(s) · ${result.push.devices} device(s) took it.`
+            : result.schedule?.nextRunAt
+              ? `Scheduled · first send ${nepalDateTime(result.schedule.nextRunAt)}.`
+              : "Scheduled.",
         );
         setTitle("");
         setBody("");
         setUrgency("NORMAL");
-        await history.refreshAsync();
+        await resource.refreshAsync();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Could not send the push.");
       } finally {
         setBusy(false);
       }
     },
-    [audience, body, history, title, urgency],
+    [audience, body, date, endsOn, repeat, resource, scheduling, time, title, urgency, weekdays],
+  );
+
+  const changeSchedule = useCallback(
+    async (schedule: ScheduleRecord, action: "PAUSE" | "RESUME" | "CANCEL") => {
+      if (
+        action === "CANCEL" &&
+        !(await confirm({
+          actionLabel: "Cancel schedule",
+          description: `"${schedule.title}" will not be sent again.`,
+          title: "Cancel this scheduled push?",
+          tone: "destructive",
+        }))
+      ) {
+        return;
+      }
+
+      try {
+        await browserApi(`${ENDPOINT}/schedules/${schedule.id}`, {
+          body: JSON.stringify({ action }),
+          method: "PATCH",
+        });
+        await resource.refreshAsync();
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Could not update the schedule.");
+      }
+    },
+    [confirm, resource],
   );
 
   return (
     <div className="mx-auto max-w-[1448px] space-y-5">
+      {confirmDialog}
       <PortalPageHeader
-        description="Goes to the app on phones and to browsers with notifications on."
+        description="Goes to the app on phones and to browsers with notifications on. Times are Nepal time."
         title="Push Notification"
       />
 
@@ -117,31 +268,19 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid gap-2 text-sm font-semibold text-foreground">
                 Urgency
-                <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted p-1">
-                  {(["NORMAL", "URGENT"] as const).map((value) => (
-                    <button
-                      aria-pressed={urgency === value}
-                      className={cn(
-                        "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-semibold transition-colors",
-                        urgency === value
-                          ? value === "URGENT"
-                            ? "bg-destructive text-white shadow-sm"
-                            : "bg-card text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                      key={value}
-                      onClick={() => setUrgency(value)}
-                      type="button"
-                    >
-                      {value === "URGENT" ? (
-                        <Siren aria-hidden="true" className="size-3.5" />
-                      ) : (
-                        <Bell aria-hidden="true" className="size-3.5" />
-                      )}
-                      {value === "URGENT" ? "Urgent" : "Normal"}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  onChange={setUrgency}
+                  options={[
+                    { icon: <Bell aria-hidden="true" className="size-3.5" />, label: "Normal", value: "NORMAL" },
+                    {
+                      icon: <Siren aria-hidden="true" className="size-3.5" />,
+                      label: "Urgent",
+                      tone: "destructive",
+                      value: "URGENT",
+                    },
+                  ]}
+                  value={urgency}
+                />
               </div>
 
               <Select
@@ -158,17 +297,91 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
               </Select>
             </div>
 
+            <div className="grid gap-3 rounded-lg border border-border p-3">
+              <div className="grid gap-2 text-sm font-semibold text-foreground">
+                When
+                <Segmented
+                  onChange={setRepeat}
+                  options={(["NOW", "ONCE", "DAILY", "WEEKLY"] as const).map((value) => ({
+                    label: REPEAT_LABEL[value],
+                    value,
+                  }))}
+                  value={repeat}
+                />
+              </div>
+
+              {scheduling ? (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Input
+                    label={repeat === "ONCE" ? "Date" : "Starts on"}
+                    min={nepalNow().date}
+                    name="date"
+                    onChange={(event) => setDate(event.target.value)}
+                    type="date"
+                    value={date}
+                  />
+                  <Input
+                    label="Time"
+                    name="time"
+                    onChange={(event) => setTime(event.target.value)}
+                    type="time"
+                    value={time}
+                  />
+                  {repeat === "ONCE" ? null : (
+                    <Input
+                      hint="Leave empty to keep repeating."
+                      label="Ends on"
+                      min={date}
+                      name="endsOn"
+                      onChange={(event) => setEndsOn(event.target.value)}
+                      type="date"
+                      value={endsOn}
+                    />
+                  )}
+                </div>
+              ) : null}
+
+              {repeat === "WEEKLY" ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {WEEKDAYS.map((label, day) => {
+                    const on = weekdays.includes(day);
+
+                    return (
+                      <button
+                        aria-pressed={on}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-[12.5px] font-semibold transition-colors",
+                          on
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        )}
+                        key={label}
+                        onClick={() =>
+                          setWeekdays((current) =>
+                            on ? current.filter((value) => value !== day) : [...current, day],
+                          )
+                        }
+                        type="button"
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p aria-live="polite" className="text-sm text-muted-foreground">
                 {message}
               </p>
-              <RoleButton
-                className="h-9 px-4"
-                disabled={busy || title.trim().length < 2 || body.trim().length < 2}
-                type="submit"
-              >
-                <Send aria-hidden="true" className="size-4" />
-                {busy ? "Sending…" : "Send push"}
+              <RoleButton className="h-9 px-4" disabled={busy || incomplete} type="submit">
+                {scheduling ? (
+                  <CalendarClock aria-hidden="true" className="size-4" />
+                ) : (
+                  <Send aria-hidden="true" className="size-4" />
+                )}
+                {busy ? "Saving…" : scheduling ? "Schedule push" : "Send push"}
               </RoleButton>
             </div>
           </form>
@@ -202,9 +415,71 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
         </SectionCard>
       </div>
 
+      <SectionCard title="Scheduled">
+        {resource.state === "loading" ? <LoadingRows /> : null}
+        {resource.state !== "loading" && schedules.length === 0 ? (
+          <EmptyState label="Nothing scheduled." />
+        ) : null}
+        <div className="divide-y divide-border">
+          {schedules.map((schedule) => (
+            <div
+              className="flex flex-wrap items-start justify-between gap-3 py-3"
+              key={schedule.id}
+            >
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground">
+                  {schedule.title}
+                  {schedule.urgency === "URGENT" ? (
+                    <span className="ml-2 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-semibold text-destructive">
+                      Urgent
+                    </span>
+                  ) : null}
+                </p>
+                <p className="mt-0.5 text-[13px] text-muted-foreground">
+                  {describeSchedule(schedule)} · {AUDIENCE_LABEL[schedule.audience]}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {schedule.status === "PAUSED"
+                    ? "Paused"
+                    : schedule.nextRunAt
+                      ? `Next ${nepalDateTime(schedule.nextRunAt)}`
+                      : ""}
+                  {schedule.runCount > 0 ? ` · sent ${schedule.runCount} time(s)` : ""}
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                {schedule.repeat === "ONCE" ? null : (
+                  <RoleButton
+                    onClick={() =>
+                      changeSchedule(schedule, schedule.status === "PAUSED" ? "RESUME" : "PAUSE")
+                    }
+                    type="button"
+                    variant="outline"
+                  >
+                    {schedule.status === "PAUSED" ? (
+                      <Play aria-hidden="true" className="size-3.5" />
+                    ) : (
+                      <Pause aria-hidden="true" className="size-3.5" />
+                    )}
+                    {schedule.status === "PAUSED" ? "Resume" : "Pause"}
+                  </RoleButton>
+                )}
+                <RoleButton
+                  onClick={() => changeSchedule(schedule, "CANCEL")}
+                  type="button"
+                  variant="outline"
+                >
+                  <X aria-hidden="true" className="size-3.5" />
+                  Cancel
+                </RoleButton>
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
       <SectionCard title="Sent">
-        {history.state === "loading" ? <LoadingRows /> : null}
-        {history.state !== "loading" && pushes.length === 0 ? (
+        {resource.state !== "loading" && pushes.length === 0 ? (
           <EmptyState label="No push notifications sent yet." />
         ) : null}
         <div className="divide-y divide-border">
@@ -216,8 +491,9 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
                   {push.body}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {shortDateTime(push.sentAt)} · {AUDIENCE_LABEL[push.audience] ?? push.audience}{" "}
-                  · {push.recipients} account(s) · {push.devices} device(s)
+                  {nepalDateTime(push.sentAt)} · {AUDIENCE_LABEL[push.audience] ?? push.audience}
+                  {push.scheduled ? " · scheduled" : ""} · {push.recipients} account(s) ·{" "}
+                  {push.devices} device(s)
                 </p>
               </div>
               {push.urgency === "URGENT" ? (

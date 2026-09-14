@@ -1,7 +1,8 @@
 import { jwtVerify } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { ACCESS_TOKEN_COOKIE } from "@/lib/auth-cookies";
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/auth-cookies";
+import { applySessionCookies } from "@/lib/session-cookies";
 import { isAuthBypassEnabled } from "@/lib/auth-bypass";
 import { landingPathForRole, protectedRouteRuleForPath } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
@@ -54,6 +55,14 @@ function redirectToLogin(request: NextRequest, error?: string) {
   return NextResponse.redirect(loginUrl);
 }
 
+function redirectHome(request: NextRequest) {
+  const homeUrl = request.nextUrl.clone();
+  homeUrl.pathname = "/";
+  homeUrl.search = "";
+
+  return NextResponse.redirect(homeUrl);
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -78,44 +87,95 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const refuse = (error?: string) =>
+    rule.refuseTo === "home" ? redirectHome(request) : redirectToLogin(request, error);
 
+  let role = await roleFromAccessToken(request.cookies.get(ACCESS_TOKEN_COOKIE)?.value);
+  let refreshed: { accessToken: string; refreshToken: string | null } | null = null;
+
+  /*
+   * The access cookie dies with its 15-minute token, and a page load never goes
+   * through the client's 401 → refresh path. Refresh here, from the refresh
+   * cookie, so an idle tab or a fresh navigation keeps the session.
+   */
+  if (!role) {
+    refreshed = await refreshFromCookie(request);
+    role = refreshed ? await roleFromAccessToken(refreshed.accessToken) : null;
+  }
+
+  if (!role) {
+    return request.cookies.has(ACCESS_TOKEN_COOKIE) || request.cookies.has(REFRESH_TOKEN_COOKIE)
+      ? refuse("session_expired")
+      : refuse();
+  }
+
+  const withSession = (response: NextResponse) =>
+    refreshed ? applySessionCookies(response, refreshed) : response;
+
+  // `roles: null` means the route only asks that somebody is signed in, which
+  // the valid token above has already established.
+  if (!rule.roles || rule.roles.includes(role)) {
+    if (!refreshed) {
+      return NextResponse.next();
+    }
+
+    // Hand the new token to this same request too, so server components that
+    // read the access cookie don't render signed-out.
+    request.cookies.set(ACCESS_TOKEN_COOKIE, refreshed.accessToken);
+
+    return withSession(NextResponse.next({ request: { headers: request.headers } }));
+  }
+
+  if (rule.refuseTo === "home") {
+    return withSession(redirectHome(request));
+  }
+
+  const landingPath = landingPathForRole(role);
+
+  if (landingPath) {
+    const landingUrl = request.nextUrl.clone();
+    landingUrl.pathname = landingPath;
+    landingUrl.search = "";
+
+    return withSession(NextResponse.redirect(landingUrl));
+  }
+
+  return withSession(redirectToLogin(request, "forbidden"));
+}
+
+async function roleFromAccessToken(token: string | undefined) {
   if (!token) {
-    return redirectToLogin(request);
+    return null;
   }
 
   try {
     const { payload } = await jwtVerify(token, accessSecret());
 
-    if (
-      payload.tokenType !== "access" ||
-      !payload.sub ||
-      typeof payload.role !== "string"
-    ) {
-      return redirectToLogin(request, "invalid_session");
-    }
-
-    const role = payload.role as Role;
-
-    // `roles: null` means the route only asks that somebody is signed in, which
-    // the valid token above has already established.
-    if (!rule.roles || rule.roles.includes(role)) {
-      return NextResponse.next();
-    }
-
-    const landingPath = landingPathForRole(role);
-
-    if (landingPath) {
-      const landingUrl = request.nextUrl.clone();
-      landingUrl.pathname = landingPath;
-      landingUrl.search = "";
-
-      return NextResponse.redirect(landingUrl);
-    }
-
-    return redirectToLogin(request, "forbidden");
+    return payload.tokenType === "access" &&
+      payload.sub &&
+      typeof payload.role === "string"
+      ? (payload.role as Role)
+      : null;
   } catch {
-    return redirectToLogin(request, "session_expired");
+    return null;
+  }
+}
+
+async function refreshFromCookie(request: NextRequest) {
+  const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+
+  if (!refreshToken) {
+    return null;
+  }
+
+  try {
+    // Loaded only when a refresh is actually needed, keeping the database out
+    // of every signed-in navigation.
+    const { refreshAccessToken } = await import("@/modules/auth/auth.service");
+
+    return await refreshAccessToken(refreshToken, { allowRecentReuse: true });
+  } catch {
+    return null;
   }
 }
 
@@ -128,6 +188,12 @@ export const config = {
     "/:hostelSlug/admin/:path*",
     "/resident/:path*",
     "/guardian/:path*",
+    /*
+     * The field team's desk. Its rule sat in `route-access.ts` without an entry
+     * here, so the proxy never ran and any visitor rendered the portal.
+     */
+    "/team",
+    "/team/:path*",
     /* The service provider's assigned-jobs list. */
     "/jobs/:path*",
     "/jobs",

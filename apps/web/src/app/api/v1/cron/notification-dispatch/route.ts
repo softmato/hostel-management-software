@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { validateCronRequest } from "@/lib/cron-auth";
 import { dispatchDueCampaigns } from "@/modules/notifications/notification-campaign.service";
+import { dispatchDuePlatformPushes } from "@/modules/notifications/platform-push.service";
 
 export const runtime = "nodejs";
 // A backlog of scheduled broadcasts fans out to many recipients per campaign.
@@ -28,8 +29,11 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await dispatchDueCampaigns();
+    // Fallback for the every-minute `platform-push` job, in case it is not
+    // registered or missed a run. The claim makes a double call harmless.
+    const platformPushes = await dispatchDuePlatformPushes();
 
-    return successResponse(result, "Scheduled notifications dispatched");
+    return successResponse({ ...result, platformPushes }, "Scheduled notifications dispatched");
   } catch (error) {
     return handleRouteError(error);
   }

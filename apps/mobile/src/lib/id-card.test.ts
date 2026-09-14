@@ -64,6 +64,7 @@ function validDraft(overrides: Partial<IdentityDraft> = {}): IdentityDraft {
   return {
     ...emptyIdentityDraft(),
     city: "Kathmandu",
+    dateOfBirth: "2004-03-02",
     fullName: "Sita Sharma",
     gender: "FEMALE",
     guardianName: "Ram Sharma",
@@ -213,6 +214,7 @@ describe("validateIdentity", () => {
 
     expect(Object.keys(errors).sort()).toEqual([
       "city",
+      "dateOfBirth",
       "fullName",
       "gender",
       "guardianName",
@@ -236,7 +238,6 @@ describe("validateIdentity", () => {
       validDraft({
         alternatePhone: "",
         backupEmail: "",
-        dateOfBirth: "",
         medicalNotes: "",
         secondGuardianPhone: "",
       }),
@@ -245,9 +246,15 @@ describe("validateIdentity", () => {
     expect(hasIdentityErrors(errors)).toBe(false);
   });
 
-  it("validates an optional field once it is filled", () => {
+  it("requires a date of birth, well-formed and in the past", () => {
+    expect(validateIdentity(validDraft({ dateOfBirth: "" })).dateOfBirth).toBeTruthy();
+    expect(validateIdentity(validDraft({ dateOfBirth: "2999-01-01" })).dateOfBirth)
+      .toBeTruthy();
     expect(validateIdentity(validDraft({ dateOfBirth: "02/03/2004" })).dateOfBirth)
       .toContain("YYYY-MM-DD");
+  });
+
+  it("validates an optional field once it is filled", () => {
     expect(validateIdentity(validDraft({ backupEmail: "nope" })).backupEmail).toBeTruthy();
     expect(validateIdentity(validDraft({ alternatePhone: "123" })).alternatePhone)
       .toBeTruthy();
@@ -281,7 +288,6 @@ describe("toProfileInput", () => {
   it("omits blank optional fields rather than sending empty strings", () => {
     const payload = toProfileInput(validDraft());
 
-    expect("dateOfBirth" in payload).toBe(false);
     expect("backupEmail" in payload).toBe(false);
     expect("governmentIdType" in payload).toBe(false);
     expect("secondGuardianName" in payload).toBe(false);
@@ -389,6 +395,7 @@ describe("the step split", () => {
 
     expect(Object.keys(validateIdentityStep("about", blank))).toEqual([
       "fullName",
+      "dateOfBirth",
       "gender",
     ]);
     // The guardian is required too, and is three screens away — a Continue on

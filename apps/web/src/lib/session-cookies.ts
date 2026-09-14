@@ -1,54 +1,80 @@
-import type { NextResponse } from "next/server";
+import type { NextRequest, NextResponse } from "next/server";
 
 import {
   ACCESS_TOKEN_COOKIE,
+  LEGACY_REFRESH_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
   accessTokenTtlSeconds,
   refreshTokenTtlSeconds,
 } from "@/lib/auth";
 
-// Scoped to "/api" rather than "/": the refresh token is only ever presented to
-// a route handler, so no other request needs to carry it.
-const REFRESH_COOKIE_PATH = "/api";
+const LEGACY_REFRESH_COOKIE_PATH = "/api";
 
+function cookieOptions(maxAge: number, path = "/") {
+  return {
+    httpOnly: true,
+    maxAge,
+    path,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+  };
+}
+
+export function readRefreshTokenCookie(request: NextRequest) {
+  return (
+    request.cookies.get(REFRESH_TOKEN_COOKIE)?.value ??
+    request.cookies.get(LEGACY_REFRESH_TOKEN_COOKIE)?.value
+  );
+}
+
+/**
+ * `refreshToken: null` is a reuse-window refresh (see `refreshAccessToken`):
+ * only the access cookie is renewed and the refresh cookie the winning request
+ * wrote is left alone.
+ */
 export function applySessionCookies(
   response: NextResponse,
-  tokens: { accessToken: string; refreshToken: string },
+  tokens: { accessToken: string; refreshToken: string | null },
 ) {
-  response.cookies.set(ACCESS_TOKEN_COOKIE, tokens.accessToken, {
-    httpOnly: true,
-    maxAge: accessTokenTtlSeconds(),
-    path: "/",
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
+  response.cookies.set(
+    ACCESS_TOKEN_COOKIE,
+    tokens.accessToken,
+    cookieOptions(accessTokenTtlSeconds()),
+  );
 
-  response.cookies.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, {
-    httpOnly: true,
-    maxAge: refreshTokenTtlSeconds(),
-    path: REFRESH_COOKIE_PATH,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
+  if (tokens.refreshToken) {
+    response.cookies.set(
+      REFRESH_TOKEN_COOKIE,
+      tokens.refreshToken,
+      cookieOptions(refreshTokenTtlSeconds()),
+    );
+    response.cookies.set(
+      LEGACY_REFRESH_TOKEN_COOKIE,
+      "",
+      cookieOptions(0, LEGACY_REFRESH_COOKIE_PATH),
+    );
+  }
 
   return response;
 }
 
 export function clearSessionCookies(response: NextResponse) {
-  // A cookie is only cleared by a delete on the exact path it was written to.
-  // "/api/v1/auth" is included so sessions issued before the auth routes were
-  // unified still log out cleanly instead of leaving an undeletable token.
-  for (const path of ["/", REFRESH_COOKIE_PATH, "/api/v1/auth"]) {
-    const name = path === "/" ? ACCESS_TOKEN_COOKIE : REFRESH_TOKEN_COOKIE;
+  response.cookies.set(ACCESS_TOKEN_COOKIE, "", cookieOptions(0));
+  response.cookies.set(REFRESH_TOKEN_COOKIE, "", cookieOptions(0));
+  response.cookies.set(
+    LEGACY_REFRESH_TOKEN_COOKIE,
+    "",
+    cookieOptions(0, LEGACY_REFRESH_COOKIE_PATH),
+  );
 
-    response.cookies.set(name, "", {
-      httpOnly: true,
-      maxAge: 0,
-      path,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-  }
+  // `response.cookies` keeps one entry per name, so the older "/api/v1/auth"
+  // copy of the legacy cookie is appended raw, after every `cookies.set`.
+  response.headers.append(
+    "Set-Cookie",
+    `${LEGACY_REFRESH_TOKEN_COOKIE}=; Path=/api/v1/auth; Max-Age=0; HttpOnly; SameSite=Lax${
+      process.env.NODE_ENV === "production" ? "; Secure" : ""
+    }`,
+  );
 
   return response;
 }

@@ -480,11 +480,16 @@ export function validateIdentity(draft: IdentityDraft): IdentityErrors {
     errors.signature = "Sign your card — draw it, or photograph it on paper.";
   }
 
-  /* Optional-when-filled from here down. */
-
-  if (text("dateOfBirth") && !ISO_DATE.test(text("dateOfBirth"))) {
+  // Required: the card prints the resident's age from it.
+  if (!text("dateOfBirth")) {
+    errors.dateOfBirth = "Enter your date of birth.";
+  } else if (!ISO_DATE.test(text("dateOfBirth"))) {
     errors.dateOfBirth = "Use YYYY-MM-DD.";
+  } else if (text("dateOfBirth") > new Date().toISOString().slice(0, 10)) {
+    errors.dateOfBirth = "Date of birth can't be in the future.";
   }
+
+  /* Optional-when-filled from here down. */
 
   if (text("backupEmail")) {
     if (!EMAIL.test(text("backupEmail"))) {

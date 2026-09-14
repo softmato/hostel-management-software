@@ -15,6 +15,9 @@ const sessionSchema = new Schema(
       type: Schema.Types.ObjectId,
     },
     refreshTokenHash: { type: String, default: null },
+    // The token rotated away last, still honoured briefly for concurrent refreshes.
+    previousRefreshTokenHash: { type: String, default: null },
+    refreshTokenRotatedAt: { type: Date, default: null },
     userAgent: String,
     ipAddress: String,
     expiresAt: { type: Date, required: true },

@@ -28,7 +28,6 @@ import {
   Shield,
   ShieldCheck,
   Sliders,
-  Sparkles,
   Trash2,
   Upload,
   User,
@@ -48,6 +47,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 
 import { PhotoCropper } from "@/components/photo-cropper";
 import { SignaturePad } from "@/components/signature-pad";
@@ -71,14 +71,14 @@ import {
   draftFromProfile,
   emptyIdentityDraft,
   firstIncompleteIdentityStep,
-  identityStepComplete,
   validateIdentity,
   validateIdentityStep,
   type IdentityDraft,
   type IdentityErrors,
   type IdentityStep,
 } from "@/lib/id-card-steps";
-import { isSignatureComplete } from "@/lib/signature";
+import { isSignatureComplete, SIGNATURE_HEIGHT, SIGNATURE_WIDTH } from "@/lib/signature";
+import { toast } from "@/stores/toast-store";
 import { cn } from "@/lib/utils";
 
 /*
@@ -215,12 +215,15 @@ function Modal({
   onClose,
   subtitle,
   title,
+  toolbar,
   wide,
 }: {
   children: ReactNode;
   onClose: () => void;
   subtitle?: string;
   title: string;
+  /** Pinned under the header, outside the scroll — the step meter. */
+  toolbar?: ReactNode;
   wide?: boolean;
 }) {
   useEffect(() => {
@@ -246,18 +249,18 @@ function Modal({
       <div
         aria-modal
         className={cn(
-          "relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl sm:rounded-2xl",
-          wide ? "sm:max-w-5xl" : "sm:max-w-md",
+          "relative flex max-h-[96vh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-background font-sans shadow-2xl sm:rounded-2xl",
+          wide ? "h-[96vh] sm:h-[94vh] sm:max-w-6xl" : "sm:max-w-md",
         )}
         role="dialog"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4 sm:px-8 sm:py-5">
           <div>
-            <h2 className="font-heading text-lg font-extrabold text-foreground">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
               {title}
             </h2>
             {subtitle ? (
-              <p className="mt-1 text-sm leading-relaxed text-foreground/90">
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                 {subtitle}
               </p>
             ) : null}
@@ -271,11 +274,112 @@ function Modal({
             <X className="size-4" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        {toolbar ? (
+          <div className="border-b border-border px-6 py-3 sm:px-8">{toolbar}</div>
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 sm:px-8 sm:py-6">
+          {children}
+        </div>
       </div>
     </div>,
     document.body,
   );
+}
+
+/** The app's step artwork (`apps/mobile/assets/lottie`), served from `public/lottie`. */
+const STEP_ART: Partial<Record<IdentityStep, string>> = {
+  about: "/lottie/about.lottie",
+  address: "/lottie/address.lottie",
+  guardian: "/lottie/guardian.lottie",
+  review: "/lottie/id-card.lottie",
+  work: "/lottie/work.lottie",
+};
+
+/**
+ * The picture at the left of a step's heading: its animation where the app has
+ * one, otherwise the step's icon on a green tile. Reduce-motion shows the first
+ * frame and plays nothing, as the app's `Lottie` does.
+ */
+function StepArt({ children, step }: { children: ReactNode; step: IdentityStep }) {
+  const [reduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const src = STEP_ART[step];
+
+  if (!src) {
+    return (
+      <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-brand-teal text-white">
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <div className="size-24 shrink-0">
+      <DotLottieReact autoplay={!reduced} loop={!reduced} src={src} />
+    </div>
+  );
+}
+
+/*
+ * Autosave, as the app's `identity-draft` does: a second after the last change
+ * the form goes to this browser, keyed by account so two people on one machine
+ * never see each other's half-filled KYC. Uploaded photo and signature keep
+ * their asset handles and a data-URL preview. Cleared once the server accepts
+ * the save.
+ */
+type IdentityDraftSnapshot = {
+  draft: IdentityDraft;
+  email: string;
+  photoAssetId: string | null;
+  photoPreview: string | null;
+  showSecondGuardian: boolean;
+  signatureAssetId: string | null;
+  signatureMode: "draw" | "photo";
+  signaturePreview: string | null;
+  stepKey: IdentityStep;
+};
+
+function identityDraftKey(identity: ResidentIdentity) {
+  return `hh_identity_draft_${identity.accountEmail ?? identity.accountName}`;
+}
+
+function readIdentityDraft(identity: ResidentIdentity): IdentityDraftSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(identityDraftKey(identity));
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      "draft" in parsed &&
+      typeof (parsed as IdentityDraftSnapshot).stepKey === "string"
+      ? (parsed as IdentityDraftSnapshot)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeIdentityDraft(identity: ResidentIdentity, snapshot: IdentityDraftSnapshot | null) {
+  try {
+    if (snapshot) {
+      window.localStorage.setItem(identityDraftKey(identity), JSON.stringify(snapshot));
+    } else {
+      window.localStorage.removeItem(identityDraftKey(identity));
+    }
+  } catch {
+    // Storage full or blocked: the form on screen is still intact.
+  }
+}
+
+function readAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function Field({
@@ -305,15 +409,16 @@ function Field({
   type?: string;
 }) {
   return (
-    <label className="block text-xs font-bold text-foreground">
+    <label className="block text-xs font-medium text-foreground">
       {label}
-      {required ? <span className="text-danger"> *</span> : null}
+      {required ? <span className="text-destructive"> *</span> : null}
       <input
         aria-invalid={hintTone === "danger" || undefined}
         className={cn(
           "mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground outline-none transition placeholder:text-foreground/45 focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15",
           readOnly && "cursor-not-allowed bg-muted/50",
-          hintTone === "danger" && "border-danger",
+          hintTone === "danger" &&
+            "border-destructive ring-2 ring-destructive/20 focus:border-destructive focus:ring-destructive/25",
         )}
         defaultValue={defaultValue}
         max={max}
@@ -329,7 +434,7 @@ function Field({
           aria-live="polite"
           className={cn(
             "mt-1 block text-xs font-medium text-foreground/75",
-            hintTone === "danger" && "text-danger",
+            hintTone === "danger" && "text-destructive",
             hintTone === "success" && "text-brand-teal",
           )}
         >
@@ -399,6 +504,7 @@ const EMAIL_CHECK_HINTS: Record<EmailCheck, { text?: string; tone?: "danger" | "
 function SelectField({
   children,
   defaultValue,
+  invalid,
   label,
   name,
   onChange,
@@ -406,17 +512,23 @@ function SelectField({
 }: {
   children: ReactNode;
   defaultValue?: string;
+  invalid?: boolean;
   label: string;
   name: string;
   onChange?: (e: ChangeEvent<HTMLSelectElement>) => void;
   required?: boolean;
 }) {
   return (
-    <label className="block text-xs font-bold text-foreground">
+    <label className="block text-xs font-medium text-foreground">
       {label}
-      {required ? <span className="text-danger"> *</span> : null}
+      {required ? <span className="text-destructive"> *</span> : null}
       <select
-        className="mt-1.5 h-11 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground outline-none transition focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15"
+        aria-invalid={invalid || undefined}
+        className={cn(
+          "mt-1.5 h-11 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground outline-none transition focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15",
+          invalid &&
+            "border-destructive ring-2 ring-destructive/20 focus:border-destructive focus:ring-destructive/25",
+        )}
         defaultValue={defaultValue}
         name={name}
         onChange={onChange}
@@ -438,7 +550,7 @@ function SectionTitle({
   label: string;
 }) {
   return (
-    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border pb-2 text-xs font-extrabold uppercase tracking-wide text-foreground">
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border pb-2 text-xs font-semibold text-foreground">
       {Icon ? <Icon className="size-3.5 text-brand-teal" /> : null}
       {label}
       {hint ? (
@@ -540,26 +652,30 @@ function ProfileForm({
   profile: ResidentProfile | null;
   reason: ProfilePromptReason;
 }) {
-  const [draft, setDraft] = useState<IdentityDraft>(() =>
-    draftFromProfile(profile),
+  const [stored] = useState(() => readIdentityDraft(identity));
+  const [draft, setDraft] = useState<IdentityDraft>(
+    () => stored?.draft ?? draftFromProfile(profile),
   );
 
-  const [stepKey, setStepKey] = useState<IdentityStep>(() =>
-    identity.hasProfile ? "review" : "about",
+  const [stepKey, setStepKey] = useState<IdentityStep>(
+    () => stored?.stepKey ?? (identity.hasProfile ? "review" : "about"),
   );
 
   const [stepErrors, setStepErrors] = useState<IdentityErrors>({});
+  // The terms are agreed once, on the first save — editing later does not re-ask.
+  const isFirstSave = !identity.hasProfile;
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showSecondGuardian, setShowSecondGuardian] = useState(
-    Boolean(profile?.secondGuardianName),
+    stored?.showSecondGuardian ?? Boolean(profile?.secondGuardianName),
   );
   const errorRef = useRef<HTMLDivElement>(null);
   const copy = PROMPT_COPY[reason];
 
   const emailLocked = Boolean(identity.accountEmail);
   const [email, setEmail] = useState(
-    identity.accountEmail ?? profile?.primaryEmail ?? "",
+    identity.accountEmail ?? stored?.email ?? profile?.primaryEmail ?? "",
   );
   const emailCheck = useEmailCheck(email, !emailLocked);
   const emailHint = emailLocked
@@ -568,20 +684,25 @@ function ProfileForm({
 
   // Signature state
   const [signatureMode, setSignatureMode] = useState<"draw" | "photo">(
-    identity.hasSignatureImage ? "photo" : "draw",
+    stored?.signatureMode ?? (identity.hasSignatureImage ? "photo" : "draw"),
   );
-  const [signatureAssetId, setSignatureAssetId] = useState<string | null>(null);
+  const [signatureAssetId, setSignatureAssetId] = useState<string | null>(
+    stored?.signatureAssetId ?? null,
+  );
   const [signaturePreview, setSignaturePreview] = useState<string | null>(
-    identity.hasSignatureImage ? identitySignatureUrl(identity) : null,
+    stored?.signaturePreview ??
+      (identity.hasSignatureImage ? identitySignatureUrl(identity) : null),
   );
   const [uploadingSignature, setUploadingSignature] = useState(false);
   const signatureInputRef = useRef<HTMLInputElement>(null);
 
   // Photo state
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
-  const [photoAssetId, setPhotoAssetId] = useState<string | null>(null);
+  const [photoAssetId, setPhotoAssetId] = useState<string | null>(
+    stored?.photoAssetId ?? null,
+  );
   const [photoPreview, setPhotoPreview] = useState<string | null>(
-    identity.hasPhoto ? identityPhotoUrl(identity) : null,
+    stored?.photoPreview ?? (identity.hasPhoto ? identityPhotoUrl(identity) : null),
   );
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -596,13 +717,27 @@ function ProfileForm({
 
   const stepIndex = IDENTITY_STEPS.findIndex((s) => s.key === stepKey);
   const stepInfo = IDENTITY_STEPS[stepIndex] ?? IDENTITY_STEPS[0];
+  // Direction is fixed when the step changes, not recomputed per render — a
+  // class flip mid-step would replay the slide on every keystroke.
+  const [stepMotion, setStepMotion] = useState({ forward: true, key: stepKey });
+  if (stepMotion.key !== stepKey) {
+    setStepMotion({
+      forward: stepIndex > IDENTITY_STEPS.findIndex((s) => s.key === stepMotion.key),
+      key: stepKey,
+    });
+  }
 
   function updateField<K extends keyof IdentityDraft>(key: K, value: IdentityDraft[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }));
+    // A flagged field stays red until what is in it actually passes — not
+    // merely until the first keystroke.
     if (stepErrors[key]) {
+      const still = validateIdentityStep(stepKey, { ...draft, [key]: value })[key];
       setStepErrors((prev) => {
         const copyErrs = { ...prev };
-        delete copyErrs[key];
+        if (still) copyErrs[key] = still;
+        else delete copyErrs[key];
+        if (Object.keys(copyErrs).length === 0) setError("");
         return copyErrs;
       });
     }
@@ -619,7 +754,8 @@ function ProfileForm({
 
   async function handleCroppedPhoto(cropped: File) {
     setPendingPhoto(null);
-    setPhotoPreview(URL.createObjectURL(cropped));
+    // A data URL rather than a blob URL, so the autosaved draft can show it again.
+    setPhotoPreview(await readAsDataUrl(cropped));
     setUploadingPhoto(true);
 
     try {
@@ -643,8 +779,9 @@ function ProfileForm({
   }
 
   async function handleCroppedSignature(cropped: File) {
-    setSignaturePreview(URL.createObjectURL(cropped));
-    updateField("signatureImageUri", URL.createObjectURL(cropped));
+    const preview = await readAsDataUrl(cropped);
+    setSignaturePreview(preview);
+    updateField("signatureImageUri", preview);
     updateField("signature", "");
     setUploadingSignature(true);
 
@@ -793,6 +930,8 @@ function ProfileForm({
         method: "PUT",
       });
 
+      savedRef.current = true;
+      writeIdentityDraft(identity, null);
       onSaved(next);
     } catch (saveError) {
       setError(describeSaveError(saveError));
@@ -804,8 +943,59 @@ function ProfileForm({
   const hasPhotoAsset = Boolean(photoAssetId || identity.hasPhoto);
   const hasSignatureAsset = Boolean(signatureAssetId || identity.hasSignatureImage);
 
+  const snapshotJson = JSON.stringify({
+    draft,
+    email,
+    photoAssetId,
+    photoPreview: photoPreview?.startsWith("data:") ? photoPreview : null,
+    showSecondGuardian,
+    signatureAssetId,
+    signatureMode,
+    signaturePreview: signaturePreview?.startsWith("data:") ? signaturePreview : null,
+    stepKey,
+  } satisfies IdentityDraftSnapshot);
+  // Opening and leaving is not a draft: nothing is written until the form
+  // differs from how it opened. `savedRef` stops a pending timer re-writing a
+  // draft the successful save just cleared.
+  const openedJson = useRef(snapshotJson);
+  const savedRef = useRef(false);
+
+  useEffect(() => {
+    if (snapshotJson === openedJson.current) return;
+    const timer = window.setTimeout(() => {
+      if (!savedRef.current) {
+        writeIdentityDraft(identity, JSON.parse(snapshotJson) as IdentityDraftSnapshot);
+      }
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [identity, snapshotJson]);
+
   return (
-    <Modal onClose={onClose} subtitle={copy.subtitle} title={copy.title} wide>
+    <Modal
+      onClose={onClose}
+      subtitle={copy.subtitle}
+      title={copy.title}
+      toolbar={
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs font-medium text-foreground">
+            <span className="font-semibold text-brand-teal">
+              Step {stepIndex + 1} of {IDENTITY_STEPS.length} — {stepInfo.title}
+            </span>
+            <span>{Math.round(((stepIndex + 1) / IDENTITY_STEPS.length) * 100)}% Complete</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-brand-teal transition-all duration-300 ease-out"
+              style={{ width: `${((stepIndex + 1) / IDENTITY_STEPS.length) * 100}%` }}
+            />
+          </div>
+        </div>
+      }
+      wide
+    >
+      {stored ? (
+        <p className="mb-4 text-xs text-muted-foreground">Picked up where you left off.</p>
+      ) : null}
       {cameraModal ? (
         <WebCameraModal
           aspectRatio={cameraModal.aspectRatio}
@@ -825,67 +1015,10 @@ function ProfileForm({
       ) : null}
 
       <div className="space-y-6">
-        {/* Step Meter Header */}
-        <div className="space-y-4 border-b border-border pb-4">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 no-scrollbar scroll-smooth">
-            {IDENTITY_STEPS.map((s, idx) => {
-              const IconComp = s.iconName === "User" ? User : s.iconName === "Phone" ? Phone : s.iconName === "MapPin" ? MapPin : s.iconName === "Briefcase" ? Briefcase : s.iconName === "Shield" ? Shield : s.iconName === "Sliders" ? Sliders : s.iconName === "Camera" ? Camera : s.iconName === "PenTool" ? PenTool : ShieldCheck;
-              const isCurrent = s.key === stepKey;
-              const isDone =
-                idx < stepIndex ||
-                identityStepComplete(s.key, draft, {
-                  hasPhoto: hasPhotoAsset,
-                  hasSignatureImage: hasSignatureAsset,
-                });
-
-              return (
-                <button
-                  key={s.key}
-                  className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-all",
-                    isCurrent
-                      ? "bg-brand-teal text-white shadow-sm ring-2 ring-brand-teal/30"
-                      : isDone
-                        ? "bg-brand-teal/15 text-brand-teal hover:bg-brand-teal/25"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80",
-                  )}
-                  onClick={() => {
-                    if (isDone || idx <= stepIndex) setStepKey(s.key);
-                  }}
-                  type="button"
-                >
-                  {isDone && !isCurrent ? (
-                    <CheckCircle2 className="size-3.5" />
-                  ) : (
-                    <IconComp className="size-3.5" />
-                  )}
-                  <span>{s.title}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-bold text-foreground">
-              <span className="flex items-center gap-1.5 text-brand-teal font-extrabold uppercase tracking-wider">
-                <Sparkles className="size-3.5" />
-                Step {stepIndex + 1} of {IDENTITY_STEPS.length} — {stepInfo.title}
-              </span>
-              <span>{Math.round(((stepIndex + 1) / IDENTITY_STEPS.length) * 100)}% Complete</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-gradient-to-r from-brand-teal to-emerald-400 transition-all duration-300 ease-out"
-                style={{ width: `${((stepIndex + 1) / IDENTITY_STEPS.length) * 100}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
         {error ? (
           <div
             aria-live="assertive"
-            className="rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm font-semibold text-danger outline-none"
+            className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm font-semibold text-destructive outline-none"
             ref={errorRef}
             role="alert"
             tabIndex={-1}
@@ -895,14 +1028,16 @@ function ProfileForm({
         ) : null}
 
         {/* Step Contents */}
+        <div
+          className={stepMotion.forward ? "animate-step-from-right" : "animate-step-from-left"}
+          key={stepKey}
+        >
         {stepKey === "about" && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                <User className="size-5" />
-              </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+              <StepArt step={stepKey}><User className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Personal Profile</h4>
+                <h4 className="text-sm font-semibold text-foreground">Personal Profile</h4>
                 <p className="text-xs text-muted-foreground">Enter your name exactly as shown on your citizenship or government ID.</p>
               </div>
             </div>
@@ -929,12 +1064,14 @@ function ProfileForm({
                   max={new Date().toISOString().slice(0, 10)}
                   name="dateOfBirth"
                   onChange={(val) => updateField("dateOfBirth", val)}
+                  required
                   type="date"
                 />
               </div>
               <div>
                 <SelectField
                   defaultValue={draft.gender}
+                  invalid={Boolean(stepErrors.gender)}
                   label="Gender"
                   name="gender"
                   onChange={(e) => updateField("gender", e.target.value)}
@@ -949,7 +1086,7 @@ function ProfileForm({
                   <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
                 </SelectField>
                 {stepErrors.gender ? (
-                  <p className="mt-1 text-xs font-semibold text-danger">{stepErrors.gender}</p>
+                  <p className="mt-1 text-xs font-semibold text-destructive">{stepErrors.gender}</p>
                 ) : null}
               </div>
               <div>
@@ -973,12 +1110,10 @@ function ProfileForm({
 
         {stepKey === "contact" && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                <Phone className="size-5" />
-              </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+              <StepArt step={stepKey}><Phone className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Contact Methods</h4>
+                <h4 className="text-sm font-semibold text-foreground">Contact Methods</h4>
                 <p className="text-xs text-muted-foreground">Hostels and emergency services use this phone and email to reach you.</p>
               </div>
             </div>
@@ -1043,12 +1178,10 @@ function ProfileForm({
 
         {stepKey === "address" && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                <MapPin className="size-5" />
-              </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+              <StepArt step={stepKey}><MapPin className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Permanent Residence</h4>
+                <h4 className="text-sm font-semibold text-foreground">Permanent Residence</h4>
                 <p className="text-xs text-muted-foreground">Your permanent home address recorded for residency verification.</p>
               </div>
             </div>
@@ -1083,18 +1216,16 @@ function ProfileForm({
 
         {stepKey === "work" && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                <Briefcase className="size-5" />
-              </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+              <StepArt step={stepKey}><Briefcase className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Occupation & Institution</h4>
+                <h4 className="text-sm font-semibold text-foreground">Occupation & Institution</h4>
                 <p className="text-xs text-muted-foreground">Select your current status for resident profiling.</p>
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs font-bold text-foreground">I am a</label>
+              <label className="block text-xs font-medium text-foreground">I am a</label>
               <div className="grid gap-3 sm:grid-cols-3">
                 {[
                   { desc: "College or university student", icon: GraduationCap, key: "STUDENT", title: "Student" },
@@ -1119,7 +1250,7 @@ function ProfileForm({
                         <IconC className={cn("size-5", isSelected ? "text-brand-teal" : "text-foreground/60")} />
                         {isSelected ? <CheckCircle2 className="size-4 text-brand-teal" /> : null}
                       </div>
-                      <span className="mt-2 text-xs font-extrabold text-foreground">{opt.title}</span>
+                      <span className="mt-2 text-xs font-semibold text-foreground">{opt.title}</span>
                       <span className="mt-0.5 text-[11px] text-muted-foreground leading-tight">{opt.desc}</span>
                     </button>
                   );
@@ -1149,12 +1280,10 @@ function ProfileForm({
 
         {stepKey === "guardian" && (
           <div className="space-y-5">
-            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                <Shield className="size-5" />
-              </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+              <StepArt step={stepKey}><Shield className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Guardian & Emergency Contacts</h4>
+                <h4 className="text-sm font-semibold text-foreground">Guardian & Emergency Contacts</h4>
                 <p className="text-xs text-muted-foreground">At least one reachable adult contact is required for your safety.</p>
               </div>
             </div>
@@ -1237,7 +1366,7 @@ function ProfileForm({
               </div>
             ) : (
               <button
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-teal hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-teal hover:underline"
                 onClick={() => setShowSecondGuardian(true)}
                 type="button"
               >
@@ -1275,12 +1404,10 @@ function ProfileForm({
 
         {stepKey === "preferences" && (
           <div className="space-y-5">
-            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                <Sliders className="size-5" />
-              </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+              <StepArt step={stepKey}><Sliders className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Preferences & Identification</h4>
+                <h4 className="text-sm font-semibold text-foreground">Preferences & Identification</h4>
                 <p className="text-xs text-muted-foreground">Select your dietary preferences and specify your government proof of identity.</p>
               </div>
             </div>
@@ -1322,7 +1449,7 @@ function ProfileForm({
               placeholder="e.g. Football, Music, Coding"
             />
 
-            <label className="block text-xs font-bold text-foreground">
+            <label className="block text-xs font-medium text-foreground">
               Medical Notes / Allergies
               <textarea
                 className="mt-1.5 min-h-20 w-full rounded-lg border border-border bg-background p-3 text-sm font-normal text-foreground outline-none focus:border-brand-teal focus:ring-2 focus:ring-brand-teal/15"
@@ -1336,7 +1463,25 @@ function ProfileForm({
             {/* Visual Government ID Selector Cards */}
             <div className="border-t border-border pt-4 space-y-3">
               <SectionTitle label="Government Proof of Identity" />
-              <p className="text-xs text-muted-foreground">Select the type of government document you hold:</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">Select the type of government document you hold:</p>
+                <button
+                  aria-pressed={!draft.governmentIdType}
+                  className={cn(
+                    "shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition",
+                    draft.governmentIdType
+                      ? "border-border text-foreground hover:bg-muted"
+                      : "border-brand-teal bg-brand-teal/10 text-brand-teal",
+                  )}
+                  onClick={() => {
+                    updateField("governmentIdType", "");
+                    updateField("governmentIdNumber", "");
+                  }}
+                  type="button"
+                >
+                  Not now
+                </button>
+              </div>
               
               <div className="grid gap-2.5 sm:grid-cols-3">
                 {[
@@ -1362,7 +1507,7 @@ function ProfileForm({
                       type="button"
                     >
                       <DocIcon className={cn("size-4 shrink-0", isSel ? "text-brand-teal" : "text-foreground/60")} />
-                      <span className="text-xs font-bold text-foreground truncate flex-1">{doc.label}</span>
+                      <span className="text-xs font-medium text-foreground truncate flex-1">{doc.label}</span>
                       {isSel ? <CheckCircle2 className="size-4 text-brand-teal shrink-0" /> : null}
                     </button>
                   );
@@ -1387,12 +1532,10 @@ function ProfileForm({
 
         {stepKey === "photo" && (
           <div className="space-y-5 text-center">
-            <div className="flex items-center justify-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5 text-left">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm shrink-0">
-                <Camera className="size-5" />
-              </div>
+            <div className="flex items-center justify-center gap-3 rounded-xl border border-border bg-muted/30 p-3 text-left">
+              <StepArt step={stepKey}><Camera className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Front-Facing Passport Photo</h4>
+                <h4 className="text-sm font-semibold text-foreground">Front-Facing Passport Photo</h4>
                 <p className="text-xs text-muted-foreground">Align your face in the middle frame. Printed on the front of your ID card.</p>
               </div>
             </div>
@@ -1405,7 +1548,7 @@ function ProfileForm({
               ) : (
                 <div className="flex flex-col items-center gap-2 p-4 text-center">
                   <Camera className="size-10 text-white/50 animate-pulse" />
-                  <span className="text-[11px] font-bold text-white/70">Align face in box</span>
+                  <span className="text-[11px] font-medium text-white/70">Align face in box</span>
                 </div>
               )}
 
@@ -1420,11 +1563,11 @@ function ProfileForm({
 
             {/* Photo Guidelines Checklist */}
             <div className="mx-auto max-w-sm rounded-xl border border-border bg-muted/30 p-3 text-left space-y-1.5 text-xs text-foreground/80">
-              <div className="flex items-center gap-2 font-bold text-foreground">
+              <div className="flex items-center gap-2 font-medium text-foreground">
                 <CheckCircle2 className="size-3.5 text-brand-teal" />
                 <span>Face centered with good lighting</span>
               </div>
-              <div className="flex items-center gap-2 font-bold text-foreground">
+              <div className="flex items-center gap-2 font-medium text-foreground">
                 <CheckCircle2 className="size-3.5 text-brand-teal" />
                 <span>Plain background, no sunglasses or hats</span>
               </div>
@@ -1440,7 +1583,7 @@ function ProfileForm({
 
             <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
               <button
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand-teal px-5 text-xs font-extrabold text-white shadow-lg transition hover:brightness-110 disabled:opacity-60"
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand-teal px-5 text-xs font-semibold text-white shadow-lg transition hover:brightness-110 disabled:opacity-60"
                 disabled={uploadingPhoto}
                 onClick={() =>
                   setCameraModal({
@@ -1457,7 +1600,7 @@ function ProfileForm({
               </button>
 
               <button
-                className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-surface px-5 text-xs font-extrabold text-foreground transition hover:bg-muted disabled:opacity-60"
+                className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-surface px-5 text-xs font-semibold text-foreground transition hover:bg-muted disabled:opacity-60"
                 disabled={uploadingPhoto}
                 onClick={() => photoInputRef.current?.click()}
                 type="button"
@@ -1471,12 +1614,10 @@ function ProfileForm({
 
         {stepKey === "signature" && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-3.5">
-              <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                <PenTool className="size-5" />
-              </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+              <StepArt step={stepKey}><PenTool className="size-5" /></StepArt>
               <div>
-                <h4 className="font-heading text-sm font-extrabold text-foreground">Official Card Signature</h4>
+                <h4 className="text-sm font-semibold text-foreground">Official Card Signature</h4>
                 <p className="text-xs text-muted-foreground">Draw on screen or photograph your signature on white paper.</p>
               </div>
             </div>
@@ -1484,7 +1625,7 @@ function ProfileForm({
             <div className="flex rounded-xl border border-border bg-muted p-1">
               <button
                 className={cn(
-                  "flex-1 rounded-lg py-2.5 text-xs font-extrabold transition",
+                  "flex-1 rounded-lg py-2.5 text-xs font-semibold transition",
                   signatureMode === "draw"
                     ? "bg-surface text-brand-teal shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -1497,7 +1638,7 @@ function ProfileForm({
               </button>
               <button
                 className={cn(
-                  "flex-1 rounded-lg py-2.5 text-xs font-extrabold transition",
+                  "flex-1 rounded-lg py-2.5 text-xs font-semibold transition",
                   signatureMode === "photo"
                     ? "bg-surface text-brand-teal shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -1512,9 +1653,9 @@ function ProfileForm({
 
             {signatureMode === "draw" ? (
               <div className="space-y-2">
-                <p className="text-xs font-bold text-foreground flex items-center justify-between">
+                <p className="text-xs font-medium text-foreground flex items-center justify-between">
                   <span>Draw your signature inside the grid box:</span>
-                  {draft.signature ? <span className="text-brand-teal font-extrabold">Signature captured ✓</span> : null}
+                  {draft.signature ? <span className="text-brand-teal font-semibold">Signature captured ✓</span> : null}
                 </p>
                 <SignaturePad
                   onChange={(val) => {
@@ -1554,7 +1695,7 @@ function ProfileForm({
 
                 <div className="flex flex-wrap items-center justify-center gap-3">
                   <button
-                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-teal px-4 text-xs font-bold text-white shadow transition hover:brightness-110 disabled:opacity-60"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-teal px-4 text-xs font-medium text-white shadow transition hover:brightness-110 disabled:opacity-60"
                     disabled={uploadingSignature}
                     onClick={() =>
                       setCameraModal({
@@ -1571,7 +1712,7 @@ function ProfileForm({
                   </button>
 
                   <button
-                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-xs font-bold text-foreground transition hover:bg-muted disabled:opacity-60"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-xs font-medium text-foreground transition hover:bg-muted disabled:opacity-60"
                     disabled={uploadingSignature}
                     onClick={() => signatureInputRef.current?.click()}
                     type="button"
@@ -1591,17 +1732,15 @@ function ProfileForm({
             <div className="rounded-2xl border border-brand-teal/20 bg-gradient-to-br from-brand-teal/5 via-background to-brand-teal/10 p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="grid size-10 place-items-center rounded-xl bg-brand-teal text-white shadow-sm">
-                    <ShieldCheck className="size-5" />
-                  </div>
+                  <StepArt step={stepKey}><ShieldCheck className="size-5" /></StepArt>
                   <div>
-                    <h4 className="font-heading text-sm font-extrabold text-foreground">KYC Verification Summary</h4>
+                    <h4 className="text-sm font-semibold text-foreground">KYC Verification Summary</h4>
                     <p className="text-xs text-muted-foreground">Review documents and profile accuracy before saving</p>
                   </div>
                 </div>
                 <span
                   className={cn(
-                    "rounded-full px-3 py-1 text-xs font-extrabold",
+                    "rounded-full px-3 py-1 text-xs font-semibold",
                     hasPhotoAsset && (hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature))
                       ? "bg-brand-teal/15 text-brand-teal"
                       : "bg-warning/15 text-warning",
@@ -1614,15 +1753,15 @@ function ProfileForm({
               </div>
 
               <div className="grid gap-2 sm:grid-cols-3 pt-1">
-                <div className="flex items-center gap-2 rounded-xl border border-brand-teal/30 bg-brand-teal/10 p-2.5 text-xs font-extrabold text-brand-teal">
+                <div className="flex items-center gap-2 rounded-xl border border-brand-teal/30 bg-brand-teal/10 p-2.5 text-xs font-semibold text-brand-teal">
                   <CheckCircle2 className="size-4 shrink-0" />
                   <span>1. Details & Contact Verified</span>
                 </div>
-                <div className={cn("flex items-center gap-2 rounded-xl border p-2.5 text-xs font-extrabold transition", hasPhotoAsset ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal" : "border-warning/40 bg-warning/10 text-warning")}>
+                <div className={cn("flex items-center gap-2 rounded-xl border p-2.5 text-xs font-semibold transition", hasPhotoAsset ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal" : "border-warning/40 bg-warning/10 text-warning")}>
                   <Camera className="size-4 shrink-0" />
                   <span>2. Photo ({hasPhotoAsset ? "Attached ✓" : "Missing"})</span>
                 </div>
-                <div className={cn("flex items-center gap-2 rounded-xl border p-2.5 text-xs font-extrabold transition", hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature) ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal" : "border-warning/40 bg-warning/10 text-warning")}>
+                <div className={cn("flex items-center gap-2 rounded-xl border p-2.5 text-xs font-semibold transition", hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature) ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal" : "border-warning/40 bg-warning/10 text-warning")}>
                   <PenTool className="size-4 shrink-0" />
                   <span>3. Signature ({hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature) ? "Signed ✓" : "Missing"})</span>
                 </div>
@@ -1633,12 +1772,12 @@ function ProfileForm({
               (!hasSignatureAsset &&
                 !draft.signatureImageUri.trim() &&
                 !isSignatureComplete(draft.signature))) && (
-              <div className="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-3.5 text-xs font-bold text-warning">
+              <div className="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-3.5 text-xs font-medium text-warning">
                 <AlertCircle className="size-5 shrink-0" />
                 <div>
                   <p>Some details need fixing before creating your ID card.</p>
                   <button
-                    className="mt-1 underline font-extrabold"
+                    className="mt-1 underline font-semibold"
                     onClick={() => {
                       const firstBad = firstIncompleteIdentityStep(draft, {
                         hasPhoto: hasPhotoAsset,
@@ -1718,22 +1857,66 @@ function ProfileForm({
                 ]}
               />
 
-              <ReviewFactCard
-                title="Photo"
-                onEdit={() => setStepKey("photo")}
-                rows={[
-                  ["Card Photo", hasPhotoAsset ? "Uploaded ✓" : "Missing ✕"],
-                ]}
-              />
+              <ReviewAssetCard onEdit={() => setStepKey("photo")} title="Photo">
+                {photoPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    alt="Your card photo"
+                    className="h-40 w-32 rounded-lg border border-border object-cover"
+                    src={photoPreview}
+                  />
+                ) : null}
+              </ReviewAssetCard>
 
-              <ReviewFactCard
-                title="Signature"
-                onEdit={() => setStepKey("signature")}
-                rows={[
-                  ["Card Signature", hasSignatureAsset || Boolean(draft.signatureImageUri.trim()) || isSignatureComplete(draft.signature) ? "Provided ✓" : "Missing ✕"],
-                ]}
-              />
+              <ReviewAssetCard onEdit={() => setStepKey("signature")} title="Signature">
+                {signatureMode === "draw" && isSignatureComplete(draft.signature) ? (
+                  <svg
+                    aria-label="Your signature"
+                    className="h-24 w-full max-w-72 rounded-lg border border-border bg-white text-slate-900"
+                    role="img"
+                    viewBox={`0 0 ${SIGNATURE_WIDTH} ${SIGNATURE_HEIGHT}`}
+                  >
+                    <path
+                      d={draft.signature}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={5}
+                    />
+                  </svg>
+                ) : signaturePreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    alt="Your signature"
+                    className="h-24 w-full max-w-72 rounded-lg border border-border bg-white object-contain p-2"
+                    src={signaturePreview}
+                  />
+                ) : null}
+              </ReviewAssetCard>
             </div>
+
+            {isFirstSave ? (
+              <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/20 p-3.5">
+                <input
+                  checked={agreed}
+                  className="mt-0.5 size-4 cursor-pointer rounded border-border accent-brand-teal"
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  type="checkbox"
+                />
+                <span className="text-xs font-medium leading-relaxed text-foreground">
+                  By creating your resident ID you agree to our{" "}
+                  <Link className="text-brand-teal hover:underline" href="/terms" target="_blank">
+                    Terms
+                  </Link>{" "}
+                  and{" "}
+                  <Link className="text-brand-teal hover:underline" href="/privacy" target="_blank">
+                    Privacy Policy
+                  </Link>
+                  .
+                </span>
+              </label>
+            ) : null}
 
             <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/20 p-3.5">
               <input
@@ -1751,13 +1934,14 @@ function ProfileForm({
             </label>
           </div>
         )}
+        </div>
 
         {/* Footer controls */}
         <div className="flex items-center justify-between border-t border-border pt-4">
           <div>
             {stepIndex > 0 && (
               <button
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2.5 text-xs font-bold text-foreground transition hover:bg-muted"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-foreground transition hover:bg-muted"
                 onClick={handleBack}
                 type="button"
               >
@@ -1770,7 +1954,7 @@ function ProfileForm({
           <div className="flex items-center gap-2">
             {stepKey === "work" && (
               <button
-                className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2.5 text-xs font-bold text-foreground transition hover:bg-muted"
+                className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-foreground transition hover:bg-muted"
                 onClick={handleSkip}
                 type="button"
               >
@@ -1780,7 +1964,7 @@ function ProfileForm({
 
             {stepKey !== "review" ? (
               <button
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-teal px-5 py-2.5 text-xs font-bold text-white shadow transition hover:brightness-110"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-teal px-5 py-2.5 text-xs font-medium text-white shadow transition hover:brightness-110"
                 onClick={handleNext}
                 type="button"
               >
@@ -1789,9 +1973,22 @@ function ProfileForm({
               </button>
             ) : (
               <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-brand-teal px-6 text-sm font-bold text-white shadow transition hover:brightness-110 disabled:opacity-60"
+                // Looks off until the terms are ticked, but still answers a click with why — as the app does.
+                className={cn(
+                  "inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-brand-teal px-6 text-sm font-medium text-white shadow transition hover:brightness-110 disabled:opacity-60",
+                  isFirstSave && !agreed && "opacity-50 hover:brightness-100",
+                )}
                 disabled={saving}
-                onClick={() => void handleSubmit()}
+                onClick={() => {
+                  if (isFirstSave && !agreed) {
+                    toast.error({
+                      description: "Tick the Terms and Privacy Policy box above.",
+                      title: "Agree to the terms first",
+                    });
+                    return;
+                  }
+                  void handleSubmit();
+                }}
                 type="button"
               >
                 {saving ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -1802,6 +1999,36 @@ function ProfileForm({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** A review card that shows the uploaded image itself rather than a "Provided ✓" line. */
+function ReviewAssetCard({
+  children,
+  onEdit,
+  title,
+}: {
+  children: ReactNode;
+  onEdit: () => void;
+  title: string;
+}) {
+  return (
+    <div className="space-y-3 rounded-xl border border-border bg-surface p-3.5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-foreground">{title}</h4>
+        <button
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-teal hover:underline"
+          onClick={onEdit}
+          type="button"
+        >
+          <Edit2 className="size-3" />
+          Edit
+        </button>
+      </div>
+      {children ?? (
+        <p className="text-xs font-medium text-destructive">Missing — add it before saving.</p>
+      )}
+    </div>
   );
 }
 
@@ -1817,11 +2044,11 @@ function ReviewFactCard({
   return (
     <div className="rounded-xl border border-border bg-surface p-3.5 shadow-sm space-y-2">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-extrabold uppercase tracking-wide text-foreground">
+        <h4 className="text-xs font-semibold text-foreground">
           {title}
         </h4>
         <button
-          className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-teal hover:underline"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-teal hover:underline"
           onClick={onEdit}
           type="button"
         >
@@ -1833,7 +2060,7 @@ function ReviewFactCard({
         {rows.map(([label, val]) => (
           <div className="flex justify-between gap-2" key={label}>
             <span className="text-muted-foreground font-semibold">{label}:</span>
-            <span className="font-bold text-foreground truncate">{val}</span>
+            <span className="font-medium text-foreground truncate">{val}</span>
           </div>
         ))}
       </div>
@@ -2241,7 +2468,7 @@ function IdCardPanel({
 
       <div className="space-y-5">
         {error ? (
-          <div className="rounded-lg border border-danger/25 bg-danger/5 p-3 text-xs font-semibold text-danger">
+          <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-xs font-semibold text-destructive">
             {error}
           </div>
         ) : null}
@@ -2317,7 +2544,7 @@ function IdCardPanel({
             {identity.hasPhoto ? (
               <button
                 aria-label="Remove photo"
-                className="rounded-lg p-1.5 text-foreground/70 transition hover:bg-muted hover:text-danger disabled:opacity-60"
+                className="rounded-lg p-1.5 text-foreground/70 transition hover:bg-muted hover:text-destructive disabled:opacity-60"
                 disabled={savingPhoto}
                 onClick={handleRemovePhoto}
                 type="button"

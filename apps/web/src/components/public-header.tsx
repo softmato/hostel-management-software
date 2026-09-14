@@ -1,5 +1,6 @@
 "use client";
 
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 import { BadgePlus, ChevronDown, LayoutDashboard, LogOut, QrCode } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -10,7 +11,7 @@ import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { landingPathForRole } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
 import { cn } from "@/lib/utils";
-import { BrandMark } from "@/components/brand-mark";
+import { BrandWordmark } from "@/components/brand-mark";
 import {
   ResidentIdentityCenter,
   requestResidentProfileForm,
@@ -210,9 +211,11 @@ export function PublicHeader({ active }: PublicHeaderProps) {
       <div className="flex h-16 w-full items-center justify-between px-4 md:px-8">
         <Link
           href="/"
-          className="flex items-center gap-2 font-heading text-lg font-semibold text-brand-teal"
+          aria-label={PLATFORM_NAME}
+          className="flex shrink-0 items-center gap-2 pl-4 md:pl-10"
         >
-          <BrandMark adaptive className="h-8" />
+          {/* Full name at the top of the page; folds into the HP mark once it scrolls. */}
+          <BrandWordmark folded={scrolled} height={18} />
         </Link>
 
         {/* Tight at md and roomy from lg: eight destinations plus More do not

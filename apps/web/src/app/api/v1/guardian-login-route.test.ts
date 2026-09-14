@@ -92,6 +92,6 @@ describe("POST /api/v1/guardian/login", () => {
     );
 
     expect(response.cookies.get("hostelhub_access_token")?.value).toBe("access-token");
-    expect(response.cookies.get("hostelhub_refresh_token")?.value).toBe("refresh-token");
+    expect(response.cookies.get("hostelhub_refresh")?.value).toBe("refresh-token");
   });
 });

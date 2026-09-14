@@ -426,7 +426,45 @@ body {
  * change the layout has already made — so under a reduced-motion preference
  * they are removed outright rather than shortened.
  */
+/*
+ * The mobile app's StepFrame (FadeInRight / FadeInLeft, 220ms): a step slides
+ * in from the side it came from, so forward and back read as directions.
+ */
+@keyframes step-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes step-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@layer utilities {
+  .animate-step-from-right {
+    animation: step-from-right 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  .animate-step-from-left {
+    animation: step-from-left 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .animate-step-from-right,
+  .animate-step-from-left,
   .animate-step-in,
   .animate-step-out,
   .animate-marker-settle,

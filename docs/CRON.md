@@ -1,6 +1,6 @@
 # CRON.md — Scheduled jobs (cron-job.org)
 
-16 jobs. Each block below gives you exactly what to paste into the cron-job.org form.
+17 jobs. Each block below gives you exactly what to paste into the cron-job.org form.
 
 ## Same on every job
 
@@ -149,6 +149,20 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 9 * * 1` (every Monday at 09:45)
+
+## 17. Platform push
+
+- Title: `Platform push`
+- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/platform-push`
+- Method: `POST`
+- Header: `x-cron-secret`: `<CRON_SECRET>`
+- Crontab: `* * * * *` (every minute)
+
+Sends the superadmin's scheduled pushes (Platform → Push Notification). Every
+minute because a push is timed to the minute; an idle run is one indexed query.
+Notification dispatch (job 2) runs the same sweep every 15 minutes as a fallback,
+and a claim on each schedule stops the two from double-sending. A missed repeat
+more than 30 minutes late is skipped, not sent late.
 
 ---
 

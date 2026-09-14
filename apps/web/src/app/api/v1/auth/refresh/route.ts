@@ -1,16 +1,15 @@
 import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
-import { REFRESH_TOKEN_COOKIE } from "@/lib/auth";
 import { readBodyRefreshToken, shouldExposeRefreshToken } from "@/lib/mobile-auth";
-import { applySessionCookies } from "@/lib/session-cookies";
+import { applySessionCookies, readRefreshTokenCookie } from "@/lib/session-cookies";
 import { AuthServiceError, refreshAccessToken } from "@/modules/auth/auth.service";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieRefreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+    const cookieRefreshToken = readRefreshTokenCookie(request);
     const bodyRefreshToken = cookieRefreshToken
       ? null
       : await readBodyRefreshToken(request);
@@ -20,7 +19,11 @@ export async function POST(request: NextRequest) {
       return errorResponse("Refresh token is missing.", "UNAUTHENTICATED", 401);
     }
 
-    const result = await refreshAccessToken(refreshToken);
+    // Only a browser shares one cookie across concurrent refreshes; mobile
+    // single-flights and must always get a rotated token back to store.
+    const result = await refreshAccessToken(refreshToken, {
+      allowRecentReuse: Boolean(cookieRefreshToken),
+    });
     const response = successResponse(
       {
         accessToken: result.accessToken,

@@ -13,6 +13,13 @@ export type ProtectedRouteRule = {
    * between a guarded route and an unguarded one.
    */
   roles: Role[] | null;
+  /**
+   * Where a refused visitor goes. `"login"` (the default) sends the signed-out
+   * to sign in and a wrong role to its own landing page. `"home"` sends
+   * everybody who is not let in to `/` — for a portal whose existence an
+   * ordinary account has no reason to be shown.
+   */
+  refuseTo?: "home" | "login";
 };
 
 /**
@@ -66,6 +73,7 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
    */
   {
     prefix: "/team",
+    refuseTo: "home",
     roles: [Role.PLATFORM_AGENT, Role.SUPERADMIN],
   },
   {

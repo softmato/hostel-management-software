@@ -47,11 +47,45 @@ export const PLATFORM_PUSH_AUDIENCES = [
   "GUARDIANS",
 ] as const;
 
-export const platformPushSchema = z.object({
-  audience: z.enum(PLATFORM_PUSH_AUDIENCES).default("EVERYONE"),
-  body: z.string().trim().min(2).max(500),
-  title: z.string().trim().min(2).max(120),
-  urgency: z.enum(["NORMAL", "URGENT"]).default("NORMAL"),
+const nepalDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.");
+
+export const platformPushSchema = z
+  .object({
+    audience: z.enum(PLATFORM_PUSH_AUDIENCES).default("EVERYONE"),
+    body: z.string().trim().min(2).max(500),
+    /** Nepal date of a ONCE, or the first date of a repeat. Defaults to today. */
+    date: nepalDateSchema.optional(),
+    endsOn: nepalDateSchema.optional(),
+    /** `NOW` sends in this request; the rest are left to the cron. */
+    repeat: z.enum(["NOW", "ONCE", "DAILY", "WEEKLY"]).default("NOW"),
+    time: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Pick a time.")
+      .optional(),
+    title: z.string().trim().min(2).max(120),
+    urgency: z.enum(["NORMAL", "URGENT"]).default("NORMAL"),
+    weekdays: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+  })
+  .superRefine((value, context) => {
+    if (value.repeat === "NOW") {
+      return;
+    }
+
+    if (!value.time) {
+      context.addIssue({ code: "custom", message: "Pick a time.", path: ["time"] });
+    }
+
+    if (value.repeat === "ONCE" && !value.date) {
+      context.addIssue({ code: "custom", message: "Pick a date.", path: ["date"] });
+    }
+
+    if (value.repeat === "WEEKLY" && value.weekdays.length === 0) {
+      context.addIssue({ code: "custom", message: "Pick at least one day.", path: ["weekdays"] });
+    }
+  });
+
+export const platformPushScheduleActionSchema = z.object({
+  action: z.enum(["PAUSE", "RESUME", "CANCEL"]),
 });
 
 export const notificationCampaignListQuerySchema = z.object({

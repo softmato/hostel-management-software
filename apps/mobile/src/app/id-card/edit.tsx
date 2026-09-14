@@ -1682,7 +1682,7 @@ function DatePickerField({
   return (
     <View className="gap-1">
       <View style={{ opacity: rawValue ? 1 : 0 }}>
-        <FieldLabel>Date of birth</FieldLabel>
+        <FieldLabel>Date of birth *</FieldLabel>
       </View>
       <Pressable
         accessibilityLabel="Date of birth"
@@ -1695,7 +1695,7 @@ function DatePickerField({
         <Text
           className={`flex-1 text-base ${rawValue ? "text-foreground" : "text-muted-foreground"}`}
         >
-          {formatDate(rawValue) ?? "Date of birth"}
+          {formatDate(rawValue) ?? "Date of birth *"}
         </Text>
         <Ionicons color={colors.primary} name="calendar-outline" size={20} />
       </Pressable>
