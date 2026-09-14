@@ -421,7 +421,7 @@ export function PublicShell({
   children: ReactNode;
 }) {
   return (
-    <AnimatedPage className="min-h-screen bg-background text-foreground">
+    <AnimatedPage className="min-h-screen overflow-x-clip bg-background text-foreground">
       <PublicHeader active={active} />
       <div className="pt-16">{children}</div>
     </AnimatedPage>
@@ -518,7 +518,7 @@ export function NepalBannerGraphic() {
 // Breadcrumbs component
 export function Breadcrumbs({ items }: { items: { label: string; href?: string }[] }) {
   return (
-    <nav className="mx-auto w-full max-w-[1360px] px-6 py-4 flex items-center gap-2 text-xs font-semibold text-muted-foreground bg-background">
+    <nav className="mx-auto w-full max-w-[1360px] px-4 py-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:px-6 font-semibold text-muted-foreground bg-background">
       {items.map((item, index) => (
         <span key={item.label} className="flex items-center gap-2">
           {index > 0 && <span className="text-muted-foreground/30 font-normal">/</span>}

@@ -260,11 +260,11 @@ function PublicHostelListingPageContent() {
     <PublicShell active="browse">
       {/* Hero Banner Section with Nepal Silhouette Graphic */}
       <section className="relative overflow-hidden border-b border-border bg-brand-teal-soft/20 min-h-[160px] flex items-center">
-        <div className="mx-auto w-full max-w-[1448px] px-6 py-8 relative z-10">
+        <div className="mx-auto w-full max-w-[1448px] px-4 py-8 relative z-10 sm:px-6">
           <span className="text-xs font-bold text-brand-teal uppercase tracking-wider">
             Discover Places
           </span>
-          <h1 className="text-3xl md:text-4xl font-extrabold text-foreground mt-1">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-foreground mt-1">
             Browse Hostels in Nepal
           </h1>
           <p className="mt-2 text-xs md:text-sm text-muted-foreground max-w-xl leading-relaxed">
@@ -275,7 +275,7 @@ function PublicHostelListingPageContent() {
         <NepalBannerGraphic />
       </section>
 
-      <div className="mx-auto max-w-[1448px] px-6 py-6">
+      <div className="mx-auto max-w-[1448px] px-4 py-6 sm:px-6">
         {/* Breadcrumbs */}
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-6">
           <Link href="/" className="hover:text-foreground transition font-medium">
@@ -747,7 +747,7 @@ function PublicHostelListingPageContent() {
 
       {/* Floating comparison tray */}
       {compareIds.length > 0 ? (
-        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-surface px-5 py-3 shadow-xl">
+        <div className="fixed bottom-6 left-1/2 z-40 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 whitespace-nowrap rounded-full border border-border bg-surface px-5 py-3 shadow-xl">
           <GitCompare className="size-4 text-brand-teal" />
           <span className="text-sm font-bold text-foreground">
             {compareIds.length} selected

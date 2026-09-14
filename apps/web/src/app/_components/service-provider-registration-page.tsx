@@ -563,7 +563,7 @@ function SubmittedDetailsDialog({
       <div
         aria-labelledby="submitted-details-title"
         aria-modal="true"
-        className="max-h-[85vh] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-border bg-card p-8 shadow-xl"
+        className="max-h-[85dvh] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl sm:p-8"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -966,7 +966,7 @@ function LandingStep({
       {/* ── How it works ──────────────────────────────────────────────────── */}
       <section className="border-y border-border bg-muted/30">
         <div className="mx-auto max-w-[1400px] px-6 py-16 sm:px-10 xl:px-16">
-          <div className="grid gap-12 lg:grid-cols-[1fr_360px]">
+          <div className="grid gap-8 lg:grid-cols-[1fr_360px] lg:gap-12">
             <div>
               <h2 className="font-heading text-[clamp(1.4rem,2.4vw,1.85rem)] font-extrabold text-foreground">
                 How it works
@@ -1219,7 +1219,7 @@ function TradeDetailsStep({
   return (
     <div className="mx-auto max-w-[1080px] px-6 py-10">
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="flex items-center justify-between border-b border-border px-10 py-5">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-10 sm:py-5">
           <span className="text-sm font-semibold text-foreground">
             Provider registration
           </span>
@@ -1430,7 +1430,7 @@ function TradeDetailsStep({
 function SubmittedStep({ email }: { email: string | null }) {
   return (
     <div className="mx-auto max-w-[560px] px-6 py-16">
-      <div className="rounded-2xl border border-border bg-card p-10 text-center shadow-sm">
+      <div className="rounded-2xl border border-border bg-card p-6 text-center shadow-sm sm:p-10">
         <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-brand-teal-soft text-brand-teal">
           <CheckCircle2 className="size-7" />
         </div>

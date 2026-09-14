@@ -177,7 +177,7 @@ export function ContentHeader({
       <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary/10">
         <ContentSectionIcon className="size-7 text-primary" slug={icon} />
       </div>
-      <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground">
+      <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
         {title}
       </h1>
       {subtitle ? <p className="mt-3 text-muted-foreground">{subtitle}</p> : null}

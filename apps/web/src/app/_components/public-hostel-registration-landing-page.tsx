@@ -329,7 +329,7 @@ export function PublicHostelRegistrationLandingPage() {
               For Hostel Owners & Operators
             </motion.div>
             <motion.h1
-              className="text-4xl font-extrabold leading-tight text-foreground md:text-6xl md:leading-[1.12]"
+              className="text-[2.1rem] font-extrabold leading-tight text-foreground sm:text-5xl md:text-6xl md:leading-[1.12]"
               variants={fadeUp}
               custom={1}
             >
@@ -379,7 +379,7 @@ export function PublicHostelRegistrationLandingPage() {
             <div className="relative h-[20rem] overflow-hidden rounded-2xl border border-border bg-muted/30 shadow-xl sm:h-[26rem] md:h-[32rem]">
               <motion.div
                 key={currentSlide}
-                className="absolute inset-0 px-12 pb-12 pt-14"
+                className="absolute inset-0 px-4 pb-6 pt-14 sm:px-12 sm:pb-12"
                 initial={{ opacity: 0, scale: 1.03 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6 }}
@@ -451,7 +451,7 @@ export function PublicHostelRegistrationLandingPage() {
                   <div className="mt-6 grid gap-6 sm:grid-cols-3">
                     {platformStats.map((stat) => (
                       <div className="text-center" key={stat.label}>
-                        <p className="text-4xl font-extrabold text-foreground md:text-5xl">
+                        <p className="text-3xl font-extrabold text-foreground sm:text-4xl md:text-5xl">
                           <CountUp text={stat.value.toLocaleString("en-US")} />
                         </p>
                         <p className="mt-1 text-xs font-semibold text-muted-foreground md:text-sm">
@@ -486,7 +486,7 @@ export function PublicHostelRegistrationLandingPage() {
                         variants={fadeUp}
                       >
                         <span className="absolute -right-8 -top-8 size-24 rounded-full bg-brand-teal/10 transition duration-500 group-hover:scale-150" />
-                        <p className="relative font-heading text-4xl font-extrabold text-brand-teal md:text-5xl">
+                        <p className="relative font-heading text-3xl font-extrabold text-brand-teal sm:text-4xl md:text-5xl">
                           <CountUp text={stat.value} />
                         </p>
                         <p className="relative mt-2 text-sm font-semibold leading-snug text-foreground">

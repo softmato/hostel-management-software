@@ -54,7 +54,7 @@ export function VerifyEmailContent() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md rounded-xl border border-border bg-surface p-10 text-center shadow-lg">
+      <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 text-center shadow-lg sm:p-10">
         {state === "verifying" ? (
           <>
             <Loader2 className="mx-auto size-10 animate-spin text-brand-teal" />

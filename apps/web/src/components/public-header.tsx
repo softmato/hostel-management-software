@@ -1,7 +1,7 @@
 "use client";
 
 import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
-import { BadgePlus, ChevronDown, LayoutDashboard, LogOut, QrCode } from "lucide-react";
+import { BadgePlus, ChevronDown, LayoutDashboard, LogOut, Menu, QrCode } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,6 +18,7 @@ import {
   requestResidentQr,
 } from "@/components/resident-identity";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PublicPushOptIn } from "@/components/public-push-optin";
 import { useSessionStore, type SessionUser } from "@/stores/session-store";
 
@@ -135,6 +136,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
   const setUser = useSessionStore((state) => state.setUser);
   const isSessionChecked = useSessionStore((state) => state.status === "resolved");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   // Comes with the session in the same request, so there is no second lookup to
@@ -208,20 +210,19 @@ export function PublicHeader({ active }: PublicHeaderProps) {
         scrolled ? "bg-surface/80 backdrop-blur-lg" : "bg-transparent",
       )}
     >
-      <div className="flex h-16 w-full items-center justify-between px-4 md:px-8">
+      <div className="flex h-16 w-full items-center justify-between gap-2 px-4 md:px-8">
         <Link
           href="/"
           aria-label={PLATFORM_NAME}
-          className="flex shrink-0 items-center gap-2 pl-4 md:pl-10"
+          className="flex shrink-0 items-center gap-2 lg:pl-10"
         >
           {/* Full name at the top of the page; folds into the HP mark once it scrolls. */}
           <BrandWordmark folded={scrolled} height={18} />
         </Link>
 
-        {/* Tight at md and roomy from lg: eight destinations plus More do not
-            fit a tablet at the desktop gap, and shrinking the gap beats hiding
-            the bar outright on that width. */}
-        <nav className="hidden h-full items-center gap-4 text-[13px] font-medium text-foreground md:flex lg:gap-6 lg:text-sm">
+        {/* Eight destinations plus More only fit from lg, tight there and roomy
+            from xl; below that the same list lives in the slide-out menu. */}
+        <nav className="hidden h-full items-center gap-4 text-[13px] font-medium text-foreground lg:flex xl:gap-6 xl:text-sm">
           {items.map((item) => (
             <Link
               key={item.id}
@@ -263,7 +264,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
         </nav>
 
         <div className="flex items-center gap-2">
-          <ThemeToggle className="hidden md:inline-flex" />
+          <ThemeToggle className="hidden sm:inline-flex" />
           {isSessionChecked ? (
             user ? (
               <div ref={menuRef} className="relative">
@@ -290,7 +291,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                       {(user.name || user.email || "U").charAt(0).toUpperCase()}
                     </span>
                   )}
-                  <span className="hidden md:inline text-muted-foreground">
+                  <span className="hidden max-w-40 truncate text-muted-foreground xl:inline">
                     {user.name || user.email}
                   </span>
                 </button>
@@ -353,23 +354,59 @@ export function PublicHeader({ active }: PublicHeaderProps) {
               <div className="flex items-center gap-2">
                 <Link
                   href="/login"
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+                  className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted sm:px-4"
                 >
                   Sign In
                 </Link>
                 <Link
                   href="/signup"
-                  className="rounded-lg bg-brand-teal px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-110"
+                  className="hidden whitespace-nowrap rounded-lg bg-brand-teal px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-110 min-[400px]:inline-flex"
                 >
                   Sign Up
                 </Link>
               </div>
             )
           ) : (
-            <span className="inline-flex h-10 w-28 rounded-lg bg-muted md:h-10 md:w-32" />
+            <span className="inline-flex h-10 w-20 rounded-lg bg-muted sm:w-28 md:w-32" />
           )}
+          <button
+            type="button"
+            aria-label="Open menu"
+            onClick={() => setNavOpen(true)}
+            className="inline-flex size-10 items-center justify-center rounded-lg text-foreground transition hover:bg-muted lg:hidden"
+          >
+            <Menu className="size-5" />
+          </button>
         </div>
       </div>
+
+      <Sheet open={navOpen} onOpenChange={setNavOpen}>
+        <SheetContent side="right" className="flex w-[280px] flex-col gap-0 p-0 sm:max-w-[280px]">
+          <SheetHeader className="shrink-0 border-b border-border px-4 py-3">
+            <SheetTitle className="sr-only">Menu</SheetTitle>
+            <BrandWordmark height={18} />
+          </SheetHeader>
+          <nav className="min-h-0 flex-1 overflow-y-auto p-2">
+            {[...items, ...moreItems].map((item) => (
+              <Link
+                key={item.id}
+                href={item.href}
+                onClick={() => setNavOpen(false)}
+                className={cn(
+                  "block rounded-lg px-3 py-2.5 text-sm font-medium text-foreground transition hover:bg-muted",
+                  active === item.id && "bg-brand-teal/10 font-semibold text-brand-teal",
+                )}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3">
+            <span className="text-xs text-muted-foreground">Theme</span>
+            <ThemeToggle />
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Mounted here because the header is the one shell on every public page,
           so any page can open the QR / profile modals via a window event.

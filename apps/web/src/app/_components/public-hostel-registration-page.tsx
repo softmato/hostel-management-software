@@ -43,6 +43,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
+import { DescriptionSuggestions } from "./description-suggestions";
 import { HostelRegistrationProgress } from "./hostel-registration-progress";
 import { StepFlow, StepRail } from "./registration-step-shell";
 import {
@@ -1386,6 +1387,11 @@ export function PublicHostelRegistrationPage() {
                         value={description}
                       />
                     </Field>
+                    <DescriptionSuggestions
+                      facts={{ area, city, hostelName, hostelType, yearEstablished }}
+                      onChange={setDescription}
+                      value={description}
+                    />
                   </div>
 
                   <div className="mt-6 border-t border-border pt-5">
@@ -2654,23 +2660,23 @@ export function PublicHostelRegistrationPage() {
         {!submitted && step < 5 ? (
           <div className="mt-8 flex items-center justify-between gap-3">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 sm:px-5 text-sm font-semibold text-foreground transition hover:bg-muted disabled:opacity-40"
               disabled={step === 1}
               onClick={() => goTo(step - 1)}
               type="button"
             >
               <ArrowLeft className="size-4" /> Back
             </button>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <button
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 sm:px-5 text-sm font-semibold text-foreground transition hover:bg-muted"
                 onClick={saveDraft}
                 type="button"
               >
                 <Save className="size-4" /> Save Draft
               </button>
               <button
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:brightness-105"
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2.5 sm:px-6 text-sm font-bold text-white shadow-sm transition hover:brightness-105"
                 onClick={() => goTo(step + 1)}
                 type="button"
               >
@@ -3043,7 +3049,7 @@ export function HostelStatusView({
 function SubmittedView() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="app-card p-10 text-center">
+      <div className="app-card p-6 text-center sm:p-10">
         <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-emerald-100 text-success">
           <Check className="size-10" />
         </div>

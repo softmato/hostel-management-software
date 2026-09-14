@@ -284,6 +284,15 @@ body {
   html {
     @apply font-sans;
   }
+  /*
+   * Grid children default to `min-width: auto`, so one wide table (a
+   * `min-w-[900px]` inside its own `overflow-x-auto`) stretches its `1fr`
+   * column — and then the page — instead of scrolling inside its card. Zero
+   * lets the scroll container do its job; any `min-w-*` utility still wins.
+   */
+  .grid > * {
+    min-width: 0;
+  }
 }
 
 @layer utilities {

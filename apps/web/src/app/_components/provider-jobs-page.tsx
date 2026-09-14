@@ -220,7 +220,7 @@ export function ProviderJobsPage() {
             </p>
           </div>
         ) : jobs === null || jobs.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border bg-surface p-10 text-center">
+          <div className="rounded-xl border border-dashed border-border bg-surface p-6 text-center sm:p-10">
             <p className="text-sm font-semibold text-foreground">No jobs yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
               When a hostel assigns you maintenance work, it appears here.

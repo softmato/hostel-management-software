@@ -111,7 +111,7 @@ function SectionHeading({
   actionHref?: string;
 }) {
   return (
-    <div className="mb-6 flex items-end justify-between gap-4">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
       <div>
         <h2 className="text-xl font-extrabold text-foreground">{title}</h2>
         <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
@@ -339,20 +339,20 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
           </div>
         </div>
 
-        <div className="mx-auto relative z-10 grid min-h-[75vh] max-w-[1448px] gap-10 px-6 pt-32 pb-12 lg:grid-cols-[0.88fr_1fr] lg:items-center">
-          <div className="py-10">
+        <div className="mx-auto relative z-10 grid min-h-[75vh] max-w-[1448px] gap-6 px-4 pt-24 pb-10 sm:px-6 sm:pt-32 lg:gap-10 lg:pb-12 lg:grid-cols-[0.88fr_1fr] lg:items-center">
+          <div className="py-4 lg:py-10">
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3.5 py-1.5 text-xs font-semibold text-foreground shadow-sm">
               <ShieldCheck className="size-4 text-brand-teal" />
               Trusted by Students & Families
             </span>
-            <h1 className="mt-8 max-w-xl font-heading text-5xl lg:text-[56px] font-extrabold leading-[1.15] text-foreground">
+            <h1 className="mt-6 max-w-xl font-heading text-[2.25rem] sm:mt-8 sm:text-5xl lg:text-[56px] font-extrabold leading-[1.15] text-foreground">
               {hero.headline}
             </h1>
             <p className="mt-5 max-w-md text-sm leading-relaxed text-muted-foreground">
               {hero.subheadline}
             </p>
             <div className="mt-8 flex max-w-lg items-center gap-2 rounded-lg border border-border bg-card p-1.5 shadow-md focus-within:border-brand-teal focus-within:ring-2 focus-within:ring-brand-teal/15 transition">
-              <Search className="ml-3 size-5 text-muted-foreground" />
+              <Search className="ml-2 size-5 shrink-0 text-muted-foreground sm:ml-3" />
               <input
                 aria-label="Search hostels"
                 className="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -364,7 +364,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
                 value={searchVal}
               />
               <button
-                className="shrink-0 rounded-md bg-brand-teal px-7 py-3 text-sm font-bold text-white transition hover:brightness-105 disabled:opacity-70"
+                className="shrink-0 rounded-md bg-brand-teal px-4 py-3 text-sm sm:px-7 font-bold text-white transition hover:brightness-105 disabled:opacity-70"
                 disabled={searching}
                 onClick={() => void runSearch()}
                 type="button"
@@ -372,7 +372,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
                 {searching ? "Searching..." : "Search"}
               </button>
             </div>
-            <div className="mt-8 flex flex-wrap gap-6 text-xs font-bold text-foreground">
+            <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-xs font-bold sm:mt-8 text-foreground">
               {[
                 { label: "Verified Hostels", icon: CheckCircle2 },
                 { label: "Trusted by Students", icon: CheckCircle2 },
@@ -386,9 +386,9 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
             </div>
           </div>
 
-          <div className="relative flex justify-end lg:pr-8 py-10">
+          <div className="relative flex justify-start sm:justify-end lg:py-10 lg:pr-8">
             {/* Overlay card matching the reference image */}
-            <div className="rounded-xl border border-border/80 bg-card/95 backdrop-blur-sm p-4 shadow-2xl flex gap-4 w-[320px] mt-36 transition hover:scale-[1.01]">
+            <div className="rounded-xl border border-border/80 bg-card/95 backdrop-blur-sm p-4 shadow-2xl flex gap-4 w-full max-w-[320px] lg:mt-36 transition hover:scale-[1.01]">
               <div
                 className="size-24 rounded-lg bg-cover bg-center shrink-0 shadow-sm"
                 style={{
@@ -437,7 +437,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
       </section>
 
       {/* Featured verified hostels */}
-      <section className="mx-auto max-w-[1448px] px-6 pb-12 pt-4">
+      <section className="mx-auto max-w-[1448px] px-4 sm:px-6 pb-12 pt-4">
         <SectionHeading
           action="View all hostels"
           actionHref="/hostels"
@@ -452,7 +452,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
 
       {/* Popular near you */}
       <section className="bg-surface py-12">
-        <div className="mx-auto max-w-[1448px] px-6">
+        <div className="mx-auto max-w-[1448px] px-4 sm:px-6">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
             <div>
               <h2 className="text-xl font-extrabold text-foreground">
@@ -494,7 +494,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
       </section>
 
       {/* Browse by hostel type */}
-      <section className="mx-auto max-w-[1448px] px-6 py-12">
+      <section className="mx-auto max-w-[1448px] px-4 sm:px-6 py-12">
         <SectionHeading
           action="View all types"
           actionHref="/hostels"
@@ -539,7 +539,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
 
       {/* Budget friendly picks */}
       <section className="bg-surface py-12">
-        <div className="mx-auto max-w-[1448px] px-6">
+        <div className="mx-auto max-w-[1448px] px-4 sm:px-6">
           <SectionHeading
             action="View all"
             actionHref="/hostels"
@@ -554,7 +554,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
       </section>
 
       {/* Newly listed */}
-      <section className="mx-auto max-w-[1448px] px-6 py-12">
+      <section className="mx-auto max-w-[1448px] px-4 sm:px-6 py-12">
         <SectionHeading
           action="View all"
           actionHref="/hostels"
@@ -569,7 +569,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
 
       {/* Browse by facility */}
       <section className="bg-surface py-12">
-        <div className="mx-auto max-w-[1448px] px-6">
+        <div className="mx-auto max-w-[1448px] px-4 sm:px-6">
           <SectionHeading
             action="View all facilities"
             actionHref="/hostels"
@@ -608,7 +608,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
       </section>
 
       {/* The app — real screens, one per thing a student does in it */}
-      <section className="mx-auto max-w-[1448px] px-6 py-12">
+      <section className="mx-auto max-w-[1448px] px-4 sm:px-6 py-12">
         <SectionHeading
           subtitle="Browse, map and hostel pages in your pocket"
           title={`${identity.siteName} on your phone`}
@@ -643,7 +643,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
 
       {/* Why students trust the platform */}
       <section className="bg-muted/40 py-14">
-        <div className="mx-auto max-w-[1448px] px-6 text-center">
+        <div className="mx-auto max-w-[1448px] px-4 sm:px-6 text-center">
           <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-teal text-white">
             <ShieldCheck className="size-6" />
           </span>
@@ -680,8 +680,8 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
       </section>
 
       {/* How it works */}
-      <section className="mx-auto mb-12 mt-12 max-w-[1448px] px-6">
-        <div className="rounded-xl border border-border/80 bg-surface p-8 shadow-sm">
+      <section className="mx-auto mb-12 mt-12 max-w-[1448px] px-4 sm:px-6">
+        <div className="rounded-xl border border-border/80 bg-surface p-5 shadow-sm sm:p-8">
           <h2 className="text-xl font-extrabold text-foreground">How it works</h2>
           <p className="mt-1 text-sm text-muted-foreground font-medium">
             Simple steps to find your perfect hostel
@@ -689,7 +689,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
 
           <div className="mt-8 flex flex-col lg:flex-row items-center justify-between gap-8">
             {/* Steps */}
-            <div className="flex flex-1 flex-col sm:flex-row items-center justify-between gap-4 w-full">
+            <div className="flex flex-1 flex-col md:flex-row items-center justify-between gap-4 w-full">
               {[
                 {
                   step: "1",
@@ -765,18 +765,18 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
 
       {/* Stats bar */}
       <div className="bg-[#0f766e] py-8 text-white">
-        <div className="mx-auto max-w-[1448px] px-6 grid grid-cols-2 md:grid-cols-4 gap-8 text-center divide-x divide-white/10">
+        <div className="mx-auto max-w-[1448px] px-4 sm:px-6 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-6 text-center md:gap-8 md:divide-x md:divide-white/10">
           {[
             { value: "500+", label: "Verified Hostels" },
             { value: "10,000+", label: "Happy Students" },
             { value: "50+", label: "Cities Covered" },
             { value: "4.6 ★", label: "Average Rating" },
-          ].map((item, index) => (
+          ].map((item) => (
             <div
               key={item.label}
-              className={cn("space-y-1.5", index === 0 ? "" : "pl-4 md:pl-0")}
+              className="space-y-1.5"
             >
-              <p className="text-3xl font-extrabold tracking-tight">{item.value}</p>
+              <p className="text-2xl font-extrabold tracking-tight sm:text-3xl">{item.value}</p>
               <p className="text-xs font-medium text-teal-100/90">{item.label}</p>
             </div>
           ))}
@@ -814,7 +814,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
             ) : null}
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
             {footerGroups.map((group) => (
               <div key={group.title}>
                 <p className="text-sm font-extrabold text-foreground">{group.title}</p>

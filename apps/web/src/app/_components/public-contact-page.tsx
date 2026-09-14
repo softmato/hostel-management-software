@@ -72,7 +72,7 @@ export function PublicContactPage() {
           <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary/10">
             <MessageSquare className="size-7 text-primary" />
           </div>
-          <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground">
+          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Contact Us
           </h1>
           <p className="mt-3 text-muted-foreground">

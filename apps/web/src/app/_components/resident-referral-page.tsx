@@ -105,7 +105,7 @@ export const ResidentReferralPageContent = React.memo(
         <Panel title="Your Code">
           {referralCode ? (
             <div className="space-y-4">
-              <p className="font-mono text-4xl font-bold tracking-widest text-role-resident">
+              <p className="break-all font-mono text-3xl font-bold tracking-widest text-role-resident sm:text-4xl">
                 {referralCode.code}
               </p>
               <div className="flex flex-wrap items-center gap-2">

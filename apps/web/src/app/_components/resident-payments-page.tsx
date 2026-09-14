@@ -145,7 +145,7 @@ function FocusCard({
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {partlyPaid ? "Still to pay" : "Amount due"}
           </p>
-          <p className="font-heading text-4xl font-bold text-foreground">
+          <p className="font-heading text-3xl font-bold text-foreground sm:text-4xl">
             {currency(outstanding)}
           </p>
           {/* The arithmetic, written out. Every part-paid month raises the same

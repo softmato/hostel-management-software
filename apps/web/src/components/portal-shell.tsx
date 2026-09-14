@@ -522,7 +522,7 @@ export function PortalShell({
     <RealtimeProvider>
     {/* Viewport-height frame: the brand rail, top bar, and copyright bar stay
         put while only the nav list and the content pane scroll. */}
-    <div className="flex h-screen flex-col overflow-hidden bg-[#f4f7fb] text-foreground dark:bg-background">
+    <div className="flex h-dvh flex-col overflow-hidden bg-[#f4f7fb] text-foreground dark:bg-background">
       <div className="flex min-h-0 flex-1">
         <aside
           className={cn(

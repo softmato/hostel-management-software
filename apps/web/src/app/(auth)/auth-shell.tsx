@@ -77,7 +77,7 @@ export function AuthShell({ children, footer, mode }: AuthShellProps) {
     );
 
   return (
-    <main className="flex h-screen w-full bg-white p-0 lg:p-3">
+    <main className="flex h-dvh w-full bg-white p-0 lg:p-3">
       {/* ────── LEFT: photo panel ────── */}
       <section className="relative hidden w-[46%] max-w-[660px] shrink-0 overflow-hidden rounded-3xl bg-[#04140C] lg:flex lg:flex-col lg:justify-between">
         <div
@@ -130,7 +130,7 @@ export function AuthShell({ children, footer, mode }: AuthShellProps) {
           <SiteWordmark />
         </div>
 
-        <div className="flex flex-1 items-center justify-center py-10">
+        <div className="flex flex-1 items-center justify-center py-6 sm:py-10">
           <div className="w-full max-w-[400px]">{children}</div>
         </div>
 

@@ -217,10 +217,10 @@ export function PublicComparePage() {
 
   return (
     <PublicShell active="compare">
-      <section className="mx-auto max-w-[1360px] px-6 pt-8 pb-16">
+      <section className="mx-auto max-w-[1360px] px-4 pt-8 pb-16 sm:px-6">
         <div className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Compare Hostels</h1>
+            <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Compare Hostels</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               Compare verified hostels side by side and choose the best place that fits
               your needs.
@@ -279,25 +279,28 @@ export function PublicComparePage() {
           <div className="space-y-6">
             <SectionCard className="overflow-x-auto">
               <div
-                className="min-w-[800px] grid"
+                className="grid"
                 style={{
-                  gridTemplateColumns: `220px repeat(${comparedHostels.length}, 1fr)`,
+                  // The criteria column pins to the left edge so a phone scrolling
+                  // sideways through hostels never loses which row it is reading.
+                  gridTemplateColumns: `minmax(128px, 220px) repeat(${comparedHostels.length}, minmax(220px, 1fr))`,
+                  minWidth: 128 + comparedHostels.length * 220,
                 }}
               >
                 {/* Left Criteria column */}
-                <div className="border-r border-border bg-muted/50">
-                  <div className="h-44 flex items-center px-5 border-b border-border bg-muted">
+                <div className="sticky left-0 z-30 border-r border-border bg-muted">
+                  <div className="h-44 flex items-center px-3 sm:px-5 border-b border-border bg-muted">
                     <span className="font-bold text-sm text-foreground uppercase tracking-wider">
                       Comparison Criteria
                     </span>
                   </div>
                   <div className="divide-y divide-border/60 text-xs font-semibold text-muted-foreground">
                     {criteriaRows.map((label) => (
-                      <div key={label} className="h-14 flex items-center px-5">
+                      <div key={label} className="h-14 flex items-center px-3 sm:px-5">
                         {label}
                       </div>
                     ))}
-                    <div className="h-20 flex items-center px-5">Actions</div>
+                    <div className="h-20 flex items-center px-3 sm:px-5">Actions</div>
                   </div>
                 </div>
 

@@ -44,6 +44,7 @@ import { acceptAttribute } from "@/lib/uploads/accepts";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 import type { TeamOwnerEmailStatus } from "@/modules/hostels/hostel.service";
+import { DescriptionSuggestions } from "./description-suggestions";
 import { billingCycles, bestDiscountPercent, cycleTotal, type BillingCycle } from "./plans-catalog";
 import {
   cityOptions,
@@ -2241,6 +2242,11 @@ export function TeamRegisterHostelPage() {
                         value={description}
                       />
                     </Field>
+                    <DescriptionSuggestions
+                      facts={{ area, city, hostelName, hostelType, yearEstablished }}
+                      onChange={setDescription}
+                      value={description}
+                    />
                   </div>
                 </div>
               </Card>
