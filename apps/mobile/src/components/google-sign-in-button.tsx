@@ -1,5 +1,4 @@
 import AntDesign from "@expo/vector-icons/AntDesign";
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
@@ -43,9 +42,7 @@ export function GoogleSignInButton({
     return null;
   }
 
-  async function onPress() {
-    void Haptics.selectionAsync();
-    onError(null);
+  async function onPress() {    onError(null);
     setBusy(true);
 
     try {

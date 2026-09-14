@@ -26,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -40,6 +41,7 @@ import { cn } from "@/lib/utils";
 import type { HostelSummary } from "./public-hostel-types";
 import { HostelCard, PublicShell, StatusPill, formatMoney } from "./shared";
 import { FACILITY_STATS, HOSTEL_TYPE_STATS } from "./public-home-content";
+import { MOCKUPS } from "./portal-mockups";
 
 const PUBLIC_HERO_IMAGE =
   "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=1600&q=80";
@@ -602,6 +604,40 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
               <MoreHorizontal className="size-5" />
             </Link>
           </div>
+        </div>
+      </section>
+
+      {/* The app — real screens, one per thing a student does in it */}
+      <section className="mx-auto max-w-[1448px] px-6 py-12">
+        <SectionHeading
+          subtitle="Browse, map and hostel pages in your pocket"
+          title={`${identity.siteName} on your phone`}
+        />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            { image: MOCKUPS.appHome, label: "Top picks and nearby hostels" },
+            { image: MOCKUPS.appMap, label: "Hostels on the map" },
+            { image: MOCKUPS.appCommunity, label: "Hostel page and community" },
+            { image: MOCKUPS.appMapAndroid, label: "Directions on foot" },
+          ].map(({ image, label }) => (
+            <figure
+              className="rounded-xl border border-border/80 bg-gradient-to-b from-brand-teal/10 to-surface p-4 shadow-sm"
+              key={image.src}
+            >
+              <div className="relative aspect-[4/3]">
+                <Image
+                  alt={image.alt}
+                  className="object-contain"
+                  fill
+                  sizes="(min-width: 1280px) 340px, (min-width: 640px) 50vw, 100vw"
+                  src={image.src}
+                />
+              </div>
+              <figcaption className="mt-3 text-center text-sm font-extrabold text-foreground">
+                {label}
+              </figcaption>
+            </figure>
+          ))}
         </div>
       </section>
 

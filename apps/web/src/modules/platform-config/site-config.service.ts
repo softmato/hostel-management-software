@@ -1,5 +1,6 @@
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { getPublicPlatformStats } from "@/modules/reports/platform-highlights.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { PlatformSettingModel } from "@hostel/db/models/PlatformSetting";
 
@@ -148,6 +149,9 @@ export async function getPublicSiteConfig() {
     // constants.
     content: config.content,
     facilities: config.facilities.filter((facility) => facility.enabled),
+    // Counted, not configured — see `getPublicPlatformStats`. A failed count
+    // drops the live row rather than the whole config.
+    platformStats: await getPublicPlatformStats().catch(() => []),
     features: config.features,
     hero: config.hero,
     identity: config.identity,

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { type ColorValue, View } from "react-native";
+import { Animated, type ColorValue, Easing, View } from "react-native";
 
 import { AnimatedTabBar } from "@/components/tab-bar";
 import { PersonAvatar } from "@/components/ui/avatar";
@@ -113,6 +113,30 @@ export function RoleTabs({
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: colors.background },
+        // The navigator's default swaps scenes on the same frame, which reads
+        // as a jump. A short eased cross-fade with a small slide toward the
+        // tapped side keeps the change legible without feeling slow.
+        animation: "shift",
+        transitionSpec: {
+          animation: "timing",
+          config: { duration: 220, easing: Easing.out(Easing.cubic) },
+        },
+        sceneStyleInterpolator: ({ current }: { current: { progress: Animated.Value } }) => ({
+          sceneStyle: {
+            opacity: current.progress.interpolate({
+              inputRange: [-1, 0, 1],
+              outputRange: [0, 1, 0],
+            }),
+            transform: [
+              {
+                translateX: current.progress.interpolate({
+                  inputRange: [-1, 0, 1],
+                  outputRange: [-14, 0, 14],
+                }),
+              },
+            ],
+          },
+        }),
       }}
     >
       {tabs.map((tab) => (

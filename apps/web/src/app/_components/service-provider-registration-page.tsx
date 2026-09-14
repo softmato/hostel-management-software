@@ -29,6 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
 
@@ -37,6 +38,7 @@ import { FileUploaderView, useUploader } from "@/components/uploads";
 import { browserApi } from "@/lib/browser-api";
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { cn } from "@/lib/utils";
+import { MOCKUPS } from "./portal-mockups";
 import { PublicShell } from "./shared";
 import { SiteName, useSiteConfig } from "@/components/site-config-provider";
 import { contentIcon, resolveContentPage } from "@/lib/site-content";
@@ -1005,6 +1007,32 @@ function LandingStep({
                 <BadgeCheck aria-hidden className="size-4 shrink-0 text-brand-teal" />
                 Not approved? You&apos;ll get a written reason — fix it and apply again.
               </p>
+
+              {/* Where a job comes from: a resident reports it, the hostel sends it. */}
+              <div className="mt-8 grid gap-4 sm:grid-cols-2">
+                {[
+                  { image: MOCKUPS.residentPortal, label: "A resident reports what is broken" },
+                  { image: MOCKUPS.wardenDashboard, label: "The hostel sends the job to you" },
+                ].map(({ image, label }) => (
+                  <figure
+                    className="rounded-2xl border border-border bg-card p-4"
+                    key={image.src}
+                  >
+                    <div className="relative aspect-[3/2]">
+                      <Image
+                        alt={image.alt}
+                        className="object-contain"
+                        fill
+                        sizes="(min-width: 1024px) 420px, (min-width: 640px) 50vw, 100vw"
+                        src={image.src}
+                      />
+                    </div>
+                    <figcaption className="mt-3 text-[13px] font-bold text-foreground">
+                      {label}
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
             </div>
 
             {/*

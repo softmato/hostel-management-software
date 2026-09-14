@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { View } from "react-native";
 
 import { DocumentScreen } from "@/components/document-screen";
+import { MockupImage } from "@/components/mockup-image";
 import { IconPoint } from "@/components/step-flow";
 import { Button } from "@/components/ui/button";
 import { Lottie } from "@/components/ui/lottie";
@@ -10,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
+import { MOCKUPS } from "@/lib/portal-mockups";
 import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
 import { providerStatusPanelFor } from "@/lib/provider-status";
 
@@ -59,10 +61,33 @@ export default function ServiceProvidersScreen() {
       }
       comingSoon="More about working with hostels is being designed — it arrives in an upcoming update."
       icon="construct-outline"
+      extra={<JobSource />}
       page="serviceProviders"
       webPath="service-providers"
       title="Service providers"
     />
+  );
+}
+
+/**
+ * Where a job comes from, in the two screens it passes through: a resident
+ * reports the fault, the hostel sends it to a provider by name. Same pair as the
+ * website's How it works.
+ */
+function JobSource() {
+  return (
+    <View className="gap-4">
+      <Text variant="subtitle">Where your jobs come from</Text>
+      {[
+        { label: "A resident reports what is broken", mockup: MOCKUPS.residentPortal },
+        { label: "The hostel sends the job to you", mockup: MOCKUPS.wardenDashboard },
+      ].map(({ label, mockup }) => (
+        <View className="gap-2 rounded-3xl border border-border bg-muted/40 p-4" key={label}>
+          <MockupImage mockup={mockup} />
+          <Text className="font-semibold">{label}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 

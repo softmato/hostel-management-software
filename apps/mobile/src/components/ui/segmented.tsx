@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { Pressable, ScrollView, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
@@ -72,8 +71,6 @@ export function Segmented<T extends string>({
                 if (active) {
                   return;
                 }
-
-                void Haptics.selectionAsync();
                 onChange(option.value);
               }}
               style={

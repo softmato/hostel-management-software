@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { useCallback, useMemo } from "react";
 
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
@@ -26,9 +25,7 @@ export function useSavedHostels() {
   const ids = useMemo(() => new Set(items.map((item) => item.id)), [items]);
 
   const toggle = useCallback(
-    (hostel: PublicHostel) => {
-      void Haptics.selectionAsync();
-      dispatch(toggleSaved(savedSnapshot(hostel)));
+    (hostel: PublicHostel) => {      dispatch(toggleSaved(savedSnapshot(hostel)));
     },
     [dispatch],
   );
@@ -44,9 +41,7 @@ export function useSavedHostels() {
    * to deleting it.
    */
   const remove = useCallback(
-    (id: string) => {
-      void Haptics.selectionAsync();
-      dispatch(unsaveHostel(id));
+    (id: string) => {      dispatch(unsaveHostel(id));
     },
     [dispatch],
   );

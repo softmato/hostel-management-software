@@ -133,8 +133,9 @@ function NotificationRow({
   const Icon = display.icon;
   // Every row with a destination opens it, including the ones carrying inline
   // actions — those buttons stop their own clicks, so the body stays a link to
-  // the page where the request can be seen in full.
-  const navigable = Boolean(notification.actionUrl);
+  // the page where the request can be seen in full. A row with no destination
+  // is still clickable while unread: clicking is how its tint is acknowledged.
+  const navigable = Boolean(notification.actionUrl) || !notification.isRead;
 
   const body = (
     <>
@@ -203,8 +204,7 @@ function NotificationRow({
   return (
     <div
       className={cn(
-        "rounded-lg px-2.5 py-2 transition-colors",
-        notification.isRead ? "" : "bg-muted/40",
+        "relative rounded-lg px-2.5 py-2 transition-colors",
         navigable ? "cursor-pointer hover:bg-muted" : "",
       )}
       onClick={navigable ? () => onOpen(notification) : undefined}
@@ -221,7 +221,17 @@ function NotificationRow({
       role={navigable ? "button" : undefined}
       tabIndex={navigable ? 0 : undefined}
     >
-      {body}
+      {/* The unread tint, faded rather than swapped so a click or "Mark all
+          read" visibly settles the row. Opacity is the only way to animate it:
+          a gradient background does not transition. */}
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-0 rounded-lg bg-linear-to-r from-primary/15 via-primary/5 to-transparent transition-opacity duration-300",
+          notification.isRead ? "opacity-0" : "opacity-100",
+        )}
+      />
+      <div className="relative">{body}</div>
     </div>
   );
 }
@@ -317,8 +327,9 @@ export function NotificationBell({ href }: { href: string }) {
     notifications,
     runAction,
     state,
+    unacknowledgedCount,
     unreadCount,
-  } = useNotifications(filter);
+  } = useNotifications(filter, { autoMarkRead: open });
 
   // The live queue exists to badge notifications that arrived while the bell
   // was shut; once it has been opened they are ordinary rows in the list.
@@ -437,9 +448,10 @@ export function NotificationBell({ href }: { href: string }) {
       void markRead(notification.id);
     }
 
-    setOpen(false);
-
+    // No destination means the click was only an acknowledgement — the bell
+    // stays open on the row that just settled.
     if (notification.actionUrl) {
+      setOpen(false);
       router.push(notification.actionUrl);
     }
   }
@@ -488,9 +500,9 @@ export function NotificationBell({ href }: { href: string }) {
             ) : null}
           </div>
 
-          {unreadCount > 0 ? (
+          {unacknowledgedCount > 0 ? (
             <Button
-              className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+              className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground active:scale-95"
               onClick={() => void markAllRead()}
               size="sm"
               variant="ghost"
@@ -515,9 +527,9 @@ export function NotificationBell({ href }: { href: string }) {
                       {actionCount}
                     </span>
                   ) : null}
-                  {item.value === "unread" && unreadCount > 0 ? (
+                  {item.value === "unread" && unacknowledgedCount > 0 ? (
                     <span className="ml-1 rounded bg-rose-500 px-1 text-[9px] font-bold text-white">
-                      {unreadCount}
+                      {unacknowledgedCount}
                     </span>
                   ) : null}
                 </TabsTrigger>

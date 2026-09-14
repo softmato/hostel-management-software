@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
@@ -233,7 +232,6 @@ export function DataCard({
       accessibilityRole="button"
       className="active:opacity-70"
       onPress={() => {
-        void Haptics.selectionAsync();
         onPress();
       }}
     >

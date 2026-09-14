@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { Pressable, View } from "react-native";
 
@@ -391,8 +390,6 @@ export function ReferenceStrip({
  * says something slightly different on each of them is four different promises
  * about what just happened.
  */
-export function copyReference(code: string) {
-  void Haptics.selectionAsync();
-  void Clipboard.setStringAsync(code);
+export function copyReference(code: string) {  void Clipboard.setStringAsync(code);
   toastSuccess("Reference copied", "Paste it into your transfer's remarks.");
 }

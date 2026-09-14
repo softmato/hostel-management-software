@@ -45,15 +45,11 @@ import { toastError } from "@/lib/toast";
  * its row out. That is one extra request rather than a second shape that can
  * drift from the list's — and the list is small (a resident's own months).
  *
- * ## Breakdown, then statement
+ * ## One Details card, not a breakdown and a statement
  *
- * They answer different questions and both are here. The **breakdown** is what
- * the month is made of — rent, a part-month proration, an admission fee, a
- * carried credit — and it is why the total is the number it is. The
- * **statement** is what has happened to that total since: charges and payments
- * in order, with a running balance. A resident asking "why is this month more
- * than last?" wants the first; one asking "did my payment land?" wants the
- * second.
+ * They used to be two sections that repeated the total three times between
+ * them. Now it is one card: what was charged, then what was paid. The summary
+ * card carries the arithmetic. See `DetailsCard`.
  *
  * The breakdown was blocked server-side until 2026-08-17: `Invoice.lines` had
  * always existed and `toPortalInvoice()` dropped it, so a resident could see
@@ -132,11 +128,6 @@ export default function InvoiceDetailScreen() {
         <View className="gap-5 px-5 pt-6">
           <View className="gap-3">
             <Skeleton height={18} width="45%" />
-            <Skeleton height={170} radius={16} />
-          </View>
-
-          <View className="gap-3">
-            <Skeleton height={18} width="35%" />
             <Skeleton height={120} radius={16} />
           </View>
         </View>
@@ -216,9 +207,7 @@ export default function InvoiceDetailScreen() {
       <SummaryCard invoice={invoice} owed={owed} />
 
       <View className="gap-5 px-5 pt-6">
-        <BreakdownCard invoice={invoice} />
-
-        <LedgerCard invoice={invoice} owed={owed} />
+        <DetailsCard invoice={invoice} />
 
         {claims.length > 0 ? <ClaimsCard claims={claims} /> : null}
 
@@ -381,140 +370,65 @@ function SummaryCard({ invoice, owed }: { invoice: ResidentInvoice; owed: number
 }
 
 /**
- * What the month is made of.
+ * What was charged and what was paid, as one short list.
  *
- * ## Rendered only when the server has lines
+ * Replaces a separate Breakdown and Statement, which repeated the same total
+ * three times on one screen. The summary card above already carries due, paid
+ * and outstanding, so this card has no footer — just the rows.
  *
- * Migrated history has none — invoices that came from the old `Payment` rows
- * predate the breakdown — so an always-drawn card would be empty on exactly the
- * oldest months, where a resident is most likely to be checking something. No
- * lines, no card of rows; the section keeps its heading and says why.
- *
- * ## The sign is the meaning
- *
- * A credit line is negative (target §9.4). Printing `formatMoney(amount)` on
- * its absolute value would show a refund as a second charge, which is the one
- * misreading that makes a resident phone the hostel. Negative lines are green
- * and carry a minus, matching the statement below so the two do not disagree
- * about which way money moved.
- *
- * ## The total is checked against the server's
- *
- * `Invoice.totalAmount` is a denormalised sum of the lines, kept honest by a
- * pre-validate hook — so if these two ever disagree, something is wrong on the
- * server and the resident should not be the last to know. Rather than silently
- * showing whichever number is prettier, the card prints the line total and the
- * summary above prints `dueAmount`; a mismatch is visible instead of hidden.
+ * Line descriptions drop their "— Bhadra 2083 BS" suffix: the header already
+ * names the month. A proration basis stays, because it is what makes a part
+ * month's odd amount make sense. Migrated invoices with no lines fall back to
+ * the ledger's single "Amount billed" row.
  */
-function BreakdownCard({ invoice }: { invoice: ResidentInvoice }) {
-  const total = invoice.lines.reduce((sum, line) => sum + line.amount, 0);
-
-  return (
-    <View>
-      <SectionHeader subtitle="Why this month costs what it does" title="Breakdown" />
-
-      {invoice.lines.length === 0 ? (
-        <Card>
-          <EmptyState
-            compact
-            description="This invoice predates itemised billing, so only its total was recorded."
-            title="No invoice lines"
-          />
-        </Card>
-      ) : (
-        <Card padding="px-4 py-1">
-          {invoice.lines.map((line, index) => (
-            <View key={`${line.description}-${index}`}>
-              {index > 0 ? <RowDivider /> : null}
-              <View className="min-h-14 flex-row items-center gap-3 py-3">
-                <View className="flex-1">
-                  <Text variant="label">{line.description}</Text>
-                  {/*
-                    The proration basis is the whole explanation of a part month
-                    — "18/31 days" turns an odd number into an obviously correct
-                    one — so it leads. The bed type is the fallback context.
-                  */}
-                  {line.prorationBasis ? (
-                    <Text variant="caption">{line.prorationBasis}</Text>
-                  ) : line.bedType ? (
-                    <Text variant="caption">{humanizeEnum(line.bedType)}</Text>
-                  ) : null}
-                </View>
-
-                <Text
-                  className={line.amount < 0 ? "text-success" : "text-foreground"}
-                  variant="label"
-                >
-                  {`${line.amount < 0 ? "−" : ""}${formatMoney(Math.abs(line.amount))}`}
-                </Text>
-              </View>
-            </View>
-          ))}
-
-          <RowDivider />
-
-          <View className="flex-row items-center justify-between gap-3 py-3.5">
-            <Text variant="label">Total due</Text>
-            <Text variant="label">{formatMoney(total)}</Text>
-          </View>
-        </Card>
-      )}
-    </View>
-  );
-}
-
-/**
- * Charges and payments in order, ending on where that leaves the month.
- *
- * The running balance used to ride under every row as `Balance Rs 4,500` in
- * caption type — five rows, five balances, and the only one anybody reads is
- * the last. It is a footer row now, under a rule and in the outstanding figure's
- * own tone, which is the `NOTES.md` §11 shape: the transactions in the upper
- * register, the resulting position in the lower one.
- *
- * The date leads each row rather than trailing the label. A ledger is read
- * chronologically, and putting the date in caption type *under* the description
- * meant scanning the second line of every row to find the order.
- */
-function LedgerCard({ invoice, owed }: { invoice: ResidentInvoice; owed: number }) {
+function DetailsCard({ invoice }: { invoice: ResidentInvoice }) {
   const dates = useDates();
+  const ledger = invoiceLedger(invoice);
 
-  const lines = invoiceLedger(invoice);
+  const rows = [
+    ...(invoice.lines.length > 0
+      ? invoice.lines.map((line) => ({
+          amount: line.amount,
+          caption: line.prorationBasis?.split("·").pop()?.trim() ?? null,
+          label: line.description.replace(/\s[—–-]\s.*$/, ""),
+        }))
+      : ledger
+          .filter((line) => line.kind === "charge")
+          .map((line) => ({ amount: line.amount, caption: null, label: line.label }))),
+    ...ledger
+      .filter((line) => line.kind !== "charge")
+      .map((line) => ({
+        amount: line.amount,
+        caption: line.date ? dates.date(line.date) : null,
+        label: line.kind === "receipt" ? "Paid" : line.label,
+      })),
+  ];
 
   return (
     <View>
-      <SectionHeader subtitle="Charges and payments, in order" title="Statement" />
+      <SectionHeader title="Details" />
 
       <Card padding="px-4 py-1">
-        {lines.map((line, index) => (
-          <View key={`${line.kind}-${line.label}-${index}`}>
+        {rows.map((row, index) => (
+          <View key={`${row.label}-${index}`}>
             {index > 0 ? <RowDivider /> : null}
             <View className="min-h-14 flex-row items-center gap-3 py-3">
               <View className="flex-1 gap-0.5">
-                <Text variant="caption">
-                  {line.date ? dates.date(line.date) : "Date not recorded"}
-                </Text>
                 <Text numberOfLines={1} variant="label">
-                  {line.label}
+                  {row.label}
                 </Text>
+                {row.caption ? <Text variant="caption">{row.caption}</Text> : null}
               </View>
 
               <Text
-                className={line.amount < 0 ? "text-success" : "text-foreground"}
+                className={row.amount < 0 ? "text-success" : "text-foreground"}
                 variant="label"
               >
-                {`${line.amount < 0 ? "−" : ""}${formatMoney(Math.abs(line.amount))}`}
+                {`${row.amount < 0 ? "−" : ""}${formatMoney(Math.abs(row.amount))}`}
               </Text>
             </View>
           </View>
         ))}
-
-        <RowDivider />
-
-        <View className="flex-row items-center justify-between gap-3 py-3.5">
-          <Text variant="label">{owed > 0 ? "Outstanding" : "Settled"}</Text>
-          <Money className="font-semibold" owed value={owed} />
-        </View>
       </Card>
     </View>
   );

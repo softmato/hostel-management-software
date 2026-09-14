@@ -2,9 +2,6 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  BedDouble,
-  Bell,
-  CheckCircle2,
   ChevronDown,
   HardHat,
   Home,
@@ -12,10 +9,13 @@ import {
   UserRound,
   type LucideIcon,
 } from "lucide-react";
+import Image from "next/image";
 import { useState } from "react";
 
 import { useSiteConfig } from "@/components/site-config-provider";
 import { cn } from "@/lib/utils";
+
+import { MOCKUPS, type Mockup } from "./portal-mockups";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -228,9 +228,8 @@ function firstIdFor(role: FaqRole) {
  * has not seen yet — "how do I see who has paid" is a much smaller question
  * once the list it describes is on screen.
  *
- * It is drawn rather than screenshotted: a screenshot goes stale on the next
- * release and carries a real hostel's names in it. This is built from the same
- * tokens the portal is, so it cannot drift off palette.
+ * The picture follows the role tabs: an owner sees the dashboard, a resident
+ * sees their own fees screen.
  */
 export function PlansFaq() {
   const { identity } = useSiteConfig();
@@ -269,7 +268,7 @@ export function PlansFaq() {
         {/* Sticky on wide screens: the answers are long, and the whole point of
             the picture is that it stays beside them. */}
         <div className="lg:sticky lg:top-24">
-          <AppPreview reduced={reduced} />
+          <FaqPreview reduced={reduced} role={role} />
         </div>
 
         <div>
@@ -440,170 +439,63 @@ function FaqRow({
   );
 }
 
-/** The rows in the drawn dues list. Invented names, on purpose. */
-const PREVIEW_ROWS: { name: string; room: string; state: "paid" | "part" | "due" }[] = [
-  { name: "Anish Thapa", room: "Room 204", state: "paid" },
-  { name: "Sabina Rai", room: "Room 108", state: "due" },
-  { name: "Prashant K.", room: "Room 311", state: "paid" },
-  { name: "Muna Gurung", room: "Room 106", state: "part" },
-];
-
-const STATE_LABEL = { due: "Due", paid: "Paid", part: "Part paid" } as const;
+/**
+ * The screen beside each group of answers. A plumber has no portal of their
+ * own on the web, so providers see the dashboard the hostel sends jobs from.
+ */
+const PREVIEWS: Record<FaqRole, { image: Mockup; label: string }[]> = {
+  hostel: [
+    { image: MOCKUPS.wardenDashboard, label: "Dashboard" },
+    { image: MOCKUPS.wardenTransactions, label: "Who has paid" },
+  ],
+  provider: [{ image: MOCKUPS.wardenDashboard, label: "Where hostels send jobs from" }],
+  resident: [
+    { image: MOCKUPS.residentFees, label: "Pay your rent" },
+    { image: MOCKUPS.residentPortal, label: "Your room, menu and notices" },
+  ],
+};
 
 /**
- * A drawing of the portal, in the portal's own tokens.
- *
- * Painted header block with rounded bottom corners, tiles straddling its lower
- * edge, then a dated list whose heading sits outside the card — the same
- * vocabulary the product itself is built in, so this reads as the software
- * rather than as an illustration of software.
+ * Screens of the product, swapped with the role tabs. The mockups carry no
+ * backdrop of their own, so the soft brand wash behind them is the only frame.
  */
-function AppPreview({ reduced }: { reduced: boolean | null }) {
+function FaqPreview({ reduced, role }: { reduced: boolean | null; role: FaqRole }) {
+  const [primary, secondary] = PREVIEWS[role];
+
   return (
     <motion.div
-      className="relative"
-      initial="hidden"
-      variants={{
-        hidden: {},
-        show: { transition: { staggerChildren: reduced ? 0 : 0.08 } },
-      }}
-      viewport={{ amount: 0.3, once: true }}
-      whileInView="show"
+      animate={{ opacity: 1, y: 0 }}
+      className="relative overflow-hidden rounded-[26px] border border-border bg-gradient-to-br from-brand-teal/10 via-background to-background p-4 sm:p-6"
+      initial={{ opacity: 0, y: reduced ? 0 : 12 }}
+      key={role}
+      transition={{ duration: reduced ? 0.12 : 0.4, ease: EASE }}
     >
-      <motion.div
-        className="overflow-hidden rounded-[26px] border border-border bg-surface shadow-lg"
-        variants={{
-          hidden: { opacity: 0, y: reduced ? 0 : 18 },
-          show: { opacity: 1, transition: { duration: 0.5, ease: EASE }, y: 0 },
-        }}
-      >
-        {/* Window chrome. Three dots and an address is the cheapest way to say
-            "this is a screen" without pretending to be a real browser. */}
-        <div className="flex items-center gap-2 border-b border-border/70 bg-muted/40 px-4 py-3">
-          <span className="size-2.5 rounded-full bg-muted-foreground/25" />
-          <span className="size-2.5 rounded-full bg-muted-foreground/25" />
-          <span className="size-2.5 rounded-full bg-muted-foreground/25" />
-          <span className="ml-2 truncate rounded-md bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
-            sunrise-hostel · dashboard
-          </span>
-        </div>
-
-        {/* Deep bottom padding so the resident's "Rent paid" card, which
-            hangs off this corner, lands on empty space rather than on top of
-            the last row of the list. */}
-        <div className="relative pb-12">
-          <div className="rounded-b-[22px] bg-brand-teal px-5 pb-10 pt-5 text-white">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-medium text-white/70">Bhadra 2083</p>
-                <p className="font-heading text-base font-bold">Sunrise Boys Hostel</p>
-              </div>
-              <span className="relative flex size-8 items-center justify-center rounded-full bg-white/15">
-                <Bell className="size-4" />
-                <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-white text-[8px] font-bold text-brand-teal">
-                  3
-                </span>
-              </span>
-            </div>
-          </div>
-
-          {/* Tiles straddling the bottom edge of the painted block. */}
-          <div className="-mt-7 grid grid-cols-2 gap-3 px-5">
-            {[
-              { label: "Beds filled", sub: "of 50", value: "46" },
-              { label: "Collected", sub: "this month", value: "92%" },
-            ].map((tile) => (
-              <motion.div
-                className="rounded-2xl border border-border bg-background p-3 shadow-sm"
-                key={tile.label}
-                variants={{
-                  hidden: { opacity: 0, y: reduced ? 0 : 10 },
-                  show: { opacity: 1, transition: { duration: 0.4, ease: EASE }, y: 0 },
-                }}
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {tile.label}
-                </p>
-                <p className="mt-1 font-heading text-xl font-bold text-foreground">
-                  {tile.value}{" "}
-                  <span className="text-[10px] font-medium text-muted-foreground">
-                    {tile.sub}
-                  </span>
-                </p>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* The heading sits outside the card, the way lists do everywhere
-              else in the product. */}
-          <p className="mt-5 px-5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Rent · Bhadra
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {primary.label}
+      </p>
+      <Image
+        alt={primary.image.alt}
+        className="mt-2 h-auto w-full"
+        height={primary.image.height}
+        sizes="(min-width: 1024px) 520px, 100vw"
+        src={primary.image.src}
+        width={primary.image.width}
+      />
+      {secondary ? (
+        <>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {secondary.label}
           </p>
-
-          <div className="mt-2 space-y-2 px-5">
-            {PREVIEW_ROWS.map((row) => (
-              <motion.div
-                className="flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2.5"
-                key={row.name}
-                variants={{
-                  hidden: { opacity: 0, x: reduced ? 0 : -8 },
-                  show: { opacity: 1, transition: { duration: 0.35, ease: EASE }, x: 0 },
-                }}
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                  <BedDouble className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-semibold text-foreground">
-                    {row.name}
-                  </span>
-                  <span className="block text-[10px] text-muted-foreground">
-                    {row.room}
-                  </span>
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
-                    row.state === "paid" && "bg-brand-teal/10 text-brand-teal",
-                    row.state === "part" && "bg-warning/15 text-warning",
-                    row.state === "due" && "bg-destructive/10 text-destructive",
-                  )}
-                >
-                  {STATE_LABEL[row.state]}
-                </span>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* The resident's side of the same moment, overlapping the corner: the
-          payment that turned one of the rows above green. Hidden on the
-          narrowest screens, where it would sit on top of the list instead of
-          beside it. */}
-      <motion.div
-        className="absolute -bottom-5 -right-3 hidden w-[190px] rounded-2xl border border-border bg-surface p-3 shadow-xl sm:block"
-        variants={{
-          hidden: { opacity: 0, scale: reduced ? 1 : 0.94, y: reduced ? 0 : 12 },
-          show: {
-            opacity: 1,
-            scale: 1,
-            transition: { delay: reduced ? 0 : 0.35, duration: 0.45, ease: EASE },
-            y: 0,
-          },
-        }}
-      >
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="size-5 shrink-0 text-brand-teal" />
-          <div className="min-w-0">
-            <p className="truncate text-xs font-bold text-foreground">Rent paid</p>
-            <p className="truncate text-[10px] text-muted-foreground">NPR 6,500 · eSewa</p>
-          </div>
-        </div>
-        <p className="mt-2 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
-          Receipt saved to your account.
-        </p>
-      </motion.div>
+          <Image
+            alt={secondary.image.alt}
+            className="mt-2 h-auto w-full"
+            height={secondary.image.height}
+            sizes="(min-width: 1024px) 520px, 100vw"
+            src={secondary.image.src}
+            width={secondary.image.width}
+          />
+        </>
+      ) : null}
     </motion.div>
   );
 }

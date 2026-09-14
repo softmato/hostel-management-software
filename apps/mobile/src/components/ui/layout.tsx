@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { type ReactNode, useState } from "react";
 import {
   ActivityIndicator,
@@ -239,7 +238,6 @@ export function InfoTile({
       accessibilityRole="button"
       className="flex-1 active:opacity-70"
       onPress={() => {
-        void Haptics.selectionAsync();
         onPress();
       }}
     >

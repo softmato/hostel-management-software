@@ -16,6 +16,7 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Directory, DownloadTask, File, Paths } from "expo-file-system";
+import * as Haptics from "expo-haptics";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
@@ -24,6 +25,12 @@ import { openSavedFile, saveSilently } from "@/lib/native-downloads";
 import { readTokens } from "@/lib/session";
 import { toastSuccess, toastSuccessAction } from "@/lib/toast";
 import { finishUpload, startDownload, updateUpload } from "@/lib/upload-queue";
+
+/** Opens a download row with a light tap, so the press is felt before the toaster appears. */
+function beginDownload(label: string) {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  return startDownload(label);
+}
 
 /** Sub-folder so a cache sweep can be reasoned about, and names cannot collide. */
 const FOLDER = "documents";
@@ -476,6 +483,7 @@ async function placeOnDevice({
       openPath: saved.path,
       openUri: saved.uri,
     });
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     // Tappable: the push that says the same thing can arrive late or not at
     // all, and this toast is the one report the user always gets.
     toastSuccessAction(title, `Saved to ${saved.path}. Tap to open.`, () => {
@@ -504,6 +512,7 @@ async function placeOnDevice({
       });
 
       finishUpload(id);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toastSuccess(title, `Saved as ${safe}.${extension} in your ${APP_FOLDER} folder.`);
 
       return;
@@ -555,7 +564,7 @@ export async function downloadToDevice({
   mimeType: string;
   url: string;
 }) {
-  const id = startDownload(label);
+  const id = beginDownload(label);
 
   try {
     const tokens = authenticated ? await readTokens() : null;
@@ -681,7 +690,7 @@ export async function saveDataUrlToDevice({
   label: string;
 }) {
   const { base64, extension, mimeType } = readDataUrl(dataUrl);
-  const id = startDownload(label);
+  const id = beginDownload(label);
 
   try {
     const folder = new Directory(Paths.cache, FOLDER);
@@ -747,7 +756,7 @@ export async function saveToDevice({
   /** `file://` URI of a file that already exists. */
   uri: string;
 }) {
-  const id = startDownload(label);
+  const id = beginDownload(label);
 
   try {
     updateUpload(id, { fraction: 1, stage: "verifying" });

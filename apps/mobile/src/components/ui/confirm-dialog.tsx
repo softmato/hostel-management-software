@@ -1,5 +1,4 @@
 import { BlurView } from "expo-blur";
-import * as Haptics from "expo-haptics";
 import {
   useCallback,
   useEffect,
@@ -207,10 +206,7 @@ export function ConfirmDialog({
   const confirm = useCallback(() => {
     if (pending) {
       return;
-    }
-
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setPending(true);
+    }    setPending(true);
 
     void (async () => {
       try {

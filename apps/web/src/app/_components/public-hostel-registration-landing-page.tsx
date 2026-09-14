@@ -1,24 +1,17 @@
 "use client";
 
+import { ArrowRight, Building2, ChevronRight, type LucideIcon } from "lucide-react";
 import {
-  ArrowRight,
-  BedDouble,
-  Building2,
-  ChevronRight,
-  HeartHandshake,
-  LayoutDashboard,
-  ShieldCheck,
-  Users,
-  WalletCards,
-  type LucideIcon,
-} from "lucide-react";
-import {
+  animate,
   motion,
+  useInView,
+  useReducedMotion,
   useScroll,
   useTransform,
   type Easing,
   type Variants,
 } from "framer-motion";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -29,6 +22,7 @@ import {
   HostelStatusView,
   type OwnerApplication,
 } from "@/app/_components/public-hostel-registration-page";
+import { MOCKUPS, type Mockup } from "@/app/_components/portal-mockups";
 import { PublicShell } from "@/app/_components/shared";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { contentIcon, resolveContentPage } from "@/lib/site-content";
@@ -64,76 +58,96 @@ const stagger = {
 };
 
 type Feature = {
-  accent: string;
+  bullets: string[];
   description: string;
-  gradient: string;
   icon: LucideIcon;
-  imageIndex: number;
+  image: Mockup;
   title: string;
   tone: "teal" | "platform" | "admin" | "resident" | "guardian";
 };
 
-const heroSlides = [
-  {
-    gradient: "from-brand-teal/20 to-cyan-400/10",
-    icon: LayoutDashboard,
-    label: "Central Dashboard",
-    accent: "bg-brand-teal",
-  },
-  {
-    gradient: "from-blue-500/20 to-indigo-400/10",
-    icon: BedDouble,
-    label: "Room & Bed Map",
-    accent: "bg-blue-500",
-  },
-  {
-    gradient: "from-emerald-400/20 to-green-400/10",
-    icon: Users,
-    label: "Resident Management",
-    accent: "bg-emerald-500",
-  },
-  {
-    gradient: "from-amber-400/20 to-orange-400/10",
-    icon: WalletCards,
-    label: "Payments & Fee Tracking",
-    accent: "bg-amber-500",
-  },
-  {
-    gradient: "from-rose-400/20 to-pink-400/10",
-    icon: ShieldCheck,
-    label: "Night Safety & SOS",
-    accent: "bg-rose-500",
-  },
-  {
-    gradient: "from-violet-400/20 to-purple-400/10",
-    icon: HeartHandshake,
-    label: "Guardian Dashboard",
-    accent: "bg-violet-500",
-  },
+/** Every portal screen we have, in the order an owner meets them. */
+const heroSlides: { image: Mockup; label: string }[] = [
+  { image: MOCKUPS.wardenDashboard, label: "Hostel dashboard" },
+  { image: MOCKUPS.wardenRooms, label: "Rooms & beds" },
+  { image: MOCKUPS.residentRegister, label: "Resident registration" },
+  { image: MOCKUPS.residentVerify, label: "Identity check" },
+  { image: MOCKUPS.wardenFinance, label: "Fee schedule & reconcile" },
+  { image: MOCKUPS.wardenTransactions, label: "Transactions" },
+  { image: MOCKUPS.wardenPaymentSetup, label: "Payment setup" },
+  { image: MOCKUPS.residentPortal, label: "Resident portal" },
+  { image: MOCKUPS.residentFees, label: "Resident fees & payments" },
+  { image: MOCKUPS.residentProfile, label: "Resident ID card" },
+  { image: MOCKUPS.guardianPortal, label: "Guardian portal" },
+  { image: MOCKUPS.appCommunity, label: "Your public hostel page" },
+  { image: MOCKUPS.appMap, label: "Found on the map" },
 ];
 
 /**
- * Presentation only. The nine features' **titles and descriptions** live in the
+ * Presentation only. The features' **titles and descriptions** live in the
  * site config under `content.registerHostel.sections`, because the app shows the
- * same nine on its Register your hostel screen — see `contentSchema`. What stays
- * here is what cannot be stored: the tone token, the gradient, and which hero
- * slide each feature scrolls its image to.
+ * same list on its Register your hostel screen — see `contentSchema`. What stays
+ * here is what cannot be stored: the tone token and the screen shown beside it.
  *
  * Indexed by position rather than by title, so an owner rewording "Central
- * Dashboard" does not silently drop its colour. A tenth section added in the
+ * Dashboard" does not silently drop its picture. A section added past the end in the
  * admin panel falls back to the first chrome entry rather than crashing.
  */
-const featureChrome: { accent: string; gradient: string; imageIndex: number; tone: Feature["tone"] }[] = [
-  { accent: "bg-brand-teal", gradient: "from-brand-teal/20 to-cyan-400/10", imageIndex: 0, tone: "platform" },
-  { accent: "bg-blue-500", gradient: "from-blue-500/20 to-indigo-400/10", imageIndex: 1, tone: "admin" },
-  { accent: "bg-emerald-500", gradient: "from-emerald-400/20 to-green-400/10", imageIndex: 2, tone: "resident" },
-  { accent: "bg-amber-500", gradient: "from-amber-400/20 to-orange-400/10", imageIndex: 3, tone: "guardian" },
-  { accent: "bg-teal-500", gradient: "from-teal-400/20 to-emerald-400/10", imageIndex: 0, tone: "teal" },
-  { accent: "bg-cyan-500", gradient: "from-cyan-400/20 to-sky-400/10", imageIndex: 1, tone: "platform" },
-  { accent: "bg-rose-500", gradient: "from-rose-400/20 to-pink-400/10", imageIndex: 4, tone: "admin" },
-  { accent: "bg-violet-500", gradient: "from-violet-400/20 to-purple-400/10", imageIndex: 5, tone: "guardian" },
-  { accent: "bg-brand-teal", gradient: "from-brand-teal/20 to-emerald-400/10", imageIndex: 2, tone: "teal" },
+const featureChrome: { image: Mockup; tone: Feature["tone"] }[] = [
+  { image: MOCKUPS.wardenDashboard, tone: "platform" },
+  { image: MOCKUPS.wardenRooms, tone: "admin" },
+  { image: MOCKUPS.residentRegister, tone: "resident" },
+  { image: MOCKUPS.residentVerify, tone: "teal" },
+  { image: MOCKUPS.wardenFinance, tone: "admin" },
+  { image: MOCKUPS.wardenPaymentSetup, tone: "platform" },
+  { image: MOCKUPS.wardenTransactions, tone: "teal" },
+  { image: MOCKUPS.residentPortal, tone: "resident" },
+  { image: MOCKUPS.residentFees, tone: "resident" },
+  { image: MOCKUPS.residentProfile, tone: "admin" },
+  { image: MOCKUPS.guardianPortal, tone: "guardian" },
+  { image: MOCKUPS.appCommunity, tone: "platform" },
+  { image: MOCKUPS.appMap, tone: "teal" },
+  { image: MOCKUPS.appHome, tone: "platform" },
 ];
+
+/**
+ * Counts the number inside a stat up from zero the first time it scrolls into
+ * view — "3×", "9 in 10", "1,240". Text with no number in it renders as is.
+ */
+function CountUp({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { margin: "-80px", once: true });
+  const reduced = useReducedMotion();
+  const match = /^(\D*)([\d,]+(?:\.\d+)?)(.*)$/.exec(text);
+  const target = match ? Number(match[2].replace(/,/g, "")) : 0;
+  const [shown, setShown] = useState(0);
+
+  useEffect(() => {
+    if (!inView || reduced || target === 0) return;
+    const controls = animate(0, target, {
+      duration: 1.4,
+      ease: "easeOut",
+      onUpdate: setShown,
+    });
+    return () => controls.stop();
+  }, [inView, reduced, target]);
+
+  if (!match) return <span ref={ref}>{text}</span>;
+
+  const decimals = match[2].split(".")[1]?.length ?? 0;
+  const value = reduced ? target : shown;
+
+  return (
+    <span ref={ref}>
+      {match[1]}
+      {value.toLocaleString("en-US", {
+        maximumFractionDigits: decimals,
+        minimumFractionDigits: decimals,
+      })}
+      {match[3]}
+    </span>
+  );
+}
 
 /** The signed-in owner's most recent hostel application, if they have one. */
 async function fetchOwnerApplication(): Promise<OwnerApplication | null> {
@@ -148,13 +162,15 @@ async function fetchOwnerApplication(): Promise<OwnerApplication | null> {
 }
 
 export function PublicHostelRegistrationLandingPage() {
-  const { content, identity } = useSiteConfig();
+  const { content, identity, platformStats } = useSiteConfig();
   const siteName = identity.siteName;
   const page = resolveContentPage(content.registerHostel, identity);
   const stats = page.highlights;
   const features: Feature[] = page.sections.map((section, index) => ({
     ...(featureChrome[index] ?? featureChrome[0]),
-    description: section.body.join(" "),
+    // The first line is the sentence under the title; the rest are its bullets.
+    bullets: section.body.slice(1),
+    description: section.body[0] ?? "",
     icon: contentIcon(section.icon),
     title: section.title,
   }));
@@ -239,8 +255,6 @@ export function PublicHostelRegistrationLandingPage() {
       if (el) observer.unobserve(el);
     };
   }, []);
-
-  const SlideIcon = heroSlides[currentSlide].icon;
 
   // `sessionUser` guards the render as well as the fetch, so signing out in the
   // header drops the status view instead of leaving a stale one on screen.
@@ -329,9 +343,7 @@ export function PublicHostelRegistrationLandingPage() {
               variants={fadeUp}
               custom={2}
             >
-              Transform your hostel with a complete digital ecosystem — from resident
-              management to guardian communication. Give every stakeholder their own
-              portal while you stay in control from one dashboard.
+              {page.intro[0]}
             </motion.p>
 
             {/* Register button at top */}
@@ -364,28 +376,26 @@ export function PublicHostelRegistrationLandingPage() {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.6, duration: 0.8 }}
           >
-            <div className="relative h-[20rem] overflow-hidden rounded-2xl border-2 border-border shadow-xl md:h-[26rem]">
+            <div className="relative h-[20rem] overflow-hidden rounded-2xl border border-border bg-muted/30 shadow-xl sm:h-[26rem] md:h-[32rem]">
               <motion.div
                 key={currentSlide}
-                className={`absolute inset-0 flex items-center justify-center bg-gradient-br ${heroSlides[currentSlide].gradient}`}
-                initial={{ opacity: 0, scale: 1.05 }}
+                className="absolute inset-0 px-12 pb-12 pt-14"
+                initial={{ opacity: 0, scale: 1.03 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6 }}
               >
-                <div className="flex flex-col items-center gap-4 p-8 text-center">
-                  <div
-                    className={`flex size-24 items-center justify-center rounded-2xl ${heroSlides[currentSlide].accent}/10`}
-                  >
-                    <SlideIcon
-                      className={`size-12 ${heroSlides[currentSlide].accent.replace("bg-", "text-")}`}
-                    />
-                  </div>
-                  <p className="text-xl font-bold text-foreground md:text-2xl">
-                    {heroSlides[currentSlide].label}
-                  </p>
-                  <p className="max-w-md text-sm text-muted-foreground">
-                    Everything you need to manage your hostel efficiently
-                  </p>
+                <span className="absolute left-1/2 top-4 -translate-x-1/2 whitespace-nowrap rounded-full border border-border bg-background/90 px-3 py-1 text-xs font-semibold text-foreground">
+                  {heroSlides[currentSlide].label}
+                </span>
+                <div className="relative size-full">
+                  <Image
+                    alt={heroSlides[currentSlide].image.alt}
+                    className="object-contain"
+                    fill
+                    priority={currentSlide === 0}
+                    sizes="(min-width: 896px) 800px, 100vw"
+                    src={heroSlides[currentSlide].image.src}
+                  />
                 </div>
               </motion.div>
 
@@ -424,29 +434,72 @@ export function PublicHostelRegistrationLandingPage() {
           </motion.div>
         </section>
 
-        {/* Stats */}
-        <section className="border-y border-border bg-muted/30">
-          <div className="mx-auto max-w-[1200px] px-6 py-12 md:py-16">
-            <motion.div
-              className="grid grid-cols-2 gap-6 md:grid-cols-4"
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-            >
-              {stats.map((stat) => (
-                <motion.div key={stat.label} className="text-center" variants={fadeUp}>
-                  <p className="text-3xl font-extrabold text-foreground md:text-4xl">
-                    {stat.value}
+        {/* Stats: real counts first, then the growth claims an owner is sold on */}
+        {platformStats.length > 0 || stats.length > 0 ? (
+          <section className="relative overflow-hidden border-y border-border bg-muted/30">
+            <div className="pointer-events-none absolute -left-24 top-1/2 size-72 -translate-y-1/2 rounded-full bg-brand-teal/10 blur-3xl" />
+            <div className="relative mx-auto max-w-[1200px] px-6 py-14 md:py-20">
+              {platformStats.length > 0 ? (
+                <div className={cn(stats.length > 0 && "mb-14")}>
+                  <p className="flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-brand-teal">
+                    <span className="relative flex size-2">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-teal opacity-60" />
+                      <span className="relative inline-flex size-2 rounded-full bg-brand-teal" />
+                    </span>
+                    Live on {siteName}
                   </p>
-                  <p className="mt-1 text-xs font-semibold text-muted-foreground md:text-sm">
-                    {stat.label}
+                  <div className="mt-6 grid gap-6 sm:grid-cols-3">
+                    {platformStats.map((stat) => (
+                      <div className="text-center" key={stat.label}>
+                        <p className="text-4xl font-extrabold text-foreground md:text-5xl">
+                          <CountUp text={stat.value.toLocaleString("en-US")} />
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-muted-foreground md:text-sm">
+                          {stat.label}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {stats.length > 0 ? (
+                <>
+                  <h2 className="text-center text-2xl font-bold text-foreground md:text-3xl">
+                    Get your hostel more popular
+                  </h2>
+                  <p className="mx-auto mt-2 max-w-xl text-center text-sm text-muted-foreground md:text-base">
+                    What changes when students can find you and residents pay from their phone.
                   </p>
-                </motion.div>
-              ))}
-            </motion.div>
-          </div>
-        </section>
+                  <motion.div
+                    className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4"
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, margin: "-80px" }}
+                    variants={stagger}
+                  >
+                    {stats.map((stat, index) => (
+                      <motion.div
+                        className="group relative overflow-hidden rounded-2xl border border-border bg-background p-5 shadow-sm transition hover:-translate-y-1 hover:border-brand-teal/40 hover:shadow-lg"
+                        custom={index}
+                        key={stat.label}
+                        variants={fadeUp}
+                      >
+                        <span className="absolute -right-8 -top-8 size-24 rounded-full bg-brand-teal/10 transition duration-500 group-hover:scale-150" />
+                        <p className="relative font-heading text-4xl font-extrabold text-brand-teal md:text-5xl">
+                          <CountUp text={stat.value} />
+                        </p>
+                        <p className="relative mt-2 text-sm font-semibold leading-snug text-foreground">
+                          {stat.label}
+                        </p>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                </>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         {/* Features with scroll-triggered images */}
         <section ref={featureRef} className="mx-auto max-w-[1200px] px-6 py-20 md:py-28">
@@ -476,8 +529,6 @@ export function PublicHostelRegistrationLandingPage() {
           <div className="space-y-20 md:space-y-28">
             {features.map((feature, idx) => {
               const isEven = idx % 2 === 0;
-              const slideMeta = heroSlides[feature.imageIndex];
-              const SlideFeatureIcon = slideMeta.icon;
 
               return (
                 <motion.div
@@ -511,26 +562,21 @@ export function PublicHostelRegistrationLandingPage() {
                     <p className="text-base leading-relaxed text-muted-foreground">
                       {feature.description}
                     </p>
-                    <ul className="space-y-2 pt-2">
-                      <li className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
-                          &#10003;
-                        </span>
-                        Real-time insights and analytics at your fingertips
-                      </li>
-                      <li className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
-                          &#10003;
-                        </span>
-                        Role-based access for staff, residents, and guardians
-                      </li>
-                      <li className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
-                          &#10003;
-                        </span>
-                        Mobile-friendly portals accessible from any device
-                      </li>
-                    </ul>
+                    {feature.bullets.length > 0 ? (
+                      <ul className="space-y-2 pt-2">
+                        {feature.bullets.map((bullet) => (
+                          <li
+                            className="flex items-start gap-3 text-sm text-muted-foreground"
+                            key={bullet}
+                          >
+                            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-teal/10 text-[10px] font-bold text-brand-teal">
+                              &#10003;
+                            </span>
+                            {bullet}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </motion.div>
 
                   {/* Image side - scroll triggered fade */}
@@ -541,24 +587,14 @@ export function PublicHostelRegistrationLandingPage() {
                     viewport={{ once: true, margin: "-100px" }}
                     transition={{ duration: 0.7, ease: "easeOut" }}
                   >
-                    <div
-                      className={`relative h-64 overflow-hidden rounded-2xl border-2 border-border bg-gradient-br ${slideMeta.gradient} shadow-lg md:h-80`}
-                    >
-                      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                        <div
-                          className={`flex size-20 items-center justify-center rounded-2xl ${slideMeta.accent}/10`}
-                        >
-                          <SlideFeatureIcon
-                            className={`size-10 ${slideMeta.accent.replace("bg-", "text-")}`}
-                          />
-                        </div>
-                        <p className="text-lg font-bold text-foreground">
-                          {slideMeta.label}
-                        </p>
-                        <p className="max-w-xs text-sm text-muted-foreground">
-                          {feature.description.slice(0, 100)}...
-                        </p>
-                      </div>
+                    <div className="relative h-64 w-full sm:h-80 md:h-96">
+                      <Image
+                        alt={feature.image.alt}
+                        className="object-contain"
+                        fill
+                        sizes="(min-width: 768px) 576px, 100vw"
+                        src={feature.image.src}
+                      />
                     </div>
                   </motion.div>
                 </motion.div>

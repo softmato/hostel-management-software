@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { Pressable, View } from "react-native";
@@ -340,9 +339,7 @@ export function HostelCard({
               accessibilityState={{ selected: selectedForCompare }}
               className="h-9 w-9 items-center justify-center rounded-full bg-card/95 active:opacity-70"
               hitSlop={6}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                onToggleCompare(hostel);
+              onPress={() => {                onToggleCompare(hostel);
               }}
             >
               <Ionicons

@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -104,7 +103,6 @@ export function AnimatedTabBar({
             return;
           }
 
-          void Haptics.selectionAsync();
           navigation.navigate(route.name, route.params);
         }
 

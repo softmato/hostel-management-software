@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { Pressable } from "react-native";
 
@@ -63,7 +62,6 @@ export function SosHeaderButton() {
         hitSlop={6}
         onLongPress={() => sos.arm({ guardianAlertEnabled: true })}
         onPress={() => {
-          void Haptics.selectionAsync();
           router.push("/sos");
         }}
         style={{ backgroundColor: colors.destructive }}

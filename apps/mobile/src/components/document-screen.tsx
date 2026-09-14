@@ -71,7 +71,9 @@ export function DocumentScreen({
    * structured sections outright — the same override the website honours.
    */
   legalDocument,
+  media,
   page,
+  sectionMedia,
   title,
   /** About draws its values as paragraphs; the rest are bulleted claims. */
   variant = "bullets",
@@ -88,7 +90,11 @@ export function DocumentScreen({
   extra?: ReactNode;
   icon: InfoIcon;
   legalDocument?: keyof MobileLegal;
+  /** Pictures of the product, shown under the action and above the copy. */
+  media?: ReactNode;
   page: Exclude<keyof SiteContent, "faq">;
+  /** The picture inside each section, by position. */
+  sectionMedia?: (index: number) => ReactNode;
   /** Where this document lives on the website, for the can't-load fallback. */
   webPath: string;
   /** Supports `{siteName}` and `{supportEmail}`, like all configured copy. */
@@ -149,6 +155,8 @@ export function DocumentScreen({
         */}
         {action ? <InfoActions>{action}</InfoActions> : null}
 
+        {media}
+
         {comingSoon ? (
           <View className="border-l-2 border-primary py-1 pl-4">
             <Text className="italic leading-6" variant="muted">
@@ -164,6 +172,7 @@ export function DocumentScreen({
             override={override}
             refresh={refresh}
             resolved={resolved}
+            sectionMedia={sectionMedia}
             variant={variant}
             webUrl={webUrl}
           />
@@ -182,6 +191,7 @@ function DocumentBody({
   override,
   refresh,
   resolved,
+  sectionMedia,
   variant,
   webUrl,
 }: {
@@ -192,6 +202,7 @@ function DocumentBody({
   override: string | undefined;
   refresh: () => void;
   resolved: ReturnType<typeof resolveContentPage>;
+  sectionMedia?: (index: number) => ReactNode;
   variant: SectionVariant;
   webUrl: string;
 }) {
@@ -226,7 +237,11 @@ function DocumentBody({
         {override ? (
           <LegalBody body={override} />
         ) : (
-          <InfoSections sections={resolved.sections} variant={variant} />
+          <InfoSections
+            mediaFor={sectionMedia}
+            sections={resolved.sections}
+            variant={variant}
+          />
         )}
 
         {extra}

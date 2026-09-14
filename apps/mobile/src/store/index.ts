@@ -18,6 +18,7 @@ import {
 } from "redux-persist";
 
 import authReducer, { type AuthState } from "@/store/slices/authSlice";
+import notificationsReducer from "@/store/slices/notificationsSlice";
 import savedReducer from "@/store/slices/savedSlice";
 import uiReducer from "@/store/slices/uiSlice";
 
@@ -83,6 +84,7 @@ const volatileAuthFields = createTransform<AuthState, AuthState>(
 
 const combined = combineReducers({
   auth: authReducer,
+  notifications: notificationsReducer,
   saved: savedReducer,
   ui: uiReducer,
 });
@@ -129,9 +131,9 @@ const persistedReducer = persistReducer<AppState>(
      * `saved` needs no migration entry: a key absent from storage rehydrates to
      * the reducer's `initialState`, so an existing install simply starts with an
      * empty favourites list. Migrations are only for a persisted default whose
-     * *meaning* changed.
+     * *meaning* changed. `notifications` is the same case.
      */
-    whitelist: ["auth", "saved", "ui"],
+    whitelist: ["auth", "notifications", "saved", "ui"],
   },
   rootReducer,
 );

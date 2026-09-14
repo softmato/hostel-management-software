@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
@@ -189,9 +188,7 @@ function HeroSosStrip({ count, onPress }: { count: number; onPress: () => void }
       accessibilityLabel={`${count} SOS alerts active. Open the alerts queue.`}
       accessibilityRole="button"
       className="flex-row items-center gap-3 rounded-2xl bg-white px-3.5 py-3 active:opacity-80"
-      onPress={() => {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        onPress();
+      onPress={() => {        onPress();
       }}
       style={FLOAT_SHADOW}
     >
@@ -456,9 +453,7 @@ export function HostelHero({
               accessibilityRole="button"
               className="-m-2 p-2 active:opacity-60"
               hitSlop={8}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setShown((current) => !current);
+              onPress={() => {                setShown((current) => !current);
               }}
             >
               <Ionicons

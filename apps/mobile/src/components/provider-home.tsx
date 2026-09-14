@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { Pressable, View } from "react-native";
 
 import { HERO_AMOUNT_LEAD_TRIM, HERO_LINE_GAP, PortalHeroCard } from "@/components/portal-shared";
@@ -343,9 +342,7 @@ export function ProviderJobRow({
         .join(". ")}
       accessibilityRole="button"
       className="flex-row items-center py-3 active:opacity-70"
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
+      onPress={() => {        onPress();
       }}
       style={{ minHeight: 60 }}
     >

@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import type { ReactNode } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
@@ -99,9 +98,7 @@ export function ListRow({
       accessibilityState={{ busy, disabled: busy }}
       className="active:opacity-70"
       disabled={busy}
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
+      onPress={() => {        onPress();
       }}
       onPressIn={onPressIn}
     >
@@ -262,9 +259,7 @@ export function CardRow({
       accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
       accessibilityRole="button"
       className="active:opacity-70"
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
+      onPress={() => {        onPress();
       }}
       onPressIn={onPressIn}
     >

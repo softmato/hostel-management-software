@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { useCallback, useEffect, useRef } from "react";
 import { Pressable, useWindowDimensions } from "react-native";
@@ -107,8 +106,6 @@ export function ServiceCarousel({
       if (!card || card.id === selectedId) {
         return;
       }
-
-      void Haptics.selectionAsync();
       onSelect(card.id);
     },
     [cards, onSelect, selectedId],

@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import * as Haptics from "expo-haptics";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
@@ -65,7 +64,6 @@ export function FloatingButton({
           className="h-14 flex-row items-center justify-center gap-2 px-6 active:opacity-85"
           disabled={loading}
           onPress={() => {
-            void Haptics.selectionAsync();
             onPress();
           }}
           style={{ backgroundColor: `${tint}D1` }}

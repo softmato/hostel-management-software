@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 
+import { useSiteConfig } from "@/components/site-config-provider";
 import { CONTENT_ICON_SLUGS } from "@/lib/site-content";
 import type {
   ContentPage,
@@ -58,8 +59,11 @@ function linesToList(value: string) {
 function PageEditor({
   onChange,
   page,
+  liveStats,
   showHighlights = false,
 }: {
+  /** Counted by the server; shown read-only above the editable claims. */
+  liveStats?: { label: string; value: number }[];
   onChange: (next: ContentPage) => void;
   page: ContentPage;
   showHighlights?: boolean;
@@ -81,6 +85,31 @@ function PageEditor({
         rows={4}
         value={page.intro.join("\n")}
       />
+
+      {liveStats ? (
+        <div>
+          <p className="mb-1 text-[11.5px] font-semibold text-foreground">
+            Live counts
+          </p>
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            Counted from the platform every few minutes. A count under 10 is hidden. Not editable.
+          </p>
+          {liveStats.length > 0 ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {liveStats.map((item) => (
+                <div className="rounded-lg border border-border px-3 py-2" key={item.label}>
+                  <p className="text-sm font-bold text-foreground">
+                    {item.value.toLocaleString("en-US")}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">{item.label}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">Nothing big enough to show yet.</p>
+          )}
+        </div>
+      ) : null}
 
       {showHighlights ? (
         <div>
@@ -184,6 +213,7 @@ export const PlatformConfigContentPageContent = memo(
       state,
       valueFor,
     } = useSiteConfigDraft();
+  const livePlatformStats = useSiteConfig().platformStats;
 
     const content = valueFor("content");
     const dirty = isDirty("content");
@@ -253,11 +283,12 @@ export const PlatformConfigContentPageContent = memo(
 
         <ConfigCard
           {...cardProps}
-          description="The nine features and the stat strip on /register-hostel. Section order sets the colour each feature is drawn in."
+          description="The features on /register-hostel. First line of a section is its sentence, the rest are bullets; order sets the screen shown beside it. Highlights are the claims under “Get your hostel more popular”."
           title="Register Hostel"
         >
           <PageEditor
             onChange={(next) => setPage("registerHostel", next)}
+            liveStats={livePlatformStats}
             page={content.registerHostel}
             showHighlights
           />

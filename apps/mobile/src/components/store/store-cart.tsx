@@ -329,8 +329,6 @@ export function useAddToCart() {
    */
   const setQuantity = useCallback(
     async (product: { id: string }, next: number) => {
-      void Haptics.selectionAsync();
-
       await run(product.id, next, () =>
         next <= 0 ? removeFromCart(product.id) : setCartQuantity(product.id, next),
       );

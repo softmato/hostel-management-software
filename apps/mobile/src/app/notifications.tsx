@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
@@ -9,7 +9,7 @@ import { Screen } from "@/components/ui/screen";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { useAppSelector } from "@/hooks/redux";
+import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -27,7 +27,13 @@ import {
   markNotificationRead,
 } from "@/lib/notifications-api";
 import { setBadgeCount } from "@/lib/push-notifications";
+import { invalidateQuery, readQuery, writeQuery } from "@/lib/query-cache";
 import { toastError } from "@/lib/toast";
+import {
+  acknowledgeAllNotifications,
+  acknowledgeNotification,
+  holdUnacknowledged,
+} from "@/store/slices/notificationsSlice";
 
 /**
  * What the bell opens.
@@ -63,17 +69,25 @@ import { toastError } from "@/lib/toast";
  * - **§5 and §11, a tinted glyph leading the row.** The category *and* what
  *   happened to it, before a word is read. `lib/notification-categories.ts`.
  *
- * ## Read is marked on tap, and optimistically
+ * ## Opening clears the badge; tapping clears the tint
  *
- * Same rule as `(resident)/notices.tsx`: the row un-bolds immediately and the
- * PATCH runs behind it. Marking on render would clear the badge for a list
- * somebody opened and closed, and the one notification that mattered is exactly
- * the one that gets scrolled past. A failed PATCH leaves a row locally read that
- * the next fetch corrects — cheaper than a tap that appears to do nothing.
+ * Two different things, and they used to be one. Opening this screen marks the
+ * whole mailbox read on the server, so the bell's badge and the app-icon count
+ * drop the moment somebody looks. The rows that were unread at that moment are
+ * held in `store/slices/notificationsSlice.ts` and keep their tint until the
+ * row is tapped or "Mark all read" is pressed — so the one notification that
+ * mattered is still visibly new even though the badge has gone.
  *
- * The optimistic edit is written back to the shared cache entry, so the bell on
- * the screen underneath loses its badge on the same frame as the row loses its
- * tint. That is `use-resource`'s `setData` doing it, not a second update here.
+ * Both are optimistic. The cache entries the bell reads are rewritten before the
+ * request leaves (`writeFeedRead`), so the bell underneath loses its badge on
+ * the same frame, and "Mark all read" un-tints every row on the press itself
+ * rather than after a round trip. A failed request marks the entries stale and
+ * the next fetch corrects them — the held tint means nothing looks wrong
+ * meanwhile.
+ *
+ * The "Unread" chip is filtered here from the `all` feed rather than asked of
+ * the server: once opening has marked everything read, the server's unread
+ * filter is always empty, while what the reader means by unread is the tint.
  *
  * ## `actionUrl` is not a link
  *
@@ -116,10 +130,49 @@ const TILE_GLYPH: Record<
   warning: "warning",
 };
 
+/**
+ * Every cached feed entry, rewritten as if the server had already answered the
+ * read-all. `all` is the one the bell's badge reads; `action` is patched too so
+ * switching chips does not paint a stale unread count back in.
+ *
+ * Skips entries with nothing unread, so it does not re-stamp an answer as fresh
+ * for no reason.
+ */
+function writeFeedRead() {
+  for (const filter of ["all", "action"] as const) {
+    const { key, topics } = notificationQuery.feed(filter);
+    const cached = readQuery<NotificationFeed>(key);
+
+    if (
+      cached &&
+      (cached.data.unreadCount > 0 || cached.data.notifications.some((row) => !row.isRead))
+    ) {
+      writeQuery(
+        key,
+        {
+          ...cached.data,
+          notifications: cached.data.notifications.map((row) =>
+            row.isRead ? row : { ...row, isRead: true },
+          ),
+          unreadCount: 0,
+        },
+        topics,
+      );
+    }
+  }
+}
+
+function invalidateFeeds() {
+  for (const filter of ["all", "action"] as const) {
+    invalidateQuery(notificationQuery.feed(filter).key);
+  }
+}
+
 export default function NotificationsScreen() {
   const account = useAppSelector((state) => state.auth.account);
+  const held = useAppSelector((state) => state.notifications.unacknowledged);
+  const dispatch = useAppDispatch();
   const [filter, setFilter] = useState<NotificationFilter>("all");
-  const [marking, setMarking] = useState(false);
 
   /*
    * The descriptor, not an inline loader. `defineQuery` hands back the same
@@ -133,15 +186,80 @@ export default function NotificationsScreen() {
    * published on the web updates this list with no push involved and no polling.
    * The refetch is silent — the list stays on screen while it runs.
    */
-  const query = notificationQuery.feed(filter);
+  const query = notificationQuery.feed(filter === "unread" ? "all" : filter);
 
   const feed = useResource<NotificationFeed>(query.load, {
     cacheKey: query.key,
     topics: query.topics,
   });
+  const { data } = feed;
 
-  const rows = useMemo(() => feed.data?.notifications ?? [], [feed.data]);
-  const unread = feed.data?.unreadCount ?? 0;
+  /*
+   * `isRead` as the reader sees it: the server's receipt, unless the row is held
+   * as not yet acknowledged. The row component only ever sees this value, so the
+   * tint follows the hold and not the receipt.
+   */
+  const rows = useMemo(() => {
+    const heldIds = new Set(held);
+    const shown = (data?.notifications ?? []).map((row) =>
+      row.isRead && heldIds.has(row.id) ? { ...row, isRead: false } : row,
+    );
+
+    return filter === "unread" ? shown.filter((row) => !row.isRead) : shown;
+  }, [data, filter, held]);
+
+  /** What the server still counts, which is what the badges show. */
+  const serverUnread = data?.unreadCount ?? 0;
+  /** What is still tinted, which is what the header and its button speak to. */
+  const unread = Math.max(held.length, serverUnread);
+
+  /*
+   * Opening marks everything read, and holds what was unread.
+   *
+   * Keyed on the payload, so a notification arriving while the screen is open
+   * is held and receipted the same way as the ones that were here on entry.
+   *
+   * `receipt` keeps a revalidate that lands mid-request from firing a second
+   * read-all for the same rows, and a failure from being retried on every
+   * refetch — it is tried again the next time the screen opens.
+   */
+  const receipt = useRef<"busy" | "failed" | "idle">("idle");
+
+  useEffect(() => {
+    if (!account || !data) {
+      return;
+    }
+
+    // Read from the cache rather than from `data`: for a frame after a chip
+    // change `data` can still be the other filter's page, and pruning against
+    // the `action` page would drop every held row not waiting on a decision.
+    const allPage = readQuery<NotificationFeed>(notificationQuery.feed("all").key);
+
+    dispatch(
+      holdUnacknowledged({
+        present: allPage?.data.notifications.map((row) => row.id),
+        unread: data.notifications.filter((row) => !row.isRead).map((row) => row.id),
+      }),
+    );
+
+    if (data.unreadCount === 0 || receipt.current !== "idle") {
+      return;
+    }
+
+    receipt.current = "busy";
+    writeFeedRead();
+
+    void markAllNotificationsRead().then(
+      () => {
+        receipt.current = "idle";
+        writeFeedRead();
+      },
+      () => {
+        receipt.current = "failed";
+        invalidateFeeds();
+      },
+    );
+  }, [account, data, dispatch]);
 
   /*
    * Grouped here rather than in the render body so the buckets are recomputed
@@ -164,10 +282,12 @@ export default function NotificationsScreen() {
    * open — a second counter would drift from this one within a day.
    */
   useEffect(() => {
-    if (feed.data) {
-      void setBadgeCount(unread);
+    if (data) {
+      void setBadgeCount(serverUnread);
     }
-  }, [feed.data, unread]);
+  }, [data, serverUnread]);
+
+  const { setData } = feed;
 
   const markRead = useCallback(
     (notification: AppNotification) => {
@@ -175,14 +295,23 @@ export default function NotificationsScreen() {
         return;
       }
 
-      feed.setData((current) =>
+      dispatch(acknowledgeNotification(notification.id));
+
+      // Held rows were already receipted on open; only a row the server still
+      // counts needs the PATCH, and the badge has to move with it.
+      const receipted = data?.notifications.find((row) => row.id === notification.id)?.isRead;
+
+      if (receipted) {
+        return;
+      }
+
+      setData((current) =>
         current
           ? {
               ...current,
               notifications: current.notifications.map((row) =>
                 row.id === notification.id ? { ...row, isRead: true } : row,
               ),
-              // The badge on the bell reads this, so it has to move with the row.
               unreadCount: Math.max(0, current.unreadCount - 1),
             }
           : current,
@@ -190,24 +319,30 @@ export default function NotificationsScreen() {
 
       void markNotificationRead(notification.id).catch(() => undefined);
     },
-    [feed],
+    [data, dispatch, setData],
   );
 
-  const markAll = useCallback(async () => {
-    setMarking(true);
+  /*
+   * No spinner and no await: the tint goes on the press, and the request — only
+   * needed if something arrived that the open has not receipted yet — runs
+   * behind it.
+   */
+  const markAll = useCallback(() => {
+    dispatch(acknowledgeAllNotifications());
 
-    try {
-      await markAllNotificationsRead();
-      // Refetched rather than patched locally: "mark all" touches rows this
-      // screen may not be holding, and the unread filter's contents change
-      // wholesale.
-      feed.refresh();
-    } catch {
-      toastError("Couldn't mark them read", "Check your connection and try again.");
-    } finally {
-      setMarking(false);
+    if (serverUnread === 0) {
+      return;
     }
-  }, [feed]);
+
+    writeFeedRead();
+
+    void markAllNotificationsRead()
+      .then(writeFeedRead)
+      .catch(() => {
+        invalidateFeeds();
+        toastError("Couldn't mark them read", "Check your connection and try again.");
+      });
+  }, [dispatch, serverUnread]);
 
   const header = (
     <AppBar
@@ -216,13 +351,11 @@ export default function NotificationsScreen() {
           <Pressable
             accessibilityLabel="Mark all as read"
             accessibilityRole="button"
-            disabled={marking}
+            className="active:opacity-50"
             hitSlop={8}
-            onPress={() => {
-              void markAll();
-            }}
+            onPress={markAll}
           >
-            <Text className={`text-primary ${marking ? "opacity-50" : ""}`} variant="label">
+            <Text className="text-primary" variant="label">
               Mark all read
             </Text>
           </Pressable>

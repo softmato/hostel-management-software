@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
@@ -83,9 +82,7 @@ export function SectionLink({
       accessibilityRole="button"
       className="flex-row items-center gap-0.5 active:opacity-60"
       hitSlop={10}
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
+      onPress={() => {        onPress();
       }}
       onPressIn={onPressIn}
     >

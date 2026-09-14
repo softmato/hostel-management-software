@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -187,9 +186,7 @@ export function GuardianWardHero({
               accessibilityRole="button"
               className="-m-2 p-2 active:opacity-60"
               hitSlop={8}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setShown((current) => !current);
+              onPress={() => {                setShown((current) => !current);
                 onToggleAmount?.();
               }}
             >
@@ -259,9 +256,7 @@ export function GuardianCallRegister({
       accessibilityLabel={`Call ${hostelName ?? "the hostel"}`}
       accessibilityRole="button"
       className="flex-row items-center justify-between gap-3 px-4 py-3.5 active:opacity-70"
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onCall();
+      onPress={() => {        onCall();
       }}
     >
       <View className="flex-1 gap-1">

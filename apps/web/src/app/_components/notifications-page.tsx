@@ -54,16 +54,26 @@ const NotificationCard = memo(function NotificationCard({
   const Icon = display.icon;
 
   return (
+    // Clicking anywhere on an unread card acknowledges it, the same as the bell.
     <div
       className={cn(
-        "rounded-xl border p-4 transition-colors",
+        "relative overflow-hidden rounded-xl border p-4 transition-colors",
         notification.needsAction
           ? "border-amber-300 bg-amber-50/40 dark:border-amber-500/40 dark:bg-amber-500/5"
           : "border-border",
-        notification.isRead ? "" : "bg-muted/30",
+        notification.isRead ? "" : "cursor-pointer",
       )}
+      onClick={notification.isRead ? undefined : () => onMarkRead(notification.id)}
     >
-      <div className="flex items-start gap-3">
+      {/* Faded rather than swapped, so marking read visibly settles the card. */}
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-0 bg-linear-to-r from-primary/15 via-primary/5 to-transparent transition-opacity duration-300",
+          notification.isRead ? "opacity-0" : "opacity-100",
+        )}
+      />
+      <div className="relative flex items-start gap-3">
         <span
           className={cn(
             "flex size-9 shrink-0 items-center justify-center rounded-lg",
@@ -155,7 +165,10 @@ const NotificationCard = memo(function NotificationCard({
             {!notification.isRead ? (
               <Button
                 className="ml-auto text-muted-foreground"
-                onClick={() => onMarkRead(notification.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onMarkRead(notification.id);
+                }}
                 size="sm"
                 variant="ghost"
               >
@@ -181,8 +194,8 @@ export const NotificationsPageContent = memo(function NotificationsPageContent()
     notifications,
     runAction,
     state,
-    unreadCount,
-  } = useNotifications(filter);
+    unacknowledgedCount,
+  } = useNotifications(filter, { autoMarkRead: true });
 
   async function handleRun(notification: NotificationItem, actionKey: string) {
     const action = notification.actions.find((item) => item.key === actionKey);
@@ -225,9 +238,9 @@ export const NotificationsPageContent = memo(function NotificationsPageContent()
                     {actionCount}
                   </span>
                 ) : null}
-                {item.value === "unread" && unreadCount > 0 ? (
+                {item.value === "unread" && unacknowledgedCount > 0 ? (
                   <span className="ml-1.5 rounded bg-rose-500 px-1 text-[10px] font-bold text-white">
-                    {unreadCount}
+                    {unacknowledgedCount}
                   </span>
                 ) : null}
               </TabsTrigger>
@@ -235,7 +248,7 @@ export const NotificationsPageContent = memo(function NotificationsPageContent()
           </TabsList>
         </Tabs>
 
-        {unreadCount > 0 ? (
+        {unacknowledgedCount > 0 ? (
           <Button onClick={() => void markAllRead()} size="sm" variant="outline">
             <CheckCheck className="size-3.5" />
             Mark all read

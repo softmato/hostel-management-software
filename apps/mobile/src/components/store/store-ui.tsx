@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { useEffect, useRef } from "react";
 import {
   Image,
@@ -181,8 +180,6 @@ function CartStepper({
         className="h-full w-9 items-center justify-center active:opacity-70"
         hitSlop={4}
         onPress={() => {
-          void Haptics.selectionAsync();
-
           if (atFloor) {
             onRemove();
             return;
@@ -212,7 +209,6 @@ function CartStepper({
         disabled={atCeiling}
         hitSlop={4}
         onPress={() => {
-          void Haptics.selectionAsync();
           onChange(quantity + 1);
         }}
       >
@@ -390,7 +386,6 @@ export function ProductCard({
               }`}
               disabled={!product.inStock}
               onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 onAdd();
               }}
             >
@@ -495,7 +490,6 @@ export function ProductRow({
             }`}
             disabled={!product.inStock}
             onPress={() => {
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onAdd();
             }}
           >
@@ -579,7 +573,6 @@ export function FeaturedBanner({
       accessibilityRole="button"
       className="active:opacity-90"
       onPress={() => {
-        void Haptics.selectionAsync();
         onPress();
       }}
       style={{ width }}
@@ -812,7 +805,6 @@ export function CategoryChips({
             className="active:opacity-70"
             key={option.slug ?? "all"}
             onPress={() => {
-              void Haptics.selectionAsync();
               onChange(option.slug);
             }}
           >
@@ -940,8 +932,6 @@ export function QuantityStepper({
         className="h-full w-9 items-center justify-center active:opacity-60"
         disabled={busy || (atFloor && !onRemove)}
         onPress={() => {
-          void Haptics.selectionAsync();
-
           if (atFloor) {
             onRemove?.();
             return;
@@ -976,7 +966,6 @@ export function QuantityStepper({
         className="h-full w-9 items-center justify-center active:opacity-60"
         disabled={busy || atCeiling}
         onPress={() => {
-          void Haptics.selectionAsync();
           onChange(quantity + 1);
         }}
       >

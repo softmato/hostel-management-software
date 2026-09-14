@@ -3,6 +3,8 @@ import { useCallback } from "react";
 import { View } from "react-native";
 
 import { DocumentScreen } from "@/components/document-screen";
+import { MockupCarousel } from "@/components/mockup-carousel";
+import { MockupImage } from "@/components/mockup-image";
 import { IconPoint } from "@/components/step-flow";
 import { Button } from "@/components/ui/button";
 import { Lottie } from "@/components/ui/lottie";
@@ -10,18 +12,25 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
+import { MOCKUPS, type Mockup } from "@/lib/portal-mockups";
 import { listOwnHostelApplications, type OwnHostelApplication } from "@/lib/registration-api";
 
 /**
  * "Register your hostel" — the app's version of the website's owner landing page.
  *
- * The nine features, the stat strip and the closing pitch are the platform's
+ * The features, the stat strip and the closing pitch are the platform's
  * configured copy, so this screen and `/register-hostel` say the same things about
- * the same product. What the website surrounds them with — a scrambling wordmark,
- * a six-slide hero carousel, alternating feature images — is not ported. Those are
- * a desktop marketing page's furniture; on a phone they cost the first two
- * screenfuls of a screen whose job is to explain the product. Same argument the
- * discovery home already settled (`screens-show-data-not-marketing`).
+ * the same product.
+ *
+ * ## The screenshots came across (2026-09-14)
+ *
+ * This screen used to leave out the website's carousel and feature images as
+ * desktop furniture. That held while they were icon placeholders; they are real
+ * screens of the product now, and an owner deciding whether to sign up is better
+ * served by seeing the dashboard than by reading about it. What stayed out is the
+ * furniture: no scrambling wordmark, no self-advancing slides. The carousel sits
+ * under the apply button, not above it, and a section's picture only loads when
+ * that section is opened.
  *
  * ## The form is in the app now
  *
@@ -63,12 +72,54 @@ export default function RegisterHostelScreen() {
       }
       comingSoon="More about hosting with us is being designed — it arrives in an upcoming update."
       icon="business-outline"
+      media={<MockupCarousel slides={SLIDES} title="See it before you sign up" />}
       page="registerHostel"
+      sectionMedia={(index) =>
+        SECTION_MOCKUPS[index] ? <MockupImage mockup={SECTION_MOCKUPS[index]} /> : null
+      }
       webPath="register-hostel"
       title="Register your hostel"
     />
   );
 }
+
+/** Every portal screen, in the order an owner meets them — same list as the website. */
+const SLIDES: { label: string; mockup: Mockup }[] = [
+  { label: "Hostel dashboard", mockup: MOCKUPS.wardenDashboard },
+  { label: "Rooms & beds", mockup: MOCKUPS.wardenRooms },
+  { label: "Resident registration", mockup: MOCKUPS.residentRegister },
+  { label: "Identity check", mockup: MOCKUPS.residentVerify },
+  { label: "Fee schedule & reconcile", mockup: MOCKUPS.wardenFinance },
+  { label: "Transactions", mockup: MOCKUPS.wardenTransactions },
+  { label: "Payment setup", mockup: MOCKUPS.wardenPaymentSetup },
+  { label: "Resident portal", mockup: MOCKUPS.residentPortal },
+  { label: "Resident fees", mockup: MOCKUPS.residentFees },
+  { label: "Resident ID card", mockup: MOCKUPS.residentProfile },
+  { label: "Guardian portal", mockup: MOCKUPS.guardianPortal },
+  { label: "Your public hostel page", mockup: MOCKUPS.appCommunity },
+  { label: "Found on the map", mockup: MOCKUPS.appMap },
+];
+
+/**
+ * The screen beside each configured section, by position — the website's
+ * `featureChrome` order, so section 3 shows the same picture in both places.
+ */
+const SECTION_MOCKUPS: readonly Mockup[] = [
+  MOCKUPS.wardenDashboard,
+  MOCKUPS.wardenRooms,
+  MOCKUPS.residentRegister,
+  MOCKUPS.residentVerify,
+  MOCKUPS.wardenFinance,
+  MOCKUPS.wardenPaymentSetup,
+  MOCKUPS.wardenTransactions,
+  MOCKUPS.residentPortal,
+  MOCKUPS.residentFees,
+  MOCKUPS.residentProfile,
+  MOCKUPS.guardianPortal,
+  MOCKUPS.appCommunity,
+  MOCKUPS.appMap,
+  MOCKUPS.appHome,
+];
 
 /** One animation, one line, one action — the ID card invitation's shape (`IdCardPrompt`). */
 function ApplyBlock({

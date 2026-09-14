@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -168,9 +167,7 @@ function UrgentNoticeStrip({ count, onPress }: { count: number; onPress: () => v
       accessibilityLabel={`${count} urgent notices. Open notices.`}
       accessibilityRole="button"
       className="flex-row items-center gap-3 rounded-2xl bg-white px-3.5 py-3 active:opacity-80"
-      onPress={() => {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        onPress();
+      onPress={() => {        onPress();
       }}
       style={FLOAT_SHADOW}
     >
@@ -216,9 +213,7 @@ function HeroAction({ onPress, owes }: { onPress: () => void; owes: boolean }) {
         owes ? "bg-primary" : "border border-border bg-card"
       }`}
       hitSlop={6}
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
+      onPress={() => {        onPress();
       }}
     >
       <Ionicons
@@ -448,9 +443,7 @@ export function ResidentStayHero({
             accessibilityRole="button"
             className="-m-2 p-2 active:opacity-60"
             hitSlop={8}
-            onPress={() => {
-              void Haptics.selectionAsync();
-              setShown((current) => !current);
+            onPress={() => {              setShown((current) => !current);
             }}
           >
             <Ionicons

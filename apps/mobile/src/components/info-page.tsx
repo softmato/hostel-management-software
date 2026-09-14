@@ -254,12 +254,15 @@ export function InfoSection({
   collapsible = true,
   defaultOpen = false,
   icon,
+  media,
   title,
   variant = "bullets",
 }: InfoSectionData & {
   /** Off for a page short enough to be read straight through. */
   collapsible?: boolean;
   defaultOpen?: boolean;
+  /** A picture shown above the claims once the section is open. */
+  media?: ReactNode;
   variant?: SectionVariant;
 }) {
   const { colors } = useAppTheme();
@@ -307,6 +310,7 @@ export function InfoSection({
           same complaint the lede block answers one component up.
         */
         <View className="gap-2.5 pl-12 pr-2">
+          {media}
           {body.map((item) =>
             variant === "paragraphs" ? (
               <Text className="leading-6" key={item} variant="muted">
@@ -343,10 +347,13 @@ export function InfoSection({
  */
 export function InfoSections({
   collapsible = true,
+  mediaFor,
   sections,
   variant = "bullets",
 }: {
   collapsible?: boolean;
+  /** The picture for the section at this position, if it has one. */
+  mediaFor?: (index: number) => ReactNode;
   sections: readonly InfoSectionData[];
   variant?: SectionVariant;
 }) {
@@ -357,6 +364,7 @@ export function InfoSections({
           collapsible={collapsible}
           defaultOpen={index === 0}
           key={section.title}
+          media={mediaFor?.(index)}
           {...section}
           variant={variant}
         />

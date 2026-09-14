@@ -308,14 +308,16 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
       subtitle: "",
     },
     registerHostel: {
+      // Growth claims under "Get your hostel more popular". The live counts
+      // above them come from `getPublicPlatformStats`, not from here.
       highlights: [
-        { label: "Hostels Onboarded", value: "500+" },
-        { label: "Active Residents", value: "12,000+" },
-        { label: "NPR Managed Monthly", value: "Cr 5+" },
-        { label: "Avg. Occupancy Lift", value: "23%" },
+        { label: "More enquiries once your hostel is listed", value: "3×" },
+        { label: "Faster to fill an empty bed", value: "2×" },
+        { label: "Less time chasing rent", value: "70%" },
+        { label: "Parents who trust a hostel they can see", value: "9 in 10" },
       ],
       intro: [
-        "Transform your hostel with a complete digital ecosystem — from resident management to guardian communication. Give every stakeholder their own portal while you stay in control from one dashboard.",
+        "Run your hostel from one place: rooms, residents, rent and food. Your residents and their parents get an app of their own.",
       ],
       noteBody:
         "List your property, manage residents, and give everyone their own portal — all from one place.",
@@ -323,66 +325,143 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
       sections: [
         {
           body: [
-            "Real-time occupancy, payments, complaints, staff activity, and reports — all from one command centre.",
+            "Open the dashboard and see how your hostel is doing today.",
+            "Beds filled and beds empty",
+            "Who has paid this month and who has not",
+            "New complaints and requests waiting for you",
           ],
           icon: "layout-dashboard",
-          title: "Central Dashboard",
+          title: "Everything on one screen",
         },
         {
           body: [
-            "Rooms, bed assignment, vacancy status, room type (1-4 seater), attached bathroom, balcony, and maintenance status per room.",
+            "Add your rooms once and set one rent for each sharing type.",
+            "Single, two, three or four sharing",
+            "Empty beds are counted for you",
+            "Your public page always shows the same rates",
           ],
           icon: "bed",
-          title: "Digital Room & Bed Map",
+          title: "Rooms and rates",
         },
         {
           body: [
-            "Admin registers residents. System generates unique QR code. Resident scans to activate their dashboard — no manual data entry.",
+            "Add a new resident from your phone, step by step.",
+            "Room, rent and joining fee in one go",
+            "Admission fee and deposit on one bill",
+            "They get their own login the same day",
           ],
-          icon: "users",
-          title: "Resident Management + QR",
+          icon: "user-plus",
+          title: "Register a resident in minutes",
         },
         {
           body: [
-            "Track monthly fees, deposits, dues, and receipts. Residents upload payment proof (eSewa, Khalti, bank). Admin verifies and issues digital receipts.",
-          ],
-          icon: "wallet",
-          title: "Payments & Fee Tracking",
-        },
-        {
-          body: [
-            "Weekly menu, daily food photos, meal timing, veg/non-veg tracking, and resident food ratings — build trust with residents and guardians.",
-          ],
-          icon: "utensils",
-          title: "Food Transparency System",
-        },
-        {
-          body: [
-            "Send hostel, fee, holiday, and emergency notices. Residents submit complaints with photo attachments and track resolution status.",
-          ],
-          icon: "bell",
-          title: "Notices & Complaints",
-        },
-        {
-          body: [
-            "Privacy-first night status (Inside/Outside/Not Verified). SOS button alerts warden and guardian. Emergency contacts and safety guides.",
-          ],
-          icon: "shield-check",
-          title: "Night Safety & SOS",
-        },
-        {
-          body: [
-            "Guardians get limited visibility into fee status, food menu, notices, night safety summary, and emergency contact — privacy-first design.",
-          ],
-          icon: "heart",
-          title: "Guardian Trust Dashboard",
-        },
-        {
-          body: [
-            "Digital move-in: document collection, room photos, item checklist, deposit record. Move-out: fee check, damage check, deposit refund.",
+            "Scan the resident's card and check their details before you save.",
+            "Name, photo, age and home address",
+            "Where they are from and what they do",
+            "One person can live in only one hostel at a time",
           ],
           icon: "qr-code",
-          title: "Move-in / Move-out Checklist",
+          title: "Know who is moving in",
+        },
+        {
+          body: [
+            "Write your fee card and every month's bills are raised on their own.",
+            "Months follow the Nepali calendar",
+            "Change rates from a future month, old bills stay as they were",
+            "Import your eSewa or Khalti statement to match payments",
+          ],
+          icon: "wallet",
+          title: "Set your fees once",
+        },
+        {
+          body: [
+            "Residents pay into your own eSewa, Khalti or bank account.",
+            "Add your wallet and bank QR once",
+            "Each bill has its own reference code",
+            "Every payment shows who paid and for which month",
+          ],
+          icon: "credit-card",
+          title: "Money goes straight to you",
+        },
+        {
+          body: [
+            "All payments and bills for the month, in one place.",
+            "Paid, part paid or due, next to each name",
+            "Cash and online payments together",
+            "Totals for the month counted for you",
+          ],
+          icon: "receipt",
+          title: "Every rupee in one list",
+        },
+        {
+          body: [
+            "Residents see their room, bill, food menu and notices on their phone.",
+            "This week's menu and today's meals",
+            "Report a complaint with a photo",
+            "Night check-in and an SOS button",
+          ],
+          icon: "home",
+          title: "An app for your residents",
+        },
+        {
+          body: [
+            "No more chasing rent at the door.",
+            "Pay by eSewa or Khalti",
+            "Or send a payment screenshot for you to confirm",
+            "The receipt stays in their app",
+          ],
+          icon: "wallet",
+          title: "Residents pay from their phone",
+        },
+        {
+          body: [
+            "Each resident gets an ID card with a QR code in the app.",
+            "Photo, room and hostel on the card",
+            "Staff can scan it to check who someone is",
+            "Nothing to print or lose",
+          ],
+          icon: "badge-check",
+          title: "A digital ID card for every resident",
+        },
+        {
+          body: [
+            "Parents get their own login with just what they need to see.",
+            "Fee status and receipts",
+            "Food menu and hostel notices",
+            "Night check-in summary and emergency contact",
+          ],
+          icon: "heart",
+          title: "Parents stay in the loop",
+        },
+        {
+          body: [
+            "Every hostel gets a public page students can find and share.",
+            "Photos, rates and facilities",
+            "Students call you or send an enquiry",
+            "Reviews from people who lived there",
+          ],
+          icon: "building",
+          title: "Your own hostel page",
+        },
+        {
+          body: [
+            "Your hostel shows up on the map near their college.",
+            "Distance and walking directions",
+            "Price and rating on each hostel card",
+            "Open your page straight from the map",
+          ],
+          icon: "map-pin",
+          title: "Students find you on the map",
+        },
+        {
+          body: [
+            "Verified hostels appear in the app's top picks and nearby lists.",
+            "Search by city, area or college",
+            "Compare hostels side by side",
+            "A verified badge builds trust",
+          ],
+          icon: "sparkles",
+          title: "Show up where students search",
         },
       ],
       subtitle: "For Hostel Owners & Operators",

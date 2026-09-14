@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import type { LucideIcon } from "lucide-react-native";
 import { ActivityIndicator, Pressable, type PressableProps, View } from "react-native";
 
@@ -116,9 +115,7 @@ export function Button({
       } ${className}`}
       disabled={isBlocked}
       onPress={(event) => {
-        if (haptic) {
-          void Haptics.selectionAsync();
-        }
+        if (haptic) {        }
 
         onPress?.(event);
       }}

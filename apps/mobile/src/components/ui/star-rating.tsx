@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
@@ -77,9 +76,7 @@ export function StarRating({
               accessibilityRole="button"
               hitSlop={6}
               key={star}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                onChange(star);
+              onPress={() => {                onChange(star);
               }}
             >
               <Ionicons

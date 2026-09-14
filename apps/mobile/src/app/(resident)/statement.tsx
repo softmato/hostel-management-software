@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, Share, TextInput, View } from "react-native";
@@ -142,9 +141,7 @@ function FilterChip({
       className={`rounded-full border px-3.5 py-2 active:opacity-70 ${
         selected ? "border-primary bg-primary" : "border-border bg-card"
       }`}
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
+      onPress={() => {        onPress();
       }}
     >
       <Text
@@ -416,9 +413,7 @@ export default function ResidentStatementScreen() {
     }
   }, []);
 
-  const clearFilters = useCallback(() => {
-    void Haptics.selectionAsync();
-    setFilter(NO_FILTER);
+  const clearFilters = useCallback(() => {    setFilter(NO_FILTER);
   }, []);
 
   const openFilters = useCallback(() => {
@@ -668,9 +663,7 @@ export default function ResidentStatementScreen() {
           accessibilityRole="button"
           className="items-center justify-center rounded-full bg-primary active:opacity-80"
           hitSlop={10}
-          onPress={() => {
-            void Haptics.selectionAsync();
-            setRangesOpen((value) => !value);
+          onPress={() => {            setRangesOpen((value) => !value);
           }}
           style={{ height: PILL, width: PILL }}
         >
