@@ -47,7 +47,7 @@
  * ## When the account sheet opens and then fails
  *
  * That is `DEVELOPER_ERROR` (code `"10"`), and it is never a code problem:
- * Google could not match `com.softmato.hostelhub` plus the signing SHA-1 of the
+ * Google could not match `com.softmato.hostelpalika` plus the signing SHA-1 of the
  * *installed* APK to an Android OAuth client in project `567374505362`.
  *
  * Every way of building this app signs it with a different certificate, and

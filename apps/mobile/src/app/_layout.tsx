@@ -91,7 +91,7 @@ function RootShell() {
    * The splash is uncovered here, not in the boot gate.
    *
    * `app/index.tsx` used to own this, which worked for every launch that starts
-   * at `/` — but a deep link does not. `hostelhub://ref/<code>` mounts
+   * at `/` — but a deep link does not. `hostelpalika://ref/<code>` mounts
    * `app/ref/[code].tsx` directly and never renders the gate, so the hide never
    * fired and the splash stayed over the app permanently. The root layout is the
    * one component mounted on every route, deep-linked or not.
@@ -151,7 +151,7 @@ function RootShell() {
       /*
        * Only re-route a launch that started at the boot gate.
        *
-       * A deep link mounts its own screen — `hostelhub://ref/<code>`,
+       * A deep link mounts its own screen — `hostelpalika://ref/<code>`,
        * `guardian-invite?token=…`, a notification's invoice — and the user is
        * looking at the thing they tapped. Replacing it a second later because
        * revalidation noticed a changed role is the app taking the screen away
@@ -480,7 +480,7 @@ function RootShell() {
         <Stack.Screen name="notifications" />
         {/*
           The referral deep link. The file name is the handler — expo-router
-          resolves `hostelhub://ref/<code>` here on a cold start and while the
+          resolves `hostelpalika://ref/<code>` here on a cold start and while the
           app is already running, so there is no cold-start case to forget.
         */}
         <Stack.Screen name="ref/[code]" />
@@ -489,7 +489,7 @@ function RootShell() {
           the email — `guardian-invite.service.ts` builds
           `{siteUrl}/guardian-invite?token=…` — so the https link routes here
           the day verified app links are configured, and
-          `hostelhub://guardian-invite?token=…` already does.
+          `hostelpalika://guardian-invite?token=…` already does.
         */}
         <Stack.Screen name="guardian-invite" />
         {/*

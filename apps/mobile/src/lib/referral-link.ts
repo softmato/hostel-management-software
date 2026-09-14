@@ -8,7 +8,7 @@
  * clipboard. That is the link that gets pasted into Messenger, so `?ref=` is the
  * shape this has to understand — not a format invented for the app.
  *
- * The app's own scheme is `hostelhub://ref/<code>` (`app.json`), which
+ * The app's own scheme is `hostelpalika://ref/<code>` (`app.json`), which
  * expo-router maps to `app/ref/[code].tsx` by file name, cold start and warm
  * alike. Both forms are parsed here so a code survives whichever way it arrives:
  * a tapped app link, or a web URL a friend pasted into the search box.
@@ -74,7 +74,7 @@ export function parseReferralLink(raw: string): string | null {
     return valid(safeDecode(fromQuery[1]));
   }
 
-  // `hostelhub://ref/ABC123`, and the `/ref/ABC123` path of any host.
+  // `hostelpalika://ref/ABC123`, and the `/ref/ABC123` path of any host.
   const fromPath = /(?:^|\/)ref\/([^/?#\s]+)/i.exec(link);
 
   if (fromPath) {

@@ -27,7 +27,7 @@ import { toastSuccess } from "@/lib/toast";
  * pulls the token out of the whole URL, because the whole URL is what a phone
  * copies.
  *
- * A `hostelhub://` link would remove the paste, and it is the right fix — but it
+ * A `hostelpalika://` link would remove the paste, and it is the right fix — but it
  * belongs in the email builder on the server, and the emailed link has to keep
  * working in a browser for every web user. Tracked in §1.
  *

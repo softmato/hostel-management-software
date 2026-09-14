@@ -251,7 +251,7 @@ both Expo and raw FCM tokens, so no `FIREBASE_*` credential is read anywhere.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `APPLE_APP_ID_PREFIX` | for iOS universal links | `<Apple Team ID>.com.softmato.hostelhub`, from Apple Developer → Membership. Serves `/.well-known/apple-app-site-association`; unset, that path 404s and a tapped link opens Safari. |
+| `APPLE_APP_ID_PREFIX` | for iOS universal links | `<Apple Team ID>.com.softmato.hostelpalika`, from Apple Developer → Membership. Serves `/.well-known/apple-app-site-association`; unset, that path 404s and a tapped link opens Safari. |
 
 Android needs no variable: its half is the committed
 `apps/web/public/.well-known/assetlinks.json`, which names the signing

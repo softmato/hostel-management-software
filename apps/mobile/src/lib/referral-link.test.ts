@@ -14,7 +14,7 @@ describe("parseReferralLink", () => {
   });
 
   it("reads the app's own scheme", () => {
-    expect(parseReferralLink("hostelhub://ref/SITA24")).toBe("SITA24");
+    expect(parseReferralLink("hostelpalika://ref/SITA24")).toBe("SITA24");
   });
 
   it("reads a /ref/ path on a web host too", () => {
@@ -38,7 +38,7 @@ describe("parseReferralLink", () => {
   });
 
   it("decodes a percent-encoded code", () => {
-    expect(parseReferralLink("hostelhub://ref/SITA%3224")).toBe("SITA224");
+    expect(parseReferralLink("hostelpalika://ref/SITA%3224")).toBe("SITA224");
   });
 
   it("accepts a bare code", () => {
@@ -46,19 +46,19 @@ describe("parseReferralLink", () => {
   });
 
   it("takes a four-character code, which the activation validator would reject", () => {
-    expect(parseReferralLink("hostelhub://ref/AB12")).toBe("AB12");
+    expect(parseReferralLink("hostelpalika://ref/AB12")).toBe("AB12");
   });
 
   it("rejects links that are not referrals", () => {
-    expect(parseReferralLink("hostelhub://hostel/green-view")).toBeNull();
+    expect(parseReferralLink("hostelpalika://hostel/green-view")).toBeNull();
     expect(parseReferralLink("https://example.com/about")).toBeNull();
     expect(parseReferralLink("")).toBeNull();
   });
 
   it("rejects codes outside the schema's range", () => {
-    expect(parseReferralLink("hostelhub://ref/AB")).toBeNull();
-    expect(parseReferralLink(`hostelhub://ref/${"A".repeat(33)}`)).toBeNull();
-    expect(parseReferralLink(`hostelhub://ref/${"A".repeat(32)}`)).toBe("A".repeat(32));
+    expect(parseReferralLink("hostelpalika://ref/AB")).toBeNull();
+    expect(parseReferralLink(`hostelpalika://ref/${"A".repeat(33)}`)).toBeNull();
+    expect(parseReferralLink(`hostelpalika://ref/${"A".repeat(32)}`)).toBe("A".repeat(32));
   });
 });
 

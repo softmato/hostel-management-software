@@ -25,13 +25,15 @@
  * {@link buildReferralShare} and delete this paragraph.
  */
 
+import { PLATFORM_NAME } from "@hostel/brand/brand";
+
 import { formatMoney } from "@/lib/format";
 import type { ReferralStatus, ReferralSummary } from "@/lib/referral-api";
 
 /** `app.json`'s `scheme`. The deep link `app/ref/[code].tsx` answers. */
-const APP_SCHEME = "hostelhub";
+const APP_SCHEME = "hostelpalika";
 
-/** `hostelhub://ref/<code>` — what this app opens `app/ref/[code].tsx` with. */
+/** `hostelpalika://ref/<code>` — what this app opens `app/ref/[code].tsx` with. */
 export function referralAppLink(code: string): string {
   return `${APP_SCHEME}://ref/${encodeURIComponent(code)}`;
 }
@@ -94,7 +96,7 @@ export function buildReferralShare({
   return [
     `Looking for a room? Use my referral code ${code} at ${place}.`,
     "",
-    `Give the code when you register, or enter it in the ${APP_SCHEME} app when you send your inquiry, and we both get credited.`,
+    `Give the code when you register, or enter it in the ${PLATFORM_NAME} app when you send your inquiry, and we both get credited.`,
   ].join("\n");
 }
 

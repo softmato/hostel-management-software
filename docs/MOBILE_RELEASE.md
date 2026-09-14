@@ -308,7 +308,7 @@ console, not in code — no rebuild, no resubmission, no OTA.
 Uploading an AAB does not ship our signature. **Play App Signing** strips the
 upload key, re-signs with a key Google generates, and the app on a user's phone
 carries a fingerprint that exists nowhere in this project. Google matches
-`com.softmato.hostelhub` + signing SHA-1 against the OAuth client — so sign-in
+`com.softmato.hostelpalika` + signing SHA-1 against the OAuth client — so sign-in
 fails for every Play install while working on every APK handed out directly,
 which is what makes it expensive to find.
 
@@ -335,7 +335,7 @@ Team ID that did not exist when it was written. `ios.associatedDomains` is
 already declared in `app.json`, and the server route is already written.
 
 **Fix:** set `APPLE_APP_ID_PREFIX` on the Vercel deployment to
-`<Apple Team ID>.com.softmato.hostelhub` (Apple Developer → Membership) and
+`<Apple Team ID>.com.softmato.hostelpalika` (Apple Developer → Membership) and
 redeploy. `/.well-known/apple-app-site-association` answers 404 until then, which
 is why nothing is broken today — iOS simply never claims the domain.
 
@@ -347,7 +347,7 @@ is why nothing is broken today — iOS simply never claims the domain.
 
 **The iOS OAuth client exists** — `567374505362-ghbjtn0n1u4j6ccfb8ggsu3v5ui705m7`,
 a third client in the same Google Cloud project as the web and Android ones,
-bundle id `com.softmato.hostelhub`. It is set in `apps/mobile/.env` and as an EAS
+bundle id `com.softmato.hostelpalika`. It is set in `apps/mobile/.env` and as an EAS
 environment variable in all three environments, so Google sign-in is live on iOS.
 
 `app.config.js` derives the URL scheme from that id rather than storing it

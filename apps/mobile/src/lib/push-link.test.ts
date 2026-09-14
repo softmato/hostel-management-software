@@ -108,7 +108,7 @@ describe("resolvePushPath", () => {
   it("refuses anything that is not a single-slash local path", () => {
     expect(resolvePushPath("//evil.example")).toBe(PUSH_FALLBACK_PATH);
     expect(resolvePushPath("https://evil.example/x")).toBe(PUSH_FALLBACK_PATH);
-    expect(resolvePushPath("hostelhub://ref/ABC")).toBe(PUSH_FALLBACK_PATH);
+    expect(resolvePushPath("hostelpalika://ref/ABC")).toBe(PUSH_FALLBACK_PATH);
     expect(resolvePushPath("(resident)/payments")).toBe(PUSH_FALLBACK_PATH);
   });
 

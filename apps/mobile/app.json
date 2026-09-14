@@ -6,13 +6,13 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "hostelhub",
+    "scheme": "hostelpalika",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.softmato.hostelhub",
+      "bundleIdentifier": "com.softmato.hostelpalika",
       "associatedDomains": [
-        "applinks:hostel-management-software-web.vercel.app"
+        "applinks:hostelpalika.com"
       ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -23,7 +23,7 @@
       }
     },
     "android": {
-      "package": "com.softmato.hostelhub",
+      "package": "com.softmato.hostelpalika",
       "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "predictiveBackGestureEnabled": false,
@@ -54,22 +54,22 @@
           "data": [
             {
               "scheme": "https",
-              "host": "hostel-management-software-web.vercel.app",
+              "host": "hostelpalika.com",
               "pathPrefix": "/ref/"
             },
             {
               "scheme": "https",
-              "host": "hostel-management-software-web.vercel.app",
+              "host": "hostelpalika.com",
               "path": "/inquiry"
             },
             {
               "scheme": "https",
-              "host": "hostel-management-software-web.vercel.app",
+              "host": "hostelpalika.com",
               "path": "/guardian-invite"
             },
             {
               "scheme": "https",
-              "host": "hostel-management-software-web.vercel.app",
+              "host": "hostelpalika.com",
               "pathPrefix": "/community/"
             }
           ]

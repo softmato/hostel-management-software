@@ -137,7 +137,7 @@ internal object NightPromptNotifier {
     val route = (path ?: "/night-status").trimStart('/')
 
     launch.action = Intent.ACTION_VIEW
-    launch.data = Uri.parse("hostelhub://$route")
+    launch.data = Uri.parse("hostelpalika://$route")
     launch.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
     return PendingIntent.getActivity(

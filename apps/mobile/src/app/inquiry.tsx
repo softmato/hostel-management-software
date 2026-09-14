@@ -18,7 +18,7 @@ import { parseReferralLink } from "@/lib/referral-link";
  * opens, and shows a dead end, which is worse than having stayed in the browser.
  *
  * The referral screen itself is `app/ref/[code].tsx`, named after the app's own
- * scheme (`hostelhub://ref/<code>`). Rather than duplicate that form, this
+ * scheme (`hostelpalika://ref/<code>`). Rather than duplicate that form, this
  * translates one address for the other — one screen, two ways in.
  *
  * ## `<Redirect>`, not an effect

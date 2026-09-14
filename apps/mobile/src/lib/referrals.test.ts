@@ -21,7 +21,7 @@ const EMPTY: ReferralSummary = {
 
 describe("referralAppLink", () => {
   it("builds the scheme `app/ref/[code].tsx` answers", () => {
-    expect(referralAppLink("HH4K7M")).toBe("hostelhub://ref/HH4K7M");
+    expect(referralAppLink("HH4K7M")).toBe("hostelpalika://ref/HH4K7M");
   });
 
   /* The parser is the other half of the same contract, so they are checked together. */
@@ -30,7 +30,7 @@ describe("referralAppLink", () => {
   });
 
   it("escapes a code that would otherwise break the path", () => {
-    expect(referralAppLink("A B/C")).toBe("hostelhub://ref/A%20B%2FC");
+    expect(referralAppLink("A B/C")).toBe("hostelpalika://ref/A%20B%2FC");
   });
 });
 

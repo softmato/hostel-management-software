@@ -25,7 +25,7 @@ import { humanizeEnum } from "@/lib/format";
  *
  * The intent's return URL is built server-side as a **web** page —
  * `{siteUrl}/resident/payments/checkout/{reference}` — with no mobile scheme in
- * it, so the in-app browser never redirects to `hostelhub://` and there is
+ * it, so the in-app browser never redirects to `hostelpalika://` and there is
  * nothing to deep-link off. That is fine, because the browser closing was never
  * proof of anything: a resident can dismiss it mid-payment, or complete one and
  * lose signal before the redirect. So this screen asks the *server*, which asks

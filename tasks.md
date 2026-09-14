@@ -27,7 +27,7 @@ npm run test --workspace web && npm run lint --workspace web
 
 ## Standing facts for the next session
 
-- **Deployed web API:** `https://hostel-management-software-web.vercel.app` — live,
+- **Deployed web API:** `https://hostelpalika.com` — live,
   `/api/v1/public/hostels` answers 200. This is what release builds must point at.
 - **EAS:** logged in as `siddthecoder`, project `b2b0ab97-162c-425c-8f06-6e7db901e1e6`.
   Checked 2026-08-18: **no environment variables exist** in development, preview or

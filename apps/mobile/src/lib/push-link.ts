@@ -205,7 +205,7 @@ export function resolvePushPath(path: unknown): string {
   const trimmed = path.trim();
 
   // One leading slash, and only one. `//evil.example` reads as a path and
-  // resolves as an origin; `hostelhub://` and `https://` are not ours to route.
+  // resolves as an origin; `hostelpalika://` and `https://` are not ours to route.
   if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
     return PUSH_FALLBACK_PATH;
   }

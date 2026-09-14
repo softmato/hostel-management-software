@@ -30,7 +30,7 @@ import type { IntentHandoff } from "@/lib/finance-api";
  * The intent's `returnUrl` is built server-side as
  * `{siteUrl}/resident/payments/checkout/{reference}` — a web page, with no
  * mobile scheme anywhere in it. The browser therefore lands back on the website
- * and never redirects to `hostelhub://`, so `openAuthSessionAsync` would wait
+ * and never redirects to `hostelpalika://`, so `openAuthSessionAsync` would wait
  * forever. The app opens a plain browser instead and asks
  * `GET /resident/finance/checkout/{reference}` who actually paid — which is the
  * authority regardless, since the return URL settles nothing by being visited.

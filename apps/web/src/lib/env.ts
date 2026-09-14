@@ -98,7 +98,7 @@ export const serverEnvSchema = z.object({
   /** `off` disables the evidence OCR pass; anything else leaves it on. */
   EVIDENCE_OCR: z.string().optional(),
   /**
-   * The iOS half of app links: `<Apple Team ID>.com.softmato.hostelhub`.
+   * The iOS half of app links: `<Apple Team ID>.com.softmato.hostelpalika`.
    *
    * Read only by `/.well-known/apple-app-site-association`, which is Apple's
    * counterpart to the static `assetlinks.json` beside it. It lives in the

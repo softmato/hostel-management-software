@@ -34,7 +34,7 @@ import { clearTokens, readTokens, writeAccessToken, writeTokens } from "@/lib/se
  * The deployed web app. It serves the API under `/api/v1`, and it is where every
  * build of this app talks unless `EXPO_PUBLIC_API_URL` says otherwise.
  */
-const PRODUCTION_API_URL = "https://hostel-management-software-web.vercel.app";
+const PRODUCTION_API_URL = "https://hostelpalika.com";
 
 function trimTrailingSlash(value?: string | null) {
   const trimmed = value?.trim();

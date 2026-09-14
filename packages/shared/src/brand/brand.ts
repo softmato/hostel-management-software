@@ -2,10 +2,11 @@
  * The platform's name, once, for the web, the server, the emails and the app.
  *
  * No imports, so Metro can alias this file into the mobile bundle the same way
- * it does `calendar/`, `plans/`, `food/` and `night/`. Identifiers that merely
- * *contain* the old name — the `hostelhub://` scheme, the Android package,
- * cookie and storage keys, native module names — are not the brand and do not
- * read from here: renaming them logs people out or orphans installed apps.
+ * it does `calendar/`, `plans/`, `food/` and `night/`. The app's store identity —
+ * the `hostelpalika://` scheme and `com.softmato.hostelpalika` — lives in
+ * `apps/mobile/app.json`, not here. Internal identifiers that still contain the
+ * old name — cookie and storage keys, the `x-hostelhub-client` header, native
+ * module names — are not the brand: renaming them logs people out.
  */
 export const PLATFORM_NAME = "HostelPalika";
 

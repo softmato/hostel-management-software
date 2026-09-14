@@ -34,7 +34,7 @@ Releasing, and what an over-the-air update can and cannot change:
 ### Before you build
 
 Confirm the app identifiers in [`app.json`](app.json) first — `android.package`
-and `ios.bundleIdentifier` are both `com.softmato.hostelhub`. This app uses Expo
+and `ios.bundleIdentifier` are both `com.softmato.hostelpalika`. This app uses Expo
 CNG, so there is no checked-in `android/` directory: `app.json` is the sole
 source of truth and prebuild regenerates the native project from it every time.
 Store identifiers cannot be changed after a release is published, so a wrong one
@@ -72,7 +72,7 @@ Two OAuth clients in one Google Cloud project, doing two different jobs:
   server verifies with `audience: GOOGLE_CLIENT_ID` — the same web client the
   website uses. This is the only client id any mobile code reads.
 - The **Android** client is what authorises *this APK* to reach Google at all,
-  matched on `com.softmato.hostelhub` plus the signing certificate's SHA-1. It
+  matched on `com.softmato.hostelpalika` plus the signing certificate's SHA-1. It
   must exist, and every keystore that signs a build needs its SHA-1 registered
   on it — the EAS one **and** the local debug keystore, or `expo run:android`
   fails while an EAS build works. It is never named in code.

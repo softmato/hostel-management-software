@@ -25,7 +25,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 1. Gateway expiry sweep
 
 - Title: `Gateway expiry sweep`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/gateway-expiry-sweep`
+- URL: `https://hostelpalika.com/api/v1/cron/gateway-expiry-sweep`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `*/5 * * * *` (every 5 minutes)
@@ -33,7 +33,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 2. Notification dispatch
 
 - Title: `Notification dispatch`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/notification-dispatch`
+- URL: `https://hostelpalika.com/api/v1/cron/notification-dispatch`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `*/15 * * * *` (every 15 minutes)
@@ -41,7 +41,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 3. Meal call reminders
 
 - Title: `Meal call reminders`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/meal-call-reminders`
+- URL: `https://hostelpalika.com/api/v1/cron/meal-call-reminders`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `*/15 * * * *` (every 15 minutes, never slower)
@@ -49,7 +49,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 4. Night status prompt
 
 - Title: `Night status prompt`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/night-status-prompt`
+- URL: `https://hostelpalika.com/api/v1/cron/night-status-prompt`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `*/15 * * * *` (every 15 minutes, never slower)
@@ -60,7 +60,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 5. Push receipts
 
 - Title: `Push receipts`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/push-receipts`
+- URL: `https://hostelpalika.com/api/v1/cron/push-receipts`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `0 * * * *` (every hour, on the hour)
@@ -68,7 +68,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 6. Refresh nearby places
 
 - Title: `Refresh nearby places`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/refresh-nearby-places`
+- URL: `https://hostelpalika.com/api/v1/cron/refresh-nearby-places`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `0 * * * *` (every hour, on the hour)
@@ -76,7 +76,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 7. Billing cycle
 
 - Title: `Billing cycle`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/billing-cycle`
+- URL: `https://hostelpalika.com/api/v1/cron/billing-cycle`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `15 0 * * *` (every day at 00:15)
@@ -84,7 +84,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 8. Payment reminders
 
 - Title: `Payment reminders`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/payment-reminders`
+- URL: `https://hostelpalika.com/api/v1/cron/payment-reminders`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 7 * * *` (every day at 07:45)
@@ -92,7 +92,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 9. Purge expired OTPs
 
 - Title: `Purge expired OTPs`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/purge-expired-otps`
+- URL: `https://hostelpalika.com/api/v1/cron/purge-expired-otps`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 8 * * *` (every day at 08:45)
@@ -100,7 +100,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 10. Account purge
 
 - Title: `Account purge`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/account-purge`
+- URL: `https://hostelpalika.com/api/v1/cron/account-purge`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 8 * * *` (every day at 08:45)
@@ -108,7 +108,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 11. Hostel purge
 
 - Title: `Hostel purge`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/hostel-purge`
+- URL: `https://hostelpalika.com/api/v1/cron/hostel-purge`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 8 * * *` (every day at 08:45)
@@ -116,7 +116,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 12. Ledger drift
 
 - Title: `Ledger drift`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/ledger-drift`
+- URL: `https://hostelpalika.com/api/v1/cron/ledger-drift`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 8 * * *` (every day at 08:45)
@@ -124,7 +124,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 13. Complaint SLA
 
 - Title: `Complaint SLA`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/complaint-sla`
+- URL: `https://hostelpalika.com/api/v1/cron/complaint-sla`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 9 * * *` (every day at 09:45)
@@ -132,7 +132,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 14. Attendance maintenance
 
 - Title: `Attendance maintenance`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/attendance-maintenance`
+- URL: `https://hostelpalika.com/api/v1/cron/attendance-maintenance`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 10 * * *` (every day at 10:45)
@@ -140,7 +140,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 15. Gateway health
 
 - Title: `Gateway health`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/gateway-health`
+- URL: `https://hostelpalika.com/api/v1/cron/gateway-health`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `15 12 * * *` (every day at 12:15)
@@ -148,7 +148,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 16. Gateway settlement recon
 
 - Title: `Gateway settlement recon`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/gateway-settlement-recon`
+- URL: `https://hostelpalika.com/api/v1/cron/gateway-settlement-recon`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 9 * * 1` (every Monday at 09:45)
@@ -156,7 +156,7 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 ## 17. Platform push
 
 - Title: `Platform push`
-- URL: `https://hostel-management-software-web.vercel.app/api/v1/cron/platform-push`
+- URL: `https://hostelpalika.com/api/v1/cron/platform-push`
 - Method: `POST`
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `* * * * *` (every minute)

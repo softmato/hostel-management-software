@@ -37,14 +37,14 @@ swapping one.
 ## Verifying a change
 
 ```bash
-curl -s https://hostel-management-software-web.vercel.app/.well-known/assetlinks.json
+curl -s https://hostelpalika.com/.well-known/assetlinks.json
 ```
 
 It must answer `200` with `Content-Type: application/json` and **no redirect** —
 Android follows neither. Google's tester:
 
 ```
-https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://hostel-management-software-web.vercel.app&relation=delegate_permission/common.handle_all_urls
+https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://hostelpalika.com&relation=delegate_permission/common.handle_all_urls
 ```
 
 After it passes, `intentFilters` in `apps/mobile/app.json` is the other half; one

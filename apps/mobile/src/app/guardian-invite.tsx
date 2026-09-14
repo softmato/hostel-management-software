@@ -16,7 +16,7 @@ import {
 } from "@/lib/guardian-api";
 
 /**
- * `hostelhub://guardian-invite?token=…` — the emailed guardian invitation.
+ * `hostelpalika://guardian-invite?token=…` — the emailed guardian invitation.
  *
  * ## The path matches the email, deliberately
  *
@@ -24,7 +24,7 @@ import {
  * `{siteUrl}/guardian-invite?token=<token>`, so this route's file name is that
  * path. The moment verified app links are configured (M6's open item), the
  * https link in the email opens *this* screen instead of the browser, with no
- * further work — and until then `hostelhub://guardian-invite?token=…` already
+ * further work — and until then `hostelpalika://guardian-invite?token=…` already
  * resolves here, cold start and warm alike, because expo-router treats the file
  * name as the handler.
  *

@@ -23,12 +23,12 @@ import { parseReferralLink } from "@/lib/referral-link";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
- * `hostelhub://ref/<code>` — a resident's referral link.
+ * `hostelpalika://ref/<code>` — a resident's referral link.
  *
  * ## Cold start and warm start are both expo-router's job
  *
  * The file name *is* the deep-link handler. expo-router resolves
- * `hostelhub://ref/ABC123` to this route whether the app was already running or
+ * `hostelpalika://ref/ABC123` to this route whether the app was already running or
  * was launched by the tap, so there is no `getInitialURL`/`addEventListener`
  * pair to write and, more to the point, no cold-start case to forget.
  *

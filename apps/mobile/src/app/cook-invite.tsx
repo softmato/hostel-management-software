@@ -16,7 +16,7 @@ import {
 } from "@/lib/cook-invite-api";
 
 /**
- * `hostelhub://cook-invite?token=…` — the emailed cook invitation.
+ * `hostelpalika://cook-invite?token=…` — the emailed cook invitation.
  *
  * The sibling of `guardian-invite.tsx`, and deliberately the same shape,
  * because it is the same problem: an emailed link that grants a scoped role on
@@ -28,7 +28,7 @@ import {
  * `{siteUrl}/cook-invite?token=<token>`, so this route's file name is that
  * path. Once verified app links are configured the https link in the email
  * opens this screen instead of the browser with no further work, and until then
- * `hostelhub://cook-invite?token=…` already resolves here.
+ * `hostelpalika://cook-invite?token=…` already resolves here.
  *
  * ## Accepting does not sign you in
  *

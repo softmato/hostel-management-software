@@ -24,7 +24,7 @@
  *
  * So: unset `APPLE_APP_ID_PREFIX` answers 404, iOS never claims the domain, and
  * behaviour is exactly what it is now. Set it — Apple Developer → Membership,
- * as `<Team ID>.com.softmato.hostelhub` — and universal links begin working on
+ * as `<Team ID>.com.softmato.hostelpalika` — and universal links begin working on
  * the next install. No app release and no rebuild: this is server state, like
  * the Android fingerprint, and `associatedDomains` in `apps/mobile/app.json` is
  * already the other half.
