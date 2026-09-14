@@ -2,6 +2,8 @@
 
 Two rules that apply to every plan, review, estimate and answer in this project.
 
+work efficiently, patch with targeted edits instead of re-reading big files, and don't run Prettier on whole files.
+
 ### No day counts
 Do not write "1 week", "2–3 days", "add a few days", "one sprint" or any other
 duration for engineering work — not in plans, not in phase headings, not in

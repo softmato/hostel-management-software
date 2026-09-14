@@ -3,8 +3,10 @@ import { useCallback } from "react";
 import { View } from "react-native";
 
 import { DocumentScreen } from "@/components/document-screen";
-import { InfoNote } from "@/components/info-page";
+import { IconPoint } from "@/components/step-flow";
 import { Button } from "@/components/ui/button";
+import { Lottie } from "@/components/ui/lottie";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
@@ -55,6 +57,7 @@ export default function ServiceProvidersScreen() {
           loading={application.loading}
         />
       }
+      comingSoon="More about working with hostels is being designed — it arrives in an upcoming update."
       icon="construct-outline"
       page="serviceProviders"
       webPath="service-providers"
@@ -92,13 +95,15 @@ function ApplyBlock({
   loading: boolean;
 }) {
   if (isSignedIn && loading) {
-    // Inert rather than absent. The lookup resolves a beat after the first
-    // frame, and a card that appears late shifts the page under whoever was
-    // already reading it.
+    // The block's own shape. The lookup resolves a beat after the first frame,
+    // and a card that appears late shifts the page under whoever was reading.
     return (
-      <InfoNote title="Checking your account…">
-        <Text variant="muted">One moment.</Text>
-      </InfoNote>
+      <View className="items-center gap-3">
+        <Skeleton height={140} radius={70} width={140} />
+        <Skeleton height={22} width="70%" />
+        <Skeleton height={14} width="85%" />
+        <Skeleton className="mt-2" height={48} />
+      </View>
     );
   }
 
@@ -114,33 +119,60 @@ function ApplyBlock({
     application?.rejectionReason,
   );
 
+  // One animation, one line, one action — the ID card invitation's shape (`IdCardPrompt`).
   return (
-    <InfoNote
-      title={panel.canApply && application ? "Apply again" : panel.title}
-      tone="accent"
-    >
-      <Text className="leading-6" variant="muted">
-        {panel.body}
-      </Text>
+    <View className="gap-5">
+      <View className="items-center gap-3">
+        <Lottie
+          loop={false}
+          size={150}
+          source={require("../../../assets/lottie/provider-apply.lottie")}
+        />
+        <Text className="text-center" variant="title">
+          {panel.canApply && application ? "Apply again" : panel.title}
+        </Text>
+        <Text className="text-center" variant="muted">
+          {panel.body}
+        </Text>
+      </View>
+
+      {panel.canApply && !application ? (
+        <View className="gap-3">
+          <IconPoint
+            delay={250}
+            icon="construct-outline"
+            text="Pick every trade you work in and the area you cover."
+          />
+          <IconPoint
+            delay={400}
+            icon="camera-outline"
+            text="A photo taken on this phone becomes your provider ID card."
+          />
+          <IconPoint
+            delay={550}
+            icon="cloud-done-outline"
+            text="Your progress saves as you go, so you can finish later."
+          />
+        </View>
+      ) : null}
 
       {panel.showJobs ? (
         <Button
-          className="mt-1"
           label="Go to your jobs"
           onPress={() => router.push("/(provider)")}
         />
       ) : null}
 
       {panel.canApply ? (
-        <View className="mt-1 gap-2">
-          <Button
-            label={
-              application ? "Start a new application" : "Apply as a service provider"
-            }
-            onPress={() => router.push("/service-providers/apply")}
-          />
-        </View>
+        <Button
+          label={
+            application
+              ? "Start a new application"
+              : "Apply as a service provider"
+          }
+          onPress={() => router.push("/service-providers/apply")}
+        />
       ) : null}
-    </InfoNote>
+    </View>
   );
 }

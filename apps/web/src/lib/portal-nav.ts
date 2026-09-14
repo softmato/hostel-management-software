@@ -410,6 +410,14 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
     items: [
       {
         description:
+          "Send a push notification to phones and browsers — heading, message and urgency.",
+        href: "/platform/push",
+        icon: "bell",
+        keywords: ["push", "notification", "broadcast", "notify", "alert", "send", "urgent"],
+        label: "Push Notification",
+      },
+      {
+        description:
           "Operational reports across hostels, revenue, occupancy, and complaints.",
         href: "/platform/reports",
         icon: "chart",
@@ -950,6 +958,7 @@ export const PLATFORM_SEARCH_ENTRIES = searchEntriesFromNav(PLATFORM_NAV);
 const SUPERADMIN_ONLY_PREFIXES = [
   "/platform/account-deletions",
   "/platform/config",
+  "/platform/push",
   "/platform/settings",
 ];
 

@@ -20,9 +20,9 @@ import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
 import { APP_NAME } from "@/constants/branding";
-import { saveSilently } from "@/lib/native-downloads";
+import { openSavedFile, saveSilently } from "@/lib/native-downloads";
 import { readTokens } from "@/lib/session";
-import { toastSuccess } from "@/lib/toast";
+import { toastSuccess, toastSuccessAction } from "@/lib/toast";
 import { finishUpload, startDownload, updateUpload } from "@/lib/upload-queue";
 
 /** Sub-folder so a cache sweep can be reasoned about, and names cannot collide. */
@@ -476,7 +476,11 @@ async function placeOnDevice({
       openPath: saved.path,
       openUri: saved.uri,
     });
-    toastSuccess(title, `Saved to ${saved.path}.`);
+    // Tappable: the push that says the same thing can arrive late or not at
+    // all, and this toast is the one report the user always gets.
+    toastSuccessAction(title, `Saved to ${saved.path}. Tap to open.`, () => {
+      void openSavedFile({ mimeType, path: saved.path, uri: saved.uri });
+    });
 
     return;
   }

@@ -49,6 +49,25 @@ import {
 export const UPLOAD_NOTIFICATION_ID = "hostelhub-upload-progress";
 
 /**
+ * The terminal notice — done or failed — under an identifier of its own.
+ *
+ * It used to reuse `UPLOAD_NOTIFICATION_ID`, which made "Downloaded" an *update*
+ * of the progress notification. Android sheds updates once an app passes ~5
+ * enqueues a second, and exempts only notifications carrying a completed
+ * progress bar — ours carry text, so the one post that mattered was the one
+ * dropped after a burst of percentages. That was the "arrives late, or never,
+ * while the toast always shows" report. A fresh identifier is a new
+ * notification, not an update, and is never shed.
+ */
+export const UPLOAD_DONE_NOTIFICATION_ID = "hostelhub-transfer-done";
+
+/**
+ * Minimum gap between two progress reposts. Keeps the progress stream well under
+ * Android's update-rate limit; terminal notices ignore it. See `drain`.
+ */
+export const PROGRESS_REPOST_MS = 1_000;
+
+/**
  * Marks our own notifications in their `data`, so the foreground handler in
  * `push-notifications.ts` can keep them out of the banner path. It lives here
  * rather than beside the notifier so that module never has to be imported by

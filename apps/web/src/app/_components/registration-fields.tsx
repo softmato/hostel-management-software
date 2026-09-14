@@ -1,6 +1,13 @@
 "use client";
 
-import { FileText, Image as ImageIcon, Loader2, Upload, X } from "lucide-react";
+import {
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  Upload,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useState } from "react";
 
 import { acceptAttribute, uploadHint } from "@/lib/uploads/accepts";
@@ -218,6 +225,34 @@ export function numberValue(value: string) {
   const parsed = Number(trimmed);
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+/** One document slot: what it is on the left, its uploader on the right. */
+export function DocRow({
+  children,
+  desc,
+  icon: Icon,
+  title,
+}: {
+  children: React.ReactNode;
+  desc: string;
+  icon: LucideIcon;
+  title: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-4 rounded-xl border border-border p-4 md:grid-cols-[1fr_1.2fr] md:items-center">
+      <div className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+          <Icon className="size-5" />
+        </span>
+        <div>
+          <p className="text-sm font-bold text-foreground">{title}</p>
+          <p className="text-xs text-muted-foreground">{desc}</p>
+        </div>
+      </div>
+      <div>{children}</div>
+    </div>
+  );
 }
 
 export function FileUploadArea({

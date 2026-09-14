@@ -3,8 +3,10 @@ import { useCallback } from "react";
 import { View } from "react-native";
 
 import { DocumentScreen } from "@/components/document-screen";
-import { InfoNote } from "@/components/info-page";
+import { IconPoint } from "@/components/step-flow";
 import { Button } from "@/components/ui/button";
+import { Lottie } from "@/components/ui/lottie";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
@@ -59,6 +61,7 @@ export default function RegisterHostelScreen() {
           loading={Boolean(account) && applications.loading}
         />
       }
+      comingSoon="More about hosting with us is being designed — it arrives in an upcoming update."
       icon="business-outline"
       page="registerHostel"
       webPath="register-hostel"
@@ -67,6 +70,7 @@ export default function RegisterHostelScreen() {
   );
 }
 
+/** One animation, one line, one action — the ID card invitation's shape (`IdCardPrompt`). */
 function ApplyBlock({
   isSignedIn,
   latest,
@@ -77,53 +81,85 @@ function ApplyBlock({
   loading: boolean;
 }) {
   if (loading) {
-    // Inert rather than absent, so the page does not shift under a reader when
-    // the lookup lands a beat after the first frame.
+    // The block's own shape, so the page does not shift when the lookup lands.
     return (
-      <InfoNote title="Checking your applications…">
-        <Text variant="muted">One moment.</Text>
-      </InfoNote>
+      <View className="items-center gap-3">
+        <Skeleton height={140} radius={70} width={140} />
+        <Skeleton height={22} width="70%" />
+        <Skeleton height={14} width="85%" />
+        <Skeleton className="mt-2" height={48} />
+      </View>
     );
   }
 
-  if (latest && latest.status !== "REJECTED") {
-    return (
-      <InfoNote title={STATUS_TITLE[latest.status]} tone="accent">
-        <Text className="leading-6" variant="muted">
-          {statusBody(latest)}
+  const pending = latest && latest.status !== "REJECTED" ? latest : null;
+
+  return (
+    <View className="gap-5">
+      <View className="items-center gap-3">
+        <Lottie
+          loop={false}
+          size={150}
+          source={require("../../../assets/lottie/hostel-register.lottie")}
+        />
+        <Text className="text-center" variant="title">
+          {pending ? STATUS_TITLE[pending.status] : "Bring your hostel online"}
         </Text>
-        <View className="mt-1 gap-2">
+        <Text className="text-center" variant="muted">
+          {pending
+            ? statusBody(pending)
+            : latest?.rejectionReason
+              ? `Your last application wasn't approved: ${latest.rejectionReason} Fix it and send it again.`
+              : "Five short steps, all of them here in the app."}
+        </Text>
+      </View>
+
+      {pending ? null : (
+        <View className="gap-3">
+          <IconPoint
+            delay={250}
+            icon="camera-outline"
+            text="Photograph your ID with this phone — no scanner needed."
+          />
+          <IconPoint
+            delay={400}
+            icon="document-text-outline"
+            text="Start your house rules from a template and change what doesn't apply."
+          />
+          <IconPoint
+            delay={550}
+            icon="cloud-done-outline"
+            text="Your progress saves as you go, so you can finish later."
+          />
+        </View>
+      )}
+
+      <View className="gap-2">
+        {pending ? (
           <Button
             label="Register another hostel"
             onPress={() => router.push("/register-hostel/apply")}
             variant="outline"
           />
-        </View>
-      </InfoNote>
-    );
-  }
-
-  return (
-    <InfoNote title="Ready to bring your hostel online?" tone="accent">
-      <Text className="leading-6" variant="muted">
-        {latest?.rejectionReason
-          ? `Your last application wasn't approved: ${latest.rejectionReason} Fix it and send it again.`
-          : "Five short steps, all of them here in the app. Photograph your ID with this phone, start your house rules from a template, and you're done — about ten minutes."}
-      </Text>
-      <View className="mt-1 gap-2">
-        <Button
-          label={
-            isSignedIn ? "Start your registration" : "Sign in and start your registration"
-          }
-          onPress={() => router.push("/register-hostel/apply")}
-        />
-        <Button
-          label="Browse hostels first"
-          onPress={() => router.push("/(browse)/search")}
-          variant="outline"
-        />
+        ) : (
+          <>
+            <Button
+              label={
+                isSignedIn
+                  ? "Start your registration"
+                  : "Sign in and start your registration"
+              }
+              onPress={() => router.push("/register-hostel/apply")}
+            />
+            <Button
+              label="Browse hostels first"
+              onPress={() => router.push("/(browse)/search")}
+              variant="ghost"
+            />
+          </>
+        )}
       </View>
-    </InfoNote>
+    </View>
   );
 }
 

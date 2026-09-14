@@ -4,15 +4,19 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, View, type ViewStyle } from "react-native";
-import Animated, {
-  FadeIn,
-  FadeInLeft,
-  FadeInRight,
-  ReduceMotion,
-} from "react-native-reanimated";
 
 import { GuidedCapture, type GuideShape } from "@/components/guided-capture";
 import { SignatureInk, SignaturePad } from "@/components/signature-pad";
+import {
+  Accordion,
+  FactRows,
+  ReviewFold,
+  ReviewVerdict,
+  StepFrame,
+  StepSection,
+  StepSkeleton,
+  TermsAgreement,
+} from "@/components/step-flow";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
 import { ChoiceChips } from "@/components/ui/choice-chips";
@@ -21,7 +25,6 @@ import { Lottie } from "@/components/ui/lottie";
 import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
@@ -253,25 +256,11 @@ export default function EditIdentityScreen() {
   if (identity.loading || stored === undefined) {
     return (
       // Drawn as step 1 itself, so arriving from "Create my card" reads as one move.
-      <Screen
-        header={
-          <AppBar
-            centerTitle
-            showBack
-            title={`Step 1 of ${IDENTITY_STEPS.length}`}
-          />
-        }
-      >
-        <View className="gap-6 pt-2">
-          <View className="gap-1">
-            <Text variant="title">{IDENTITY_STEPS[0]!.title}</Text>
-            <Text variant="muted">{IDENTITY_STEPS[0]!.subtitle}</Text>
-          </View>
-          {[0, 1, 2, 3].map((row) => (
-            <Skeleton height={44} key={row} />
-          ))}
-        </View>
-      </Screen>
+      <StepSkeleton
+        subtitle={IDENTITY_STEPS[0]!.subtitle}
+        title={IDENTITY_STEPS[0]!.title}
+        total={IDENTITY_STEPS.length}
+      />
     );
   }
 
@@ -688,7 +677,7 @@ function IdentityWizard({
 
   return (
     <>
-      <Screen
+      <StepFrame
         footer={
           <Button
             label={
@@ -719,44 +708,24 @@ function IdentityWizard({
             }
           />
         }
-        header={
-          <AppBar
-            actions={
-              step.key === "work" ? (
-                <Pressable hitSlop={10} onPress={() => goTo(index + 1, true)}>
-                  <Text className="text-primary" variant="label">
-                    Skip
-                  </Text>
-                </Pressable>
-              ) : undefined
-            }
-            centerTitle
-            onBack={back}
-            showBack
-            title={`Step ${index + 1} of ${IDENTITY_STEPS.length}`}
-          />
+        actions={
+          step.key === "work" ? (
+            <Pressable hitSlop={10} onPress={() => goTo(index + 1, true)}>
+              <Text className="text-primary" variant="label">
+                Skip
+              </Text>
+            </Pressable>
+          ) : undefined
         }
-        scroll
+        forward={forward}
+        onBack={back}
+        position={index + 1}
         scrollEnabled={!signing}
+        stepKey={step.key}
+        subtitle={step.subtitle}
+        title={step.title}
+        total={IDENTITY_STEPS.length}
       >
-        {/*
-          Keyed on the step so each screen mounts fresh and plays its entrance.
-          Only `entering` is animated: a simultaneous exit would need both
-          screens laid out at once, and two stacked forms inside a scroll view
-          is a jump rather than a transition.
-        */}
-        <Animated.View
-          className="gap-6 pb-4 pt-2"
-          entering={(forward ? FadeInRight : FadeInLeft)
-            .duration(220)
-            .reduceMotion(ReduceMotion.System)}
-          key={step.key}
-        >
-          <View className="gap-1">
-            <Text variant="title">{step.title}</Text>
-            <Text variant="muted">{step.subtitle}</Text>
-          </View>
-
           {animation ? (
             <View className="items-center">
               {/* The location and guardian artwork carry more padding in their frames than the others. */}
@@ -823,8 +792,7 @@ function IdentityWizard({
               signatureSource={signatureSource}
             />
           ) : null}
-        </Animated.View>
-      </Screen>
+      </StepFrame>
 
       <GuidedCapture
         onCancel={() => setCamera(null)}
@@ -1193,59 +1161,6 @@ function GuardianStep({ control }: { control: FormControl }) {
   );
 }
 
-/**
- * A section that folds away. Closing it only hides the fields — what was typed
- * stays in the draft — and a section holding an error is held open so the red
- * line under a field can never be folded out of sight.
- */
-function Accordion({
-  caption,
-  children,
-  defaultOpen = false,
-  forceOpen = false,
-  title,
-}: {
-  caption: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-  forceOpen?: boolean;
-  title: string;
-}) {
-  const { colors } = useAppTheme();
-  const [open, setOpen] = useState(defaultOpen);
-  const shown = open || forceOpen;
-
-  return (
-    <View className="border-b border-border">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: shown }}
-        className="flex-row items-center gap-3 py-4 active:opacity-70"
-        onPress={() => setOpen(!shown)}
-      >
-        <View className="flex-1 gap-0.5">
-          <Text variant="subtitle">{title}</Text>
-          <Text variant="caption">{caption}</Text>
-        </View>
-        <Ionicons
-          color={colors.mutedForeground}
-          name={shown ? "chevron-up" : "chevron-down"}
-          size={20}
-        />
-      </Pressable>
-
-      {shown ? (
-        <Animated.View
-          className="gap-6 pb-6"
-          entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
-        >
-          {children}
-        </Animated.View>
-      ) : null}
-    </View>
-  );
-}
-
 /** Short chip labels; the long ones in `DIET_OPTIONS` still read out on Review. */
 const DIET_CHIPS: { label: string; value: DietaryPreference }[] = [
   { label: "Any", value: "NO_PREFERENCE" },
@@ -1376,27 +1291,6 @@ function PreferencesStep({
           />
         ) : null}
       </StepSection>
-    </View>
-  );
-}
-
-/** A titled group inside a step, split from the one above by a hairline. */
-function StepSection({
-  caption,
-  children,
-  title,
-}: {
-  caption?: string;
-  children: React.ReactNode;
-  title: string;
-}) {
-  return (
-    <View className="gap-4 pt-2">
-      <View className="gap-0.5">
-        <Text variant="subtitle">{title}</Text>
-        {caption ? <Text variant="caption">{caption}</Text> : null}
-      </View>
-      {children}
     </View>
   );
 }
@@ -1549,11 +1443,7 @@ function SignatureStep({
   );
 }
 
-/**
- * Every step as one folded row: done tick, title, Edit. Tapping the row opens
- * what was entered, read-only — a review that is also editable is the same
- * wall of fields the steps took apart. Edit is the only way back into a step.
- */
+/** Every step as one {@link ReviewFold} row, then the verdict and consent. */
 function ReviewStep({
   agreed,
   assets,
@@ -1649,49 +1539,18 @@ function ReviewStep({
     <View className="gap-5">
       <View>
         {steps.map((entry, position) => {
-          const complete = identityStepComplete(entry.key, draft, assets);
           const open = openStep === entry.key;
 
           return (
-            <View key={entry.key}>
-              {position > 0 ? (
-                <View className="mx-4 h-px bg-border/20" />
-              ) : null}
-              <View className="flex-row items-center gap-3 py-3.5">
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: open }}
-                  className="flex-1 flex-row items-center gap-3 active:opacity-70"
-                  onPress={() => setOpenStep(open ? null : entry.key)}
-                >
-                  <Ionicons
-                    color={complete ? colors.primary : colors.warning}
-                    name={complete ? "checkmark-circle" : "alert-circle"}
-                    size={22}
-                  />
-                  <Text className="flex-1" variant="label">
-                    {position + 1}. {entry.title}
-                  </Text>
-                  <Ionicons
-                    color={colors.mutedForeground}
-                    name={open ? "chevron-up" : "chevron-down"}
-                    size={18}
-                  />
-                </Pressable>
-                <Pressable hitSlop={10} onPress={() => onEdit(entry.key)}>
-                  <Text className="text-primary" variant="label">
-                    Edit
-                  </Text>
-                </Pressable>
-              </View>
-
-              {open ? (
-                <Animated.View
-                  className="gap-2.5 pb-4 pl-9"
-                  entering={FadeIn.duration(160).reduceMotion(
-                    ReduceMotion.System,
-                  )}
-                >
+            <ReviewFold
+              complete={identityStepComplete(entry.key, draft, assets)}
+              divider={position > 0}
+              key={entry.key}
+              onEdit={() => onEdit(entry.key)}
+              onToggle={() => setOpenStep(open ? null : entry.key)}
+              open={open}
+              title={`${position + 1}. ${entry.title}`}
+            >
                   {entry.key === "photo" && photoSource ? (
                     <Image
                       contentFit="cover"
@@ -1726,86 +1585,25 @@ function ReviewStep({
                       </View>
                     ) : null
                   ) : null}
-                  {facts[entry.key as Exclude<IdentityStep, "review">].map(
-                    ([label, value]) => (
-                      <View className="flex-row gap-3" key={label}>
-                        <Text className="w-32" variant="caption">
-                          {label}
-                        </Text>
-                        <Text
-                          className="flex-1 text-foreground"
-                          variant="caption"
-                        >
-                          {value}
-                        </Text>
-                      </View>
-                    ),
-                  )}
-                </Animated.View>
-              ) : null}
-            </View>
+                  <FactRows
+                    facts={facts[entry.key as Exclude<IdentityStep, "review">]}
+                  />
+            </ReviewFold>
           );
         })}
       </View>
 
-      {incomplete ? (
-        <Pressable
-          className="flex-row items-center gap-2 rounded-xl bg-warning-soft px-4 py-3 active:opacity-70"
-          onPress={() => onEdit(incomplete.key)}
-        >
-          <Ionicons color={colors.warning} name="alert-circle" size={18} />
-          <Text className="flex-1 text-warning" variant="label">
-            Some details need fixing — {incomplete.title}
-          </Text>
-        </Pressable>
-      ) : (
-        <View className="flex-row items-center gap-2 rounded-xl bg-brand-soft px-4 py-3">
-          <Ionicons color={colors.primary} name="checkmark-circle" size={18} />
-          <Text className="flex-1 text-primary" variant="label">
-            All details look good!
-          </Text>
-        </View>
-      )}
+      <ReviewVerdict
+        incomplete={incomplete?.title ?? null}
+        onFix={() => incomplete && onEdit(incomplete.key)}
+      />
 
       {agreed === null ? null : (
-        <View className="flex-row items-start gap-3">
-          <Pressable
-            accessibilityLabel="I agree to the Terms and Privacy Policy"
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: agreed }}
-            hitSlop={10}
-            onPress={() => onAgreedChange(!agreed)}
-          >
-            <Ionicons
-              color={agreed ? colors.primary : colors.mutedForeground}
-              name={agreed ? "checkbox" : "square-outline"}
-              size={22}
-            />
-          </Pressable>
-          <Text
-            className="flex-1"
-            onPress={() => onAgreedChange(!agreed)}
-            variant="caption"
-          >
-            By creating your {cardNoun} ID you agree to our{" "}
-            <Text
-              className="text-primary"
-              onPress={() => router.push("/legal/terms")}
-              variant="caption"
-            >
-              Terms
-            </Text>{" "}
-            and{" "}
-            <Text
-              className="text-primary"
-              onPress={() => router.push("/legal/privacy")}
-              variant="caption"
-            >
-              Privacy Policy
-            </Text>
-            .
-          </Text>
-        </View>
+        <TermsAgreement
+          agreed={agreed}
+          onChange={onAgreedChange}
+          prefix={`By creating your ${cardNoun} ID you agree to`}
+        />
       )}
     </View>
   );

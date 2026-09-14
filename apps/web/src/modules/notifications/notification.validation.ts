@@ -36,6 +36,24 @@ export const platformNotificationCampaignSchema = z.object({
   hostelIds: z.array(objectIdSchema).max(200).default([]),
 });
 
+/**
+ * A superadmin push straight to devices. Who it reaches is picked by role, not
+ * by hostel — see `platform-push.service.ts`.
+ */
+export const PLATFORM_PUSH_AUDIENCES = [
+  "EVERYONE",
+  "HOSTEL_STAFF",
+  "RESIDENTS",
+  "GUARDIANS",
+] as const;
+
+export const platformPushSchema = z.object({
+  audience: z.enum(PLATFORM_PUSH_AUDIENCES).default("EVERYONE"),
+  body: z.string().trim().min(2).max(500),
+  title: z.string().trim().min(2).max(120),
+  urgency: z.enum(["NORMAL", "URGENT"]).default("NORMAL"),
+});
+
 export const notificationCampaignListQuerySchema = z.object({
   ...paginationQuerySchema,
   hostelId: objectIdSchema.optional(),

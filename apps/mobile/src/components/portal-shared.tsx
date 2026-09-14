@@ -480,10 +480,10 @@ export function PortalHeroCard({
 /* -------------------------------------------------------------------------- */
 
 /** The platform wordmark, in points. */
-const WORDMARK = 22;
+const WORDMARK = 25;
 
 /** The logo mark beside it, sized to the wordmark's cap height. */
-const MARK = 24;
+const MARK = 26;
 
 /**
  * The front-door bar of a portal: whose product this is, the hostel's page, and
@@ -492,7 +492,7 @@ const MARK = 24;
  * ## One component, because it was already the same bar four times
  *
  * `AdminHomeHeader` and `ResidentHomeHeader` were byte-for-byte the same view —
- * the same lockup, the same 22/24 pair, the same eye, the same bell — declared
+ * the same lockup, the same wordmark/mark pair, the same eye, the same bell — declared
  * twice, and the guardian and cook portals were about to become a third and a
  * fourth. Two copies is a thing you fix; four is a thing you stop being able to.
  * Now the mark's size, the wordmark's letter-spacing and the order of the

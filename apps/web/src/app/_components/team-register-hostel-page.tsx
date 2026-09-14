@@ -6,19 +6,25 @@ import {
   Banknote,
   Building2,
   Check,
+  CreditCard,
+  FileText,
+  IdCard,
+  Landmark,
+  ScrollText,
   ImagePlus,
   Loader2,
   Plus,
   QrCode,
   Save,
   Trash2,
-  Upload,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   cloneElement,
+  type ChangeEvent,
   createContext,
   isValidElement,
   useContext,
@@ -37,10 +43,14 @@ import { ApiRequestError, browserApi } from "@/lib/browser-api";
 import { acceptAttribute } from "@/lib/uploads/accepts";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
+import type { TeamOwnerEmailStatus } from "@/modules/hostels/hostel.service";
 import { billingCycles, bestDiscountPercent, cycleTotal, type BillingCycle } from "./plans-catalog";
 import {
   cityOptions,
-  DOC_TYPES,
+  DocRow as DocSlotRow,
+  FileUploadArea,
+  ID_PROOF_TYPES,
+  type IdProofType,
   facilityOptions,
   numberValue,
   roomTypeOptions,
@@ -97,6 +107,39 @@ type PhotoRow = {
 };
 
 type DocRow = { id: string; name: string; type: string; uploading: boolean; url: string };
+
+/** The same optional slots the public form offers, in the same order. */
+const SUPPORTING_DOCS: { desc: string; icon: LucideIcon; title: string; type: string }[] = [
+  {
+    desc: "Property deed, ownership certificate or lease (optional)",
+    icon: FileText,
+    title: "Ownership Proof",
+    type: "Ownership proof",
+  },
+  {
+    desc: "PAN card or VAT registration certificate (optional)",
+    icon: CreditCard,
+    title: "PAN / VAT Document",
+    type: "PAN / VAT document",
+  },
+  {
+    desc: "Local authority license or registration (optional)",
+    icon: ScrollText,
+    title: "Hostel License / Registration",
+    type: "Hostel license",
+  },
+  {
+    desc: "Cheque or bank statement for the payout account (optional)",
+    icon: Landmark,
+    title: "Bank Details",
+    type: "Bank account details",
+  },
+];
+
+/** An ID upload is filed under its ID type, or "Owner ID proof" before one is picked. */
+function isIdDocument(type: string) {
+  return type === "Owner ID proof" || (ID_PROOF_TYPES as readonly string[]).includes(type);
+}
 
 const MEAL_TYPES = ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"] as const;
 type MealType = (typeof MEAL_TYPES)[number];
@@ -702,6 +745,19 @@ export function TeamRegisterHostelPage() {
   const [routine, setRoutine] = useState<Record<string, string>>(defaultRoutine);
 
   const [documents, setDocuments] = useState<DocRow[]>([]);
+  const [idProofChoice, setIdProofChoice] = useState<IdProofType>("");
+  const idDocuments = documents.filter((doc) => isIdDocument(doc.type));
+  const otherDocuments = documents.filter(
+    (doc) => !isIdDocument(doc.type) && !SUPPORTING_DOCS.some((slot) => slot.type === doc.type),
+  );
+  /** The picked ID type, or the one an uploaded ID from a restored draft carries. */
+  const idProofType: IdProofType =
+    idProofChoice ||
+    ((ID_PROOF_TYPES as readonly string[]).includes(idDocuments[0]?.type ?? "")
+      ? (idDocuments[0]!.type as IdProofType)
+      : "");
+  const idProofReady =
+    Boolean(idProofType) && idDocuments.some((doc) => doc.url && !doc.uploading);
 
   const [planId, setPlanId] = useState("");
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
@@ -732,30 +788,54 @@ export function TeamRegisterHostelPage() {
    * the next keystroke so a slow answer for "ram@gm" cannot overwrite the one
    * for "ram@gmail.com". The server refuses it again at Publish either way.
    */
-  const [emailInUse, setEmailInUse] = useState<string | null>(null);
+  const [emailAnswer, setEmailAnswer] = useState<{
+    email: string;
+    state: "failed" | TeamOwnerEmailStatus;
+    usedBy?: string;
+  } | null>(null);
+  const checkableEmail = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim()) ? email.trim() : "";
+  /** Derived, so an answer for an older address never shows against a newer one. */
+  const emailCheck: { state: "idle" | "checking" | "failed" | TeamOwnerEmailStatus; usedBy?: string } =
+    !checkableEmail
+      ? { state: "idle" }
+      : emailAnswer?.email === checkableEmail
+        ? emailAnswer
+        : { state: "checking" };
+  /** Why this email cannot be used, or null. Only a refusal the server gave. */
+  const emailProblem =
+    emailCheck.state === "HOSTEL"
+      ? `Already used by "${emailCheck.usedBy ?? "another hostel"}". Use a different email for this owner.`
+      : emailCheck.state === "OTHER_ROLE"
+        ? "This email belongs to a resident, staff or other non-owner account. Use a different email for this owner."
+        : null;
 
   useEffect(() => {
-    const address = email.trim();
+    const address = checkableEmail;
 
-    setEmailInUse(null);
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) {
+    if (!address) {
       return;
     }
 
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      void browserApi<{ available: boolean; usedBy: string | null }>(
+      void browserApi<{ status: TeamOwnerEmailStatus; usedBy: string | null }>(
         `/api/v1/team/email-check?email=${encodeURIComponent(address)}`,
         { signal: controller.signal },
       )
         .then((result) => {
           if (!controller.signal.aborted) {
-            setEmailInUse(result.available ? null : (result.usedBy ?? "another hostel"));
+            setEmailAnswer({
+              email: address,
+              state: result.status,
+              usedBy: result.usedBy ?? undefined,
+            });
           }
         })
         .catch(() => {
           // A check that could not run is not a refusal. Publish still checks.
+          if (!controller.signal.aborted) {
+            setEmailAnswer({ email: address, state: "failed" });
+          }
         });
     }, 450);
 
@@ -763,7 +843,7 @@ export function TeamRegisterHostelPage() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [email]);
+  }, [checkableEmail]);
   /** What the server refused, filed under the field it was about. */
   const [submitErrors, setSubmitErrors] = useState<FieldErrors>({});
   /**
@@ -1075,7 +1155,7 @@ export function TeamRegisterHostelPage() {
       case 5:
         return facilities.length > 0;
       case 6:
-        return documents.some((doc) => doc.url);
+        return idProofReady;
       case 7:
         return Boolean(plan);
       default:
@@ -1195,9 +1275,9 @@ export function TeamRegisterHostelPage() {
       },
       {
         field: "documents",
-        label: "Documents",
+        label: "The owner's government ID — pick its type and upload it",
         step: 6,
-        valid: documents.some((doc) => doc.url),
+        valid: idProofReady,
       },
       { field: "email", label: "The owner's email", step: 1, valid: Boolean(email.trim()) },
     ];
@@ -1278,6 +1358,41 @@ export function TeamRegisterHostelPage() {
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       setError(`Could not upload ${file.name}.`);
     }
+  }
+
+  function removeDocument(id: string) {
+    setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+  }
+
+  /** Changing the ID type relabels the ID already uploaded rather than orphaning it. */
+  function chooseIdProofType(type: IdProofType) {
+    setIdProofChoice(type);
+    setDocuments((prev) =>
+      prev.map((doc) =>
+        isIdDocument(doc.type) ? { ...doc, type: type || "Owner ID proof" } : doc,
+      ),
+    );
+  }
+
+  /** The uploader props for one slot: its files, and uploads filed under its type. */
+  function docSlot(type: string, matches = (docType: string) => docType === type, maxFiles = 1) {
+    const files = documents.filter((doc) => matches(doc.type));
+    const upload = async (picked: File[]) => {
+      await Promise.all(
+        picked.slice(0, Math.max(0, maxFiles - files.length)).map((file) => addDocument(type, file)),
+      );
+    };
+
+    return {
+      files,
+      onFileSelect: async (event: ChangeEvent<HTMLInputElement>) => {
+        const picked = Array.from(event.currentTarget.files ?? []);
+        event.currentTarget.value = "";
+        await upload(picked);
+      },
+      onFilesDropped: upload,
+      onRemove: removeDocument,
+    };
   }
 
   function addPhotos(kind: PhotoKind, files: File[], roomType?: string) {
@@ -1697,8 +1812,8 @@ export function TeamRegisterHostelPage() {
      * one field that is wrong instead of reading a banner about it. The server
      * refuses the same thing if this is ever bypassed.
      */
-    if (emailInUse) {
-      setError(`That email is already used by "${emailInUse}". Use a different email for this owner.`);
+    if (emailProblem) {
+      setError(emailProblem);
       focusField("email");
 
       return;
@@ -1982,22 +2097,50 @@ export function TeamRegisterHostelPage() {
                     label="Email"
                     name="email"
                   >
-                    <input
-                      aria-invalid={emailInUse ? true : undefined}
-                      className="input-field w-full"
-                      inputMode="email"
-                      onChange={(event) => setEmail(event.target.value)}
-                      type="email"
-                      value={email}
-                    />
-                    {emailInUse ? (
-                      <span
-                        className="mt-1 block text-[11px] font-semibold text-destructive"
-                        role="alert"
-                      >
-                        {`Already used by "${emailInUse}". Use a different email for this owner.`}
+                    <div className="relative">
+                      <input
+                        aria-describedby="owner-email-check"
+                        aria-invalid={emailProblem ? true : undefined}
+                        className="input-field w-full pr-9"
+                        inputMode="email"
+                        onChange={(event) => setEmail(event.target.value)}
+                        type="email"
+                        value={email}
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                        {emailCheck.state === "checking" ? (
+                          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                        ) : emailProblem ? (
+                          <X className="size-4 text-destructive" />
+                        ) : emailCheck.state === "AVAILABLE" ||
+                          emailCheck.state === "EXISTING_ACCOUNT" ? (
+                          <Check className="size-4 text-brand-teal" />
+                        ) : null}
                       </span>
-                    ) : null}
+                    </div>
+                    <span
+                      aria-live="polite"
+                      className={cn(
+                        "mt-1 block text-[11px] font-semibold",
+                        emailProblem ? "text-destructive" : "text-muted-foreground",
+                        (emailCheck.state === "AVAILABLE" ||
+                          emailCheck.state === "EXISTING_ACCOUNT") &&
+                          "text-brand-teal",
+                      )}
+                      id="owner-email-check"
+                      role={emailProblem ? "alert" : undefined}
+                    >
+                      {emailCheck.state === "checking"
+                        ? "Checking the email…"
+                        : (emailProblem ??
+                          (emailCheck.state === "AVAILABLE"
+                            ? "Email is free to use."
+                            : emailCheck.state === "EXISTING_ACCOUNT"
+                              ? "This owner already has an account. The hostel will be added to it."
+                              : emailCheck.state === "failed"
+                                ? "Could not check this email right now. It is checked again at Publish."
+                                : null))}
+                    </span>
                   </Field>
                   <Field label="Alternate phone" name="alternatePhone">
                     <input
@@ -2562,67 +2705,70 @@ export function TeamRegisterHostelPage() {
           ) : null}
 
           {step === 6 ? (
-            <Card subtitle="Whatever the owner handed you." title="Documents">
+            <Card subtitle="The owner's ID is required. The rest if they have it." title="Documents">
               <FieldError name="documents" />
-              <div className="flex flex-wrap gap-2" data-field="documents">
-                {DOC_TYPES.map((type) => (
-                  <label
-                    className="cursor-pointer rounded-lg border border-dashed border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5"
-                    key={type}
-                  >
-                    <Upload className="mr-1 inline size-3.5 text-muted-foreground" />
-                    {type}
-                    <input
-                      accept="image/jpeg,image/png,image/webp,application/pdf"
-                      className="sr-only"
-                      onChange={(event) => {
-                        const file = event.currentTarget.files?.[0];
-
-                        if (file) {
-                          void addDocument(type, file);
-                        }
-
-                        event.currentTarget.value = "";
-                      }}
-                      type="file"
-                    />
-                  </label>
-                ))}
-              </div>
-
-              {documents.length > 0 ? (
-                <ul className="mt-3 space-y-1.5">
-                  {documents.map((doc) => (
-                    <li
-                      className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs"
-                      key={doc.id}
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        {doc.uploading ? (
-                          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                        ) : (
-                          <Check className="size-3.5 shrink-0 text-brand-teal" />
-                        )}
-                        <span className="truncate font-semibold text-foreground">
-                          {doc.type}
-                        </span>
-                        <span className="truncate text-muted-foreground">{doc.name}</span>
-                      </span>
-                      <button
-                        className="ml-2 shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() =>
-                          setDocuments((prev) =>
-                            prev.filter((entry) => entry.id !== doc.id),
-                          )
-                        }
-                        type="button"
+              <div className="space-y-4" data-field="documents">
+                <div className="grid gap-4 rounded-xl border-2 border-brand-teal/40 bg-brand-teal/[0.03] p-4 md:grid-cols-[1fr_1.2fr] md:items-start">
+                  <div className="flex items-start gap-3">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                      <IdCard className="size-5" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-bold text-foreground">
+                        Government ID Proof <span className="text-destructive">*</span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        The owner&apos;s citizenship, NID or passport. Front and back if it
+                        has two sides.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2.5">
+                    <label className="block text-xs font-semibold text-foreground">
+                      ID document type <span className="text-destructive">*</span>
+                      <select
+                        className="input-field mt-1"
+                        onChange={(event) => chooseIdProofType(event.target.value as IdProofType)}
+                        value={idProofType}
                       >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+                        <option value="">Select ID type…</option>
+                        {ID_PROOF_TYPES.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <FileUploadArea
+                      label={idProofType ? `Upload ${idProofType}` : "Select an ID type first, then upload"}
+                      maxFiles={2}
+                      {...docSlot(idProofType || "Owner ID proof", isIdDocument, 2)}
+                    />
+                  </div>
+                </div>
+
+                <p className="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" /> Optional supporting documents{" "}
+                  <span className="h-px flex-1 bg-border" />
+                </p>
+
+                {SUPPORTING_DOCS.map((slot) => (
+                  <DocSlotRow desc={slot.desc} icon={slot.icon} key={slot.type} title={slot.title}>
+                    <FileUploadArea label={`Upload ${slot.title}`} {...docSlot(slot.type)} />
+                  </DocSlotRow>
+                ))}
+
+                {otherDocuments.length > 0 ? (
+                  <DocSlotRow desc="Uploaded earlier in this draft." icon={FileText} title="Other documents">
+                    <FileUploadArea
+                      files={otherDocuments}
+                      maxFiles={otherDocuments.length}
+                      onFileSelect={async () => {}}
+                      onRemove={removeDocument}
+                    />
+                  </DocSlotRow>
+                ) : null}
+              </div>
             </Card>
           ) : null}
 

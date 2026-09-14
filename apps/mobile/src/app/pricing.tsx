@@ -6,6 +6,7 @@ import {
   cycleTotal,
   monthlyRateFor,
   planBelow,
+  planRank,
   portalAccessLines,
   residentRangeLabel,
   savingFor,
@@ -17,6 +18,7 @@ import { useCallback, useState } from "react";
 import { View } from "react-native";
 
 import { InfoHeader } from "@/components/info-page";
+import { PlanMark } from "@/components/plan-mark";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,7 +65,7 @@ export default function PricingScreen() {
   const { config, error, loading, refresh, refreshing } = useSiteConfig();
   const { identity, plans: catalog } = config;
   const [cycle, setCycle] = useState<BillingCycle>("annual");
-  const [openPlan, setOpenPlan] = useState<string | null>(null);
+  const closingToRegister = catalog.page.ctaHref.includes("register");
 
   /*
    * The registration wizard, in the app. This was a browser tab until 2026-08-19
@@ -117,9 +119,11 @@ export default function PricingScreen() {
             {/* Never on monthly: a saving on screen while monthly is selected
                 advertises a discount the reader is not currently getting. */}
             {cycle !== "monthly" && bestDiscount > 0 ? (
-              <Text className="text-center" variant="caption">
-                Save up to {bestDiscount}% by paying up front.
-              </Text>
+              <View className="self-center rounded-full bg-brand-soft px-3 py-1">
+                <Text className="text-xs font-semibold text-primary" variant={null}>
+                  Save up to {bestDiscount}%
+                </Text>
+              </View>
             ) : null}
           </View>
         )}
@@ -128,12 +132,10 @@ export default function PricingScreen() {
           <PlanCard
             catalog={catalog}
             cycle={cycle}
-            expanded={openPlan === plan.id}
+            featuredBadge={catalog.page.featuredBadge}
             key={plan.id}
             onPress={openRegistration}
-            onToggle={() => setOpenPlan(openPlan === plan.id ? null : plan.id)}
             plan={plan}
-            featuredBadge={catalog.page.featuredBadge}
           />
         ))}
 
@@ -144,17 +146,23 @@ export default function PricingScreen() {
         ) : null}
 
         {empty ? null : (
-          <Card className="gap-2 bg-brand-soft">
-            <Text variant="subtitle">
+          <Card className="items-center gap-2 border-primary/25 bg-brand-soft p-6">
+            <Text className="text-center text-lg font-bold text-foreground" variant={null}>
               {fill(catalog.page.ctaTitle, identity.siteName)}
             </Text>
-            <Text className="leading-6" variant="muted">
+            <Text className="text-center leading-6" variant="muted">
               {fill(catalog.page.ctaBody, identity.siteName)}
             </Text>
+            {/* The website's closing button goes wherever `ctaHref` says —
+                Contact by default — so the app follows it rather than always
+                opening registration under someone else's label. */}
             <Button
-              className="mt-1"
-              label="Start your registration"
-              onPress={openRegistration}
+              className="mt-3 self-stretch"
+              label={
+                fill(catalog.page.ctaLabel, identity.siteName) ||
+                (closingToRegister ? "Start your registration" : "Get in touch")
+              }
+              onPress={closingToRegister ? openRegistration : () => router.push("/contact")}
             />
           </Card>
         )}
@@ -177,109 +185,195 @@ function money(rupees: number) {
 }
 
 /**
- * One plan.
+ * One plan, in the website card's order (`apps/web/.../plans-cards.tsx`): mark,
+ * name and badge, price, the saving, the button, then the ticks.
  *
- * The feature list collapses. The website shows all of them at once because it
- * has three cards side by side and the page is as tall as it needs to be; here
- * they are stacked, and five open lists mean the third plan starts below two
- * screenfuls. The highlighted plan opens by default — it is the one the owner
- * wants read.
- *
- * The lines are built the way the website builds them: the resident ceiling
- * first, because it is what the price is set by, then who gets an account per
- * role, then the badge, then what this plan adds over the one below it.
+ * The feature list no longer collapses. With the button above the list, the
+ * price and the action are read before the ticks start, so a long list costs a
+ * scroll rather than a hidden decision — and it is the same list the website
+ * shows in full.
  */
 function PlanCard({
   catalog,
   cycle,
-  expanded,
   featuredBadge,
   onPress,
-  onToggle,
   plan,
 }: {
   catalog: SitePlans;
   cycle: BillingCycle;
-  expanded: boolean;
   featuredBadge: string;
   onPress: () => void;
-  onToggle: () => void;
   plan: PlanTierLike;
 }) {
   const { colors } = useAppTheme();
-  const open = expanded || plan.featured;
   const below = planBelow(catalog, plan.id);
-
-  const lines = [
-    residentRangeLabel(catalog, plan),
-    ...portalAccessLines(catalog, plan).map((line) => line.label),
-    ...(plan.listingTier ? [`${plan.listingTier.label} badge`] : []),
-    ...cardServicesForPlan(catalog, plan.id).map((service) => service.name),
-  ];
+  const tier = plan.listingTier;
 
   return (
-    <Card className={`gap-3 ${plan.featured ? "border-primary" : ""}`}>
-      <View className="flex-row items-center gap-2">
-        <Text className="flex-1" variant="subtitle">
-          {plan.name}
-        </Text>
-        {plan.featured ? <Badge label={featuredBadge} tone="success" /> : null}
-      </View>
+    <View className={plan.featured ? "pt-3" : ""}>
+      {/* Spacing is the card's `gap` between grouped blocks, not per-item
+          margins: `mt-6`/`mt-7` on the button and divider did not reach the
+          device, and the button sat flush against the saving pill. */}
+      <Card className={`gap-5 ${plan.featured ? "border-primary" : ""}`}>
+        <View className="gap-3">
+          <View className="flex-row items-center gap-3">
+            <View className="h-11 w-11 items-center justify-center rounded-xl bg-brand-soft">
+              <PlanMark color={colors.primary} rank={planRank(catalog, plan.id)} />
+            </View>
+            <View className="min-w-0 flex-1 items-start gap-1.5">
+              <Text className="text-2xl font-bold text-foreground" variant={null}>
+                {plan.name}
+              </Text>
+              {/* Gold reads as warning, platinum as neutral: the palette has no
+                  metal colours and the badge is a label, not an alarm. */}
+              {tier ? (
+                <Badge label={tier.label} tone={tier.tone === "gold" ? "warning" : "neutral"} />
+              ) : null}
+            </View>
+          </View>
 
-      {plan.description ? <Text variant="caption">{plan.description}</Text> : null}
-
-      <View className="gap-1">
-        <View className="flex-row items-baseline gap-1.5">
-          <Text variant="display">{money(monthlyRateFor(plan, cycle))}</Text>
-          <Text variant="caption">per month</Text>
+          {plan.description ? (
+            <Text className="text-sm text-foreground" variant={null}>
+              {plan.description}
+            </Text>
+          ) : null}
         </View>
-        <Text variant="caption">
-          {cycle === "monthly"
-            ? "Paid every month."
-            : `${money(cycleTotal(plan, cycle))} paid once — saving ${money(
-                savingFor(plan, cycle),
-              )}.`}
-        </Text>
-      </View>
 
-      {lines.length > 0 ? (
-        <View className="gap-2 border-t border-border pt-3">
-          <Text variant="caption">
+        <View className="items-start gap-3">
+          {/* Annual keeps the monthly figure beside it, struck through, so the
+              discount has something to be compared against. */}
+          <View className="flex-row flex-wrap items-baseline gap-2.5">
+            <Money
+              className="text-3xl font-bold text-foreground"
+              currencyClassName="text-lg text-foreground"
+              rupees={monthlyRateFor(plan, cycle)}
+            />
+            {cycle !== "monthly" ? (
+              <Money
+                className="text-base font-semibold text-muted-foreground line-through"
+                currencyClassName="text-xs text-muted-foreground"
+                rupees={plan.monthly}
+              />
+            ) : null}
+          </View>
+
+          <Text className="text-sm text-foreground" variant={null}>
+            {cycle === "monthly"
+              ? "Paid every month."
+              : `${cycle === "annual" ? "One year costs" : "Six months cost"} ${money(
+                  cycleTotal(plan, cycle),
+                )}, paid once.`}
+          </Text>
+
+          {cycle !== "monthly" ? (
+            <View className="rounded-full bg-brand-soft px-2.5 py-1">
+              <Text className="text-xs font-semibold text-primary" variant={null}>
+                Save {money(savingFor(plan, cycle))}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        <Button
+          label={plan.ctaLabel}
+          onPress={onPress}
+          variant={plan.featured ? "primary" : "outline"}
+        />
+
+        <View className="gap-2 border-t border-border pt-5">
+          <Text className="pb-1 text-sm font-bold text-foreground" variant={null}>
             {below ? `Everything in ${below.name}, plus:` : "Included:"}
           </Text>
 
-          {(open ? lines : lines.slice(0, 3)).map((line) => (
-            <View className="flex-row items-start gap-2" key={line}>
-              <Ionicons
-                color={colors.primary}
-                name="checkmark"
-                size={16}
-                style={{ marginTop: 2 }}
-              />
-              <Text className="flex-1" variant="muted">
-                {line}
-              </Text>
-            </View>
+          {/* Capacity first — it is what the price is set by — then who gets an
+              account per role, then the badge. These carry the plan's own terms
+              and lead in foreground; the services under them read a step back. */}
+          <PlanLine color={colors.primary}>{residentRangeLabel(catalog, plan)}</PlanLine>
+          {portalAccessLines(catalog, plan).map((line) => (
+            <PlanLine color={colors.primary} key={line.id}>
+              {line.label}
+            </PlanLine>
           ))}
-
-          {lines.length > 3 && !plan.featured ? (
-            <Button
-              className="self-start"
-              label={open ? "Show less" : `Show all ${lines.length}`}
-              onPress={onToggle}
-              size="sm"
-              variant="ghost"
-            />
+          {tier ? (
+            <PlanLine
+              color={tier.tone === "gold" ? colors.warning : colors.mutedForeground}
+              note={tier.note}
+            >
+              {`${tier.label} badge`}
+            </PlanLine>
           ) : null}
+          {cardServicesForPlan(catalog, plan.id).map((service) => (
+            <PlanLine color={colors.primary} key={service.slug} muted>
+              {service.name}
+            </PlanLine>
+          ))}
+        </View>
+      </Card>
+
+      {/* The featured pill straddles the card's top edge, as on the website. */}
+      {plan.featured && featuredBadge ? (
+        <View className="absolute left-6 top-0 rounded-full bg-primary px-3 py-1">
+          <Text
+            className="text-xs font-bold uppercase tracking-wider text-primary-foreground"
+            variant={null}
+          >
+            {featuredBadge}
+          </Text>
         </View>
       ) : null}
+    </View>
+  );
+}
 
-      <Button
-        className="mt-1"
-        label={plan.ctaLabel}
-        onPress={onPress}
-        variant={plan.featured ? "primary" : "outline"}
-      />
-    </Card>
+/** "NPR" set smaller and muted so the eye lands on the figure being compared. */
+function Money({
+  className,
+  currencyClassName,
+  rupees,
+}: {
+  className: string;
+  /** React Native has no `em`, so the smaller currency size is passed in. */
+  currencyClassName: string;
+  rupees: number;
+}) {
+  return (
+    <Text className={className} variant={null}>
+      <Text className={`font-semibold ${currencyClassName}`} variant={null}>
+        NPR{" "}
+      </Text>
+      {rupees.toLocaleString("en-IN")}
+    </Text>
+  );
+}
+
+function PlanLine({
+  children,
+  color,
+  muted = false,
+  note,
+}: {
+  children: string;
+  color: string;
+  muted?: boolean;
+  note?: string;
+}) {
+  return (
+    <View className="flex-row items-start gap-2.5">
+      <Ionicons color={color} name="checkmark" size={16} style={{ marginTop: 2 }} />
+      {/* Solid foreground for both weights: `text-foreground/80` does not
+          compose onto a CSS-variable colour in NativeWind and rendered grey. */}
+      <Text
+        className={`flex-1 text-sm text-foreground ${muted ? "font-medium" : "font-semibold"}`}
+        variant={null}
+      >
+        {children}
+        {note ? (
+          <Text className="text-sm font-normal text-muted-foreground" variant={null}>
+            {` — ${note}`}
+          </Text>
+        ) : null}
+      </Text>
+    </View>
   );
 }

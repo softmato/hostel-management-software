@@ -26,10 +26,11 @@ const SECURITY_HEADERS = [
   // No hostel portal has any reason to be framed.
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Location is collected by the mobile app, not the site.
+  // Geolocation for our own pages only: the map's "Use my location" and the
+  // hostel pin pickers. `geolocation=()` refused it silently, with no prompt.
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+    value: "camera=(), microphone=(), geolocation=(self), interest-cohort=()",
   },
   // 1 year, subdomains included. Only sent over HTTPS by browsers.
   {

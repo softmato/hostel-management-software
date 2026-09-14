@@ -30,6 +30,8 @@
 
 import { requireOptionalNativeModule } from "expo-modules-core";
 
+import { toastInfo } from "@/lib/toast";
+
 type NativeDownloads = {
   /** False below Android 10, where the Downloads collection does not exist. */
   isSupported: boolean;
@@ -130,5 +132,33 @@ export async function openDownloaded(uri: string, mimeType: string): Promise<boo
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Opens a saved file, and says where it is when nothing on the phone can.
+ *
+ * The one tap handler for every "Downloaded" surface — the shade notification,
+ * the toast and the finished card in the upload toaster. The push is the one
+ * that arrives late or not at all; the toast is always there, so it has to keep
+ * the same promise. A tap that silently did nothing would make the file look
+ * lost, so the `false` from `openDownloaded` becomes a toast naming the folder.
+ */
+export async function openSavedFile({
+  mimeType,
+  path,
+  uri,
+}: {
+  mimeType?: string | null;
+  path?: string | null;
+  uri: string;
+}) {
+  const opened = await openDownloaded(uri, mimeType || "*/*");
+
+  if (!opened) {
+    toastInfo(
+      "Nothing on this phone opens that",
+      path ? `It is saved in ${path}.` : "It is saved on your phone.",
+    );
   }
 }

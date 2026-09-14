@@ -70,8 +70,12 @@ type SelectProps<T extends string> = {
   /** Border-only emphasis, said by the screen rather than by a validator. See `Input`. */
   tone?: keyof typeof FIELD_TONES;
   value: T | null | undefined;
-  /** `line` matches {@link Input}'s boxless variant. */
-  variant?: "box" | "line";
+  /**
+   * `line` matches {@link Input}'s boxless variant. `compact` is a small pill
+   * sized to its value, with no label — for a choice that sits beside a
+   * section title rather than in a column of fields.
+   */
+  variant?: "box" | "compact" | "line";
 };
 
 export function Select<T extends string>({
@@ -88,6 +92,7 @@ export function Select<T extends string>({
   variant = "box",
 }: SelectProps<T>) {
   const line = variant === "line";
+  const compact = variant === "compact";
   const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
 
@@ -111,7 +116,7 @@ export function Select<T extends string>({
 
   return (
     <View className={line ? "gap-1" : "gap-1.5"}>
-      {label ? (
+      {label && !compact ? (
         line ? (
           <View style={{ opacity: selected ? 1 : 0 }}>
             <FieldLabel>{label}</FieldLabel>
@@ -134,10 +139,12 @@ export function Select<T extends string>({
           mark takes the gutter instead and the label sits where a leading
           adornment always puts it.
         */
-        className={`flex-row items-center gap-2.5 active:opacity-80 ${
-          line
-            ? "h-11 border-b"
-            : `h-12 rounded-xl border bg-card pr-4 ${selected?.leading ? "pl-2.5" : "pl-4"}`
+        className={`flex-row items-center active:opacity-80 ${
+          compact
+            ? "h-9 gap-1 rounded-full border px-3"
+            : line
+              ? "h-11 gap-2.5 border-b"
+              : `h-12 gap-2.5 rounded-xl border bg-card pr-4 ${selected?.leading ? "pl-2.5" : "pl-4"}`
         } ${borderTone} ${disabled ? "opacity-50" : ""}`}
         disabled={disabled}
         onPress={() => setOpen(true)}
@@ -154,11 +161,11 @@ export function Select<T extends string>({
         {selected?.leading ?? null}
 
         <Text
-          className={`flex-1 ${selected ? "text-foreground" : "text-muted-foreground"}`}
+          className={`${compact ? "text-sm font-semibold" : "flex-1"} ${selected ? "text-foreground" : "text-muted-foreground"}`}
         >
           {selected?.label ?? (line && label ? label : placeholder)}
         </Text>
-        <Ionicons color={colors.mutedForeground} name="chevron-down" size={18} />
+        <Ionicons color={colors.mutedForeground} name="chevron-down" size={compact ? 14 : 18} />
       </Pressable>
 
       {error ? (

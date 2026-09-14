@@ -17,7 +17,7 @@ import { PersistGate } from "redux-persist/integration/react";
 
 import { BottomChromeProvider } from "@/components/bottom-chrome";
 import { AssetViewer } from "@/components/asset-viewer";
-import { BrandSplash } from "@/components/brand-splash";
+import { BootSplashCover, BrandSplash } from "@/components/brand-splash";
 import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { UploadToaster } from "@/components/upload-toaster";
 import { useAppDispatch } from "@/hooks/redux";
@@ -555,6 +555,7 @@ export default function RootLayout() {
           </SafeAreaProvider>
         </PersistGate>
       </Provider>
+      <BootSplashCover />
     </GestureHandlerRootView>
   );
 }

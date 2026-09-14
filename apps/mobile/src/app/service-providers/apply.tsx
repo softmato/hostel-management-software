@@ -2,28 +2,35 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useCallback, useState } from "react";
+import { Camera, FilePlus } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 
+import { PhotoStrip } from "@/components/registration-form";
 import {
-  ChipGroup,
-  FormSection,
-  ReviewRow,
-  StepTracker,
-  WizardFooter,
-} from "@/components/registration-form";
+  Accordion,
+  FactRows,
+  ReviewFold,
+  ReviewVerdict,
+  StepFrame,
+  StepSection,
+  StepSkeleton,
+  TermsAgreement,
+} from "@/components/step-flow";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { ChoiceChips } from "@/components/ui/choice-chips";
 import { Input } from "@/components/ui/input";
-import { RowDivider } from "@/components/ui/list-row";
+import { Lottie } from "@/components/ui/lottie";
 import { Screen } from "@/components/ui/screen";
 import { EmptyState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDraftAutosave } from "@/hooks/use-draft-autosave";
 import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
+import { CITY_OPTIONS } from "@/lib/hostel-registration";
 import { absoluteMediaUrl } from "@/lib/media";
 import {
   buildProviderPayload,
@@ -36,7 +43,6 @@ import {
   providerCategoryLabel,
   providerStepErrors,
   toggleProviderCategory,
-  type ProviderCategory,
   type ProviderErrors,
   type ProviderForm,
   type ProviderStepKey,
@@ -44,112 +50,253 @@ import {
 import { PROVIDER_REVIEW_WINDOW } from "@/lib/provider-status";
 import { uploadPublicFile } from "@/lib/public-uploads";
 import { registerServiceProvider } from "@/lib/registration-api";
+import {
+  clearRegistrationDraft,
+  readRegistrationDraft,
+  type RegistrationDrafts,
+  saveRegistrationDraft,
+} from "@/lib/registration-draft";
 import { toastError } from "@/lib/toast";
 
 /**
- * "Become a service provider", filled in on the phone.
+ * "Become a service provider", filled in on the phone, in the same sequence,
+ * fields, review and autosave as the ID card flow (`app/id-card/edit.tsx`).
  *
  * ## This used to open a browser
  *
- * `WEB_PUBLIC_PATHS.becomeProvider` sent a tradesperson to `/service-providers`
- * on the website, and the reason given was the Google gate: the web form signs
- * you in with Google *before* the form so that the email on the application is
- * one Google has verified, and approval upgrades that account to
- * `SERVICE_PROVIDER`.
- *
- * That reason does not survive being on the phone. The gate exists to attach an
- * application to a real, verified account — and this app **already has one**. The
- * session was established at launch, `account.email` is the address the platform
- * knows this person by, and `registerServiceProvider` posts through the
- * authenticated client, so `requireApiPrincipal` gets the same `userId` the web
- * flow was working to produce. Nothing about the upgrade path changes; the app
- * simply arrives at the gate already through it.
- *
- * So the whole application is here, and the one thing it asks for that the
- * website does not is the thing only a phone can collect.
+ * The website signs a tradesperson in with Google *before* the form, so the
+ * application is attached to a verified account that approval upgrades to
+ * `SERVICE_PROVIDER`. This app already has that account: `registerServiceProvider`
+ * posts through the authenticated client, so `requireApiPrincipal` gets the
+ * same `userId` the web flow works to produce.
  *
  * ## The selfie
  *
- * Step 4 opens the front camera and will not accept a photo from the gallery.
- * That is not friction for its own sake: approval publishes this person in a
- * directory and issues them an ID card, and a resident is shown that card at
- * their door before letting a stranger into the building. `PROFILE_PHOTO` is the
- * portrait on it. A gallery pick can be any image on the internet; a photo taken
- * through this screen was taken by whoever was holding the phone that filed the
- * application, which is what gives the reviewer something to compare against the
- * ID document.
+ * The photo step opens the front camera and will not take a gallery pick.
+ * Approval issues an ID card a resident is shown at their door before letting a
+ * stranger in, and `PROFILE_PHOTO` is the portrait on it. A gallery pick can be
+ * any image on the internet; a photo taken through this screen was taken by
+ * whoever held the phone that filed the application.
  */
+
+type StepCopy = { subtitle: string; title: string };
+
+/* `require` paths are case-sensitive on the Linux build machines — `Location` keeps its capital. */
+const STEP_ANIMATIONS: Partial<Record<ProviderStepKey, number>> = {
+  area: require("../../../assets/lottie/Location.lottie"),
+  trades: require("../../../assets/lottie/work.lottie"),
+  you: require("../../../assets/lottie/about.lottie"),
+};
+const SENT_ANIMATION = require("../../../assets/lottie/success.lottie");
+
+const REVIEW_INDEX = PROVIDER_STEPS.length - 1;
+
+/** `availability` is free text at the server; these are how people describe it. */
+const AVAILABILITY_PRESETS = [
+  "Weekdays",
+  "Weekends",
+  "Evenings",
+  "On call",
+  "Emergencies",
+];
+
+/** The "Other" city chip; any typed city shows as it. */
+const OTHER_CITY = "__other";
+
+function stepCopy(step: ProviderStepKey, filedAs: string): StepCopy {
+  switch (step) {
+    case "you":
+      return {
+        subtitle: `Filed against ${filedAs} — approval turns it into your provider login.`,
+        title: "About you",
+      };
+    case "trades":
+      return {
+        subtitle: "Every trade you work in — you are matched to jobs in all of them.",
+        title: "Your work",
+      };
+    case "area":
+      return {
+        subtitle: "Hostels search providers by area, so this is how they find you.",
+        title: "Where you work",
+      };
+    case "selfie":
+      return {
+        subtitle: "Taken now, on this phone. It becomes the portrait on your provider ID card.",
+        title: "Your photo",
+      };
+    default:
+      return {
+        subtitle: `We verify your details in ${PROVIDER_REVIEW_WINDOW}, and email you either way.`,
+        title: "Check it over",
+      };
+  }
+}
+
 export default function ServiceProviderApplyScreen() {
   const account = useAppSelector((state) => state.auth.account);
-  const { colors } = useAppTheme();
+  const accountId = account?.id ?? "";
+  /** `undefined` while the phone is still being asked for a saved draft. */
+  const [stored, setStored] = useState<
+    RegistrationDrafts["provider"] | null | undefined
+  >(accountId ? undefined : null);
 
-  const [form, setForm] = useState<ProviderForm>(() => ({
-    ...EMPTY_PROVIDER_FORM,
-    // Prefilled, not locked. The platform knows this person's name and number;
-    // asking for them again is asking someone to retype what the app is already
-    // showing them two screens away. They stay editable because a trading name
-    // is routinely not the name on the account.
-    fullName: account?.name ?? "",
-    phone: account?.phone ?? "",
-  }));
-  const [step, setStep] = useState<ProviderStepKey>("you");
-  const [errors, setErrors] = useState<ProviderErrors>({});
-  /*
-   * Which upload is running, not merely that one is: the selfie button and the
-   * document button shared a boolean, so both said "Uploading…" for whichever
-   * of them had been pressed.
-   */
-  const [busy, setBusy] = useState<"document" | "selfie" | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  const patch = useCallback((next: Partial<ProviderForm>) => {
-    setForm((current) => ({ ...current, ...next }));
-    // Clearing on edit rather than re-validating on every keystroke: a message
-    // that appears under a field while it is half-typed tells someone their name
-    // is too short when they have got as far as "R".
-    setErrors({});
-  }, []);
-
-  const index = PROVIDER_STEPS.findIndex((item) => item.key === step);
-
-  const goNext = useCallback(() => {
-    const stepErrors = providerStepErrors(step, form);
-
-    if (hasProviderErrors(stepErrors)) {
-      setErrors(stepErrors);
+  useEffect(() => {
+    if (!accountId) {
       return;
     }
 
-    setErrors({});
-    const next = PROVIDER_STEPS[index + 1];
+    let live = true;
 
-    if (next) {
-      setStep(next.key);
+    void readRegistrationDraft("provider", accountId).then((snapshot) => {
+      if (live) {
+        setStored(snapshot);
+      }
+    });
+
+    return () => {
+      live = false;
+    };
+  }, [accountId]);
+
+  /*
+   * No session, no application: the account is what an approval upgrades, and
+   * it is checkable before someone fills in five steps.
+   */
+  if (!account) {
+    return (
+      <Screen
+        header={<AppBar showBack title="Become a service provider" />}
+        scroll
+      >
+        <EmptyState
+          action={
+            <Button
+              label="Sign in"
+              onPress={() => router.push("/(auth)/login")}
+            />
+          }
+          description="Your application is attached to your account — approval turns that same account into your provider login, and jobs are sent to it."
+          title="Sign in to apply"
+        />
+      </Screen>
+    );
+  }
+
+  const filedAs = account.email || account.name || "your account";
+
+  if (stored === undefined) {
+    const first = stepCopy("you", filedAs);
+
+    return (
+      <StepSkeleton
+        subtitle={first.subtitle}
+        title={first.title}
+        total={PROVIDER_STEPS.length}
+      />
+    );
+  }
+
+  return (
+    <ProviderWizard
+      accountId={accountId}
+      defaults={{ fullName: account.name ?? "", phone: account.phone ?? "" }}
+      email={account.email ?? null}
+      filedAs={filedAs}
+      stored={stored}
+    />
+  );
+}
+
+function ProviderWizard({
+  accountId,
+  defaults,
+  email,
+  filedAs,
+  stored,
+}: {
+  accountId: string;
+  defaults: Pick<ProviderForm, "fullName" | "phone">;
+  email: string | null;
+  filedAs: string;
+  stored: RegistrationDrafts["provider"] | null;
+}) {
+  const { colors } = useAppTheme();
+
+  // Prefilled, not locked: a trading name is routinely not the account's name.
+  const [form, setForm] = useState<ProviderForm>(
+    () => stored?.form ?? { ...EMPTY_PROVIDER_FORM, ...defaults },
+  );
+  const [index, setIndex] = useState(
+    Math.min(stored?.index ?? 0, REVIEW_INDEX),
+  );
+  const [forward, setForward] = useState(true);
+  const [errors, setErrors] = useState<ProviderErrors>({});
+  const [busy, setBusy] = useState<"document" | "selfie" | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  /** Not saved with the draft: consent is for the form on screen now. */
+  const [agreed, setAgreed] = useState(false);
+
+  const snapshot = useMemo(() => ({ form, index }), [form, index]);
+  const persist = useCallback(
+    (value: RegistrationDrafts["provider"]) =>
+      saveRegistrationDraft("provider", accountId, value),
+    [accountId],
+  );
+  const markSaved = useDraftAutosave(snapshot, Boolean(stored), persist);
+
+  const step = PROVIDER_STEPS[index]!.key;
+
+  const patch = useCallback((next: Partial<ProviderForm>) => {
+    setForm((current) => ({ ...current, ...next }));
+    // Only the touched fields lose their message.
+    setErrors((current) => {
+      const touched = Object.keys(next) as (keyof ProviderForm)[];
+
+      if (!touched.some((field) => current[field])) {
+        return current;
+      }
+
+      const rest = { ...current };
+
+      for (const field of touched) {
+        delete rest[field];
+      }
+
+      return rest;
+    });
+  }, []);
+
+  const goTo = useCallback((next: number, direction: boolean) => {
+    setForward(direction);
+    setIndex(next);
+  }, []);
+
+  const back = useCallback(() => {
+    if (index === 0) {
+      router.back();
+
+      return;
     }
-  }, [form, index, step]);
 
-  const goBack = useCallback(() => {
-    const previous = PROVIDER_STEPS[index - 1];
+    goTo(index - 1, false);
+  }, [goTo, index]);
 
-    setErrors({});
+  const advance = useCallback(() => {
+    const found = providerStepErrors(step, form);
 
-    if (previous) {
-      setStep(previous.key);
+    setErrors(found);
+
+    if (!hasProviderErrors(found)) {
+      goTo(Math.min(REVIEW_INDEX, index + 1), true);
     }
-  }, [index]);
+  }, [form, goTo, index, step]);
 
   /**
-   * The camera, front-facing, square, cropped by the applicant.
-   *
-   * `allowsEditing` with a 1:1 aspect because the portrait is drawn in a circle
-   * on the ID card and in a small square in the directory: an uncropped 4:3 photo
-   * of someone standing in a doorway becomes a circle of doorway.
-   *
-   * `quality: 0.6` keeps a phone camera's output under the public upload route's
-   * 5 MB cap without a resize step. A modern sensor at full quality clears that
-   * on its own.
+   * The front camera, square, cropped by the applicant — the portrait is drawn
+   * in a circle on the ID card. `quality: 0.6` keeps it under the public upload
+   * route's 5 MB cap without a resize step.
    */
   const takeSelfie = useCallback(async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -159,6 +306,7 @@ export default function ServiceProviderApplyScreen() {
         "Camera access needed",
         "Your application needs a photo of you, taken now.",
       );
+
       return;
     }
 
@@ -168,7 +316,6 @@ export default function ServiceProviderApplyScreen() {
       cameraType: ImagePicker.CameraType.front,
       quality: 0.6,
     });
-
     const asset = result.canceled ? null : result.assets[0];
 
     if (!asset) {
@@ -192,7 +339,11 @@ export default function ServiceProviderApplyScreen() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
-      toastError("Photo access needed", "Allow access to attach your documents.");
+      toastError(
+        "Photo access needed",
+        "Allow access to attach your documents.",
+      );
+
       return;
     }
 
@@ -200,7 +351,6 @@ export default function ServiceProviderApplyScreen() {
       mediaTypes: ["images"],
       quality: 0.7,
     });
-
     const asset = result.canceled ? null : result.assets[0];
 
     if (!asset) {
@@ -210,14 +360,13 @@ export default function ServiceProviderApplyScreen() {
     setBusy("document");
 
     try {
-      const uploaded = await uploadPublicFile(asset, { label: "Supporting document" });
+      const uploaded = await uploadPublicFile(asset, {
+        label: "Supporting document",
+      });
 
       setForm((current) => ({
         ...current,
-        // Eight is the schema's cap for the whole `documents` array and the
-        // selfie takes one of them, so seven is what is left here. Capping in the
-        // UI rather than truncating at submit, because a document silently
-        // dropped from an application is worse than one that was never accepted.
+        // Eight is the schema's cap for `documents` and the selfie takes one.
         documents: [
           ...current.documents,
           { fileName: uploaded.fileName, url: uploaded.url },
@@ -231,362 +380,441 @@ export default function ServiceProviderApplyScreen() {
   }, []);
 
   const submit = useCallback(async () => {
+    if (busy) {
+      toastError("Something is still uploading", "Try again in a moment.");
+
+      return;
+    }
+
     const incomplete = firstIncompleteProviderStep(form);
 
     if (incomplete) {
-      setStep(incomplete);
       setErrors(providerStepErrors(incomplete, form));
+      toastError("Some details need fixing", "The ones in red.");
+      goTo(
+        PROVIDER_STEPS.findIndex((entry) => entry.key === incomplete),
+        false,
+      );
+
       return;
     }
 
     setSubmitting(true);
-    setFailure(null);
 
     try {
-      await registerServiceProvider(buildProviderPayload(form, account?.email ?? null));
+      await registerServiceProvider(buildProviderPayload(form, email));
+      markSaved();
+      void clearRegistrationDraft("provider", accountId);
       setSubmitted(true);
     } catch (caught) {
-      setFailure(readApiError(caught, "Your application could not be submitted."));
+      toastError(
+        "Your application could not be submitted",
+        readApiError(caught),
+      );
     } finally {
       setSubmitting(false);
     }
-    // `account`, not `account?.email` — the React compiler infers the whole
-    // object as the dependency and refuses to preserve a narrower manual list.
-  }, [account, form]);
-
-  /*
-   * No session, no application. `requireApiPrincipal` on the register route would
-   * 401 anyway, but the point of checking here is that it is checkable *before*
-   * someone fills in five steps — the account is what an approval upgrades, so
-   * there is nothing to file the work against.
-   */
-  if (!account) {
-    return (
-      <Screen header={<AppBar showBack title="Become a service provider" />} scroll>
-        <EmptyState
-          action={
-            <Button label="Sign in" onPress={() => router.push("/(auth)/login")} />
-          }
-          description="Your application is attached to your account — approval turns that same account into your provider login, and jobs are sent to it."
-          title="Sign in to apply"
-        />
-      </Screen>
-    );
-  }
+  }, [accountId, busy, email, form, goTo, markSaved]);
 
   if (submitted) {
-    return <SubmittedView email={account.email} />;
+    return <SubmittedView email={email} />;
   }
 
+  const onReview = step === "review";
+  const copy = stepCopy(step, filedAs);
+  const animation = STEP_ANIMATIONS[step];
+  const customCity = !(CITY_OPTIONS as readonly string[]).includes(form.city);
+  const availability = form.availability
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const selfieUri = form.selfie
+    ? (absoluteMediaUrl(form.selfie.url, API_BASE_URL) ?? form.selfie.url)
+    : null;
+
   return (
-    <Screen
+    <StepFrame
       footer={
-        <WizardFooter
+        <Button
+          // Looks off until the terms are ticked, but still answers a tap with why.
+          className={onReview && !agreed ? "opacity-50" : undefined}
+          label={
+            onReview
+              ? "Submit application"
+              : index === REVIEW_INDEX - 1
+                ? "Review"
+                : "Continue"
+          }
           loading={submitting}
-          nextLabel={step === "review" ? "Submit application" : "Continue"}
-          onBack={index > 0 ? goBack : undefined}
-          onNext={step === "review" ? () => void submit() : goNext}
+          onPress={
+            onReview
+              ? () => {
+                  if (!agreed) {
+                    toastError(
+                      "Agree to the terms first",
+                      "Tick the Terms and Privacy Policy box above.",
+                    );
+
+                    return;
+                  }
+
+                  void submit();
+                }
+              : advance
+          }
         />
       }
-      header={<AppBar showBack title="Become a service provider" />}
-      scroll
+      forward={forward}
+      onBack={back}
+      position={index + 1}
+      stepKey={step}
+      subtitle={copy.subtitle}
+      title={copy.title}
+      total={PROVIDER_STEPS.length}
     >
-      <View className="gap-6 pt-1">
-        <StepTracker
-          current={step}
-          isComplete={(key) => isProviderStepComplete(key as ProviderStepKey, form)}
-          onSelect={(key) => {
-            setErrors({});
-            setStep(key as ProviderStepKey);
-          }}
-          steps={PROVIDER_STEPS}
-        />
+      {animation ? (
+        <View className="items-center">
+          <Lottie size={140} source={animation} />
+        </View>
+      ) : null}
 
-        {failure ? (
-          <View className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-            <Text className="text-destructive" variant="label">
-              {failure}
+      {step === "you" ? (
+        <>
+          <Input
+            autoCapitalize="words"
+            error={errors.fullName}
+            label="Full name *"
+            onChangeText={(value) => patch({ fullName: value })}
+            placeholder="The name hostels should ask for"
+            value={form.fullName}
+            variant="line"
+          />
+          <Input
+            error={errors.phone}
+            keyboardType="phone-pad"
+            label="Phone *"
+            onChangeText={(value) => patch({ phone: value })}
+            placeholder="98XXXXXXXX"
+            value={form.phone}
+            variant="line"
+          />
+        </>
+      ) : null}
+
+      {step === "trades" ? (
+        <>
+          <View className="gap-2">
+            <ChoiceChips
+              error={errors.categories}
+              label="Trades *"
+              onToggle={(category) =>
+                patch({
+                  categories: toggleProviderCategory(form.categories, category),
+                })
+              }
+              options={PROVIDER_CATEGORIES.map((category) => ({
+                label: providerCategoryLabel(category),
+                value: category,
+              }))}
+              value={form.categories}
+            />
+            <Text variant="caption">
+              {form.categories[0]
+                ? `Main trade: ${providerCategoryLabel(form.categories[0])} — the first one you tapped.`
+                : "The first one you tap is shown as your main trade."}
             </Text>
           </View>
-        ) : null}
 
-        {step === "you" ? (
-          <FormSection
-            subtitle={`Filed against ${account.email || account.name || "your account"} — approval turns it into your provider login.`}
-            title="About you"
+          <Accordion
+            caption="Optional — experience and what you offer"
+            defaultOpen={Boolean(form.experience || form.description)}
+            title="More about your work"
           >
             <Input
-              autoCapitalize="words"
-              error={errors.fullName}
-              label="Full name"
-              onChangeText={(value) => patch({ fullName: value })}
-              placeholder="The name hostels should ask for"
-              value={form.fullName}
-            />
-            <Input
-              error={errors.phone}
-              keyboardType="phone-pad"
-              label="Phone"
-              onChangeText={(value) => patch({ phone: value })}
-              placeholder="98…"
-              value={form.phone}
-            />
-          </FormSection>
-        ) : null}
-
-        {step === "trades" ? (
-          <FormSection
-            subtitle="Pick every trade you work in — you are matched to jobs in all of them."
-            title="Your work"
-          >
-            <ChipGroup<ProviderCategory>
-              error={errors.categories}
-              hint="The first one you tap is shown as your main trade."
-              onToggle={(category) =>
-                patch({ categories: toggleProviderCategory(form.categories, category) })
-              }
-              optionLabel={providerCategoryLabel}
-              options={PROVIDER_CATEGORIES}
-              ordered
-              selected={form.categories}
-            />
-
-            <Input
-              label="Experience (optional)"
+              label="Experience"
               multiline
               onChangeText={(value) => patch({ experience: value })}
-              placeholder="e.g. 5 years fixing residential plumbing"
-              style={{ height: 76 }}
+              placeholder="5 years fixing residential plumbing"
               value={form.experience}
+              variant="line"
             />
-
             <Input
-              label="About your service (optional)"
+              label="About your service"
               multiline
               onChangeText={(value) => patch({ description: value })}
               placeholder="Coverage, tools, how quickly you can get there."
-              style={{ height: 108 }}
               value={form.description}
+              variant="line"
             />
-          </FormSection>
-        ) : null}
+          </Accordion>
+        </>
+      ) : null}
 
-        {step === "area" ? (
-          <FormSection
-            subtitle="Hostels search the provider list by area, so this is how they find you."
-            title="Where you work"
-          >
-            <Input
-              autoCapitalize="words"
-              error={errors.area}
-              label="Area"
-              onChangeText={(value) => patch({ area: value })}
-              placeholder="Neighbourhood or tole"
-              value={form.area}
-            />
+      {step === "area" ? (
+        <>
+          <Input
+            autoCapitalize="words"
+            error={errors.area}
+            label="Area *"
+            onChangeText={(value) => patch({ area: value })}
+            placeholder="Neighbourhood or tole"
+            value={form.area}
+            variant="line"
+          />
+          <ChoiceChips
+            error={customCity ? undefined : errors.city}
+            label="City *"
+            // "Other" empties the city, which is what opens the box below.
+            onToggle={(value) =>
+              patch({ city: value === OTHER_CITY ? "" : value })
+            }
+            options={[
+              ...CITY_OPTIONS.map((city) => ({ label: city, value: city })),
+              { label: "Other", value: OTHER_CITY },
+            ]}
+            value={customCity ? OTHER_CITY : form.city}
+          />
+          {customCity ? (
             <Input
               autoCapitalize="words"
               error={errors.city}
-              label="City"
+              label="Your city *"
               onChangeText={(value) => patch({ city: value })}
               value={form.city}
+              variant="line"
             />
-            <Input
-              label="Availability (optional)"
-              onChangeText={(value) => patch({ availability: value })}
-              placeholder="Weekdays, emergency, on-call"
-              value={form.availability}
-            />
-          </FormSection>
-        ) : null}
+          ) : null}
 
-        {step === "selfie" ? (
-          <FormSection
-            subtitle="Taken now, on this phone. It becomes the portrait on your provider ID card, which residents are shown before they let you in."
-            title="Your photo"
-          >
-            <View className="items-center gap-4 py-2">
-              <View
-                className="h-40 w-40 items-center justify-center overflow-hidden rounded-full bg-muted"
-                // A circle, because that is how the ID card and the directory
-                // draw it — showing a square here and a circle there is how
-                // someone ends up with the top of their head cropped off.
-              >
-                {form.selfie ? (
-                  /*
-                    Resolved, never raw. `POST /public/files/upload` answers with
-                    a relative `/uploads/…` path whenever R2 is not configured,
-                    and a phone has no page origin to resolve it against — the
-                    preview would be an empty circle after a photo that uploaded
-                    fine. See `lib/media.ts`.
-                  */
+          <StepSection caption="Optional — pick any that fit" title="Availability">
+            <ChoiceChips
+              onToggle={(value) =>
+                patch({
+                  availability: (availability.includes(value)
+                    ? availability.filter((entry) => entry !== value)
+                    : [...availability, value]
+                  ).join(", "),
+                })
+              }
+              // Values typed before these chips existed stay visible and removable.
+              options={[
+                ...new Set([...AVAILABILITY_PRESETS, ...availability]),
+              ].map((entry) => ({ label: entry, value: entry }))}
+              value={availability}
+            />
+          </StepSection>
+        </>
+      ) : null}
+
+      {step === "selfie" ? (
+        <>
+          <View className="items-center py-2">
+            <View
+              className="items-center justify-center rounded-full border-2 border-primary p-1.5"
+              style={{ height: 212, width: 212 }}
+            >
+              <View className="size-full items-center justify-center overflow-hidden rounded-full bg-muted">
+                {selfieUri ? (
+                  // Resolved, never raw: without R2 the upload route answers a relative `/uploads/…` path.
                   <Image
                     accessibilityLabel="Your photo"
                     contentFit="cover"
-                    source={{
-                      uri:
-                        absoluteMediaUrl(form.selfie.url, API_BASE_URL) ??
-                        form.selfie.url,
-                    }}
-                    style={{ height: 160, width: 160 }}
+                    source={{ uri: selfieUri }}
+                    style={{ height: "100%", width: "100%" }}
                     transition={150}
                   />
                 ) : (
                   <Ionicons
                     color={colors.mutedForeground}
-                    name="person-outline"
-                    size={48}
+                    name="person"
+                    size={84}
                   />
                 )}
               </View>
-
-              <Button
-                disabled={busy !== null}
-                label={form.selfie ? "Take it again" : "Take your photo"}
-                loading={busy === "selfie"}
-                onPress={() => void takeSelfie()}
-                variant={form.selfie ? "outline" : "primary"}
-              />
-
-              {errors.selfie ? (
-                <Text className="text-center text-destructive" variant="caption">
-                  {errors.selfie}
-                </Text>
-              ) : null}
             </View>
+          </View>
 
-            <RowDivider />
-
-            <View className="gap-2">
-              <Text variant="label">Supporting documents (optional)</Text>
-              <Text variant="caption">
-                Citizenship, a trade licence, certificates — up to seven. Optional,
-                but an application carrying proof of trade clears review faster.
+          <View className="gap-2">
+            <Button
+              disabled={busy !== null}
+              icon={Camera}
+              label={form.selfie ? "Take it again" : "Take your photo"}
+              loading={busy === "selfie"}
+              onPress={() => void takeSelfie()}
+            />
+            {errors.selfie ? (
+              <Text className="text-center text-destructive" variant="caption">
+                {errors.selfie}
               </Text>
-              <Button
-                disabled={busy !== null || form.documents.length >= 7}
-                label="Add a document"
-                loading={busy === "document"}
-                onPress={() => void pickDocument()}
-                variant="outline"
-              />
-            </View>
-
-            {form.documents.length > 0 ? (
-              <Card className="gap-2">
-                {form.documents.map((document) => (
-                  <View className="flex-row items-center gap-2" key={document.url}>
-                    <Ionicons
-                      color={colors.primary}
-                      name="document-attach-outline"
-                      size={16}
-                    />
-                    <Text className="flex-1" numberOfLines={1} variant="caption">
-                      {document.fileName}
-                    </Text>
-                    <Text
-                      className="text-destructive"
-                      onPress={() =>
-                        setForm((current) => ({
-                          ...current,
-                          documents: current.documents.filter(
-                            (item) => item.url !== document.url,
-                          ),
-                        }))
-                      }
-                      variant="caption"
-                    >
-                      Remove
-                    </Text>
-                  </View>
-                ))}
-              </Card>
             ) : null}
-          </FormSection>
-        ) : null}
+          </View>
 
-        {step === "review" ? (
-          <FormSection
-            subtitle={`We verify your details and documents in ${PROVIDER_REVIEW_WINDOW}, and email you either way.`}
-            title="Check it over"
+          <Accordion
+            caption="Optional — citizenship, a trade licence, certificates. Proof of trade clears review faster."
+            defaultOpen={form.documents.length > 0}
+            title="Supporting documents"
           >
-            <Card>
-              <ReviewRow label="Name" value={form.fullName} />
-              <ReviewRow label="Phone" value={form.phone} />
-              <ReviewRow label="Email" value={account.email ?? "—"} />
-              <ReviewRow
-                label={form.categories.length > 1 ? "Trades" : "Trade"}
-                value={form.categories.map(providerCategoryLabel).join(", ")}
-              />
-              <ReviewRow label="Area" value={`${form.area}, ${form.city}`} />
-              <ReviewRow label="Availability" value={form.availability} />
-              <ReviewRow label="Experience" value={form.experience} />
-              <ReviewRow
-                label="Photo"
-                value={form.selfie ? "Taken" : "Not taken"}
-              />
-              <ReviewRow
-                label="Documents"
-                value={
-                  form.documents.length === 1
-                    ? "1 file"
-                    : `${form.documents.length} files`
-                }
-              />
-            </Card>
+            <PhotoStrip
+              onRemove={(url) =>
+                setForm((current) => ({
+                  ...current,
+                  documents: current.documents.filter(
+                    (item) => item.url !== url,
+                  ),
+                }))
+              }
+              photos={form.documents}
+            />
+            <Button
+              disabled={busy !== null || form.documents.length >= 7}
+              icon={FilePlus}
+              label="Add a document"
+              loading={busy === "document"}
+              onPress={() => void pickDocument()}
+              variant="outline"
+            />
+          </Accordion>
+        </>
+      ) : null}
 
-            <Text variant="caption">
-              By submitting you agree this account is used to receive the work
-              hostels assign you. Once approved, every job arrives in this app —
-              there is no separate provider website.
-            </Text>
-          </FormSection>
-        ) : null}
+      {onReview ? (
+        <ProviderReview
+          agreed={agreed}
+          email={email}
+          filedAs={filedAs}
+          form={form}
+          onAgreedChange={setAgreed}
+          onEdit={(key) =>
+            goTo(
+              PROVIDER_STEPS.findIndex((entry) => entry.key === key),
+              false,
+            )
+          }
+        />
+      ) : null}
+    </StepFrame>
+  );
+}
+
+function ProviderReview({
+  agreed,
+  email,
+  filedAs,
+  form,
+  onAgreedChange,
+  onEdit,
+}: {
+  agreed: boolean;
+  email: string | null;
+  filedAs: string;
+  form: ProviderForm;
+  onAgreedChange: (value: boolean) => void;
+  onEdit: (step: ProviderStepKey) => void;
+}) {
+  const [openStep, setOpenStep] = useState<ProviderStepKey | null>(null);
+  const dash = (value: string) => value.trim() || "—";
+
+  const facts: Record<Exclude<ProviderStepKey, "review">, [string, string][]> = {
+    area: [
+      ["Area", dash(form.area)],
+      ["City", dash(form.city)],
+      ["Availability", dash(form.availability)],
+    ],
+    selfie: [
+      ["Photo", form.selfie ? "Taken" : "Not taken yet"],
+      [
+        "Documents",
+        form.documents.length === 1
+          ? "1 file"
+          : `${form.documents.length} files`,
+      ],
+    ],
+    trades: [
+      [
+        form.categories.length > 1 ? "Trades" : "Trade",
+        dash(form.categories.map(providerCategoryLabel).join(", ")),
+      ],
+      ["Experience", dash(form.experience)],
+      ["About", dash(form.description)],
+    ],
+    you: [
+      ["Name", dash(form.fullName)],
+      ["Phone", dash(form.phone)],
+      ["Email", email ?? "—"],
+    ],
+  };
+
+  const steps = PROVIDER_STEPS.filter((entry) => entry.key !== "review");
+  const incomplete = steps.find(
+    (entry) => !isProviderStepComplete(entry.key, form),
+  );
+
+  return (
+    <View className="gap-5">
+      <View>
+        {steps.map((entry, position) => (
+          <ReviewFold
+            complete={isProviderStepComplete(entry.key, form)}
+            divider={position > 0}
+            key={entry.key}
+            onEdit={() => onEdit(entry.key)}
+            onToggle={() =>
+              setOpenStep(openStep === entry.key ? null : entry.key)
+            }
+            open={openStep === entry.key}
+            title={`${position + 1}. ${stepCopy(entry.key, filedAs).title}`}
+          >
+            <FactRows
+              facts={facts[entry.key as Exclude<ProviderStepKey, "review">]}
+            />
+          </ReviewFold>
+        ))}
       </View>
-    </Screen>
+
+      <ReviewVerdict
+        incomplete={
+          incomplete ? stepCopy(incomplete.key, filedAs).title : null
+        }
+        onFix={() => incomplete && onEdit(incomplete.key)}
+      />
+
+      <TermsAgreement
+        agreed={agreed}
+        onChange={onAgreedChange}
+        prefix="Jobs hostels assign me arrive on this account, and I agree to"
+      />
+    </View>
   );
 }
 
 /**
- * The end of the journey, and it genuinely is the end — there is nothing to poll
- * and nowhere else to go until a human has looked at the application. So this
- * says what happens next, in the order it happens, and offers the one thing that
- * is actually available: leaving.
+ * The end of the journey: nothing to poll until a human has looked at the
+ * application, so this says what happens next and offers leaving.
  */
 function SubmittedView({ email }: { email: string | null }) {
-  const { colors } = useAppTheme();
-
   return (
-    <Screen header={<AppBar showBack title="Application submitted" />} scroll>
-      <View className="items-center gap-4 px-2 pt-10">
-        <View className="h-16 w-16 items-center justify-center rounded-2xl bg-brand-soft">
-          <Ionicons color={colors.primary} name="checkmark-circle-outline" size={32} />
-        </View>
-
-        <Text className="text-center" variant="title">
-          You&apos;re in the queue
-        </Text>
-
-        <Text className="text-center leading-6" variant="muted">
-          {email
-            ? `We verify your details and documents in ${PROVIDER_REVIEW_WINDOW}. We'll email ${email} the moment there's a decision, and you'll see it here too.`
-            : `We verify your details and documents in ${PROVIDER_REVIEW_WINDOW}, and you'll be notified the moment there's a decision.`}
-        </Text>
-
-        <Card className="mt-2 w-full gap-2">
-          <Text variant="label">What happens after approval</Text>
-          <Text className="leading-6" variant="muted">
-            This app becomes your provider app on its own — you do not sign in
-            again. A Jobs tab holding the work hostels assign you by name, and a
-            provider ID card carrying the photo you just took.
-          </Text>
-        </Card>
-
+    <Screen
+      footer={
         <Button
-          className="mt-2 w-full"
           label="Done"
           onPress={() => router.replace("/service-providers")}
         />
+      }
+      header={<AppBar title="" />}
+    >
+      <View className="flex-1 items-center justify-center gap-3 px-4 pt-16">
+        <Lottie loop={false} size={180} source={SENT_ANIMATION} />
+        <Text className="text-center" variant="title">
+          You&apos;re in the queue
+        </Text>
+        <Text className="text-center" variant="muted">
+          {email
+            ? `We verify your details in ${PROVIDER_REVIEW_WINDOW} and email ${email} the moment there's a decision.`
+            : `We verify your details in ${PROVIDER_REVIEW_WINDOW}, and you'll be notified the moment there's a decision.`}
+        </Text>
+        <Text className="text-center" variant="muted">
+          After approval this app becomes your provider app — a Jobs tab and a
+          provider ID card with the photo you just took.
+        </Text>
       </View>
     </Screen>
   );

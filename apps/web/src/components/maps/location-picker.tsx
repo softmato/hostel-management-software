@@ -209,12 +209,17 @@ export function LocationPicker({
   );
 
   const useDeviceLocation = useCallback(() => {
-    if (!("geolocation" in navigator)) {
-      setNote("This browser cannot share a location.");
+    if (!("geolocation" in navigator) || !window.isSecureContext) {
+      setNote(
+        window.isSecureContext
+          ? "This browser cannot share a location. Search or drag the pin instead."
+          : "Location only works over https. Search or drag the pin instead.",
+      );
       return;
     }
 
     setLocating(true);
+    setNote("Finding your location…");
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLocating(false);
@@ -227,11 +232,15 @@ export function LocationPicker({
         setNote("Pinned to your device location — drag to fine-tune.");
         void describePin(next, "Pinned to your device location.");
       },
-      () => {
+      (error) => {
         setLocating(false);
-        setNote("Location permission denied. Search or drag the pin instead.");
+        setNote(
+          error.code === error.PERMISSION_DENIED
+            ? "Location is blocked for this site. Allow it from the lock icon in the address bar, or search or drag the pin instead."
+            : "Could not get a location fix. Turn on location services, or search or drag the pin instead.",
+        );
       },
-      { enableHighAccuracy: true, timeout: 10_000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
     );
   }, [applyPin, describePin]);
 
@@ -278,6 +287,7 @@ export function LocationPicker({
         </Button>
         <Button
           className="h-11"
+          disabled={locating}
           onClick={useDeviceLocation}
           type="button"
           variant="outline"
@@ -290,6 +300,14 @@ export function LocationPicker({
           Use my location
         </Button>
       </div>
+
+      {/* Beside the buttons, not under the map: a refusal printed below a
+          288px map read as "nothing happened". */}
+      {note ? (
+        <p aria-live="polite" className="text-xs font-semibold text-foreground">
+          {note}
+        </p>
+      ) : null}
 
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
         <Link2 className="mt-0.5 size-3.5 shrink-0" />
@@ -356,8 +374,6 @@ export function LocationPicker({
           </button>
         ) : null}
       </div>
-
-      {note ? <p className="text-xs font-medium text-muted-foreground">{note}</p> : null}
     </div>
   );
 }

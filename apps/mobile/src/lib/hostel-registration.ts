@@ -515,7 +515,6 @@ export function buildHostelPayload(form: HostelForm): HostelRegisterPayload {
   const name = form.hostelName.trim();
   const email = form.email.trim() || undefined;
   const phone = form.ownerPhone.trim();
-  const plan = HOSTEL_PLANS.find((item) => item.id === form.selectedPlan);
 
   return {
     applicant: { email, name: form.ownerName.trim(), phone },
@@ -551,7 +550,7 @@ export function buildHostelPayload(form: HostelForm): HostelRegisterPayload {
     notes: [
       form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : "",
       `Floors: ${numberValue(form.totalFloors) ?? 1}`,
-      `Selected plan: ${plan?.name ?? form.selectedPlan}`,
+      // No plan line: the app no longer asks for one, so it would read as a choice the owner never made.
       "Submitted from the mobile app",
     ]
       .filter(Boolean)

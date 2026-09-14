@@ -46,10 +46,12 @@ import {
   DOWNLOAD_CHANNEL_NAME,
   DOWNLOAD_NOTIFICATION_TYPE,
   EMPTY_TALLY,
+  PROGRESS_REPOST_MS,
   shouldRepost,
   tallyUploads,
   UPLOAD_CHANNEL,
   UPLOAD_CHANNEL_NAME,
+  UPLOAD_DONE_NOTIFICATION_ID,
   UPLOAD_NOTIFICATION_ID,
   UPLOAD_NOTIFICATION_TYPE,
   type UploadNotice,
@@ -76,6 +78,24 @@ let queued: { notice: UploadNotice | null } | null = null;
 let draining = false;
 /** Set when a batch begins: the user may have granted permission since the last. */
 let recheckPermission = false;
+/** When the last progress repost went out, for `PROGRESS_REPOST_MS`. */
+let lastProgressAt = 0;
+/** Ends a progress throttle wait early, so a terminal notice never queues behind it. */
+let wake: (() => void) | null = null;
+
+function waitOrWake(ms: number) {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+
+    function done() {
+      clearTimeout(timer);
+      wake = null;
+      resolve();
+    }
+
+    wake = done;
+  });
+}
 
 async function ensureChannel() {
   if (Platform.OS !== "android") {
@@ -131,6 +151,12 @@ async function apply(notice: UploadNotice | null) {
 
   const openable = notice.openUri !== null;
 
+  if (!notice.ongoing) {
+    // Terminal notices post fresh under their own id — see
+    // `UPLOAD_DONE_NOTIFICATION_ID` — so the progress one has to go.
+    await Notifications.dismissNotificationAsync(UPLOAD_NOTIFICATION_ID).catch(() => {});
+  }
+
   await Notifications.scheduleNotificationAsync({
     content: {
       /*
@@ -164,7 +190,7 @@ async function apply(notice: UploadNotice | null) {
       sticky: notice.ongoing,
       title: notice.title,
     },
-    identifier: UPLOAD_NOTIFICATION_ID,
+    identifier: notice.ongoing ? UPLOAD_NOTIFICATION_ID : UPLOAD_DONE_NOTIFICATION_ID,
     /*
      * The channel rides on the trigger, not the content. expo-notifications'
      * Android builder reads it from `trigger.getNotificationChannel()` and
@@ -199,6 +225,21 @@ async function drain() {
 
   try {
     while (queued) {
+      /*
+       * Progress is throttled; a terminal notice is not. The wait is woken by
+       * `onQueueChanged` the moment a done/failed notice replaces the queued
+       * progress, and the loop re-reads `queued` after it, so "Downloaded"
+       * posts in the same beat the toast shows rather than a second behind.
+       */
+      if (queued.notice?.ongoing) {
+        const wait = lastProgressAt + PROGRESS_REPOST_MS - Date.now();
+
+        if (wait > 0) {
+          await waitOrWake(wait);
+          continue;
+        }
+      }
+
       const { notice } = queued;
 
       /*
@@ -217,6 +258,10 @@ async function drain() {
 
       if (!granted) {
         continue;
+      }
+
+      if (notice?.ongoing) {
+        lastProgressAt = Date.now();
       }
 
       await apply(notice);
@@ -250,6 +295,10 @@ function onQueueChanged() {
 
   posted = next;
   queued = { notice: next };
+
+  if (!next?.ongoing) {
+    wake?.();
+  }
 
   void drain();
 }
@@ -293,5 +342,8 @@ export function resetUploadNotifications() {
    */
   queued = null;
   recheckPermission = false;
+  lastProgressAt = 0;
+  wake?.();
   void Notifications.dismissNotificationAsync(UPLOAD_NOTIFICATION_ID).catch(() => {});
+  void Notifications.dismissNotificationAsync(UPLOAD_DONE_NOTIFICATION_ID).catch(() => {});
 }

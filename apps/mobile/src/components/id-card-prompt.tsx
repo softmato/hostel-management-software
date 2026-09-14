@@ -1,14 +1,12 @@
-import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback } from "react";
 import { View } from "react-native";
-import Animated, { ReduceMotion, ZoomIn } from "react-native-reanimated";
 
+import { IconPoint } from "@/components/step-flow";
 import { Button } from "@/components/ui/button";
 import { Lottie } from "@/components/ui/lottie";
 import { Sheet } from "@/components/ui/sheet";
 import { Text } from "@/components/ui/text";
-import { useAppTheme } from "@/hooks/use-app-theme";
 import { idCardNoun } from "@/lib/id-card";
 import type { IdCardType } from "@/lib/identity-api";
 
@@ -41,12 +39,12 @@ export function IdCardPrompt({
         </View>
 
         <View className="gap-3">
-          <Point
+          <IconPoint
             delay={250}
             icon="shield-checkmark-outline"
             text="Stored encrypted against your account. A hostel only sees it when you show them the code."
           />
-          <Point
+          <IconPoint
             delay={400}
             icon="qr-code-outline"
             text="Your card is ready the moment you save — QR code, ID number and all."
@@ -59,29 +57,5 @@ export function IdCardPrompt({
         </View>
       </View>
     </Sheet>
-  );
-}
-
-/** The sheet's content mounts each time it opens, so the icon pops in once per open. */
-function Point({
-  delay,
-  icon,
-  text,
-}: {
-  delay: number;
-  icon: keyof typeof Ionicons.glyphMap;
-  text: string;
-}) {
-  const { colors } = useAppTheme();
-
-  return (
-    <View className="flex-row gap-3">
-      <Animated.View entering={ZoomIn.delay(delay).springify().reduceMotion(ReduceMotion.System)}>
-        <Ionicons color={colors.primary} name={icon} size={18} />
-      </Animated.View>
-      <Text className="flex-1" variant="muted">
-        {text}
-      </Text>
-    </View>
   );
 }

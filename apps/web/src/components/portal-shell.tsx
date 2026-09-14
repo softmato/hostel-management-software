@@ -144,6 +144,8 @@ const toneStyles: Record<
     brand: string;
     brandSoft: string;
     hover: string;
+    /** Idle row text; defaults to the slate every other portal uses. */
+    navText?: string;
     ring: string;
     softBg: string;
     text: string;
@@ -169,15 +171,21 @@ const toneStyles: Record<
     softBg: "bg-role-guardian-soft",
     text: "text-role-guardian",
   },
+  /*
+   * The owner's sidebar is plain dark text: no teal on hover, active or open
+   * parents — a grey wash and weight mark where you are. `navText` replaces the
+   * slate the other portals use for idle rows.
+   */
   platform: {
-    active: "bg-role-platform text-white shadow-sm",
+    active: "bg-muted font-semibold text-foreground",
     badge: "border-role-platform/20 bg-role-platform-soft text-role-platform",
     brand: "text-brand-teal",
     brandSoft: "bg-brand-teal",
-    hover: "hover:bg-role-platform-soft/70 hover:text-role-platform",
+    hover: "hover:bg-muted hover:text-foreground",
+    navText: "text-foreground",
     ring: "ring-role-platform/20",
-    softBg: "bg-role-platform-soft",
-    text: "text-role-platform",
+    softBg: "bg-muted",
+    text: "text-foreground",
   },
   resident: {
     active: "bg-role-resident text-white shadow-sm",
@@ -340,7 +348,8 @@ export function PortalShell({
     return (
       <Link
         className={cn(
-          "flex min-h-0 items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[12.5px] font-medium text-slate-600 transition-colors dark:text-slate-300",
+          "flex min-h-0 items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[12.5px] font-medium transition-colors",
+          styles.navText ?? "text-slate-600 dark:text-slate-300",
           styles.hover,
           isActive && styles.active,
           collapsed && "justify-center px-0",
@@ -362,7 +371,9 @@ export function PortalShell({
                 className={cn(
                   "ml-auto h-[18px] min-w-[18px] rounded-full px-1.5 text-[10px] font-bold",
                   isActive
-                    ? "border-white/20 bg-white/20 text-white"
+                    ? styles.navText
+                      ? "border-transparent bg-foreground text-background"
+                      : "border-white/20 bg-white/20 text-white"
                     : "border-transparent bg-role-resident text-white",
                 )}
               >
@@ -392,7 +403,8 @@ export function PortalShell({
       <div key={item.label}>
         <button
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[12.5px] font-medium text-slate-600 transition-colors dark:text-slate-300",
+            "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[12.5px] font-medium transition-colors",
+            styles.navText ?? "text-slate-600 dark:text-slate-300",
             styles.hover,
             childActive && cn(styles.softBg, styles.text, "font-semibold"),
           )}

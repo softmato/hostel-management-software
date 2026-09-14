@@ -48,6 +48,7 @@ import { StepFlow, StepRail } from "./registration-step-shell";
 import {
   cityOptions,
   facilityOptions,
+  DocRow,
   FileUploadArea,
   ID_PROOF_TYPES,
   numberValue,
@@ -2763,33 +2764,6 @@ function Field({
       </span>
       {children}
     </label>
-  );
-}
-
-function DocRow({
-  children,
-  desc,
-  icon: Icon,
-  title,
-}: {
-  children: React.ReactNode;
-  desc: string;
-  icon: LucideIcon;
-  title: string;
-}) {
-  return (
-    <div className="grid gap-4 rounded-xl border border-border p-4 md:grid-cols-[1fr_1.2fr] md:items-center">
-      <div className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-          <Icon className="size-5" />
-        </span>
-        <div>
-          <p className="text-sm font-bold text-foreground">{title}</p>
-          <p className="text-xs text-muted-foreground">{desc}</p>
-        </div>
-      </div>
-      <div>{children}</div>
-    </div>
   );
 }
 

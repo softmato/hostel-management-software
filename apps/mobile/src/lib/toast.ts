@@ -9,6 +9,24 @@ export function toastSuccess(title: string, description?: string) {
   Toast.show({ text1: title, text2: description, type: "success" });
 }
 
+/**
+ * A success the reader can act on by tapping it — a finished download that
+ * opens its file. The tap hides the toast first so the opened app is not
+ * returned to with a stale "Downloaded" still sitting over the screen.
+ */
+export function toastSuccessAction(title: string, description: string, onPress: () => void) {
+  Toast.show({
+    onPress: () => {
+      Toast.hide();
+      onPress();
+    },
+    text1: title,
+    text2: description,
+    type: "success",
+    visibilityTime: 5000,
+  });
+}
+
 export function toastError(title: string, description?: string) {
   Toast.show({ text1: title, text2: description, type: "error" });
 }

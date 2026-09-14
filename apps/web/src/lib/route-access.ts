@@ -36,6 +36,11 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     roles: [Role.SUPERADMIN],
   },
   {
+    // Buzzing every phone on the platform is not a moderation action.
+    prefix: "/platform/push",
+    roles: [Role.SUPERADMIN],
+  },
+  {
     // Selling a placement is a commercial decision, not a moderation one.
     prefix: "/platform/sponsors",
     roles: [Role.SUPERADMIN],

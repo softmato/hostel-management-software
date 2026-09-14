@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireTeamPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
-import { findHostelUsingEmail } from "@/modules/hostels/hostel.service";
+import { checkTeamOwnerEmail } from "@/modules/hostels/hostel.service";
 
 export const runtime = "nodejs";
 
@@ -34,10 +34,10 @@ export async function GET(request: NextRequest) {
       email: request.nextUrl.searchParams.get("email") ?? "",
     });
 
-    const usedBy = await findHostelUsingEmail(email);
+    const { status, usedBy } = await checkTeamOwnerEmail(email);
 
     return successResponse(
-      { available: usedBy === null, usedBy },
+      { available: status === "AVAILABLE" || status === "EXISTING_ACCOUNT", status, usedBy },
       "Email checked",
     );
   } catch (error) {

@@ -6,6 +6,7 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useSystemInsets } from "@/hooks/use-system-insets";
 import { useUploads } from "@/hooks/use-uploads";
+import { openSavedFile } from "@/lib/native-downloads";
 import {
   dismissUpload,
   type UploadRow,
@@ -48,7 +49,7 @@ export function UploadToaster() {
     <View
       className="absolute inset-x-0 gap-2 px-4"
       // Taps fall through the container to whatever is behind it; only the
-      // dismiss button inside a row is interactive.
+      // dismiss button and a finished download's open tap are interactive.
       style={{ pointerEvents: "box-none", top: insets.top + 8 }}
     >
       {rows.map((row) => (
@@ -71,6 +72,9 @@ function UploadCard({ row }: { row: UploadRow }) {
    */
   const moving =
     row.direction === "download" ? "cloud-download-outline" : "cloud-upload-outline";
+  // A finished download that landed somewhere openable opens on tap, the same
+  // as its notification — see `openSavedFile`.
+  const openUri = succeeded ? row.openUri : undefined;
 
   return (
     <Animated.View
@@ -94,16 +98,28 @@ function UploadCard({ row }: { row: UploadRow }) {
           size={20}
         />
 
-        <View className="flex-1">
+        <Pressable
+          accessibilityRole={openUri ? "button" : undefined}
+          className="flex-1"
+          disabled={!openUri}
+          onPress={() => {
+            if (!openUri) {
+              return;
+            }
+
+            dismissUpload(row.id);
+            void openSavedFile({ mimeType: row.openMimeType, path: row.openPath, uri: openUri });
+          }}
+        >
           <Text variant="label">{row.label}</Text>
           <Text
             className={failed ? "text-destructive" : undefined}
             numberOfLines={2}
             variant="caption"
           >
-            {uploadRowMessage(row)}
+            {openUri ? `${uploadRowMessage(row)}. Tap to open.` : uploadRowMessage(row)}
           </Text>
-        </View>
+        </Pressable>
 
         {/*
           Dismiss, not cancel. `expo-file-system`'s upload has no abort handle

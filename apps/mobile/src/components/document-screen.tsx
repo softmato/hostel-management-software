@@ -61,6 +61,7 @@ export function DocumentScreen({
    * read.
    */
   action,
+  comingSoon,
   extra,
   icon,
   /**
@@ -78,6 +79,11 @@ export function DocumentScreen({
 }: {
   /** Rendered under the masthead, before the copy. */
   action?: ReactNode;
+  /**
+   * Replaces everything under `action` with this one quoted line — for a page
+   * whose configured copy is not ready to show yet.
+   */
+  comingSoon?: string;
   /** Rendered between the sections and the closing note. */
   extra?: ReactNode;
   icon: InfoIcon;
@@ -143,6 +149,54 @@ export function DocumentScreen({
         */}
         {action ? <InfoActions>{action}</InfoActions> : null}
 
+        {comingSoon ? (
+          <View className="border-l-2 border-primary py-1 pl-4">
+            <Text className="italic leading-6" variant="muted">
+              {comingSoon}
+            </Text>
+          </View>
+        ) : (
+          <DocumentBody
+            error={error}
+            extra={extra}
+            isEmpty={isEmpty}
+            loading={loading}
+            override={override}
+            refresh={refresh}
+            resolved={resolved}
+            variant={variant}
+            webUrl={webUrl}
+          />
+        )}
+      </View>
+    </Screen>
+  );
+}
+
+/** The configured copy under the masthead and action. */
+function DocumentBody({
+  error,
+  extra,
+  isEmpty,
+  loading,
+  override,
+  refresh,
+  resolved,
+  variant,
+  webUrl,
+}: {
+  error: string | null | undefined;
+  extra?: ReactNode;
+  isEmpty: boolean;
+  loading: boolean;
+  override: string | undefined;
+  refresh: () => void;
+  resolved: ReturnType<typeof resolveContentPage>;
+  variant: SectionVariant;
+  webUrl: string;
+}) {
+  return (
+    <>
         {isEmpty && loading ? <LoadingState /> : null}
 
         {isEmpty && !loading && error ? (
@@ -184,8 +238,7 @@ export function DocumentScreen({
             </Text>
           </InfoNote>
         ) : null}
-      </View>
-    </Screen>
+    </>
   );
 }
 

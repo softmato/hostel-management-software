@@ -1,7 +1,9 @@
 import * as Haptics from "expo-haptics";
+import type { LucideIcon } from "lucide-react-native";
 import { ActivityIndicator, Pressable, type PressableProps, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
+import { useAppTheme } from "@/hooks/use-app-theme";
 
 const VARIANTS = {
   danger: {
@@ -41,6 +43,8 @@ type ButtonProps = Omit<PressableProps, "children" | "style"> & {
   className?: string;
   /** Fires a selection tick on press. Off for destructive flows with their own confirm. */
   haptic?: boolean;
+  /** A Lucide glyph ahead of the label, tinted to match it. Hidden while loading. */
+  icon?: LucideIcon;
   label: string;
   /**
    * Replaces the size's own type classes on the label — **both** of them, so a
@@ -63,6 +67,7 @@ export function Button({
   className = "",
   disabled,
   haptic = true,
+  icon: Icon,
   label,
   labelClassName,
   loading = false,
@@ -71,7 +76,16 @@ export function Button({
   variant = "primary",
   ...props
 }: ButtonProps) {
+  const { colors } = useAppTheme();
   const tone = VARIANTS[variant];
+  const iconColor =
+    variant === "primary"
+      ? colors.primaryForeground
+      : variant === "danger"
+        ? "#ffffff"
+        : variant === "ghost"
+          ? colors.primary
+          : colors.foreground;
   const dimensions = SIZES[size];
   // A button mid-request must not accept a second press — double-submitting a
   // payment claim is a real cost, not a cosmetic one.
@@ -121,6 +135,10 @@ export function Button({
             color={variant === "primary" || variant === "danger" ? "#ffffff" : undefined}
             size="small"
           />
+        </View>
+      ) : Icon ? (
+        <View className="mr-2">
+          <Icon color={iconColor} size={size === "sm" ? 16 : 18} strokeWidth={2} />
         </View>
       ) : null}
 

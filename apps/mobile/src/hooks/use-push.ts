@@ -22,7 +22,7 @@ import { nightKey } from "@hostel/night/night-window";
 
 import { useAppSelector } from "@/hooks/redux";
 import { adoptRoleChange } from "@/lib/auth-session";
-import { openDownloaded } from "@/lib/native-downloads";
+import { openSavedFile } from "@/lib/native-downloads";
 import { parseNightStatusAction } from "@/lib/night-status-actions";
 import {
   flushNightStatusQueue,
@@ -34,7 +34,6 @@ import {
   registerPushToken,
   setBadgeCount,
 } from "@/lib/push-notifications";
-import { toastInfo } from "@/lib/toast";
 import { DOWNLOAD_NOTIFICATION_TYPE } from "@/lib/upload-notification";
 
 export function usePush() {
@@ -154,18 +153,10 @@ export function usePush() {
        * promise the paragraph above rules out.
        */
       if (data?.type === DOWNLOAD_NOTIFICATION_TYPE && typeof data.uri === "string") {
-        const path = typeof data.path === "string" ? data.path : null;
-
-        void openDownloaded(
-          data.uri,
-          typeof data.mimeType === "string" ? data.mimeType : "*/*",
-        ).then((opened) => {
-          if (!opened) {
-            toastInfo(
-              "Nothing on this phone opens that",
-              path ? `It is saved in ${path}.` : "It is saved on your phone.",
-            );
-          }
+        void openSavedFile({
+          mimeType: typeof data.mimeType === "string" ? data.mimeType : null,
+          path: typeof data.path === "string" ? data.path : null,
+          uri: data.uri,
         });
 
         return;

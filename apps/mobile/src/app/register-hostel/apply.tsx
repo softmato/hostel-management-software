@@ -1,30 +1,33 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useCallback, useRef, useState } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { Camera, FileCheck, Images, Paperclip, Plus } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, View } from "react-native";
 
+import { PhotoStrip, UploadPreview } from "@/components/registration-form";
 import {
-  AttachmentRow,
-  ChipGroup,
-  FormSection,
-  PhotoStrip,
-  ReviewRow,
-  StepTracker,
-  WizardFooter,
-} from "@/components/registration-form";
+  Accordion,
+  FactRows,
+  ReviewFold,
+  ReviewVerdict,
+  StepFrame,
+  StepSection,
+  StepSkeleton,
+  TermsAgreement,
+} from "@/components/step-flow";
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { ChoiceChips } from "@/components/ui/choice-chips";
 import { Input } from "@/components/ui/input";
-import { RowDivider } from "@/components/ui/list-row";
+import { Lottie } from "@/components/ui/lottie";
 import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { Toggle } from "@/components/ui/toggle";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDraftAutosave } from "@/hooks/use-draft-autosave";
 import { readApiError } from "@/lib/api-contract";
 import {
   buildHostelPayload,
@@ -34,7 +37,6 @@ import {
   emptyRoomRow,
   FACILITY_OPTIONS,
   firstIncompleteHostelStep,
-  HOSTEL_PLANS,
   HOSTEL_STEPS,
   HOSTEL_TYPES,
   hasHostelErrors,
@@ -48,59 +50,50 @@ import {
   type HostelForm,
   type HostelStepKey,
   type IdProofType,
-  type MealInclusion,
-  type PlanId,
   type RoomRow,
 } from "@/lib/hostel-registration";
 import { uploadPublicFile, uploadPublicText } from "@/lib/public-uploads";
 import { registerHostelApplication } from "@/lib/registration-api";
+import {
+  clearRegistrationDraft,
+  readRegistrationDraft,
+  type RegistrationDrafts,
+  saveRegistrationDraft,
+} from "@/lib/registration-draft";
 import { toastError } from "@/lib/toast";
 
 /**
- * "Register your hostel", filled in on the phone.
+ * "Register your hostel", filled in on the phone, one question-group at a time
+ * — the same sequence, fields, review and autosave as the ID card flow
+ * (`app/id-card/edit.tsx`), so an owner who has made their card already knows
+ * how this one works.
  *
- * ## What this replaces, and why the old argument no longer holds
+ * ## Why it is not a browser tab
  *
- * `WEB_PUBLIC_PATHS.registerHostel` used to open `/register-hostel/form` in a
- * browser tab. The reason on record was that the application "wants ownership
- * documents that live on a computer", and that a half-native form would give up
- * at the upload step.
+ * `WEB_PUBLIC_PATHS.registerHostel` used to open the website's form, on the
+ * argument that the application "wants ownership documents that live on a
+ * computer". A Nepali hostel owner's citizenship certificate is not a scan in a
+ * Downloads folder; it is a card in a drawer, and the device with a camera
+ * pointed at it is this one. So both blocking requirements are satisfied here,
+ * and neither is relaxed:
  *
- * The upload step was the whole argument, and it was wrong about which computer
- * the documents live on. A Nepali hostel owner's citizenship certificate is not a
- * scan in a Downloads folder; it is a physical card in a drawer, and the device
- * with a camera pointed at it is this one. What the desktop form actually offered
- * was a file picker for a file that mostly did not exist yet.
- *
- * So both blocking requirements are now satisfiable here, and neither is relaxed:
- *
- * - **The ID proof** is photographed (`ImagePicker.launchCameraAsync`) or picked,
- *   and uploaded through the same public route the website's form posts to.
- * - **The rules document** is generated from one of the platform's own three
- *   templates — the applicant edits the text and it is attached as a real
- *   `text/plain` document (`uploadPublicText`). The website offers the same three
- *   templates; it just makes you download and re-upload them.
+ * - **The ID proof** is photographed or picked, and uploaded through the same
+ *   public route the website's form posts to.
+ * - **The rules document** starts from one of the platform's three templates;
+ *   the edited text is attached as a real `text/plain` document
+ *   (`uploadPublicText`).
  *
  * A reviewer therefore sees the same application whichever client filed it.
  *
  * ## What is deliberately not ported
  *
- * The draft autosave to `localStorage`, the plan price calculator with its VAT
- * line, the sidebar of portal cards, and the seven optional document slots (PAN,
- * bank details, licence, ownership proof). The first three are desktop furniture;
- * the last is a judgement call — seven optional uploads on a phone is six chances
- * to abandon the form, and the platform can request any of them afterwards
- * through `requestedDocuments`, which is a flow that already exists.
+ * The plan price calculator with its VAT line, and the seven optional document
+ * slots (PAN, bank details, licence, ownership proof). Seven optional uploads
+ * on a phone is six chances to abandon the form, and the platform can request
+ * any of them afterwards through `requestedDocuments`.
  */
 
-/**
- * The one attachment currently on its way to the server.
- *
- * Six buttons on the Documents step upload, and a caller has to be able to ask
- * "is it *this* one" rather than "is anything happening" — that is the whole
- * difference between a spinner on the button that was pressed and a form that
- * greys out with no explanation.
- */
+/** Which attachment is at the server, so the pressed button is the one that spins. */
 type UploadJob =
   | "id-camera"
   | "id-library"
@@ -109,80 +102,280 @@ type UploadJob =
   | "rules-file"
   | "rules-text";
 
+type StepCopy = { subtitle: string; title: string };
+
+const STEP_COPY: Record<HostelStepKey, StepCopy> = {
+  basics: { subtitle: "Your hostel, and how to reach you.", title: "The basics" },
+  documents: { subtitle: "Checked before you go live.", title: "Documents" },
+  location: { subtitle: "Where it is, what it offers.", title: "Location" },
+  review: { subtitle: "Check it and send it.", title: "Review" },
+  rooms: { subtitle: "Room types and prices.", title: "Rooms" },
+};
+
+/* `require` paths are case-sensitive on the Linux build machines. */
+const STEP_ANIMATIONS: Partial<Record<HostelStepKey, number>> = {
+  basics: require("../../../assets/lottie/hostel-basics.lottie"),
+  documents: require("../../../assets/lottie/hostel-documents.lottie"),
+  location: require("../../../assets/lottie/hostel-location.lottie"),
+};
+const SENT_ANIMATION = require("../../../assets/lottie/success.lottie");
+
+const REVIEW_INDEX = HOSTEL_STEPS.length - 1;
+
+const ID_PROOF_LABELS: Record<IdProofType, string> = {
+  Citizenship: "Citizenship",
+  "National Identity Card (NID)": "National ID",
+  Passport: "Passport",
+};
+
+const MEALS_SERVED = [
+  { label: "Veg", value: "veg" },
+  { label: "Non-veg", value: "nonVeg" },
+] as const;
+
+const MEALS_PER_DAY = ["1", "2", "3", "4"];
+
+type Starter = { label: string; write: (name: string, who: string) => string };
+
+/** Standard descriptions an owner can start from and then edit; three are offered at random. */
+const DESCRIPTION_STARTERS: Starter[] = [
+  {
+    label: "Homely & quiet",
+    write: (name, who) =>
+      `${name} is a clean, quiet hostel for ${who} with a homely feel, regular meals and a calm place to study and rest.`,
+  },
+  {
+    label: "Student friendly",
+    write: (name, who) =>
+      `${name} is made for ${who} who study — study tables, fast WiFi, set meal times and quiet hours so exams never clash with noise.`,
+  },
+  {
+    label: "Safe & secure",
+    write: (name, who) =>
+      `${name} puts safety first for ${who}: CCTV, a staffed gate, fixed entry times and a warden on site around the clock.`,
+  },
+  {
+    label: "Budget stay",
+    write: (name, who) =>
+      `${name} offers affordable, no-fuss rooms for ${who}, with the essentials covered and fair monthly rent.`,
+  },
+  {
+    label: "Home-style food",
+    write: (name, who) =>
+      `${name} is known for its home-style food — fresh meals cooked daily for ${who}, in a friendly, family-like hostel.`,
+  },
+  {
+    label: "Working professionals",
+    write: (name, who) =>
+      `${name} gives ${who} a comfortable base close to offices and transport, with WiFi, laundry and flexible meal times.`,
+  },
+  {
+    label: "Close to colleges",
+    write: (name, who) =>
+      `${name} is a short walk from nearby colleges, giving ${who} a clean, well-run place to live without a long commute.`,
+  },
+  {
+    label: "Modern & comfortable",
+    write: (name, who) =>
+      `${name} offers ${who} modern, well-kept rooms, reliable hot water and power backup, and common spaces to relax in.`,
+  },
+];
+
+const STARTER_AUDIENCE: Record<HostelForm["hostelType"], string> = {
+  BOYS: "boys",
+  CO_LIVING: "students and working professionals",
+  GIRLS: "girls",
+};
+
+function writeStarter(starter: Starter, form: HostelForm): string {
+  return starter.write(
+    form.hostelName.trim() || "Our hostel",
+    STARTER_AUDIENCE[form.hostelType],
+  );
+}
+
+/** `count` starters in random order (Fisher–Yates, so no starter is favoured). */
+function pickStarters(count: number): Starter[] {
+  const pool = [...DESCRIPTION_STARTERS];
+
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+
+    [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+  }
+
+  return pool.slice(0, count);
+}
+
 export default function RegisterHostelApplyScreen() {
   const account = useAppSelector((state) => state.auth.account);
-  const { colors } = useAppTheme();
+  const accountId = account?.id ?? "";
+  /** `undefined` while the phone is still being asked for a saved draft. */
+  const [stored, setStored] = useState<
+    RegistrationDrafts["hostel"] | null | undefined
+  >(accountId ? undefined : null);
 
-  // Rows need stable keys and `crypto.randomUUID` is not something to rely on
-  // across every Android runtime this ships to. A counter is enough: the ids
-  // never leave the screen.
-  const nextRoomId = useRef(1);
-  const makeRoomId = useCallback(() => {
-    nextRoomId.current += 1;
-
-    return `room-${nextRoomId.current}`;
-  }, []);
-
-  const [form, setForm] = useState<HostelForm>(() => ({
-    ...emptyHostelForm("room-1"),
-    email: account?.email ?? "",
-    ownerName: account?.name ?? "",
-    ownerPhone: account?.phone ?? "",
-  }));
-  const [step, setStep] = useState<HostelStepKey>("basics");
-  const [errors, setErrors] = useState<HostelErrors>({});
-  /*
-   * Which attachment is at the server, not just that one is.
-   *
-   * Six buttons on this step shared one boolean, so photographing an ID greyed
-   * out the gallery, the rules and both photo buttons and drew progress on none
-   * of them: the form looked frozen rather than busy. Naming the job means the
-   * button that was pressed is the button that spins, and the rest are merely
-   * inert while it does.
-   */
-  const [busy, setBusy] = useState<UploadJob | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submittedName, setSubmittedName] = useState<string | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  const patch = useCallback((next: Partial<HostelForm>) => {
-    setForm((current) => ({ ...current, ...next }));
-    setErrors({});
-  }, []);
-
-  const index = HOSTEL_STEPS.findIndex((item) => item.key === step);
-
-  const goNext = useCallback(() => {
-    const stepErrors = hostelStepErrors(step, form);
-
-    if (hasHostelErrors(stepErrors)) {
-      setErrors(stepErrors);
+  useEffect(() => {
+    if (!accountId) {
       return;
     }
 
-    setErrors({});
-    const next = HOSTEL_STEPS[index + 1];
+    let live = true;
 
-    if (next) {
-      setStep(next.key);
+    void readRegistrationDraft("hostel", accountId).then((snapshot) => {
+      if (live) {
+        setStored(snapshot);
+      }
+    });
+
+    return () => {
+      live = false;
+    };
+  }, [accountId]);
+
+  if (!account) {
+    return (
+      <Screen header={<AppBar showBack title="Register your hostel" />} scroll>
+        <EmptyState
+          action={
+            <Button
+              label="Sign in"
+              onPress={() => router.push("/(auth)/login")}
+            />
+          }
+          description="Your application is attached to your account, which is how you can come back and see where it has got to. Without one, the only news you would get is an email."
+          title="Sign in to register"
+        />
+      </Screen>
+    );
+  }
+
+  if (stored === undefined) {
+    return (
+      <StepSkeleton
+        subtitle={STEP_COPY.basics.subtitle}
+        title={STEP_COPY.basics.title}
+        total={HOSTEL_STEPS.length}
+      />
+    );
+  }
+
+  return (
+    <HostelWizard
+      accountId={accountId}
+      defaults={{
+        email: account.email ?? "",
+        ownerName: account.name ?? "",
+        ownerPhone: account.phone ?? "",
+      }}
+      stored={stored}
+    />
+  );
+}
+
+function HostelWizard({
+  accountId,
+  defaults,
+  stored,
+}: {
+  accountId: string;
+  defaults: Pick<HostelForm, "email" | "ownerName" | "ownerPhone">;
+  /** The autosaved application from last time. */
+  stored: RegistrationDrafts["hostel"] | null;
+}) {
+  const [form, setForm] = useState<HostelForm>(() =>
+    stored
+      ? // Consent is given for what is on screen now, not for last session's form.
+        {
+          ...stored.form,
+          agreed: false,
+          idProofType: stored.form.idProofType || "Citizenship",
+        }
+      : // Citizenship preselected: it is the ID nearly every owner attaches.
+        { ...emptyHostelForm("room-1"), ...defaults, idProofType: "Citizenship" },
+  );
+  const [index, setIndex] = useState(
+    Math.min(stored?.index ?? 0, REVIEW_INDEX),
+  );
+  /** Which way the next screen slides in from. */
+  const [forward, setForward] = useState(true);
+  const [errors, setErrors] = useState<HostelErrors>({});
+  const [busy, setBusy] = useState<UploadJob | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submittedName, setSubmittedName] = useState<string | null>(null);
+  /** Three description starters, drawn once per visit so they don't reshuffle between steps. */
+  const [starters] = useState(() => pickStarters(3));
+
+  // Row keys only; a counter rather than `crypto.randomUUID`, which is not on
+  // every Android runtime. Starts past any id a restored draft already holds.
+  const nextRoomId = useRef(
+    Math.max(
+      1,
+      ...form.rooms.map((room) => Number(room.id.replace(/\D/g, "")) || 0),
+    ),
+  );
+
+  const snapshot = useMemo(() => ({ form, index }), [form, index]);
+  const persist = useCallback(
+    (value: RegistrationDrafts["hostel"]) =>
+      saveRegistrationDraft("hostel", accountId, value),
+    [accountId],
+  );
+  const markSaved = useDraftAutosave(snapshot, Boolean(stored), persist);
+
+  const step = HOSTEL_STEPS[index]!.key;
+
+  const patch = useCallback((next: Partial<HostelForm>) => {
+    setForm((current) => ({ ...current, ...next }));
+    // Only the touched fields lose their message: a form that corrects you, not one that nags.
+    setErrors((current) => {
+      const touched = Object.keys(next) as (keyof HostelForm)[];
+
+      if (!touched.some((field) => current[field])) {
+        return current;
+      }
+
+      const rest = { ...current };
+
+      for (const field of touched) {
+        delete rest[field];
+      }
+
+      return rest;
+    });
+  }, []);
+
+  const goTo = useCallback((next: number, direction: boolean) => {
+    setForward(direction);
+    setIndex(next);
+  }, []);
+
+  const back = useCallback(() => {
+    if (index === 0) {
+      router.back();
+
+      return;
     }
-  }, [form, index, step]);
 
-  const goBack = useCallback(() => {
-    setErrors({});
-    const previous = HOSTEL_STEPS[index - 1];
+    goTo(index - 1, false);
+  }, [goTo, index]);
 
-    if (previous) {
-      setStep(previous.key);
+  const advance = useCallback(() => {
+    const found = hostelStepErrors(step, form);
+
+    setErrors(found);
+
+    if (!hasHostelErrors(found)) {
+      goTo(Math.min(REVIEW_INDEX, index + 1), true);
     }
-  }, [index]);
+  }, [form, goTo, index, step]);
 
-  /* ---------------------------------------------------------------------- */
-  /* Uploads                                                                */
-  /* ---------------------------------------------------------------------- */
+  /* ── uploads ── */
 
   const pickImage = useCallback(
-    async (source: "camera" | "library"): Promise<ImagePicker.ImagePickerAsset | null> => {
+    async (
+      source: "camera" | "library",
+    ): Promise<ImagePicker.ImagePickerAsset | null> => {
       const permission =
         source === "camera"
           ? await ImagePicker.requestCameraPermissionsAsync()
@@ -201,16 +394,14 @@ export default function RegisterHostelApplyScreen() {
 
       const result =
         source === "camera"
-          ? // `quality: 0.7` keeps a phone photo under the public route's 5 MB
-            // cap. A full-quality sensor image clears it unaided, and the
-            // rejection would arrive after the whole file had been uploaded.
+          ? // `quality: 0.7` keeps a phone photo under the public route's 5 MB cap.
             await ImagePicker.launchCameraAsync({ quality: 0.7 })
           : await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ["images"],
               quality: 0.7,
             });
 
-      return result.canceled ? null : result.assets[0];
+      return result.canceled ? null : (result.assets[0] ?? null);
     },
     [],
   );
@@ -242,7 +433,11 @@ export default function RegisterHostelApplyScreen() {
     const body = form.rules.trim();
 
     if (!body) {
-      setErrors({ rulesDocument: "Write your rules, or start from a template." });
+      setErrors((current) => ({
+        ...current,
+        rulesDocument: "Write your rules, or start from a template.",
+      }));
+
       return;
     }
 
@@ -276,7 +471,9 @@ export default function RegisterHostelApplyScreen() {
     try {
       const uploaded = await uploadPublicFile(asset, { label: "House rules" });
 
-      patch({ rulesDocument: { fileName: uploaded.fileName, url: uploaded.url } });
+      patch({
+        rulesDocument: { fileName: uploaded.fileName, url: uploaded.url },
+      });
     } catch (caught) {
       toastError("That didn't upload", readApiError(caught));
     } finally {
@@ -295,7 +492,9 @@ export default function RegisterHostelApplyScreen() {
       setBusy(source === "camera" ? "photo-camera" : "photo-library");
 
       try {
-        const uploaded = await uploadPublicFile(asset, { label: "Hostel photo" });
+        const uploaded = await uploadPublicFile(asset, {
+          label: "Hostel photo",
+        });
 
         setForm((current) => ({
           ...current,
@@ -314,23 +513,29 @@ export default function RegisterHostelApplyScreen() {
     [pickImage],
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Rooms                                                                  */
-  /* ---------------------------------------------------------------------- */
+  /* ── rooms ── */
 
-  const updateRoom = useCallback((id: string, next: Partial<RoomRow>) => {
-    setForm((current) => ({
-      ...current,
-      rooms: current.rooms.map((room) => (room.id === id ? { ...room, ...next } : room)),
-    }));
-    setErrors({});
-  }, []);
+  const updateRoom = useCallback(
+    (id: string, next: Partial<RoomRow>) => {
+      setForm((current) => ({
+        ...current,
+        rooms: current.rooms.map((room) =>
+          room.id === id ? { ...room, ...next } : room,
+        ),
+      }));
+      setErrors((current) => {
+        const { rooms: _rooms, ...rest } = current;
+
+        return rest;
+      });
+    },
+    [],
+  );
 
   const removeRoom = useCallback((id: string) => {
     setForm((current) => ({
       ...current,
-      // Never below one. An empty rooms step is a step with nothing on it and no
-      // obvious way to get something back.
+      // Never below one: an empty rooms step has no obvious way back.
       rooms:
         current.rooms.length > 1
           ? current.rooms.filter((room) => room.id !== id)
@@ -338,200 +543,246 @@ export default function RegisterHostelApplyScreen() {
     }));
   }, []);
 
-  /* ---------------------------------------------------------------------- */
-  /* Submit                                                                 */
-  /* ---------------------------------------------------------------------- */
+  const addRoom = useCallback(() => {
+    nextRoomId.current += 1;
+    const id = `room-${nextRoomId.current}`;
+
+    setForm((current) => ({
+      ...current,
+      rooms: [...current.rooms, emptyRoomRow(id)],
+    }));
+  }, []);
+
+  /* ── submit ── */
 
   const submit = useCallback(async () => {
+    if (busy) {
+      toastError("Something is still uploading", "Try again in a moment.");
+
+      return;
+    }
+
     const incomplete = firstIncompleteHostelStep(form);
 
     if (incomplete) {
-      setStep(incomplete);
       setErrors(hostelStepErrors(incomplete, form));
+
+      if (incomplete !== "review") {
+        toastError("Some details need fixing", "The ones in red.");
+        goTo(
+          HOSTEL_STEPS.findIndex((entry) => entry.key === incomplete),
+          false,
+        );
+      }
+
       return;
     }
 
     setSubmitting(true);
-    setFailure(null);
 
     try {
       const hostel = await registerHostelApplication(buildHostelPayload(form));
 
+      markSaved();
+      void clearRegistrationDraft("hostel", accountId);
       setSubmittedName(hostel.name || form.hostelName.trim());
     } catch (caught) {
-      setFailure(readApiError(caught, "Your application could not be submitted."));
+      toastError(
+        "Your application could not be submitted",
+        readApiError(caught),
+      );
     } finally {
       setSubmitting(false);
     }
-  }, [form]);
-
-  const confirmLeave = useCallback(() => {
-    Alert.alert(
-      "Leave this application?",
-      "Nothing you have typed is saved yet.",
-      [
-        { style: "cancel", text: "Keep filling it in" },
-        { onPress: () => router.back(), style: "destructive", text: "Leave" },
-      ],
-    );
-  }, []);
-
-  if (!account) {
-    return (
-      <Screen header={<AppBar showBack title="Register your hostel" />} scroll>
-        <EmptyState
-          action={<Button label="Sign in" onPress={() => router.push("/(auth)/login")} />}
-          description="Your application is attached to your account, which is how you can come back and see where it has got to. Without one, the only news you would get is an email."
-          title="Sign in to register"
-        />
-      </Screen>
-    );
-  }
+  }, [accountId, busy, form, goTo, markSaved]);
 
   if (submittedName) {
     return <SubmittedView hostelName={submittedName} />;
   }
 
+  const onReview = step === "review";
+  const copy = STEP_COPY[step];
   const summary = capacitySummary(form.rooms);
+  const animation = STEP_ANIMATIONS[step];
 
   return (
-    <Screen
+    <StepFrame
       footer={
-        <WizardFooter
+        <Button
+          // Looks off until the box is ticked, but still answers a tap with why.
+          className={onReview && !form.agreed ? "opacity-50" : undefined}
+          label={
+            onReview
+              ? "Submit application"
+              : index === REVIEW_INDEX - 1
+                ? "Review"
+                : "Continue"
+          }
           loading={submitting}
-          nextLabel={step === "review" ? "Submit application" : "Continue"}
-          onBack={index > 0 ? goBack : confirmLeave}
-          backLabel={index > 0 ? "Back" : "Cancel"}
-          onNext={step === "review" ? () => void submit() : goNext}
+          onPress={
+            onReview
+              ? () => {
+                  if (!form.agreed) {
+                    toastError(
+                      "Confirm the details first",
+                      "Tick the box above the button.",
+                    );
+
+                    return;
+                  }
+
+                  void submit();
+                }
+              : advance
+          }
         />
       }
-      header={<AppBar showBack title="Register your hostel" />}
-      scroll
+      forward={forward}
+      onBack={back}
+      position={index + 1}
+      stepKey={step}
+      subtitle={
+        step === "rooms" && summary.totalBeds > 0
+          ? `${summary.totalRooms} rooms · ${summary.totalBeds} beds so far.`
+          : copy.subtitle
+      }
+      title={copy.title}
+      total={HOSTEL_STEPS.length}
     >
-      <View className="gap-6 pt-1">
-        <StepTracker
-          current={step}
-          isComplete={(key) => isHostelStepComplete(key as HostelStepKey, form)}
-          onSelect={(key) => {
-            setErrors({});
-            setStep(key as HostelStepKey);
-          }}
-          steps={HOSTEL_STEPS}
-        />
+      {animation ? (
+        <View
+          className="items-center"
+          // The documents artwork sits small inside a lot of empty frame; drawn larger, the frame's
+          // top and bottom are pulled back in so it doesn't push the fields down.
+          style={step === "documents" ? { marginVertical: -48 } : undefined}
+        >
+          <Lottie size={step === "documents" ? 280 : 140} source={animation} />
+        </View>
+      ) : null}
 
-        {failure ? (
-          <View className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-            <Text className="text-destructive" variant="label">
-              {failure}
-            </Text>
-          </View>
-        ) : null}
+      {step === "basics" ? (
+        <>
+          <Input
+            autoCapitalize="words"
+            error={errors.hostelName}
+            label="Hostel name *"
+            onChangeText={(value) => patch({ hostelName: value })}
+            placeholder="As it is written on the building"
+            value={form.hostelName}
+            variant="line"
+          />
+          <Input
+            error={errors.description}
+            label="About the hostel *"
+            multiline
+            onChangeText={(value) => patch({ description: value })}
+            placeholder="Who it suits, what makes it worth living in."
+            value={form.description}
+            variant="line"
+          />
+          <ChoiceChips
+            onToggle={(label) => {
+              const starter = starters.find((entry) => entry.label === label);
 
-        {step === "basics" ? (
-          <FormSection
-            subtitle="What residents see first, and how the platform reaches you."
-            title="The basics"
-          >
-            <Input
-              autoCapitalize="words"
-              error={errors.hostelName}
-              label="Hostel name"
-              onChangeText={(value) => patch({ hostelName: value })}
-              placeholder="As it is written on the building"
-              value={form.hostelName}
-            />
+              if (starter) {
+                patch({ description: writeStarter(starter, form) });
+              }
+            }}
+            options={starters.map((entry) => ({
+              label: entry.label,
+              value: entry.label,
+            }))}
+            // The one whose text is in the box stays lit, until the owner edits it.
+            value={
+              starters.find(
+                (entry) => writeStarter(entry, form) === form.description,
+              )?.label ?? null
+            }
+          />
+          <ChoiceChips
+            columns={3}
+            label="Who it is for"
+            onToggle={(value) => patch({ hostelType: value })}
+            options={HOSTEL_TYPES}
+            value={form.hostelType}
+          />
 
-            <Input
-              error={errors.description}
-              label="About the hostel"
-              multiline
-              onChangeText={(value) => patch({ description: value })}
-              placeholder="Who it suits, what makes it worth living in."
-              style={{ height: 108 }}
-              value={form.description}
-            />
-
-            <Select<(typeof HOSTEL_TYPES)[number]["value"]>
-              label="Who it is for"
-              onChange={(value) => patch({ hostelType: value })}
-              options={HOSTEL_TYPES.map((type) => ({
-                label: type.label,
-                value: type.value,
-              }))}
-              value={form.hostelType}
-            />
-
-            <RowDivider />
-
+          <StepSection title="You">
             <Input
               autoCapitalize="words"
               error={errors.ownerName}
-              label="Your name"
+              label="Your name *"
               onChangeText={(value) => patch({ ownerName: value })}
               value={form.ownerName}
+              variant="line"
             />
-
             <Input
               error={errors.ownerPhone}
               keyboardType="phone-pad"
-              label="Your phone"
+              label="Your phone *"
               onChangeText={(value) => patch({ ownerPhone: value })}
-              placeholder="98…"
+              placeholder="98XXXXXXXX"
               value={form.ownerPhone}
+              variant="line"
             />
-
             <Input
               autoCapitalize="none"
               error={errors.email}
-              hint="The approval is emailed here, and this address becomes your owner login."
+              hint="This becomes your owner login."
               keyboardType="email-address"
-              label="Your email"
+              label="Your email *"
               onChangeText={(value) => patch({ email: value })}
               value={form.email}
+              variant="line"
             />
-          </FormSection>
-        ) : null}
+          </StepSection>
+        </>
+      ) : null}
 
-        {step === "location" ? (
-          <FormSection
-            subtitle="Where it is, and what living there includes."
-            title="Location & facilities"
-          >
-            <Input
-              error={errors.address}
-              label="Address"
-              onChangeText={(value) => patch({ address: value })}
-              placeholder="Street or tole"
-              value={form.address}
-            />
+      {step === "location" ? (
+        <>
+          <Input
+            error={errors.address}
+            label="Address *"
+            onChangeText={(value) => patch({ address: value })}
+            placeholder="Street or tole"
+            value={form.address}
+            variant="line"
+          />
+          <Input
+            label="Landmark"
+            onChangeText={(value) => patch({ landmark: value })}
+            placeholder="Opposite the campus gate"
+            value={form.landmark}
+            variant="line"
+          />
+          <Input
+            autoCapitalize="words"
+            error={errors.area}
+            label="Area *"
+            onChangeText={(value) => patch({ area: value })}
+            placeholder="Bagdol, Baneshwor…"
+            value={form.area}
+            variant="line"
+          />
+          <ChoiceChips
+            error={errors.city}
+            label="City *"
+            onToggle={(value) => patch({ city: value })}
+            options={withCurrent(CITY_OPTIONS, form.city)}
+            value={form.city}
+          />
 
-            <Input
-              label="Landmark (optional)"
-              onChangeText={(value) => patch({ landmark: value })}
-              placeholder="Opposite the campus gate"
-              value={form.landmark}
-            />
+          <Input
+            inputMode="numeric"
+            label="Floors"
+            onChangeText={(value) => patch({ totalFloors: value })}
+            value={form.totalFloors}
+            variant="line"
+          />
 
-            <Input
-              autoCapitalize="words"
-              error={errors.area}
-              label="Area"
-              onChangeText={(value) => patch({ area: value })}
-              placeholder="e.g. Bagdol, Baneshwor"
-              value={form.area}
-            />
-
-            <Select<string>
-              error={errors.city}
-              label="City"
-              onChange={(value) => patch({ city: value })}
-              options={CITY_OPTIONS.map((city) => ({ label: city, value: city }))}
-              value={form.city}
-            />
-
-            <ChipGroup<string>
-              hint="Everything a resident gets without paying extra."
-              label="Facilities"
+          <StepSection title="Facilities">
+            <ChoiceChips
               onToggle={(facility) =>
                 patch({
                   facilities: form.facilities.includes(facility)
@@ -539,30 +790,31 @@ export default function RegisterHostelApplyScreen() {
                     : [...form.facilities, facility],
                 })
               }
-              options={FACILITY_OPTIONS}
-              selected={form.facilities}
+              options={withCurrent(FACILITY_OPTIONS, ...form.facilities)}
+              value={form.facilities}
             />
+            <CustomFacility
+              onAdd={(name) => {
+                // A typed name that matches an existing chip turns that chip on instead of duplicating it.
+                const match =
+                  [...FACILITY_OPTIONS, ...form.facilities].find(
+                    (item) => item.toLowerCase() === name.toLowerCase(),
+                  ) ?? name;
 
-            <Input
-              inputMode="numeric"
-              label="Floors (optional)"
-              onChangeText={(value) => patch({ totalFloors: value })}
-              value={form.totalFloors}
+                if (!form.facilities.includes(match)) {
+                  patch({ facilities: [...form.facilities, match] });
+                }
+              }}
             />
-          </FormSection>
-        ) : null}
+          </StepSection>
+        </>
+      ) : null}
 
-        {step === "rooms" ? (
-          <FormSection
-            subtitle={
-              summary.totalBeds > 0
-                ? `${summary.totalRooms} rooms · ${summary.totalBeds} beds`
-                : "Add each kind of room you let, and how many of them there are."
-            }
-            title="Rooms & pricing"
-          >
+      {step === "rooms" ? (
+        <>
+          <View className="gap-7">
             {form.rooms.map((room, roomIndex) => (
-              <RoomCard
+              <RoomSection
                 canRemove={form.rooms.length > 1}
                 key={room.id}
                 onChange={(next) => updateRoom(room.id, next)}
@@ -571,122 +823,128 @@ export default function RegisterHostelApplyScreen() {
                 room={room}
               />
             ))}
+          </View>
 
-            {errors.rooms ? (
-              <Text className="text-destructive" variant="caption">
-                {errors.rooms}
-              </Text>
-            ) : null}
+          {errors.rooms ? (
+            <Text className="text-destructive" variant="caption">
+              {errors.rooms}
+            </Text>
+          ) : null}
 
-            <Button
-              label="Add another room type"
-              onPress={() =>
-                setForm((current) => ({
-                  ...current,
-                  rooms: [...current.rooms, emptyRoomRow(makeRoomId())],
-                }))
+          <Button
+            icon={Plus}
+            label="Add room type"
+            onPress={addRoom}
+            variant="outline"
+          />
+
+          <StepSection title="Food">
+            <ChoiceChips
+              columns={2}
+              label="Meals served"
+              onToggle={(value) =>
+                value === "veg"
+                  ? patch({ servesVeg: !form.servesVeg })
+                  : patch({ servesNonVeg: !form.servesNonVeg })
               }
-              variant="outline"
+              options={MEALS_SERVED}
+              value={[
+                ...(form.servesVeg ? (["veg"] as const) : []),
+                ...(form.servesNonVeg ? (["nonVeg"] as const) : []),
+              ]}
             />
+            <ChoiceChips
+              columns={4}
+              label="Meals per day"
+              onToggle={(value) => patch({ mealsPerDay: value })}
+              options={withCurrent(MEALS_PER_DAY, form.mealsPerDay)}
+              value={form.mealsPerDay}
+            />
+          </StepSection>
 
-            <RowDivider />
-
+          <Accordion
+            caption="Optional"
+            defaultOpen={Boolean(form.admissionFee)}
+            title="Admission fee"
+          >
             <Input
-              hint="One-off, charged when someone moves in. Leave blank if you don't charge one."
               inputMode="numeric"
-              label="Admission fee (NPR, optional)"
+              label="Admission fee (NPR)"
               onChangeText={(value) => patch({ admissionFee: value })}
               value={form.admissionFee}
+              variant="line"
             />
+          </Accordion>
+        </>
+      ) : null}
 
-            <View className="gap-3">
-              <Text variant="label">Food</Text>
-
-              <View className="flex-row items-center justify-between">
-                <Text variant="muted">Vegetarian meals</Text>
-                <Toggle
-                  accessibilityLabel="Vegetarian meals served"
-                  onChange={(next) => patch({ servesVeg: next })}
-                  value={form.servesVeg}
-                />
-              </View>
-
-              <View className="flex-row items-center justify-between">
-                <Text variant="muted">Non-vegetarian meals</Text>
-                <Toggle
-                  accessibilityLabel="Non-vegetarian meals served"
-                  onChange={(next) => patch({ servesNonVeg: next })}
-                  value={form.servesNonVeg}
-                />
-              </View>
-
-              <Input
-                inputMode="numeric"
-                label="Meals per day"
-                onChangeText={(value) => patch({ mealsPerDay: value })}
-                value={form.mealsPerDay}
+      {step === "documents" ? (
+        <>
+          <StepSection
+            action={
+              <Select
+                onChange={(value) => patch({ idProofType: value })}
+                options={ID_PROOF_TYPES.map((type) => ({
+                  label: ID_PROOF_LABELS[type],
+                  value: type,
+                }))}
+                placeholder="Type"
+                sheetTitle="Government ID"
+                tone={errors.idProofType ? "danger" : undefined}
+                value={form.idProofType || null}
+                variant="compact"
               />
-            </View>
-          </FormSection>
-        ) : null}
-
-        {step === "documents" ? (
-          <FormSection
-            subtitle="The platform team verifies these before your listing goes live."
-            title="Documents"
+            }
+            title="Government ID *"
           >
-            <Select<IdProofType>
-              error={errors.idProofType}
-              label="Government ID"
-              onChange={(value) => patch({ idProofType: value })}
-              options={ID_PROOF_TYPES.map((type) => ({ label: type, value: type }))}
-              placeholder="Which one are you attaching?"
-              value={form.idProofType || null}
-            />
-
+            {errors.idProofType ? (
+              <Text className="text-destructive" variant="caption">
+                {errors.idProofType}
+              </Text>
+            ) : null}
             {form.idProof ? (
-              <AttachmentRow
+              <UploadPreview
                 attachment={form.idProof}
                 label="Your ID"
-                onPick={() => undefined}
                 onRemove={() => patch({ idProof: null })}
               />
             ) : (
               <View className="gap-2">
-                <Text variant="label">Your ID</Text>
-                <Text variant="caption">
-                  Photograph it now — the card in your hand is the document, and it
-                  does not have to be a scan on a computer.
-                </Text>
-                {errors.idProof ? (
-                  <Text className="text-destructive" variant="caption">
-                    {errors.idProof}
-                  </Text>
-                ) : null}
                 <View className="flex-row gap-2">
                   <View style={{ flex: 1 }}>
                     <Button
                       disabled={busy !== null}
-                      label="Photograph it"
+                      icon={Camera}
+                      label="Take photo"
                       loading={busy === "id-camera"}
                       onPress={() => void attachIdProof("camera")}
+                      size="sm"
                     />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Button
                       disabled={busy !== null}
-                      label="Choose a file"
+                      icon={Images}
+                      label="Gallery"
+                      size="sm"
                       loading={busy === "id-library"}
                       onPress={() => void attachIdProof("library")}
                       variant="outline"
                     />
                   </View>
                 </View>
+                {errors.idProof ? (
+                  <Text className="text-destructive" variant="caption">
+                    {errors.idProof}
+                  </Text>
+                ) : null}
               </View>
             )}
+          </StepSection>
 
-            <RowDivider />
+          <SectionRule />
 
+          <StepSection title="House rules *">
             <RulesDocumentField
               busy={busy}
               document={form.rulesDocument}
@@ -697,167 +955,140 @@ export default function RegisterHostelApplyScreen() {
               onRemove={() => patch({ rulesDocument: null })}
               rules={form.rules}
             />
+          </StepSection>
 
-            <RowDivider />
+          <SectionRule />
 
-            <View className="gap-2">
-              <Text variant="label">Photos (optional)</Text>
-              <Text variant="caption">
-                The outside, a room, the common areas. A listing with photos is the
-                one people enquire about.
-              </Text>
-              <PhotoStrip
-                onRemove={(url) =>
-                  setForm((current) => ({
-                    ...current,
-                    photos: current.photos.filter((photo) => photo.url !== url),
-                  }))
-                }
-                photos={form.photos}
-              />
-              <View className="flex-row gap-2">
-                <View style={{ flex: 1 }}>
-                  <Button
-                    disabled={busy !== null || form.photos.length >= 20}
-                    label="Take a photo"
-                    loading={busy === "photo-camera"}
-                    onPress={() => void addPhoto("camera")}
-                    variant="outline"
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    disabled={busy !== null || form.photos.length >= 20}
-                    label="From gallery"
-                    loading={busy === "photo-library"}
-                    onPress={() => void addPhoto("library")}
-                    variant="outline"
-                  />
-                </View>
+          <Accordion
+            caption="Optional"
+            defaultOpen={form.photos.length > 0}
+            title="Photos"
+          >
+            <PhotoStrip
+              onRemove={(url) =>
+                setForm((current) => ({
+                  ...current,
+                  photos: current.photos.filter((photo) => photo.url !== url),
+                }))
+              }
+              photos={form.photos}
+            />
+            <View className="flex-row gap-2">
+              <View style={{ flex: 1 }}>
+                <Button
+                  disabled={busy !== null || form.photos.length >= 20}
+                  icon={Camera}
+                  label="Take photo"
+                  loading={busy === "photo-camera"}
+                  onPress={() => void addPhoto("camera")}
+                  variant="outline"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  disabled={busy !== null || form.photos.length >= 20}
+                  icon={Images}
+                  label="Gallery"
+                  loading={busy === "photo-library"}
+                  onPress={() => void addPhoto("library")}
+                  variant="outline"
+                />
               </View>
             </View>
-          </FormSection>
-        ) : null}
+          </Accordion>
+        </>
+      ) : null}
 
-        {step === "review" ? (
-          <FormSection
-            subtitle="Check it, choose a plan, and send it to the platform team."
-            title="Review & submit"
-          >
-            <Card>
-              <ReviewRow label="Hostel" value={form.hostelName} />
-              <ReviewRow
-                label="Type"
-                value={
-                  HOSTEL_TYPES.find((type) => type.value === form.hostelType)?.label ?? ""
-                }
-              />
-              <ReviewRow
-                label="Where"
-                value={[form.address, form.area, form.city].filter(Boolean).join(", ")}
-              />
-              <ReviewRow
-                label="Capacity"
-                value={`${summary.totalRooms} rooms · ${summary.totalBeds} beds`}
-              />
-              <ReviewRow label="Owner" value={form.ownerName} />
-              <ReviewRow label="Phone" value={form.ownerPhone} />
-              <ReviewRow label="Email" value={form.email} />
-              <ReviewRow
-                label="Facilities"
-                value={form.facilities.join(", ")}
-              />
-              <ReviewRow
-                label="Documents"
-                value={[
-                  form.idProof ? form.idProofType || "ID proof" : "",
-                  form.rulesDocument ? "House rules" : "",
-                  form.photos.length > 0 ? `${form.photos.length} photos` : "",
-                ]
-                  .filter(Boolean)
-                  .join(", ")}
-              />
-            </Card>
-
-            <View className="gap-2">
-              <Text variant="label">Plan</Text>
-              <Text variant="caption">
-                Nothing is charged now — the platform team confirms pricing with you
-                after the hostel is approved.
-              </Text>
-              {HOSTEL_PLANS.map((plan) => (
-                <Pressable
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: form.selectedPlan === plan.id }}
-                  className={`flex-row items-start gap-3 rounded-xl border p-3 ${
-                    form.selectedPlan === plan.id
-                      ? "border-primary bg-brand-soft"
-                      : "border-border bg-card"
-                  }`}
-                  key={plan.id}
-                  onPress={() => patch({ selectedPlan: plan.id as PlanId })}
-                >
-                  <Ionicons
-                    color={
-                      form.selectedPlan === plan.id ? colors.primary : colors.border
-                    }
-                    name={
-                      form.selectedPlan === plan.id
-                        ? "radio-button-on"
-                        : "radio-button-off"
-                    }
-                    size={20}
-                  />
-                  <View className="flex-1">
-                    <Text variant="label">{plan.name}</Text>
-                    <Text variant="caption">{plan.summary}</Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: form.agreed }}
-              className="flex-row items-start gap-3"
-              onPress={() => patch({ agreed: !form.agreed })}
-            >
-              <Ionicons
-                color={form.agreed ? colors.primary : colors.border}
-                name={form.agreed ? "checkbox" : "square-outline"}
-                size={22}
-              />
-              <Text className="flex-1 leading-6" variant="muted">
-                I own or manage this hostel, and everything above is true.
-              </Text>
-            </Pressable>
-
-            {errors.agreed ? (
-              <Text className="text-destructive" variant="caption">
-                {errors.agreed}
-              </Text>
-            ) : null}
-          </FormSection>
-        ) : null}
-      </View>
-    </Screen>
+      {onReview ? (
+        <HostelReview
+          errors={errors}
+          form={form}
+          onEdit={(key) =>
+            goTo(
+              HOSTEL_STEPS.findIndex((entry) => entry.key === key),
+              false,
+            )
+          }
+          patch={patch}
+        />
+      ) : null}
+    </StepFrame>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Pieces                                                                     */
-/* -------------------------------------------------------------------------- */
+/** The faint hairline between one document and the next. */
+function SectionRule() {
+  return <View className="h-px bg-border opacity-50" />;
+}
+
+/** "Add your own" under the facility chips: opens a field, and the typed name joins the chips already on. */
+function CustomFacility({ onAdd }: { onAdd: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+
+  const add = () => {
+    const value = name.trim();
+
+    if (value) {
+      onAdd(value);
+    }
+
+    setName("");
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <Button
+        className="self-start"
+        icon={Plus}
+        label="Add your own"
+        onPress={() => setOpen(true)}
+        size="sm"
+        variant="ghost"
+      />
+    );
+  }
+
+  return (
+    <Input
+      autoFocus
+      label="Facility"
+      onChangeText={setName}
+      onSubmitEditing={add}
+      returnKeyType="done"
+      trailing={
+        <Pressable hitSlop={10} onPress={add}>
+          <Text className="text-primary" variant="label">
+            {name.trim() ? "Add" : "Cancel"}
+          </Text>
+        </Pressable>
+      }
+      value={name}
+      variant="line"
+    />
+  );
+}
+
+/** A list's options, plus any value saved before the list had it — so it stays visible and removable. */
+function withCurrent(
+  options: readonly string[],
+  ...current: string[]
+): { label: string; value: string }[] {
+  return [...new Set([...options, ...current.filter(Boolean)])].map(
+    (value) => ({ label: value, value }),
+  );
+}
 
 /**
  * One room type.
  *
- * `vacantBeds` is asked for because the listing's "beds free" is the single most
- * looked-at number on a hostel card, and a hostel that registers with it unset
- * publishes as full. It defaults to blank rather than to the bed count, though —
- * guessing an occupancy on an owner's behalf is inventing data about their
- * business.
+ * `vacantBeds` is asked for because "beds free" is the most looked-at number on
+ * a hostel card, and a hostel that registers with it unset publishes as full.
+ * It starts blank rather than at the bed count — guessing an occupancy on an
+ * owner's behalf is inventing data about their business.
  */
-function RoomCard({
+function RoomSection({
   canRemove,
   onChange,
   onRemove,
@@ -873,36 +1104,39 @@ function RoomCard({
   const { colors } = useAppTheme();
 
   return (
-    <Card className="gap-3">
-      <View className="flex-row items-center justify-between">
-        <Text variant="label">{`Room type ${position}`}</Text>
-        {canRemove ? (
+    <StepSection
+      action={
+        canRemove ? (
           <Pressable
             accessibilityLabel={`Remove room type ${position}`}
             accessibilityRole="button"
             hitSlop={10}
             onPress={onRemove}
           >
-            <Ionicons color={colors.destructive} name="trash-outline" size={18} />
+            <Ionicons
+              color={colors.destructive}
+              name="trash-outline"
+              size={18}
+            />
           </Pressable>
-        ) : null}
-      </View>
-
-      <Select<string>
-        label="Kind of room"
-        onChange={(value) => onChange({ roomType: value })}
-        options={ROOM_TYPE_OPTIONS.map((type) => ({ label: type, value: type }))}
+        ) : undefined
+      }
+      title={`Room type ${position}`}
+    >
+      <ChoiceChips
+        onToggle={(value) => onChange({ roomType: value })}
+        options={withCurrent(ROOM_TYPE_OPTIONS, room.roomType)}
         value={room.roomType}
       />
 
-      <View className="flex-row gap-3">
+      <View className="flex-row gap-4">
         <View style={{ flex: 1 }}>
           <Input
             inputMode="numeric"
             label="How many"
             onChangeText={(value) => onChange({ rooms: value })}
-            placeholder="0"
             value={room.rooms}
+            variant="line"
           />
         </View>
         <View style={{ flex: 1 }}>
@@ -910,13 +1144,13 @@ function RoomCard({
             inputMode="numeric"
             label="Beds each"
             onChangeText={(value) => onChange({ bedsPerRoom: value })}
-            placeholder="0"
             value={room.bedsPerRoom}
+            variant="line"
           />
         </View>
       </View>
 
-      <View className="flex-row gap-3">
+      <View className="flex-row gap-4">
         <View style={{ flex: 1 }}>
           <Input
             inputMode="numeric"
@@ -924,6 +1158,7 @@ function RoomCard({
             onChangeText={(value) => onChange({ monthlyRent: value })}
             placeholder="NPR"
             value={room.monthlyRent}
+            variant="line"
           />
         </View>
         <View style={{ flex: 1 }}>
@@ -931,31 +1166,29 @@ function RoomCard({
             inputMode="numeric"
             label="Beds free now"
             onChangeText={(value) => onChange({ vacantBeds: value })}
-            placeholder="0"
             value={room.vacantBeds}
+            variant="line"
           />
         </View>
       </View>
 
-      <Select<MealInclusion>
+      <ChoiceChips
+        columns={3}
         label="Meals"
-        onChange={(value) => onChange({ mealInclusion: value })}
+        onToggle={(value) => onChange({ mealInclusion: value })}
         options={MEAL_INCLUSIONS.map((meal) => ({ label: meal, value: meal }))}
         value={room.mealInclusion}
       />
-    </Card>
+    </StepSection>
   );
 }
 
 /**
- * The house-rules document, which is the requirement that used to send this whole
- * form to a browser.
- *
- * Two ways in, one slot. Start from a template and edit the words, and the text
- * is attached as a real `text/plain` document — or attach a file you already have.
- * Once something is attached the choice collapses to a single removable row,
- * because a form offering two ways to replace a thing that is already there is a
- * form asking a question it has the answer to.
+ * The house-rules document: start from a template and edit the words, and the
+ * text is attached as a real `text/plain` document — or attach a file. Once
+ * something is attached it collapses to one removable row, because offering
+ * two ways to replace a thing already there is asking a question it has the
+ * answer to.
  */
 function RulesDocumentField({
   busy,
@@ -980,114 +1213,214 @@ function RulesDocumentField({
 
   if (document) {
     return (
-      <AttachmentRow
+      <UploadPreview
         attachment={document}
-        hint="Residents are shown these before they move in."
-        label="House rules & policies"
-        onPick={() => undefined}
+        label="House rules"
         onRemove={onRemove}
+        // Rules written here went up as text; a picked file is an image.
+        text={document.fileName.endsWith(".txt") ? rules : undefined}
       />
     );
   }
 
   return (
-    <View className="gap-3">
-      <Text variant="label">House rules & policies</Text>
-      <Text variant="caption">
-        Start from a template and change what does not apply to you, or attach a
-        document you already have.
-      </Text>
-
-      <Select<string>
+    <View className="gap-5">
+      <ChoiceChips
         label="Template"
-        onChange={(value) => {
+        onToggle={(value) => {
           setTemplate(value);
           onChangeText(
             RULES_TEMPLATES.find((item) => item.id === value)?.body ?? rules,
           );
         }}
         options={RULES_TEMPLATES.map((item) => ({
-          description: item.summary,
           label: item.name,
           value: item.id,
         }))}
-        placeholder="Choose a starting point"
         value={template}
       />
 
       <Input
+        error={error}
         label="Your rules"
         multiline
         onChangeText={onChangeText}
         placeholder="One rule per line."
-        style={{ height: 200 }}
+        style={{ minHeight: 160 }}
         value={rules}
+        variant="line"
       />
 
-      {error ? (
-        <Text className="text-destructive" variant="caption">
-          {error}
-        </Text>
-      ) : null}
+      <View className="gap-2">
+        <Button
+          disabled={busy !== null}
+          icon={FileCheck}
+          label="Use these rules"
+          loading={busy === "rules-text"}
+          onPress={onAttachText}
+        />
+        <Button
+          disabled={busy !== null}
+          icon={Paperclip}
+          label="Attach a photo instead"
+          loading={busy === "rules-file"}
+          onPress={onAttachFile}
+          variant="ghost"
+        />
+      </View>
+    </View>
+  );
+}
 
-      <Button
-        disabled={busy !== null}
-        label="Attach these rules"
-        loading={busy === "rules-text"}
-        onPress={onAttachText}
+function HostelReview({
+  errors,
+  form,
+  onEdit,
+  patch,
+}: {
+  errors: HostelErrors;
+  form: HostelForm;
+  onEdit: (step: HostelStepKey) => void;
+  patch: (next: Partial<HostelForm>) => void;
+}) {
+  const [openStep, setOpenStep] = useState<HostelStepKey | null>(null);
+  const dash = (value: string) => value.trim() || "—";
+  const summary = capacitySummary(form.rooms);
+
+  const facts: Record<Exclude<HostelStepKey, "review">, [string, string][]> = {
+    basics: [
+      ["Hostel", dash(form.hostelName)],
+      ["About", dash(form.description)],
+      [
+        "Who it is for",
+        HOSTEL_TYPES.find((type) => type.value === form.hostelType)?.label ??
+          "—",
+      ],
+      ["Owner", dash(form.ownerName)],
+      ["Phone", dash(form.ownerPhone)],
+      ["Email", dash(form.email)],
+    ],
+    documents: [
+      [
+        "Government ID",
+        form.idProof
+          ? `${form.idProofType ? ID_PROOF_LABELS[form.idProofType] : "ID"} — attached`
+          : "Not attached",
+      ],
+      ["House rules", form.rulesDocument ? "Attached" : "Not attached"],
+      ["Photos", form.photos.length > 0 ? String(form.photos.length) : "—"],
+    ],
+    location: [
+      ["Address", dash(form.address)],
+      ["Landmark", dash(form.landmark)],
+      ["Area", dash(form.area)],
+      ["City", dash(form.city)],
+      ["Facilities", dash(form.facilities.join(", "))],
+      ["Floors", dash(form.totalFloors)],
+    ],
+    rooms: [
+      ...form.rooms.map(
+        (room): [string, string] => [
+          room.roomType || "Room",
+          `${room.rooms || 0} × ${room.bedsPerRoom || 0} beds${room.monthlyRent ? ` · NPR ${room.monthlyRent}` : ""}`,
+        ],
+      ),
+      ["Capacity", `${summary.totalRooms} rooms · ${summary.totalBeds} beds`],
+      [
+        "Food",
+        [
+          form.servesVeg ? "Veg" : "",
+          form.servesNonVeg ? "Non-veg" : "",
+          form.mealsPerDay ? `${form.mealsPerDay} a day` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ") || "—",
+      ],
+      [
+        "Admission fee",
+        form.admissionFee ? `NPR ${form.admissionFee}` : "None",
+      ],
+    ],
+  };
+
+  const steps = HOSTEL_STEPS.filter((entry) => entry.key !== "review");
+  const incomplete = steps.find(
+    (entry) => !isHostelStepComplete(entry.key, form),
+  );
+
+  return (
+    <View className="gap-5">
+      <View>
+        {steps.map((entry, position) => (
+          <ReviewFold
+            complete={isHostelStepComplete(entry.key, form)}
+            divider={position > 0}
+            key={entry.key}
+            onEdit={() => onEdit(entry.key)}
+            onToggle={() =>
+              setOpenStep(openStep === entry.key ? null : entry.key)
+            }
+            open={openStep === entry.key}
+            title={`${position + 1}. ${STEP_COPY[entry.key].title}`}
+          >
+            <FactRows
+              facts={facts[entry.key as Exclude<HostelStepKey, "review">]}
+            />
+          </ReviewFold>
+        ))}
+      </View>
+
+      <ReviewVerdict
+        incomplete={incomplete ? STEP_COPY[incomplete.key].title : null}
+        onFix={() => incomplete && onEdit(incomplete.key)}
       />
-      <Button
-        disabled={busy !== null}
-        label="Attach a file instead"
-        loading={busy === "rules-file"}
-        onPress={onAttachFile}
-        variant="ghost"
+
+      <Text variant="caption">
+        We&apos;ll verify your documents and email you within 1–2 business
+        days.
+      </Text>
+
+      <TermsAgreement
+        agreed={form.agreed}
+        error={errors.agreed}
+        onChange={(value) => patch({ agreed: value })}
+        prefix="I run this hostel, these details are true, and I agree to"
       />
     </View>
   );
 }
 
 /**
- * Submitted.
- *
- * The one thing worth being precise about here is *what has not happened yet*.
- * An owner who reads "registered" believes their hostel is listed, tells people
- * so, and finds out days later that it was under review the whole time.
+ * Submitted. The one thing worth being precise about is *what has not happened
+ * yet*: an owner who reads "registered" believes their hostel is listed.
  */
 function SubmittedView({ hostelName }: { hostelName: string }) {
-  const { colors } = useAppTheme();
-
   return (
-    <Screen header={<AppBar showBack title="Application submitted" />} scroll>
-      <View className="items-center gap-4 px-2 pt-10">
-        <View className="h-16 w-16 items-center justify-center rounded-2xl bg-brand-soft">
-          <Ionicons color={colors.primary} name="checkmark-circle-outline" size={32} />
+    <Screen
+      footer={
+        <View className="gap-2">
+          <Button
+            label="Explore plans & pricing"
+            onPress={() => router.replace("/pricing")}
+          />
+          <Button
+            label="Done"
+            onPress={() => router.replace("/register-hostel")}
+            variant="ghost"
+          />
         </View>
-
+      }
+      header={<AppBar title="" />}
+    >
+      <View className="flex-1 items-center justify-center gap-3 px-4 pt-16">
+        <Lottie loop={false} size={180} source={SENT_ANIMATION} />
         <Text className="text-center" variant="title">
           {hostelName} is with the review team
         </Text>
-
-        <Text className="text-center leading-6" variant="muted">
-          It is not listed yet. The platform team checks your ID and your details
-          first, and emails you when they are done. If they need anything else, the
-          request arrives by email too.
+        <Text className="text-center" variant="muted">
+          We&apos;ll verify your documents and email you within 1–2 business
+          days. Until then, explore our plans and pricing.
         </Text>
-
-        <Card className="mt-2 w-full gap-2">
-          <Text variant="label">What arrives with the approval</Text>
-          <Text className="leading-6" variant="muted">
-            An owner login, a dashboard for the hostel, and portals for your
-            wardens, residents, cooks and their guardians — all reachable from this
-            app.
-          </Text>
-        </Card>
-
-        <Button
-          className="mt-2 w-full"
-          label="Done"
-          onPress={() => router.replace("/register-hostel")}
-        />
       </View>
     </Screen>
   );

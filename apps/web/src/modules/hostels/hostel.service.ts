@@ -1209,6 +1209,41 @@ export async function findHostelUsingEmail(email: string): Promise<string | null
   return hostel ? (hostel.name ?? "another hostel") : null;
 }
 
+export type TeamOwnerEmailStatus = "AVAILABLE" | "EXISTING_ACCOUNT" | "HOSTEL" | "OTHER_ROLE";
+
+/**
+ * Everything Publish would say about an owner email, asked up front.
+ *
+ * `findHostelUsingEmail` alone let a resident's or warden's address through the
+ * live check and then failed at Publish inside `findOrCreatePublicHostelOwner`,
+ * which refuses any account that is not PUBLIC or HOSTEL_ADMIN. EXISTING_ACCOUNT
+ * is usable — the hostel is filed under the account the owner already has.
+ */
+export async function checkTeamOwnerEmail(
+  email: string,
+): Promise<{ status: TeamOwnerEmailStatus; usedBy: string | null }> {
+  const usedBy = await findHostelUsingEmail(email);
+
+  if (usedBy) {
+    return { status: "HOSTEL", usedBy };
+  }
+
+  const user = await UserModel.findOne({
+    email: email.trim().toLowerCase(),
+    isDeleted: { $ne: true },
+  })
+    .select("role")
+    .lean<{ role?: string } | null>();
+
+  if (!user) {
+    return { status: "AVAILABLE", usedBy: null };
+  }
+
+  return user.role === Role.PUBLIC || user.role === Role.HOSTEL_ADMIN
+    ? { status: "EXISTING_ACCOUNT", usedBy: null }
+    : { status: "OTHER_ROLE", usedBy: null };
+}
+
 export async function assertTeamRegistrationIsNew(input: TeamHostelRegistrationInput) {
   const key = hostelNameKey(input.name);
   const areaPattern = new RegExp(
