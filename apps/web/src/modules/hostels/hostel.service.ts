@@ -1172,7 +1172,10 @@ export function hostelNameKey(name: string): string {
  * hostel with that address: the account that **owns** it, an account that
  * **staffs** it (`hostelIds` — a warden or a cook signs in with their own
  * email), and the hostel's own **contact** address printed on its listing.
- * Only live hostels count — an address on an archived one is free again, which
+ * `hostelIds` only counts for those staff roles: a resident or guardian carries
+ * the hostel they live in (or look in on) there too, and naming that hostel as
+ * the email's owner is simply wrong — `checkTeamOwnerEmail` refuses them by
+ * role instead, and Publish does the same. Only live hostels count — an address on an archived one is free again, which
  * is the point of archiving it.
  *
  * Compared lower-cased, the way accounts store it; nobody types an email the
@@ -1191,16 +1194,17 @@ export async function findHostelUsingEmail(email: string): Promise<string | null
     email: address,
     isDeleted: { $ne: true },
   })
-    .select("_id hostelIds")
-    .lean<{ _id: Types.ObjectId; hostelIds?: Types.ObjectId[] } | null>();
+    .select("_id hostelIds role")
+    .lean<{ _id: Types.ObjectId; hostelIds?: Types.ObjectId[]; role?: string } | null>();
+  const staffsHostels =
+    user?.role === Role.HOSTEL_ADMIN || user?.role === Role.WARDEN || user?.role === Role.COOK;
 
   const hostel = await HostelModel.findOne({
     isDeleted: { $ne: true },
     $or: [
       { "contact.email": new RegExp(`^${address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
-      ...(user
-        ? [{ ownerId: user._id }, { _id: { $in: user.hostelIds ?? [] } }]
-        : []),
+      ...(user ? [{ ownerId: user._id }] : []),
+      ...(staffsHostels ? [{ _id: { $in: user?.hostelIds ?? [] } }] : []),
     ],
   })
     .select("name")

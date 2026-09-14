@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ExternalLink,
   FileText,
   Image as ImageIcon,
   Loader2,
@@ -8,8 +9,10 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import Image from "next/image";
 import { useState } from "react";
 
+import { useMediaViewer } from "@/components/media-viewer";
 import { acceptAttribute, uploadHint } from "@/lib/uploads/accepts";
 import { cn } from "@/lib/utils";
 
@@ -255,6 +258,8 @@ export function DocRow({
   );
 }
 
+const IMAGE_FILE = /\.(jpe?g|png|webp|gif)(\?|$)/i;
+
 export function FileUploadArea({
   accept = acceptAttribute("document"),
   files,
@@ -276,7 +281,16 @@ export function FileUploadArea({
 }) {
   const canAdd = files.length < maxFiles;
   const [isDragging, setIsDragging] = useState(false);
+  const mediaViewer = useMediaViewer();
+  const isImage = (file: UploadedFile) => IMAGE_FILE.test(file.name) || IMAGE_FILE.test(file.url);
+  const images = files.filter((file) => file.url && !file.uploading && isImage(file));
 
+  /*
+   * What was uploaded is shown, not just named: an agent checking that the
+   * citizenship went into the ID slot needs to see the citizenship. Images open
+   * the app-wide viewer on every image in this slot; a PDF or text file opens
+   * in a new tab, which renders both without a viewer of our own.
+   */
   return (
     <div className="space-y-2">
       {files.map((file) => (
@@ -285,24 +299,60 @@ export function FileUploadArea({
           key={file.id}
         >
           <div className="flex min-w-0 items-center gap-2.5">
-            {file.uploading ? (
+            {file.uploading || !file.url ? (
               <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
+            ) : isImage(file) ? (
+              <button
+                aria-label={`View ${file.name}`}
+                className="size-12 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border border-border bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/50"
+                onClick={() =>
+                  mediaViewer.open(
+                    images.map((image) => ({ caption: image.name, kind: "image" as const, src: image.url })),
+                    images.findIndex((image) => image.id === file.id),
+                  )
+                }
+                type="button"
+              >
+                <Image
+                  alt={file.name}
+                  className="size-full object-cover"
+                  height={48}
+                  src={file.url}
+                  unoptimized
+                  width={48}
+                />
+              </button>
             ) : (
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
-                {/\.(jpe?g|png|webp)/i.test(file.name) ? (
-                  <ImageIcon className="size-4" />
-                ) : (
-                  <FileText className="size-4" />
-                )}
-              </div>
+              <a
+                aria-label={`Open ${file.name}`}
+                className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal transition hover:bg-brand-teal/20"
+                href={file.url}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                <FileText className="size-5" />
+              </a>
             )}
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-foreground">
                 {file.name}
               </p>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {file.uploading ? "Uploading…" : "Uploaded"}
-              </p>
+              {file.uploading || !file.url ? (
+                <p className="truncate text-[11px] text-muted-foreground">Uploading…</p>
+              ) : isImage(file) ? (
+                <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <ImageIcon className="size-3" /> Tap to view
+                </p>
+              ) : (
+                <a
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-teal hover:underline"
+                  href={file.url}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  View <ExternalLink className="size-3" />
+                </a>
+              )}
             </div>
           </div>
           <button

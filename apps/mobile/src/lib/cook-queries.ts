@@ -151,15 +151,16 @@ export function prefetchCookQuery<T>(query: CookQuery<T>) {
 /**
  * What the portal warms the moment a cook enters it.
  *
- * One wave, three reads, and **not** `today` — that is the tab they land on and
- * it is already asking; warming it would be a duplicate racing the screen's own
- * request, which is the same exclusion `prefetchResidentPortal` makes for Home.
+ * One parallel wave. `today` leads: it is the landing tab, already asking, so
+ * this joins its request rather than racing it — and it is also what Menu and
+ * the tab badge read, so a refill on foreground keeps both current.
  *
  * The roster is in the wave rather than left to the Menu tab because it is the
- * slowest of the three on a hostel of forty and the least likely to have changed
+ * slowest read on a hostel of forty and the least likely to have changed
  * since the last shift — exactly the profile a warm-up exists for.
  */
 export function prefetchCookPortal() {
+  prefetchCookQuery(cookQuery.today());
   prefetchCookQuery(cookQuery.residents());
   prefetchCookQuery(cookQuery.photos());
   prefetchCookQuery(cookQuery.announcements());

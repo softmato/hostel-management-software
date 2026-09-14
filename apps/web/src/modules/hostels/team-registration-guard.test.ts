@@ -177,6 +177,30 @@ describe("an owner email already tied to a hostel", () => {
     await expect(findHostelUsingEmail("desk@everest.com")).resolves.toBe("Everest Home");
   });
 
+  it("counts the hostels a warden or cook staffs", async () => {
+    const hostelId = new Types.ObjectId();
+    mocks.userFindOne.mockReturnValue(
+      chain({ _id: new Types.ObjectId(), hostelIds: [hostelId], role: "WARDEN" }),
+    );
+
+    await findHostelUsingEmail("warden@example.com");
+
+    expect(mocks.hostelFindOne.mock.calls[0][0].$or).toContainEqual({ _id: { $in: [hostelId] } });
+  });
+
+  it("does not name the hostel a resident lives in as the email's owner", async () => {
+    const userId = new Types.ObjectId();
+    mocks.userFindOne.mockReturnValue(
+      chain({ _id: userId, hostelIds: [new Types.ObjectId()], role: "RESIDENT" }),
+    );
+
+    await findHostelUsingEmail("resident@example.com");
+
+    const { $or } = mocks.hostelFindOne.mock.calls[0][0];
+    expect($or).toHaveLength(2);
+    expect($or).toContainEqual({ ownerId: userId });
+  });
+
   it("looks the address up lower-cased", async () => {
     await findHostelUsingEmail("  Owner@Example.COM ");
 

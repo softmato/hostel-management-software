@@ -76,13 +76,15 @@ export const DEFAULT_MAX_AGE_MS = 5 * 60_000;
 /**
  * The cap, and why there is one.
  *
- * Keys are bounded in practice — the portal has about twenty — and the only ones
- * that multiply are the per-period money reads. An owner scrubbing the month
- * strip is the case that would otherwise grow this without limit, so the oldest
- * write is evicted past the cap. Nothing held here is large; this is a guard,
- * not a budget.
+ * Keys are bounded in practice — the warden portal's entry wave alone is about
+ * thirty, since it warms every tab and door at once — and the ones that
+ * multiply are the per-period money reads and per-resident records. An owner
+ * scrubbing the month strip is the case that would otherwise grow this without
+ * limit, so the oldest write is evicted past the cap. The cap sits well above
+ * the wave so warming never evicts what it just warmed. Nothing held here is
+ * large; this is a guard, not a budget.
  */
-const MAX_ENTRIES = 40;
+const MAX_ENTRIES = 120;
 
 const entries = new Map<string, Entry>();
 const listeners = new Map<string, Set<Listener>>();

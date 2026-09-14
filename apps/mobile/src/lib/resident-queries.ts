@@ -161,21 +161,26 @@ export function prefetchResidentQuery<T>(query: ResidentQuery<T>) {
 }
 
 /**
- * What the portal warms the moment a resident enters it.
- *
- * The three tabs they are certain to reach that are *not* the one they land on.
+ * Everything the portal reads, warmed in one parallel wave the moment a
+ * resident enters it — Home first (its own request is already in flight and
+ * this joins it), then the tabs, then the screens Home and More push.
  * Nothing is awaited and nothing can throw — `prefetchQuery` swallows failures
  * by design, and whichever screen opens the key will ask again and report the
  * failure properly, on a surface with somewhere to put the message.
  */
 export function prefetchResidentPortal() {
+  prefetchResidentQuery(residentQuery.dashboard());
   /*
    * One read, two tabs. Payments and Statement are the same invoices asked two
    * questions — what is open, and what has been paid — so they share
    * `resident:finance` and this warms both.
    */
   prefetchResidentQuery(residentQuery.finance());
+  prefetchResidentQuery(residentQuery.more());
   prefetchResidentQuery(residentQuery.notices());
+  prefetchResidentQuery(residentQuery.food());
+  prefetchResidentQuery(residentQuery.guardians());
+  prefetchResidentQuery(residentQuery.profile());
 }
 
 /**

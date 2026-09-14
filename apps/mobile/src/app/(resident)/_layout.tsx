@@ -1,7 +1,5 @@
-import { useEffect } from "react";
-
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
-import { runWhenIdle } from "@/lib/idle";
+import { usePortalWarmup } from "@/hooks/use-portal-warmup";
 import { prefetchResidentPortal } from "@/lib/resident-queries";
 
 const TABS: readonly TabDef[] = [
@@ -31,25 +29,11 @@ const HIDDEN = ["food", "notices"] as const;
 
 export default function RoleLayout() {
   /*
-   * The portal's warm-up, and the one place it belongs.
-   *
-   * This layout mounts once when a resident enters the group and stays mounted
-   * until they leave, so the reads fire once per visit rather than once per tab
-   * — and the tab they land on is Home, which is deliberately *not* in the list
-   * (it is already asking; warming it would be a duplicate racing the screen).
-   *
-   * One wave, not the admin portal's three. A warden has seven reads at the door
-   * and a dozen behind it; a resident has five tabs with one payload each, four
-   * of them small, so a second wave would be scheduling machinery around
-   * nothing.
-   *
-   * `runWhenIdle` puts these on the first idle frame, where the network is free
-   * — issued in the same frame they would compete with Home's own three
-   * requests on exactly the handsets this app is aimed at, making the screen
-   * someone is looking at slower so that three they are not could be faster.
-   * Nothing is awaited and nothing can throw.
+   * The portal's warm-up: Home, every tab and the screens pushed from Home, in
+   * one parallel wave the moment the group mounts, refilled on foreground. See
+   * `usePortalWarmup`. Nothing is awaited and nothing can throw.
    */
-  useEffect(() => runWhenIdle(prefetchResidentPortal), []);
+  usePortalWarmup(prefetchResidentPortal);
 
   /*
     No `<SosFab>` any more.

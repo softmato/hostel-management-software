@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { useEffect } from "react";
 import { type ColorValue, View } from "react-native";
 
 import { AnimatedTabBar } from "@/components/tab-bar";
@@ -8,25 +7,9 @@ import { PersonAvatar } from "@/components/ui/avatar";
 import type { RoleAccentKey } from "@/constants/theme";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { usePortalWarmup } from "@/hooks/use-portal-warmup";
 import { prefetchCommunity } from "@/lib/community-queries";
-import { runWhenIdle } from "@/lib/idle";
 import { prefetchNotifications } from "@/lib/notification-queries";
-
-/**
- * How long a shell waits before warming the Community tab.
- *
- * Four seconds, and the number is chosen off what is happening in front of it.
- * The tab a shell lands on is its own home, which is mounting and asking in the
- * same frame; the warden shell then warms the portal on top of that and its
- * Manage doors three seconds in. Community is the *last* thing in that queue on
- * purpose — it is a tab nobody is looking at yet, and every request it issues
- * early is bandwidth taken off the screen someone is watching load.
- *
- * Long enough to be out of the way, short enough to land inside the pause
- * between a home screen appearing and a tab being chosen, which is the whole
- * window this is aiming at.
- */
-const COMMUNITY_WARM_MS = 4_000;
 
 export type TabDef = {
   /**
@@ -95,27 +78,11 @@ export function RoleTabs({
    *
    * Nothing is awaited and nothing can throw: `prefetchQuery` swallows failures
    * by design, and both reads work signed out, which is what lets `(browse)`
-   * run this at all.
+   * run this at all. Fired in the same wave as the portal's own warm-up — the
+   * group layout's effect runs after this one, so the portal's reads queue
+   * behind the screen's, and the board's two reads sit alongside them.
    */
-  useEffect(() => {
-    if (!hasCommunity) {
-      return undefined;
-    }
-
-    let cancelIdle: (() => void) | null = null;
-
-    const warm = setTimeout(() => {
-      // Idle as well as delayed: a shell whose home is still settling gets the
-      // network back before this takes any of it.
-      cancelIdle = runWhenIdle(prefetchCommunity);
-    }, COMMUNITY_WARM_MS);
-
-    // Cancelled on the way out, so signing straight back out never fires it.
-    return () => {
-      clearTimeout(warm);
-      cancelIdle?.();
-    };
-  }, [hasCommunity]);
+  usePortalWarmup(prefetchCommunity, hasCommunity);
 
   /*
    * The bell's feed, warmed for whichever shell this is — and here for the same
@@ -123,7 +90,7 @@ export function RoleTabs({
    * role branch, so it is the one read every portal makes and belongs to no
    * portal's registry.
    *
-   * On the first idle frame rather than four seconds in, because this is not a
+   * At once rather than four seconds in, because this is not a
    * guess about where somebody will go next. Nearly every tab in every shell
    * draws a `<NotificationBell>`, so the count is *already on screen* — the only
    * question is whether it appears with the tab or a round trip later. The
@@ -136,13 +103,7 @@ export function RoleTabs({
    */
   const signedIn = Boolean(account);
 
-  useEffect(() => {
-    if (!signedIn) {
-      return undefined;
-    }
-
-    return runWhenIdle(prefetchNotifications);
-  }, [signedIn]);
+  usePortalWarmup(prefetchNotifications, signedIn);
 
   return (
     <Tabs

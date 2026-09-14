@@ -1,29 +1,20 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 
 import { RoleTabs, type TabDef } from "@/components/role-tabs";
 import { useMinuteTick } from "@/hooks/use-minute-tick";
+import { usePortalWarmup } from "@/hooks/use-portal-warmup";
 import { useQueryValue } from "@/hooks/use-query-value";
 import type { CookToday } from "@/lib/cook-api";
 import { mealButtons, mealsToCall } from "@/lib/cook";
 import { cookQuery, prefetchCookPortal } from "@/lib/cook-queries";
-import { runWhenIdle } from "@/lib/idle";
 
 export default function RoleLayout() {
   /*
-   * The portal's warm-up, and the one place it belongs.
-   *
-   * This layout mounts once when a cook enters the group and stays mounted
-   * until they leave, so the reads fire once per visit rather than once per tab
-   * — and the tab they land on is Today, which is deliberately *not* in the list
-   * (it is already asking; warming it would be a duplicate racing the screen).
-   *
-   * `runWhenIdle` puts them on the first idle frame, where the network is free.
-   * Issued in the same frame they would compete with Today's own request on
-   * exactly the handsets a hostel kitchen runs, making the screen somebody is
-   * looking at slower so that three they are not could be faster. Nothing is
+   * The portal's warm-up: Today and every tab in one parallel wave the moment
+   * the group mounts, refilled on foreground. See `usePortalWarmup`. Nothing is
    * awaited and nothing can throw.
    */
-  useEffect(() => runWhenIdle(prefetchCookPortal), []);
+  usePortalWarmup(prefetchCookPortal);
 
   /*
    * The badge, and why it costs nothing.

@@ -144,7 +144,7 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
   const [audience, setAudience] = useState("EVERYONE");
   const [repeat, setRepeat] = useState<Repeat>("NOW");
   const [date, setDate] = useState(() => nepalNow().date);
-  const [time, setTime] = useState("09:00");
+  const [time, setTime] = useState(() => nepalNow().time);
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [endsOn, setEndsOn] = useState("");
   const [busy, setBusy] = useState(false);
@@ -158,6 +158,19 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
   const schedules = resource.data?.schedules ?? [];
 
   const scheduling = repeat !== "NOW";
+
+  // Opening the schedule picker starts from this moment in Nepal, not from
+  // whenever the page happened to load.
+  const pickRepeat = useCallback((next: Repeat) => {
+    if (next !== "NOW") {
+      const now = nepalNow();
+
+      setDate(now.date);
+      setTime(now.time);
+    }
+
+    setRepeat(next);
+  }, []);
   const incomplete =
     title.trim().length < 2 ||
     body.trim().length < 2 ||
@@ -301,7 +314,7 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
               <div className="grid gap-2 text-sm font-semibold text-foreground">
                 When
                 <Segmented
-                  onChange={setRepeat}
+                  onChange={pickRepeat}
                   options={(["NOW", "ONCE", "DAILY", "WEEKLY"] as const).map((value) => ({
                     label: REPEAT_LABEL[value],
                     value,
@@ -311,7 +324,7 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
               </div>
 
               {scheduling ? (
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid items-start gap-3 sm:grid-cols-3">
                   <Input
                     label={repeat === "ONCE" ? "Date" : "Starts on"}
                     min={nepalNow().date}
@@ -321,7 +334,7 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
                     value={date}
                   />
                   <Input
-                    label="Time"
+                    label="Time (Nepal)"
                     name="time"
                     onChange={(event) => setTime(event.target.value)}
                     type="time"

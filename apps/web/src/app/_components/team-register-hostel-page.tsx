@@ -286,11 +286,15 @@ const STEPS: RegistrationStep[] = [
     label: "Photos",
   },
   {
-    description: "Facilities, house rules, meals and the weekly routine.",
+    description: "Facilities, meals and the weekly routine.",
     key: 5,
-    label: "Rules & food",
+    label: "Facilities & food",
   },
-  { description: "Whatever the owner handed you.", key: 6, label: "Documents" },
+  {
+    description: "Owner ID, house rules, and whatever else they handed you.",
+    key: 6,
+    label: "Documents & rules",
+  },
   {
     description: "What they are buying, and what you collected.",
     key: 7,
@@ -378,7 +382,7 @@ const FIELD_STEP: Record<string, number> = {
   plan: 7,
   rooms: 3,
   routine: 5,
-  rules: 5,
+  rules: 6,
   totalFloors: 1,
   yearEstablished: 1,
 };
@@ -852,6 +856,32 @@ export function TeamRegisterHostelPage() {
    * phone number would be shouted at mid-keystroke.
    */
   const [reviewed, setReviewed] = useState(false);
+  /**
+   * The problems banner at the top is a nudge, not a wall: it shows for three
+   * seconds each time the agent reviews, steps on, or tries to publish, then
+   * gets out of the way. The inline messages under each field stay put. Hovering
+   * holds it open so a link in it can still be clicked.
+   */
+  const [bannerFlash, setBannerFlash] = useState(0);
+  const [bannerOpen, setBannerOpen] = useState(false);
+  const [bannerHeld, setBannerHeld] = useState(false);
+
+  function flashProblems() {
+    setBannerOpen(true);
+    // A banner that unmounted under the pointer never fired mouseleave.
+    setBannerHeld(false);
+    setBannerFlash((count) => count + 1);
+  }
+
+  useEffect(() => {
+    if (!bannerOpen || bannerHeld) {
+      return;
+    }
+
+    const timer = setTimeout(() => setBannerOpen(false), 3000);
+
+    return () => clearTimeout(timer);
+  }, [bannerOpen, bannerHeld, bannerFlash]);
   const [focusTarget, setFocusTarget] = useState<{ at: number; field: string } | null>(
     null,
   );
@@ -1266,7 +1296,7 @@ export function TeamRegisterHostelPage() {
         valid: pin.coordinates !== null,
       },
       { field: "facilities", label: "Facilities", step: 5, valid: facilities.length > 0 },
-      { field: "rules", label: "House rules", step: 5, valid: Boolean(rules.trim()) },
+      { field: "rules", label: "House rules", step: 6, valid: Boolean(rules.trim()) },
       {
         field: "routine",
         label: "The food routine is still the sample week — check it with the owner",
@@ -1527,6 +1557,7 @@ export function TeamRegisterHostelPage() {
       setReviewed(true);
     }
 
+    flashProblems();
     setStep(Math.min(STEPS.length, Math.max(1, next)));
     window.scrollTo({ behavior: "smooth", top: 0 });
   }
@@ -1538,6 +1569,7 @@ export function TeamRegisterHostelPage() {
     }
 
     setReviewed(true);
+    flashProblems();
     setStep(stepOfField(field));
     // A fresh object each time, so pointing at the same field twice still moves.
     setFocusTarget((prev) => ({ at: (prev?.at ?? 0) + 1, field }));
@@ -1779,6 +1811,7 @@ export function TeamRegisterHostelPage() {
   async function publish() {
     setError("");
     setSubmitErrors({});
+    flashProblems();
 
     if (blocking.length > 0) {
       focusField(blocking[0].field);
@@ -2035,9 +2068,11 @@ export function TeamRegisterHostelPage() {
         Every problem, each one a way straight to it. The review step lists the
         same things in its own card, so this only shows on the other steps.
       */}
-      {showChecks && step !== STEPS.length && problems.length > 0 ? (
+      {bannerOpen && showChecks && step !== STEPS.length && problems.length > 0 ? (
         <div
           className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm"
+          onMouseEnter={() => setBannerHeld(true)}
+          onMouseLeave={() => setBannerHeld(false)}
           role="alert"
         >
           <p className="font-semibold text-destructive">
@@ -2565,34 +2600,6 @@ export function TeamRegisterHostelPage() {
                 </div>
               </Card>
 
-              <Card
-                subtitle="One rule per line. Start from a template and edit what differs."
-                title="House rules"
-              >
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {RULES_TEMPLATES.map((template) => (
-                    <button
-                      className="rounded-lg border border-dashed border-border px-3 py-1.5 text-left text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5"
-                      key={template.id}
-                      onClick={() => applyRulesTemplate(template.id)}
-                      type="button"
-                    >
-                      {template.name}
-                    </button>
-                  ))}
-                </div>
-
-                <ErrorRegion name="rules">
-                <textarea
-                  aria-invalid={Boolean(fieldErrors.rules) || undefined}
-                  className="input-field h-40 w-full py-2"
-                  onChange={(event) => setRules(event.target.value)}
-                  placeholder={"Gate closes at 10:00 PM\nNo smoking indoors"}
-                  value={rules}
-                />
-                </ErrorRegion>
-              </Card>
-
               <Card subtitle="What the kitchen serves." title="Food">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Kitchen">
@@ -2705,6 +2712,7 @@ export function TeamRegisterHostelPage() {
           ) : null}
 
           {step === 6 ? (
+            <>
             <Card subtitle="The owner's ID is required. The rest if they have it." title="Documents">
               <FieldError name="documents" />
               <div className="space-y-4" data-field="documents">
@@ -2770,6 +2778,35 @@ export function TeamRegisterHostelPage() {
                 ) : null}
               </div>
             </Card>
+
+            <Card
+              subtitle="One rule per line. Start from a template and edit what differs."
+              title="House rules"
+            >
+              <div className="mb-3 flex flex-wrap gap-2">
+                {RULES_TEMPLATES.map((template) => (
+                  <button
+                    className="rounded-lg border border-dashed border-border px-3 py-1.5 text-left text-xs font-semibold text-foreground transition hover:border-brand-teal hover:bg-brand-teal/5"
+                    key={template.id}
+                    onClick={() => applyRulesTemplate(template.id)}
+                    type="button"
+                  >
+                    {template.name}
+                  </button>
+                ))}
+              </div>
+
+              <ErrorRegion name="rules">
+                <textarea
+                  aria-invalid={Boolean(fieldErrors.rules) || undefined}
+                  className="input-field h-auto min-h-40 w-full resize-y py-2"
+                  onChange={(event) => setRules(event.target.value)}
+                  placeholder={"Gate closes at 10:00 PM\nNo smoking indoors"}
+                  value={rules}
+                />
+              </ErrorRegion>
+            </Card>
+            </>
           ) : null}
 
           {step === 7 ? (

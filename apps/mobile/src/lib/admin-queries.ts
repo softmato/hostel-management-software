@@ -15,25 +15,16 @@
  * the call site rather than a screen quietly showing January's invoices in
  * February.
  *
- * ## Three tiers of warming, on purpose
+ * ## Two tiers of warming
  *
- * Ordered by how sure the app is that somebody is about to look at the answer,
- * because that ordering *is* the design — everything warmed too eagerly is
- * bandwidth taken from the screen actually on the glass.
- *
- * 1. **{@link prefetchAdminPortal}**, the moment the portal opens: what the
- *    owner is certain to reach. The tab screens that read the hostel (Residents,
- *    Payments, More) and the four screens Home's own rows and tiles lead to
- *    (Today, roll call, inquiries, notices). Seven reads, deduplicated against
- *    whatever Home is already loading.
- * 2. **{@link prefetchAdminManage}**, three seconds later: the Manage grid's
- *    doors, warmed in the gap between Home appearing and a door being chosen.
- *    Second wave rather than one long list so these never queue in front of the
- *    five somebody is about to read.
- * 3. **{@link prefetchAdminRoute}** and {@link prefetchAdminResident}, on
- *    touch-down of the thing being opened. This is the catch-all — the routes
- *    the waves deliberately skip, and every per-id record, where warming ahead
- *    of the tap would mean warming forty of them.
+ * 1. **{@link prefetchAdminPortal}**, the moment the portal opens and again on
+ *    every foreground: Home, every tab and every door, in one parallel wave
+ *    ordered by what somebody looks at first. Deduplicated against whatever
+ *    Home is already loading.
+ * 2. **{@link prefetchAdminRoute}** and {@link prefetchAdminResident}, on
+ *    touch-down of the thing being opened. This is the catch-all — every
+ *    per-id record, where warming ahead of the tap would mean warming forty of
+ *    them. Reports is in neither: it is server work, not a list read.
  *
  * ## Every loader here is refusal-tolerant, and that is not incidental
  *
@@ -654,58 +645,52 @@ export function prefetchAdminQuery<T>(query: AdminQuery<T>) {
 }
 
 /**
- * What the portal warms the moment it opens.
+ * Everything the portal reads, warmed in one parallel wave the moment it opens.
  *
- * Three absences are deliberate:
+ * Listed in the order somebody will look at it — Home, the tabs, then every
+ * door behind Home's grid and More — because the native HTTP dispatcher runs
+ * a host's requests in the order they were issued. Home's own `useResource`
+ * already asked by the time this runs (child effects fire first), so its keys
+ * here join that request rather than making a second.
  *
- * - **Home**, because it is mounting as this runs and already asking. Adding it
- *   would only hand the warm-up the request Home started — harmless, and
- *   misleading to read.
- * - **The alerts queue**, because `AdminAlertsProvider` fetches it once for the
- *   whole group. That is this same idea one layer up, and it predates this
- *   module.
- * - **Community**, because the tab is the platform-wide board every signed-in
- *   role sees, not a read of this hostel. It belongs to `CommunityBoard`, and
- *   warming it here would make one shared feed the warden portal's business.
+ * Two absences are deliberate:
+ *
+ * - **Reports** runs a month of attendance and food analytics on the server.
+ *   Speculatively starting real work is a different trade from speculatively
+ *   reading a list; it is cached once opened, never started by a guess.
+ * - **One resident's record** is keyed by id and six requests deep; the rows
+ *   that know the id warm it on touch-down.
+ *
+ * Community and the bell's feed are warmed by `RoleTabs`, for every shell.
  */
 export function prefetchAdminPortal() {
+  // Home.
+  prefetchAdminQuery(adminQuery.overview());
+  prefetchAdminQuery(adminQuery.subscription());
+  prefetchAdminQuery(adminQuery.alerts());
+  // The tabs.
+  prefetchAdminQuery(adminQuery.today());
   prefetchAdminQuery(adminQuery.residents());
   prefetchAdminQuery(adminQuery.money(nepalPeriodKey()));
-  prefetchAdminQuery(adminQuery.today());
   prefetchAdminQuery(adminQuery.hostel());
+  // The doors.
   prefetchAdminQuery(adminQuery.rollCall());
-  prefetchAdminQuery(adminQuery.inquiries());
-  prefetchAdminQuery(adminQuery.notices(""));
-}
-
-/**
- * The Manage grid's doors, warmed once the first wave has had the network.
- *
- * Home's grid and the More tab list the same eight destinations, and touch-down
- * only buys the couple of hundred milliseconds between a finger landing and a
- * screen being pushed. That is enough to hide a single list read and not enough
- * to hide `manage/settings`, which is three. Warming them a few seconds in — by
- * which point the reader is still on Home deciding where to go — is what makes
- * those screens open already drawn rather than merely already loading.
- *
- * Second wave rather than one long list because order is the whole point: the
- * five reads above are the ones somebody is about to *look at*, and they must
- * not queue behind six they might not open. `prefetchQuery` deduplicates, so
- * anything touch-down already started costs nothing here.
- *
- * **Reports is deliberately not here.** `manage/reports` runs attendance and
- * food analytics over a month on the server; speculatively starting real work
- * is a different trade from speculatively reading a list. It is cached like
- * everything else, so opening it twice is one run — it is simply never started
- * by a guess.
- */
-export function prefetchAdminManage() {
-  prefetchAdminQuery(adminQuery.finance());
-  prefetchAdminQuery(adminQuery.managedHostel());
   prefetchAdminQuery(adminQuery.food());
   prefetchAdminQuery(adminQuery.maintenance(""));
+  prefetchAdminQuery(adminQuery.notices(""));
+  prefetchAdminQuery(adminQuery.inquiries());
+  prefetchAdminQuery(adminQuery.finance());
+  prefetchAdminQuery(adminQuery.managedHostel());
   prefetchAdminQuery(adminQuery.settings());
   prefetchAdminQuery(adminQuery.ledger());
+  prefetchAdminQuery(adminQuery.feeSchedules());
+  prefetchAdminQuery(adminQuery.paymentProfile());
+  prefetchAdminQuery(adminQuery.planBilling());
+  prefetchAdminQuery(adminQuery.statementImports());
+  prefetchAdminQuery(adminQuery.cooks());
+  prefetchAdminQuery(adminQuery.wardens());
+  prefetchAdminQuery(adminQuery.referrals(""));
+  prefetchAdminQuery(adminQuery.moderation("flagged"));
 }
 
 /**
