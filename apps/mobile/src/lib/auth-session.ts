@@ -240,6 +240,10 @@ export async function startSession(result: {
     refreshToken: result.refreshToken,
   });
 
+  // Signed-out reads (the community's `viewer.canPost`, above all) were cached
+  // under the same keys; left in place they paint "Sign in" to a signed-in user.
+  clearQueryCache();
+
   store.dispatch(setSession({ accessToken: result.accessToken, account: result.user }));
 
   if (result.user.role === ROLE.RESIDENT) {

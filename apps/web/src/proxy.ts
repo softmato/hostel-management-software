@@ -84,7 +84,7 @@ export async function proxy(request: NextRequest) {
   const rule = protectedRouteRuleForPath(pathname);
 
   if (!rule) {
-    return NextResponse.next();
+    return isSoftSessionPath(pathname) ? keepSessionAlive(request) : NextResponse.next();
   }
 
   const refuse = (error?: string) =>
@@ -143,6 +143,43 @@ export async function proxy(request: NextRequest) {
   return withSession(redirectToLogin(request, "forbidden"));
 }
 
+/**
+ * Every page and API call renews a dead session before it is handled, so no
+ * request is ever answered signed-out for someone who is signed in. The access
+ * cookie dies with its 15-minute token, and optional-auth reads (the community,
+ * `/auth/me` in the header) never 401 — without this they would render
+ * "Sign in" first and only recover after a client refresh.
+ *
+ * The auth routes that manage tokens themselves are left alone: refreshing in
+ * front of `/auth/refresh` or `/auth/logout` would rotate the token they are
+ * about to act on.
+ */
+function isSoftSessionPath(pathname: string) {
+  return !pathname.startsWith("/api/v1/auth/") || pathname === "/api/v1/auth/me";
+}
+
+async function keepSessionAlive(request: NextRequest) {
+  if (
+    !request.cookies.has(REFRESH_TOKEN_COOKIE) ||
+    (await roleFromAccessToken(request.cookies.get(ACCESS_TOKEN_COOKIE)?.value))
+  ) {
+    return NextResponse.next();
+  }
+
+  const refreshed = await refreshFromCookie(request);
+
+  if (!refreshed) {
+    return NextResponse.next();
+  }
+
+  request.cookies.set(ACCESS_TOKEN_COOKIE, refreshed.accessToken);
+
+  return applySessionCookies(
+    NextResponse.next({ request: { headers: request.headers } }),
+    refreshed,
+  );
+}
+
 async function roleFromAccessToken(token: string | undefined) {
   if (!token) {
     return null;
@@ -181,6 +218,13 @@ async function refreshFromCookie(request: NextRequest) {
 
 export const config = {
   matcher: [
+    /*
+     * Everything but static files, so a dead session is renewed on the very
+     * first request — see isSoftSessionPath. Protected portals and the route
+     * aliases below are covered by this too; they stay listed as the record of
+     * what the proxy guards.
+     */
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|map|txt|xml|woff2?|webmanifest)$).*)",
     /* Protected portals */
     "/platform/:path*",
     "/hostel-admin/:path*",

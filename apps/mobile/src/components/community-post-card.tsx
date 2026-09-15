@@ -6,6 +6,7 @@ import { Alert, Linking, Pressable, Share, View } from "react-native";
 
 import { CommentInput, CommentThread } from "@/components/community-comment-thread";
 import { ReactionBar } from "@/components/community-reaction-bar";
+import { PersonAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,8 +35,6 @@ import {
 } from "@/lib/community-queries";
 import { fetchQuery, readQuery, subscribeQuery } from "@/lib/query-cache";
 import {
-  avatarInitial,
-  avatarTone,
   commentCountLabel,
   feedTime,
   MAX_REPORT_REASON,
@@ -43,7 +42,6 @@ import {
   reactionTally,
   reportReasonError,
   spaceBadge,
-  usableAvatarUrl,
 } from "@/lib/community";
 import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
 
@@ -313,28 +311,10 @@ export function CommunityPostCard({
     ]);
   }, [onChanged, post.id]);
 
-  const avatarUrl = usableAvatarUrl(post.authorImage);
-  const [tone, ink] = avatarTone(post.authorName);
-
   return (
     <View className="gap-3 py-4">
       <View className="flex-row items-start gap-3">
-        {avatarUrl ? (
-          <Image
-            contentFit="cover"
-            source={{ uri: avatarUrl }}
-            style={{ borderRadius: 19, height: 38, width: 38 }}
-          />
-        ) : (
-          <View
-            className="items-center justify-center rounded-full"
-            style={{ backgroundColor: tone, height: 38, width: 38 }}
-          >
-            <Text style={{ color: ink, fontSize: 15, fontWeight: "700" }}>
-              {avatarInitial(post.authorName)}
-            </Text>
-          </View>
-        )}
+        <PersonAvatar image={post.authorImage} name={post.authorName} />
 
         <View className="flex-1">
           <Text

@@ -25,6 +25,7 @@ import {
 
 import { AUTH_CLIENT_HEADER, MOBILE_AUTH_CLIENT } from "@/lib/api-contract";
 import {
+  accessTokenNeedsRefresh,
   readRefreshOutcome,
   type RefreshResponseBody,
 } from "@/lib/refresh-tokens";
@@ -105,8 +106,32 @@ export function bindSessionHandlers(next: SessionHandlers) {
   handlers = next;
 }
 
+/**
+ * A rotated token that still reads as expiring means the phone's clock is off.
+ * Remembered so that token is not refreshed again on every request.
+ */
+let skewedToken: string | null = null;
+
 api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
-  const token = handlers?.getAccessToken() ?? (await readTokens())?.accessToken;
+  let token = handlers?.getAccessToken() ?? (await readTokens())?.accessToken;
+
+  /*
+   * Refresh *before* sending, not after a 401. An expired token on an
+   * optional-auth read (the community feed) would otherwise paint the screen
+   * signed-out for a round trip. Waking the app after an hour lands here too, so
+   * the first request after resume already carries a live token.
+   */
+  if (token && token !== skewedToken && accessTokenNeedsRefresh(token)) {
+    const rotated = await rotateAccessToken();
+
+    if (rotated) {
+      token = rotated;
+
+      if (accessTokenNeedsRefresh(rotated)) {
+        skewedToken = rotated;
+      }
+    }
+  }
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;

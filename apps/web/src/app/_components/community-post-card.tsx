@@ -11,6 +11,7 @@ import { useMediaViewer } from "@/components/media-viewer";
 import { browserApi } from "@/lib/browser-api";
 import { usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
+import { useSessionStore } from "@/stores/session-store";
 import { toast } from "@/stores/toast-store";
 
 export const COMMUNITY_ENDPOINT = "/api/v1/community";
@@ -45,6 +46,8 @@ type CommunityComment = {
   createdAt?: string;
   depth: number;
   id: string;
+  /** A removed comment kept only as a placeholder for the replies under it. */
+  isDeleted?: boolean;
   isMine: boolean;
   parentId: string | null;
   score: number;
@@ -117,7 +120,10 @@ function Avatar({
   name: string;
   size?: number;
 }) {
-  if (image) {
+  // The photo route needs a session; a signed-out reader gets the initial.
+  const [failed, setFailed] = useState(false);
+
+  if (image && !failed) {
     return (
       /* eslint-disable-next-line @next/next/no-img-element -- author photos are
          served from an authenticated route the image optimizer cannot reach. */
@@ -125,6 +131,7 @@ function Avatar({
         alt=""
         className="shrink-0 rounded-full object-cover"
         loading="lazy"
+        onError={() => setFailed(true)}
         src={image}
         style={{ height: size, width: size }}
       />
@@ -371,6 +378,27 @@ function CommentThread({
     [onChanged, postId, replyDraft],
   );
 
+  const removeComment = useCallback(
+    async (commentId: string) => {
+      if (!window.confirm("Delete this comment?")) {
+        return;
+      }
+
+      try {
+        await browserApi(`${COMMUNITY_ENDPOINT}/${postId}/comments/${commentId}`, {
+          method: "DELETE",
+        });
+        toast.success({ title: "Comment deleted" });
+        onChanged();
+      } catch (error) {
+        toast.error({
+          title: error instanceof Error ? error.message : "Could not delete.",
+        });
+      }
+    },
+    [onChanged, postId],
+  );
+
   return (
     <>
       {comments
@@ -427,6 +455,10 @@ function CommentThread({
                     >
                       comment collapsed — click to expand
                     </button>
+                  ) : comment.isDeleted ? (
+                    <p className="my-1 text-[13px] italic text-muted-foreground">
+                      Comment deleted
+                    </p>
                   ) : (
                     <>
                       <p className="my-1 whitespace-pre-line break-words text-sm leading-relaxed text-foreground">
@@ -477,6 +509,18 @@ function CommentThread({
                             type="button"
                           >
                             Reply
+                          </button>
+                        ) : null}
+
+                        {comment.isMine ? (
+                          <button
+                            aria-label="Delete comment"
+                            className="flex items-center gap-1 text-[12.5px] font-semibold text-muted-foreground transition hover:text-destructive"
+                            onClick={() => void removeComment(comment.id)}
+                            type="button"
+                          >
+                            <Trash2 className="size-3.5" />
+                            Delete
                           </button>
                         ) : null}
 
@@ -665,6 +709,8 @@ export function CommunityPostCard({
     [post.id],
   );
 
+  const sessionUser = useSessionStore((state) => state.user);
+
   const removeOwn = useCallback(async () => {
     setMenuOpen(false);
 
@@ -818,7 +864,11 @@ export function CommunityPostCard({
         <div className="mt-3.5 border-t border-border pt-3.5">
           {canInteract ? (
             <div className="mb-4 flex items-start gap-2.5">
-              <Avatar image={null} name="You" size={32} />
+              <Avatar
+                image={sessionUser?.image ?? null}
+                name={sessionUser?.name ?? "You"}
+                size={32}
+              />
               <div className="flex-1">
                 <textarea
                   className="min-h-[22px] w-full resize-none bg-transparent text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground"

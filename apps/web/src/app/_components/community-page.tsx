@@ -24,6 +24,80 @@ import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
 import { toast } from "@/stores/toast-store";
 
+const PREFERENCES_ENDPOINT = "/api/v1/account/notification-preferences";
+/** `COMMUNITY_POST_MUTE_KEY` in `modules/community/community-notify.ts`. */
+const POST_MUTE_KEY = "COMMUNITY_POST";
+
+/**
+ * The web's copy of the app's Settings → "New community posts" switch. It
+ * writes the same account preference, so muting on one mutes on both.
+ */
+function NewPostAlertsToggle() {
+  const invalidate = useInvalidateResources();
+  const prefs = usePortalResource<{ preference: { mutedCategories: string[] } }>(
+    PREFERENCES_ENDPOINT,
+    { errorMessage: "Could not load notification settings." },
+  );
+  const [saving, setSaving] = useState(false);
+
+  if (!prefs.data) {
+    return null;
+  }
+
+  const muted = prefs.data.preference.mutedCategories;
+  const on = !muted.includes(POST_MUTE_KEY);
+
+  const toggle = async () => {
+    setSaving(true);
+
+    try {
+      await browserApi(PREFERENCES_ENDPOINT, {
+        body: JSON.stringify({
+          mutedCategories: on
+            ? [...muted, POST_MUTE_KEY]
+            : muted.filter((key) => key !== POST_MUTE_KEY),
+        }),
+        method: "PATCH",
+      });
+      invalidate(PREFERENCES_ENDPOINT);
+      toast.success({ title: on ? "New post notifications muted" : "New post notifications on" });
+    } catch (error) {
+      toast.error({
+        title: error instanceof Error ? error.message : "Could not save.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-2.5">
+      <span className="text-[13.5px] font-medium text-foreground">
+        Notify me when someone posts
+      </span>
+      <button
+        aria-checked={on}
+        aria-label="Notify me when someone posts"
+        className={cn(
+          "relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-60",
+          on ? "bg-primary" : "bg-muted",
+        )}
+        disabled={saving}
+        onClick={() => void toggle()}
+        role="switch"
+        type="button"
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 size-5 rounded-full bg-background shadow transition-all",
+            on ? "left-[22px]" : "left-0.5",
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
 type Space = {
   id: string;
   isMine: boolean;
@@ -322,6 +396,8 @@ export function CommunityPageContent({ initialPostId }: { initialPostId?: string
                   ))}
                 </div>
               </div>
+
+              {canPost ? <NewPostAlertsToggle /> : null}
 
               {canPost ? (
                 <section className="mb-6 rounded-2xl border border-border bg-surface p-5">

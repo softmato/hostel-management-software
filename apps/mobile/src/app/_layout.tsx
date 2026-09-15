@@ -101,10 +101,10 @@ function RootShell() {
    *
    * It fires on mount rather than waiting for `isReady`, and the handover is
    * still seamless because `BrandSplash` is drawn to the same white ground and
-   * the same centred mark as the native splash in app.json. What it buys is the
-   * *words*: an Android splash is one image on one colour and cannot draw text,
-   * so `HostelHub` and "Powered by Softmato" exist only in `BrandSplash` — and
-   * holding the native one to the end of boot meant nobody ever saw them.
+   * the same centred lockup as the native splash in app.json. What it buys is
+   * the "Powered by Softmato" strip on Android 11 and below and on iOS, which
+   * have no native branding slot — holding the native splash to the end of boot
+   * meant nobody there ever saw it.
    *
    * There is still nothing to flash past. This effect runs after the subtree
    * below has committed, and while `isReady` is false every route under it —

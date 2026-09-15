@@ -98,6 +98,16 @@ export async function loadApiPrincipal(request: NextRequest) {
       userId: payload.sub,
     } satisfies ApiPrincipal;
   } catch {
+    /*
+     * A bearer token the app sent but that no longer verifies (usually just
+     * expired) is a session to refresh, not a signed-out reader. Answering null
+     * gave optional-auth reads — the community's `viewer.canPost` — a 200 that
+     * said "sign in" and never set off the client's 401 → refresh → replay.
+     */
+    if (getBearerToken(request.headers.get("authorization"))) {
+      throw new ApiAuthError("Your session has expired.");
+    }
+
     return null;
   }
 }

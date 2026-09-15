@@ -1,34 +1,51 @@
-import { Image } from "expo-image";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import Animated, {
-  Easing,
-  FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from "react-native-reanimated";
+import { Image, StyleSheet, View } from "react-native";
+import Animated, { Easing, FadeOut } from "react-native-reanimated";
 
-import { APP_NAME, APP_NAME_PARTS, POWERED_BY, logo } from "@/constants/branding";
+import { APP_NAME, POWERED_BY } from "@/constants/branding";
 import { palette } from "@/constants/theme";
 
-/** How long the cold-start cover holds, so the "Powered by" line is actually read. */
-const BOOT_COVER_MS = 1600;
+/**
+ * The JS half of the launch screen.
+ *
+ * The native splash draws two things: the HostelPalika lockup in the centre
+ * (`windowSplashScreenAnimatedIcon`, from the `expo-splash-screen` block in
+ * app.json) and the "Powered by Softmato" strip at the bottom
+ * (`windowSplashScreenBrandingImage`, added by `plugins/withSplashBranding.js`).
+ * This reproduces both at the same sizes and positions, so when
+ * `SplashScreen.hideAsync()` runs in `_layout.tsx` nothing moves — no entrance
+ * animation, no reflow. It is the only place the strip appears on Android 11
+ * and below and on iOS, where the system splash has no branding slot.
+ *
+ * Geometry is mirrored from `scripts/gen_splash.py`; re-run it and keep these in sync:
+ *   - `LOGO_WIDTH`  ← `imageWidth` in app.json
+ *   - `LOGO_HEIGHT` ← the canvas ratio the script prints
+ *   - `STRIP_*`     ← the dp size the drawables in `plugins/splash-branding-res` are cut for
+ *   - `STRIP_BOTTOM` ← Android's fixed 60dp branding-image inset
+ */
+
+const LOGO_WIDTH = 280;
+const LOGO_HEIGHT = Math.round(LOGO_WIDTH * (510 / 1024));
+
+const STRIP_WIDTH = 136;
+const STRIP_HEIGHT = 55;
+const STRIP_BOTTOM = 60;
+
+/** How long the cold-start cover holds before it starts leaving. */
+const HOLD_MS = 900;
+const FADE_OUT_MS = 320;
 
 /**
- * Laid over the whole app once, on cold start, for `BOOT_COVER_MS`.
- *
- * Boot is usually faster than a person can read — the gate's `BrandSplash` is
- * gone in a few frames — so without this the Softmato line never showed. The app
- * boots underneath; if boot outlasts the cover, the gate's own `BrandSplash` is
- * already fully drawn below it, so lifting the cover changes nothing visible.
+ * Laid over the whole app once, on cold start, so the branded screen holds long
+ * enough to be read and then fades out as one piece. The app boots underneath;
+ * if boot outlasts the cover, the gate's own `BrandSplash` is already drawn
+ * below it with identical pixels, so lifting the cover changes nothing visible.
  */
 export function BootSplashCover() {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => setVisible(false), BOOT_COVER_MS);
+    const timer = setTimeout(() => setVisible(false), HOLD_MS);
     return () => clearTimeout(timer);
   }, []);
 
@@ -37,90 +54,49 @@ export function BootSplashCover() {
   }
 
   return (
-    <Animated.View exiting={FadeOut.duration(220)} style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
+    <Animated.View
+      exiting={FadeOut.duration(FADE_OUT_MS).easing(Easing.in(Easing.quad))}
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, styles.cover]}
+    >
       <BrandSplash />
     </Animated.View>
   );
 }
 
-/**
- * The JS splash, shown over the app while the boot gate decides where to go.
- *
- * It is drawn to match the *native* splash in app.json — same white ground,
- * same centred green mark at the same size — so the handover between the two is
- * invisible. The native splash covers the milliseconds before React mounts;
- * this one covers the token read. If they looked different you would see a
- * flicker at the seam, which is the exact thing the boot contract is about.
- *
- * It is also the only one of the two that can draw *words*: an Android splash
- * is one image on one colour and nothing else, so `APP_NAME` and the
- * "Powered by" line can only come from here. That is why `_layout.tsx` uncovers
- * the native splash as soon as React has painted rather than holding it to the
- * end of boot — otherwise this screen is never seen at all.
- *
- * The mark fades and lifts slightly rather than appearing hard, and the
- * "Powered by" line trails it — enough motion to feel deliberate, not so much
- * that a fast boot looks like it is waiting for the animation.
- */
-export function BrandSplash({ message }: { message?: string }) {
-  const markOpacity = useSharedValue(0);
-  const markLift = useSharedValue(12);
-  const tailOpacity = useSharedValue(0);
-
-  useEffect(() => {
-    markOpacity.value = withTiming(1, { duration: 420, easing: Easing.out(Easing.quad) });
-    markLift.value = withTiming(0, { duration: 520, easing: Easing.out(Easing.cubic) });
-    tailOpacity.value = withDelay(220, withTiming(1, { duration: 420 }));
-  }, [markLift, markOpacity, tailOpacity]);
-
-  const markStyle = useAnimatedStyle(() => ({
-    opacity: markOpacity.value,
-    transform: [{ translateY: markLift.value }],
-  }));
-
-  const tailStyle = useAnimatedStyle(() => ({ opacity: tailOpacity.value }));
-
+/** The static launch screen, also shown while the boot gate decides where to go. */
+export function BrandSplash() {
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: palette.light.background }]}>
-      <View className="flex-1 items-center justify-center px-8">
-        <Animated.View className="items-center" style={markStyle}>
-          <Image
-            contentFit="contain"
-            source={logo.mark}
-            style={{ height: 140, width: 140 }}
-            transition={0}
-          />
-          <Text
-            accessibilityLabel={APP_NAME}
-            className="mt-5 text-3xl font-bold tracking-tight"
-            style={{ color: palette.light.foreground }}
-          >
-            {APP_NAME_PARTS.head}
-            <Text style={{ color: palette.light.brand }}>{APP_NAME_PARTS.tail}</Text>
-          </Text>
-        </Animated.View>
+    <View style={[StyleSheet.absoluteFill, styles.ground]}>
+      {/* Centred on the whole screen, like the native splash; the strip is absolute so it cannot pull the logo up. */}
+      <View style={styles.logoSlot}>
+        <Image
+          accessibilityLabel={APP_NAME}
+          fadeDuration={0}
+          resizeMode="contain"
+          source={require("../../assets/images/splash-logo.png")}
+          style={styles.logo}
+        />
       </View>
 
-      <Animated.View className="items-center pb-12" style={tailStyle}>
-        {message ? (
-          <View className="mb-5 flex-row items-center gap-2">
-            <ActivityIndicator color={palette.light.brand} size="small" />
-            <Text className="text-muted-foreground text-sm">{message}</Text>
-          </View>
-        ) : null}
-
-        <View accessibilityLabel={POWERED_BY} className="flex-row items-center gap-2.5">
-          <Text className="text-sm italic" style={{ color: palette.light.mutedForeground }}>
-            Powered by
-          </Text>
-          <Image
-            contentFit="contain"
-            source={logo.softmato}
-            style={{ height: 62, width: 82 }}
-            transition={0}
-          />
-        </View>
-      </Animated.View>
+      <View style={styles.stripSlot}>
+        <Image
+          accessibilityLabel={POWERED_BY}
+          fadeDuration={0}
+          resizeMode="contain"
+          source={require("../../assets/images/splash-branding.png")}
+          style={styles.strip}
+        />
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  cover: { elevation: 9999, zIndex: 9999 },
+  ground: { backgroundColor: palette.light.background },
+  logo: { height: LOGO_HEIGHT, width: LOGO_WIDTH },
+  logoSlot: { alignItems: "center", inset: 0, justifyContent: "center", position: "absolute" },
+  strip: { height: STRIP_HEIGHT, width: STRIP_WIDTH },
+  stripSlot: { alignItems: "center", bottom: STRIP_BOTTOM, left: 0, position: "absolute", right: 0 },
+});

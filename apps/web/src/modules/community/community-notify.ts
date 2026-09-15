@@ -3,7 +3,9 @@ import type { Types } from "mongoose";
 import { resolveHostelCookUserIds } from "@/modules/food/kitchen-notify";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { resolveHostelStaffUserIds } from "@/modules/residents/resident-notify";
+import { NotificationPreferenceModel } from "@hostel/db/models/NotificationPreference";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import { UserModel } from "@hostel/db/models/User";
 
 /** How much of the post rides in the push body before it is cut. */
 const PREVIEW_CHARS = 110;
@@ -47,12 +49,33 @@ export function postPreview(body: string) {
 }
 
 /**
- * A new post in a hostel's space goes to everyone in that hostel as a bell row
- * and a push — each row carries its own push, so the phone buzzes even with the
- * app closed, and the post id routes the tap to that post's own screen.
+ * The `mutedCategories` key behind Settings → "New community posts". Separate
+ * from `COMMUNITY`, which silences replies and reactions on your own posts.
+ */
+export const COMMUNITY_POST_MUTE_KEY = "COMMUNITY_POST";
+
+/** Rows are written in slices so a platform-wide post is not one giant burst. */
+const FAN_OUT_BATCH = 50;
+
+async function usersMutingNewPosts(userIds: string[]) {
+  const rows = await NotificationPreferenceModel.find({
+    mutedCategories: COMMUNITY_POST_MUTE_KEY,
+    userId: { $in: userIds },
+  })
+    .select({ userId: 1 })
+    .lean<{ userId: unknown }[]>();
+
+  return new Set(rows.map((row) => String(row.userId)));
+}
+
+/**
+ * A new post goes to everyone who can read it as a bell row and a push:
+ * a hostel's post to that hostel, a public-space post (author with no hostel)
+ * to every active account. The push reads "Sita posted" over the post's words,
+ * and the post id routes the tap to that post's own screen.
  *
- * Public-space posts (authors with no hostel) fan out to nobody: their audience
- * is the whole platform, and a push per post to every account is spam.
+ * Anyone who muted new community posts still gets the bell row, just no push.
+ * Staff announcements ignore that mute — they are the hostel speaking.
  *
  * Never throws — a failed notification must not fail the post.
  */
@@ -65,31 +88,38 @@ export async function notifyHostelOfNewPost(input: {
   isAnnouncement?: boolean;
   postId: string;
 }) {
-  if (!input.hostelId) {
-    return;
-  }
-
   try {
-    const recipients = (await resolveHostelCommunityUserIds(input.hostelId)).filter(
-      (userId) => userId !== input.authorUserId,
-    );
+    const audience = input.hostelId
+      ? await resolveHostelCommunityUserIds(input.hostelId)
+      : (
+          await UserModel.find({ isDeleted: { $ne: true }, status: "ACTIVE" })
+            .select({ _id: 1 })
+            .lean<{ _id: Types.ObjectId }[]>()
+        ).map((user) => user._id.toString());
+    const recipients = audience.filter((userId) => userId !== input.authorUserId);
+    const muted = input.isAnnouncement
+      ? new Set<string>()
+      : await usersMutingNewPosts(recipients).catch(() => new Set<string>());
     const where = input.hostelName ?? "your hostel";
 
-    await Promise.allSettled(
-      recipients.map((userId) =>
-        createInAppNotification({
-          body: `${input.authorName}: ${postPreview(input.body)}`,
-          category: "COMMUNITY",
-          data: { postId: input.postId },
-          hostelId: input.hostelId?.toString(),
-          priority: input.isAnnouncement ? "HIGH" : "NORMAL",
-          title: input.isAnnouncement
-            ? `Announcement in ${where}`
-            : `New post in ${where}`,
-          userId,
-        }),
-      ),
-    );
+    for (let start = 0; start < recipients.length; start += FAN_OUT_BATCH) {
+      await Promise.allSettled(
+        recipients.slice(start, start + FAN_OUT_BATCH).map((userId) =>
+          createInAppNotification({
+            body: postPreview(input.body),
+            category: "COMMUNITY",
+            data: { postId: input.postId },
+            hostelId: input.hostelId?.toString(),
+            priority: input.isAnnouncement ? "HIGH" : "NORMAL",
+            push: !muted.has(userId),
+            title: input.isAnnouncement
+              ? `Announcement in ${where}`
+              : `${input.authorName} posted`,
+            userId,
+          }),
+        ),
+      );
+    }
   } catch (error) {
     console.warn(
       JSON.stringify({

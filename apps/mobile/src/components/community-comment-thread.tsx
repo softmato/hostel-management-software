@@ -2,24 +2,25 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 
+import { PersonAvatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { readApiError } from "@/lib/api-contract";
 import {
   addPostComment,
   type CommunityComment,
+  deleteCommunityComment,
   voteOnComment,
 } from "@/lib/community-api";
 import {
-  avatarInitial,
-  avatarTone,
   feedTime,
   hiddenCommentIds,
   MAX_COMMENT_BODY,
   nextVote,
   replyCounts,
 } from "@/lib/community";
-import { toastError, toastInfo } from "@/lib/toast";
+import { openConfirm } from "@/lib/confirm";
+import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
 
 /**
  * The comment tree, ported from the web's `CommentThread`.
@@ -131,6 +132,25 @@ export function CommentThread({
     [onChanged, postId, replyDraft],
   );
 
+  const removeComment = useCallback(
+    (commentId: string) =>
+      openConfirm({
+        confirmLabel: "Delete",
+        destructive: true,
+        onConfirm: async () => {
+          try {
+            await deleteCommunityComment(postId, commentId);
+            toastSuccess("Comment deleted");
+            onChanged();
+          } catch (caught) {
+            toastError("Could not delete", readApiError(caught));
+          }
+        },
+        title: "Delete this comment?",
+      }),
+    [onChanged, postId],
+  );
+
   return (
     <View className="gap-3">
       {comments
@@ -140,7 +160,6 @@ export function CommentThread({
           const replyCount = replies.get(comment.id) ?? 0;
           const score = localVotes[comment.id]?.score ?? comment.score;
           const viewerVote = localVotes[comment.id]?.value ?? comment.viewerVote;
-          const [tone, ink] = avatarTone(comment.authorName);
 
           return (
             <View
@@ -149,14 +168,11 @@ export function CommentThread({
               style={{ marginLeft: comment.depth * INDENT_STEP }}
             >
               <View className="flex-row gap-2.5">
-                <View
-                  className="items-center justify-center rounded-full"
-                  style={{ backgroundColor: tone, height: 28, width: 28 }}
-                >
-                  <Text style={{ color: ink, fontSize: 11, fontWeight: "700" }}>
-                    {avatarInitial(comment.authorName)}
-                  </Text>
-                </View>
+                <PersonAvatar
+                  image={comment.authorImage}
+                  name={comment.authorName}
+                  size="sm"
+                />
 
                 <View className="flex-1 gap-1">
                   <View className="flex-row items-center gap-2">
@@ -181,6 +197,10 @@ export function CommentThread({
                           : `${replyCount} replies hidden — tap to expand`}
                       </Text>
                     </Pressable>
+                  ) : comment.isDeleted ? (
+                    <Text className="italic" variant="caption">
+                      Comment deleted
+                    </Text>
                   ) : (
                     <>
                       <Text>{comment.body}</Text>
@@ -232,6 +252,21 @@ export function CommentThread({
                             }}
                           >
                             <Text variant="caption">Reply</Text>
+                          </Pressable>
+                        ) : null}
+
+                        {comment.isMine ? (
+                          <Pressable
+                            accessibilityLabel="Delete comment"
+                            accessibilityRole="button"
+                            hitSlop={6}
+                            onPress={() => removeComment(comment.id)}
+                          >
+                            <Ionicons
+                              color={colors.mutedForeground}
+                              name="trash-outline"
+                              size={15}
+                            />
                           </Pressable>
                         ) : null}
 

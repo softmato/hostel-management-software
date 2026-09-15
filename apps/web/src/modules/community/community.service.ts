@@ -327,6 +327,7 @@ function serializeComment(
     body: comment.body,
     createdAt: comment.createdAt?.toISOString(),
     id: comment._id.toString(),
+    isDeleted: false,
     isMine:
       Boolean(comment.authorId) && options.viewerUserId === comment.authorId?.toString(),
     parentId: comment.parentId?.toString() ?? null,
@@ -550,7 +551,8 @@ export async function listPostComments(
   await connectToDatabase();
 
   const post = await findReadablePost(postId, principal);
-  const commentFilter = { postId: post._id, status: "VISIBLE" };
+  // Hidden rows are read too, but only to hold a place for replies under them.
+  const commentFilter = { postId: post._id };
 
   // The tree is read whole — paginating it would cut replies away from the
   // comments they answer. `pageSize` caps the total instead.
@@ -583,16 +585,43 @@ export async function listPostComments(
 
   const ordered: Array<ReturnType<typeof serializeComment> & { depth: number }> = [];
 
+  const liveBelow = new Map<string, boolean>();
+  const hasLiveReply = (id: string): boolean => {
+    if (!liveBelow.has(id)) {
+      liveBelow.set(
+        id,
+        (byParent.get(id) ?? []).some(
+          (reply) => reply.status === "VISIBLE" || hasLiveReply(reply._id.toString()),
+        ),
+      );
+    }
+
+    return liveBelow.get(id)!;
+  };
+
   // Depth is capped for *display* only — a deeper reply still renders, it just
   // stops indenting, so a long argument cannot squeeze the text to nothing.
   const walk = (parentKey: string, depth: number) => {
     for (const comment of byParent.get(parentKey) ?? []) {
+      const deleted = comment.status !== "VISIBLE";
+
+      // A deleted comment with nothing live under it simply leaves the thread.
+      if (deleted && !hasLiveReply(comment._id.toString())) {
+        continue;
+      }
+
       ordered.push({
-        ...serializeComment(comment, {
-          author: comment.authorId ? names.get(comment.authorId.toString()) : undefined,
-          viewerUserId: principal?.userId,
-          viewerVote: voteByCommentId.get(comment._id.toString()),
-        }),
+        ...(deleted
+          ? {
+              ...serializeComment({ ...comment, authorId: null, body: "", score: 0 }),
+              authorName: "Deleted",
+              isDeleted: true,
+            }
+          : serializeComment(comment, {
+              author: comment.authorId ? names.get(comment.authorId.toString()) : undefined,
+              viewerUserId: principal?.userId,
+              viewerVote: voteByCommentId.get(comment._id.toString()),
+            })),
         depth: Math.min(depth, 5),
       });
       walk(comment._id.toString(), depth + 1);
@@ -1010,6 +1039,41 @@ export async function deleteOwnPost(postId: string, principal: ApiPrincipal) {
   await publishCommunityChange(removed);
 
   return { postId, status: "HIDDEN" as const };
+}
+
+/**
+ * An author takes their own comment down. Replies under it stay — the thread
+ * keeps a "Comment deleted" placeholder in its place (see `listPostComments`).
+ */
+export async function deleteOwnComment(
+  postId: string,
+  commentId: string,
+  principal: ApiPrincipal,
+) {
+  await connectToDatabase();
+
+  const post = await findReadablePost(postId, principal);
+  const removed = await CommunityCommentModel.findOneAndUpdate(
+    {
+      _id: normalizeObjectId(commentId, "comment id"),
+      authorId: normalizeObjectId(principal.userId, "user id"),
+      postId: post._id,
+      status: "VISIBLE",
+    },
+    { $set: { hiddenAt: new Date(), hiddenBy: principal.userId, status: "HIDDEN" } },
+  ).lean<{ _id: Types.ObjectId } | null>();
+
+  if (!removed) {
+    throw new CommunityServiceError("Comment was not found.", "COMMENT_NOT_FOUND", 404);
+  }
+
+  await CommunityPostModel.updateOne(
+    { _id: post._id, commentCount: { $gt: 0 } },
+    { $inc: { commentCount: -1 } },
+  );
+  await publishCommunityChange(post);
+
+  return { commentId, status: "HIDDEN" as const };
 }
 
 /* -------------------------------------------------------------------------- */

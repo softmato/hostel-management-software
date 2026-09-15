@@ -64,9 +64,15 @@ export const MUTABLE_CATEGORIES: { description: string; label: string; value: st
     value: "COMPLAINT",
   },
   {
-    description: "Replies, reactions and mentions",
+    description: "Replies and reactions on your posts",
     label: "Community",
     value: "COMMUNITY",
+  },
+  {
+    // `COMMUNITY_POST_MUTE_KEY` in apps/web/src/modules/community/community-notify.ts.
+    description: "When someone posts in the community",
+    label: "New community posts",
+    value: "COMMUNITY_POST",
   },
 ];
 

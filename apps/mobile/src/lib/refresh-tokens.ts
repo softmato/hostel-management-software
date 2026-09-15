@@ -80,3 +80,35 @@ export function readRefreshOutcome(body: RefreshResponseBody): RefreshOutcome {
     refreshToken: readString(body?.data?.refreshToken),
   };
 }
+
+/** How much life a token must have left to be sent as it is. */
+export const REFRESH_AHEAD_SECONDS = 60;
+
+/**
+ * True when the access token has run out, or will within `aheadSeconds`.
+ *
+ * Reads `exp` without verifying the signature — the server does that. A token
+ * whose `exp` cannot be read answers false, so an odd token is sent and the 401
+ * path decides, rather than refreshing on every request.
+ */
+export function accessTokenNeedsRefresh(
+  token: string,
+  nowMs = Date.now(),
+  aheadSeconds = REFRESH_AHEAD_SECONDS,
+): boolean {
+  try {
+    const part = token.split(".")[1];
+
+    if (!part) {
+      return false;
+    }
+
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const exp = (JSON.parse(atob(padded)) as { exp?: unknown }).exp;
+
+    return typeof exp === "number" && exp * 1000 - nowMs <= aheadSeconds * 1000;
+  } catch {
+    return false;
+  }
+}

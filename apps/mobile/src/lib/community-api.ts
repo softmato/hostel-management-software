@@ -84,6 +84,8 @@ export type CommunityComment = {
   /** Added by `listPostComments`, capped at 5 for display. Indent depth. */
   depth: number;
   id: string;
+  /** A removed comment kept only as a placeholder for the replies under it. */
+  isDeleted?: boolean;
   isMine: boolean;
   parentId: string | null;
   score: number;
@@ -166,6 +168,11 @@ export async function createCommunityPost(input: {
 
 export async function deleteCommunityPost(postId: string) {
   await api.delete<ApiEnvelope<unknown>>(`/community/${postId}`);
+}
+
+/** The author's own comment only; replies under it stay. */
+export async function deleteCommunityComment(postId: string, commentId: string) {
+  await api.delete<ApiEnvelope<unknown>>(`/community/${postId}/comments/${commentId}`);
 }
 
 /**

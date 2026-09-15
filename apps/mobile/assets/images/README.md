@@ -9,12 +9,13 @@ Full-resolution trimmed copies live in `apps/web/public/brand/`.
 | `android-icon-foreground.png` | Android adaptive icon, top layer | 1024×1024, transparent, art inside the middle ~66% |
 | `android-icon-background.png` | Android adaptive icon, bottom layer | 1024×1024, opaque |
 | `android-icon-monochrome.png` | Android themed icons **and the notification tray icon** | 1024×1024, white on transparent, silhouette only |
-| `splash-icon.png` | Native splash mark | 512×512, transparent, green art (it sits on white) |
-| `logo-mark.png` | In-app logo on light surfaces + the JS splash | 512×512, transparent, green art |
+| `splash-logo.png` | Splash lockup (native + JS), from `scripts/gen_splash.py` | 1024 wide, transparent, mark over wordmark |
+| `splash-branding.png` | "Powered by Softmato" strip on the JS splash, from `scripts/gen_splash.py` | 544×220 (136×55dp @4x) |
+| `logo-mark.png` | In-app logo on light surfaces, splash source | 512×512, transparent, green art |
 | `logo-mark-light.png` | In-app logo on dark surfaces | 512×512, transparent, white art |
 | `favicon.png` | Web build tab icon | 96×96 |
 | `wordmark.png` | The full HostelPalika lockup | trimmed, transparent |
-| `powered-by-softmato.png` | "Powered by" logo on the JS splash | trimmed, transparent |
+| `powered-by-softmato.png` | Softmato's logo, splash strip source | trimmed, transparent |
 
 Swapping the files is the whole job — no code references a colour or a shape,
 only these paths (via `src/constants/branding.ts`).
