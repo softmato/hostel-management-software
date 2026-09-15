@@ -5,12 +5,7 @@ import { Camera, FileCheck, Images, Paperclip, Plus } from "lucide-react-native"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
-import {
-  HostelPinField,
-  HostelPinPicker,
-  MapLinkField,
-  type PinAddress,
-} from "@/components/hostel-pin-picker";
+import { MapLinkField, type PinAddress } from "@/components/hostel-pin-picker";
 import { PhotoStrip, UploadPreview } from "@/components/registration-form";
 import {
   Accordion,
@@ -354,7 +349,6 @@ function HostelWizard({
     });
   }, []);
 
-  const [pinOpen, setPinOpen] = useState(false);
   const addressHint = [form.address, form.area, form.city]
     .map((part) => part.trim())
     .filter(Boolean)
@@ -366,7 +360,7 @@ function HostelWizard({
    * than a geocoder does.
    */
   const placePin = useCallback(
-    (pin: Coordinates, address?: PinAddress, link?: string) => {
+    (pin: Coordinates, address?: PinAddress) => {
       // Against the latest form, not this render's: a pasted link answers
       // after a network round trip, and the owner may have typed meanwhile.
       setForm((current) => ({
@@ -376,7 +370,6 @@ function HostelWizard({
           ? { address: address.address }
           : {}),
         ...(address?.area && !current.area.trim() ? { area: address.area } : {}),
-        ...(link && !current.mapLink.trim() ? { mapLink: link } : {}),
       }));
       setErrors((current) => {
         const rest = { ...current };
@@ -835,37 +828,32 @@ function HostelWizard({
             value={form.area}
             variant="line"
           />
-          <ChoiceChips
-            error={errors.city}
-            label="City *"
-            onToggle={(value) => patch({ city: value })}
-            options={withCurrent(CITY_OPTIONS, form.city)}
-            value={form.city}
-          />
-
-          <StepSection title="On the map *">
-            <HostelPinField
-              error={errors.pin}
-              onOpen={() => setPinOpen(true)}
-              pin={form.pin}
+          <View className="gap-3">
+            <Input
+              autoCapitalize="words"
+              error={errors.city}
+              label="City *"
+              onChangeText={(value) => patch({ city: value })}
+              placeholder="Type your city"
+              value={form.city}
+              variant="line"
             />
-            <MapLinkField
-              near={addressHint}
-              onChange={(value) => patch({ mapLink: value })}
-              onPinned={(match) => placePin(match.coordinates, match.address)}
-              value={form.mapLink}
+            <ChoiceChips
+              onToggle={(value) => patch({ city: value })}
+              options={withCurrent(CITY_OPTIONS)}
+              value={form.city}
             />
-          </StepSection>
+          </View>
 
-          <HostelPinPicker
+          <MapLinkField
             near={addressHint}
-            onClose={() => setPinOpen(false)}
-            onConfirm={({ address, link, pin }) => {
-              placePin(pin, address, link);
-              setPinOpen(false);
-            }}
-            open={pinOpen}
-            value={form.pin}
+            onChange={(value) =>
+              // The pin only ever comes from the link, so clearing one clears both.
+              patch(value.trim() ? { mapLink: value } : { mapLink: "", pin: null })
+            }
+            onPinned={(match) => placePin(match.coordinates, match.address)}
+            pin={form.pin}
+            value={form.mapLink}
           />
 
           <Input

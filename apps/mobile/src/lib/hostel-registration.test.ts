@@ -70,9 +70,8 @@ describe("hostelStepErrors", () => {
     expect(hostelStepErrors("basics", form()).email).toBeUndefined();
   });
 
-  it("wants the hostel pinned on the map before the location step is done", () => {
-    expect(hostelStepErrors("location", form({ pin: null })).pin).toBeDefined();
-    expect(hostelStepErrors("location", form()).pin).toBeUndefined();
+  it("lets the location step finish without a map pin", () => {
+    expect(hostelStepErrors("location", form({ mapLink: "", pin: null }))).toEqual({});
   });
 
   it("wants a room type with both counts above zero, not merely a row", () => {

@@ -7,6 +7,7 @@ import { PublicHostelDetailPage } from "@/app/_components/public-hostel-detail-p
 import { JsonLd } from "@/components/json-ld";
 import { hostelTypeLabel, locationSlug } from "@/lib/hostel-locations";
 import { breadcrumbJsonLd, formatNpr, hostelJsonLd } from "@/lib/json-ld";
+import { searchImageUrls } from "@/lib/search-image-urls";
 import { NOINDEX, pageMetadata, snippet } from "@/lib/seo";
 import { getPublicHostelBySlug, HostelServiceError } from "@/modules/hostels/hostel.service";
 
@@ -38,6 +39,19 @@ const loadHostel = cache(async (slug: string): Promise<PublicHostel | null> => {
     }
     throw error;
   }
+});
+
+/**
+ * The hostel's photos as absolute public media URLs, for the social card and
+ * structured data — the stored `/api/v1/files/<id>/url` paths only work in a
+ * browser. Shared between the metadata and the page like the hostel itself.
+ */
+const loadSearchPhotos = cache(async (slug: string) => {
+  const hostel = await loadHostel(slug);
+
+  return hostel
+    ? searchImageUrls(hostel.photos.map((photo) => photo.url ?? "").filter(Boolean))
+    : [];
 });
 
 function placeOf(hostel: PublicHostel) {
@@ -77,7 +91,7 @@ export async function generateMetadata({ params }: PageParams): Promise<Metadata
   const title = /hostel/i.test(hostel.name)
     ? `${hostel.name}${place ? `, ${place}` : ""}`
     : `${hostel.name} — ${type}${place ? ` in ${place}` : ""}`;
-  const cover = hostel.photos.find((photo) => photo.url)?.url;
+  const [cover] = await loadSearchPhotos(slug);
 
   return pageMetadata({
     description: snippet(`${lead} ${hostel.description ?? ""}`, 180),
@@ -97,6 +111,7 @@ export default async function HostelDetailPage({ params }: PageParams) {
 
   const city = hostel.location.city;
   const path = `/hostels/${hostel.slug}`;
+  const photos = await loadSearchPhotos(slug);
 
   return (
     <>
@@ -109,7 +124,7 @@ export default async function HostelDetailPage({ params }: PageParams) {
             location: hostel.location,
             name: hostel.name,
             phone: hostel.contact?.phone,
-            photos: hostel.photos.map((photo) => photo.url ?? "").filter(Boolean),
+            photos,
             pricing: hostel.pricing,
             rating: ratingOf(hostel),
             rooms: hostel.roomConfigurations,

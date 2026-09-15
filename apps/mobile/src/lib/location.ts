@@ -105,14 +105,7 @@ export async function hasLocationPermission(): Promise<boolean> {
  * chip on a screen full of working content, and a rejected promise there turns
  * "we could not find you" into a red error state over the whole list.
  */
-export async function requestDeviceLocation(
-  /**
-   * One street-level fix instead of the coarse cached one — for pinning a
-   * building, where a reading accurate to the suburb puts the pin on somebody
-   * else's roof. Same one-reading, nothing-stored contract as the default.
-   */
-  { precise = false }: { precise?: boolean } = {},
-): Promise<LocationOutcome> {
+export async function requestDeviceLocation(): Promise<LocationOutcome> {
   let permission: Location.LocationPermissionResponse;
 
   try {
@@ -149,31 +142,7 @@ export async function requestDeviceLocation(
     return { canAskAgain: permission.canAskAgain, kind: "denied" };
   }
 
-  return precise ? readPrecisePosition() : readPosition();
-}
-
-/** A GPS lock outdoors is seconds; indoors it can take most of this. */
-const PRECISE_FIX_TIMEOUT_MS = 20_000;
-
-async function readPrecisePosition(): Promise<LocationOutcome> {
-  try {
-    const fresh = await withTimeout(
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }),
-      PRECISE_FIX_TIMEOUT_MS,
-    );
-
-    if (!fresh) {
-      return { kind: "unavailable" };
-    }
-
-    const coordinates = toCoordinates(fresh);
-
-    return isUsableCoordinate(coordinates)
-      ? { coordinates, kind: "granted" }
-      : { kind: "unavailable" };
-  } catch {
-    return { kind: "unavailable" };
-  }
+  return readPosition();
 }
 
 async function readPosition(): Promise<LocationOutcome> {

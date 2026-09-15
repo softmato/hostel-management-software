@@ -85,6 +85,15 @@ Rules every page follows:
    fixed: the old `Disallow: /resident` prefix also blocked `/resident-offer-program`; portals are
    now closed as `/x/` + `/x$`, and `/team` and `/pay/` were added.
 
+   ☑ Fix, 2026-09-15: after the first deploy, Search Console read the sitemap (72 pages) but flagged
+   10 "Invalid URL" images. Hostel photos are stored as relative `/api/v1/files/<id>/url` paths on
+   purpose, and `<image:loc>` must be absolute; `/api/` is also closed in robots.txt.
+   `lib/search-image-urls.ts` now resolves every photo a crawler reads — sitemap images, the hostel
+   page's `og:image` and its `Hostel.image` — to the asset's public media URL (PUBLIC + ACTIVE assets
+   only, LARGE rendition when present). Live check: all 13 photos resolve to
+   `https://media.softmato.com/...` and serve 200; that host's robots.txt allows Googlebot.
+   After deploying, resubmit the sitemap in Search Console.
+
 ## Waiting on the Play listing
 
 Held back until `com.softmato.hostelpalika` is live on Google Play, so nothing links to a store page

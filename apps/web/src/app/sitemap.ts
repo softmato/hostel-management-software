@@ -3,6 +3,7 @@ import type { MetadataRoute } from "next";
 import { listingTiers } from "@/app/_components/plans-catalog";
 import { HOSTEL_TYPE_PAGES } from "@/lib/hostel-locations";
 import { loadCityIndex } from "@/lib/location-pages";
+import { resolveSearchImageUrls } from "@/lib/search-image-urls";
 import { loadSeo, resolveModulePages } from "@/lib/seo-config";
 import { siteUrl } from "@/lib/site";
 import { listPublishedHostelSlugs } from "@/modules/hostels/hostel.service";
@@ -46,10 +47,14 @@ const STATIC_ROUTES: Array<Pick<Entry, "changeFrequency" | "priority"> & { path:
 async function hostelEntries(base: string): Promise<Entry[]> {
   try {
     const hostels = await listPublishedHostelSlugs();
+    // Stored photo paths are relative; <image:loc> must be absolute and crawlable.
+    const images = await resolveSearchImageUrls(hostels.flatMap((hostel) => hostel.images));
 
     return hostels.map((hostel) => ({
       changeFrequency: "daily",
-      images: hostel.images,
+      images: hostel.images
+        .map((url) => images.get(url))
+        .filter((url): url is string => Boolean(url)),
       lastModified: hostel.updatedAt,
       priority: 0.8,
       url: `${base}/hostels/${hostel.slug}`,

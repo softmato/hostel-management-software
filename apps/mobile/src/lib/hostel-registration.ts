@@ -259,8 +259,8 @@ export type HostelForm = {
   mealsPerDay: string;
   ownerName: string;
   /**
-   * Where the pin sits. Always the owner's own placement — searched, pasted,
-   * located or moved by hand — so it is submitted as `MANUAL`, which is what
+   * Where the pin sits — optional, read from the owner's pasted Maps link. It is
+   * their own placement, so it is submitted as `MANUAL`, which is what
    * stops the nightly nearby-places sweep sliding it back to the tole's centre.
    *
    * Spelled out rather than imported from `lib/geo`: this module has no imports
@@ -381,17 +381,7 @@ export function hostelStepErrors(
 
     if (form.city.trim().length < 2) {
       errors.city = "Which city?";
-    }
-
-    /*
-     * The pin, not the address text, is what the public map shows and what the
-     * nearby colleges and bus stops are measured from. Without one the server
-     * can only geocode the tole, and the listing lands in the middle of it.
-     */
-    if (!form.pin) {
-      errors.pin = "Put a pin on your building — search, paste a Maps link, or use your location.";
-    }
-  }
+    }  }
 
   if (step === "rooms" && !hasUsableRooms(form.rooms)) {
     errors.rooms = "Add at least one room type with a room count and beds per room.";
