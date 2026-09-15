@@ -174,6 +174,17 @@ function androidChannel(category: string, priority: PushPayload["priority"]) {
     return "food_v2";
   }
 
+  /*
+   * Notices and announcements are the pushes a hostel sends *to be seen*. On
+   * `default_v2` (IMPORTANCE_DEFAULT) Android files them in the shade without a
+   * heads-up banner, so all anybody noticed was the in-app toast. `notices_v1`
+   * is IMPORTANCE_HIGH; a build that predates it falls back to expo's own HIGH
+   * channel, so old installs get the banner too.
+   */
+  if (category === "NOTICE" || category === "ANNOUNCEMENT" || category === "PLATFORM") {
+    return "notices_v1";
+  }
+
   return "default_v2";
 }
 
@@ -591,7 +602,14 @@ export async function sendPushToUsers(
           ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
           channelId,
           data: deviceData,
-          priority: high ? "high" : "default",
+          /*
+           * High for every channel that is meant to interrupt, not only for
+           * urgent payloads: FCM holds a normal-priority message while the phone
+           * dozes, and a meal-ready or a notice that lands an hour late is the
+           * same as one that never came. Preferences are untouched — `high`
+           * still decides that.
+           */
+          priority: high || channelId !== "default_v2" ? "high" : "default",
           ...(payload.imageUrl ? { richContent: { image: payload.imageUrl } } : {}),
           // The urgent channel keeps the phone's own alert tone on Android, so
           // iOS keeps it too: a soft chime is the wrong noise for an SOS.

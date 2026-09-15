@@ -165,6 +165,26 @@ describe("sendPushToUsers", () => {
     expect(message.data.urgent).toBe(true);
   });
 
+  it("sends a notice on the heads-up notices channel at high priority, not as urgent", async () => {
+    tokensResolveTo(["token"]);
+    const fetchMock = expoRespondsWith([{ status: "ok" }]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendPushToUsers(["user-1"], {
+      body: "Please put 2–3 of your clothes in the laundry basket.",
+      category: "NOTICE",
+      data: { noticeId: "notice-1" },
+      title: "Clothes Washing Notice",
+    });
+
+    const [message] = JSON.parse(fetchMock.mock.calls[0][1].body);
+
+    expect(message.channelId).toBe("notices_v1");
+    expect(message.priority).toBe("high");
+    expect(message.sound).toBe("water_drop.wav");
+    expect(message.data.urgent).toBe(false);
+  });
+
   it("carries the product picture on an order push", async () => {
     tokensResolveTo(["token"]);
     const fetchMock = expoRespondsWith([{ status: "ok" }]);

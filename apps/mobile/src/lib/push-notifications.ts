@@ -62,8 +62,9 @@
  * sound — so the failure mode is a phone that has not updated yet treating
  * every notification as an alert, not silence.
  *
- * The three ids match that function exactly: `urgent` (SOS and anything
- * URGENT), `food_v2` (meal-ready), `default_v2` (everything else).
+ * The four ids match that function exactly: `urgent` (SOS and anything
+ * URGENT), `food_v2` (meal-ready), `notices_v1` (notices, push notices and
+ * announcements), `default_v2` (everything else).
  *
  * ## Failure is always silent and never fatal
  *
@@ -107,6 +108,7 @@ const SOUND = "water_drop.wav";
 export const PUSH_CHANNEL = {
   DEFAULT: "default_v2",
   FOOD: "food_v2",
+  NOTICES: "notices_v1",
   URGENT: "urgent",
 } as const;
 
@@ -247,6 +249,21 @@ async function createAndroidChannels() {
     importance: Notifications.AndroidImportance.HIGH,
     lightColor: BRAND.primary,
     name: "Meals",
+    sound: SOUND,
+    vibrationPattern: [0, 250, 250, 250],
+  });
+
+  /*
+   * Notices and push notices. HIGH so they arrive as a heads-up banner — on
+   * `default_v2` a hostel's notice only reached the shade silently, and the
+   * in-app toast was all anyone saw. Not MAX: the clothes washing reminder is
+   * not an SOS, and it must not share an id with one.
+   */
+  await Notifications.setNotificationChannelAsync(PUSH_CHANNEL.NOTICES, {
+    importance: Notifications.AndroidImportance.HIGH,
+    lightColor: BRAND.primary,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    name: "Notices",
     sound: SOUND,
     vibrationPattern: [0, 250, 250, 250],
   });
