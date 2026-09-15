@@ -199,9 +199,24 @@ export async function GET(request: NextRequest, context: RouteContext) {
       targetUrl = await getPresignedReadUrl(fileAsset.bucket, resolvedKey);
     }
 
-    return asJson
-      ? successResponse({ url: targetUrl }, "File URL resolved")
-      : NextResponse.redirect(targetUrl, 302);
+    if (asJson) {
+      return successResponse({ url: targetUrl }, "File URL resolved");
+    }
+
+    const redirect = NextResponse.redirect(targetUrl, 302);
+
+    /*
+     * A public object's address does not change, because every upload gets a
+     * unique key. So browsers, the app's image cache and Vercel's edge may keep
+     * this hop for a day, and a gallery of thirteen photos stops costing
+     * thirteen function runs and database reads on every view. Signed
+     * redirects for private files expire, so they are never cached.
+     */
+    if (fileAsset.accessLevel === "PUBLIC" && process.env.R2_PUBLIC_URL) {
+      redirect.headers.set("Cache-Control", "public, max-age=86400, s-maxage=86400");
+    }
+
+    return redirect;
   } catch (error) {
     return handleRouteError(error);
   }

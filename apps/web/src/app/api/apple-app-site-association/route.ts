@@ -37,13 +37,15 @@
  * "sharing works on my phone but not hers".
  *
  * `*` is Apple's wildcard for a path segment tail, so `/ref/*` is the same
- * claim as Android's `pathPrefix: "/ref/"`. The other two are exact.
+ * claim as Android's `pathPrefix: "/ref/"`, and `/community/*` likewise. The
+ * rest are exact.
  */
 
 const APP_LINK_COMPONENTS = [
   { "/": "/ref/*", comment: "Referral links — see lib/referral-link.ts" },
   { "/": "/inquiry", comment: "Referred inquiry form" },
   { "/": "/guardian-invite", comment: "Guardian invitation" },
+  { "/": "/cook-invite", comment: "Cook invitation" },
   { "/": "/community/*", comment: "Shared community post" },
 ];
 

@@ -231,7 +231,8 @@ describe("buildHostelPayload", () => {
 
     expect(payload.notes).toContain("Landmark: Opposite the campus gate");
     expect(payload.notes).toContain("Floors: 3");
-    expect(payload.notes).toContain("Pro Plan");
+    // The app stopped asking for a plan, so a plan line would claim a choice never made.
+    expect(payload.notes).not.toContain("Pro Plan");
   });
 
   it("uses the same email for the applicant and the hostel contact", () => {
