@@ -53,6 +53,23 @@ const CATEGORY_PATHS: Record<string, string> = {
 
 const FALLBACK_PATH = "/notifications";
 
+/**
+ * `data.type` on a `PAYMENT` row about the hostel's own plan bill, as opposed
+ * to a resident's rent. Written by `plan-due-reminders.service.ts`; read here
+ * and in `web-routing.ts`.
+ */
+export const PLAN_DUE_NOTIFICATION_TYPE = "PLAN_DUE";
+
+/** The admin app's plan Billing screen, `app/manage/billing.tsx`. */
+const PLAN_BILLING_PATH = "/manage/billing";
+
+export function isPlanDueNotification(input: {
+  category: string;
+  data?: Record<string, unknown>;
+}) {
+  return input.category === "PAYMENT" && input.data?.type === PLAN_DUE_NOTIFICATION_TYPE;
+}
+
 function readId(data: Record<string, unknown> | undefined, key: string) {
   const value = data?.[key];
 
@@ -60,6 +77,16 @@ function readId(data: Record<string, unknown> | undefined, key: string) {
 }
 
 export function deepLinkForNotification(input: DeepLinkInput): string {
+  /*
+   * Ahead of `actionUrl`, because that row's `actionUrl` is the website's
+   * `/{slug}/admin/billing` — what the web bell links to, and not a route in
+   * the app. The PAYMENT default below is the resident's rent list, a stack an
+   * admin account cannot open.
+   */
+  if (isPlanDueNotification(input)) {
+    return PLAN_BILLING_PATH;
+  }
+
   // A single leading slash only. `//evil.example` is protocol-relative — it
   // reads as a local path but resolves to another origin, so it must not reach
   // a router or a WebView.

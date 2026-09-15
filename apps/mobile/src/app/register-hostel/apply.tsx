@@ -5,6 +5,12 @@ import { Camera, FileCheck, Images, Paperclip, Plus } from "lucide-react-native"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
+import {
+  HostelPinField,
+  HostelPinPicker,
+  MapLinkField,
+  type PinAddress,
+} from "@/components/hostel-pin-picker";
 import { PhotoStrip, UploadPreview } from "@/components/registration-form";
 import {
   Accordion,
@@ -29,6 +35,7 @@ import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDraftAutosave } from "@/hooks/use-draft-autosave";
 import { readApiError } from "@/lib/api-contract";
+import type { Coordinates } from "@/lib/geo";
 import {
   buildHostelPayload,
   capacitySummary,
@@ -287,6 +294,8 @@ function HostelWizard({
     stored
       ? // Consent is given for what is on screen now, not for last session's form.
         {
+          // Under the draft, so a draft saved before a field existed still has it.
+          ...emptyHostelForm("room-1"),
           ...stored.form,
           agreed: false,
           idProofType: stored.form.idProofType || "Citizenship",
@@ -344,6 +353,49 @@ function HostelWizard({
       return rest;
     });
   }, []);
+
+  const [pinOpen, setPinOpen] = useState(false);
+  const addressHint = [form.address, form.area, form.city]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+
+  /**
+   * Set the pin, and let the lookup fill in the address fields the owner left
+   * empty — never the ones they typed, which describe their own door better
+   * than a geocoder does.
+   */
+  const placePin = useCallback(
+    (pin: Coordinates, address?: PinAddress, link?: string) => {
+      // Against the latest form, not this render's: a pasted link answers
+      // after a network round trip, and the owner may have typed meanwhile.
+      setForm((current) => ({
+        ...current,
+        pin,
+        ...(address?.address && !current.address.trim()
+          ? { address: address.address }
+          : {}),
+        ...(address?.area && !current.area.trim() ? { area: address.area } : {}),
+        ...(link && !current.mapLink.trim() ? { mapLink: link } : {}),
+      }));
+      setErrors((current) => {
+        const rest = { ...current };
+
+        delete rest.pin;
+
+        if (address?.address) {
+          delete rest.address;
+        }
+
+        if (address?.area) {
+          delete rest.area;
+        }
+
+        return rest;
+      });
+    },
+    [],
+  );
 
   const goTo = useCallback((next: number, direction: boolean) => {
     setForward(direction);
@@ -789,6 +841,31 @@ function HostelWizard({
             onToggle={(value) => patch({ city: value })}
             options={withCurrent(CITY_OPTIONS, form.city)}
             value={form.city}
+          />
+
+          <StepSection title="On the map *">
+            <HostelPinField
+              error={errors.pin}
+              onOpen={() => setPinOpen(true)}
+              pin={form.pin}
+            />
+            <MapLinkField
+              near={addressHint}
+              onChange={(value) => patch({ mapLink: value })}
+              onPinned={(match) => placePin(match.coordinates, match.address)}
+              value={form.mapLink}
+            />
+          </StepSection>
+
+          <HostelPinPicker
+            near={addressHint}
+            onClose={() => setPinOpen(false)}
+            onConfirm={({ address, link, pin }) => {
+              placePin(pin, address, link);
+              setPinOpen(false);
+            }}
+            open={pinOpen}
+            value={form.pin}
           />
 
           <Input
@@ -1333,6 +1410,11 @@ function HostelReview({
       ["Landmark", dash(form.landmark)],
       ["Area", dash(form.area)],
       ["City", dash(form.city)],
+      [
+        "Map pin",
+        form.pin ? `${form.pin.lat.toFixed(5)}, ${form.pin.lng.toFixed(5)}` : "Not placed",
+      ],
+      ["Maps link", dash(form.mapLink)],
       ["Facilities", dash(form.facilities.join(", "))],
       ["Floors", dash(form.totalFloors)],
     ],

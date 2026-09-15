@@ -1,0 +1,130 @@
+# SEO — HostelPalika
+
+The tracker and the keyword map for search. Work one item at a time: code it, verify it
+(`web:typecheck`, `web:lint`, `web:test`), then flip `☐` to `☑`. `◐` = partial, with a note.
+
+## Who searches, and which page answers
+
+HostelPalika is two-sided, so it ranks for two very different audiences.
+
+| Intent | Typical searches (Nepal) | Page that answers |
+|---|---|---|
+| Owner, ready to buy (BOFU) | hostel management software nepal · hostel management system · hostel software | `/hostel-management-software` |
+| Owner, one job | hostel billing / fee collection software · hostel mess management · hostel attendance app | `/features/[module]`, `/plans-pricing/[service]` |
+| Owner, comparing | hostel management in excel · hostel register book | `/vs/[slug]` |
+| Owner, pricing | hostel software price nepal | `/plans-pricing` |
+| Student / parent | hostels in kathmandu · girls hostel in lalitpur · boys hostel baneshwor | `/hostels/in/[city]`, `/hostels/in/[city]/[filter]` |
+| Student / parent, one hostel | "<hostel name>" · "<hostel name> reviews" | `/hostels/[slug]` |
+| Brand | hostelpalika · hostel palika login | `/`, `/about`, `/login` |
+
+Rules every page follows:
+
+- The title names the page and the brand (`<page> · HostelPalika`); the description says what is on
+  the page in plain words. Both come from **Platform → Website Config → SEO** where the page is
+  static, and from the data where it is not (hostels, cities, services).
+- Structured data only states what the page shows. No invented ratings, counts or prices.
+- A programmatic page with nothing on it (a city with no hostels yet) renders, but is `noindex` and
+  stays out of the sitemap until it has something to show.
+- Private and one-person pages (portals, invites, checkouts, IDs) are `noindex`.
+
+## Work items
+
+1. ☑ **Foundation** — `lib/seo.ts` (metadata builder, signed `/og` card URLs, `NOINDEX`),
+   `lib/json-ld.ts` (Organization, WebSite, SoftwareApplication, Hostel, BreadcrumbList, FAQPage,
+   ItemList; `</script>`-safe serializer), `components/json-ld.tsx`; `lib/seo.test.ts` 8/8.
+2. ☑ **SEO config section** — `seo` in site config: per-page titles/descriptions (blank = shipped
+   text, `{siteName}`/`{fromPrice}` filled at render), brand spellings (`alternateName`), keywords,
+   Google + Bing verification, the software page (sections, how-it-works steps, owner FAQ), feature
+   pages and comparisons. Shipped copy in `seo.defaults.ts`; editor at Platform → Website Config →
+   SEO (`/platform/config/seo`); resolver `lib/seo-config.ts`. Tests guard that the shipped copy
+   passes its own schema and every feature page names a real plan module.
+3. ☑ **Site-wide defaults** — root metadata from the `home` SEO entry (title template, keywords,
+   `max-image-preview: large`, Twitter card, Google/Bing verification, author/publisher Softmato);
+   `manifest.ts` (`display: browser` so Chrome never offers the website as a second app);
+   `/og` signed social card in Inter (`og-card.test.ts` renders a 1200×630 PNG, tampered text falls
+   back to the brand card); Organization (alternate names, parent Softmato with legal name) +
+   WebSite (sitelinks search → `/hostels?search=`) JSON-LD on every public page;
+   `/hostel-management-system` → `/hostel-management-software` 308.
+4. ☑ **Every existing page** — home, hostels, map, compare, community, plans & pricing, register
+   hostel, service providers, offer program, about, contact, privacy, terms, log in and sign up read
+   their title/description from the SEO section. Services get "<name> for Hostels" titles with the
+   plan price; badges and community posts get their own (posts under 80 characters are `noindex`).
+   `noindex`: every portal layout (`PORTAL_ROBOTS`), a new `(auth)` layout (log in / sign up opt
+   back in), the registration form, checkout return, `/hostels/register` and `/inquiry`. JSON-LD:
+   SoftwareApplication (one `@id`, real plan prices) + BreadcrumbList on pricing, BreadcrumbList on
+   services, FAQPage on contact (answers shared with the page via `resolveWebFaq`).
+5. ☑ **Hostel pages render on the server** — `hostels/[slug]/page.tsx` reads the hostel once
+   (`cache`, shared with metadata) and hands it to `PublicHostelDetailPage` as `initialHostel`, which
+   no longer refetches it; a missing hostel is a real 404, other failures a 5xx. Titles read
+   "<name> — Boys Hostel in Baneshwor, Kathmandu"; descriptions lead with type, place, rent and
+   rating; the cover photo is the social image. JSON-LD: `Hostel` (address, geo, phone, amenities,
+   room offers, rating only with reviews) + BreadcrumbList through the city page.
+6. ☑ **City landing pages** — `/hostels/in` (every city), `/hostels/in/[city]` and
+   `/hostels/in/[city]/[boys|girls|co-living|area]`, server-rendered. Cities = Website Config →
+   Locations plus any city a published hostel names (`listPublicHostelLocations`, `buildCityIndex`,
+   4 tests); the listing query gained an exact `city` filter. Count, rent range, areas, FAQ and
+   links are computed from live listings (`lib/location-pages.ts`); a page with no hostels is
+   `noindex`; a DB failure is a 5xx, never an empty 200. JSON-LD: BreadcrumbList, ItemList, FAQPage.
+   Live data on 2026-09-15: Education Light Hostel (Ghattekulo) and Study Sanjal (Koteshwar), both
+   boys hostels in Kathmandu. Hostel pages also declare "<name> Hostel" as `alternateName` when the
+   name lacks the word. Known wrinkle: config "Koteshwor" and a hostel's "Koteshwar" are two areas.
+7. ☑ **SaaS pages** — `/hostel-management-software` (headline, intro, the 9 modules, Nepal-specific
+   sections, how-it-works steps, live plan prices, comparisons, 18-question owner FAQ, "A product
+   of Softmato" credit with its logo), `/features` hub, `/features/[slug]` (one per plan module,
+   every service with its plan price, linked to its `/plans-pricing` page), `/vs/[slug]` (honest
+   comparison table, when the old way is enough, FAQ). All server-rendered from Website Config →
+   SEO + the plans catalogue (`resolveSoftwarePage` / `resolveModulePages` / `resolveComparison`);
+   shared blocks in `public-seo-blocks.tsx`. JSON-LD: SoftwareApplication, BreadcrumbList, FAQPage,
+   ItemList. Plan payment copy says it is paid on the website (Play payments policy).
+8. ☑ **Internal links + sitemap** — `components/public-footer.tsx` is now on every public page via
+   `PublicShell` (the full-screen map opts out; the home page's private copy is gone): city pages,
+   the software page, features, pricing, comparisons, company links, and "A product of Softmato"
+   with its logo. `sitemap.ts` lists static pages without fake `lastModified`, feature pages,
+   comparisons, services, badges, location pages that have hostels (`lastModified` = newest hostel)
+   and hostels with up to 10 photos each — 73 URLs against live data on 2026-09-15. `robots.ts`
+   fixed: the old `Disallow: /resident` prefix also blocked `/resident-offer-program`; portals are
+   now closed as `/x/` + `/x$`, and `/team` and `/pay/` were added.
+
+## Waiting on the Play listing
+
+Held back until `com.softmato.hostelpalika` is live on Google Play, so nothing links to a store page
+that does not exist yet. First confirm the listing URL loads publicly, then:
+
+1. ☐ `lib/json-ld.ts` → `softwareApplicationJsonLd`: `operatingSystem` becomes `"Web, Android"`, and
+   the Play URL is added as `installUrl`.
+2. ☐ `app/manifest.ts`: add `related_applications` (platform `play`, id `com.softmato.hostelpalika`)
+   and `prefer_related_applications: true`, so Chrome offers the real app.
+3. ☐ A "Get it on Google Play" link, using Google's official badge, in `components/public-footer.tsx`
+   and on `/hostel-management-software`.
+4. ☐ The FAQ answer to "Is there a HostelPalika app?" says it is on Google Play (`seo.defaults.ts`
+   and the stored SEO config).
+
+## Check it yourself
+
+Open on the deployed site after the next deploy:
+
+- `/hostel-management-software`, `/features`, `/features/fee-collection-billing`, `/vs/excel-spreadsheets`
+- `/hostels/in`, `/hostels/in/kathmandu`, `/hostels/in/kathmandu/boys`
+- `/hostels/education-light-hostel-narephat` — view source: the hostel is in the HTML, with a
+  `"@type":"Hostel"` script
+- `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, and any page's `og:image` URL
+- Paste a page into Google's Rich Results Test and the Schema Markup Validator
+- Platform → Website Config → SEO — every title, description and landing-page text is editable there
+
+## Outside the code (the team does these)
+
+Sequence matters; each step unlocks the next.
+
+1. Verify `hostelpalika.com` in Google Search Console (Domain property, DNS TXT at Vercel DNS) and
+   Bing Webmaster Tools; paste the HTML-tag codes into Website Config → SEO if using the tag method.
+2. Submit `https://hostelpalika.com/sitemap.xml` in both.
+3. Create the Google Business Profile for HostelPalika (Softmato, Kathmandu) — same name, address and
+   phone as the site footer.
+4. Fill Website Config → Social links; they become `sameAs` on the Organization record.
+5. Replace the placeholder `supportPhone` in Site Identity with a real number before it is published
+   in structured data and on the Business Profile.
+6. List HostelPalika on software directories (Capterra, G2, GetApp, SaaSworthy, Software Suggest) and
+   Nepali startup/tech listings; ask onboarded hostels to link to their HostelPalika page.
+7. Record one short walkthrough per feature and upload it on the service's Plans & Pricing entry —
+   the service pages already have a slot for it.
+8. Publish real guides only when they are written; `/blog` stays `noindex` until then.

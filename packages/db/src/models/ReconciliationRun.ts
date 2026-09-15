@@ -40,7 +40,7 @@ const reconciliationRunSchema = new Schema(
     hostelId: { ref: "Hostel", default: null, type: Schema.Types.ObjectId },
     kind: {
       type: String,
-      enum: ["LEDGER_DRIFT", "DUNNING", "GATEWAY_HEALTH", "STATEMENT_MATCH"],
+      enum: ["LEDGER_DRIFT", "DUNNING", "GATEWAY_HEALTH", "PLAN_DUE", "STATEMENT_MATCH"],
       required: true,
     },
 

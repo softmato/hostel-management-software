@@ -24,6 +24,7 @@ const FALLBACK: PublicSiteConfig = {
   legal: DEFAULT_SITE_CONFIG.legal,
   locations: DEFAULT_SITE_CONFIG.locations,
   plans: DEFAULT_SITE_CONFIG.plans,
+  seo: DEFAULT_SITE_CONFIG.seo,
   social: DEFAULT_SITE_CONFIG.social,
   stats: DEFAULT_SITE_CONFIG.stats,
   trustPoints: DEFAULT_SITE_CONFIG.trustPoints,

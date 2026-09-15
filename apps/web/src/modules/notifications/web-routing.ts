@@ -1,4 +1,5 @@
 import { Role } from "@/lib/roles";
+import { isPlanDueNotification } from "@/modules/notifications/push-routing";
 
 /**
  * Where a **browser** push notification takes you when it is clicked.
@@ -165,6 +166,18 @@ export function webLinkForNotification(input: WebLinkInput): string {
   const role = input.role ?? Role.PUBLIC;
   const table = CATEGORY_PATHS[role] ?? {};
   const list = NOTIFICATION_LIST[role] ?? FALLBACK_LIST;
+
+  /*
+   * A reminder about the hostel's own plan bill opens that hostel's Billing
+   * page, on the tenant path so it lands in one hop. The PAYMENT default is the
+   * rent ledger, which is not where a plan invoice is. Only hostel admins are
+   * sent these; anyone else falls through to their own list.
+   */
+  if (isPlanDueNotification(input) && role === Role.HOSTEL_ADMIN) {
+    const slug = readId(input.data, "hostelSlug");
+
+    return slug ? `/${encodeURIComponent(slug)}/admin/billing` : "/hostel-admin/billing";
+  }
 
   /*
    * `STORE_ORDER` is the one exception it already is on mobile: the order

@@ -582,10 +582,12 @@ export async function issueSubscriptionInvoice(
   }
 
   const hostel = await HostelModel.findById(subscription.hostelId)
-    .select("name contact verificationStatus")
+    .select("name contact slug status verificationStatus")
     .lean<{
       contact?: { email?: string; phone?: string };
       name?: string;
+      slug?: string;
+      status?: string;
       verificationStatus?: string;
     } | null>();
 
@@ -619,6 +621,7 @@ export async function issueSubscriptionInvoice(
     issuedAt,
   );
 
+  const source = options.source ?? subscription.source ?? "PUBLIC";
   const owner = await resolveBillingContact(subscription.hostelId);
   const invoiceNumber = await allocateNumber(
     subscription.hostelId,
@@ -656,7 +659,7 @@ export async function issueSubscriptionInvoice(
     periodStart: period.startsAt,
     planId: subscription.planId,
     planName: subscription.planName,
-    source: options.source ?? subscription.source ?? "PUBLIC",
+    source,
     status: "OPEN",
     subscriptionId: subscription._id,
   });
@@ -691,11 +694,14 @@ export async function issueSubscriptionInvoice(
     cycleLabel: catalog.cycleLabels[subscription.cycle] ?? subscription.cycle,
     documentUrl: invoice.documentUrl ?? null,
     dueAt,
+    hostelLive: hostel.status === "PUBLISHED",
     hostelName: hostel.name ?? "",
+    hostelSlug: hostel.slug ?? null,
     invoiceNumber,
     ownerEmail: owner.email,
     ownerName: owner.name,
     planName: subscription.planName ?? "",
+    source: source === "TEAM" ? "TEAM" : "PUBLIC",
   });
 
   return invoice;

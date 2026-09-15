@@ -80,6 +80,12 @@ const KNOWN_PATHS = new Set([
    */
   "/guardians",
   /*
+   * The hostel's plan Billing screen, on the root stack. Where a plan payment
+   * reminder lands — the server sends it for those rows ahead of their
+   * `actionUrl`, which is the website's billing page.
+   */
+  "/manage/billing",
+  /*
    * The night-status screen, on the root stack. Reached by a plain tap on the
    * nightly prompt — the notification's own buttons answer it without opening
    * anything, so this is the path for somebody who wants to see the reason list
@@ -292,6 +298,25 @@ const ROLE_CHANGE_TYPES = new Set([
    */
   "SERVICE_PROVIDER_APPROVED",
 ]);
+
+/**
+ * Is this a reminder about the hostel's own plan bill?
+ *
+ * Its push already lands on Billing through `data.path`; this is for the row in
+ * the bell, which has no path — only the website's `actionUrl`, which is not a
+ * route here. The literal is frozen on both sides for the reason given above:
+ * the server writes it in `plan-due-reminders.service.ts`.
+ */
+export function opensPlanBilling(notification: { category?: unknown; data?: unknown }): boolean {
+  const data = notification.data;
+
+  return (
+    notification.category === "PAYMENT" &&
+    Boolean(data) &&
+    typeof data === "object" &&
+    (data as { type?: unknown }).type === "PLAN_DUE"
+  );
+}
 
 /**
  * Does this payload say the recipient's own role has changed?

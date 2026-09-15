@@ -191,6 +191,9 @@ const nextConfig: NextConfig = {
     "/api/v1/platform/hostels/*/approve": [...CANVAS_NATIVE, ...ID_CARD_FONTS],
     "/api/v1/platform/service-providers/*/approve": [...CANVAS_NATIVE, ...ID_CARD_FONTS],
     "/api/v1/users/resident-identity": [...CANVAS_NATIVE, ...ID_CARD_FONTS],
+    // The social card: its title in the same Inter faces, and the original logos
+    // from public/brand — both read from disk at runtime, so neither is traced.
+    "/og": [...ID_CARD_FONTS, "./public/brand/*.png"],
   },
   async headers() {
     return [{ headers: SECURITY_HEADERS, source: "/:path*" }];
@@ -200,6 +203,12 @@ const nextConfig: NextConfig = {
       // The resident feed became one platform-wide community. Old links and
       // bookmarks land where the conversation actually moved to.
       { destination: "/community", permanent: true, source: "/resident/community" },
+      // People type "system" as often as "software"; both land on the one page.
+      {
+        destination: "/hostel-management-software",
+        permanent: true,
+        source: "/hostel-management-system",
+      },
     ];
   },
   async rewrites() {

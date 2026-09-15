@@ -71,7 +71,6 @@ export default function RegisterHostelScreen() {
         />
       }
       comingSoon="More about hosting with us is being designed — it arrives in an upcoming update."
-      icon="business-outline"
       media={<MockupCarousel slides={SLIDES} title="See it before you sign up" />}
       page="registerHostel"
       sectionMedia={(index) =>

@@ -21,6 +21,8 @@ export type RunKind =
   | "DUNNING"
   | "GATEWAY_HEALTH"
   | "LEDGER_DRIFT"
+  /** Plan payment reminders to hostel owners — `plan-due-reminders.service.ts`. */
+  | "PLAN_DUE"
   | "STATEMENT_MATCH";
 
 export type RunFinding = {

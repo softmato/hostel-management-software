@@ -1,4 +1,12 @@
-import { ctaButton, emailLayout, escapeHtml, monthName, paragraph, type EmailContent } from "../layout";
+import {
+  ctaButton,
+  emailDate,
+  emailLayout,
+  escapeHtml,
+  monthName,
+  paragraph,
+  type EmailContent,
+} from "../layout";
 
 /**
  * Which of the three pre-due notices this is.
@@ -63,7 +71,7 @@ export function paymentDueReminderEmail(input: {
           `Hi ${escapeHtml(input.residentName)}, your <strong>${escapeHtml(monthName(input.month))}</strong> fee at ${escapeHtml(input.hostelName)} ${words.lead}.`,
         ),
         paragraph(
-          `Amount due: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong><br/>Due date: <strong>${escapeHtml(input.dueDate.toDateString())}</strong>`,
+          `Amount due: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong><br/>Due date: <strong>${escapeHtml(emailDate(input.dueDate) ?? "")}</strong>`,
         ),
         paragraph(
           "Pay through your usual method, then upload the payment proof so your hostel admin can verify it.",

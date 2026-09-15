@@ -4,7 +4,7 @@ import { hostelVerifiedEmail } from "@hostel/shared/email/templates/hostel/hoste
 import { subscriptionInvoiceEmail } from "@hostel/shared/email/templates/billing/subscription-invoice";
 import { subscriptionReceiptEmail } from "@hostel/shared/email/templates/billing/subscription-receipt";
 import { sendEmail, type EmailAttachment } from "@hostel/shared/email/sender";
-import type { EmailContent } from "@hostel/shared/email/templates/layout";
+import { emailDate, type EmailContent } from "@hostel/shared/email/templates/layout";
 
 import {
   resolveInvoiceDocument,
@@ -33,10 +33,14 @@ import {
  * | | public | team |
  * |---|---|---|
  * | `submitted` | "we'll verify, 1–2 business days" | — |
- * | `registeredByTeam` | — | "you're live", plus any due |
+ * | `registeredByTeam` | — | "you're live", plus *Pay now* for any balance |
  * | `verified` | "pay now is on" | — (never queues) |
- * | `invoiceIssued` | on *Pay now* | when the agent passes the plan step |
+ * | `invoiceIssued` | on *Pay now*, with *Pay now* | when the agent passes the plan step, with *View billing* |
  * | `paymentSettled` | receipt | receipt, with the balance if any |
+ *
+ * Reminders about a payment that has not arrived are not moments in this
+ * lifecycle — they are a daily sweep — and live in
+ * `billing/plan-due-reminders.service.ts`.
  *
  * ## Nothing here may throw
  *
@@ -60,23 +64,20 @@ export function hostelListingUrl(slug: string) {
   return `${appBase()}/hostels/${slug}`;
 }
 
-/** Dates in emails are read by people, not parsed. */
+/**
+ * The hostel's plan billing page — where a live hostel pays what it owes.
+ *
+ * The tenant path itself rather than `/hostel-admin/billing`, so the link lands
+ * in one hop. An owner who is signed out is sent to log in and brought straight
+ * back here (`proxy.ts` keeps the path in `next`).
+ */
+export function hostelBillingUrl(slug: string) {
+  return `${appBase()}/${encodeURIComponent(slug)}/admin/billing`;
+}
+
+/** Dates in emails are read by people, not parsed — both calendars, see `emailDate`. */
 export function formatEmailDate(value?: Date | string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const date = typeof value === "string" ? new Date(value) : value;
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return emailDate(value);
 }
 
 async function deliver(
@@ -155,6 +156,7 @@ export async function onRegisteredByTeam(input: {
     hostelRegisteredByTeamEmail({
       agentName: input.agentName,
       amountPaid: input.amountPaid,
+      billingUrl: hostelBillingUrl(input.hostelSlug),
       dueBy: formatEmailDate(input.dueBy),
       hostelName: input.hostelName,
       listingUrl: hostelListingUrl(input.hostelSlug),
@@ -247,11 +249,15 @@ export async function onInvoiceIssued(input: {
   cycleLabel: string;
   documentUrl?: string | null;
   dueAt?: Date | null;
+  /** Published already — a renewal on a live hostel. */
+  hostelLive: boolean;
   hostelName: string;
+  hostelSlug?: string | null;
   invoiceNumber: string;
   ownerEmail?: string;
   ownerName?: string;
   planName: string;
+  source: "PUBLIC" | "TEAM";
 }) {
   if (!input.ownerEmail) {
     return;
@@ -259,19 +265,39 @@ export async function onInvoiceIssued(input: {
 
   const attachments = await attach("invoice", input.invoiceNumber);
 
+  /*
+   * Where the invoice is paid, and whether to ask for it.
+   *
+   * - A team registration's hostel has its own billing page from the moment it
+   *   is filed, and the agent is collecting in person as this arrives — so it
+   *   offers the page and does not ask for the money a second way.
+   * - A live hostel renewing pays from its billing page.
+   * - A self-registered hostel that is not published yet pays from its
+   *   progress page, and paying is what publishes it.
+   */
+  const team = input.source === "TEAM";
+  const billingUrl =
+    input.hostelSlug && (team || input.hostelLive)
+      ? hostelBillingUrl(input.hostelSlug)
+      : null;
+
   await deliver(
     "subscription_invoice_issued",
     input.ownerEmail,
     subscriptionInvoiceEmail({
+      action: {
+        label: team ? "View billing" : "Pay now",
+        url: billingUrl ?? registrationStatusUrl(),
+      },
       amount: input.amount,
       attached: attachments.length > 0,
       cycleLabel: input.cycleLabel,
       documentUrl: input.documentUrl,
       dueAt: formatEmailDate(input.dueAt),
+      goesLiveOnPayment: !team && !input.hostelLive,
       hostelName: input.hostelName,
       invoiceNumber: input.invoiceNumber,
       ownerName: input.ownerName,
-      payUrl: registrationStatusUrl(),
       planName: input.planName,
     }),
     attachments,

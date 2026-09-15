@@ -7,7 +7,7 @@ import {
 } from "@/components/site-config-provider";
 import { Mail, Phone, MapPin, Clock, MessageSquare, HelpCircle } from "lucide-react";
 
-import { fillPlaceholders } from "@/lib/site-content";
+import { resolveWebFaq } from "@/lib/site-content";
 
 type SiteIdentity = PublicSiteConfig["identity"];
 
@@ -38,31 +38,11 @@ const buildContactMethods = (identity: SiteIdentity) => [
   },
 ];
 
-/**
- * The FAQ moved to Platform → Website Config → Page Content (`content.faq`),
- * because the app's Contact screen asks and answers the same five questions.
- *
- * Two of the stored answers name a control — how to create an account, how to
- * list a hostel — and each client rewrites those for its own chrome: the site
- * says "the Sign Up button on the top right corner of any page", the app says
- * "the Profile tab". The substitution is keyed on the question rather than on
- * an index so reordering the list in the admin panel cannot mis-target it.
- */
-const WEB_ANSWERS: Record<string, string> = {
-  "How do I create an account?":
-    "Click the Sign Up button on the top right corner of any page. Fill in your details, verify your email or phone via OTP, and you are ready to go.",
-  "How do I list my hostel?":
-    "Navigate to the Register Hostel page and fill out the registration form. Our team will review and verify your listing within 2–3 business days.",
-};
-
 export function PublicContactPage() {
   // Support channels come from Platform → Website Config → Site Identity.
   const { content, identity } = useSiteConfig();
   const contactMethods = buildContactMethods(identity);
-  const faqs = content.faq.map((faq) => ({
-    answer: fillPlaceholders(WEB_ANSWERS[faq.question] ?? faq.answer, identity),
-    question: fillPlaceholders(faq.question, identity),
-  }));
+  const faqs = resolveWebFaq(content.faq, identity);
 
   return (
     <PublicShell active="contact">

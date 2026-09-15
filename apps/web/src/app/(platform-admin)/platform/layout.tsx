@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import { PortalShell } from "@/components/portal-shell";
 import {
   PLATFORM_MODERATOR_NAV,
@@ -6,7 +8,11 @@ import {
   PLATFORM_SEARCH_ENTRIES,
 } from "@/lib/portal-nav";
 import { Role } from "@/lib/roles";
+import { PORTAL_ROBOTS } from "@/lib/seo";
 import { sessionRole } from "@/lib/server-session";
+
+/** Signed-in workspace: kept out of search, links included (robots.txt disallows it too). */
+export const metadata: Metadata = { robots: PORTAL_ROBOTS };
 
 export default async function PlatformLayout({
   children,

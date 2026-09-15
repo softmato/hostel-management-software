@@ -396,6 +396,7 @@ export function FormField({
 export function PublicShell({
   active,
   children,
+  footer = true,
 }: {
   /*
    * Mirrors `PublicHeaderProps["active"]`. The four More-menu entries — About,
@@ -419,11 +420,14 @@ export function PublicShell({
     | "register-hostel"
     | "terms";
   children: ReactNode;
+  /** The shared footer; off only for pages that fill the viewport, like the map. */
+  footer?: boolean;
 }) {
   return (
     <AnimatedPage className="min-h-screen overflow-x-clip bg-background text-foreground">
       <PublicHeader active={active} />
       <div className="pt-16">{children}</div>
+      {footer ? <PublicFooter /> : null}
     </AnimatedPage>
   );
 }
@@ -442,6 +446,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { PublicFooter } from "@/components/public-footer";
 
 // Nepal Banner Illustration Graphic
 export function NepalBannerGraphic() {

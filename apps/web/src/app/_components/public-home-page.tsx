@@ -25,7 +25,6 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { BrandMark } from "@/components/brand-mark";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -155,7 +154,7 @@ function HostelRow({
 
 function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
   const router = useRouter();
-  const { features, hero, identity, locations, social, trustPoints } = useSiteConfig();
+  const { hero, identity, locations, trustPoints } = useSiteConfig();
   const cityOptions = locations.map((location) => location.city);
   const [searchVal, setSearchVal] = useState("");
   const [searching, setSearching] = useState(false);
@@ -275,50 +274,6 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
   }, [hostels]);
 
   const heroHostel = featuredHostels[0];
-
-  // Footer links follow the owner's feature flags — a surface that is switched
-  // off in Website Config shouldn't still be advertised down here.
-  const socialLinks: Array<[string, string]> = (
-    [
-      ["Facebook", social.facebook],
-      ["Instagram", social.instagram],
-      ["YouTube", social.youtube],
-      ["TikTok", social.tiktok],
-      ["LinkedIn", social.linkedin],
-      ["Website", social.website],
-    ] satisfies Array<[string, string]>
-  ).filter(([, href]) => Boolean(href));
-
-  const footerGroups = [
-    {
-      links: [
-        ["Browse hostels", "/hostels"],
-        ...(features.compare ? [["Compare hostels", "/compare"]] : []),
-        ...(features.inquiries ? [["Send inquiry", "/inquiry"]] : []),
-      ],
-      title: "Explore",
-    },
-    {
-      links: [
-        ...(features.publicRegistration
-          ? [["Hostel registration", "/hostels/register"]]
-          : []),
-        ...(features.serviceProviderSignup
-          ? [["Service providers", "/service-providers"]]
-          : []),
-        ["Plans & Pricing", "/plans-pricing"],
-      ],
-      title: "Partners",
-    },
-    {
-      links: [
-        ["About us", "/#about"],
-        ["Contact", "/#contact"],
-        ["Login", "/login"],
-      ],
-      title: "Company",
-    },
-  ];
 
   return (
     <PublicShell>
@@ -789,93 +744,6 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
         </div>
       </div>
 
-      <footer className="border-t border-border bg-surface">
-        <div className="mx-auto grid max-w-[1448px] gap-10 px-6 py-10 lg:grid-cols-[1.2fr_2fr_0.9fr]">
-          <div>
-            <Link
-              href="/"
-              aria-label={identity.siteName}
-              className="inline-flex items-center"
-            >
-              <BrandMark adaptive className="h-10" />
-            </Link>
-            <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">
-              {identity.tagline ||
-                "A Nepal-focused hostel discovery and operations platform for students, families, hostel teams, and trusted service partners."}
-            </p>
-            {socialLinks.length > 0 ? (
-              <div className="mt-5 flex flex-wrap gap-3 text-sm font-semibold text-muted-foreground">
-                {socialLinks.map(([label, href]) => (
-                  <a
-                    className="transition hover:text-brand-teal"
-                    href={href}
-                    key={label}
-                    rel="noreferrer noopener"
-                    target="_blank"
-                  >
-                    {label}
-                  </a>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
-            {footerGroups.map((group) => (
-              <div key={group.title}>
-                <p className="text-sm font-extrabold text-foreground">{group.title}</p>
-                <div className="mt-4 space-y-3">
-                  {group.links.map(([label, href]) => (
-                    <Link
-                      className="block text-sm font-medium text-muted-foreground transition hover:text-brand-teal"
-                      href={href}
-                      key={label}
-                    >
-                      {label}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div>
-            <p className="text-sm font-extrabold text-foreground">Contact</p>
-            <div className="mt-4 space-y-3 text-sm font-medium text-muted-foreground">
-              {identity.supportPhone ? (
-                <a
-                  className="block transition hover:text-brand-teal"
-                  href={`tel:${identity.supportPhone.replace(/\s/g, "")}`}
-                >
-                  {identity.supportPhone}
-                </a>
-              ) : null}
-              {identity.supportEmail ? (
-                <a
-                  className="block transition hover:text-brand-teal"
-                  href={`mailto:${identity.supportEmail}`}
-                >
-                  {identity.supportEmail}
-                </a>
-              ) : null}
-              {identity.address ? <p>{identity.address}</p> : null}
-            </div>
-          </div>
-        </div>
-        <div className="border-t border-border">
-          <div className="mx-auto flex max-w-[1448px] flex-col gap-3 px-6 py-5 text-xs font-medium text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <p>Copyright 2026 {identity.siteName}. All rights reserved.</p>
-            <div className="flex gap-4">
-              <Link className="hover:text-brand-teal" href="/privacy">
-                Privacy
-              </Link>
-              <Link className="hover:text-brand-teal" href="/terms">
-                Terms
-              </Link>
-            </div>
-          </div>
-        </div>
-      </footer>
     </PublicShell>
   );
 }

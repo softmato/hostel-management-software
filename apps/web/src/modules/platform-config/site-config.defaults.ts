@@ -1,6 +1,7 @@
 import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 
 import { DEFAULT_PLANS } from "./plans.defaults";
+import { DEFAULT_SEO } from "./seo.defaults";
 import type { SiteConfig } from "./site-config.validation";
 
 /**
@@ -723,6 +724,8 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
    * component constant.
    */
   plans: DEFAULT_PLANS,
+  /** Page titles, descriptions and the marketing pages written for search — see `seo.defaults.ts`. */
+  seo: DEFAULT_SEO,
   social: {
     facebook: "",
     instagram: "",

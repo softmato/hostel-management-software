@@ -1,81 +1,136 @@
 import type { MetadataRoute } from "next";
 
 import { listingTiers } from "@/app/_components/plans-catalog";
+import { HOSTEL_TYPE_PAGES } from "@/lib/hostel-locations";
+import { loadCityIndex } from "@/lib/location-pages";
+import { loadSeo, resolveModulePages } from "@/lib/seo-config";
 import { siteUrl } from "@/lib/site";
-import { loadSiteConfig } from "@/lib/site-config-server";
 import { listPublishedHostelSlugs } from "@/modules/hostels/hostel.service";
 
 export const runtime = "nodejs";
 // Regenerate at most hourly so newly-approved hostels appear without a redeploy.
 export const revalidate = 3600;
 
-const STATIC_ROUTES: {
-  path: string;
-  priority: number;
-  changeFrequency: "daily" | "weekly" | "monthly";
-}[] = [
-  { path: "", priority: 1, changeFrequency: "daily" },
-  { path: "/hostels", priority: 0.9, changeFrequency: "daily" },
-  { path: "/compare", priority: 0.6, changeFrequency: "weekly" },
-  { path: "/register-hostel", priority: 0.7, changeFrequency: "monthly" },
-  { path: "/service-providers", priority: 0.6, changeFrequency: "weekly" },
-  { path: "/about", priority: 0.4, changeFrequency: "monthly" },
-  { path: "/contact", priority: 0.4, changeFrequency: "monthly" },
-  { path: "/plans-pricing", priority: 0.7, changeFrequency: "monthly" },
-  { path: "/privacy", priority: 0.3, changeFrequency: "monthly" },
-  { path: "/terms", priority: 0.3, changeFrequency: "monthly" },
+type Entry = MetadataRoute.Sitemap[number];
+
+/**
+ * Every page that should be in search, and nothing that should not.
+ *
+ * `lastModified` is only set where it is true — a hostel's own `updatedAt`, a
+ * city's newest hostel. Stamping every static page with "now" on each rebuild
+ * teaches search engines the field means nothing, and then they ignore it for
+ * the hostels too.
+ *
+ * Programmatic pages are listed only when they have something on them: a city,
+ * a type or an area with no published hostel is `noindex`, so it stays out.
+ */
+const STATIC_ROUTES: Array<Pick<Entry, "changeFrequency" | "priority"> & { path: string }> = [
+  { changeFrequency: "daily", path: "", priority: 1 },
+  { changeFrequency: "daily", path: "/hostels", priority: 0.9 },
+  { changeFrequency: "weekly", path: "/hostel-management-software", priority: 0.9 },
+  { changeFrequency: "daily", path: "/hostels/in", priority: 0.8 },
+  { changeFrequency: "monthly", path: "/features", priority: 0.8 },
+  { changeFrequency: "monthly", path: "/plans-pricing", priority: 0.8 },
+  { changeFrequency: "monthly", path: "/register-hostel", priority: 0.7 },
+  { changeFrequency: "daily", path: "/map", priority: 0.6 },
+  { changeFrequency: "daily", path: "/community", priority: 0.6 },
+  { changeFrequency: "weekly", path: "/compare", priority: 0.5 },
+  { changeFrequency: "monthly", path: "/service-providers", priority: 0.5 },
+  { changeFrequency: "monthly", path: "/about", priority: 0.5 },
+  { changeFrequency: "monthly", path: "/contact", priority: 0.5 },
+  { changeFrequency: "monthly", path: "/resident-offer-program", priority: 0.3 },
+  { changeFrequency: "yearly", path: "/privacy", priority: 0.2 },
+  { changeFrequency: "yearly", path: "/terms", priority: 0.2 },
 ];
+
+async function hostelEntries(base: string): Promise<Entry[]> {
+  try {
+    const hostels = await listPublishedHostelSlugs();
+
+    return hostels.map((hostel) => ({
+      changeFrequency: "daily",
+      images: hostel.images,
+      lastModified: hostel.updatedAt,
+      priority: 0.8,
+      url: `${base}/hostels/${hostel.slug}`,
+    }));
+  } catch {
+    // If the DB is unreachable at generation time, still serve the rest.
+    return [];
+  }
+}
+
+async function locationEntries(base: string): Promise<Entry[]> {
+  try {
+    const cities = await loadCityIndex();
+
+    return cities
+      .filter((city) => city.count > 0)
+      .flatMap((city) => {
+        const cityUrl = `${base}/hostels/in/${city.slug}`;
+        const common = {
+          changeFrequency: "daily" as const,
+          lastModified: city.updatedAt ?? undefined,
+        };
+
+        return [
+          { ...common, priority: 0.8, url: cityUrl },
+          ...HOSTEL_TYPE_PAGES.filter((type) => city.types[type.type] > 0).map((type) => ({
+            ...common,
+            priority: 0.7,
+            url: `${cityUrl}/${type.slug}`,
+          })),
+          ...city.areas
+            .filter((area) => area.count > 0)
+            .map((area) => ({ ...common, priority: 0.6, url: `${cityUrl}/${area.slug}` })),
+        ];
+      });
+  } catch {
+    return [];
+  }
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = siteUrl();
-  const now = new Date();
 
-  const staticEntries: MetadataRoute.Sitemap = STATIC_ROUTES.map((route) => ({
-    url: `${base}${route.path}`,
-    lastModified: now,
+  const staticEntries: Entry[] = STATIC_ROUTES.map((route) => ({
     changeFrequency: route.changeFrequency,
     priority: route.priority,
+    url: `${base}${route.path}`,
   }));
 
   /*
-   * Every service in the plans catalogue is its own indexable page, and so is
-   * each directory badge — but the catalogue is owner-editable now, so the list
-   * is read at generation time rather than imported as a constant. A service
-   * the owner adds is in the sitemap on the next revalidation; one they remove
-   * leaves it the same way. `loadSiteConfig` never throws, so an unreachable
+   * The plans catalogue and the SEO pages are owner-editable, so their lists
+   * are read at generation time. `loadSeo` never throws, so an unreachable
    * database costs the sitemap these rows rather than the whole file.
    */
-  const { plans: catalog } = await loadSiteConfig();
+  const { config, fill, seo } = await loadSeo();
+  const catalog = config.plans;
 
-  const planEntries: MetadataRoute.Sitemap = [
+  const marketingEntries: Entry[] = [
+    ...resolveModulePages(seo, catalog, fill).map((page) => ({
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+      url: `${base}/features/${page.slug}`,
+    })),
+    ...seo.comparisons.map((comparison) => ({
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+      url: `${base}/vs/${comparison.slug}`,
+    })),
     ...catalog.services.map((service) => ({
-      url: `${base}/plans-pricing/${service.slug}`,
-      lastModified: now,
       changeFrequency: "monthly" as const,
       priority: 0.5,
+      url: `${base}/plans-pricing/${service.slug}`,
     })),
     ...listingTiers(catalog).map(({ tier }) => ({
-      url: `${base}/plans-pricing/badge/${tier.slug}`,
-      lastModified: now,
       changeFrequency: "monthly" as const,
       priority: 0.4,
+      url: `${base}/plans-pricing/badge/${tier.slug}`,
     })),
   ];
 
-  let hostelEntries: MetadataRoute.Sitemap = [];
+  const [hostels, locations] = await Promise.all([hostelEntries(base), locationEntries(base)]);
 
-  try {
-    const hostels = await listPublishedHostelSlugs();
-    hostelEntries = hostels.map((hostel) => ({
-      url: `${base}/hostels/${hostel.slug}`,
-      lastModified: hostel.updatedAt ?? now,
-      changeFrequency: "daily",
-      priority: 0.8,
-    }));
-  } catch {
-    // If the DB is unreachable at generation time, still serve static routes.
-    hostelEntries = [];
-  }
-
-  return [...staticEntries, ...planEntries, ...hostelEntries];
+  return [...staticEntries, ...marketingEntries, ...locations, ...hostels];
 }

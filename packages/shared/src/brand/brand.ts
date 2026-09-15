@@ -15,4 +15,7 @@ export const PLATFORM_NAME_PARTS = { head: "Hostel", tail: "Palika" } as const;
 
 export const PLATFORM_VENDOR = "Softmato";
 
+/** The parent company's own site — the product links back to it, and search engines are told so. */
+export const PLATFORM_VENDOR_URL = "https://softmato.com";
+
 export const POWERED_BY = `Powered by ${PLATFORM_VENDOR}`;

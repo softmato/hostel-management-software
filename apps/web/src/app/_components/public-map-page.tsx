@@ -461,7 +461,7 @@ export function PublicMapPage() {
   const showResults = searching && query.trim().length > 0;
 
   return (
-    <PublicShell active="map">
+    <PublicShell active="map" footer={false}>
       <div className="relative h-[calc(100dvh-4rem)] w-full overflow-hidden">
         <MapCanvas
           layer={layer}

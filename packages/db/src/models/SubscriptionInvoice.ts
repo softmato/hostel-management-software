@@ -158,6 +158,36 @@ const subscriptionInvoiceSchema = new Schema(
     voidedAt: { default: null, type: Date },
     voidedBy: { default: null, ref: "User", type: Schema.Types.ObjectId },
     voidReason: { default: null, trim: true, type: String },
+
+    /* ── Reminders sent about it ───────────────────────────────────────── */
+
+    /**
+     * Which reminder steps have gone out on this invoice, one entry per channel.
+     *
+     * Recorded rather than recomputed from the date, for the reason `Invoice`'s
+     * `dunning` gives: "is today the day" silently skips an owner whenever a
+     * cron run is missed, while "has this step been sent yet" answers correctly
+     * on a late run and only once on a double run.
+     *
+     * `offset` is the step's Nepal day counted from the due day — `-1` the day
+     * before, `0` the day itself, `3` three days late — so an entry still means
+     * the same thing after the platform edits the schedule. An entry is written
+     * before its send and removed if the send fails. Empty on invoices raised
+     * before reminders existed. See `plan-due-reminders.service.ts`.
+     */
+    reminders: {
+      sent: {
+        default: [],
+        type: [
+          {
+            _id: false,
+            at: { required: true, type: Date },
+            channel: { enum: ["bell", "email", "push"], required: true, type: String },
+            offset: { required: true, type: Number },
+          },
+        ],
+      },
+    },
   },
   { timestamps: true },
 );

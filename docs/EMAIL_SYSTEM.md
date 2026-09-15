@@ -127,9 +127,10 @@ packages/shared/src/email/
   identity.ts            # categories, mailbox map, From-header assembly
   sender.ts              # sendEmail() — the only thing that talks to Resend
   templates/
-    layout.ts            # emailLayout / ctaButton / paragraph / escapeHtml / monthName
-    account/    auth/    guardian/    hostel/
-    payment/    platform/ resident/   service-provider/
+    layout.ts            # emailLayout / ctaButton / paragraph / greeting / smallPrint /
+                         # textLink / detailsTable / escapeHtml / monthName / emailDate
+    account/    auth/    billing/    cook/    guardian/    hostel/
+    payment/    platform/ resident/  service-provider/     store/
 ```
 
 Each template declares its own category, so a call site never names one:
@@ -154,6 +155,28 @@ development) it logs the message instead of sending it.
 
 Interpolate anything user-provided through `escapeHtml()` — `bodyHtml` is
 trusted markup.
+
+### 0.5 The look
+
+Every email is drawn by `emailLayout`, so these rules hold for all of them:
+
+- **Black, white and green.** Dark text on a white card on a light grey
+  canvas. The brand green (`#0a8a4b`) is used for the product name above the
+  card and for the one button, and nowhere else. There is no painted header
+  block.
+- **Red only means "now".** `urgent: true` turns the small label above the
+  heading red (`#dc2626`), and nothing else about the email changes.
+- **One action per email.** It is `ctaButton`, a table cell rather than a styled
+  link so that Outlook keeps its padding. The address is printed under it.
+- **Figures go in `detailsTable`, not in sentences.** It shows label left and
+  value right, with a hairline between rows. The one figure the email is about
+  is set larger with `emphasis`, and a blank value drops its row.
+- **A preheader on anything new.** This is the inbox preview line, and it is
+  written for the purpose rather than left to the email's first words.
+- **Dates in both calendars.** `emailDate` prints `Aswin 1, 2083 BS (17 Sep
+  2026)`, read off the Nepal day. `monthName` names a BS period key (`2083-05`)
+  as `Bhadra 2083 BS`.
+- Inline styles and tables only, because email clients ignore most CSS.
 
 ---
 
@@ -616,6 +639,72 @@ Note: Multiple cooks can share these credentials.
 - Reason for rejection
 - "Resubmit payment proof" CTA
 - Support contact
+
+---
+
+### 3.6 Plan billing (a hostel paying the platform) *(added 2026-09-15)*
+
+The mobile app takes no plan payments: Google Play requires its own billing for
+business software bought in an app, and bans links to other ways of paying. So
+these emails, together with the website's billing page, are how an owner pays.
+Every payment button opens the website.
+
+| Email | Trigger | Template | Category | Button |
+|---|---|---|---|---|
+| Plan invoice | An invoice is raised (`onInvoiceIssued`) | `billing/subscription-invoice` | `billing` | *Pay now*, to the progress page for a self-registered hostel or the billing page for a live one. For a team registration it is *View billing*, because the agent is collecting in person |
+| Listing is live | A field agent files the hostel (`onRegisteredByTeam`) | `hostel/hostel-registered-by-team` | `info` | *Pay now* to `/{slug}/admin/billing` when a balance is left, otherwise *View your listing* |
+| Receipt | Money settles (`onPaymentSettled`) | `billing/subscription-receipt` | `billing` | None; it is paperwork |
+| Payment due | Daily at 07:45, at a before-due step with email on (as shipped: the day before) | `billing/plan-due` → `planDueSoonEmail` | `billing` | *Pay now* |
+| Payment overdue | Daily at 07:45, at an after-due step with email on (as shipped: one day late), **live hostels only** (`PAST_DUE`) | `billing/plan-due` → `planOverdueEmail` | `alert` | *Pay now* |
+
+#### Reminder schedule
+
+The platform admin sets it in **Operations configuration → Plan payment
+reminders** (`operations.planDueReminders`): a list of days before the due day
+(`0` is the due day itself), a list of days after it, and for each day whether
+it goes by email, push or bell.
+
+| Step | Email | Push | Bell |
+|---|---|---|---|
+| 1 day before | ✓ | ✓ | ✓ |
+| The due day | | ✓ | ✓ |
+| 1 day after | ✓ | ✓ | ✓ |
+| 3 days after | | ✓ | ✓ |
+| 7 days after | | ✓ | ✓ |
+
+That is the shipped default. Who gets each channel:
+
+- **Email** goes to the owner.
+- **Push and bell** go to the owner and the hostel's active `HOSTEL_ADMIN`
+  members. Only accounts with the `HOSTEL_ADMIN` role get them, and only for a
+  live hostel: a hostel waiting to go live has no admin portal yet.
+- Push and bell use category `PAYMENT` with `data.type: "PLAN_DUE"`.
+- **Tapping one opens Billing:** `/manage/billing` in the app
+  (`deepLinkForNotification` for the push, `opensPlanBilling` for the bell row)
+  and `/{slug}/admin/billing` on the web (`webLinkForNotification`, and the bell
+  row's `actionUrl`).
+- The bell row is `NORMAL`, not `ACTION`, so it never sits under "Needs you".
+- **Push and bell text states facts only:** the amount, plan, hostel, due day
+  and invoice number. There is no pay link and no pay wording, because the app
+  takes no plan payments.
+
+Rules for sending:
+
+- **Skips still apply.** Nothing is sent while a payment claim for the invoice
+  is `IN_REVIEW`. Nothing after the due day is sent unless the hostel is live and
+  owes (`PAST_DUE`). No before-due step is sent on the day the invoice was raised.
+- **Only the latest step.** Each run sends only the latest step whose day has
+  come. A missed morning is made up with that step, never with the steps it
+  skipped, and a step is never sent after a later one. So a skipped step's email
+  is not carried forward to a push-only step.
+- **Claimed before sending.** Each channel of a step is written to
+  `SubscriptionInvoice.reminders.sent` (`{ offset, channel, at }`, where `offset`
+  is Nepal days from the due day) before it goes out.
+- **Retried if it fails.** A channel that fails is removed again, and the next
+  run retries it for as long as its step is still the latest one due.
+
+See `apps/web/src/modules/billing/plan-due-reminders.service.ts`, which runs from
+the Payment reminders cron (`docs/CRON.md` §8).
 
 ---
 

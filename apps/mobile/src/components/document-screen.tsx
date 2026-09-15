@@ -88,7 +88,12 @@ export function DocumentScreen({
   comingSoon?: string;
   /** Rendered between the sections and the closing note. */
   extra?: ReactNode;
-  icon: InfoIcon;
+  /**
+   * The masthead's icon. Leave it out and the page has no masthead at all — for a
+   * page whose `action` opens with its own picture and heading, where a second
+   * title under the app bar's is the same words three times.
+   */
+  icon?: InfoIcon;
   legalDocument?: keyof MobileLegal;
   /** Pictures of the product, shown under the action and above the copy. */
   media?: ReactNode;
@@ -140,13 +145,15 @@ export function DocumentScreen({
         spacing that separated essays separates a list badly.
       */}
       <View className="gap-8 pb-4">
-        <InfoHeader
-          icon={icon}
-          subtitle={
-            legal ? `Last updated: ${legal.updatedAt || "July 11, 2026"}` : resolved.subtitle
-          }
-          title={heading}
-        />
+        {icon ? (
+          <InfoHeader
+            icon={icon}
+            subtitle={
+              legal ? `Last updated: ${legal.updatedAt || "July 11, 2026"}` : resolved.subtitle
+            }
+            title={heading}
+          />
+        ) : null}
 
         {/*
           Above the copy, and above the "could not load it" states as well: a

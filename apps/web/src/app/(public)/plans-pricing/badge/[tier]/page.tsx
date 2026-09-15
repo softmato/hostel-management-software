@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { getListingTier, listingTiers } from "@/app/_components/plans-catalog";
 import { PublicListingBadgePage } from "@/app/_components/public-listing-badge-page";
+import { NOINDEX, pageMetadata } from "@/lib/seo";
 import { loadSiteConfig } from "@/lib/site-config-server";
 import { DEFAULT_PLANS } from "@/modules/platform-config/plans.defaults";
 
@@ -28,14 +29,15 @@ export async function generateMetadata({ params }: PageParams): Promise<Metadata
   const entry = getListingTier(catalog, slug);
 
   if (!entry) {
-    return { title: "Badge not found" };
+    return { robots: NOINDEX, title: "Badge not found" };
   }
 
-  return {
+  return pageMetadata({
+    description: `${entry.tier.note} Comes with the ${entry.plan.name} plan.`,
+    eyebrow: "Listing badge",
+    path: `/plans-pricing/badge/${entry.tier.slug}`,
     title: `${entry.tier.label} badge`,
-    description: entry.tier.note,
-    alternates: { canonical: `/plans-pricing/badge/${entry.tier.slug}` },
-  };
+  });
 }
 
 export default async function ListingBadgePage({ params }: PageParams) {

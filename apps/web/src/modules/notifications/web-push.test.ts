@@ -316,6 +316,25 @@ describe("webLinkForNotification", () => {
     ).toBe("/hostel-admin/payments");
   });
 
+  it("opens the hostel's own Billing page for a plan payment reminder", () => {
+    const data = { hostelSlug: "rupa hostel", type: "PLAN_DUE" };
+
+    expect(webLinkForNotification({ category: "PAYMENT", data, role: "HOSTEL_ADMIN" })).toBe(
+      "/rupa%20hostel/admin/billing",
+    );
+    expect(
+      webLinkForNotification({
+        category: "PAYMENT",
+        data: { type: "PLAN_DUE" },
+        role: "HOSTEL_ADMIN",
+      }),
+    ).toBe("/hostel-admin/billing");
+    // Not a page anyone outside the hostel admin portal can open.
+    expect(webLinkForNotification({ category: "PAYMENT", data, role: "RESIDENT" })).toBe(
+      "/resident/payments",
+    );
+  });
+
   it("sends the kitchen's copy of a food announcement to the kitchen screen", () => {
     expect(
       webLinkForNotification({

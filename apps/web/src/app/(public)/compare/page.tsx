@@ -1,13 +1,11 @@
 import type { Metadata } from "next";
 
 import { PublicComparePage } from "@/app/_components/public-compare-page";
+import { staticPageMetadata } from "@/lib/seo-config";
 
-export const metadata: Metadata = {
-  title: "Compare Hostels",
-  description:
-    "Compare up to 3 hostels side by side — price, facilities, room types, ratings and location.",
-  alternates: { canonical: "/compare" },
-};
+export function generateMetadata(): Promise<Metadata> {
+  return staticPageMetadata("compare");
+}
 
 export default function ComparePage() {
   return <PublicComparePage />;

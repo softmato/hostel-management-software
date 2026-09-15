@@ -23,6 +23,7 @@
 
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
+import type { Coordinates } from "@/lib/geo";
 import type { HostelRegisterPayload } from "@/lib/hostel-registration";
 import type { ProviderRegisterPayload } from "@/lib/provider-registration";
 
@@ -69,6 +70,34 @@ export async function listOwnHostelApplications() {
   );
 
   return unwrap(response).applications;
+}
+
+/** One match from the location lookup — `GeocodeResult` in `apps/web/src/lib/maps/types.ts`. */
+export type LocationMatch = {
+  address?: { address?: string; area?: string; city?: string; province?: string };
+  coordinates: Coordinates;
+  label?: string;
+};
+
+/**
+ * `GET /public/hostels/register/geocode` — the lookup behind the application's
+ * map pin, both ways round.
+ *
+ * - `{ q }`: a place, a landmark, or a pasted Google Maps link. Links are
+ *   resolved on the server because a `maps.app.goo.gl` short link carries no
+ *   coordinates until its redirect is followed. `near` is the typed address, so
+ *   a bare hostel name has a neighbourhood to be searched in.
+ * - `{ lat, lng }`: which address a placed pin sits on.
+ */
+export async function lookupRegistrationLocation(
+  params: { near?: string; q: string } | Coordinates,
+) {
+  const response = await api.get<ApiEnvelope<{ results: LocationMatch[] }>>(
+    "/public/hostels/register/geocode",
+    { params },
+  );
+
+  return unwrap(response).results;
 }
 
 export async function registerHostelApplication(payload: HostelRegisterPayload) {

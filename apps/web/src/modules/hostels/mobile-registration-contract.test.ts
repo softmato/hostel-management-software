@@ -11,6 +11,7 @@ import {
   EMPTY_PROVIDER_FORM,
   type ProviderForm,
 } from "../../../../mobile/src/lib/provider-registration";
+import { hostelRegistrationSchema } from "./hostel-registration.validation";
 import { publicHostelApplicationCreateSchema } from "./hostel.validation";
 import { serviceProviderRegisterSchema } from "../service-providers/service-provider.validation";
 
@@ -58,6 +59,7 @@ function hostelForm(overrides: Partial<HostelForm> = {}): HostelForm {
     landmark: "Opposite the campus gate",
     ownerName: "Sita Sharma",
     ownerPhone: "9800000000",
+    pin: { lat: 27.7033, lng: 85.3262 },
     rooms: [
       {
         ...emptyRoomRow("room-1", "Double Sharing"),
@@ -147,6 +149,25 @@ describe("the mobile hostel application against publicHostelApplicationCreateSch
       "Citizenship",
       "Rules & policies",
     ]);
+  });
+
+  /*
+   * Against `hostelRegistrationSchema`, the one `POST /public/hostels/register`
+   * actually parses — zod strips undeclared keys silently, so a pin that is not
+   * declared there reaches the database as nothing and the listing has no map.
+   */
+  it("keeps the owner's pin, landmark and Maps link through the register route's schema", () => {
+    const parsed = hostelRegistrationSchema.parse(
+      buildHostelPayload(hostelForm({ mapLink: "https://maps.app.goo.gl/abc123" })),
+    );
+
+    expect(parsed.location).toMatchObject({
+      lat: 27.7033,
+      lng: 85.3262,
+      locationSource: "MANUAL",
+    });
+    expect(parsed.landmark).toBe("Opposite the campus gate");
+    expect(parsed.mapLink).toBe("https://maps.app.goo.gl/abc123");
   });
 
   it("keeps the derived rent range and the capacity the review screen showed", () => {

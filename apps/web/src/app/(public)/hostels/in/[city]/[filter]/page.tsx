@@ -1,0 +1,49 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+
+import { PublicLocationPage } from "@/app/_components/public-location-page";
+import { JsonLd } from "@/components/json-ld";
+import { loadLocationPage, locationJsonLd } from "@/lib/location-pages";
+import { NOINDEX, pageMetadata } from "@/lib/seo";
+
+type PageParams = {
+  params: Promise<{ city: string; filter: string }>;
+};
+
+/**
+ * "Girls hostels in Kathmandu" or "Hostels in Baneshwor, Kathmandu" — `filter`
+ * is a hostel type (`boys`, `girls`, `co-living`) or one of the city's areas.
+ * Anything else is a 404.
+ */
+export async function generateMetadata({ params }: PageParams): Promise<Metadata> {
+  const { city, filter } = await params;
+  const page = await loadLocationPage(city, filter);
+
+  if (!page) {
+    return { robots: NOINDEX, title: "Place not found" };
+  }
+
+  return pageMetadata({
+    description: page.description,
+    eyebrow: `Hostels in ${page.city.name}`,
+    noindex: page.noindex,
+    path: page.path,
+    title: page.title,
+  });
+}
+
+export default async function FilteredCityHostelsPage({ params }: PageParams) {
+  const { city, filter } = await params;
+  const page = await loadLocationPage(city, filter);
+
+  if (!page) {
+    notFound();
+  }
+
+  return (
+    <>
+      <JsonLd data={locationJsonLd(page)} />
+      <PublicLocationPage page={page} />
+    </>
+  );
+}

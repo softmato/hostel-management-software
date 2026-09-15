@@ -30,6 +30,7 @@ function form(overrides: Partial<HostelForm> = {}): HostelForm {
     idProofType: "Citizenship",
     ownerName: "Sita Sharma",
     ownerPhone: "9800000000",
+    pin: { lat: 27.7033, lng: 85.3262 },
     rooms: [
       {
         ...emptyRoomRow("room-1", "Double Sharing"),
@@ -67,6 +68,11 @@ describe("hostelStepErrors", () => {
     expect(hostelStepErrors("basics", form({ email: "" })).email).toBeDefined();
     expect(hostelStepErrors("basics", form({ email: "owner@" })).email).toBeDefined();
     expect(hostelStepErrors("basics", form()).email).toBeUndefined();
+  });
+
+  it("wants the hostel pinned on the map before the location step is done", () => {
+    expect(hostelStepErrors("location", form({ pin: null })).pin).toBeDefined();
+    expect(hostelStepErrors("location", form()).pin).toBeUndefined();
   });
 
   it("wants a room type with both counts above zero, not merely a row", () => {
@@ -233,6 +239,31 @@ describe("buildHostelPayload", () => {
     expect(payload.notes).toContain("Floors: 3");
     // The app stopped asking for a plan, so a plan line would claim a choice never made.
     expect(payload.notes).not.toContain("Pro Plan");
+  });
+
+  it("sends the owner's pin as MANUAL, with the landmark and the Maps link as fields", () => {
+    const payload = buildHostelPayload(
+      form({
+        landmark: "Opposite the campus gate",
+        mapLink: " https://maps.app.goo.gl/abc123 ",
+      }),
+    );
+
+    expect(payload.location).toMatchObject({
+      lat: 27.7033,
+      lng: 85.3262,
+      locationSource: "MANUAL",
+    });
+    expect(payload.landmark).toBe("Opposite the campus gate");
+    expect(payload.mapLink).toBe("https://maps.app.goo.gl/abc123");
+  });
+
+  it("sends no coordinates at all when nothing was pinned", () => {
+    const payload = buildHostelPayload(form({ mapLink: "", pin: null }));
+
+    expect(payload.location).not.toHaveProperty("lat");
+    expect(payload.location).not.toHaveProperty("locationSource");
+    expect(payload.mapLink).toBeUndefined();
   });
 
   it("uses the same email for the applicant and the hostel contact", () => {

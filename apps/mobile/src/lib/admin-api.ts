@@ -107,8 +107,8 @@ export type AdminSubscription = {
    * The due card reads exactly one thing off it: whether a row is `IN_REVIEW`,
    * meaning the owner has already sent us proof and is waiting on a person. The
    * balance does not move while that is true — only `SETTLED` rows count — so
-   * without this the card would still be saying *Pay now* to somebody who paid
-   * an hour ago, which is how a hostel pays us twice.
+   * without this the card would still be calling the balance due to somebody
+   * who paid an hour ago, which is how a hostel pays us twice.
    */
   payments: {
     amount: number;
@@ -140,80 +140,11 @@ export async function getAdminSubscription() {
   return unwrap(response).state;
 }
 
-/* -- Paying the platform, by hand ---------------------------------------- */
-
-/**
- * What the *Pay your plan* screen draws — our QR, the amount, the reference.
- *
- * ## What was here before, and why it is gone
- *
- * `payHostelSubscription` posted `{ action: "open" }` and then
- * `{ action: "confirm" }` to `hostel-registration/{id}/pay`. That contract no
- * longer exists on the server: the route dropped its `action` branch when
- * settlement moved to a verified webhook, and it now ignores the body and opens
- * a Softmato checkout. So the pair opened **two** checkouts and reported
- * "Payment recorded" for money nobody had received — or, when the second
- * checkout was refused because one was already open against the invoice,
- * surfaced *"This invoice is already settled in full"* to an owner staring at
- * an unpaid balance. Both endings were wrong in the same way: a client had been
- * given the job of asserting that money arrived.
- *
- * Nothing replaces it, because nothing should. A client cannot record a
- * payment. It can only say it made one, which is what `submitPlanPaymentClaim`
- * below does.
+/*
+ * No plan payment calls here. `hostel-admin/billing/pay-instructions` and
+ * `/claim` served the *Pay your plan* screen, removed on 2026-09-15 because the
+ * app may not take payment for the plan. See `components/subscription-due.tsx`.
  */
-export type PlanPayInstructions = {
-  amountDue: number;
-  /** A claim already with the platform, when the owner has sent one. */
-  claim: {
-    amount: number;
-    claimedAt: string | null;
-    reference: string | null;
-  } | null;
-  dueBy: string | null;
-  invoice: { id: string; invoiceNumber: string; planName: string } | null;
-  /** The server's verdict on the deadline, not the phone's clock. */
-  overdue: boolean;
-  /** The platform's own collection QR. Null when nobody has configured one. */
-  qr: { label: string; url: string } | null;
-  reference: string | null;
-};
-
-export async function getPlanPayInstructions() {
-  const response = await api.get<
-    ApiEnvelope<{ instructions: PlanPayInstructions }>
-  >("/hostel-admin/billing/pay-instructions");
-
-  return unwrap(response).instructions;
-}
-
-/**
- * "I have paid — here is the screenshot."
- *
- * Records a **claim**, never a payment. The server writes it `IN_REVIEW`, it
- * moves no balance and clears no due, and a platform admin who has looked at
- * the proof is the only thing that can turn it into money received. The amount
- * is not sent: a claim is for whatever is outstanding, and the server reads
- * that itself.
- */
-export async function submitPlanPaymentClaim(input: {
-  note?: string;
-  proofAssetId: string;
-  reference?: string;
-}) {
-  const response = await api.post<
-    ApiEnvelope<{
-      claim: {
-        amount: number;
-        claimedAt: string;
-        id: string;
-        invoiceNumber: string;
-      };
-    }>
-  >("/hostel-admin/billing/claim", input);
-
-  return unwrap(response).claim;
-}
 
 export async function getAdminHostel() {
   const response =

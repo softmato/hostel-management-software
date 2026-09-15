@@ -2571,6 +2571,7 @@ export async function listPublicHostels(query: PublicHostelListQuery) {
     "food.hasNonVeg"?: true;
     "food.hasVeg"?: true;
     "location.area"?: RegExp;
+    "location.city"?: RegExp;
     "pricing.monthlyRentMax"?: { $gte: number };
     "pricing.monthlyRentMin"?: { $lte: number };
     roomTypes?: string;
@@ -2593,6 +2594,10 @@ export async function listPublicHostels(query: PublicHostelListQuery) {
 
   if (query.area) {
     filter["location.area"] = new RegExp(escapeRegex(query.area), "i");
+  }
+
+  if (query.city) {
+    filter["location.city"] = new RegExp(`^${escapeRegex(query.city)}$`, "i");
   }
 
   if (query.type) {
@@ -2651,6 +2656,39 @@ export async function listPublicHostels(query: PublicHostelListQuery) {
 }
 
 /**
+ * Where the published hostels are, counted by city, area and type — for the
+ * /hostels/in location pages, the links between them, and the sitemap. Same
+ * visibility gate as the listing, so a count never includes a hostel a visitor
+ * could not open.
+ */
+export async function listPublicHostelLocations() {
+  await connectToDatabase();
+
+  const rows = await HostelModel.aggregate<{
+    _id: { area?: string; city?: string; type?: string };
+    count: number;
+    updatedAt?: Date;
+  }>([
+    { $match: { isDeleted: false, status: "PUBLISHED", verificationStatus: "VERIFIED" } },
+    {
+      $group: {
+        _id: { area: "$location.area", city: "$location.city", type: "$hostelType" },
+        count: { $sum: 1 },
+        updatedAt: { $max: "$updatedAt" },
+      },
+    },
+  ]);
+
+  return rows.map((row) => ({
+    area: row._id.area?.trim() ?? "",
+    city: row._id.city?.trim() ?? "",
+    count: row.count,
+    hostelType: row._id.type ?? "CO_LIVING",
+    updatedAt: row.updatedAt ?? null,
+  }));
+}
+
+/**
  * Slugs of every publicly-visible hostel, for sitemap.xml generation.
  * Same visibility gate as {@link getPublicHostelBySlug} (published + verified).
  */
@@ -2662,14 +2700,20 @@ export async function listPublishedHostelSlugs() {
     status: "PUBLISHED",
     verificationStatus: "VERIFIED",
   })
-    .select("slug updatedAt")
+    .select("slug updatedAt photos.url")
     .sort({ updatedAt: -1 })
     .limit(5000)
-    .lean<{ slug: string; updatedAt?: Date }[]>();
+    .lean<{ photos?: Array<{ url?: string }>; slug: string; updatedAt?: Date }[]>();
 
   return hostels
     .filter((hostel) => Boolean(hostel.slug))
-    .map((hostel) => ({ slug: hostel.slug, updatedAt: hostel.updatedAt }));
+    .map((hostel) => ({
+      // Public photos only ever live on the public bucket — listed so image
+      // search can find a hostel by its pictures.
+      images: (hostel.photos ?? []).map((photo) => photo.url ?? "").filter(Boolean).slice(0, 10),
+      slug: hostel.slug,
+      updatedAt: hostel.updatedAt,
+    }));
 }
 
 export async function getPublicHostelBySlug(slug: string) {

@@ -126,8 +126,10 @@ export default function AdminHomeScreen() {
    * phone cannot record a payment — it can only claim one — and the route it
    * called had already dropped both branches, so the dialog either invented a
    * settlement or surfaced "this invoice is already settled in full" over an
-   * unpaid balance. The card navigates to `manage/pay-plan` instead, and the
-   * money is recorded by a person who has seen the proof.
+   * unpaid balance. The card now only states the balance and opens billing —
+   * the plan is paid on the website, for the store-policy reason in
+   * `components/subscription-due.tsx` — and the money is recorded by a person
+   * who has seen the proof.
    */
 
   const alerts = useAdminAlerts();

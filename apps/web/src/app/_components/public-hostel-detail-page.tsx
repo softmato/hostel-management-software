@@ -175,12 +175,19 @@ function iconForFacility(label: string): LucideIcon {
   return CheckCircle2;
 }
 
-export function PublicHostelDetailPage() {
+export function PublicHostelDetailPage({
+  initialHostel = null,
+}: {
+  /** Read on the server, so the first response already carries the hostel. */
+  initialHostel?: PublicHostel | null;
+}) {
   const siteName = useSiteConfig().identity.siteName;
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
-  const [hostel, setHostel] = useState<PublicHostel | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [hostel, setHostel] = useState<PublicHostel | null>(initialHostel);
+  const [state, setState] = useState<"loading" | "ready" | "error">(
+    initialHostel ? "ready" : "loading",
+  );
   const [message, setMessage] = useState("");
   const [currentImgIdx, setCurrentImgIdx] = useState(0);
   const [activeTab, setActiveTab] = useState("overview");
@@ -213,10 +220,12 @@ export function PublicHostelDetailPage() {
       }
     }
 
-    if (slug) {
+    // The server already sent this hostel; fetching it again would only repaint
+    // the same data. A different slug (or no server copy) still loads.
+    if (slug && initialHostel?.slug !== slug) {
       void loadHostel();
     }
-  }, [slug]);
+  }, [initialHostel?.slug, slug]);
 
   useEffect(() => {
     if (!slug) {

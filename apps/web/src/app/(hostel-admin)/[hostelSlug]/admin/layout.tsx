@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { HostelPaymentCredentialsReminder } from "@/app/_components/hostel-payment-credentials-reminder";
@@ -5,11 +6,15 @@ import { HostelPhotoReminder } from "@/app/_components/hostel-photo-reminder";
 import { PortalShell } from "@/components/portal-shell";
 import { canAccessWorkspace, workspaceHostelName } from "@/lib/hostel-workspace";
 import { hostelAdminNavForSlug, searchEntriesFromNav } from "@/lib/portal-nav";
+import { PORTAL_ROBOTS } from "@/lib/seo";
 
 type HostelAdminWorkspaceLayoutProps = Readonly<{
   children: React.ReactNode;
   params: Promise<{ hostelSlug: string }>;
 }>;
+
+/** Signed-in workspace: kept out of search, links included (robots.txt disallows it too). */
+export const metadata: Metadata = { robots: PORTAL_ROBOTS };
 
 export default async function HostelAdminWorkspaceLayout({
   children,

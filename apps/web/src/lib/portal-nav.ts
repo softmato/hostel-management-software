@@ -389,6 +389,24 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
       },
       {
         description:
+          "Search titles and descriptions for every page, Search Console verification, and the pages written to be found — software, features and comparisons.",
+        href: "/platform/config/seo",
+        icon: "globe",
+        keywords: [
+          "seo",
+          "google",
+          "search console",
+          "bing",
+          "meta",
+          "title",
+          "description",
+          "keywords",
+          "ranking",
+        ],
+        label: "SEO",
+      },
+      {
+        description:
           "Terms of service and privacy policy content served on the public site.",
         href: "/platform/config/legal",
         icon: "scroll",

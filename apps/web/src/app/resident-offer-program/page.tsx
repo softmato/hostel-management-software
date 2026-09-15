@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { PublicOfferProgramPage } from "@/app/_components/public-offer-program-page";
+import { staticPageMetadata } from "@/lib/seo-config";
 
 /**
  * `/resident-offer-program` — its own route, outside the `(public)` group.
@@ -15,11 +16,9 @@ import { PublicOfferProgramPage } from "@/app/_components/public-offer-program-p
  */
 export const revalidate = 60;
 
-export const metadata: Metadata = {
-  description:
-    "How rent payments are matched to the right month, verified by your hostel, and receipted under the Resident Offer Program.",
-  title: "Resident Offer Program",
-};
+export function generateMetadata(): Promise<Metadata> {
+  return staticPageMetadata("offerProgram");
+}
 
 export default function ResidentOfferProgramPage() {
   return <PublicOfferProgramPage />;

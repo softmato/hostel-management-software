@@ -26,6 +26,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/notifications-api";
+import { opensPlanBilling } from "@/lib/push-link";
 import { setBadgeCount } from "@/lib/push-notifications";
 import { invalidateQuery, readQuery, writeQuery } from "@/lib/query-cache";
 import { toastError } from "@/lib/toast";
@@ -95,6 +96,9 @@ import {
  * `router.push` would hit expo-router's not-found screen, and opening a browser
  * would ask someone to sign in again on a surface this app does not own. So rows
  * that need a decision say so and stop there — see `lib/notifications-api.ts`.
+ *
+ * The one row that does open a screen is a plan payment reminder: the app has
+ * its own Billing screen for it, recognised from `data` (`opensPlanBilling`).
  */
 
 const FILTERS: { label: string; value: NotificationFilter }[] = [
@@ -536,8 +540,15 @@ function NotificationRow({
       accessibilityState={{ expanded }}
       className="active:opacity-80"
       onPress={() => {
-        setExpanded((value) => !value);
         onOpen(notification);
+
+        // A plan payment reminder opens the bill it is about.
+        if (opensPlanBilling(notification)) {
+          router.push("/manage/billing");
+          return;
+        }
+
+        setExpanded((value) => !value);
       }}
     >
       <View

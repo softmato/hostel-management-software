@@ -4,15 +4,14 @@ import {
   mapPublicHostelToSummary,
   type PublicHostel,
 } from "@/app/_components/public-hostel-data";
-import type { HostelSummary } from "@/app/_components/public-hostel-types";
 import { PublicHomePage } from "@/app/_components/public-home-page";
+import type { HostelSummary } from "@/app/_components/public-hostel-types";
+import { staticPageMetadata } from "@/lib/seo-config";
 import { listPublicHostels } from "@/modules/hostels/hostel.service";
 
-export const metadata: Metadata = {
-  description:
-    "Discover verified hostels across Nepal and manage your hostel end to end — rooms, residents, payments, food and safety.",
-  alternates: { canonical: "/" },
-};
+export function generateMetadata(): Promise<Metadata> {
+  return staticPageMetadata("home");
+}
 
 /**
  * The home page is the listing's shop window, so its cards are read on the

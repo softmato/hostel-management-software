@@ -428,6 +428,149 @@ export const plansSchema = z.object({
   services: z.array(planServiceSchema).max(200).default([]),
 });
 
+/**
+ * ## Search, as configuration
+ *
+ * What Google shows for each page — its title and description — plus the words
+ * the marketing pages are written around. A marketing owner changes a title
+ * after reading Search Console, not after waiting for a deploy.
+ *
+ * ### Blank means "the shipped text"
+ *
+ * Every page's title and description default to blank here, and the public page
+ * falls back to the shipped value in `seo.defaults.ts` for any field left empty.
+ * So a stored row written before a page existed still gives that page a real
+ * title, and clearing a field can never publish an empty `<title>`.
+ *
+ * `{siteName}` and `{fromPrice}` (the cheapest plan's monthly price) are
+ * substituted when the page renders, so a price change cannot leave a stale
+ * number sitting in a title.
+ */
+export const SEO_PAGE_KEYS = [
+  "home",
+  "hostels",
+  "map",
+  "compare",
+  "community",
+  "software",
+  "features",
+  "plansPricing",
+  "registerHostel",
+  "serviceProviders",
+  "offerProgram",
+  "about",
+  "contact",
+  "privacy",
+  "terms",
+  "login",
+  "signup",
+] as const;
+
+export type SeoPageKey = (typeof SEO_PAGE_KEYS)[number];
+
+const seoPageSchema = z
+  .object({
+    description: trimmed.max(220).default(""),
+    title: trimmed.max(80).default(""),
+  })
+  .default({ description: "", title: "" });
+
+const seoFaqSchema = z.object({
+  answer: trimmed.min(1).max(1200),
+  question: trimmed.min(1).max(200),
+});
+
+const seoParagraphs = (max: number) => z.array(trimmed.min(1).max(1200)).max(max).default([]);
+
+const seoSlug = trimmed
+  .min(1)
+  .max(60)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, digits and dashes.");
+
+/** A `/features/[module]` page: one plan module, named the way owners search for it. */
+const seoModulePageSchema = z.object({
+  description: trimmed.max(220).default(""),
+  /** The H1 and the title — "Hostel Fee Collection & Billing Software", not "Fees & Payments". */
+  headline: trimmed.min(1).max(80),
+  intro: seoParagraphs(4),
+  /** `plans.modules[].id`. A page whose module was removed from the catalogue is a 404. */
+  moduleId: trimmed.min(1).max(60),
+  slug: seoSlug,
+});
+
+/**
+ * A `/vs/[slug]` page. `stayWith` is the part that makes it believable: every
+ * honest comparison says when the other option is the right call.
+ */
+const seoComparisonSchema = z.object({
+  description: trimmed.max(220).default(""),
+  faq: z.array(seoFaqSchema).max(8).default([]),
+  intro: seoParagraphs(4),
+  /** What we are compared with, as the reader calls it: "Excel & Google Sheets". */
+  name: trimmed.min(1).max(60),
+  rows: z
+    .array(
+      z.object({
+        label: trimmed.min(1).max(80),
+        them: trimmed.min(1).max(240),
+        us: trimmed.min(1).max(240),
+      }),
+    )
+    .max(20)
+    .default([]),
+  slug: seoSlug,
+  stayWith: z.array(trimmed.min(1).max(400)).max(6).default([]),
+  title: trimmed.max(80).default(""),
+});
+
+export const seoSchema = z.object({
+  comparisons: z.array(seoComparisonSchema).max(12).default([]),
+  /** Other ways people write the brand — declared as `alternateName` in structured data. */
+  alternateNames: z.array(trimmed.min(1).max(60)).max(12).default([]),
+  keywords: z.array(trimmed.min(1).max(80)).max(40).default([]),
+  modulePages: z.array(seoModulePageSchema).max(24).default([]),
+  pages: z
+    .object(
+      Object.fromEntries(SEO_PAGE_KEYS.map((key) => [key, seoPageSchema])) as Record<
+        SeoPageKey,
+        typeof seoPageSchema
+      >,
+    )
+    .default(
+      Object.fromEntries(
+        SEO_PAGE_KEYS.map((key) => [key, { description: "", title: "" }]),
+      ) as Record<SeoPageKey, { description: string; title: string }>,
+    ),
+  /**
+   * The `/hostel-management-software` page. `faq` is where an owner's doubts get
+   * answered before they have to ask; `steps` is the whole onboarding, in order.
+   */
+  software: z
+    .object({
+      faq: z.array(seoFaqSchema).max(24).default([]),
+      headline: trimmed.max(100).default(""),
+      intro: seoParagraphs(4),
+      sections: z.array(contentSectionSchema).max(12).default([]),
+      steps: z
+        .array(z.object({ body: trimmed.min(1).max(400), title: trimmed.min(1).max(80) }))
+        .max(8)
+        .default([]),
+      subtitle: trimmed.max(300).default(""),
+    })
+    .default({ faq: [], headline: "", intro: [], sections: [], steps: [], subtitle: "" }),
+  /** The HTML-tag codes from Google Search Console and Bing Webmaster Tools. */
+  verification: z
+    .object({
+      bing: trimmed.max(120).default(""),
+      google: trimmed.max(120).default(""),
+    })
+    .default({ bing: "", google: "" }),
+});
+
+export type SeoConfig = z.infer<typeof seoSchema>;
+export type SeoComparison = z.infer<typeof seoComparisonSchema>;
+export type SeoModulePage = z.infer<typeof seoModulePageSchema>;
+
 export type PlanListingTier = z.infer<typeof planListingTierSchema>;
 export type PlanModule = z.infer<typeof planModuleSchema>;
 export type PlanService = z.infer<typeof planServiceSchema>;
@@ -446,6 +589,7 @@ export const siteConfigSectionSchemas = {
   legal: legalSchema,
   locations: locationsSchema,
   plans: plansSchema,
+  seo: seoSchema,
   social: socialSchema,
   stats: statsSchema,
   trustPoints: trustPointsSchema,

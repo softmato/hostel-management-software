@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { getService } from "@/app/_components/plans-catalog";
+import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
+
+import { getPlan, getService, getServiceModule } from "@/app/_components/plans-catalog";
 import { PublicServiceDetailPage } from "@/app/_components/public-service-detail-page";
-import { loadSiteConfig } from "@/lib/site-config-server";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, formatNpr } from "@/lib/json-ld";
+import { NOINDEX, pageMetadata, snippet } from "@/lib/seo";
+import { loadSeo } from "@/lib/seo-config";
 import { DEFAULT_PLANS } from "@/modules/platform-config/plans.defaults";
 
 type PageParams = {
@@ -27,28 +32,56 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageParams): Promise<Metadata> {
   const { service: slug } = await params;
-  const { plans: catalog } = await loadSiteConfig();
+  const { config } = await loadSeo();
+  const catalog = config.plans;
   const service = getService(catalog, slug);
 
   if (!service) {
-    return { title: "Service not found" };
+    return { robots: NOINDEX, title: "Service not found" };
   }
 
-  return {
-    title: service.name,
-    description: service.blurb,
-    alternates: { canonical: `/plans-pricing/${service.slug}` },
-  };
+  const plan = getPlan(catalog, service.plan);
+  const priced = plan
+    ? ` Part of ${PLATFORM_NAME} ${plan.name}, from ${formatNpr(plan.monthly)} a month.`
+    : "";
+
+  return pageMetadata({
+    description: snippet(`${service.blurb}${priced}`, 180),
+    eyebrow: getServiceModule(catalog, service.module)?.name ?? "Feature",
+    path: `/plans-pricing/${service.slug}`,
+    title: /hostel/i.test(service.name) ? service.name : `${service.name} for Hostels`,
+  });
 }
 
 export default async function ServiceDetailPage({ params }: PageParams) {
   const { service: slug } = await params;
-  const { plans: catalog } = await loadSiteConfig();
+  const { config, seo } = await loadSeo();
+  const catalog = config.plans;
   const service = getService(catalog, slug);
 
   if (!service) {
     notFound();
   }
 
-  return <PublicServiceDetailPage catalog={catalog} service={service} />;
+  const path = `/plans-pricing/${service.slug}`;
+  const featurePage = seo.modulePages.find((page) => page.moduleId === service.module);
+  const crumbs = featurePage
+    ? [
+        { name: "Home", path: "/" },
+        { name: "Features", path: "/features" },
+        { name: featurePage.headline, path: `/features/${featurePage.slug}` },
+        { name: service.name, path },
+      ]
+    : [
+        { name: "Home", path: "/" },
+        { name: "Plans & Pricing", path: "/plans-pricing" },
+        { name: service.name, path },
+      ];
+
+  return (
+    <>
+      <JsonLd data={breadcrumbJsonLd(crumbs)} />
+      <PublicServiceDetailPage catalog={catalog} service={service} />
+    </>
+  );
 }

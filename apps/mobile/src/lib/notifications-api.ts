@@ -33,6 +33,8 @@ export type AppNotification = {
   /** `FINANCE`, `COMPLAINT`, `SAFETY`, … — free text server-side. */
   category: string;
   createdAt?: string;
+  /** Written by many call sites and not a stable schema — read it defensively. */
+  data?: Record<string, unknown>;
   id: string;
   isRead: boolean;
   /** An ACTION row still sitting at `PENDING`. Not the same as unread. */

@@ -1,4 +1,11 @@
-import { emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import {
+  detailsTable,
+  emailLayout,
+  escapeHtml,
+  paragraph,
+  smallPrint,
+  type EmailContent,
+} from "../layout";
 import { formatRupees } from "./subscription-invoice";
 
 const METHOD_LABELS: Record<string, string> = {
@@ -24,7 +31,8 @@ const METHOD_LABELS: Record<string, string> = {
  * congratulating somebody who still owes money. That case only arises on a
  * team-collected payment, where the hostel is already live and the balance is a
  * due — so the wording has to work for a reader whose listing is up and who is
- * nonetheless being asked for more.
+ * nonetheless being asked for more. It carries no button: it is paperwork, and
+ * the owner is asked to pay by the email that states the balance, not by this.
  */
 export function subscriptionReceiptEmail(input: {
   amount: number;
@@ -45,37 +53,36 @@ export function subscriptionReceiptEmail(input: {
     category: "billing",
     subject: `Receipt ${input.receiptNumber} — ${formatRupees(input.amount)} received`,
     html: emailLayout({
-      heading: settled ? "Payment received" : "Part payment received",
       bodyHtml: [
         paragraph(
-          `We have received <strong>${formatRupees(input.amount)}</strong> for <strong>${escapeHtml(input.planName)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong>.`,
+          `We have received your payment for <strong>${escapeHtml(input.planName)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong>.`,
         ),
+        detailsTable([
+          { emphasis: true, label: "Amount received", value: formatRupees(input.amount) },
+          { label: "Paid by", value: methodLabel },
+          { label: "Receipt", value: input.receiptNumber },
+          { label: "Invoice", value: input.invoiceNumber },
+          ...(settled
+            ? []
+            : [
+                { label: "Balance due", value: formatRupees(input.outstanding) },
+                { label: "Due date", value: input.dueBy ?? "" },
+              ]),
+        ]),
         paragraph(
-          [
-            `Receipt: <strong>${escapeHtml(input.receiptNumber)}</strong>`,
-            `Against invoice: <strong>${escapeHtml(input.invoiceNumber)}</strong>`,
-            `Paid by: <strong>${escapeHtml(methodLabel)}</strong>`,
-          ].join("<br/>"),
+          settled
+            ? "That settles the invoice in full. Your plan is active and your listing is live."
+            : "Your listing stays live while you pay the balance.",
         ),
-        settled
-          ? paragraph(
-              "That settles the invoice in full. Your plan is active and your listing is live.",
-            )
-          : paragraph(
-              [
-                `Still outstanding: <strong>${formatRupees(input.outstanding)}</strong>.`,
-                input.dueBy
-                  ? `Please clear it by <strong>${escapeHtml(input.dueBy)}</strong>.`
-                  : "",
-                "Your listing stays live in the meantime — you can pay the balance from your dashboard whenever suits.",
-              ]
-                .filter(Boolean)
-                .join(" "),
-            ),
-        ...(input.attached
-          ? [paragraph("The receipt is attached to this email as a PDF.")]
-          : []),
-      ].join("\n"),
+        input.attached ? smallPrint("The receipt is attached to this email as a PDF.") : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      eyebrow: "Receipt",
+      heading: settled ? "Payment received" : "Part payment received",
+      preheader: settled
+        ? `${formatRupees(input.amount)} received for ${input.planName}. Thank you.`
+        : `${formatRupees(input.amount)} received. ${formatRupees(input.outstanding)} is still due.`,
     }),
   };
 }

@@ -60,6 +60,37 @@ export function fillPlaceholders(text: string, identity: SiteIdentity) {
     .replaceAll("{supportEmail}", identity.supportEmail || "our support team");
 }
 
+/**
+ * The FAQ moved to Platform → Website Config → Page Content (`content.faq`),
+ * because the app's Contact screen asks and answers the same five questions.
+ *
+ * Two of the stored answers name a control — how to create an account, how to
+ * list a hostel — and each client rewrites those for its own chrome: the site
+ * says "the Sign Up button on the top right corner of any page", the app says
+ * "the Profile tab". The substitution is keyed on the question rather than on
+ * an index so reordering the list in the admin panel cannot mis-target it.
+ *
+ * It lives here rather than in the Contact page so the page and its FAQPage
+ * structured data print the same answers.
+ */
+const WEB_ANSWERS: Record<string, string> = {
+  "How do I create an account?":
+    "Click the Sign Up button on the top right corner of any page. Fill in your details, verify your email or phone via OTP, and you are ready to go.",
+  "How do I list my hostel?":
+    "Navigate to the Register Hostel page and fill out the registration form. Our team will review and verify your listing within 2–3 business days.",
+};
+
+/** The Contact page FAQ exactly as the website shows it. */
+export function resolveWebFaq(
+  faq: Array<{ answer: string; question: string }>,
+  identity: SiteIdentity,
+) {
+  return faq.map((entry) => ({
+    answer: fillPlaceholders(WEB_ANSWERS[entry.question] ?? entry.answer, identity),
+    question: fillPlaceholders(entry.question, identity),
+  }));
+}
+
 /** The same substitution across a whole page, so call sites read the plain text. */
 export function resolveContentPage(page: ContentPage, identity: SiteIdentity) {
   const fill = (text: string) => fillPlaceholders(text, identity);

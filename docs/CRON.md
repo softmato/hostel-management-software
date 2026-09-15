@@ -89,6 +89,28 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 7 * * *` (every day at 07:45)
 
+This one job sends both sets of reminders: residents' rent, and hostels' plan
+payments. Nothing else needs adding on cron-job.org for the plan reminders.
+
+Plan reminders follow the schedule in **Operations configuration → Plan payment
+reminders**. As shipped, that is:
+
+- 1 day before the due day, and on the due day;
+- 1, 3 and 7 days after it;
+- push and bell at every step, to the hostel's admins;
+- email to the owner only at 1 day before and 1 day after.
+
+Each run sends only the latest step now due, so a missed run is made up without
+replaying the steps it skipped. The response's `plans` field counts:
+
+- `scanned`;
+- `dueSoon` and `overdue` — steps that reached somebody;
+- `email`, `push` and `bell`;
+- `failed` — channels the next run will retry.
+
+The run is also recorded as a `PLAN_DUE` reconciliation run. Details are in
+`docs/EMAIL_SYSTEM.md` §3.6.
+
 ## 9. Purge expired OTPs
 
 - Title: `Purge expired OTPs`

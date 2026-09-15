@@ -11,12 +11,11 @@
  * autosave to `localStorage`, the sidebar of portal cards, the plan price
  * calculator with its 10% VAT line — is not ported.
  *
- * The payload is typed from `publicHostelApplicationCreateSchema`
- * (`apps/web/src/modules/hostels/hostel.validation.ts`), not from the web
- * component: the component sends several keys the schema does not declare
- * (`alternatePhone`, `mapLink`, `totalCapacity`, `location.country`) and Zod
- * strips every one of them before the service ever sees it. Sending them from
- * here would only make the two clients look more alike than they are.
+ * The payload is typed from `hostelRegistrationSchema`
+ * (`apps/web/src/modules/hostels/hostel-registration.validation.ts`), not from
+ * the web component. That schema now declares `landmark`, `mapLink` and the
+ * pin's `location.lat`/`lng`/`locationSource`, and the hostel document stores
+ * all of them, so the location step sends them as fields.
  *
  * ## Why the required set is the website's and not the schema's
  *
@@ -255,8 +254,20 @@ export type HostelForm = {
   idProof: HostelAttachment | null;
   idProofType: IdProofType | "";
   landmark: string;
+  /** A Google Maps share link, kept exactly as pasted and shown on the listing. */
+  mapLink: string;
   mealsPerDay: string;
   ownerName: string;
+  /**
+   * Where the pin sits. Always the owner's own placement — searched, pasted,
+   * located or moved by hand — so it is submitted as `MANUAL`, which is what
+   * stops the nightly nearby-places sweep sliding it back to the tole's centre.
+   *
+   * Spelled out rather than imported from `lib/geo`: this module has no imports
+   * so `apps/web`'s contract test can load it (see
+   * `mobile-registration-contract.test.ts`).
+   */
+  pin: { lat: number; lng: number } | null;
   /** Free text, one rule per line. Also what a chosen template fills in. */
   rules: string;
   rulesDocument: HostelAttachment | null;
@@ -296,10 +307,12 @@ export function emptyHostelForm(firstRoomId: string): HostelForm {
     idProof: null,
     idProofType: "",
     landmark: "",
+    mapLink: "",
     mealsPerDay: "2",
     ownerName: "",
     ownerPhone: "",
     photos: [],
+    pin: null,
     rooms: [emptyRoomRow(firstRoomId)],
     rules: "",
     rulesDocument: null,
@@ -368,6 +381,15 @@ export function hostelStepErrors(
 
     if (form.city.trim().length < 2) {
       errors.city = "Which city?";
+    }
+
+    /*
+     * The pin, not the address text, is what the public map shows and what the
+     * nearby colleges and bus stops are measured from. Without one the server
+     * can only geocode the tole, and the listing lands in the middle of it.
+     */
+    if (!form.pin) {
+      errors.pin = "Put a pin on your building — search, paste a Maps link, or use your location.";
     }
   }
 
@@ -463,7 +485,16 @@ export type HostelRegisterPayload = {
   facilities: string[];
   food: { hasNonVeg: boolean; hasVeg: boolean; mealsPerDay?: number };
   hostelType: HostelTypeValue;
-  location: { address?: string; area: string; city: string };
+  landmark?: string;
+  location: {
+    address?: string;
+    area: string;
+    city: string;
+    lat?: number;
+    lng?: number;
+    locationSource?: "MANUAL";
+  };
+  mapLink?: string;
   name: string;
   notes: string;
   photos: { alt: string; url: string }[];
@@ -551,11 +582,16 @@ export function buildHostelPayload(form: HostelForm): HostelRegisterPayload {
       mealsPerDay: numberValue(form.mealsPerDay),
     },
     hostelType: form.hostelType,
+    landmark: form.landmark.trim() || undefined,
     location: {
       address: form.address.trim() || undefined,
       area: form.area.trim(),
       city: form.city.trim(),
+      ...(form.pin
+        ? { lat: form.pin.lat, lng: form.pin.lng, locationSource: "MANUAL" as const }
+        : {}),
     },
+    mapLink: form.mapLink.trim() || undefined,
     name,
     notes: [
       form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : "",

@@ -160,6 +160,9 @@ export async function getPublicSiteConfig() {
     // The whole Plans & Pricing catalogue. Public by definition — it is the
     // page — and read by the website's pricing, service and badge routes.
     plans: config.plans,
+    // Titles, descriptions, verification tags and the search landing pages.
+    // Nothing private: every field ends up in a page head or on a public page.
+    seo: config.seo,
     social: config.social,
     stats: config.stats,
     trustPoints: config.trustPoints,

@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Poppins } from "next/font/google";
 
+import {
+  PLATFORM_NAME,
+  PLATFORM_VENDOR,
+  PLATFORM_VENDOR_URL,
+} from "@hostel/shared/brand/brand";
+
 import { MediaViewerProvider } from "@/components/media-viewer";
 import { NotificationSoundListener } from "@/components/notification-sound-listener";
 import { QueryProvider } from "@/components/query-provider";
@@ -8,6 +14,8 @@ import { SiteConfigProvider } from "@/components/site-config-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ResidencyInvitePrompt } from "@/components/residency-invite-prompt";
 import { Toaster } from "@/components/toaster";
+import { SEO_LOCALE } from "@/lib/seo";
+import { loadSeo, resolveSeoPage } from "@/lib/seo-config";
 import { siteUrl } from "@/lib/site";
 import { loadSiteConfig } from "@/lib/site-config-server";
 
@@ -30,25 +38,56 @@ const geistMono = Geist_Mono({
 });
 
 /**
- * Titles and OG metadata carry the owner-configured site name, so renaming the
- * platform in the admin portal renames the browser tab too.
+ * Site-wide defaults every page starts from. Pages replace the title,
+ * description, canonical and card through `pageMetadata`; what stays from here
+ * is the brand, the publisher, the crawler directives and the verification tags
+ * pasted into Website Config → SEO.
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const { identity } = await loadSiteConfig();
+  const { fill, seo } = await loadSeo();
+  const home = resolveSeoPage(seo, "home", fill);
 
   return {
+    applicationName: PLATFORM_NAME,
+    authors: [{ name: PLATFORM_VENDOR, url: PLATFORM_VENDOR_URL }],
+    category: "business",
+    creator: PLATFORM_VENDOR,
+    description: home.description,
+    keywords: seo.keywords,
     metadataBase: new URL(siteUrl()),
-    title: {
-      default: identity.tagline
-        ? `${identity.siteName} — ${identity.tagline}`
-        : identity.siteName,
-      template: `%s · ${identity.siteName}`,
-    },
-    description: "Nepal-focused multi-hostel SaaS for discovery and hostel operations.",
     openGraph: {
-      siteName: identity.siteName,
+      description: home.description,
+      images: [{ alt: PLATFORM_NAME, height: 630, url: "/og", width: 1200 }],
+      locale: SEO_LOCALE,
+      siteName: PLATFORM_NAME,
+      title: home.title,
       type: "website",
-      locale: "en_NP",
+    },
+    publisher: PLATFORM_VENDOR,
+    robots: {
+      follow: true,
+      googleBot: {
+        follow: true,
+        index: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+        "max-video-preview": -1,
+      },
+      index: true,
+    },
+    title: {
+      default: home.title,
+      template: `%s · ${PLATFORM_NAME}`,
+    },
+    twitter: {
+      card: "summary_large_image",
+      description: home.description,
+      images: ["/og"],
+      title: home.title,
+    },
+    verification: {
+      google: seo.verification.google || undefined,
+      other: seo.verification.bing ? { "msvalidate.01": seo.verification.bing } : undefined,
     },
   };
 }

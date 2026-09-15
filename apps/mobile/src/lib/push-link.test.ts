@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { marksRoleChange, PUSH_FALLBACK_PATH, resolvePushPath } from "@/lib/push-link";
+import {
+  marksRoleChange,
+  opensPlanBilling,
+  PUSH_FALLBACK_PATH,
+  resolvePushPath,
+} from "@/lib/push-link";
+
+describe("opensPlanBilling", () => {
+  it("recognises a plan payment reminder in the bell", () => {
+    expect(opensPlanBilling({ category: "PAYMENT", data: { type: "PLAN_DUE" } })).toBe(true);
+  });
+
+  it("leaves a resident's rent row and a malformed payload alone", () => {
+    expect(opensPlanBilling({ category: "PAYMENT", data: { invoiceId: "inv-1" } })).toBe(false);
+    expect(opensPlanBilling({ category: "FOOD", data: { type: "PLAN_DUE" } })).toBe(false);
+    expect(opensPlanBilling({ category: "PAYMENT" })).toBe(false);
+    expect(opensPlanBilling({ category: "PAYMENT", data: "PLAN_DUE" })).toBe(false);
+  });
+});
 
 describe("resolvePushPath", () => {
   it("passes through a route that exists", () => {
@@ -11,6 +29,8 @@ describe("resolvePushPath", () => {
     expect(resolvePushPath("/(admin)/money")).toBe("/(admin)/money");
     expect(resolvePushPath("/(admin)/today")).toBe("/(admin)/today");
     expect(resolvePushPath("/notifications")).toBe("/notifications");
+    // Where a plan payment reminder lands.
+    expect(resolvePushPath("/manage/billing")).toBe("/manage/billing");
   });
 
   /*

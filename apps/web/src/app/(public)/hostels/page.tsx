@@ -3,13 +3,11 @@ import { Suspense } from "react";
 
 import { PublicHostelListingPage } from "@/app/_components/public-hostel-listing-page";
 import { HostelListingPageSkeleton } from "@/components/public-page-skeletons";
+import { staticPageMetadata } from "@/lib/seo-config";
 
-export const metadata: Metadata = {
-  title: "Browse Hostels",
-  description:
-    "Search verified hostels across Nepal. Filter by city, gender, price, room type, facilities and proximity to your college.",
-  alternates: { canonical: "/hostels" },
-};
+export function generateMetadata(): Promise<Metadata> {
+  return staticPageMetadata("hostels");
+}
 
 export default function HostelListingPage() {
   return (

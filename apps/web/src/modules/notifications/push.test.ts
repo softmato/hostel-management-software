@@ -289,6 +289,21 @@ describe("deepLinkForNotification", () => {
     );
   });
 
+  it("opens the admin app's Billing screen for a plan payment reminder", () => {
+    // The row's actionUrl is the website billing page, which is not an app route.
+    expect(
+      deepLinkForNotification({
+        actionUrl: "/rupa-hostel/admin/billing",
+        category: "PAYMENT",
+        data: { hostelSlug: "rupa-hostel", type: "PLAN_DUE" },
+      }),
+    ).toBe("/manage/billing");
+    // The marker only counts on a PAYMENT row.
+    expect(deepLinkForNotification({ category: "FOOD", data: { type: "PLAN_DUE" } })).toBe(
+      "/(resident)/food",
+    );
+  });
+
   it("routes store pushes to mobile store paths", () => {
     expect(
       deepLinkForNotification({

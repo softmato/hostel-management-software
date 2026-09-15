@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
 
 import { ServiceProviderRegistrationPage } from "@/app/_components/service-provider-registration-page";
+import { staticPageMetadata } from "@/lib/seo-config";
 import { getPublicServiceProviderStats } from "@/modules/service-providers/service-provider.service";
 
-export const metadata: Metadata = {
-  title: "Join the Service Provider Network",
-  description:
-    "Register as a plumber, electrician, cleaner or other tradesperson and get matched with hostel maintenance jobs across Nepal.",
-  alternates: { canonical: "/service-providers" },
-};
+export function generateMetadata(): Promise<Metadata> {
+  return staticPageMetadata("serviceProviders");
+}
 
 /**
  * The public provider surface is the registration funnel, not a browsable
