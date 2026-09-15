@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { cn } from "@/lib/utils";
 import { disableBrowserPush } from "@/lib/web-push-client";
+import { type SessionUser, useSessionStore } from "@/stores/session-store";
 import {
   ResidentIdentityCenter,
   requestResidentProfileForm,
@@ -79,6 +80,10 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
       }
 
       setUser(payload.data.user);
+      // Shared with the rest of the portal: the suspension gate reads this same
+      // answer rather than asking `/auth/me` again, where a second refresh
+      // racing this one would rotate the token out from under it.
+      useSessionStore.getState().setUser(payload.data.user as unknown as SessionUser);
       setError("");
     } catch (loadError) {
       setError(

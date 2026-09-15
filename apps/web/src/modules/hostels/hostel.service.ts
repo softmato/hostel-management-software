@@ -28,7 +28,14 @@ import {
   getFoodRoutinesByHostelId,
   saveFoodRoutine,
 } from "@/modules/food/food-routine.service";
-import { registerOrUpgradeUserByEmail } from "@/modules/users/user.service";
+import {
+  issueTemporaryPasswordIfMissing,
+  registerOrUpgradeUserByEmail,
+} from "@/modules/users/user.service";
+import {
+  serializeSuspension,
+  type SuspensionRecord,
+} from "@/modules/hostels/hostel-suspension";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { hostelApprovedEmail } from "@hostel/shared/email/templates/hostel/hostel-approved";
 import { hostelPublishedEmail } from "@hostel/shared/email/templates/hostel/hostel-published";
@@ -103,6 +110,7 @@ type PublicInquiryCreateInput = z.infer<typeof publicInquiryCreateSchema>;
 
 export type HostelRecord = {
   _id: Types.ObjectId;
+  suspension?: SuspensionRecord | null;
   capacitySummary?: {
     totalBeds?: number;
     totalRooms?: number;
@@ -391,6 +399,9 @@ export function serializeHostel(hostel: HostelRecord) {
     rules: hostel.rules ?? [],
     slug: hostel.slug,
     status: hostel.status,
+    // Stage computed at read time — the platform's Listings shows it, and the
+    // hostel's own portal learns it through `/auth/me`.
+    suspension: serializeSuspension(hostel.suspension),
     totalFloors: hostel.totalFloors ?? 0,
     updatedAt: hostel.updatedAt?.toISOString(),
     verificationStatus: hostel.verificationStatus,
@@ -775,7 +786,13 @@ async function resolveHostelOwner(hostelId: Types.ObjectId | string) {
   const owner = await UserModel.findOne({
     _id: hostel.ownerId,
     isDeleted: { $ne: true },
-  }).lean<{ _id: Types.ObjectId; email?: string; name?: string } | null>();
+  }).lean<{
+    _id: Types.ObjectId;
+    email?: string;
+    hostelIds?: Types.ObjectId[];
+    name?: string;
+    role?: string;
+  } | null>();
 
   if (!owner?.email) {
     return null;
@@ -783,7 +800,13 @@ async function resolveHostelOwner(hostelId: Types.ObjectId | string) {
 
   return {
     hostelName: hostel.name ?? "your hostel",
-    owner: { id: owner._id, email: owner.email, name: owner.name },
+    owner: {
+      id: owner._id,
+      email: owner.email,
+      hostelIds: owner.hostelIds ?? [],
+      name: owner.name,
+      role: owner.role,
+    },
   };
 }
 
@@ -1822,93 +1845,154 @@ export async function approvePlatformHostel(hostelId: string, principal: ApiPrin
    */
   await placeOnMap(objectId);
 
-  // Account upgrade (ARCHITECTURE.md §3.2): PUBLIC owner -> HOSTEL_ADMIN,
-  // then the approval email carries credentials only for accounts that never
-  // had a password (new/Google-only owners get a temporary one).
+  /*
+   * **Verification is not payment.**
+   *
+   * Approval used to raise the owner to HOSTEL_ADMIN on the spot, so a public
+   * hostel that was verified but never paid walked straight into the admin
+   * portal — and its wardens, cooks and residents after it. A public owner is
+   * now told they are verified and how to pay; the portal, the cook login and
+   * the owner ID card come with the settlement that pays in full
+   * (`applySettlement` → `grantHostelOwnerAccess`).
+   *
+   * A team registration keeps the portal at once: our own agent filed it and it
+   * went live at filing. So does a public hostel that has somehow already paid,
+   * because no settlement is left to come and open it.
+   *
+   * Approval is also *verification*, not publication: the listing goes live
+   * when the plan is paid, and the verified email names the plan if the owner
+   * already chose one during the wait.
+   */
+  const subscription = await HostelSubscriptionModel.findOne({ hostelId: objectId })
+    .select("planName source status")
+    .lean<{ planName?: string | null; source?: string; status?: string } | null>();
+  const portalNow = subscription?.source === "TEAM" || subscription?.status === "ACTIVE";
+
+  if (portalNow) {
+    await grantHostelOwnerAccess(hostelId, principal.userId);
+  }
+
   const ownerInfo = await resolveHostelOwner(objectId);
-  // The hostel's shared cook login is issued at approval so the kitchen can be
-  // handed its credentials in the same email as the admin's (PHASES.md §3.1),
-  // rather than waiting for someone to find a toggle. Never fails the approval.
-  const cookAccount = await provisionApprovalCookAccount(objectId, principal.userId);
 
   if (ownerInfo) {
-    const upgrade = await registerOrUpgradeUserByEmail({
-      email: ownerInfo.owner.email,
-      hostelId: hostelId,
-      hostelName: ownerInfo.hostelName,
-      name: ownerInfo.owner.name,
-      performedBy: principal.userId,
-      role: Role.HOSTEL_ADMIN,
-      sendEmailNotification: false,
-    });
-
-    await UserModel.updateOne(
-      { _id: ownerInfo.owner.id },
-      {
-        $set: {
-          emailVerified: true,
-          status: "ACTIVE",
-        },
-      },
-    );
-
-    await sendEmail({
-      to: ownerInfo.owner.email,
-      ...hostelApprovedEmail({
-        hostelName: ownerInfo.hostelName,
-        loginUrl: appLoginUrl(),
-        ...(upgrade.temporaryPassword
-          ? {
-              credentials: {
-                email: ownerInfo.owner.email,
-                temporaryPassword: upgrade.temporaryPassword,
-              },
-            }
-          : {}),
-        ...(cookAccount ? { cookCredentials: cookAccount } : {}),
-      }),
-    });
-
-    // Approval re-issues any ID card this owner already holds as an owner card
-    // — the conversion the registration form warned them about.
     /*
-     * Imported at the call site, not at module scope. `sendIdCardEmail` reaches
-     * `platform-id-card.server` and through it `@napi-rs/canvas`, a ~26 MB
-     * prebuilt binary that `serverExternalPackages` copies out of node_modules
-     * into the bundle of every function that can reach it. A static import here
-     * put that binary into 82 functions — every route that touches
-     * `hostel.service` — for one call that issues a card. A dynamic import
-     * keeps it in the handful that actually render one.
+     * An owner who registered without an account has no way to sign in, and
+     * paying happens behind a sign-in on the website. They get a temporary
+     * password for the *public* account — enough to pay, nothing more.
      */
-    const { sendIdCardEmail } = await import(
-      "@/modules/users/id-card-delivery.service"
-    );
-
-    await sendIdCardEmail(ownerInfo.owner.id.toString(), "HOSTEL_OWNER");
-
-    /*
-     * Approval is *verification*, not publication.
-     *
-     * The listing does not go live here — it goes live when the plan is paid
-     * for. So the owner is told the wait is over and pointed at the button that
-     * has just become live on their progress page, and the message names the
-     * plan if they already chose one during the wait.
-     */
-    const subscription = await HostelSubscriptionModel.findOne({
-      hostelId: objectId,
-    })
-      .select("planName")
-      .lean<{ planName?: string | null } | null>();
+    const signIn = portalNow
+      ? null
+      : await issueTemporaryPasswordIfMissing(ownerInfo.owner.id);
 
     await onHostelVerified({
+      credentials: signIn?.temporaryPassword
+        ? { email: ownerInfo.owner.email, temporaryPassword: signIn.temporaryPassword }
+        : null,
       hostelName: ownerInfo.hostelName,
       ownerEmail: ownerInfo.owner.email,
       ownerName: ownerInfo.owner.name,
+      portalOpensOnPayment: !portalNow,
       selectedPlanName: subscription?.planName ?? null,
     });
   }
 
   return result;
+}
+
+/**
+ * Opens a hostel's portal to its owner: HOSTEL_ADMIN on this hostel, the shared
+ * cook login, the credentials email and the owner ID card.
+ *
+ * Runs at approval for a hostel already entitled to it, and from the settlement
+ * that pays a public registration's plan in full (`applySettlement`).
+ * Idempotent: an owner who already holds this hostel's portal is left alone, so
+ * a renewal paid a year later issues no second cook login and rotates nobody's
+ * password. Returns whether access was granted by this call.
+ *
+ * `actorId` is null for a gateway settlement, which has no person behind it;
+ * the owner who paid is recorded as the actor instead.
+ */
+export async function grantHostelOwnerAccess(hostelId: string, actorId: string | null) {
+  await connectToDatabase();
+
+  const objectId = normalizeObjectId(hostelId);
+  const ownerInfo = await resolveHostelOwner(objectId);
+
+  if (!ownerInfo) {
+    return false;
+  }
+
+  if (
+    ownerInfo.owner.role === Role.HOSTEL_ADMIN &&
+    ownerInfo.owner.hostelIds.some((id) => id.toString() === objectId.toString())
+  ) {
+    return false;
+  }
+
+  const actor = actorId ?? ownerInfo.owner.id.toString();
+
+  // The hostel's shared cook login is issued with the owner's, so the kitchen
+  // is handed its credentials in the same email (PHASES.md §3.1) rather than
+  // waiting for someone to find a toggle. Never fails the grant.
+  const cookAccount = await provisionApprovalCookAccount(objectId, actor);
+
+  // Account upgrade (ARCHITECTURE.md §3.2): PUBLIC owner -> HOSTEL_ADMIN, and
+  // the email carries credentials only when the upgrade issued them.
+  const upgrade = await registerOrUpgradeUserByEmail({
+    email: ownerInfo.owner.email,
+    hostelId: objectId.toString(),
+    hostelName: ownerInfo.hostelName,
+    name: ownerInfo.owner.name,
+    performedBy: actor,
+    role: Role.HOSTEL_ADMIN,
+    sendEmailNotification: false,
+  });
+
+  await UserModel.updateOne(
+    { _id: ownerInfo.owner.id },
+    {
+      $set: {
+        emailVerified: true,
+        status: "ACTIVE",
+      },
+    },
+  );
+
+  await sendEmail({
+    to: ownerInfo.owner.email,
+    ...hostelApprovedEmail({
+      hostelName: ownerInfo.hostelName,
+      loginUrl: appLoginUrl(),
+      ...(upgrade.temporaryPassword
+        ? {
+            credentials: {
+              email: ownerInfo.owner.email,
+              temporaryPassword: upgrade.temporaryPassword,
+            },
+          }
+        : {}),
+      ...(cookAccount ? { cookCredentials: cookAccount } : {}),
+    }),
+  });
+
+  // Re-issues any ID card this owner already holds as an owner card — the
+  // conversion the registration form warned them about.
+  /*
+   * Imported at the call site, not at module scope. `sendIdCardEmail` reaches
+   * `platform-id-card.server` and through it `@napi-rs/canvas`, a ~26 MB
+   * prebuilt binary that `serverExternalPackages` copies out of node_modules
+   * into the bundle of every function that can reach it. A static import here
+   * put that binary into 82 functions — every route that touches
+   * `hostel.service` — for one call that issues a card. A dynamic import
+   * keeps it in the handful that actually render one.
+   */
+  const { sendIdCardEmail } = await import(
+    "@/modules/users/id-card-delivery.service"
+  );
+
+  await sendIdCardEmail(ownerInfo.owner.id.toString(), "HOSTEL_OWNER");
+
+  return true;
 }
 
 /**

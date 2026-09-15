@@ -21,6 +21,12 @@
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
 
+/**
+ * Whether the store is open to hostels. While false, the admin Home tile shows
+ * the "coming soon" alert instead of entering `(store)`. Flip it when it ships.
+ */
+export const STORE_OPEN = false;
+
 /* -------------------------------------------------------------------------- */
 /* Catalogue                                                                  */
 /* -------------------------------------------------------------------------- */

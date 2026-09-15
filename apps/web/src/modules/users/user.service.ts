@@ -100,6 +100,44 @@ function generateTemporaryPassword() {
   return randomBytes(9).toString("base64url");
 }
 
+/**
+ * A temporary password for an account that has no way to sign in yet — and
+ * nothing else. The role is not touched.
+ *
+ * For a hostel owner who registered without an account: approval verifies the
+ * hostel but keeps the portal back until the plan is paid, and paying happens
+ * on the website behind a sign-in. An account that already has a password keeps
+ * it and gets `temporaryPassword: null`.
+ */
+export async function issueTemporaryPasswordIfMissing(userId: string | Types.ObjectId) {
+  await connectToDatabase();
+
+  const user = await UserModel.findOne({ _id: userId, isDeleted: { $ne: true } }).select(
+    "+passwordHash email",
+  );
+
+  if (!user) {
+    return null;
+  }
+
+  const temporaryPassword = user.passwordHash ? null : generateTemporaryPassword();
+
+  await UserModel.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        emailVerified: true,
+        status: "ACTIVE",
+        ...(temporaryPassword
+          ? { mustChangePassword: true, passwordHash: await hashPassword(temporaryPassword) }
+          : {}),
+      },
+    },
+  );
+
+  return { email: user.email as string | undefined, temporaryPassword };
+}
+
 function loginUrl() {
   const base =
     process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";

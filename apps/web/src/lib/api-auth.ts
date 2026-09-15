@@ -10,12 +10,23 @@ import { grantingPermissionKeys } from "@/lib/warden-capability";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { isTemporaryCredentialActive } from "@/modules/auth/temporary-credential.service";
+import {
+  findSuspendedHostelIds,
+  HOSTEL_SUSPENDED_MESSAGE,
+  isOpenWhileSuspended,
+  SUSPENDABLE_ROLES,
+} from "@/modules/hostels/hostel-suspension";
 import type { WardenPermissionKey } from "@/modules/wardens/warden.validation";
 
 export type ApiPrincipal = {
   hostelIds: string[];
   role: Role;
   sessionId?: string;
+  /**
+   * Hostels taken out of `hostelIds` because their plan suspension has landed.
+   * Kept so a role guard can answer "suspended" rather than an empty-hostel 404.
+   */
+  suspendedHostelIds?: string[];
   /**
    * Set when the caller signed in with a temporary credential instead of the
    * account's own password. The identity is otherwise identical — same user,
@@ -110,6 +121,55 @@ export function assertPrimaryCredentialPrincipal(principal: ApiPrincipal) {
   }
 }
 
+/** The path a guard is answering for. `nextUrl` is absent on a plain `Request`. */
+function requestPath(request: NextRequest) {
+  return request.nextUrl?.pathname ?? new URL(request.url).pathname;
+}
+
+/**
+ * Takes hostels whose plan suspension has landed out of the principal.
+ *
+ * The same trick {@link requireHostelStaffPrincipal} uses for deleted hostels:
+ * every service already scopes by `principal.hostelIds`, so narrowing once here
+ * shuts a suspended hostel out of every route without any of them knowing
+ * suspensions exist — for its admin, wardens, residents, guardians and cooks
+ * alike. Routes with nothing hostel-scoped (signing out, releasing a push
+ * subscription) keep working, because an empty list is all they ever see.
+ *
+ * Plan billing is exempt (`isOpenWhileSuspended`): paying is the way out.
+ */
+async function withoutSuspendedHostels(
+  request: NextRequest,
+  principal: ApiPrincipal,
+): Promise<ApiPrincipal> {
+  if (
+    !SUSPENDABLE_ROLES.has(principal.role) ||
+    principal.hostelIds.length === 0 ||
+    isOpenWhileSuspended(requestPath(request))
+  ) {
+    return principal;
+  }
+
+  const suspended = await findSuspendedHostelIds(principal.hostelIds);
+
+  if (suspended.size === 0) {
+    return principal;
+  }
+
+  return {
+    ...principal,
+    hostelIds: principal.hostelIds.filter((id) => !suspended.has(id)),
+    suspendedHostelIds: [...suspended],
+  } satisfies ApiPrincipal;
+}
+
+/** 423 when every hostel the caller belongs to is suspended. */
+function assertNotSuspended(principal: ApiPrincipal) {
+  if (principal.hostelIds.length === 0 && principal.suspendedHostelIds?.length) {
+    throw new ApiAuthError(HOSTEL_SUSPENDED_MESSAGE, "HOSTEL_SUSPENDED", 423);
+  }
+}
+
 export async function requireApiPrincipal(request: NextRequest) {
   const principal = await loadApiPrincipal(request);
 
@@ -117,7 +177,7 @@ export async function requireApiPrincipal(request: NextRequest) {
     throw new ApiAuthError("Authentication is required.");
   }
 
-  return principal;
+  return withoutSuspendedHostels(request, principal);
 }
 
 export function assertApiRoles(principal: ApiPrincipal, roles: Role[]) {
@@ -205,6 +265,7 @@ export async function requireHostelStaffPrincipal(request: NextRequest) {
   const principal = await requireApiPrincipal(request);
 
   assertApiRoles(principal, HOSTEL_STAFF_ROLES);
+  assertNotSuspended(principal);
 
   const candidates = principal.hostelIds.filter((id) => Types.ObjectId.isValid(id));
 
@@ -290,6 +351,7 @@ export async function requireHostelAdminPrincipal(request: NextRequest) {
   const principal = await requireApiPrincipal(request);
 
   assertApiRoles(principal, [Role.HOSTEL_ADMIN]);
+  assertNotSuspended(principal);
 
   return principal;
 }
@@ -310,6 +372,7 @@ export async function requireHostelScopedPrincipal(
   const principal = await requireApiPrincipal(request);
 
   assertApiRoles(principal, [Role.SUPERADMIN, ...HOSTEL_STAFF_ROLES]);
+  assertNotSuspended(principal);
   assertHostelScopedApiAccess(principal, hostelId);
 
   return principal;
@@ -319,6 +382,7 @@ export async function requireResidentPrincipal(request: NextRequest) {
   const principal = await requireApiPrincipal(request);
 
   assertApiRoles(principal, [Role.RESIDENT]);
+  assertNotSuspended(principal);
 
   return principal;
 }
@@ -327,6 +391,7 @@ export async function requireGuardianPrincipal(request: NextRequest) {
   const principal = await requireApiPrincipal(request);
 
   assertApiRoles(principal, [Role.GUARDIAN]);
+  assertNotSuspended(principal);
 
   return principal;
 }

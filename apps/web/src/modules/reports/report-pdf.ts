@@ -121,7 +121,7 @@ export async function renderReportPdf(input: ReportPdfInput): Promise<Uint8Array
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
   const ink = rgb(0.1, 0.12, 0.11);
-  const muted = rgb(0.42, 0.45, 0.44);
+  const muted = rgb(0, 0, 0);
   const rule = rgb(0.85, 0.87, 0.86);
 
   const positions = columnPositions(input.columns.length);

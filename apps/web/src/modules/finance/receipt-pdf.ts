@@ -233,7 +233,7 @@ function drawCertificationStamp(
   // The number is inside the stamp as well as in the table above it. A stamp
   // that does not name the document it certifies certifies every document.
   page.drawText(sanitize(receiptNumber), {
-    color: rgb(0.42, 0.45, 0.44),
+    color: rgb(0, 0, 0),
     font: fonts.regular,
     size: 8,
     x: x + 16,
@@ -258,7 +258,7 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
   const ink = rgb(0.1, 0.12, 0.11);
-  const muted = rgb(0.42, 0.45, 0.44);
+  const muted = rgb(0, 0, 0);
   const margin = 56;
   let cursor = 785;
 
@@ -409,7 +409,7 @@ export async function renderStatementPdf(
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
   const ink = rgb(0.1, 0.12, 0.11);
-  const muted = rgb(0.42, 0.45, 0.44);
+  const muted = rgb(0, 0, 0);
   const margin = 56;
   const columns = [margin, margin + 150, margin + 270, margin + 390];
   let cursor = 785;

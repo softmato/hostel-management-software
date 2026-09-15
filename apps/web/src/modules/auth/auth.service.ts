@@ -15,6 +15,10 @@ import { connectToDatabase } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { Role } from "@/lib/roles";
 import { landingPathForRole } from "@/lib/route-access";
+import {
+  SUSPENDABLE_ROLES,
+  suspensionForAccount,
+} from "@/modules/hostels/hostel-suspension";
 import { sendEmail } from "@hostel/shared/email/sender";
 import { otpCodeEmail } from "@hostel/shared/email/templates/auth/otp-code";
 import { verificationEmail } from "@hostel/shared/email/templates/auth/verification";
@@ -890,8 +894,18 @@ export async function getCurrentUser(accessToken: string) {
 
   const safeUser = publicUser(user);
 
+  /*
+   * The plan suspension this account's hostel is under, if any. Every portal —
+   * web and app — draws its countdown or its suspended screen from this one
+   * read; the API refuses the same hostels on its own (`lib/api-auth.ts`).
+   */
+  const hostelSuspension = SUSPENDABLE_ROLES.has(safeUser.role)
+    ? await suspensionForAccount(safeUser.hostelIds)
+    : null;
+
   return {
     ...safeUser,
+    hostelSuspension,
     isServiceProvider,
     /**
      * The account outgrew the token in this tab, and nothing else would say so.

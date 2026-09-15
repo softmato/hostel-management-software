@@ -3,9 +3,11 @@
 import {
   Archive,
   ArchiveRestore,
+  Ban,
   EyeOff,
   Globe,
   Image as ImageIcon,
+  LockOpen,
   MapPin,
   Star,
   Trash2,
@@ -13,6 +15,7 @@ import {
 import Link from "next/link";
 import { memo, useCallback, useMemo, useState } from "react";
 
+import { useConfirm } from "@/app/_components/confirm-dialog";
 import { currency, EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
 import {
   DataTable,
@@ -159,6 +162,66 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
       }
     },
     [invalidate],
+  );
+
+  const { confirm, confirmDialog } = useConfirm();
+
+  /**
+   * Suspend for an unpaid plan, and undo it.
+   *
+   * Suspending closes nothing today. It emails the owner the unpaid plan
+   * invoice and starts three days of pre-suspension; after that every portal
+   * tied to the hostel stops until the plan is paid. Paying in full lifts it
+   * without anyone coming back here — Lift is for a mistake.
+   */
+  const suspensionAction = useCallback(
+    async (hostel: Hostel, next: "suspend" | "lift") => {
+      const confirmed = await confirm(
+        next === "suspend"
+          ? {
+              actionLabel: "Suspend",
+              description:
+                "Reason: plan payment not received. The owner is emailed the unpaid plan invoice now. The portal keeps working for 3 days, with a countdown for the owner and wardens. After that the admin, warden, resident, guardian and cook portals stop until the plan is paid. Paying in full lifts it automatically.",
+              title: `Suspend "${hostel.name}"?`,
+              tone: "destructive",
+            }
+          : {
+              actionLabel: "Lift suspension",
+              description:
+                "The portal opens again right away for everyone at this hostel. The unpaid invoice stays open.",
+              title: `Lift the suspension on "${hostel.name}"?`,
+            },
+      );
+
+      if (!confirmed) return;
+
+      setBusy(true);
+      try {
+        const result = await browserApi<{
+          notification?: { reason?: string; sent: boolean; to?: string };
+        }>(`${platformEndpoints.hostel(hostel.id)}/suspend`, {
+          ...(next === "suspend"
+            ? { body: JSON.stringify({ reason: "PLAN_PAYMENT" }), method: "PATCH" }
+            : { method: "DELETE" }),
+        });
+
+        const notification = result?.notification;
+
+        setActionMessage(
+          next === "lift"
+            ? `"${hostel.name}" suspension lifted.`
+            : notification && !notification.sent
+              ? `"${hostel.name}" is in pre-suspension, but the owner was NOT emailed (${notification.reason ?? "unknown error"}). Contact ${notification.to || "the owner"} manually.`
+              : `"${hostel.name}" is in pre-suspension. The owner has been emailed the invoice.`,
+        );
+        invalidate(platformEndpoints.hostels, platformEndpoints.hostelDetails);
+      } catch (error) {
+        setActionMessage(error instanceof Error ? error.message : "Action failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [confirm, invalidate],
   );
 
   /**
@@ -476,9 +539,32 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
                             </p>
                           </div>
                         ) : (
-                          <SoftBadge tone={statusToneFromLabel(hostel.status)}>
-                            {hostel.status.replaceAll("_", " ")}
-                          </SoftBadge>
+                          <div className="space-y-0.5">
+                            <SoftBadge tone={statusToneFromLabel(hostel.status)}>
+                              {hostel.status.replaceAll("_", " ")}
+                            </SoftBadge>
+                            {hostel.suspension ? (
+                              <p
+                                className={
+                                  hostel.suspension.stage === "SUSPENDED"
+                                    ? "text-[11px] font-semibold text-destructive"
+                                    : "text-[11px] font-semibold text-amber-700 dark:text-amber-300"
+                                }
+                              >
+                                {hostel.suspension.stage === "SUSPENDED"
+                                  ? "Suspended · plan unpaid"
+                                  : `Pre-suspension · stops ${new Date(
+                                      hostel.suspension.graceEndsAt,
+                                    ).toLocaleString("en-GB", {
+                                      day: "numeric",
+                                      hour: "numeric",
+                                      minute: "2-digit",
+                                      month: "short",
+                                      timeZone: "Asia/Kathmandu",
+                                    })}`}
+                              </p>
+                            ) : null}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>
@@ -534,6 +620,31 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
                               Publish
                             </button>
                           ) : null}
+                          {/* A suspension is for a hostel with a portal to
+                              lose: one that is live, or approved and waiting. */}
+                          {hostel.isArchived ||
+                          (hostel.status !== "PUBLISHED" &&
+                            hostel.status !== "APPROVED") ? null : hostel.suspension ? (
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-role-platform transition hover:bg-role-platform-soft disabled:opacity-40"
+                              disabled={busy}
+                              onClick={() => void suspensionAction(hostel, "lift")}
+                              type="button"
+                            >
+                              <LockOpen className="size-3.5" />
+                              Lift
+                            </button>
+                          ) : (
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-40"
+                              disabled={busy}
+                              onClick={() => void suspensionAction(hostel, "suspend")}
+                              type="button"
+                            >
+                              <Ban className="size-3.5" />
+                              Suspend
+                            </button>
+                          )}
                           {/* Offered at every stage — a listing can be a
                               mistaken draft as easily as a closed business —
                               and never on a row that is already archived. */}
@@ -566,6 +677,7 @@ export const PlatformListingsPageContent = memo(function PlatformListingsPageCon
           </>
         ) : null}
       </Panel>
+      {confirmDialog}
     </div>
   );
 });

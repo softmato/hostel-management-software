@@ -15,8 +15,20 @@ import type { Role } from "@/lib/roles";
  * `status` distinguishes "not asked yet" from "asked, nobody is signed in", so
  * a first paint can hold back role-dependent chrome instead of guessing.
  */
+/** A hostel's plan suspension, as `/auth/me` reports it — see `hostel-suspension.ts`. */
+export type HostelSuspension = {
+  graceEndsAt: string;
+  hostelId: string;
+  hostelName: string;
+  reason: "PLAN_PAYMENT";
+  stage: "PRE_SUSPENSION" | "SUSPENDED";
+  startedAt: string;
+};
+
 export type SessionUser = {
   email: string | null;
+  /** Set while the account's hostel is in pre-suspension or suspended. */
+  hostelSuspension?: HostelSuspension | null;
   id: string;
   image: string | null;
   /** Approved service provider — derived server-side; there is no such role. */

@@ -18,6 +18,7 @@ import { PersistGate } from "redux-persist/integration/react";
 import { BottomChromeProvider } from "@/components/bottom-chrome";
 import { AssetViewer } from "@/components/asset-viewer";
 import { BootSplashCover, BrandSplash } from "@/components/brand-splash";
+import { HostelSuspensionHost } from "@/components/hostel-suspension-host";
 import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { UploadToaster } from "@/components/upload-toaster";
 import { ResidencyInviteHost } from "@/components/residency-invite-host";
@@ -521,11 +522,15 @@ function RootShell() {
       </BlurTargetView>
 
       {/*
-        The one custom alert, and the only thing outside the blur target: a view
-        cannot blur a buffer it is itself drawn into. Being a sibling *after* the
-        target is also what puts it over the tab bar — it is not a `Modal`, see
-        its own note for why.
+        The app's alert card, and the only things outside the blur target: a
+        view cannot blur a buffer it is itself drawn into. Being siblings *after*
+        the target is also what puts them over the tab bar — neither is a
+        `Modal`, see `confirm-dialog.tsx` for why.
+
+        The hostel suspension goes first, so a question asked while it is up
+        still draws above it.
       */}
+      <HostelSuspensionHost />
       <ConfirmDialogHost />
 
       {/*

@@ -1,4 +1,12 @@
-import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import {
+  ctaButton,
+  detailsTable,
+  emailLayout,
+  escapeHtml,
+  paragraph,
+  smallPrint,
+  type EmailContent,
+} from "../layout";
 
 /**
  * The email that turns *Pay now* on.
@@ -13,10 +21,23 @@ import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from
  * (the registration page lets them, on purpose). If they have, there is exactly
  * one thing left to do and the email says so; if they have not, the next step
  * is choosing.
+ *
+ * For a public registration the portal is **not** open yet — it opens with the
+ * payment — and the email says so plainly. An owner who registered without an
+ * account also gets a temporary password here: paying happens behind a sign-in,
+ * and without one they would have no way to reach the button this email is
+ * about.
  */
 export function hostelVerifiedEmail(input: {
+  /**
+   * A way to sign in, for an owner who registered without an account and so
+   * had none. It opens their public account — enough to pay — not the portal.
+   */
+  credentials?: { email: string; temporaryPassword: string } | null;
   hostelName: string;
   ownerName?: string;
+  /** A public registration: the hostel portal opens with the payment, not before. */
+  portalOpensOnPayment?: boolean;
   /** The plan they picked during the wait, if they picked one. */
   selectedPlanName?: string | null;
   statusUrl: string;
@@ -40,11 +61,28 @@ export function hostelVerifiedEmail(input: {
           : paragraph(
               "The last step is choosing a plan. Pick the one that suits you, pay for it, and your listing goes live immediately.",
             ),
+        input.portalOpensOnPayment
+          ? paragraph(
+              "Your hostel portal opens as soon as the payment is complete. We will email you the moment it does.",
+            )
+          : "",
+        input.credentials
+          ? [
+              paragraph("Sign in with these details to pay:"),
+              detailsTable([
+                { label: "Email", value: input.credentials.email },
+                { label: "Temporary password", value: input.credentials.temporaryPassword },
+              ]),
+              smallPrint("You will be asked to choose your own password after you sign in."),
+            ].join("\n")
+          : "",
         ctaButton(
           input.statusUrl,
           input.selectedPlanName ? "Pay and go live" : "Choose your plan",
         ),
-      ].join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
     }),
   };
 }

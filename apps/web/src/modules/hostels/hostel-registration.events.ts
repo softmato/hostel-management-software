@@ -2,6 +2,7 @@ import { hostelRegisteredByTeamEmail } from "@hostel/shared/email/templates/host
 import { hostelSubmissionReceivedEmail } from "@hostel/shared/email/templates/hostel/submission-received";
 import { hostelVerifiedEmail } from "@hostel/shared/email/templates/hostel/hostel-verified";
 import { subscriptionInvoiceEmail } from "@hostel/shared/email/templates/billing/subscription-invoice";
+import { planSuspensionNoticeEmail } from "@hostel/shared/email/templates/billing/plan-suspension-notice";
 import { subscriptionReceiptEmail } from "@hostel/shared/email/templates/billing/subscription-receipt";
 import { sendEmail, type EmailAttachment } from "@hostel/shared/email/sender";
 import { emailDate, type EmailContent } from "@hostel/shared/email/templates/layout";
@@ -177,9 +178,13 @@ export async function onRegisteredByTeam(input: {
  * already used.
  */
 export async function onHostelVerified(input: {
+  /** A temporary password for an owner who had no way to sign in. */
+  credentials?: { email: string; temporaryPassword: string } | null;
   hostelName: string;
   ownerEmail?: string;
   ownerName?: string;
+  /** A public registration that has not paid: the portal waits for the payment. */
+  portalOpensOnPayment?: boolean;
   selectedPlanName?: string | null;
 }) {
   if (!input.ownerEmail) {
@@ -190,12 +195,80 @@ export async function onHostelVerified(input: {
     "hostel_verified",
     input.ownerEmail,
     hostelVerifiedEmail({
+      credentials: input.credentials,
       hostelName: input.hostelName,
       ownerName: input.ownerName,
+      portalOpensOnPayment: input.portalOpensOnPayment,
       selectedPlanName: input.selectedPlanName,
       statusUrl: registrationStatusUrl(),
     }),
   );
+}
+
+/* ── Platform: plan suspension started ─────────────────────────────────── */
+
+/**
+ * "Pay by this date, or the portal stops" — sent when a platform admin starts a
+ * suspension from Listings, with the unpaid invoice attached.
+ *
+ * Unlike the other moments it reports what happened instead of only logging
+ * it: the admin who pressed Suspend is looking at the result, and "the owner
+ * was not emailed" is something they then have to do by phone.
+ */
+export async function onPlanSuspensionStarted(input: {
+  amount: number;
+  /** False when the invoice was raised a moment ago and its own email carried it. */
+  attachInvoice: boolean;
+  graceEndsAt: Date;
+  hostelName: string;
+  hostelSlug: string | null;
+  invoiceNumber: string;
+  ownerEmail: string;
+  ownerName?: string;
+  planName: string;
+}): Promise<{ reason?: string; sent: boolean; to: string }> {
+  if (!input.ownerEmail) {
+    return { reason: "No owner email on file", sent: false, to: "" };
+  }
+
+  const attachments = input.attachInvoice
+    ? await attach("invoice", input.invoiceNumber)
+    : [];
+  const message = planSuspensionNoticeEmail({
+    amount: input.amount,
+    hostelName: input.hostelName,
+    invoiceAttached: attachments.length > 0,
+    invoiceNumber: input.invoiceNumber,
+    ownerName: input.ownerName,
+    payBy: formatEmailDate(input.graceEndsAt) ?? "",
+    payUrl: input.hostelSlug ? hostelBillingUrl(input.hostelSlug) : registrationStatusUrl(),
+    planName: input.planName,
+  });
+
+  const result = await sendEmail({
+    ...(attachments.length ? { attachments } : {}),
+    category: message.category,
+    html: message.html,
+    subject: message.subject,
+    to: input.ownerEmail,
+  });
+
+  if (!result.sent) {
+    console.warn(
+      JSON.stringify({
+        action: "plan_suspension_notice_email_failed",
+        level: "warn",
+        reason: result.reason,
+        to: input.ownerEmail,
+      }),
+    );
+  }
+
+  return {
+    reason: result.sent ? undefined : String(result.reason ?? "unknown error"),
+    sent: result.sent,
+    to: input.ownerEmail,
+  };
 }
 
 /* ── Both: invoice raised ──────────────────────────────────────────────── */

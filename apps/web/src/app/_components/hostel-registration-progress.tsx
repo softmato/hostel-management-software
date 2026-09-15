@@ -647,18 +647,27 @@ export function HostelRegistrationProgress({
               </div>
 
               {state?.canPayNow ? (
-                <button
-                  className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-teal px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-teal/90 disabled:opacity-60 sm:w-auto"
-                  disabled={busy}
-                  onClick={payNow}
-                  type="button"
-                >
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Pay now
-                  {state.subscription.cycleTotal
-                    ? ` — ${rupees(state.subscription.cycleTotal)}`
-                    : ""}
-                </button>
+                <>
+                  <button
+                    className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-teal px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-teal/90 disabled:opacity-60 sm:w-auto"
+                    disabled={busy}
+                    onClick={payNow}
+                    type="button"
+                  >
+                    {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+                    Pay now
+                    {state.subscription.cycleTotal
+                      ? ` — ${rupees(state.subscription.cycleTotal)}`
+                      : ""}
+                  </button>
+                  {/* The portal waits for the payment (`approvePlatformHostel`),
+                      and the verified email said the same — so this says it
+                      here too, where the owner is looking for the next step. */}
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    We have emailed you about this, please check your email. Your hostel
+                    portal opens as soon as the payment is complete.
+                  </p>
+                </>
               ) : state?.planChosen ? (
                 <p className="mt-6 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                   <strong className="font-semibold text-foreground">

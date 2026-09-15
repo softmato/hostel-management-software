@@ -188,6 +188,25 @@ const hostelSchema = new Schema(
     purgeScheduledAt: Date,
     /** Why it was archived. Shown to the superadmin on the Archived queue. */
     archiveReason: { type: String, trim: true },
+    /**
+     * The platform taking the hostel's portal away for an unpaid plan.
+     *
+     * One field, two stages, read off the clock: before `graceEndsAt` the hostel
+     * is in **pre-suspension** (its staff see a countdown and keep working);
+     * from `graceEndsAt` on it is **suspended**, and the admin, warden,
+     * resident, guardian and cook portals stop. Nothing runs at the deadline —
+     * `modules/hostels/hostel-suspension.ts` derives the stage.
+     *
+     * The listing's `status` is deliberately untouched, so lifting a suspension
+     * never has to remember what the hostel was before. Cleared by the
+     * settlement that pays the plan in full, or by a platform admin.
+     */
+    suspension: {
+      graceEndsAt: { default: null, type: Date },
+      reason: { default: null, enum: ["PLAN_PAYMENT", null], type: String },
+      startedAt: { default: null, type: Date },
+      startedBy: { default: null, ref: "User", type: Schema.Types.ObjectId },
+    },
   },
   { timestamps: true },
 );

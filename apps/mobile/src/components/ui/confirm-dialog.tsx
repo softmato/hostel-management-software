@@ -203,10 +203,24 @@ export function ConfirmDialog({
     };
   }, []);
 
+  /*
+   * `pending` is state, so a second tap in the same frame still reads `false`
+   * and runs the work twice — for a synchronous `router.back()` that is two
+   * GO_BACKs, and the second has no screen to land on. The ref flips at once.
+   */
+  const running = useRef(false);
+
   const confirm = useCallback(() => {
     if (pending) {
       return;
-    }    setPending(true);
+    }
+
+    if (running.current) {
+      return;
+    }
+
+    running.current = true;
+    setPending(true);
 
     void (async () => {
       try {
@@ -219,6 +233,7 @@ export function ConfirmDialog({
          * path that has to put the button back.
          */
         if (alive.current) {
+          running.current = false;
           setPending(false);
         }
 

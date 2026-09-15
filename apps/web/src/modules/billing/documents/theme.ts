@@ -55,13 +55,13 @@ export const COLORS = {
   /** The one accent. `#0a8a4b` — the platform's own green, nothing sampled. */
   accent: rgb(0.039, 0.541, 0.294),
   /** Field names. Warm rather than neutral grey, so a page of them still reads as ink. */
-  label: rgb(0.541, 0.494, 0.42),
+  label: rgb(0, 0, 0),
   /** Hairlines between blocks. */
   rule: rgb(0.851, 0.839, 0.816),
   /** The heavy rule under the masthead, and box borders. */
   ruleStrong: rgb(0.11, 0.11, 0.11),
   /** Secondary prose — a Gregorian date beside a Nepali one, a footnote. */
-  muted: rgb(0.443, 0.427, 0.404),
+  muted: rgb(0, 0, 0),
   text: rgb(0.106, 0.106, 0.106),
 } as const;
 

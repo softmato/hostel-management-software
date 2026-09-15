@@ -10,6 +10,13 @@ export type ReportRecord = Record<string, unknown>;
 export type Hostel = {
   /** Present on the platform approval queue — see listPlatformHostels. */
   applicationStatus?: string;
+  /** The plan suspension running on this hostel, if any — see `hostel-suspension.ts`. */
+  suspension?: {
+    graceEndsAt: string;
+    reason: string;
+    stage: "PRE_SUSPENSION" | "SUSPENDED";
+    startedAt: string;
+  } | null;
   capacitySummary?: {
     totalBeds?: number;
     totalRooms?: number;

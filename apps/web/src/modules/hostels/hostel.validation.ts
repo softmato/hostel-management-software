@@ -177,6 +177,12 @@ export const hostelUnpublishSchema = z.object({
   reason: z.string().trim().min(3).max(1000),
 });
 
+// A suspension takes a fixed reason, not free text: the owner's email and every
+// portal's suspended screen are written for it (`hostel-suspension.ts`).
+export const hostelSuspendSchema = z.object({
+  reason: z.enum(["PLAN_PAYMENT"]),
+});
+
 // Archiving takes a hostel off the site, out of its own portal, and starts a
 // 60-day countdown to erasure. The reason is required for the same purpose the
 // audit row exists: so whoever finds the archived hostel later knows why.

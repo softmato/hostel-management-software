@@ -14,6 +14,12 @@ export type ApiUser = {
   email: string | null;
   emailVerified: boolean;
   hostelIds: string[];
+  /**
+   * Set while the account's hostel is in pre-suspension or suspended for an
+   * unpaid plan; `HostelSuspensionHost` draws it. Optional: sign-in payloads
+   * leave it out, and the boot revalidation fills it in.
+   */
+  hostelSuspension?: HostelSuspension | null;
   id: string;
   image: string | null;
   /** Provisioned accounts (cook, warden) must set their own password first. */
@@ -33,6 +39,16 @@ export type ApiUser = {
   role: Role;
   status: string;
   userResidentId: string | null;
+};
+
+/** A hostel's plan suspension, as `/auth/me` reports it (apps/web `hostel-suspension.ts`). */
+export type HostelSuspension = {
+  graceEndsAt: string;
+  hostelId: string;
+  hostelName: string;
+  reason: "PLAN_PAYMENT";
+  stage: "PRE_SUSPENSION" | "SUSPENDED";
+  startedAt: string;
 };
 
 export type LoginResult = {

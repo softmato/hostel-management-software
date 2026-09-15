@@ -29,6 +29,28 @@ import {
   adminQuery,
   prefetchAdminRoute,
 } from "@/lib/admin-queries";
+import { openConfirm } from "@/lib/confirm";
+import { STORE_OPEN } from "@/lib/store-api";
+
+/**
+ * Said from Home, before any navigation: entering `(store)` only to cover it
+ * with this alert mounted the whole shop for nothing.
+ */
+function openStore() {
+  if (STORE_OPEN) {
+    router.push("/(store)");
+    return;
+  }
+
+  openConfirm({
+    cancelLabel: null,
+    confirmLabel: "OK",
+    message:
+      "We are working on the store. It will be available very soon, and we will notify you when it opens.",
+    onConfirm: () => {},
+    title: "Store coming soon",
+  });
+}
 
 
 /**
@@ -271,9 +293,7 @@ export default function AdminHomeScreen() {
              * mount it outside the tab navigator and lose the bar entirely.
              */
             onStore={
-              account?.role === ROLE.HOSTEL_ADMIN
-                ? () => router.push("/(store)")
-                : undefined
+              account?.role === ROLE.HOSTEL_ADMIN ? openStore : undefined
             }
           />
         </View>

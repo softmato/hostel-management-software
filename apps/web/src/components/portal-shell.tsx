@@ -45,6 +45,11 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { HostelPreviewLink } from "@/components/hostel-preview-link";
+import {
+  HostelSuspendedScreen,
+  HostelSuspensionNotice,
+  useHostelSuspension,
+} from "@/components/hostel-suspension-gate";
 import { BrandMark } from "@/components/brand-mark";
 import { NotificationBell } from "@/components/notification-bell";
 import { PortalAccount } from "@/components/portal-account";
@@ -272,6 +277,9 @@ export function PortalShell({
   const portalName = portalNameProp ?? identity.siteName;
   const styles = toneStyles[tone];
   const plan = planCopy[tone];
+  // The hostel's plan suspension, for the hostel's own portals only.
+  const suspension = useHostelSuspension(tone);
+  const suspended = suspension?.stage === "SUSPENDED";
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [navPathname, setNavPathname] = useState(pathname);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -522,7 +530,10 @@ export function PortalShell({
     <RealtimeProvider>
     {/* Viewport-height frame: the brand rail, top bar, and copyright bar stay
         put while only the nav list and the content pane scroll. */}
-    <div className="flex h-dvh flex-col overflow-hidden bg-[#f4f7fb] text-foreground dark:bg-background">
+    <div
+      className="flex h-dvh flex-col overflow-hidden bg-[#f4f7fb] text-foreground dark:bg-background"
+      inert={suspended}
+    >
       <div className="flex min-h-0 flex-1">
         <aside
           className={cn(
@@ -641,6 +652,9 @@ export function PortalShell({
           </header>
 
           <main className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3.5 py-4 md:px-5 md:py-4">
+            {suspension && !suspended && tone === "admin" ? (
+              <HostelSuspensionNotice suspension={suspension} />
+            ) : null}
             {children}
           </main>
         </div>
@@ -668,6 +682,9 @@ export function PortalShell({
         </div>
       </footer>
     </div>
+    {suspension && suspended ? (
+      <HostelSuspendedScreen suspension={suspension} tone={tone} />
+    ) : null}
     </RealtimeProvider>
   );
 }

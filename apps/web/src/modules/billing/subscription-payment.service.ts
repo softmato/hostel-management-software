@@ -511,6 +511,7 @@ async function applySettlement(
     );
 
     await publishForSubscription(invoice.hostelId, actorId);
+    await openHostelAfterPayment(invoice.hostelId, subscription.source, actorId);
 
     return { dueBy: null };
   }
@@ -545,6 +546,60 @@ async function applySettlement(
   }
 
   return { dueBy: null };
+}
+
+/**
+ * What paying the plan in full opens, beyond the plan itself.
+ *
+ * - **A suspension ends**, at either stage. Paying is the only way out of one,
+ *   so the moment the plan is paid every portal tied to the hostel opens again.
+ * - **A public owner gets the portal.** Approval kept it back until now
+ *   (`approvePlatformHostel`); a renewal finds the owner already holding it and
+ *   changes nothing.
+ *
+ * Neither may fail the settlement: the money is confirmed and the receipt is
+ * out. A failure is logged for a person to finish, never thrown back at a
+ * gateway that would retry a payment that already landed.
+ *
+ * Both are imported here rather than at the top: `hostel.service` imports this
+ * module, so a static import back would be a cycle, and the suspension module
+ * rides along with it for the same reason.
+ */
+async function openHostelAfterPayment(
+  hostelId: Types.ObjectId,
+  source: string | undefined,
+  actorId?: string,
+) {
+  try {
+    const { liftHostelSuspension } = await import("@/modules/hostels/hostel-suspension");
+
+    await liftHostelSuspension(hostelId, { actorId: actorId ?? null, cause: "PAID" });
+  } catch (error) {
+    logAccessFailure("hostel_suspension_lift_failed", hostelId, error);
+  }
+
+  if (source === "TEAM") {
+    return;
+  }
+
+  try {
+    const { grantHostelOwnerAccess } = await import("@/modules/hostels/hostel.service");
+
+    await grantHostelOwnerAccess(hostelId.toString(), actorId ?? null);
+  } catch (error) {
+    logAccessFailure("hostel_owner_access_grant_failed", hostelId, error);
+  }
+}
+
+function logAccessFailure(action: string, hostelId: Types.ObjectId, error: unknown) {
+  console.error(
+    JSON.stringify({
+      action,
+      hostelId: hostelId.toString(),
+      level: "error",
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
 }
 
 /** Who the receipt goes to, and the hostel it names. */

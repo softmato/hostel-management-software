@@ -2,7 +2,6 @@
 
 import {
   Download,
-  LogOut,
   MoreVertical,
   Pencil,
   QrCode,
@@ -697,13 +696,6 @@ export const PlatformUsersPageContent = memo(function PlatformUsersPageContent()
               >
                 <Pencil className="size-3.5" />
                 Edit User
-              </button>
-              <button
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-card px-3 py-2 text-[12px] font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/40"
-                type="button"
-              >
-                <LogOut className="size-3.5" />
-                Suspend
               </button>
             </div>
           </aside>

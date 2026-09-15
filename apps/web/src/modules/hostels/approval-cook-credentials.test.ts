@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   hostelFindOne: vi.fn(),
   hostelFindOneAndUpdate: vi.fn(),
+  issueTemporaryPasswordIfMissing: vi.fn(),
   subscriptionFindOne: vi.fn(),
   materializeRoomsFromConfigurations: vi.fn(),
   provisionCookAccount: vi.fn(),
@@ -37,9 +38,10 @@ vi.mock("@hostel/db/models/HostelApplication", () => ({
 }));
 
 /*
- * Approval now reads the subscription, because the "you are verified" email
- * names the plan the owner chose while they were waiting. It is only ever read
- * here — approval never writes billing state.
+ * Approval reads the subscription for two things: the "you are verified" email
+ * names the plan the owner chose while they were waiting, and whether the owner
+ * gets the portal now depends on it — a public hostel that has not paid does
+ * not. It is only ever read here — approval never writes billing state.
  */
 vi.mock("@hostel/db/models/HostelSubscription", () => ({
   HostelSubscriptionModel: { findOne: mocks.subscriptionFindOne },
@@ -64,6 +66,7 @@ vi.mock("@hostel/db/models/User", () => ({
 }));
 
 vi.mock("@/modules/users/user.service", () => ({
+  issueTemporaryPasswordIfMissing: mocks.issueTemporaryPasswordIfMissing,
   registerOrUpgradeUserByEmail: mocks.registerOrUpgradeUserByEmail,
 }));
 
@@ -122,7 +125,10 @@ describe("hostel approval issues cook credentials", () => {
     vi.clearAllMocks();
     mocks.hostelFindOneAndUpdate.mockReturnValue(leanResult(hostelRecord()));
     mocks.hostelFindOne.mockReturnValue(queryResult(hostelRecord()));
-    mocks.subscriptionFindOne.mockReturnValue(queryResult(null));
+    // Paid before it was approved, so approval is what opens the portal.
+    mocks.subscriptionFindOne.mockReturnValue(
+      queryResult({ planName: null, source: "PUBLIC", status: "ACTIVE" }),
+    );
     mocks.userFindOne.mockReturnValue(
       leanResult({ _id: ownerId, email: "owner@example.com", name: "Owner" }),
     );
@@ -136,6 +142,32 @@ describe("hostel approval issues cook credentials", () => {
       settings: {},
     });
     mocks.sendEmail.mockResolvedValue({ sent: true });
+  });
+
+  it("keeps the portal from a public hostel that has not paid", async () => {
+    mocks.subscriptionFindOne.mockReturnValue(
+      queryResult({ planName: "Starter", source: "PUBLIC", status: "SELECTED" }),
+    );
+    mocks.issueTemporaryPasswordIfMissing.mockResolvedValue({
+      email: "owner@example.com",
+      temporaryPassword: "public-temp-pw",
+    });
+
+    await approvePlatformHostel(hostelId, platformPrincipal);
+
+    expect(mocks.registerOrUpgradeUserByEmail).not.toHaveBeenCalled();
+    expect(mocks.provisionCookAccount).not.toHaveBeenCalled();
+    expect(mocks.issueTemporaryPasswordIfMissing).toHaveBeenCalledWith(ownerId);
+
+    // One email: verified, how to sign in and pay, and no admin or cook login.
+    const html = mocks.sendEmail.mock.calls
+      .map((call) => (call[0] as { html: string }).html)
+      .join("\n");
+
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
+    expect(html).toContain("public-temp-pw");
+    expect(html).toContain("Your hostel portal opens as soon as the payment is complete.");
+    expect(html).not.toContain("cook-secret-pw");
   });
 
   it("provisions the shared cook account during approval", async () => {
