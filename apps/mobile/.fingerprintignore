@@ -27,3 +27,9 @@
 **/android/.kotlin/**/*
 **/*-gradle-plugin/bin/**/*
 **/*-gradle-plugin/.kotlin/**/*
+
+# masked-view's own android/build.gradle rewrites this manifest on every Gradle
+# configure (AGP >= 7 strips `package=`), so any local `gradlew assembleDebug`
+# changes it while EAS fingerprints before Gradle runs. The file holds nothing
+# but that package name; the namespace its build.gradle declares stays hashed.
+**/@react-native-masked-view/masked-view/android/src/main/AndroidManifest.xml
