@@ -9,7 +9,17 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: "/",
+        allow: [
+          "/",
+          // A search engine renders a page the way a browser does, and its
+          // renderer obeys robots.txt for every request the page makes. With all
+          // of /api/ closed, /hostels reached Google with no hostels on it and
+          // every hostel photo missing. These are the public reads those pages
+          // make; the longer rule wins over `/api/` below. The JSON answers
+          // `X-Robots-Tag: noindex` (next.config.ts), so it is never a result.
+          "/api/v1/public/hostels",
+          "/api/v1/files/",
+        ],
         // Keep authenticated portals, checkouts and API routes out of search
         // indexes. Pages that are public but personal (invites, resident IDs,
         // inquiry forms) stay crawlable and say `noindex` themselves, which is

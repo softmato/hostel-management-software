@@ -94,6 +94,27 @@ Rules every page follows:
    `https://media.softmato.com/...` and serve 200; that host's robots.txt allows Googlebot.
    After deploying, resubmit the sitemap in Search Console.
 
+   ☑ Fix, 2026-09-15 (crawl audit of the live site, before Page indexing had data): all 72 sitemap
+   URLs answered 200 with a self-canonical and no stray `noindex`, but three things would have
+   shown up in the report.
+   - **Soft 404s.** `hostels/loading.tsx` and `hostels/[slug]/loading.tsx` put every hostel and
+     city page inside a Suspense boundary, so the 200 was sent before the page found out the slug
+     did not exist: removed hostels and unknown cities answered "200 + noindex", and a database
+     error would have been a 200 error page. The listing skeleton now lives in
+     `hostels/(listing)/` and covers `/hostels` only; `hostels/[slug]/layout.tsx` reads the hostel
+     (shared cached loaders in `load-hostel.ts`) before anything streams, so a missing hostel is a
+     real 404 and a failed read a 5xx while client-side navigation keeps its skeleton. City pages
+     have no loading boundary any more, like `/features` and `/vs`.
+   - **Tags in `<body>` for Googlebot.** Next streams metadata to any user agent outside
+     `htmlLimitedBots`, and its default list has Google's inspection and ads crawlers but not
+     `Googlebot`: the canonical link sat ~140 KB into the body. `next.config.ts` extends the default
+     with `Googlebot|GoogleOther`; visitors still get streamed metadata.
+   - **`/hostels` was empty to Google.** Its cards (and every hostel photo) load from `/api/`, which
+     robots.txt closed, and a renderer obeys robots.txt for each request a page makes. `robots.ts`
+     now allows `/api/v1/public/hostels` and `/api/v1/files/`; `/api/v1/public/*` answers
+     `X-Robots-Tag: noindex` so the JSON never becomes a result. The home page was already fine: its
+     hostels are server-rendered.
+
 ## Waiting on the Play listing
 
 Held back until `com.softmato.hostelpalika` is live on Google Play, so nothing links to a store page
@@ -126,7 +147,11 @@ Sequence matters; each step unlocks the next.
 
 1. Verify `hostelpalika.com` in Google Search Console (Domain property, DNS TXT at Vercel DNS) and
    Bing Webmaster Tools; paste the HTML-tag codes into Website Config → SEO if using the tag method.
-2. Submit `https://hostelpalika.com/sitemap.xml` in both.
+2. Submit `https://hostelpalika.com/sitemap.xml` in both. In Google, URL Inspection → Request
+   indexing for the pages that matter most (home, `/hostel-management-software`, `/hostels`,
+   `/hostels/in/kathmandu`, each hostel page) — there is a small daily quota, so not all 72.
+   In Vercel → Settings → Domains, set the `www.hostelpalika.com` redirect to **308 Permanent**; it
+   was 307 (temporary) on 2026-09-15.
 3. Create the Google Business Profile for HostelPalika (Softmato, Kathmandu) — same name, address and
    phone as the site footer.
 4. Fill Website Config → Social links; they become `sameAs` on the Organization record.

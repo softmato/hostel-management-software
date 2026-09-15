@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
+import { HTML_LIMITED_BOT_UA_RE } from "next/dist/shared/lib/router/utils/html-bots";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, "../..");
@@ -195,8 +196,27 @@ const nextConfig: NextConfig = {
     // from public/brand — both read from disk at runtime, so neither is traced.
     "/og": [...ID_CARD_FONTS, "./public/brand/*.png"],
   },
+  /**
+   * The page's title, description, canonical and robots tags in the first
+   * <head> for Googlebot, the way Bingbot already gets them.
+   *
+   * Next streams metadata in after the page to every user agent outside this
+   * list, and its default list names Google's inspection and ads crawlers but not
+   * `Googlebot`, on the theory that a crawler running JavaScript will not mind.
+   * Measured on the live site: the canonical link sat ~140 KB into <body>, while
+   * Google documents reading `rel=canonical` only from <head> — and URL
+   * Inspection (`Google-InspectionTool`, already listed) was shown a different
+   * document from the real crawl. Visitors keep streamed metadata. The default
+   * is extended rather than copied, so it follows Next upgrades.
+   */
+  htmlLimitedBots: new RegExp(`Googlebot|GoogleOther|${HTML_LIMITED_BOT_UA_RE.source}`, "i"),
   async headers() {
-    return [{ headers: SECURITY_HEADERS, source: "/:path*" }];
+    return [
+      { headers: SECURITY_HEADERS, source: "/:path*" },
+      // Crawlers may fetch these to render /hostels (robots.ts); the JSON itself
+      // is never a search result.
+      { headers: [{ key: "X-Robots-Tag", value: "noindex" }], source: "/api/v1/public/:path*" },
+    ];
   },
   async redirects() {
     return [

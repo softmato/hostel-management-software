@@ -153,7 +153,20 @@ export async function downloadFile(options: DownloadOptions): Promise<DownloadOu
   const update = useDownloadStore.getState().update;
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    /*
+     * A public image (the collection QR, a listing photo) is already on screen
+     * through an `<img>`, which requests it without an Origin header. R2 answers
+     * that with no CORS headers and no `Vary: Origin`, the browser caches it,
+     * and a later `fetch` of the same URL reuses the cached copy — then rejects
+     * it for lacking `Access-Control-Allow-Origin`, surfacing only as "Failed to
+     * fetch". Skipping the cache for another origin makes the request carry its
+     * Origin, and the bucket's CORS rule answers it.
+     */
+    const crossOrigin = new URL(url, window.location.href).origin !== window.location.origin;
+    const response = await fetch(url, {
+      cache: crossOrigin ? "no-store" : "default",
+      signal: controller.signal,
+    });
 
     if (!response.ok) {
       /*
