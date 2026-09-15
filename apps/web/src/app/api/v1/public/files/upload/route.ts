@@ -6,10 +6,26 @@ import { existsSync } from "fs";
 
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
 import { rateLimitPublicForm } from "@/lib/rate-limit";
-import { generateFileKey, getR2Client, publicBucket } from "@/lib/r2";
+import { generateFileKey, getR2Client, privateBucket, publicBucket } from "@/lib/r2";
+import { issueDocumentClaimToken } from "@/lib/registration-documents";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 
 export const runtime = "nodejs";
+
+/**
+ * Unauthenticated, rate-limited uploads for the registration forms, where there
+ * is no hostel (and often no account) to scope a presign to.
+ *
+ * Private by default. A `visibility=private` upload is a registration document
+ * (citizenship, licence, PAN): it lands in the private bucket and answers with a
+ * `fileAssetId` and a `claimToken`, never a URL. The application that names it
+ * claims it, and it is read afterwards through `files/{assetId}/url`. See
+ * `lib/registration-documents.ts`.
+ *
+ * `visibility=public` is for pictures that are meant to be seen: listing photos
+ * and the collection QR. It accepts images only, so a PDF or a text file can
+ * never be published through here, whatever the client asks for.
+ */
 
 const ALLOWED_TYPES = [
   "image/jpeg",
@@ -19,13 +35,15 @@ const ALLOWED_TYPES = [
   "text/plain",
 ];
 
+const PUBLIC_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 const MAX_SIZE = 5 * 1024 * 1024;
 
-function r2Configured() {
+function r2Configured(bucketVariable: "R2_BUCKET_PRIVATE" | "R2_BUCKET_PUBLIC") {
   return !!(
     process.env.R2_ENDPOINT &&
     process.env.R2_ACCESS_KEY_ID &&
-    process.env.R2_BUCKET_PUBLIC
+    process.env[bucketVariable]
   );
 }
 
@@ -41,6 +59,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
+    const visibility = formData.get("visibility") === "public" ? "public" : "private";
 
     if (!file) {
       return errorResponse("File is required", "VALIDATION_ERROR", 422);
@@ -49,6 +68,14 @@ export async function POST(request: NextRequest) {
     if (!ALLOWED_TYPES.includes(file.type)) {
       return errorResponse(
         "File type not allowed. Accepted: JPEG, PNG, WebP, PDF, TXT",
+        "FILE_TYPE_NOT_ALLOWED",
+        422,
+      );
+    }
+
+    if (visibility === "public" && !PUBLIC_TYPES.includes(file.type)) {
+      return errorResponse(
+        "Only JPEG, PNG or WebP images can be published.",
         "FILE_TYPE_NOT_ALLOWED",
         422,
       );
@@ -63,38 +90,89 @@ export async function POST(request: NextRequest) {
     const mimeType = file.type;
     const sizeBytes = file.size;
 
+    if (visibility === "private") {
+      // No disk fallback: `public/uploads` is served to anyone, which is the
+      // exposure this branch exists to prevent.
+      if (!r2Configured("R2_BUCKET_PRIVATE")) {
+        return errorResponse(
+          "Document storage is not configured on this deployment.",
+          "STORAGE_NOT_CONFIGURED",
+          503,
+        );
+      }
+
+      const bucket = privateBucket();
+      const key = generateFileKey("registration-documents", fileName);
+
+      await getR2Client().send(
+        new PutObjectCommand({
+          Body: buffer,
+          Bucket: bucket,
+          ContentType: mimeType,
+          Key: key,
+        }),
+      );
+
+      const asset = await FileAssetModel.create({
+        accessLevel: "PRIVATE",
+        bucket,
+        fileName,
+        key,
+        kind: "REGISTRATION_DOCUMENT",
+        mimeType,
+        sizeBytes,
+        status: "ACTIVE",
+        storageProvider: "CLOUDFLARE_R2",
+        // The bytes are in hand and were just written, so the upload is
+        // complete. Without this the abandoned-upload sweep would delete it.
+        uploadCompletedAt: new Date(),
+      });
+      const fileAssetId = asset._id.toString();
+
+      return successResponse(
+        {
+          claimToken: issueDocumentClaimToken(fileAssetId),
+          fileAssetId,
+          fileName,
+          mimeType,
+          sizeBytes,
+        },
+        "File uploaded",
+        { status: 201 },
+      );
+    }
+
     let url: string;
 
-    if (r2Configured()) {
-      // Always the public bucket: this route exists to serve hostel
-      // registration documents back over an unsigned URL.
+    if (r2Configured("R2_BUCKET_PUBLIC")) {
       const key = generateFileKey("public-uploads", fileName);
       const bucket = publicBucket();
 
-      const command = new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: buffer,
-        ContentType: mimeType,
-      });
-
-      await getR2Client().send(command);
+      await getR2Client().send(
+        new PutObjectCommand({
+          Body: buffer,
+          Bucket: bucket,
+          ContentType: mimeType,
+          Key: key,
+        }),
+      );
 
       const publicUrl = process.env.R2_PUBLIC_URL;
       url = publicUrl ? `${publicUrl}/${key}` : key;
 
       await FileAssetModel.create({
-        storageProvider: "CLOUDFLARE_R2",
+        accessLevel: "PUBLIC",
         bucket,
-        key,
         fileName,
+        key,
         mimeType,
         sizeBytes,
-        accessLevel: "PUBLIC",
         status: "ACTIVE",
+        storageProvider: "CLOUDFLARE_R2",
+        uploadCompletedAt: new Date(),
       });
     } else {
-      const uploadDir = join(process.cwd(), "public", "uploads", "hostel-documents");
+      const uploadDir = join(process.cwd(), "public", "uploads", "hostel-photos");
       if (!existsSync(uploadDir)) {
         await mkdir(uploadDir, { recursive: true });
       }
@@ -104,7 +182,7 @@ export async function POST(request: NextRequest) {
       const filePath = join(uploadDir, uniqueName);
       await writeFile(filePath, buffer);
 
-      url = `/uploads/hostel-documents/${uniqueName}`;
+      url = `/uploads/hostel-photos/${uniqueName}`;
     }
 
     return successResponse({ url, fileName, mimeType, sizeBytes }, "File uploaded", {

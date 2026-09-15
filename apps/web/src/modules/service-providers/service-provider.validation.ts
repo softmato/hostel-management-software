@@ -34,10 +34,14 @@ export const serviceProviderRegisterSchema = z
     description: z.string().trim().max(1200).optional(),
     documents: z
       .array(
+        /*
+         * Uploaded privately through `POST /public/files/upload` and named by the
+         * id and claim token it answered with (`lib/registration-documents.ts`).
+         */
         z.object({
+          claimToken: z.string().trim().min(20).max(200),
           documentType: z.string().trim().min(2).max(80),
-          fileAssetId: objectIdSchema.optional(),
-          fileUrl: z.string().trim().url().optional(),
+          fileAssetId: objectIdSchema,
         }),
       )
       .max(8)

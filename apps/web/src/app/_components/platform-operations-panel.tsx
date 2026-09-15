@@ -67,6 +67,7 @@ function CollectionQrField({
         label: "Collection QR",
         silent: true,
         target: "public",
+        visibility: "public",
       });
 
       if (!uploaded?.url) {

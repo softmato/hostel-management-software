@@ -24,6 +24,7 @@ import { DepositRefundModel } from "@hostel/db/models/DepositRefund";
 import { DuplicateCheckResultModel } from "@hostel/db/models/DuplicateCheckResult";
 import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { EncryptedSecretModel } from "@hostel/db/models/EncryptedSecret";
+import { ExistingResidentListModel } from "@hostel/db/models/ExistingResidentList";
 import { FeeScheduleModel } from "@hostel/db/models/FeeSchedule";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { FoodFeedbackModel } from "@hostel/db/models/FoodFeedback";
@@ -36,6 +37,7 @@ import { GuardianPermissionModel } from "@hostel/db/models/GuardianPermission";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelApplicationModel } from "@hostel/db/models/HostelApplication";
 import { HostelDocumentModel } from "@hostel/db/models/HostelDocument";
+import { HostelListingImpressionModel } from "@hostel/db/models/HostelListingImpression";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { HostelPageViewModel } from "@hostel/db/models/HostelPageView";
 import { HostelPaymentProfileModel } from "@hostel/db/models/HostelPaymentProfile";
@@ -156,6 +158,7 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
     ["DuplicateCheckResult", DuplicateCheckResultModel],
     ["EmergencyContact", EmergencyContactModel],
     ["EncryptedSecret", EncryptedSecretModel],
+    ["ExistingResidentList", ExistingResidentListModel],
     ["FeeSchedule", FeeScheduleModel],
     ["FileAsset", FileAssetModel],
     ["FoodFeedback", FoodFeedbackModel],
@@ -167,6 +170,7 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
     ["GuardianPermission", GuardianPermissionModel],
     ["HostelApplication", HostelApplicationModel],
     ["HostelDocument", HostelDocumentModel],
+    ["HostelListingImpression", HostelListingImpressionModel],
     ["HostelMember", HostelMemberModel],
     ["HostelPageView", HostelPageViewModel],
     ["HostelPaymentProfile", HostelPaymentProfileModel],

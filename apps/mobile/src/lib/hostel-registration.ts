@@ -234,6 +234,9 @@ export type RoomRow = {
 };
 
 export type HostelAttachment = {
+  /** Private documents only — what the application submits. See `PublicFile`. */
+  claimToken?: string;
+  fileAssetId?: string;
   fileName: string;
   url: string;
 };
@@ -456,7 +459,7 @@ export type HostelRegisterPayload = {
   capacitySummary: { totalBeds: number; totalRooms: number; vacantBeds: number };
   contact: { email?: string; phone: string };
   description?: string;
-  documents: { documentType: string; fileUrl: string }[];
+  documents: { claimToken: string; documentType: string; fileAssetId: string }[];
   facilities: string[];
   food: { hasNonVeg: boolean; hasVeg: boolean; mealsPerDay?: number };
   hostelType: HostelTypeValue;
@@ -522,16 +525,23 @@ export function buildHostelPayload(form: HostelForm): HostelRegisterPayload {
     contact: { email, phone },
     description: form.description.trim() || undefined,
     documents: [
-      ...(form.idProof
+      ...(form.idProof?.fileAssetId && form.idProof.claimToken
         ? [
             {
+              claimToken: form.idProof.claimToken,
               documentType: form.idProofType || "Owner ID proof",
-              fileUrl: form.idProof.url,
+              fileAssetId: form.idProof.fileAssetId,
             },
           ]
         : []),
-      ...(form.rulesDocument
-        ? [{ documentType: "Rules & policies", fileUrl: form.rulesDocument.url }]
+      ...(form.rulesDocument?.fileAssetId && form.rulesDocument.claimToken
+        ? [
+            {
+              claimToken: form.rulesDocument.claimToken,
+              documentType: "Rules & policies",
+              fileAssetId: form.rulesDocument.fileAssetId,
+            },
+          ]
         : []),
     ],
     facilities: form.facilities,

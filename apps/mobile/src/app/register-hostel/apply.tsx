@@ -419,7 +419,14 @@ function HostelWizard({
       try {
         const uploaded = await uploadPublicFile(asset, { label: "ID proof" });
 
-        patch({ idProof: { fileName: uploaded.fileName, url: uploaded.url } });
+        patch({
+          idProof: {
+            claimToken: uploaded.claimToken,
+            fileAssetId: uploaded.fileAssetId,
+            fileName: uploaded.fileName,
+            url: uploaded.url,
+          },
+        });
       } catch (caught) {
         toastError("That didn't upload", readApiError(caught));
       } finally {
@@ -450,7 +457,12 @@ function HostelWizard({
       });
 
       patch({
-        rulesDocument: { fileName: "House rules.txt", url: uploaded.url },
+        rulesDocument: {
+          claimToken: uploaded.claimToken,
+          fileAssetId: uploaded.fileAssetId,
+          fileName: "House rules.txt",
+          url: uploaded.url,
+        },
       });
     } catch (caught) {
       toastError("Those rules didn't attach", readApiError(caught));
@@ -472,7 +484,12 @@ function HostelWizard({
       const uploaded = await uploadPublicFile(asset, { label: "House rules" });
 
       patch({
-        rulesDocument: { fileName: uploaded.fileName, url: uploaded.url },
+        rulesDocument: {
+          claimToken: uploaded.claimToken,
+          fileAssetId: uploaded.fileAssetId,
+          fileName: uploaded.fileName,
+          url: uploaded.url,
+        },
       });
     } catch (caught) {
       toastError("That didn't upload", readApiError(caught));
@@ -494,6 +511,7 @@ function HostelWizard({
       try {
         const uploaded = await uploadPublicFile(asset, {
           label: "Hostel photo",
+          visibility: "public",
         });
 
         setForm((current) => ({

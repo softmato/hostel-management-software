@@ -33,6 +33,14 @@ export const FILE_ASSET_KINDS = [
   "PAYMENT_PROOF",
   "PAYMENT_QR",
   "STATEMENT",
+  /**
+   * A hostel owner's or a tradesperson's registration document: citizenship,
+   * licence, PAN. Written only by `POST /public/files/upload`, always private,
+   * and owned by nobody until the application that names it claims it with the
+   * token from that upload (`lib/registration-documents.ts`). Takes the default
+   * read path, so only the owner and the platform can open it.
+   */
+  "REGISTRATION_DOCUMENT",
 ] as const;
 
 export type FileAssetKind = (typeof FILE_ASSET_KINDS)[number];

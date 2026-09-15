@@ -73,6 +73,7 @@ const NO_RATING = "—";
 /** Uploaded file on a provider application, from the detail endpoint. */
 type ProviderDocument = {
   documentType: string;
+  fileAssetId?: string | null;
   fileUrl: string;
   id: string;
   status: string;
@@ -755,7 +756,11 @@ export const PlatformServiceProvidersPageContent = React.memo(
                         <li key={document.id}>
                           <a
                             className="flex items-center gap-1.5 text-[11.5px] font-semibold text-role-platform hover:underline"
-                            href={document.fileUrl || "#"}
+                            href={
+                              document.fileAssetId
+                                ? `/api/v1/files/${document.fileAssetId}/url`
+                                : document.fileUrl || "#"
+                            }
                             rel="noreferrer"
                             target="_blank"
                           >

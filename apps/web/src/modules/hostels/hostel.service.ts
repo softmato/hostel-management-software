@@ -6,6 +6,7 @@ import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { escapeRegex } from "@/lib/validators";
 import { Role } from "@/lib/roles";
 import { assertHostelAccess } from "@/lib/tenant";
+import { claimRegistrationDocuments } from "@/lib/registration-documents";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { CookAccountModel } from "@hostel/db/models/CookAccount";
 import { HostelApplicationModel } from "@hostel/db/models/HostelApplication";
@@ -844,6 +845,7 @@ export async function createPlatformHostelApplication(
   await connectToDatabase();
 
   const ownerId = normalizeObjectId(input.ownerId);
+  const claimedDocuments = await claimRegistrationDocuments(input.documents, ownerId);
   const slug = await uniqueSlug(input.name, input.location.area);
 
   const hostel = await HostelModel.create({
@@ -889,13 +891,12 @@ export async function createPlatformHostelApplication(
     updatedBy: principal.userId,
   });
 
-  if (input.documents.length > 0) {
+  if (claimedDocuments.length > 0) {
     await HostelDocumentModel.insertMany(
-      input.documents.map((document) => ({
+      claimedDocuments.map((document) => ({
         createdBy: principal.userId,
         documentType: document.documentType,
         fileAssetId: document.fileAssetId,
-        fileUrl: document.fileUrl,
         hostelId: hostel._id,
         ownerId,
         status: "PENDING",
@@ -998,6 +999,9 @@ export async function registerPublicHostelApplication(
 
   const ownerId =
     authenticatedOwner?._id ?? (await findOrCreatePublicHostelOwner(applicant));
+  // Before the hostel exists: a document that fails its claim must not leave a
+  // half-registered listing behind.
+  const claimedDocuments = await claimRegistrationDocuments(input.documents, ownerId);
   const slug = await uniqueSlug(input.name, input.location.area);
 
   const hostel = await HostelModel.create(
@@ -1017,7 +1021,7 @@ export async function registerPublicHostelApplication(
       applicant,
       capacitySummary: input.capacitySummary,
       contact: input.contact,
-      documents: input.documents,
+      documents: claimedDocuments,
       location: input.location,
       name: input.name,
       pricing: input.pricing,
@@ -1047,13 +1051,12 @@ export async function registerPublicHostelApplication(
     updatedBy: ownerId,
   });
 
-  if (input.documents.length > 0) {
+  if (claimedDocuments.length > 0) {
     await HostelDocumentModel.insertMany(
-      input.documents.map((document) => ({
+      claimedDocuments.map((document) => ({
         createdBy: ownerId,
         documentType: document.documentType,
         fileAssetId: document.fileAssetId,
-        fileUrl: document.fileUrl,
         hostelId: hostel._id,
         ownerId,
         status: "PENDING",
@@ -1343,6 +1346,7 @@ export async function registerTeamHostelApplication(
   await assertTeamRegistrationIsNew(input);
 
   const ownerId = await findOrCreatePublicHostelOwner(input.applicant);
+  const claimedDocuments = await claimRegistrationDocuments(input.documents, ownerId);
   const slug = await uniqueSlug(input.name, input.location.area);
 
   const hostel = await HostelModel.create(
@@ -1364,7 +1368,7 @@ export async function registerTeamHostelApplication(
       applicant: input.applicant,
       capacitySummary: input.capacitySummary,
       contact: input.contact,
-      documents: input.documents,
+      documents: claimedDocuments,
       location: input.location,
       name: input.name,
       pricing: input.pricing,
@@ -1386,13 +1390,12 @@ export async function registerTeamHostelApplication(
     verifiedBy: agent.userId,
   });
 
-  if (input.documents.length > 0) {
+  if (claimedDocuments.length > 0) {
     await HostelDocumentModel.insertMany(
-      input.documents.map((document) => ({
+      claimedDocuments.map((document) => ({
         createdBy: agent.userId,
         documentType: document.documentType,
         fileAssetId: document.fileAssetId,
-        fileUrl: document.fileUrl,
         hostelId: hostel._id,
         ownerId,
         reviewedAt: new Date(),
@@ -2163,12 +2166,13 @@ export async function resubmitOwnerHostelDocuments(
     );
   }
 
+  const claimedDocuments = await claimRegistrationDocuments(input.documents, applicantId);
+
   await HostelDocumentModel.insertMany(
-    input.documents.map((document) => ({
+    claimedDocuments.map((document) => ({
       createdBy: applicantId,
       documentType: document.documentType,
       fileAssetId: document.fileAssetId,
-      fileUrl: document.fileUrl,
       hostelId: objectId,
       ownerId: applicantId,
       status: "PENDING",

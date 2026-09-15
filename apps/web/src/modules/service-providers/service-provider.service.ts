@@ -6,6 +6,7 @@ import { connectToDatabase } from "@/lib/db";
 import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { REALTIME_TOPIC } from "@/lib/realtime/channels";
 import { publishResourceChange } from "@/lib/realtime/server";
+import { claimRegistrationDocuments } from "@/lib/registration-documents";
 import { escapeRegex } from "@/lib/validators";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { ServiceProviderApplicationModel } from "@hostel/db/models/ServiceProviderApplication";
@@ -388,6 +389,12 @@ export async function registerPublicServiceProvider(
     );
   }
 
+  // Before the provider row exists, so a document that fails its claim leaves
+  // nothing half-filed.
+  const claimedDocuments = await claimRegistrationDocuments(
+    input.documents,
+    options.userId,
+  );
   const { categories, category } = normalizeProviderCategories(input);
   const provider = (await ServiceProviderModel.create({
     area: input.area,
@@ -417,12 +424,11 @@ export async function registerPublicServiceProvider(
     status: "PENDING",
   });
 
-  if (input.documents.length > 0) {
+  if (claimedDocuments.length > 0) {
     await ServiceProviderDocumentModel.insertMany(
-      input.documents.map((document) => ({
+      claimedDocuments.map((document) => ({
         documentType: document.documentType,
         fileAssetId: document.fileAssetId,
-        fileUrl: document.fileUrl,
         providerId: provider._id,
         status: "PENDING",
       })),

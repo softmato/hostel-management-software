@@ -21,7 +21,12 @@ function form(overrides: Partial<HostelForm> = {}): HostelForm {
     description: "Quiet, close to the campus.",
     email: "owner@example.com",
     hostelName: "Green View Hostel",
-    idProof: { fileName: "citizenship.jpg", url: "https://cdn.example/id.jpg" },
+    idProof: {
+      claimToken: "claim-token-for-the-id-proof",
+      fileAssetId: "0123456789abcdef01234561",
+      fileName: "citizenship.jpg",
+      url: "https://cdn.example/id.jpg",
+    },
     idProofType: "Citizenship",
     ownerName: "Sita Sharma",
     ownerPhone: "9800000000",
@@ -35,6 +40,8 @@ function form(overrides: Partial<HostelForm> = {}): HostelForm {
       },
     ],
     rulesDocument: {
+      claimToken: "claim-token-for-the-house-rules",
+      fileAssetId: "0123456789abcdef01234562",
       fileName: "House rules.txt",
       url: "https://cdn.example/rules.txt",
     },
@@ -171,16 +178,28 @@ describe("buildHostelPayload", () => {
     const payload = buildHostelPayload(form({ idProofType: "Passport" }));
 
     expect(payload.documents).toContainEqual({
+      claimToken: "claim-token-for-the-id-proof",
       documentType: "Passport",
-      fileUrl: "https://cdn.example/id.jpg",
+      fileAssetId: "0123456789abcdef01234561",
     });
   });
 
   it("sends the rules document under the type the reviewer's queue expects", () => {
     expect(buildHostelPayload(form()).documents).toContainEqual({
+      claimToken: "claim-token-for-the-house-rules",
       documentType: "Rules & policies",
-      fileUrl: "https://cdn.example/rules.txt",
+      fileAssetId: "0123456789abcdef01234562",
     });
+  });
+
+  it("never sends a document by URL — only a private upload with its claim token", () => {
+    const payload = buildHostelPayload(
+      form({ idProof: { fileName: "citizenship.jpg", url: "https://cdn.example/id.jpg" } }),
+    );
+
+    expect(payload.documents.map((document) => document.documentType)).toEqual([
+      "Rules & policies",
+    ]);
   });
 
   /**

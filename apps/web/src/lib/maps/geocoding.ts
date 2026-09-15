@@ -1,11 +1,12 @@
 import type { AddressParts, Coordinates, GeocodeResult } from "./types";
 import { fetchUpstream } from "./upstream-fetch";
 import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
+import { siteUrl } from "@/lib/site";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
 // Nominatim usage policy requires an identifying User-Agent (ARCHITECTURE.md §4.7).
-const USER_AGENT = `${PLATFORM_NAME}/1.0 (hostel discovery; +https://hostelhub.app)`;
+const USER_AGENT = `${PLATFORM_NAME}/1.0 (hostel discovery; +${siteUrl()})`;
 
 export type { AddressParts };
 

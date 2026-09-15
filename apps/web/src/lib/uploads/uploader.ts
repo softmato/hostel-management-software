@@ -41,6 +41,12 @@ export type UploadOptions = {
   /** Suppresses the per-file success toast; errors always toast. */
   silent?: boolean;
   target?: UploadTarget;
+  /**
+   * `public` target only. `"public"` publishes an image (a listing photo, the
+   * collection QR) and returns its URL. Anything else is a private registration
+   * document, returned as `assetId` + `claimToken`.
+   */
+  visibility?: "private" | "public";
 };
 
 export type UploadOutcome =
@@ -106,6 +112,7 @@ async function runOne(file: File, options: UploadOptions): Promise<UploadOutcome
       },
       signal: controller.signal,
       target,
+      visibility: options.visibility,
     });
 
     useUploadStore.getState().update(item.id, {

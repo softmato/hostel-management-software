@@ -48,7 +48,12 @@ function hostelForm(overrides: Partial<HostelForm> = {}): HostelForm {
     email: "owner@example.com",
     facilities: ["WiFi", "Hot water"],
     hostelName: "Green View Hostel",
-    idProof: { fileName: "citizenship.jpg", url: "https://cdn.example.com/id.jpg" },
+    idProof: {
+      claimToken: "claim-token-for-the-id-proof",
+      fileAssetId: "0123456789abcdef01234561",
+      fileName: "citizenship.jpg",
+      url: "https://cdn.example.com/id.jpg",
+    },
     idProofType: "Citizenship",
     landmark: "Opposite the campus gate",
     ownerName: "Sita Sharma",
@@ -64,6 +69,8 @@ function hostelForm(overrides: Partial<HostelForm> = {}): HostelForm {
     ],
     rules: "No smoking\nQuiet after 10 PM",
     rulesDocument: {
+      claimToken: "claim-token-for-the-house-rules",
+      fileAssetId: "0123456789abcdef01234562",
       fileName: "House rules.txt",
       url: "https://cdn.example.com/rules.txt",
     },
@@ -167,7 +174,12 @@ function providerForm(overrides: Partial<ProviderForm> = {}): ProviderForm {
     categories: ["PLUMBER", "ELECTRICIAN"],
     fullName: "Ram Bahadur",
     phone: "9800000000",
-    selfie: { fileName: "Your photo", url: "https://cdn.example.com/selfie.jpg" },
+    selfie: {
+      claimToken: "claim-token-for-the-selfie-photo",
+      fileAssetId: "0123456789abcdef01234563",
+      fileName: "Your photo",
+      url: "https://cdn.example.com/selfie.jpg",
+    },
     ...overrides,
   };
 }
@@ -180,7 +192,12 @@ describe("the mobile provider application against serviceProviderRegisterSchema"
           availability: "Weekdays, emergency",
           description: "Two vans, same-day call-out across the ring road.",
           documents: [
-            { fileName: "licence.jpg", url: "https://cdn.example.com/licence.jpg" },
+            {
+              claimToken: "claim-token-for-the-licence",
+              fileAssetId: "0123456789abcdef01234564",
+              fileName: "licence.jpg",
+              url: "https://cdn.example.com/licence.jpg",
+            },
           ],
           experience: "12 years",
         }),
@@ -226,6 +243,8 @@ describe("the mobile provider application against serviceProviderRegisterSchema"
 
   it("stays inside the 8-document cap when the applicant attaches the maximum", () => {
     const documents = Array.from({ length: 7 }, (_, index) => ({
+      claimToken: `claim-token-for-document-${index}`,
+      fileAssetId: `0123456789abcdef0123456${index}`,
       fileName: `doc-${index}.jpg`,
       url: `https://cdn.example.com/doc-${index}.jpg`,
     }));

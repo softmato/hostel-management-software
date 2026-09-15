@@ -2404,7 +2404,7 @@ function IdCardPanel({
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.download = `hostelhub-id-card-${identity.residentId ?? "card"}.png`;
+      link.download = `hostelpalika-id-card-${identity.residentId ?? "card"}.png`;
       link.href = url;
       link.click();
       URL.revokeObjectURL(url);
@@ -3059,7 +3059,7 @@ export function ResidentIdCard() {
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.download = `hostelhub-id-card-${identity?.residentId ?? "card"}.png`;
+      link.download = `hostelpalika-id-card-${identity?.residentId ?? "card"}.png`;
       link.href = url;
       link.click();
       URL.revokeObjectURL(url);

@@ -92,6 +92,12 @@ function previewSrc(file: UploadedAsset) {
     return file.url;
   }
 
+  // Not yet claimed by an application, so nobody owns it: the claim token is
+  // what proves the person looking is the person who uploaded it.
+  if (file.assetId && file.claimToken) {
+    return `/api/v1/files/${file.assetId}/url?variant=THUMBNAIL&claim=${encodeURIComponent(file.claimToken)}`;
+  }
+
   return file.assetId ? `/api/v1/files/${file.assetId}/url?variant=THUMBNAIL` : null;
 }
 

@@ -41,6 +41,7 @@ import { useMediaViewer } from "@/components/media-viewer";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
 import { acceptAttribute } from "@/lib/uploads/accepts";
+import { uploadRegistrationDocument } from "@/lib/uploads/registration-document";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 import type { TeamOwnerEmailStatus } from "@/modules/hostels/hostel.service";
@@ -50,6 +51,8 @@ import {
   cityOptions,
   DocRow as DocSlotRow,
   FileUploadArea,
+  isUploadedFile,
+  submittedDocuments,
   ID_PROOF_TYPES,
   type IdProofType,
   facilityOptions,
@@ -107,7 +110,15 @@ type PhotoRow = {
   url: string;
 };
 
-type DocRow = { id: string; name: string; type: string; uploading: boolean; url: string };
+type DocRow = {
+  claimToken?: string;
+  fileAssetId?: string;
+  id: string;
+  name: string;
+  type: string;
+  uploading: boolean;
+  url: string;
+};
 
 /** The same optional slots the public form offers, in the same order. */
 const SUPPORTING_DOCS: { desc: string; icon: LucideIcon; title: string; type: string }[] = [
@@ -762,7 +773,7 @@ export function TeamRegisterHostelPage() {
       ? (idDocuments[0]!.type as IdProofType)
       : "");
   const idProofReady =
-    Boolean(idProofType) && idDocuments.some((doc) => doc.url && !doc.uploading);
+    Boolean(idProofType) && idDocuments.some(isUploadedFile);
 
   const [planId, setPlanId] = useState("");
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
@@ -1369,21 +1380,10 @@ export function TeamRegisterHostelPage() {
     ]);
 
     try {
-      const uploaded = await uploadFile(file, {
-        kind: "document",
-        label: type,
-        silent: true,
-        target: "public",
-      });
-
-      const url = uploaded?.url;
-
-      if (!url) {
-        throw new Error("Upload failed");
-      }
+      const uploaded = await uploadRegistrationDocument(file, type);
 
       setDocuments((prev) =>
-        prev.map((doc) => (doc.id === id ? { ...doc, uploading: false, url } : doc)),
+        prev.map((doc) => (doc.id === id ? { ...doc, ...uploaded, uploading: false } : doc)),
       );
     } catch {
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
@@ -1442,6 +1442,7 @@ export function TeamRegisterHostelPage() {
             label: `${titleCase(kind)} photo`,
             silent: true,
             target: "public",
+            visibility: "public",
           });
 
           const url = uploaded?.url;
@@ -1679,9 +1680,7 @@ export function TeamRegisterHostelPage() {
       capacitySummary: capacity,
       contact: { email: email.trim() || undefined, phone: phone.trim() },
       description: description.trim() || undefined,
-      documents: documents
-        .filter((doc) => doc.url)
-        .map((doc) => ({ documentType: doc.type, fileUrl: doc.url })),
+      documents: documents.flatMap((doc) => submittedDocuments(doc.type, [doc])),
       facilities,
       food: {
         hasNonVeg,
@@ -3090,7 +3089,7 @@ export function TeamRegisterHostelPage() {
                       ["Facilities", String(facilities.length)],
                       [
                         "Documents",
-                        String(documents.filter((doc) => doc.url).length),
+                        String(documents.filter(isUploadedFile).length),
                       ],
                       ["Plan", plan ? `${plan.name} · ${rupees(price)}` : "—"],
                       [

@@ -244,9 +244,9 @@ export function PayPlanPanel({ onPaid }: { onPaid?: () => void }) {
         <div className="space-y-3">
           <p className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-3 text-xs leading-5 text-muted-foreground">
             <Info className="mt-0.5 size-3.5 shrink-0 text-info" />
-            Automatic payment is coming soon. Until it is ready, plan payments
-            reach us this way — scan, pay, then send us the proof. Thank you for
-            bearing with the extra step.
+            We are working on real-time online payment. Until it is ready, plan
+            payments reach us this way — scan, pay, then send us the proof.
+            Thank you for bearing with the extra step.
           </p>
 
           {proofAssetId ? (

@@ -18,7 +18,12 @@ function form(overrides: Partial<ProviderForm> = {}): ProviderForm {
     categories: ["PLUMBER"],
     fullName: "Ram Bahadur",
     phone: "9800000000",
-    selfie: { fileName: "Your photo", url: "https://cdn.example/selfie.jpg" },
+    selfie: {
+      claimToken: "claim-token-for-the-selfie-photo",
+      fileAssetId: "0123456789abcdef01234563",
+      fileName: "Your photo",
+      url: "https://cdn.example/selfie.jpg",
+    },
     ...overrides,
   };
 }
@@ -97,13 +102,16 @@ describe("buildProviderPayload", () => {
     const payload = buildProviderPayload(form(), "ram@example.com");
 
     expect(payload.documents[0]).toEqual({
+      claimToken: "claim-token-for-the-selfie-photo",
       documentType: "PROFILE_PHOTO",
-      fileUrl: "https://cdn.example/selfie.jpg",
+      fileAssetId: "0123456789abcdef01234563",
     });
   });
 
   it("puts the portrait first, so an over-long list loses a supporting file instead", () => {
     const documents = Array.from({ length: 9 }, (_, index) => ({
+      claimToken: `claim-token-for-document-${index}`,
+      fileAssetId: `0123456789abcdef0123456${index}`,
       fileName: `doc-${index}`,
       url: `https://cdn.example/doc-${index}.jpg`,
     }));

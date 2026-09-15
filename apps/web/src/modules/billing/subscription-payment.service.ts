@@ -16,6 +16,7 @@ import {
   type InvoiceRecord as SubscriptionInvoiceRecord,
 } from "@/modules/billing/subscription.service";
 import { ensureLocalReceiptNumber } from "@/modules/billing/documents/issue";
+import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
 import { onPaymentSettled } from "@/modules/hostels/hostel-registration.events";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
@@ -96,6 +97,16 @@ export async function openSubscriptionCheckout(
   invoiceId: string,
   actorId: string,
 ) {
+  // Online payment is not live yet. Until Softmato is configured on this
+  // deployment, plans are paid through the manual QR lane only.
+  if (!isSoftmatoConfigured()) {
+    throw new SubscriptionError(
+      "Online payment is not available yet. Pay by QR and attach your payment screenshot.",
+      "ONLINE_PAYMENT_UNAVAILABLE",
+      503,
+    );
+  }
+
   await connectToDatabase();
 
   const loaded = await loadInvoice(invoiceId);

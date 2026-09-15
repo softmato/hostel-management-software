@@ -10,13 +10,13 @@
  * to the directory belongs to no hostel at all. The presign route would 401 the
  * first and file the second's citizenship photo against nothing.
  *
- * `POST /public/files/upload` exists for exactly this. It is rate-limited, it is
- * capped at 5 MB, it accepts a short list of types, and it always writes to the
- * **public** bucket — which is correct and worth being deliberate about, because
- * these bytes are read back by a platform reviewer who has no relationship to the
- * applicant and therefore cannot be authorised against them (see
- * `r2-two-bucket-storage`). It returns a URL rather than an asset id, which is
- * why both registration payloads carry `fileUrl` and not `fileAssetId`.
+ * `POST /public/files/upload` exists for exactly this. It is rate-limited, capped
+ * at 5 MB and accepts a short list of types. Documents (citizenship, licences,
+ * house rules, the selfie) go to the **private** bucket and come back as a
+ * `fileAssetId` plus a `claimToken`. The application submits both, which is what
+ * attaches the file to the applicant, and platform reviewers read it through the
+ * signed files route. Only photos meant for the listing are published, with
+ * `visibility: "public"`, and come back as a URL.
  *
  * It is the same route the website's own registration forms post to, so an
  * application filed from the phone and one filed from a desktop produce the same
@@ -39,8 +39,17 @@ import { resolveFileName, resolveMimeType } from "@/lib/mime";
 import { publicUploadError } from "@/lib/public-upload-limits";
 import { finishUpload, startUpload, updateUpload } from "@/lib/upload-queue";
 
-/** What the registration payloads store: a URL, plus enough to draw a chip. */
+/**
+ * One uploaded file, as the registration forms hold it.
+ *
+ * A published photo has a `url` and nothing else. A private document also has
+ * `fileAssetId` + `claimToken`, which is what the application submits. Its `url`
+ * only draws the chip: it opens the file for this uploader until the application
+ * claims it, and it is never sent.
+ */
 export type PublicFile = {
+  claimToken?: string;
+  fileAssetId?: string;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
@@ -60,7 +69,7 @@ type PickedAsset = Pick<
 >;
 
 /**
- * Uploads one picked file and returns the URL to put in the application.
+ * Uploads one picked file: privately, unless `visibility` is `"public"`.
  *
  * `label` is the *task* — "Citizenship", "Your selfie" — not the file name, for
  * the reason `uploads.ts` gives: "IMG 20260817 004312.jpg" in a progress toast
@@ -68,12 +77,12 @@ type PickedAsset = Pick<
  */
 export async function uploadPublicFile(
   asset: PickedAsset,
-  { label }: { label: string },
+  { label, visibility = "private" }: { label: string; visibility?: "private" | "public" },
 ): Promise<PublicFile> {
   const rowId = startUpload(label);
 
   try {
-    const uploaded = await runPublicUpload(asset, (fraction) => {
+    const uploaded = await runPublicUpload(asset, visibility, (fraction) => {
       updateUpload(rowId, { fraction, stage: "uploading" });
     });
 
@@ -125,6 +134,7 @@ export async function uploadPublicText(
 
 async function runPublicUpload(
   asset: PickedAsset,
+  visibility: "private" | "public",
   onProgress: (fraction: number | null) => void,
 ): Promise<PublicFile> {
   const mimeType = resolveMimeType(asset);
@@ -153,6 +163,7 @@ async function runPublicUpload(
     fieldName: "file",
     httpMethod: "POST",
     mimeType,
+    parameters: { visibility },
     onProgress: ({ bytesSent, totalBytes }) => {
       onProgress(totalBytes > 0 ? bytesSent / totalBytes : null);
     },
@@ -185,6 +196,23 @@ async function runPublicUpload(
     throw new PublicUploadError(payload.message);
   }
 
+  const { claimToken, fileAssetId } = payload.data;
+
+  if (visibility === "private") {
+    if (!fileAssetId || !claimToken) {
+      throw new PublicUploadError("The server did not accept that document. Try again.");
+    }
+
+    return {
+      claimToken,
+      fileAssetId,
+      fileName: payload.data.fileName || fileName,
+      mimeType: payload.data.mimeType || mimeType,
+      sizeBytes: payload.data.sizeBytes || sizeBytes,
+      url: `${API_BASE_URL}/api/v1/files/${fileAssetId}/url?claim=${encodeURIComponent(claimToken)}`,
+    };
+  }
+
   return {
     fileName: payload.data.fileName || fileName,
     mimeType: payload.data.mimeType || mimeType,
@@ -192,21 +220,23 @@ async function runPublicUpload(
     /*
      * Stored raw. With R2 configured this is already absolute; without it — a
      * developer machine, or a deploy whose R2 variables are missing — the route
-     * answers `/uploads/hostel-documents/…`, and the server resolves a relative
+     * answers `/uploads/hostel-photos/…`, and the server resolves a relative
      * URL against its own origin exactly as the website's form leaves it. Making
      * it absolute here would bake a LAN address into an application that a
      * reviewer opens next week, which is the trap `saved-hostels.ts` documents
      * for photos.
      */
-    url: payload.data.url,
+    url: payload.data.url ?? "",
   };
 }
 
 type UploadPayload = ApiEnvelope<{
+  claimToken?: string;
+  fileAssetId?: string;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
-  url: string;
+  url?: string;
 }>;
 
 /**

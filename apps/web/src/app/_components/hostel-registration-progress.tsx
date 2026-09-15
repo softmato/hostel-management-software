@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { useSiteConfig } from "@/components/site-config-provider";
+import { PayPlanPanel } from "@/app/_components/hostel-admin-pay-plan";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 import {
@@ -403,19 +404,22 @@ export function HostelRegistrationProgress({
   onRefresh: () => Promise<void> | void;
 }) {
   const [state, setState] = useState<SubscriptionState | null>(null);
+  // A Softmato checkout only when this deployment can open one; otherwise the
+  // manual QR lane, the same one the billing page and the app use.
+  const [onlinePayment, setOnlinePayment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const fetchState = useCallback(async () => {
     try {
-      return await browserApi<{ state: SubscriptionState | null }>(
+      return await browserApi<{ onlinePayment?: boolean; state: SubscriptionState | null }>(
         `/api/v1/hostel-registration/${application.hostelId}/state`,
       );
     } catch {
       // A billing read that fails must not blank the status page — the
       // application's own status is still worth showing on its own.
-      return { state: null };
+      return { onlinePayment: false, state: null };
     }
   }, [application.hostelId]);
 
@@ -430,6 +434,7 @@ export function HostelRegistrationProgress({
     const result = await fetchState();
 
     setState(result.state);
+    setOnlinePayment(Boolean(result.onlinePayment));
     setLoading(false);
   }, [fetchState]);
 
@@ -446,6 +451,7 @@ export function HostelRegistrationProgress({
       }
 
       setState(result.state);
+      setOnlinePayment(Boolean(result.onlinePayment));
       setLoading(false);
     })();
 
@@ -573,11 +579,20 @@ export function HostelRegistrationProgress({
                 Your listing goes live the moment this is paid.
               </p>
               <div className="mt-5">
-                <PaymentPanel
-                  busy={busy}
-                  hostelId={application.hostelId}
-                  state={state!}
-                />
+                {onlinePayment ? (
+                  <PaymentPanel
+                    busy={busy}
+                    hostelId={application.hostelId}
+                    state={state!}
+                  />
+                ) : (
+                  <PayPlanPanel
+                    onPaid={() => {
+                      void load();
+                      void onRefresh();
+                    }}
+                  />
+                )}
               </div>
 
               {/*

@@ -20,8 +20,17 @@ export type UploadProgress = {
 };
 
 export type UploadResult = {
-  /** FileAsset id — set by the presigned ("asset") transport only. */
+  /**
+   * FileAsset id — set by the presigned ("asset") transport, and by a private
+   * upload on the `public` target.
+   */
   assetId?: string;
+  /**
+   * Private `public`-target uploads only: the token the registration submits to
+   * claim `assetId` (`lib/registration-documents.ts`). Until then nobody owns the
+   * file, and only this token opens it.
+   */
+  claimToken?: string;
   fileName: string;
   key?: string;
   mimeType: string;
@@ -219,6 +228,7 @@ async function uploadViaMultipart(
     onProgress?: (progress: UploadProgress) => void;
     requiresAuth: boolean;
     signal?: AbortSignal;
+    visibility?: "private" | "public";
   },
 ): Promise<UploadResult> {
   const send = () => {
@@ -227,6 +237,10 @@ async function uploadViaMultipart(
 
     if (options.accessLevel) {
       formData.append("accessLevel", options.accessLevel);
+    }
+
+    if (options.visibility) {
+      formData.append("visibility", options.visibility);
     }
 
     return sendWithProgress({
@@ -248,6 +262,8 @@ async function uploadViaMultipart(
   }
 
   const data = parseEnvelope(response.body, response.status) as {
+    claimToken?: string;
+    fileAssetId?: string;
     fileName?: string;
     mimeType?: string;
     sizeBytes?: number;
@@ -255,6 +271,8 @@ async function uploadViaMultipart(
   };
 
   return {
+    assetId: data.fileAssetId,
+    claimToken: data.claimToken,
     fileName: data.fileName ?? file.name,
     mimeType: data.mimeType ?? file.type,
     sizeBytes: data.sizeBytes ?? file.size,
@@ -268,8 +286,11 @@ async function uploadViaMultipart(
  * - `asset` — authenticated, presigned direct-to-R2. Returns a FileAsset id and
  *   is the right default for anything referenced by id (photos, proofs).
  * - `authenticated-form` — authenticated multipart through our API. Returns a URL.
- * - `public` — unauthenticated multipart, rate limited. Returns a URL. Used by
- *   the hostel registration flow, where there is no session yet.
+ * - `public` — unauthenticated multipart, rate limited, for the registration
+ *   flows, where there is no hostel to scope a presign to. Private by default:
+ *   the file is a registration document and comes back as `assetId` +
+ *   `claimToken`. With `visibility: "public"` (images only) it is published and
+ *   comes back as a URL.
  */
 export type UploadTarget = "asset" | "authenticated-form" | "public";
 
@@ -281,6 +302,7 @@ export function sendUpload(
     onProgress?: (progress: UploadProgress) => void;
     signal?: AbortSignal;
     target: UploadTarget;
+    visibility?: "private" | "public";
   },
 ): Promise<UploadResult> {
   if (options.target === "asset") {
@@ -301,5 +323,6 @@ export function sendUpload(
     onProgress: options.onProgress,
     requiresAuth: options.target === "authenticated-form",
     signal: options.signal,
+    visibility: options.target === "public" ? options.visibility : undefined,
   });
 }

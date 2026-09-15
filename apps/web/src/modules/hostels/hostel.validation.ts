@@ -4,6 +4,17 @@ import { paginationQuerySchema } from "@/lib/pagination";
 
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
+/**
+ * A document uploaded privately through `POST /public/files/upload`, named by
+ * the id and claim token that upload answered with (`lib/registration-documents.ts`).
+ * A URL is not accepted: a document reachable by URL is a public document.
+ */
+const registrationDocumentSchema = z.object({
+  claimToken: z.string().trim().min(20).max(200),
+  documentType: z.string().trim().min(2).max(120),
+  fileAssetId: objectIdSchema,
+});
+
 const textArraySchema = z.array(z.string().trim().min(1).max(80)).max(40).default([]);
 
 /**
@@ -56,16 +67,7 @@ export const platformHostelCreateSchema = z.object({
     })
     .optional(),
   description: z.string().trim().max(2000).optional(),
-  documents: z
-    .array(
-      z.object({
-        documentType: z.string().trim().min(2).max(80),
-        fileAssetId: objectIdSchema.optional(),
-        fileUrl: z.string().trim().url().optional(),
-      }),
-    )
-    .max(12)
-    .default([]),
+  documents: z.array(registrationDocumentSchema).max(12).default([]),
   facilities: textArraySchema,
   food: z
     .object({
@@ -197,13 +199,7 @@ export const hostelRequestDocumentsSchema = z.object({
 
 export const hostelResubmitDocumentsSchema = z.object({
   documents: z
-    .array(
-      z.object({
-        documentType: z.string().trim().min(2).max(120),
-        fileAssetId: objectIdSchema.optional(),
-        fileUrl: z.string().trim().url(),
-      }),
-    )
+    .array(registrationDocumentSchema)
     .min(1, "Upload at least one document.")
     .max(12),
 });

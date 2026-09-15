@@ -327,7 +327,14 @@ function ProviderWizard({
     try {
       const uploaded = await uploadPublicFile(asset, { label: "Your photo" });
 
-      patch({ selfie: { fileName: "Your photo", url: uploaded.url } });
+      patch({
+        selfie: {
+          claimToken: uploaded.claimToken,
+          fileAssetId: uploaded.fileAssetId,
+          fileName: "Your photo",
+          url: uploaded.url,
+        },
+      });
     } catch (caught) {
       toastError("That photo didn't upload", readApiError(caught));
     } finally {
@@ -369,7 +376,12 @@ function ProviderWizard({
         // Eight is the schema's cap for `documents` and the selfie takes one.
         documents: [
           ...current.documents,
-          { fileName: uploaded.fileName, url: uploaded.url },
+          {
+            claimToken: uploaded.claimToken,
+            fileAssetId: uploaded.fileAssetId,
+            fileName: uploaded.fileName,
+            url: uploaded.url,
+          },
         ].slice(0, 7),
       }));
     } catch (caught) {

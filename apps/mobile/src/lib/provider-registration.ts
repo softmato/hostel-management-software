@@ -45,6 +45,9 @@ export function providerCategoryLabel(category: string): string {
 
 /** An uploaded file, reduced to what the payload and the chip both need. */
 export type ProviderAttachment = {
+  /** Private documents only — what the application submits. See `PublicFile`. */
+  claimToken?: string;
+  fileAssetId?: string;
   fileName: string;
   url: string;
 };
@@ -217,7 +220,7 @@ export type ProviderRegisterPayload = {
   categories: ProviderCategory[];
   city: string;
   description?: string;
-  documents: { documentType: string; fileUrl: string }[];
+  documents: { claimToken: string; documentType: string; fileAssetId: string }[];
   email?: string;
   experience: string | undefined;
   fullName: string;
@@ -248,13 +251,26 @@ export function buildProviderPayload(
   email: string | null,
 ): ProviderRegisterPayload {
   const documents = [
-    ...(form.selfie
-      ? [{ documentType: "PROFILE_PHOTO", fileUrl: form.selfie.url }]
+    ...(form.selfie?.fileAssetId && form.selfie.claimToken
+      ? [
+          {
+            claimToken: form.selfie.claimToken,
+            documentType: "PROFILE_PHOTO",
+            fileAssetId: form.selfie.fileAssetId,
+          },
+        ]
       : []),
-    ...form.documents.map((document) => ({
-      documentType: "PROFILE_DOCUMENT",
-      fileUrl: document.url,
-    })),
+    ...form.documents.flatMap((document) =>
+      document.fileAssetId && document.claimToken
+        ? [
+            {
+              claimToken: document.claimToken,
+              documentType: "PROFILE_DOCUMENT",
+              fileAssetId: document.fileAssetId,
+            },
+          ]
+        : [],
+    ),
     // The schema caps documents at 8 and the server 422s on the ninth. The
     // selfie is first, so a truncation drops a supporting file and never the
     // portrait the reviewer needs.

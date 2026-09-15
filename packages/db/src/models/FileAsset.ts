@@ -49,7 +49,15 @@ const fileAssetSchema = new Schema(
      * for an asset whose purpose nobody recorded.
      */
     kind: {
-      enum: ["GENERIC", "MAINTENANCE_NOTE", "PAYMENT_PROOF", "PAYMENT_QR", "STATEMENT"],
+      enum: [
+        "GENERIC",
+        "COMPLAINT_NOTE",
+        "MAINTENANCE_NOTE",
+        "PAYMENT_PROOF",
+        "PAYMENT_QR",
+        "REGISTRATION_DOCUMENT",
+        "STATEMENT",
+      ],
       type: String,
     },
     publicUrl: String,

@@ -1125,7 +1125,9 @@ function TradeDetailsStep({
   const [categories, setCategories] = useState<string[]>([]);
   // No session-scoped upload target here: the applicant is signed in as PUBLIC
   // and has no provider record yet, so both uploads go to the rate-limited
-  // public route and come back as URLs the application can store directly.
+  // public route. Both stay private (the portrait is identity evidence, not a
+  // listing photo) and come back as an asset id and claim token the application
+  // submits; nobody but the applicant and the platform can open them.
   const photoUpload = useUploader({
     kind: "image",
     label: "Profile photo",
@@ -1175,7 +1177,7 @@ function TradeDetailsStep({
     setError("");
 
     try {
-      const photoUrl = photoUpload.files[0]?.url;
+      const photo = photoUpload.files[0];
 
       await browserApi("/api/v1/public/service-providers/register", {
         body: JSON.stringify({
@@ -1185,13 +1187,26 @@ function TradeDetailsStep({
           city: value("city") || "Kathmandu",
           description: value("description") || undefined,
           documents: [
-            ...(photoUrl ? [{ documentType: "PROFILE_PHOTO", fileUrl: photoUrl }] : []),
-            ...documentUpload.files
-              .filter((file) => Boolean(file.url))
-              .map((file) => ({
-                documentType: "PROFILE_DOCUMENT",
-                fileUrl: file.url as string,
-              })),
+            ...(photo?.assetId && photo.claimToken
+              ? [
+                  {
+                    claimToken: photo.claimToken,
+                    documentType: "PROFILE_PHOTO",
+                    fileAssetId: photo.assetId,
+                  },
+                ]
+              : []),
+            ...documentUpload.files.flatMap((file) =>
+              file.assetId && file.claimToken
+                ? [
+                    {
+                      claimToken: file.claimToken,
+                      documentType: "PROFILE_DOCUMENT",
+                      fileAssetId: file.assetId,
+                    },
+                  ]
+                : [],
+            ),
           ].slice(0, 8),
           email: user.email ?? undefined,
           experience: value("experience") || undefined,

@@ -4,6 +4,7 @@ import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, errorResponse, successResponse } from "@/lib/api-response";
 import { PLATFORM_ROLES } from "@/lib/permissions";
 import { getPresignedReadUrl } from "@/lib/r2";
+import { isValidDocumentClaimToken } from "@/lib/registration-documents";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { MaintenanceRequestModel } from "@hostel/db/models/MaintenanceRequest";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
@@ -133,6 +134,29 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (publicBase) {
         targetUrl = `${publicBase}/${resolvedKey}`;
       }
+    }
+
+    /*
+     * A registration document between upload and submission. Nobody owns it
+     * yet, so no principal can be authorised against it, but the uploader still
+     * needs to see what they attached. The claim token from the upload response
+     * is the proof. It already lets its holder claim the file, so letting them
+     * read it grants nothing more. Once an application claims the file this path
+     * closes, and the owner and platform checks below take over.
+     */
+    const claim = searchParams.get("claim");
+
+    if (
+      !targetUrl &&
+      claim &&
+      fileAsset.kind === "REGISTRATION_DOCUMENT" &&
+      !fileAsset.ownerId &&
+      isValidDocumentClaimToken(fileAsset._id.toString(), claim)
+    ) {
+      targetUrl = await getPresignedReadUrl(
+        fileAsset.bucket,
+        resolveVariantKey(fileAsset, variant),
+      );
     }
 
     if (!targetUrl) {

@@ -18,6 +18,8 @@ import { isActive, useUploadStore } from "@/stores/upload-store";
 export type UploadedAsset = {
   /** FileAsset id — present for `asset` uploads. */
   assetId?: string;
+  /** A private registration upload's claim token — see `UploadResult.claimToken`. */
+  claimToken?: string;
   id: string;
   mimeType: string;
   name: string;
@@ -91,6 +93,7 @@ export function useUploader(options: UseUploaderOptions = {}) {
 
           return {
             assetId: result.assetId,
+            claimToken: result.claimToken,
             id: result.assetId ?? result.url ?? crypto.randomUUID(),
             mimeType: result.mimeType,
             name: result.fileName,

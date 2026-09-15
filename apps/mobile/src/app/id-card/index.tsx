@@ -282,7 +282,7 @@ function IdCardDetail({
     }
 
     try {
-      const named = `hostelhub-card-${identity.residentId ?? "id"}`;
+      const named = `hostelpalika-card-${identity.residentId ?? "id"}`;
 
       /*
        * Sequential rather than `Promise.all`. Each save is a MediaStore write
@@ -328,7 +328,7 @@ function IdCardDetail({
     try {
       await saveDataUrlToDevice({
         dataUrl: qr.data.qrDataUrl,
-        fileName: `hostelhub-id-${identity.residentId ?? "card"}`,
+        fileName: `hostelpalika-id-${identity.residentId ?? "card"}`,
         label: "QR code",
       });
     } catch (caught) {

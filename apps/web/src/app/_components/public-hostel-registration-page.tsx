@@ -55,11 +55,14 @@ import {
   numberValue,
   RULES_TEMPLATES,
   roomTypeOptions,
+  isUploadedFile,
+  submittedDocuments,
   type IdProofType,
   type RulesTemplate,
   type UploadedFile,
 } from "./registration-fields";
 import { acceptAttribute } from "@/lib/uploads/accepts";
+import { uploadRegistrationDocument } from "@/lib/uploads/registration-document";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 
@@ -219,16 +222,18 @@ const PORTALS: {
 ];
 
 /**
- * Registration happens before the owner has an account, so documents go through
- * the rate-limited public multipart route and come back as URLs. Progress,
+ * Registration happens before the owner has an account, so files go through the
+ * rate-limited public multipart route. This one publishes a photo and returns its
+ * URL; documents are stored privately by `uploadRegistrationDocument`. Progress,
  * validation and error reporting are the universal uploader's job.
  */
-async function uploadPublicFile(file: File, label: string): Promise<string> {
+async function uploadPublicPhoto(file: File, label: string): Promise<string> {
   const uploaded = await uploadFile(file, {
-    kind: "document",
+    kind: "image",
     label,
     silent: true,
     target: "public",
+    visibility: "public",
   });
 
   if (!uploaded?.url) {
@@ -638,7 +643,7 @@ export function PublicHostelRegistrationPage() {
     ...rulesDoc,
   ];
   const uploadingFiles = allUploaded.filter((f) => f.uploading).length;
-  const uploadedCount = allUploaded.filter((f) => f.url).length;
+  const uploadedCount = allUploaded.filter(isUploadedFile).length;
 
   const capacitySummary = {
     totalBeds: summary.totalBeds,
@@ -654,15 +659,19 @@ export function PublicHostelRegistrationPage() {
   function uploadIntoSlot(
     setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
     label: string,
+    visibility: "private" | "public" = "private",
   ) {
     return async (files: File[]) => {
       for (const file of files) {
         const id = crypto.randomUUID();
         setter((prev) => [...prev, { id, name: file.name, url: "", uploading: true }]);
         try {
-          const url = await uploadPublicFile(file, label);
+          const uploaded =
+            visibility === "public"
+              ? { url: await uploadPublicPhoto(file, label) }
+              : await uploadRegistrationDocument(file, label);
           setter((prev) =>
-            prev.map((f) => (f.id === id ? { ...f, url, uploading: false } : f)),
+            prev.map((f) => (f.id === id ? { ...f, ...uploaded, uploading: false } : f)),
           );
         } catch {
           setter((prev) => prev.filter((f) => f.id !== id));
@@ -674,12 +683,13 @@ export function PublicHostelRegistrationPage() {
   function handleFileSelect(
     setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
     label = "Document",
+    visibility: "private" | "public" = "private",
   ) {
     return async (e: React.ChangeEvent<HTMLInputElement>) => {
       const input = e.currentTarget;
       const files = Array.from(input.files ?? []);
       if (!files.length) return;
-      await uploadIntoSlot(setter, label)(files);
+      await uploadIntoSlot(setter, label, visibility)(files);
       input.value = "";
     };
   }
@@ -688,10 +698,11 @@ export function PublicHostelRegistrationPage() {
   function docSlot(
     setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
     label: string,
+    visibility: "private" | "public" = "private",
   ) {
     return {
-      onFileSelect: handleFileSelect(setter, label),
-      onFilesDropped: uploadIntoSlot(setter, label),
+      onFileSelect: handleFileSelect(setter, label, visibility),
+      onFilesDropped: uploadIntoSlot(setter, label, visibility),
       onRemove: (id: string) => setter((prev) => prev.filter((file) => file.id !== id)),
     };
   }
@@ -704,8 +715,8 @@ export function PublicHostelRegistrationPage() {
     setRulesDoc([{ id, name: fileName, url: "", uploading: true }]);
     try {
       const file = new File([text], fileName, { type: "text/plain" });
-      const url = await uploadPublicFile(file, "Rules & policies");
-      setRulesDoc([{ id, name: fileName, url, uploading: false }]);
+      const uploaded = await uploadRegistrationDocument(file, "Rules & policies");
+      setRulesDoc([{ id, name: fileName, url: "", ...uploaded, uploading: false }]);
     } catch {
       setRulesDoc([]);
       setMessage("Could not save the rules file. Please try again.");
@@ -772,8 +783,8 @@ export function PublicHostelRegistrationPage() {
       case 4:
         return (
           Boolean(idProofType) &&
-          ownerIdDoc.some((f) => f.url) &&
-          rulesDoc.some((f) => f.url)
+          ownerIdDoc.some(isUploadedFile) &&
+          rulesDoc.some(isUploadedFile)
         );
       case 5:
         return agreed;
@@ -903,12 +914,12 @@ export function PublicHostelRegistrationPage() {
         label:
           "Government ID proof — select a type (Citizenship / NID / Passport) and upload it",
         step: 4,
-        valid: Boolean(idProofType) && ownerIdDoc.some((f) => f.url),
+        valid: Boolean(idProofType) && ownerIdDoc.some(isUploadedFile),
       },
       {
         label: "Hostel Rules & Policies document",
         step: 4,
-        valid: rulesDoc.some((f) => f.url),
+        valid: rulesDoc.some(isUploadedFile),
       },
     ];
   }
@@ -1052,24 +1063,12 @@ export function PublicHostelRegistrationPage() {
     ];
 
     const documents = [
-      ...ownershipDoc
-        .filter((d) => d.url)
-        .map((d) => ({ documentType: "Ownership proof", fileUrl: d.url })),
-      ...ownerIdDoc
-        .filter((d) => d.url)
-        .map((d) => ({ documentType: idProofType || "Owner ID proof", fileUrl: d.url })),
-      ...panDoc
-        .filter((d) => d.url)
-        .map((d) => ({ documentType: "PAN / VAT document", fileUrl: d.url })),
-      ...licenseDoc
-        .filter((d) => d.url)
-        .map((d) => ({ documentType: "Hostel license", fileUrl: d.url })),
-      ...bankDoc
-        .filter((d) => d.url)
-        .map((d) => ({ documentType: "Bank account details", fileUrl: d.url })),
-      ...rulesDoc
-        .filter((d) => d.url)
-        .map((d) => ({ documentType: "Rules & policies", fileUrl: d.url })),
+      ...submittedDocuments("Ownership proof", ownershipDoc),
+      ...submittedDocuments(idProofType || "Owner ID proof", ownerIdDoc),
+      ...submittedDocuments("PAN / VAT document", panDoc),
+      ...submittedDocuments("Hostel license", licenseDoc),
+      ...submittedDocuments("Bank account details", bankDoc),
+      ...submittedDocuments("Rules & policies", rulesDoc),
     ];
 
     const ownerNote = [
@@ -2106,7 +2105,7 @@ export function PublicHostelRegistrationPage() {
                         files={exteriorPhotos}
                         label="Upload 2–5 exterior photos"
                         maxFiles={5}
-                        {...docSlot(setExteriorPhotos, "Exterior photo")}
+                        {...docSlot(setExteriorPhotos, "Exterior photo", "public")}
                       />
                     </DocRow>
                     <DocRow
@@ -2119,7 +2118,7 @@ export function PublicHostelRegistrationPage() {
                         files={roomPhotos}
                         label="Upload 5–10 room photos"
                         maxFiles={10}
-                        {...docSlot(setRoomPhotos, "Room photo")}
+                        {...docSlot(setRoomPhotos, "Room photo", "public")}
                       />
                     </DocRow>
                     <p className="flex items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5 text-[11px] font-medium text-muted-foreground">
@@ -2855,10 +2854,10 @@ export function HostelStatusView({
       [index]: { id, name: file.name, url: "", uploading: true },
     }));
     try {
-      const url = await uploadPublicFile(file, label);
+      const uploaded = await uploadRegistrationDocument(file, label);
       setFiles((prev) => ({
         ...prev,
-        [index]: { id, name: file.name, url, uploading: false },
+        [index]: { id, name: file.name, url: "", ...uploaded, uploading: false },
       }));
     } catch {
       setFiles((prev) => {
@@ -2873,20 +2872,20 @@ export function HostelStatusView({
   }
 
   const anyUploading = Object.values(files).some((f) => f.uploading);
-  const uploadedCount = application.requestedDocuments.filter(
-    (_, i) => files[i]?.url,
-  ).length;
+  const uploadedCount = application.requestedDocuments.filter((_, i) => {
+    const file = files[i];
+    return Boolean(file && isUploadedFile(file));
+  }).length;
   const canResubmit = uploadedCount > 0 && !anyUploading && !submitting;
 
   async function resubmit() {
     setSubmitting(true);
     setError("");
     try {
-      const documents = application.requestedDocuments
-        .map((doc, i) => ({ documentType: doc.documentType, fileUrl: files[i]?.url }))
-        .filter((doc): doc is { documentType: string; fileUrl: string } =>
-          Boolean(doc.fileUrl),
-        );
+      const documents = application.requestedDocuments.flatMap((doc, i) => {
+        const file = files[i];
+        return file ? submittedDocuments(doc.documentType, [file]) : [];
+      });
       await browserApi(
         `/api/v1/public/hostel-applications/${application.hostelId}/resubmit-documents`,
         {

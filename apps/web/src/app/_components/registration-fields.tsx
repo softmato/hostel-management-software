@@ -200,11 +200,46 @@ export const RULES_TEMPLATES: RulesTemplate[] = [
 ];
 
 export type UploadedFile = {
+  /**
+   * A registration document uploaded privately: its FileAsset and the token the
+   * application submits to claim it. Such a file has no `url`.
+   */
+  claimToken?: string;
+  fileAssetId?: string;
   id: string;
   name: string;
   uploading?: boolean;
   url: string;
 };
+
+/** Finished uploading: either a published URL came back, or a private document did. */
+export function isUploadedFile(file: UploadedFile) {
+  return !file.uploading && Boolean(file.url || (file.fileAssetId && file.claimToken));
+}
+
+/** The private documents in `files`, in the shape the registration endpoints accept. */
+export function submittedDocuments(documentType: string, files: UploadedFile[]) {
+  return files.flatMap((file) =>
+    file.fileAssetId && file.claimToken
+      ? [{ claimToken: file.claimToken, documentType, fileAssetId: file.fileAssetId }]
+      : [],
+  );
+}
+
+/**
+ * Where an uploaded file can be opened from. A private document has no URL, and
+ * nobody owns it until its application is submitted, so until then its claim
+ * token is what proves the person looking is the person who uploaded it.
+ */
+function fileSource(file: UploadedFile) {
+  if (file.url) {
+    return file.url;
+  }
+
+  return file.fileAssetId && file.claimToken
+    ? `/api/v1/files/${file.fileAssetId}/url?claim=${encodeURIComponent(file.claimToken)}`
+    : "";
+}
 
 /** Rupees as they are written on a receipt here. */
 export function rupees(amount: number) {
@@ -283,7 +318,7 @@ export function FileUploadArea({
   const [isDragging, setIsDragging] = useState(false);
   const mediaViewer = useMediaViewer();
   const isImage = (file: UploadedFile) => IMAGE_FILE.test(file.name) || IMAGE_FILE.test(file.url);
-  const images = files.filter((file) => file.url && !file.uploading && isImage(file));
+  const images = files.filter((file) => fileSource(file) && !file.uploading && isImage(file));
 
   /*
    * What was uploaded is shown, not just named: an agent checking that the
@@ -299,7 +334,7 @@ export function FileUploadArea({
           key={file.id}
         >
           <div className="flex min-w-0 items-center gap-2.5">
-            {file.uploading || !file.url ? (
+            {file.uploading || !fileSource(file) ? (
               <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
             ) : isImage(file) ? (
               <button
@@ -307,7 +342,7 @@ export function FileUploadArea({
                 className="size-12 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border border-border bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/50"
                 onClick={() =>
                   mediaViewer.open(
-                    images.map((image) => ({ caption: image.name, kind: "image" as const, src: image.url })),
+                    images.map((image) => ({ caption: image.name, kind: "image" as const, src: fileSource(image) })),
                     images.findIndex((image) => image.id === file.id),
                   )
                 }
@@ -317,7 +352,7 @@ export function FileUploadArea({
                   alt={file.name}
                   className="size-full object-cover"
                   height={48}
-                  src={file.url}
+                  src={fileSource(file)}
                   unoptimized
                   width={48}
                 />
@@ -326,7 +361,7 @@ export function FileUploadArea({
               <a
                 aria-label={`Open ${file.name}`}
                 className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal transition hover:bg-brand-teal/20"
-                href={file.url}
+                href={fileSource(file)}
                 rel="noopener noreferrer"
                 target="_blank"
               >
@@ -337,7 +372,7 @@ export function FileUploadArea({
               <p className="truncate text-xs font-semibold text-foreground">
                 {file.name}
               </p>
-              {file.uploading || !file.url ? (
+              {file.uploading || !fileSource(file) ? (
                 <p className="truncate text-[11px] text-muted-foreground">Uploading…</p>
               ) : isImage(file) ? (
                 <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -346,7 +381,7 @@ export function FileUploadArea({
               ) : (
                 <a
                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-teal hover:underline"
-                  href={file.url}
+                  href={fileSource(file)}
                   rel="noopener noreferrer"
                   target="_blank"
                 >
