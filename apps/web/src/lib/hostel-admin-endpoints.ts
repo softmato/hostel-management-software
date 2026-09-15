@@ -56,6 +56,9 @@ export const hostelAdminEndpoints = {
   moveEvents: "/api/v1/hostel-admin/move-events",
   nightStatus: withFullPage("/api/v1/hostel-admin/night-status"),
   notices: withFullPage("/api/v1/hostel-admin/notices"),
+  /** Push notices: now, later, daily or weekly sends to residents. */
+  noticePushes: "/api/v1/hostel-admin/notice-pushes",
+  noticePush: (id: string) => `/api/v1/hostel-admin/notice-pushes/${id}`,
   /** One row per resident for a period, billed or not. Reads never bill. */
   paymentsMatrix: (month: string) =>
     `/api/v1/hostel-admin/finance/invoices?period=${month}`,

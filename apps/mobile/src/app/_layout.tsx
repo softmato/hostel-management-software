@@ -430,6 +430,8 @@ function RootShell() {
         */}
         <Stack.Screen name="manage/rooms" />
         <Stack.Screen name="manage/notices" />
+        <Stack.Screen name="manage/push-notices/index" />
+        <Stack.Screen name="manage/push-notices/[id]" />
         <Stack.Screen name="manage/inquiries" />
         <Stack.Screen name="manage/roll-call" />
         <Stack.Screen name="manage/food" />

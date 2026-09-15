@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { validateCronRequest } from "@/lib/cron-auth";
 import { dispatchDueCampaigns } from "@/modules/notifications/notification-campaign.service";
+import { dispatchDueNoticePushes } from "@/modules/notices/notice-push.service";
 import { dispatchDuePlatformPushes } from "@/modules/notifications/platform-push.service";
 
 export const runtime = "nodejs";
@@ -32,8 +33,12 @@ export async function POST(request: NextRequest) {
     // Fallback for the every-minute `platform-push` job, in case it is not
     // registered or missed a run. The claim makes a double call harmless.
     const platformPushes = await dispatchDuePlatformPushes();
+    const noticePushes = await dispatchDueNoticePushes();
 
-    return successResponse({ ...result, platformPushes }, "Scheduled notifications dispatched");
+    return successResponse(
+      { ...result, noticePushes, platformPushes },
+      "Scheduled notifications dispatched",
+    );
   } catch (error) {
     return handleRouteError(error);
   }

@@ -17,6 +17,7 @@ import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 
 import { field, optionalField, type Notice } from "./hostel-admin-shared";
+import { HostelAdminNoticePushes } from "./hostel-admin-notice-pushes";
 
 const CATEGORIES = [
   "GENERAL",
@@ -85,6 +86,8 @@ export const HostelAdminNoticesPage = memo(function HostelAdminNoticesPage() {
           {message}
         </div>
       ) : null}
+
+      <HostelAdminNoticePushes />
 
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <SectionCard title="Published Notices">

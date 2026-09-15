@@ -61,6 +61,7 @@ import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { NightStatusLogModel } from "@hostel/db/models/NightStatusLog";
 import { NightStatusPromptModel } from "@hostel/db/models/NightStatusPrompt";
 import { NoticeModel } from "@hostel/db/models/Notice";
+import { NoticePushModel } from "@hostel/db/models/NoticePush";
 import { NoticeReadStatusModel } from "@hostel/db/models/NoticeReadStatus";
 import { NotificationModel } from "@hostel/db/models/Notification";
 import { NotificationCampaignModel } from "@hostel/db/models/NotificationCampaign";
@@ -194,6 +195,7 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
     ["NightStatusLog", NightStatusLogModel],
     ["NightStatusPrompt", NightStatusPromptModel],
     ["Notice", NoticeModel],
+    ["NoticePush", NoticePushModel],
     ["Notification", NotificationModel],
     ["NotificationCampaign", NotificationCampaignModel],
     ["PaymentEvent", PaymentEventModel],

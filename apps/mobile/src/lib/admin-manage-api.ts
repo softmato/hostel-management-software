@@ -258,6 +258,72 @@ export async function updateManagedNotice(id: string, input: Partial<NoticeInput
 }
 
 /* -------------------------------------------------------------------------- */
+/* Push notices                                                               */
+/* -------------------------------------------------------------------------- */
+
+export type NoticePushRepeat = "NOW" | "LATER" | "DAILY" | "WEEKLY";
+
+export type NoticePushStatus = "ACTIVE" | "PAUSED" | "DONE";
+
+/** `GET /hostel-admin/notice-pushes` — dates are Nepal `YYYY-MM-DD`, times `HH:mm`. */
+export type NoticePush = {
+  body: string;
+  createdAt: string | null;
+  id: string;
+  /** Created by the platform (the clothes washing reminder). */
+  isDefault: boolean;
+  isUrgent: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  repeat: NoticePushRepeat;
+  runCount: number;
+  startsOn: string | null;
+  status: NoticePushStatus;
+  time: string | null;
+  title: string;
+  weekdays: number[];
+};
+
+/** Timing fields are sent only when they changed; `repeat` included. */
+export type NoticePushInput = {
+  active?: boolean;
+  body?: string;
+  date?: string;
+  delayMinutes?: number;
+  isUrgent?: boolean;
+  repeat?: NoticePushRepeat;
+  time?: string;
+  title?: string;
+  weekdays?: number[];
+};
+
+export async function listNoticePushes() {
+  const response = await api.get<ApiEnvelope<{ pushes: NoticePush[] }>>(
+    "/hostel-admin/notice-pushes",
+  );
+
+  return unwrap(response).pushes;
+}
+
+export async function createNoticePush(input: NoticePushInput) {
+  await api.post("/hostel-admin/notice-pushes", input);
+}
+
+export async function updateNoticePush(id: string, input: NoticePushInput) {
+  await api.patch(`/hostel-admin/notice-pushes/${id}`, input);
+}
+
+/** Stops it going out; notices it already put on the board stay. */
+export async function deleteNoticePush(id: string) {
+  await api.delete(`/hostel-admin/notice-pushes/${id}`);
+}
+
+/** Sends it now; its schedule is left alone. */
+export async function sendNoticePushNow(id: string) {
+  await api.post(`/hostel-admin/notice-pushes/${id}/send`);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Food routine                                                               */
 /* -------------------------------------------------------------------------- */
 

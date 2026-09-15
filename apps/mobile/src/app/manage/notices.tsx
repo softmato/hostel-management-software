@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
+import { NoticeArt } from "@/components/notice-art";
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +15,8 @@ import { Screen } from "@/components/ui/screen";
 import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
-import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
@@ -22,6 +25,7 @@ import {
   createManagedNotice,
   type ManagedNotice,
   NOTICE_CATEGORIES,
+  type NoticePush,
   type NoticeAudience,
   type NoticeCategory,
   updateManagedNotice,
@@ -176,6 +180,35 @@ function hasExtraOptions(draft: Draft): boolean {
     draft.targetAudience !== BLANK_DRAFT.targetAudience ||
     draft.publishOn !== "" ||
     draft.expiresOn !== ""
+  );
+}
+
+/** The way into push notices, with how many are still going out. */
+function PushNoticesEntry() {
+  const { colors } = useAppTheme();
+  const query = adminQuery.noticePushes();
+  const pushes = useResource<NoticePush[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
+  const running = (pushes.data ?? []).filter((push) => push.status === "ACTIVE").length;
+
+  return (
+    <Pressable
+      accessibilityLabel="Push notices"
+      accessibilityRole="button"
+      className="flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3 py-2.5 active:opacity-70"
+      onPress={() => router.push("/manage/push-notices")}
+    >
+      <NoticeArt size={56} />
+      <View className="flex-1 gap-0.5">
+        <Text variant="subtitle">Push notices</Text>
+        <Text variant="caption">
+          {pushes.data ? `${running} running` : "Now, later, daily or weekly"}
+        </Text>
+      </View>
+      <Ionicons color={colors.mutedForeground} name="chevron-forward" size={18} />
+    </Pressable>
   );
 }
 
@@ -344,6 +377,8 @@ export default function ManageNoticesScreen() {
       scroll
     >
       <View className="gap-4 pt-1">
+        <PushNoticesEntry />
+
         <Segmented
           onChange={setState}
           options={[
@@ -381,7 +416,7 @@ export default function ManageNoticesScreen() {
           ))}
         </ScrollView>
 
-        {notices.loading ? <LoadingState label="Reading the notice board" /> : null}
+        {notices.loading ? <SkeletonCard rows={3} /> : null}
 
         {notices.error ? (
           <ErrorState message={notices.error} onRetry={notices.reload} />

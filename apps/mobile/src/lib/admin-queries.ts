@@ -99,6 +99,7 @@ import {
   listManagedMaintenance,
   listManagedNotices,
   listManagedProviders,
+  listNoticePushes,
   listReferrals,
   listResidentContacts,
   listStatementImports,
@@ -110,6 +111,7 @@ import {
   type ManagedNotice,
   type ManagedProvider,
   type ManagedResident,
+  type NoticePush,
   type ManagedWarden,
   type MoveInChecklist,
   type MoveOutChecklist,
@@ -519,6 +521,10 @@ export const adminQuery = {
       listManagedNotices({ category }),
     ),
 
+  /** Push notices ride the notices topic: a send also lands on the board. */
+  noticePushes: (): AdminQuery<NoticePush[]> =>
+    define("admin:notice-pushes", [REALTIME_TOPIC.NOTICES], () => listNoticePushes()),
+
   overview: (): AdminQuery<AdminOverview> =>
     define(
       "admin:overview",
@@ -768,6 +774,9 @@ export function prefetchAdminRoute(href: string) {
       return;
     case "/manage/notices":
       prefetchAdminQuery(adminQuery.notices(""));
+      return;
+    case "/manage/push-notices":
+      prefetchAdminQuery(adminQuery.noticePushes());
       return;
     case "/manage/referrals":
       prefetchAdminQuery(adminQuery.referrals(""));

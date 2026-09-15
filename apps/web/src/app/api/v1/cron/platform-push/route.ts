@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { validateCronRequest } from "@/lib/cron-auth";
+import { dispatchDueNoticePushes } from "@/modules/notices/notice-push.service";
 import { dispatchDuePlatformPushes } from "@/modules/notifications/platform-push.service";
 
 export const runtime = "nodejs";
@@ -27,7 +28,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return successResponse(await dispatchDuePlatformPushes(), "Scheduled pushes dispatched");
+    const platformPushes = await dispatchDuePlatformPushes();
+    // Hostel push notices ride the same every-minute tick.
+    const noticePushes = await dispatchDueNoticePushes();
+
+    return successResponse(
+      { ...platformPushes, noticePushes },
+      "Scheduled pushes dispatched",
+    );
   } catch (error) {
     return handleRouteError(error);
   }

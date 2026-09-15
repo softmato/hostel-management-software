@@ -74,7 +74,7 @@ function normalizeObjectIds(values: string[]) {
   return values.map((value) => normalizeObjectId(value, "hostel id"));
 }
 
-function resolveAdminHostelId(principal: ApiPrincipal, requestedHostelId?: string) {
+export function resolveAdminHostelId(principal: ApiPrincipal, requestedHostelId?: string) {
   if (requestedHostelId) {
     assertHostelAccess(principal, requestedHostelId);
     return normalizeObjectId(requestedHostelId, "hostel id");
@@ -91,7 +91,7 @@ function resolveAdminHostelId(principal: ApiPrincipal, requestedHostelId?: strin
   );
 }
 
-function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string) {
+export function scopedHostelFilter(principal: ApiPrincipal, requestedHostelId?: string) {
   if (requestedHostelId) {
     return { hostelId: resolveAdminHostelId(principal, requestedHostelId) };
   }
@@ -172,13 +172,54 @@ export async function createNotice(input: NoticeCreateInput, principal: ApiPrinc
 }
 
 /**
+ * A push notice going out: a residents' notice on the board, with the push
+ * carrying the push notice's own title and message rather than "New notice".
+ * No email — a reminder that repeats twice a week is not mail.
+ */
+export async function publishPushNotice(input: {
+  actorId: string;
+  body: string;
+  expiresAt?: Date;
+  hostelId: Types.ObjectId;
+  isUrgent: boolean;
+  title: string;
+}) {
+  await connectToDatabase();
+
+  const notice = await NoticeModel.create({
+    category: "GENERAL",
+    content: input.body,
+    createdBy: input.actorId,
+    expiresAt: input.expiresAt,
+    hostelId: input.hostelId,
+    isUrgent: input.isUrgent,
+    publishedAt: new Date(),
+    targetAudience: "RESIDENTS",
+    title: input.title,
+    updatedBy: input.actorId,
+  });
+  const delivery = await broadcastNotice(notice as NoticeRecord, {
+    email: false,
+    headline: { body: input.body, title: input.title },
+  });
+
+  return { delivery, noticeId: notice._id as Types.ObjectId };
+}
+
+type BroadcastOptions = {
+  email?: boolean;
+  /** What the bell row and push say; defaults to "New notice" + the title. */
+  headline?: { body: string; title: string };
+};
+
+/**
  * Fans a published notice out to the hostel's active residents: an in-app
  * notification always, plus an email when the platform has notice emails
  * enabled (EMAIL_SYSTEM.md). Delivery problems never fail the publish.
  */
-async function broadcastNotice(notice: NoticeRecord) {
+async function broadcastNotice(notice: NoticeRecord, options: BroadcastOptions = {}) {
   try {
-    return await deliverNoticeBroadcast(notice);
+    return await deliverNoticeBroadcast(notice, options);
   } catch (error) {
     console.warn(
       JSON.stringify({
@@ -193,7 +234,7 @@ async function broadcastNotice(notice: NoticeRecord) {
   }
 }
 
-async function deliverNoticeBroadcast(notice: NoticeRecord) {
+async function deliverNoticeBroadcast(notice: NoticeRecord, options: BroadcastOptions) {
   // A guardians-only notice is not the residents' mail. Guardians read notices
   // by pulling their dashboard, so there is nothing to fan out here.
   if (notice.targetAudience === "GUARDIANS") {
@@ -220,7 +261,7 @@ async function deliverNoticeBroadcast(notice: NoticeRecord) {
     if (recipient.userId) {
       await createInAppNotification({
         actionUrl: "/resident/notices",
-        body: notice.title,
+        body: options.headline?.body ?? notice.title,
         category: "NOTICE",
         data: { noticeId: notice._id.toString() },
         hostelId: notice.hostelId.toString(),
@@ -229,12 +270,12 @@ async function deliverNoticeBroadcast(notice: NoticeRecord) {
         // the incoming toast pins itself.
         kind: "NORMAL",
         priority: notice.isUrgent ? "URGENT" : "NORMAL",
-        title: notice.isUrgent ? "Urgent notice" : "New notice",
+        title: options.headline?.title ?? (notice.isUrgent ? "Urgent notice" : "New notice"),
         userId: recipient.userId,
       });
     }
 
-    if (!config.sendNoticeEmails) {
+    if (!config.sendNoticeEmails || options.email === false) {
       continue;
     }
 

@@ -101,6 +101,13 @@ const MANAGE_ROWS: {
     tone: "warning",
   },
   {
+    href: "/manage/push-notices",
+    icon: "notifications-outline",
+    subtitle: "Now, later, daily or on chosen days",
+    title: "Push notices",
+    tone: "brand",
+  },
+  {
     href: "/manage/food",
     icon: "restaurant-outline",
     subtitle: "The weekly menu, meal times and the cook's login",
