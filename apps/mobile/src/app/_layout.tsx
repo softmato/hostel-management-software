@@ -15,6 +15,8 @@ import Toast from "react-native-toast-message";
 import { Provider } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
 
+import { hydrateQueryCache } from "@/lib/query-cache-persist";
+
 import { BottomChromeProvider } from "@/components/bottom-chrome";
 import { AssetViewer } from "@/components/asset-viewer";
 import { BootSplashCover, BrandSplash } from "@/components/brand-splash";
@@ -554,7 +556,13 @@ export default function RootLayout() {
           the same BrandSplash covers that wait — identical pixels to the native
           splash, so the user sees one continuous screen.
         */}
-        <PersistGate loading={<BrandSplash />} persistor={persistor}>
+        <PersistGate
+          loading={<BrandSplash />}
+          // The last session's answers, back in the query cache before any
+          // screen mounts, so a cold start paints instead of loading.
+          onBeforeLift={hydrateQueryCache}
+          persistor={persistor}
+        >
           <SafeAreaProvider>
             {/* Drives `Screen`'s keyboard-aware scroll and sticky footer on both platforms. */}
             <KeyboardProvider>

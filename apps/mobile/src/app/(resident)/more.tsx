@@ -122,6 +122,12 @@ const STAY_ROWS: {
     title: "Location & attendance",
   },
   {
+    href: "/night-status-history",
+    icon: "moon-outline",
+    subtitle: "Your answer for every night",
+    title: "Night history",
+  },
+  {
     /*
       Its own row rather than only a link inside Profile. Sharing your record
       with a parent is a decision people revisit — after a fee goes unpaid, after

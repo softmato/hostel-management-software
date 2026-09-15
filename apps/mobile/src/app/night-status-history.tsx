@@ -4,10 +4,9 @@ import { View } from "react-native";
 import { AppBar } from "@/components/ui/app-bar";
 import { StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
-import { Grid, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { SkeletonCard, SkeletonTiles } from "@/components/ui/skeleton";
+import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
@@ -17,7 +16,6 @@ import {
   groupNightsByMonth,
   type NightHistoryEntry,
   nightDetail,
-  summarizeNights,
 } from "@/lib/night-status-history";
 import { getResidentNightStatusHistory } from "@/lib/resident-api";
 
@@ -46,15 +44,13 @@ export default function NightStatusHistoryScreen() {
     () => (entries ? groupNightsByMonth(entries, calendar) : []),
     [calendar, entries],
   );
-  const stats = useMemo(() => summarizeNights(entries ?? []), [entries]);
 
   const header = <AppBar showBack title="Night status history" />;
 
   if (history.loading) {
     return (
       <Screen header={header} scroll>
-        <View className="gap-4 pt-1">
-          <SkeletonTiles columns={2} />
+        <View className="pt-1">
           <SkeletonCard rows={6} />
         </View>
       </Screen>
@@ -80,25 +76,6 @@ export default function NightStatusHistoryScreen() {
       scroll
     >
       <View className="gap-5 pt-1">
-        {entries.length > 0 ? (
-          <Grid gap={10} maxColumns={2} minCellWidth={140}>
-            <StatTile
-              icon="home-outline"
-              label="Nights inside"
-              tone="brand"
-              trend={`of ${stats.total} nights`}
-              value={String(stats.inside)}
-            />
-            <StatTile
-              icon="help-circle-outline"
-              label="Not answered"
-              tone="neutral"
-              trend={`${stats.outside} out for the night`}
-              value={String(stats.unanswered)}
-            />
-          </Grid>
-        ) : null}
-
         {months.length === 0 ? (
           <Card>
             <EmptyState

@@ -18,10 +18,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Sheet } from "@/components/ui/sheet";
-import { FactRow, Grid, StatTile } from "@/components/ui/layout";
+import { FactRow } from "@/components/ui/layout";
 import { RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
@@ -73,6 +74,7 @@ export default function HostelDetailScreen() {
 
   const hostel = useResource<PublicHostelDetail>(
     useCallback(() => getPublicHostel(slug), [slug]),
+    { cacheKey: `public-hostel:${slug}` },
   );
 
   const data = hostel.data;
@@ -123,8 +125,8 @@ export default function HostelDetailScreen() {
 
   if (hostel.loading) {
     return (
-      <Screen header={header}>
-        <LoadingState label="Loading this hostel" />
+      <Screen header={header} padded={false} scroll>
+        <HostelDetailSkeleton />
       </Screen>
     );
   }
@@ -174,48 +176,50 @@ export default function HostelDetailScreen() {
       <Gallery hostel={data} />
 
       <View className="gap-6 px-5 pt-4">
-        <View className="gap-2">
-          <View className="flex-row items-start gap-3">
-            <Text className="flex-1" variant="title">
-              {data.name}
-            </Text>
-            {rating.kind === "rated" ? (
-              <View className="flex-row items-center gap-1">
-                <Ionicons color={colors.warning} name="star" size={15} />
-                <Text className="font-semibold">{rating.value}</Text>
-                <Text variant="caption">{`(${rating.count})`}</Text>
-              </View>
-            ) : (
-              <Badge label="New" />
-            )}
-          </View>
+        <View className="gap-4">
+          <View className="gap-1.5">
+            <View className="flex-row items-start gap-3">
+              <Text className="flex-1" variant="title">
+                {data.name}
+              </Text>
+              {rating.kind === "rated" ? (
+                <View className="flex-row items-center gap-1 pt-1">
+                  <Ionicons color={colors.warning} name="star" size={15} />
+                  <Text className="font-semibold">{rating.value}</Text>
+                  <Text variant="caption">{`(${rating.count})`}</Text>
+                </View>
+              ) : (
+                <Badge label="New" />
+              )}
+            </View>
 
-          <View className="flex-row items-center gap-1.5">
-            <Ionicons
-              color={colors.mutedForeground}
-              name="location-outline"
-              size={14}
-            />
-            <Text className="flex-1" variant="caption">
-              {[data.location.address, locationLabel(data.location)]
-                .filter(Boolean)
-                .join(", ")}
-            </Text>
-          </View>
-
-          {campus ? (
             <View className="flex-row items-center gap-1.5">
               <Ionicons
                 color={colors.mutedForeground}
-                name="school-outline"
+                name="location-outline"
                 size={14}
               />
-              <Text variant="caption">{campus}</Text>
+              <Text className="flex-1" variant="caption">
+                {[data.location.address, locationLabel(data.location)]
+                  .filter(Boolean)
+                  .join(", ")}
+              </Text>
             </View>
-          ) : null}
-        </View>
 
-        <PriceTiles hostel={data} />
+            {campus ? (
+              <View className="flex-row items-center gap-1.5">
+                <Ionicons
+                  color={colors.mutedForeground}
+                  name="school-outline"
+                  size={14}
+                />
+                <Text variant="caption">{campus}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <KeyFacts hostel={data} />
+        </View>
 
         {/*
           Chips, not the mockup's icon tiles with a sub-label under each. The
@@ -481,51 +485,93 @@ function Thumbnails({
 }
 
 /**
- * The mockup's fee strip — but only the fees this platform actually stores.
+ * The money and the type as one ruled strip — no boxes.
  *
- * The mockup draws "Monthly Fee · Security · Advance". `pricing` carries
- * `monthlyRentMin/Max` and `admissionFee` and **no security deposit**, so a
- * third tile would be an invented number on the screen a person decides where
- * to live from. Two tiles that are true beat three that look complete.
- *
- * `<Grid>` rather than three `flex-1` cards: "NPR 10,000 – NPR 18,000" in a
- * third of a 320dp screen is about 93dp, which truncated to "NPR 10,0…". The
- * grid drops to two columns where three will not fit.
+ * Two columns: rent with admission under it (both are what it costs), and the
+ * hostel type beside them. Only the fees the platform stores — `pricing` has no
+ * security deposit, so there is no deposit line to invent.
  */
-function PriceTiles({ hostel }: { hostel: PublicHostelDetail }) {
-  const tiles = [
-    <StatTile
-      icon="cash-outline"
-      key="rent"
-      label="Monthly"
-      tone="brand"
-      trend="Per month"
-      value={priceRange(hostel.pricing)}
-    />,
-    hostel.pricing.admissionFee ? (
-      <StatTile
-        icon="document-text-outline"
-        key="admission"
-        label="Admission"
-        tone="neutral"
-        trend="One-off"
-        value={formatMoney(hostel.pricing.admissionFee)}
-      />
-    ) : null,
-    <StatTile
-      icon="people-outline"
-      key="type"
-      label="Type"
-      tone="neutral"
-      trend="Who it is for"
-      value={HOSTEL_TYPE_LABELS[hostel.hostelType]}
-    />,
-  ].filter(Boolean);
+function KeyFacts({ hostel }: { hostel: PublicHostelDetail }) {
+  const admission = hostel.pricing.admissionFee;
 
   return (
-    <Grid gap={10} maxColumns={3} minCellWidth={116}>
-      {tiles}
-    </Grid>
+    <View className="flex-row border-y border-border py-3.5">
+      {/* Inline flex/padding: the arbitrary `flex-[n]` class did not apply and
+          the columns sized to their text and ran into each other. */}
+      <View style={{ flexBasis: 0, flexGrow: 1.6, gap: 12, minWidth: 0, paddingRight: 16 }}>
+        <Fact accent label="Monthly rent" value={priceRange(hostel.pricing)} />
+        {admission ? <Fact label="Admission fee" value={formatMoney(admission)} /> : null}
+      </View>
+
+      <View
+        className="border-l border-border"
+        style={{ flexBasis: 0, flexGrow: 1, minWidth: 0, paddingLeft: 16 }}
+      >
+        <Fact label="Type" value={HOSTEL_TYPE_LABELS[hostel.hostelType]} />
+      </View>
+    </View>
+  );
+}
+
+function Fact({
+  accent = false,
+  label,
+  value,
+}: {
+  accent?: boolean;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View className="gap-1">
+      <Text variant="caption">{label}</Text>
+      <Text
+        className={`font-semibold ${accent ? "text-primary" : "text-foreground"}`}
+        numberOfLines={2}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/** The detail screen's shape while it loads: gallery, title, facts, a card. */
+function HostelDetailSkeleton() {
+  return (
+    <View>
+      <Skeleton height={240} radius={0} />
+      <View className="gap-6 px-5 pt-4">
+        <View className="gap-4">
+          <View className="gap-2">
+            <Skeleton height={22} width="65%" />
+            <Skeleton height={12} width="85%" />
+          </View>
+          <View className="flex-row border-y border-border py-3.5">
+            <View style={{ flexBasis: 0, flexGrow: 1.6, gap: 12, paddingRight: 16 }}>
+              {[0, 1].map((row) => (
+                <View className="gap-1.5" key={row}>
+                  <Skeleton height={10} width="40%" />
+                  <Skeleton height={14} width="75%" />
+                </View>
+              ))}
+            </View>
+            <View
+              className="gap-1.5 border-l border-border"
+              style={{ flexBasis: 0, flexGrow: 1, paddingLeft: 16 }}
+            >
+              <Skeleton height={10} width="40%" />
+              <Skeleton height={14} width="70%" />
+            </View>
+          </View>
+        </View>
+        <View className="flex-row flex-wrap gap-2">
+          {[72, 96, 64, 88, 80].map((width, index) => (
+            <Skeleton height={34} key={index} radius={12} width={width} />
+          ))}
+        </View>
+        <SkeletonCard rows={3} />
+      </View>
+    </View>
   );
 }
 
@@ -543,8 +589,6 @@ function PriceTiles({ hostel }: { hostel: PublicHostelDetail }) {
  * survives the narrowest screen we support.
  */
 function RoomTypes({ hostel }: { hostel: PublicHostelDetail }) {
-  const { colors } = useAppTheme();
-
   if (hostel.roomConfigurations.length === 0) {
     return null;
   }
@@ -601,17 +645,7 @@ function RoomTypes({ hostel }: { hostel: PublicHostelDetail }) {
                       )
                     }
                   >
-                    <Image
-                      contentFit="cover"
-                      source={{ uri: photos[0] }}
-                      style={{
-                        backgroundColor: colors.muted,
-                        borderRadius: 12,
-                        height: 56,
-                        width: 56,
-                      }}
-                      transition={150}
-                    />
+                    <StackedThumb photos={photos} />
                   </Pressable>
                 ) : null}
                 <Text className="flex-1 text-base font-semibold text-foreground">
@@ -630,6 +664,75 @@ function RoomTypes({ hostel }: { hostel: PublicHostelDetail }) {
           );
         })}
       </View>
+    </View>
+  );
+}
+
+const THUMB = 56;
+
+/**
+ * The room's first photo, with the next ones fanned out behind it when there
+ * are more — a deck, so "tap for more photos" needs no label. One photo draws
+ * flat. The layers are the real next photos, not grey cards, so what peeks out
+ * is what the viewer opens to.
+ */
+function StackedThumb({ photos }: { photos: string[] }) {
+  const { colors } = useAppTheme();
+  const behind = photos.slice(1, 3);
+
+  const layer = {
+    backgroundColor: colors.muted,
+    borderColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 2,
+    height: THUMB,
+    width: THUMB,
+  } as const;
+
+  return (
+    <View
+      style={{
+        height: THUMB,
+        // Room on the right for the fanned layers to show past the front photo.
+        marginRight: behind.length * 6,
+        width: THUMB,
+      }}
+    >
+      {behind
+        .map((uri, index) => (
+          <Image
+            contentFit="cover"
+            key={uri}
+            source={{ uri }}
+            style={[
+              layer,
+              {
+                left: (index + 1) * 6,
+                opacity: index === 0 ? 0.9 : 0.7,
+                position: "absolute",
+                top: 0,
+                transform: [{ rotate: `${(index + 1) * 6}deg` }, { scale: 1 - (index + 1) * 0.06 }],
+              },
+            ]}
+          />
+        ))
+        // Drawn back to front: the farthest layer first.
+        .reverse()}
+
+      <Image
+        contentFit="cover"
+        source={{ uri: photos[0] }}
+        style={[layer, { borderWidth: behind.length > 0 ? 2 : 0 }]}
+        transition={150}
+      />
+
+      {photos.length > 1 ? (
+        <View className="absolute bottom-1 right-1 rounded-full bg-black/60 px-1.5">
+          <Text className="text-white" style={{ fontSize: 10, fontWeight: "600" }}>
+            {`+${photos.length - 1}`}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

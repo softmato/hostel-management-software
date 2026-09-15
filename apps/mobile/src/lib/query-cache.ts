@@ -19,19 +19,17 @@
  * put the answer here before the screen is ever mounted, which is what
  * `lib/admin-queries.ts` uses to warm the portal.
  *
- * ## Memory only, deliberately
+ * ## It survives a relaunch, and dies with the session
  *
- * Nothing here touches AsyncStorage. Two reasons, and the second settles it:
+ * This module stays free of storage; `lib/query-cache-persist.ts` snapshots it
+ * to AsyncStorage and restores it before `PersistGate` lifts, so a cold start
+ * paints the last answers and revalidates behind them.
  *
- * 1. `use-resource`'s own notes call two disagreeing caches worse than one, and
- *    the persisted cache is `redux-persist`'s job.
- * 2. This holds rosters, phone numbers, invoices and claim evidence. Hostel
- *    phones get handed around — the store's `RESET_STORE` exists for exactly
- *    that — and writing a hostel's resident list to plaintext AsyncStorage so it
- *    survives a relaunch is a worse trade than a spinner on a cold start.
- *
- * The consequence is worth stating plainly: **a cold start still loads.** What
- * this removes is every repeat of a load within one session.
+ * Restored entries are always stale (asked again on mount) and showable for
+ * `RESTORED_MAX_AGE_MS` rather than `maxAgeMs` — a relaunch is usually more than
+ * five minutes after the last read. `clearQueryCache()` on sign-out wipes the
+ * disk copy too, so a shared handset does not hand one account's roster to the
+ * next.
  *
  * ## Freshness is two numbers, not one
  *
@@ -58,6 +56,8 @@ import { subscribeAllTopics } from "@/lib/resource-bus";
 
 type Entry = {
   data: unknown;
+  /** Came off disk at launch and has not been re-fetched this session. */
+  restored?: boolean;
   /** Set by a topic publish: still showable, but ask again on the next mount. */
   stale: boolean;
   /** Wall-clock ms of the write. */
@@ -86,8 +86,57 @@ export const DEFAULT_MAX_AGE_MS = 5 * 60_000;
  */
 const MAX_ENTRIES = 120;
 
+/** How long an answer restored from disk may still be painted while it revalidates. */
+export const RESTORED_MAX_AGE_MS = 3 * 24 * 60 * 60_000;
+
 const entries = new Map<string, Entry>();
 const listeners = new Map<string, Set<Listener>>();
+
+export type PersistedEntry = {
+  data: unknown;
+  key: string;
+  storedAt: number;
+  topics: readonly RealtimeTopic[];
+};
+
+/** Set by `lib/query-cache-persist.ts`; told when there is something to save or wipe. */
+let persister: ((reason: "clear" | "write") => void) | null = null;
+
+export function setQueryCachePersister(next: typeof persister) {
+  persister = next;
+}
+
+/** Newest first, so a size-capped writer keeps the most recent answers. */
+export function snapshotQueryCache(): PersistedEntry[] {
+  return [...entries.entries()]
+    .reverse()
+    .map(([key, entry]) => ({
+      data: entry.data,
+      key,
+      storedAt: entry.storedAt,
+      topics: entry.topics,
+    }));
+}
+
+/** Seeds the cache from disk. Never overwrites an answer fetched this session. */
+export function restoreQueryCache(list: readonly PersistedEntry[]) {
+  const now = Date.now();
+
+  // Oldest first, so insertion order (and eviction) matches the original.
+  for (const item of [...list].reverse()) {
+    if (entries.has(item.key) || now - item.storedAt > RESTORED_MAX_AGE_MS) {
+      continue;
+    }
+
+    entries.set(item.key, {
+      data: item.data,
+      restored: true,
+      stale: true,
+      storedAt: item.storedAt,
+      topics: item.topics ?? [],
+    });
+  }
+}
 
 /**
  * In-flight requests, by key.
@@ -143,7 +192,7 @@ export function readQuery<T>(
 
   const age = Date.now() - entry.storedAt;
 
-  if (age > maxAgeMs) {
+  if (age > (entry.restored ? Math.max(maxAgeMs, RESTORED_MAX_AGE_MS) : maxAgeMs)) {
     // Dropped rather than handed back stale. Past `maxAgeMs` the screen is
     // better off with its own spinner than with a figure it must later un-tell.
     entries.delete(key);
@@ -174,6 +223,7 @@ export function writeQuery<T>(
   entries.set(key, { data, stale: false, storedAt: Date.now(), topics });
 
   notify(key);
+  persister?.("write");
 }
 
 /**
@@ -349,6 +399,7 @@ export function prefetchQuery<T>(
 export function clearQueryCache() {
   entries.clear();
   inflight.clear();
+  persister?.("clear");
 
   for (const key of [...listeners.keys()]) {
     notify(key);

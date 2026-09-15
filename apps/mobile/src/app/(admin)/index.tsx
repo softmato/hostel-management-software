@@ -18,7 +18,9 @@ import {
 import { SubscriptionDueCard } from "@/components/subscription-due";
 import { SectionHeader } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { ACTION_CARD } from "@/components/ui/action-grid";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { ROLE } from "@/constants/roles";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
@@ -52,6 +54,46 @@ function openStore() {
   });
 }
 
+/** A row of icon cells in the same card the real shortcut rows use. */
+function SkeletonActionRow() {
+  return (
+    <View className={`flex-row ${ACTION_CARD}`}>
+      {Array.from({ length: 4 }, (_, index) => (
+        <View className="flex-1 items-center gap-2" key={index}>
+          <Skeleton height={44} radius={14} width={44} />
+          <Skeleton height={10} width="60%" />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Home's shape — hero, shortcuts, two sections — while the first load runs. */
+function AdminHomeSkeleton() {
+  return (
+    <View>
+      <View style={{ paddingHorizontal: 14 }}>
+        <Skeleton height={196} radius={18} />
+      </View>
+
+      <View className="px-5 pt-3">
+        <SkeletonActionRow />
+      </View>
+
+      <View className="gap-6 px-5 pt-6">
+        <View className="gap-3">
+          <Skeleton height={16} width="40%" />
+          <SkeletonActionRow />
+        </View>
+        <View className="gap-3">
+          <Skeleton height={16} width="30%" />
+          <SkeletonActionRow />
+          <SkeletonActionRow />
+        </View>
+      </View>
+    </View>
+  );
+}
 
 /**
  * The hostel at a glance — and the first screen a hostel owner ever sees.
@@ -215,8 +257,8 @@ export default function AdminHomeScreen() {
 
   if (overview.loading) {
     return (
-      <Screen header={header} insideTabs>
-        <LoadingState label="Loading your hostel" />
+      <Screen header={header} insideTabs padded={false} scroll>
+        <AdminHomeSkeleton />
       </Screen>
     );
   }

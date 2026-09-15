@@ -8,7 +8,6 @@ import { MealRow } from "@/components/meal-row";
 import {
   ResidentHomeActions,
   ResidentHomeHeader,
-  ResidentRecordRows,
   ResidentServiceGrid,
   ResidentStayHero,
 } from "@/components/resident-home";
@@ -295,14 +294,6 @@ export default function ResidentHomeScreen() {
           onNotices={() => router.push("/(resident)/notices")}
           onRaiseIssue={() => router.push("/complaints/new")}
           urgentNotices={urgentNotices}
-        />
-      </View>
-
-      <View className="pt-4">
-        <ResidentRecordRows
-          nightLabel={stay.label}
-          onAttendance={() => router.push("/attendance")}
-          onNightHistory={() => router.push("/night-status-history")}
         />
       </View>
 

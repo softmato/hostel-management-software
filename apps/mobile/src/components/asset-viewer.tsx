@@ -69,6 +69,31 @@ const DISMISS_DISTANCE = 130;
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
 
+/** The bottom strip's cell: thumb + 2dp border each side + gap. */
+const STRIP_THUMB = 40;
+const STRIP_GAP = 6;
+const STRIP_PAD = 16;
+const STRIP_STEP = STRIP_THUMB + 6 + STRIP_GAP;
+
+/*
+ * One id per *open*, keyed on the items array's identity. `openAssetViewer`
+ * builds a new array each time; `setAssetViewerIndex` spreads the state and keeps
+ * the same one — so a swipe keeps the id and the body stays mounted.
+ */
+const openIds = new WeakMap<readonly ViewerItem[], number>();
+let lastOpenId = 0;
+
+function openIdFor(items: readonly ViewerItem[]) {
+  let id = openIds.get(items);
+
+  if (id === undefined) {
+    id = ++lastOpenId;
+    openIds.set(items, id);
+  }
+
+  return id;
+}
+
 function useViewerState() {
   return useSyncExternalStore(
     subscribeToAssetViewer,
@@ -89,15 +114,16 @@ export function AssetViewer() {
       visible={state !== null}
     >
       {/*
-        Keyed on the opening index so each open remounts the body: the initial
-        scroll position is applied on mount, and a component reused across two
-        opens would stay on the previously viewed page.
+        Keyed per open, so each open remounts the body and lands on its page.
+        It used to be keyed on `state.index` — which every swipe writes back to
+        the store — so each swipe remounted every page and the photo that had
+        just appeared flashed back through its loading state.
       */}
       {state ? (
         <ViewerBody
           initialIndex={state.index}
           items={state.items}
-          key={`${state.items.length}-${state.index}`}
+          key={openIdFor(state.items)}
         />
       ) : null}
     </Modal>
@@ -115,7 +141,10 @@ function ViewerBody({
   const insets = useSystemInsets();
   const token = useAppSelector((state) => state.auth.accessToken);
   const scrollRef = useRef<ScrollView>(null);
+  const stripRef = useRef<ScrollView>(null);
 
+  // Read once: the prop follows the store's index, which swipes keep writing.
+  const [startIndex] = useState(initialIndex);
   const [index, setIndex] = useState(initialIndex);
   const [zoomed, setZoomed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -188,12 +217,30 @@ function ViewerBody({
   }));
 
   useEffect(() => {
-    if (initialIndex > 0) {
+    if (startIndex > 0) {
       // Without `animated: false` the viewer opens on the first image and then
       // visibly races to the tapped one.
-      scrollRef.current?.scrollTo({ animated: false, x: initialIndex * width });
+      scrollRef.current?.scrollTo({ animated: false, x: startIndex * width });
     }
-  }, [initialIndex, width]);
+  }, [startIndex, width]);
+
+  // Keeps the active thumbnail centred in the strip as the pager moves.
+  useEffect(() => {
+    stripRef.current?.scrollTo({
+      animated: true,
+      x: Math.max(0, STRIP_PAD + index * STRIP_STEP - (width - STRIP_STEP) / 2),
+    });
+  }, [index, width]);
+
+  /** Strip tap: jump the pager. Programmatic scrolls fire no momentum end, so set the index here. */
+  const goTo = useCallback(
+    (next: number) => {
+      scrollRef.current?.scrollTo({ animated: true, x: next * width });
+      setIndex(next);
+      setAssetViewerIndex(next);
+    },
+    [width],
+  );
 
   const onMomentumEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -312,23 +359,103 @@ function ViewerBody({
         </Pressable>
       </Animated.View>
 
-      {current?.caption || current?.title ? (
+      {current?.caption || current?.title || items.length > 1 ? (
         <Animated.View
-          className="absolute inset-x-0 bottom-0 gap-1 px-5 pt-4"
+          className="absolute inset-x-0 bottom-0 gap-3 bg-black/40 pt-3"
           style={[
-            { paddingBottom: insets.bottom + 20, pointerEvents: "none" },
+            { paddingBottom: insets.bottom + 14, pointerEvents: "box-none" },
             chromeStyle,
           ]}
         >
-          {current.title ? (
-            <Text className="text-base font-medium text-white">{current.title}</Text>
+          {current?.caption || current?.title ? (
+            <View className="gap-1 px-5" style={{ pointerEvents: "none" }}>
+              {current.title ? (
+                <Text className="text-base font-medium text-white">{current.title}</Text>
+              ) : null}
+              {current.caption ? (
+                <Text className="text-sm text-white/70">{current.caption}</Text>
+              ) : null}
+            </View>
           ) : null}
-          {current.caption ? (
-            <Text className="text-sm text-white/70">{current.caption}</Text>
+
+          {/* The group at a glance — tap any thumbnail to jump straight to it. */}
+          {items.length > 1 ? (
+            <ScrollView
+              // Centred when the group fits the width; scrolls from the left when it does not.
+              contentContainerStyle={{
+                flexGrow: 1,
+                gap: STRIP_GAP,
+                justifyContent: "center",
+                paddingHorizontal: STRIP_PAD,
+              }}
+              horizontal
+              ref={stripRef}
+              showsHorizontalScrollIndicator={false}
+            >
+              {items.map((item, itemIndex) => (
+                <StripThumb
+                  active={itemIndex === index}
+                  item={item}
+                  key={`${item.assetId ?? item.url}-${itemIndex}`}
+                  label={`Show ${itemIndex + 1} of ${items.length}`}
+                  onPress={() => goTo(itemIndex)}
+                  token={token}
+                />
+              ))}
+            </ScrollView>
           ) : null}
         </Animated.View>
       ) : null}
     </GestureHandlerRootView>
+  );
+}
+
+function StripThumb({
+  active,
+  item,
+  label,
+  onPress,
+  token,
+}: {
+  active: boolean;
+  item: ViewerItem;
+  label: string;
+  onPress: () => void;
+  token: string | null | undefined;
+}) {
+  const source = isPreviewable(item)
+    ? viewerSourceFor(item, { baseUrl: API_BASE_URL, token })
+    : null;
+  const cell = {
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 6,
+    height: STRIP_THUMB,
+    width: STRIP_THUMB,
+  } as const;
+
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="imagebutton"
+      accessibilityState={{ selected: active }}
+      hitSlop={4}
+      onPress={onPress}
+      style={{
+        borderColor: active ? "#ffffff" : "transparent",
+        borderRadius: 9,
+        borderWidth: 2,
+        opacity: active ? 1 : 0.55,
+        padding: 1,
+      }}
+    >
+      {source ? (
+        <Image contentFit="cover" source={source} style={cell} />
+      ) : (
+        <View className="items-center justify-center" style={cell}>
+          <Ionicons color="#ffffff" name="document-outline" size={16} />
+        </View>
+      )}
+    </Pressable>
   );
 }
 

@@ -12,7 +12,6 @@ import {
 } from "@/components/portal-shared";
 import { SosHeaderButton } from "@/components/sos-header-button";
 import { type ActionTile, ActionTiles } from "@/components/ui/action-grid";
-import { CardRow } from "@/components/ui/list-row";
 import { Text } from "@/components/ui/text";
 import { roleAccent } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -602,44 +601,6 @@ export function ResidentHomeActions({
   );
 }
 
-/**
- * Your nights and your days, directly under the action row.
- *
- * Two tinted rows rather than two more cells in the action card: each carries a
- * fact — tonight's answer — and opens a record, which is a different kind of
- * thing from the four shortcuts above it. `Location` in the `Your stay` grid
- * still opens the same attendance screen; this row is the history-first door.
- */
-export function ResidentRecordRows({
-  nightLabel,
-  onAttendance,
-  onNightHistory,
-}: {
-  /** Tonight's standing, as the hero's pill words it. */
-  nightLabel: string;
-  onAttendance: () => void;
-  onNightHistory: () => void;
-}) {
-  return (
-    <View className="gap-3 px-5">
-      <CardRow
-        icon="moon-outline"
-        onPress={onNightHistory}
-        subtitle={`Tonight · ${nightLabel}`}
-        title="Night status"
-        tone="brand"
-      />
-      <CardRow
-        icon="location-outline"
-        onPress={onAttendance}
-        subtitle="Your daily record"
-        title="Attendance"
-        tone="warning"
-      />
-    </View>
-  );
-}
-
 /* -------------------------------------------------------------------------- */
 /* Your stay                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -698,6 +659,12 @@ export function ResidentServiceGrid({
       icon: "location-outline",
       label: "Location",
       tone: "warning",
+    },
+    {
+      href: "/night-status-history",
+      icon: "moon-outline",
+      label: "Night history",
+      tone: "brand",
     },
     {
       href: "/offer-program/mine",
