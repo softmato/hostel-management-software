@@ -200,6 +200,7 @@ side changes.
 | Adding or upgrading a native package (`expo-*`, anything with native code) | No — new build |
 | Adding or changing an `app.json` plugin | No — new build |
 | Permissions, app icon, splash, bundle id, deep-link filters | No — new build |
+| Bumping `version` in `app.json` — it is hashed into the fingerprint (`versionCode` is not; EAS keeps it remotely) | No — new build |
 | Expo SDK upgrade | No — new build |
 
 **Nothing bad happens when you get this wrong** — and that is precisely the
