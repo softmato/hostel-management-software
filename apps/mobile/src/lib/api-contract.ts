@@ -39,6 +39,65 @@ export function unwrap<T>(response: AxiosResponse<ApiEnvelope<T>>): T {
   return response.data.data;
 }
 
+/** The code `handleRouteError` answers every Zod rejection with. */
+const VALIDATION_ERROR = "VALIDATION_ERROR";
+
+/**
+ * Zod's own wording, which names no field: "Invalid input", "Too small: …".
+ * A schema that wrote its own sentence ("Enter the 10-digit mobile number your
+ * eSewa account uses.") already reads as advice and must not be prefixed.
+ */
+const UNHELPFUL_ISSUE = /^(invalid|required|expected|too small|too big|unrecognized|must be)\b/i;
+
+/** `refundAccount.number` → `Number`; array indexes are not field names. */
+function fieldName(path: string) {
+  const leaf = path
+    .split(".")
+    .filter((part) => part && !/^\d+$/.test(part))
+    .pop();
+
+  return leaf
+    ? leaf.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (character) => character.toUpperCase())
+    : "";
+}
+
+/**
+ * The sentences a rejected form is actually carrying, in schema order.
+ *
+ * The server answers a failed schema with the message "Validation failed" and
+ * puts the real ones — the ones written for the person typing — in
+ * `details.issues`. Showing the envelope's message tells someone their form is
+ * wrong and nothing else, which is the complaint this exists to answer.
+ */
+export function readValidationIssues(error: unknown): string[] {
+  const failure = (error as AxiosError<ApiFailure>)?.response?.data;
+
+  if (failure?.errorCode !== VALIDATION_ERROR) {
+    return [];
+  }
+
+  const issues = (failure.details as { issues?: unknown } | undefined)?.issues;
+
+  if (!Array.isArray(issues)) {
+    return [];
+  }
+
+  const messages = issues.flatMap((issue) => {
+    const { message, path } = (issue ?? {}) as { message?: unknown; path?: unknown };
+    const text = typeof message === "string" ? message.trim() : "";
+
+    if (!text) {
+      return [];
+    }
+
+    const label = typeof path === "string" ? fieldName(path) : "";
+
+    return [label && UNHELPFUL_ISSUE.test(text) ? `${label}: ${text}` : text];
+  });
+
+  return [...new Set(messages)];
+}
+
 /**
  * Turns any thrown value into something worth showing a user.
  *
@@ -48,6 +107,13 @@ export function unwrap<T>(response: AxiosResponse<ApiEnvelope<T>>): T {
  */
 export function readApiError(error: unknown, fallback = "Something went wrong."): string {
   const axiosError = error as AxiosError<ApiFailure>;
+  const issues = readValidationIssues(error);
+
+  // Two is enough to fix a form. A wall of them in a toast is read by nobody,
+  // and the rest surface as soon as the first two are corrected.
+  if (issues.length > 0) {
+    return issues.slice(0, 2).join(" ");
+  }
 
   if (axiosError?.response?.data?.message) {
     return axiosError.response.data.message;
