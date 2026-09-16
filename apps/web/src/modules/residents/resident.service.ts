@@ -48,6 +48,12 @@ import {
   raiseAdmissionInvoice,
 } from "@/modules/residents/resident-intake.service";
 import { runBillingCycle } from "@/modules/finance/billing.service";
+import {
+  checkInBooking,
+  findHeldBooking,
+  returnHeldBed,
+  takeHeldBed,
+} from "@/modules/bookings/booking-checkin.service";
 import { getHostelPayMethods } from "@/modules/finance/pay-instructions.service";
 import {
   claimBedForRoomType,
@@ -899,9 +905,21 @@ export async function createResident(
     roomType: input.roomType,
   });
 
+  /*
+   * A card whose account holds a confirmed booking here already has a bed: it
+   * becomes theirs (moved across if the room type changed) instead of a second
+   * one being claimed. Personal — only the scanned card's own account counts.
+   */
+  const heldBooking =
+    input.userResidentId && account.userId ? await findHeldBooking(hostelId, account.userId) : null;
+
   // Claim the bed before creating the resident: if the room type is full this
   // throws and no half-registered resident is left behind.
-  await claimBedForRoomType(hostelId, input.roomType);
+  if (heldBooking) {
+    await takeHeldBed(heldBooking, input.roomType);
+  } else {
+    await claimBedForRoomType(hostelId, input.roomType);
+  }
 
   let resident;
 
@@ -925,7 +943,11 @@ export async function createResident(
   } catch (error) {
     // Duplicate phone, validation failure — give the bed back rather than
     // leaking a unit of vacancy on every failed intake.
-    await releaseBedForRoomType(hostelId, input.roomType);
+    if (heldBooking) {
+      await returnHeldBed(heldBooking, input.roomType);
+    } else {
+      await releaseBedForRoomType(hostelId, input.roomType);
+    }
 
     // Two intakes racing on the same number or mailbox land here; the check
     // above only narrows the window, the index is what actually closes it.
@@ -961,6 +983,13 @@ export async function createResident(
       roomType: input.roomType,
     }),
   );
+
+  // The booking closes as moved in: no cancelling from here, the hostel's share falls due.
+  if (heldBooking) {
+    await nonFatal(() =>
+      checkInBooking(heldBooking, { principal, residentId: resident._id, roomType: input.roomType }),
+    );
+  }
 
   const referral = input.referralCode
     ? await nonFatal(() =>

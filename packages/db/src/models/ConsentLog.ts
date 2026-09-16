@@ -12,7 +12,7 @@ const consentLogSchema = new Schema(
     hostelId: { ref: "Hostel", type: Schema.Types.ObjectId },
     residentId: { ref: "Resident", type: Schema.Types.ObjectId },
     consentType: {
-      enum: ["LOCATION_TRACKING", "TERMS_OF_USE", "PRIVACY_POLICY"],
+      enum: ["LOCATION_TRACKING", "TERMS_OF_USE", "PRIVACY_POLICY", "BOOKING_REFUND_POLICY"],
       required: true,
       type: String,
     },

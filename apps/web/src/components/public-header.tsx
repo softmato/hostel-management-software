@@ -1,7 +1,15 @@
 "use client";
 
 import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
-import { BadgePlus, ChevronDown, LayoutDashboard, LogOut, Menu, QrCode } from "lucide-react";
+import {
+  BadgePlus,
+  CalendarCheck,
+  ChevronDown,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  QrCode,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -31,12 +39,14 @@ type PublicHeaderProps = {
     | "compare"
     | "contact"
     | "home"
+    | "how-booking-works"
     | "jobs"
     | "map"
     | "offer-program"
     | "plans-pricing"
     | "privacy"
     | "providers"
+    | "refund-policy"
     | "register-hostel"
     | "terms";
 };
@@ -126,6 +136,8 @@ const moreItems = [
   { href: "/contact", id: "contact", label: "Contact" },
   { href: "/terms", id: "terms", label: "Terms" },
   { href: "/privacy", id: "privacy", label: "Privacy Policy" },
+  { href: "/refund-policy", id: "refund-policy", label: "Refund Policy" },
+  { href: "/how-booking-works", id: "how-booking-works", label: "How Booking Works" },
 ] as const;
 
 export function PublicHeader({ active }: PublicHeaderProps) {
@@ -314,6 +326,14 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                         Dashboard
                       </Link>
                     )}
+                    <Link
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground transition hover:bg-muted"
+                      href="/bookings"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <CalendarCheck className="size-4" />
+                      My bookings
+                    </Link>
                     {user.userResidentId ? (
                       <button
                         onClick={() => {

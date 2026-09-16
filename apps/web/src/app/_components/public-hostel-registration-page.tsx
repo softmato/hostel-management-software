@@ -42,6 +42,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { checkAuthWithRefresh } from "@/lib/auth-check";
+import {
+  EMPTY_PAYOUT_DRAFT,
+  PayoutAccountFields,
+  payoutAccountPayload,
+} from "@/components/bookings/payout-account-fields";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
 import { DescriptionSuggestions } from "./description-suggestions";
 import { HostelRegistrationProgress } from "./hostel-registration-progress";
@@ -395,6 +400,8 @@ export function PublicHostelRegistrationPage() {
   const [address, setAddress] = useState("");
   const [landmark, setLandmark] = useState("");
   const [mapLink, setMapLink] = useState("");
+  // Deliberately not part of the saved draft: an account number stays out of localStorage.
+  const [payout, setPayout] = useState(EMPTY_PAYOUT_DRAFT);
   const [facilities, setFacilities] = useState<string[]>(["Wi-Fi", "CCTV", "Hot Water"]);
   const [customFacility, setCustomFacility] = useState("");
   const [facilityError, setFacilityError] = useState("");
@@ -1116,6 +1123,7 @@ export function PublicHostelRegistrationPage() {
             mapLink: mapLink.trim() || undefined,
             name: hostelName.trim(),
             notes: ownerNote,
+            payoutAccount: payoutAccountPayload(payout),
             photos,
             pricing: {
               admissionFee: numberValue(admissionFee),
@@ -2240,6 +2248,18 @@ export function PublicHostelRegistrationPage() {
                     Please review all the information below before submitting your hostel
                     for approval.
                   </p>
+
+                  <div className="mt-6 rounded-lg border border-border p-4">
+                    <h3 className="text-sm font-bold text-foreground">
+                      Booking payouts <span className="font-normal text-muted-foreground">(optional)</span>
+                    </h3>
+                    <p className="mb-3 mt-1 text-xs text-muted-foreground">
+                      Where we send your share when someone books a bed here. People can book your
+                      hostel only once we have checked this account. You can add it later from
+                      Payment Setup.
+                    </p>
+                    <PayoutAccountFields onChange={setPayout} value={payout} />
+                  </div>
 
                   <div className="mt-6 space-y-4">
                     <ReviewCard

@@ -39,6 +39,11 @@ import { MEAL_TIMING_DEFAULTS } from "@hostel/shared/food/meal-window";
 import { LocationPicker, type LocationPickerValue } from "@/components/maps/location-picker";
 import { useMediaViewer } from "@/components/media-viewer";
 import { useSiteConfig } from "@/components/site-config-provider";
+import {
+  EMPTY_PAYOUT_DRAFT,
+  PayoutAccountFields,
+  payoutAccountPayload,
+} from "@/components/bookings/payout-account-fields";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
 import { acceptAttribute } from "@/lib/uploads/accepts";
 import { uploadRegistrationDocument } from "@/lib/uploads/registration-document";
@@ -780,6 +785,7 @@ export function TeamRegisterHostelPage() {
   const [method, setMethod] = useState<"CASH" | "SOFTMATO">("CASH");
   const [amount, setAmount] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
+  const [payout, setPayout] = useState(EMPTY_PAYOUT_DRAFT);
   const [qr, setQr] = useState<{ label: string; url: string } | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -1671,6 +1677,7 @@ export function TeamRegisterHostelPage() {
     );
 
     return {
+      payoutAccount: payoutAccountPayload(payout),
       alternatePhone: alternatePhone.trim() || undefined,
       applicant: {
         email: email.trim() || undefined,
@@ -2818,6 +2825,13 @@ export function TeamRegisterHostelPage() {
 
           {step === 7 ? (
             <>
+              <Card
+                subtitle="Optional. Where we send their share of bookings — they can add it later from Payment Setup."
+                title="Booking payouts"
+              >
+                <PayoutAccountFields onChange={setPayout} value={payout} />
+              </Card>
+
               <Card subtitle="What they are buying." title="Plan">
                 <div className="mb-4 inline-flex rounded-lg border border-border bg-muted/50 p-1">
                   {cycles.map((option) => {

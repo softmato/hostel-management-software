@@ -33,6 +33,7 @@ import {
   statusToneFromLabel,
 } from "@/app/_components/portal-dashboard-ui";
 import { MediaLightbox, type LightboxItem } from "@/components/media-lightbox";
+import { ReviewPayoutAccount } from "@/components/bookings/review-payout-account";
 import { browserApi } from "@/lib/browser-api";
 import { platformEndpoints } from "@/lib/platform-endpoints";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
@@ -514,6 +515,10 @@ export const PlatformHostelReviewPageContent = memo(
                     </RoleButton>
                   ) : null}
                 </div>
+              </DetailSection>
+
+              <DetailSection title="Booking Payouts">
+                <ReviewPayoutAccount hostelId={params.id} />
               </DetailSection>
             </div>
           ) : null}

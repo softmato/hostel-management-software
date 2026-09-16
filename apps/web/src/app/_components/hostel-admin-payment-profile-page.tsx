@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Eye,
+  HandCoins,
   QrCode,
   ShieldCheck,
   Smartphone,
@@ -782,6 +783,14 @@ export const HostelAdminPaymentProfilePageContent = memo(
                 <Wallet aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
                 Online checkout, where the payment settles without your review, is
                 set up separately under Payment Gateways.
+              </p>
+
+              {/* Money going the other way — what we pay you for a booking — is
+                  set under Bookings, beside the bookings it pays for. */}
+              <p className="mt-2 flex items-start gap-1.5 px-1 text-xs text-muted-foreground">
+                <HandCoins aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                The account we send your share of booking fees to is under
+                Bookings → Settings.
               </p>
             </div>
           </div>

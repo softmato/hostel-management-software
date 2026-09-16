@@ -86,6 +86,8 @@ const CATEGORY_VISUALS: Record<string, NotificationVisual> = {
   ACCOUNT_DELETION: { icon: "trash-outline", label: "Account", tone: "danger" },
   ANNOUNCEMENT: { icon: "megaphone-outline", label: "Notice", tone: "brand" },
   ATTENDANCE: { icon: "finger-print-outline", label: "Attendance", tone: "brand" },
+  /** A room booking: the guest's own, or a request to the hostel. */
+  BOOKING: { icon: "calendar-outline", label: "Booking", tone: "brand" },
   COMMUNITY: { icon: "chatbubbles-outline", label: "Community", tone: "brand" },
   COMPLAINT: { icon: "chatbox-ellipses-outline", label: "Complaint", tone: "warning" },
   /** A trade. The provider portal's own jobs use the same two glyphs. */

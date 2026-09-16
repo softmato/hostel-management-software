@@ -42,10 +42,13 @@ beforeEach(() => {
   clicked = [];
   useDownloadStore.setState({ items: [] });
 
-  vi.stubGlobal("URL", {
-    ...URL,
-    createObjectURL: () => "blob:fake",
-    revokeObjectURL: () => undefined,
+  // Spied, not replaced: the runner also calls `new URL(...)` to spot a
+  // cross-origin request, which a plain-object stand-in cannot construct.
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake");
+  vi.spyOn(URL, "revokeObjectURL").mockReturnValue(undefined);
+
+  vi.stubGlobal("window", {
+    location: { href: "http://localhost/", origin: "http://localhost" },
   });
 
   vi.stubGlobal("document", {

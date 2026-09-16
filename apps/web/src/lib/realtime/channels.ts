@@ -52,6 +52,7 @@ export type RealtimeEvent = (typeof REALTIME_EVENT)[keyof typeof REALTIME_EVENT]
  */
 export const REALTIME_TOPIC = {
   ATTENDANCE: "attendance",
+  BOOKINGS: "bookings",
   COMMUNITY: "community",
   COMPLAINTS: "complaints",
   FOOD: "food",
@@ -82,6 +83,12 @@ export const TOPIC_ENDPOINTS: Record<RealtimeTopic, string[]> = {
     "/api/v1/resident/attendance*",
     "/api/v1/guardian/attendance*",
     "/api/v1/hostel-admin/dashboard*",
+  ],
+  /* The guest's booking, the hostel's requests and the platform's queues all move together. */
+  [REALTIME_TOPIC.BOOKINGS]: [
+    "/api/v1/bookings*",
+    "/api/v1/hostel-admin/bookings*",
+    "/api/v1/platform/bookings*",
   ],
   [REALTIME_TOPIC.COMMUNITY]: ["/api/v1/community*", "/api/v1/platform/community*"],
   [REALTIME_TOPIC.COMPLAINTS]: [
@@ -189,6 +196,7 @@ export const CATEGORY_TOPICS: Record<string, RealtimeTopic[]> = {
   ACCOUNT_DELETION: [],
   ANNOUNCEMENT: [REALTIME_TOPIC.NOTICES],
   ATTENDANCE: [REALTIME_TOPIC.ATTENDANCE],
+  BOOKING: [REALTIME_TOPIC.BOOKINGS],
   COMMUNITY: [REALTIME_TOPIC.COMMUNITY],
   COMPLAINT: [REALTIME_TOPIC.COMPLAINTS],
   ELECTRICIAN: [REALTIME_TOPIC.MAINTENANCE],

@@ -1,6 +1,7 @@
 import {
   Bell,
   Building2,
+  CalendarCheck,
   CreditCard,
   Megaphone,
   MessageSquare,
@@ -45,6 +46,7 @@ const CATEGORY_DISPLAY: Record<string, CategoryDisplay> = {
   ACCOUNT_DELETION: { icon: Trash2, label: "Account", tone: "rose" },
   ANNOUNCEMENT: { icon: Megaphone, label: "Announcement", tone: "violet" },
   ATTENDANCE: { icon: UserRound, label: "Attendance", tone: "blue" },
+  BOOKING: { icon: CalendarCheck, label: "Booking", tone: "emerald" },
   NIGHT_STATUS: { icon: Moon, label: "Night status", tone: "violet" },
   COMMUNITY: { icon: MessageSquare, label: "Community", tone: "violet" },
   COMPLAINT: { icon: MessageSquare, label: "Complaint", tone: "amber" },

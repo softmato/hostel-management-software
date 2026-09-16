@@ -37,6 +37,7 @@ import {
   type ResidentType,
 } from "@/lib/admin-manage-api";
 import { residentCardPhotoSource } from "@/lib/admin-scan-api";
+import { type CardBooking, findCardBooking } from "@/lib/admin-bookings-api";
 import { readApiError, readApiErrorCode } from "@/lib/api-contract";
 import { formatDateIn } from "@/lib/calendar";
 import { openConfirm } from "@/lib/confirm";
@@ -196,6 +197,9 @@ export default function NewResidentScreen() {
     };
   }, [email, firstName, identity, lastName, phone, residentType]);
 
+  /** The confirmed booking the scanned card holds here — registering them closes it (docs/BOOKINGS.md item 8). */
+  const [cardBooking, setCardBooking] = useState<CardBooking | null>(null);
+
   const readCard = useCallback(async (residentId: string) => {
     setScanError(null);
     setReading(true);
@@ -217,6 +221,10 @@ export default function NewResidentScreen() {
         residentId,
       });
       setStep("confirm");
+      // Beside the lookup, not inside it: a booking check that fails never stops a registration.
+      findCardBooking(residentId)
+        .then(setCardBooking)
+        .catch(() => setCardBooking(null));
     } catch (error) {
       /*
        * Printed on the viewfinder rather than thrown as a toast. Every reason
@@ -238,6 +246,7 @@ export default function NewResidentScreen() {
 
   const rescan = useCallback(() => {
     setIdentity(null);
+    setCardBooking(null);
     setScanError(null);
     setStep("identify");
   }, []);
@@ -531,6 +540,7 @@ export default function NewResidentScreen() {
     >
       {step === "confirm" ? (
         <ConfirmStep
+          cardBooking={cardBooking}
           email={email}
           firstName={firstName}
           identity={identity}
@@ -575,6 +585,7 @@ export default function NewResidentScreen() {
  * genuinely wrong is a different card or the manual path, both one tap away.
  */
 function ConfirmStep({
+  cardBooking,
   email,
   firstName,
   identity,
@@ -588,6 +599,8 @@ function ConfirmStep({
   phone,
   residentType,
 }: {
+  /** The booking this card holds here, if any — registering them closes it. */
+  cardBooking: CardBooking | null;
   email: string;
   firstName: string;
   identity: Identity | null;
@@ -736,6 +749,19 @@ function ConfirmStep({
           </Text>
           <Text className="mt-1 text-sm text-foreground">
             {residencyMessage(residentFullName(prefill), identity.occupancy)}
+          </Text>
+        </View>
+      ) : null}
+
+      {cardBooking && !identity.occupancy ? (
+        <View className="rounded-2xl border border-border bg-brand-soft p-4">
+          <Text className="text-xs font-bold uppercase tracking-wide text-foreground">
+            Booked through {APP_NAME}
+          </Text>
+          <Text className="mt-1 text-sm text-foreground">
+            Booking {cardBooking.code}: one {cardBooking.roomType} bed is held
+            {cardBooking.holdEndsAt ? ` until ${dates.dateTime(cardBooking.holdEndsAt)}` : ""}. Registering them uses that
+            bed and completes the booking.
           </Text>
         </View>
       ) : null}

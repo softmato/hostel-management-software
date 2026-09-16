@@ -12,8 +12,12 @@ const serviceMocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   emergencyContactCreate: vi.fn(),
   guardianCreate: vi.fn(),
+  checkInBooking: vi.fn(),
   claimBedForRoomType: vi.fn(),
+  findHeldBooking: vi.fn(),
   releaseBedForRoomType: vi.fn(),
+  returnHeldBed: vi.fn(),
+  takeHeldBed: vi.fn(),
   hostelFindById: vi.fn(),
   registerOrUpgradeUserByEmail: vi.fn(),
   residentCountDocuments: vi.fn(),
@@ -90,6 +94,15 @@ vi.mock("@/modules/hostels/hostel-capacity.service", () => ({
   claimBedForRoomType: serviceMocks.claimBedForRoomType,
   moveBedBetweenRoomTypes: vi.fn(),
   releaseBedForRoomType: serviceMocks.releaseBedForRoomType,
+}));
+
+// Which booking a card holds, and what closing it does to beds and money, is
+// `booking-flow.test.ts`'s question; this file asserts the intake asks.
+vi.mock("@/modules/bookings/booking-checkin.service", () => ({
+  checkInBooking: serviceMocks.checkInBooking,
+  findHeldBooking: serviceMocks.findHeldBooking,
+  returnHeldBed: serviceMocks.returnHeldBed,
+  takeHeldBed: serviceMocks.takeHeldBed,
 }));
 
 vi.mock("@hostel/db/models/Resident", () => ({
@@ -1044,6 +1057,65 @@ describe("resident management service behavior", () => {
       expect.objectContaining({ userId: accountId }),
     );
     expect(result.accountLink).toMatchObject({ linked: true });
+  });
+
+  describe("a card that holds a booking", () => {
+    const accountId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0fc");
+    const booking = {
+      _id: new Types.ObjectId(),
+      bedHeld: true,
+      hostelId: new Types.ObjectId(hostelId),
+      roomType: "Two Sharing",
+      status: "CONFIRMED",
+    };
+    const intake = {
+      email: "asha@example.com",
+      firstName: "Asha",
+      lastName: "Rai",
+      moveInDate: new Date("2030-01-01T00:00:00.000Z"),
+      phone: "9800000000",
+      residentType: "STUDENT" as const,
+      roomType,
+      status: "ACTIVE" as const,
+      userResidentId: "HH-4K7M-9XQ2",
+    };
+
+    beforeEach(() => {
+      serviceMocks.userFindOne.mockReturnValueOnce(queryResult({ _id: accountId, email: "asha@example.com" }));
+      serviceMocks.findHeldBooking.mockResolvedValueOnce(booking);
+    });
+
+    it("gives them the bed it holds and closes the booking", async () => {
+      serviceMocks.residentCreate.mockResolvedValueOnce(residentRecord({ email: "asha@example.com" }));
+      serviceMocks.residentFindById.mockReturnValue(
+        queryResult(residentRecord({ status: "ACTIVE", userId: accountId })),
+      );
+      serviceMocks.promoteAccountToResident.mockResolvedValue({
+        cleared: NO_CLEARANCE,
+        upgraded: true,
+        user: { email: "asha@example.com", id: accountId.toString(), role: Role.RESIDENT },
+      });
+
+      await createResident(intake, staffPrincipal);
+
+      expect(serviceMocks.findHeldBooking).toHaveBeenCalledWith(new Types.ObjectId(hostelId), accountId);
+      expect(serviceMocks.takeHeldBed).toHaveBeenCalledWith(booking, roomType);
+      expect(serviceMocks.claimBedForRoomType).not.toHaveBeenCalled();
+      expect(serviceMocks.checkInBooking).toHaveBeenCalledWith(
+        booking,
+        expect.objectContaining({ residentId: new Types.ObjectId(residentId), roomType }),
+      );
+    });
+
+    it("leaves the bed with the booking when the resident cannot be written", async () => {
+      serviceMocks.residentCreate.mockRejectedValueOnce(new Error("duplicate phone"));
+
+      await expect(createResident(intake, staffPrincipal)).rejects.toThrow("duplicate phone");
+
+      expect(serviceMocks.returnHeldBed).toHaveBeenCalledWith(booking, roomType);
+      expect(serviceMocks.releaseBedForRoomType).not.toHaveBeenCalled();
+      expect(serviceMocks.checkInBooking).not.toHaveBeenCalled();
+    });
   });
 
   it("links a pre-booking's account without admitting them", async () => {

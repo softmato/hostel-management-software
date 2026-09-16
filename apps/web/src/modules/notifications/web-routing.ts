@@ -65,6 +65,7 @@ const CATEGORY_PATHS: Record<string, Record<string, string>> = {
   [Role.SUPERADMIN]: {
     ACCOUNT_DELETION: "/platform/account-deletions",
     ANNOUNCEMENT: "/platform/inbox",
+    BOOKING: "/platform/bookings",
     COMMUNITY: "/community",
     COMPLAINT: "/platform/complaints",
     HOSTEL_APPROVAL: "/platform/hostels",
@@ -78,6 +79,7 @@ const CATEGORY_PATHS: Record<string, Record<string, string>> = {
     ACCOUNT: "/hostel-admin/dashboard",
     ANNOUNCEMENT: "/hostel-admin/notices",
     ATTENDANCE: "/hostel-admin/attendance",
+    BOOKING: "/hostel-admin/bookings",
     COMMUNITY: "/community",
     COMPLAINT: "/hostel-admin/complaints",
     ELECTRICIAN: "/hostel-admin/maintenance",
@@ -99,6 +101,7 @@ const CATEGORY_PATHS: Record<string, Record<string, string>> = {
     ACCOUNT_DELETION: "/resident/settings",
     ANNOUNCEMENT: "/resident/notices",
     ATTENDANCE: "/resident/attendance",
+    BOOKING: "/bookings",
     COMMUNITY: "/community",
     COMPLAINT: "/resident/complaints",
     ELECTRICIAN: "/resident/complaints",
@@ -127,6 +130,7 @@ const CATEGORY_PATHS: Record<string, Record<string, string>> = {
   // Deliberately empty: see the COOK entry in NOTIFICATION_LIST above.
   [Role.COOK]: {},
   [Role.PUBLIC]: {
+    BOOKING: "/bookings",
     COMMUNITY: "/community",
     ELECTRICIAN: "/jobs",
     MAINTENANCE: "/jobs",

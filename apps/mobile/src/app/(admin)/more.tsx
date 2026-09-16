@@ -66,6 +66,13 @@ const MANAGE_ROWS: {
     tone: "success",
   },
   {
+    href: "/manage/bookings",
+    icon: "calendar-outline",
+    subtitle: "Confirm or decline booked beds, and your share",
+    title: "Bookings",
+    tone: "brand",
+  },
+  {
     href: "/(admin)/residents",
     icon: "people-outline",
     subtitle: "Register, move in and out, activation codes, guardians",

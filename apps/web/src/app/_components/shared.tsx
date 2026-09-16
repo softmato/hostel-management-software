@@ -411,12 +411,14 @@ export function PublicShell({
     | "compare"
     | "contact"
     | "home"
+    | "how-booking-works"
     | "jobs"
     | "map"
     | "offer-program"
     | "plans-pricing"
     | "privacy"
     | "providers"
+    | "refund-policy"
     | "register-hostel"
     | "terms";
   children: ReactNode;

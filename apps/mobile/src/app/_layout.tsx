@@ -366,6 +366,12 @@ function RootShell() {
         <Stack.Screen name="service-providers/apply" />
         <Stack.Screen name="legal/terms" />
         <Stack.Screen name="legal/privacy" />
+        <Stack.Screen name="legal/refund-policy" />
+        <Stack.Screen name="legal/how-booking-works" />
+        {/* Room booking: checkout, the person's list, one booking. docs/BOOKINGS.md items 22–23. */}
+        <Stack.Screen name="book/[slug]" />
+        <Stack.Screen name="bookings/index" />
+        <Stack.Screen name="booking/[id]" />
         {/*
           The SOS floating button's tap destination. At the root rather than in
           `(resident)/`, so pushing it opens over the tab bar — and so the
@@ -435,6 +441,7 @@ function RootShell() {
         <Stack.Screen name="manage/push-notices/index" />
         <Stack.Screen name="manage/push-notices/[id]" />
         <Stack.Screen name="manage/inquiries" />
+        <Stack.Screen name="manage/bookings" />
         <Stack.Screen name="manage/roll-call" />
         <Stack.Screen name="manage/food" />
         <Stack.Screen name="manage/maintenance" />

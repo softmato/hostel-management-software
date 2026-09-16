@@ -472,6 +472,30 @@ export async function rotateMasterKey(): Promise<{
  * signing key — the same protection that already stops a ciphertext moving
  * between hostels.
  */
+/**
+ * Seals a value that is not a gateway key but must be stored like one — a
+ * hostel's payout account number, a person's refund account.
+ *
+ * Same envelope, same master key, same rotation. `scope.hostelId` is whatever
+ * row the value belongs to (a hostel id, a booking id), so the envelope opens
+ * only in that row: copying a payout number from one hostel's document into
+ * another's fails to decrypt instead of redirecting a payout.
+ */
+export function sealValue(plaintext: string, scope: SecretScope): SecretEnvelope {
+  return encryptSecret(plaintext, scope, masterKeys()[0]!);
+}
+
+export function openValue(envelope: SecretEnvelope, scope: SecretScope): string {
+  return decryptSecret(envelope, scope, masterKeys());
+}
+
+/*
+ * Rotation of these envelopes lives in `scripts/rotate-finance-master-key.mjs`,
+ * which rewraps `hostelpayoutaccounts.number` and `bookings.refundAccount.number`
+ * beside `encryptedsecrets`. A new sealed field gets a block there too, with its
+ * scope composition mirrored.
+ */
+
 function scopeOf(
   hostelId: Types.ObjectId | string,
   provider: GatewayProviderName,

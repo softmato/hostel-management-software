@@ -15,6 +15,7 @@ import { connectToDatabase } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { Role } from "@/lib/roles";
 import { landingPathForRole } from "@/lib/route-access";
+import { outboundUrl } from "@/lib/site";
 import {
   SUSPENDABLE_ROLES,
   suspensionForAccount,
@@ -966,10 +967,9 @@ export async function logout(refreshToken: string) {
 const VERIFY_EMAIL_TTL_HOURS = 24;
 const PASSWORD_RESET_TTL_MINUTES = 60;
 
+/** Verify and reset links are read in a mail client, so they can never be this machine. */
 function appBaseUrl() {
-  return (
-    process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  );
+  return outboundUrl();
 }
 
 async function revokeAllSessions(userId: unknown) {

@@ -42,6 +42,8 @@ const STATIC_ROUTES: Array<Pick<Entry, "changeFrequency" | "priority"> & { path:
   { changeFrequency: "monthly", path: "/resident-offer-program", priority: 0.3 },
   { changeFrequency: "yearly", path: "/privacy", priority: 0.2 },
   { changeFrequency: "yearly", path: "/terms", priority: 0.2 },
+  { changeFrequency: "monthly", path: "/refund-policy", priority: 0.2 },
+  { changeFrequency: "monthly", path: "/how-booking-works", priority: 0.3 },
 ];
 
 async function hostelEntries(base: string): Promise<Entry[]> {

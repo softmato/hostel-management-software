@@ -27,6 +27,8 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { API_BASE_URL } from "@/lib/api";
+import { type BookingAvailability, getBookingAvailability } from "@/lib/booking-api";
+import { bookState } from "@/lib/booking-button";
 import { formatMoney } from "@/lib/format";
 import { hostelCoordinates } from "@/lib/geo";
 import {
@@ -75,6 +77,11 @@ export default function HostelDetailScreen() {
   const hostel = useResource<PublicHostelDetail>(
     useCallback(() => getPublicHostel(slug), [slug]),
     { cacheKey: `public-hostel:${slug}` },
+  );
+  // Every room's Book state in one call. A failed check draws no button; the checkout asks again.
+  const availability = useResource<BookingAvailability>(
+    useCallback(() => getBookingAvailability(slug), [slug]),
+    { cacheKey: `booking-availability:${slug}` },
   );
 
   const data = hostel.data;
@@ -249,7 +256,7 @@ export default function HostelDetailScreen() {
           </View>
         ) : null}
 
-        <RoomTypes hostel={data} />
+        <RoomTypes availability={availability.data ?? null} hostel={data} />
 
         <FoodBlock hostel={data} />
 
@@ -588,7 +595,46 @@ function HostelDetailSkeleton() {
  * one column, and a room type with its facts stacked under it is the shape that
  * survives the narrowest screen we support.
  */
-function RoomTypes({ hostel }: { hostel: PublicHostelDetail }) {
+/** A room card's Book button, or the word that stands in for it. */
+function RoomBook({
+  availability,
+  roomType,
+  slug,
+}: {
+  availability: BookingAvailability | null;
+  roomType: string;
+  slug: string;
+}) {
+  const state = bookState(availability, roomType);
+
+  if (state.kind === "hidden") {
+    return null;
+  }
+
+  if (state.kind !== "book") {
+    return (
+      <View className="mt-3 flex-row">
+        <Badge label={state.kind === "full" ? "Full" : "Not taking bookings"} tone="neutral" />
+      </View>
+    );
+  }
+
+  return (
+    <Button
+      className="mt-3"
+      label={state.fee ? `Book · ${formatMoney(state.fee)} fee` : "Book"}
+      onPress={() => router.push({ params: { room: roomType, slug }, pathname: "/book/[slug]" })}
+    />
+  );
+}
+
+function RoomTypes({
+  availability,
+  hostel,
+}: {
+  availability: BookingAvailability | null;
+  hostel: PublicHostelDetail;
+}) {
   if (hostel.roomConfigurations.length === 0) {
     return null;
   }
@@ -660,6 +706,7 @@ function RoomTypes({ hostel }: { hostel: PublicHostelDetail }) {
                   </View>
                 ))}
               </View>
+              <RoomBook availability={availability} roomType={room.roomType} slug={hostel.slug} />
             </Card>
           );
         })}

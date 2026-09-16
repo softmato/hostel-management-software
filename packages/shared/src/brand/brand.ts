@@ -15,6 +15,15 @@ export const PLATFORM_NAME_PARTS = { head: "Hostel", tail: "Palika" } as const;
 
 export const PLATFORM_VENDOR = "Softmato";
 
+/**
+ * Where the product actually lives.
+ *
+ * Anything that leaves this machine and is read somewhere else — an email, a
+ * push payload, a printed document — has to point here. A dev server's own
+ * address is correct only for the browser that is already on it.
+ */
+export const PLATFORM_SITE_URL = "https://hostelpalika.com";
+
 /** The parent company's own site — the product links back to it, and search engines are told so. */
 export const PLATFORM_VENDOR_URL = "https://softmato.com";
 

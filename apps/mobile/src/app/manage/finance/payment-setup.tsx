@@ -396,6 +396,12 @@ export default function ManagePaymentSetupScreen() {
             />
           </Card>
         </View>
+
+        {/* Booking payouts — money moving the other way — are set under
+            Bookings → Settings, beside the bookings they pay for. */}
+        <Text variant="caption">
+          The account we send your share of booking fees to is under Bookings → Settings.
+        </Text>
       </View>
     </Screen>
   );

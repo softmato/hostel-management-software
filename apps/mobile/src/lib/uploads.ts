@@ -34,6 +34,11 @@ import { finishUpload, startUpload, updateUpload } from "@/lib/upload-queue";
 
 export type FileAssetKind =
   /**
+   * A booking fee screenshot. Paid to the platform, not a hostel, so the server
+   * never scopes it to one — the uploader and platform staff read it back.
+   */
+  | "BOOKING_PAYMENT_PROOF"
+  /**
    * A resident describing a complaint out loud, attached to one complaint.
    *
    * Deliberately **not** `MAINTENANCE_NOTE`, even though the recorder and the

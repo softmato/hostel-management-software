@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { validateCronRequest } from "@/lib/cron-auth";
+import { logger } from "@/lib/logger";
+import { sweepBookings } from "@/modules/bookings/booking-sweep.service";
 import { dispatchDueNoticePushes } from "@/modules/notices/notice-push.service";
 import { dispatchDuePlatformPushes } from "@/modules/notifications/platform-push.service";
 
@@ -31,9 +33,18 @@ export async function POST(request: NextRequest) {
     const platformPushes = await dispatchDuePlatformPushes();
     // Hostel push notices ride the same every-minute tick.
     const noticePushes = await dispatchDueNoticePushes();
+    // Booking deadlines and reminders ride it too. Caught on its own: a booking
+    // failure must not report the pushes above as not sent.
+    const bookings = await sweepBookings().catch((error: unknown) => {
+      logger.error("Booking sweep failed.", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      return { error: "Booking sweep failed." };
+    });
 
     return successResponse(
-      { ...platformPushes, noticePushes },
+      { ...platformPushes, bookings, noticePushes },
       "Scheduled pushes dispatched",
     );
   } catch (error) {

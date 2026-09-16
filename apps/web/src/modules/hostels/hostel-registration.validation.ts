@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { payoutAccountInputSchema } from "@/modules/bookings/payout-account.validation";
 import { foodRoutineSaveSchema } from "@/modules/food/food.validation";
 import { platformHostelCreateSchema } from "@/modules/hostels/hostel.validation";
 
@@ -105,6 +106,11 @@ const registrationFields = platformHostelCreateSchema
      * even verified.
      */
     foodRoutine: foodRoutineSaveSchema.omit({ hostelId: true }).optional(),
+    /**
+     * Where booking payouts go (docs/BOOKINGS.md). Optional: bookings stay off
+     * until it is verified, and it can be added later from Payment Setup.
+     */
+    payoutAccount: payoutAccountInputSchema.optional(),
     /** Beds across the whole building, as stated. */
     totalCapacity: z.coerce.number().int().min(0).max(10_000).optional(),
     yearEstablished: z

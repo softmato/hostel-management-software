@@ -475,6 +475,14 @@ export type HostelRegisterPayload = {
   facilities: string[];
   food: { hasNonVeg: boolean; hasVeg: boolean; mealsPerDay?: number };
   hostelType: HostelTypeValue;
+  /** Where booking payouts go (docs/BOOKINGS.md item 26). Optional; checked by the platform before any payout. */
+  payoutAccount?: {
+    bankName: string;
+    branch: string;
+    holderName: string;
+    method: "BANK" | "ESEWA" | "KHALTI";
+    number: string;
+  };
   landmark?: string;
   location: {
     address?: string;

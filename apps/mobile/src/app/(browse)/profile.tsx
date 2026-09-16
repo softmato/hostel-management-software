@@ -245,6 +245,15 @@ export default function BrowseProfileScreen() {
               title="Saved hostels"
             />
 
+            {account ? (
+              <ListRow
+                icon="calendar-outline"
+                onPress={() => router.push("/bookings")}
+                subtitle="Rooms you booked, refunds and receipts"
+                title="My bookings"
+              />
+            ) : null}
+
             {/*
               The one honest "not yet" left. `/public/inquiries` is a POST and
               nothing lists what you have sent, so this row would open onto a

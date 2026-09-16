@@ -57,6 +57,8 @@ const fileAssetSchema = new Schema(
         "PAYMENT_QR",
         "REGISTRATION_DOCUMENT",
         "STATEMENT",
+        "BOOKING_PAYMENT_PROOF",
+        "BOOKING_TRANSFER_PROOF",
       ],
       type: String,
     },

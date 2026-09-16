@@ -233,6 +233,13 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
             label: "Transactions",
           },
           {
+            description:
+              "Room bookings paid to us: payments to check, hostels to chase, refunds and payouts to send, settings.",
+            href: "/platform/bookings",
+            keywords: ["booking", "refund", "payout", "hold", "strike", "screenshot"],
+            label: "Bookings",
+          },
+          {
             /*
              * Hostels paying *us*, which is not what the two rows above are.
              * Those are residents paying hostels, one level down, and they
@@ -543,6 +550,13 @@ export const HOSTEL_ADMIN_NAV: PortalNavGroup[] = [
         label: "Wardens",
       },
       {
+        description: "Beds booked through the platform: confirm or decline, held beds, and your share.",
+        href: "/hostel-admin/bookings",
+        icon: "calendar",
+        keywords: ["booking", "reserve", "hold", "confirm", "decline", "payout"],
+        label: "Bookings",
+      },
+      {
         description: "Public inquiries from prospective residents with notes and status.",
         href: "/hostel-admin/inquiries",
         icon: "message",
@@ -786,6 +800,8 @@ export const RESIDENT_NAV: PortalNavGroup[] = [
     items: [
       { href: "/resident/dashboard", icon: "dashboard", label: "Dashboard" },
       { href: "/resident/profile", icon: "user", label: "My Profile" },
+      // The public booking pages: a resident who booked before moving in finds its receipt here.
+      { href: "/bookings", icon: "calendar", keywords: ["booking", "refund"], label: "My Bookings" },
     ],
   },
   {
@@ -975,6 +991,7 @@ export const PLATFORM_SEARCH_ENTRIES = searchEntriesFromNav(PLATFORM_NAV);
  */
 const SUPERADMIN_ONLY_PREFIXES = [
   "/platform/account-deletions",
+  "/platform/bookings",
   "/platform/config",
   "/platform/push",
   "/platform/settings",

@@ -1000,6 +1000,37 @@ function hostelDocumentFrom(
   };
 }
 
+/**
+ * The payout account a registration form collected, if any. Checked and sealed
+ * like every other change; a number the check refuses never fails the
+ * application — the owner is told on Payment Setup and fixes it there.
+ * Imported on use so the hostel module does not load the bookings graph.
+ */
+async function savePayoutAccountFromRegistration(
+  hostelId: string,
+  payoutAccount: unknown,
+  actorId: string | null,
+) {
+  if (!payoutAccount) {
+    return;
+  }
+
+  try {
+    const { setHostelPayoutAccount } = await import("@/modules/bookings/payout-account.service");
+
+    await setHostelPayoutAccount(hostelId, payoutAccount, { source: "REGISTRATION", userId: actorId });
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "registration_payout_account_skipped",
+        hostelId,
+        level: "warn",
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
+
 export async function registerPublicHostelApplication(
   input: HostelRegistrationInput,
   options: { authUserId?: string } = {},
@@ -1112,6 +1143,8 @@ export async function registerPublicHostelApplication(
     email: input.applicant.email,
     name: input.applicant.name,
   }).catch(() => {});
+
+  await savePayoutAccountFromRegistration(hostel._id.toString(), input.payoutAccount, ownerId ? String(ownerId) : null);
 
   const createdHostel = await findHostelByIdOrThrow(hostel._id.toString());
   const createdApplication = await HostelApplicationModel.findById(
@@ -1576,6 +1609,8 @@ export async function registerTeamHostelApplication(
   // This hostel is published as of a few statements ago, so its map has to
   // exist now — not after the next sweep.
   await placeOnMap(hostel._id);
+
+  await savePayoutAccountFromRegistration(hostel._id.toString(), input.payoutAccount, agent.userId);
 
   const createdHostel = await findHostelByIdOrThrow(hostel._id.toString());
   const createdApplication = await HostelApplicationModel.findById(

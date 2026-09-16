@@ -179,7 +179,7 @@ export function resolveBedType(resident: BillableResident): BedType | null {
 }
 
 /** Case- and punctuation-insensitive, because a room type is text a human typed. */
-function sameRoomType(left: string | null | undefined, right: string | null | undefined) {
+export function sameRoomType(left: string | null | undefined, right: string | null | undefined) {
   if (!left || !right) {
     return false;
   }

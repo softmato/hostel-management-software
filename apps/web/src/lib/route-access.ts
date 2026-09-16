@@ -48,6 +48,11 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     roles: [Role.SUPERADMIN],
   },
   {
+    // Customers' money: checking payments, sending refunds, revealing account numbers.
+    prefix: "/platform/bookings",
+    roles: [Role.SUPERADMIN],
+  },
+  {
     // Selling a placement is a commercial decision, not a moderation one.
     prefix: "/platform/sponsors",
     roles: [Role.SUPERADMIN],

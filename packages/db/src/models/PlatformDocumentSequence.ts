@@ -45,6 +45,14 @@ export const PLATFORM_DOCUMENT_KINDS = [
   "SUBSCRIPTION_INVOICE",
   /** The receipt for money received against one. `HH-TXN-2083/84-00000008`. */
   "SUBSCRIPTION_RECEIPT",
+  /** A room booking fee invoice. `HH-BKI-2083/84-000031`. */
+  "BOOKING_INVOICE",
+  /** The receipt for a booking fee. `HH-BKR-2083/84-00000019`. */
+  "BOOKING_RECEIPT",
+  /** The note for a booking refund we sent. `HH-BRF-2083/84-00000004`. */
+  "BOOKING_REFUND",
+  /** The advice for a hostel's share of a booking fee we sent. `HH-BPO-2083/84-00000011`. */
+  "BOOKING_PAYOUT",
 ] as const;
 
 const platformDocumentSequenceSchema = new Schema(

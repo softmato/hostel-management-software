@@ -97,91 +97,150 @@ if (process.env.FINANCE_MASTER_KEY_PREVIOUS) {
 
 await mongoose.connect(process.env.MONGODB_URI);
 
-const secrets = mongoose.connection.db.collection("encryptedsecrets");
-const stale = await secrets.find({ keyId: { $ne: target.id } }).toArray();
+/**
+ * Rewraps one kind of envelope. `rows` yields `{ id, envelope, aad, label }`
+ * and `write` stores the new wrapped key back where the envelope lives.
+ */
+async function rewrapAll(kind, rows, write) {
+  const stale = rows.filter((row) => row.envelope?.keyId !== target.id);
 
-log(`${stale.length} secret(s) are not wrapped by ${target.id}.`);
+  log(`${stale.length} ${kind} not wrapped by ${target.id}.`);
 
-let rewrapped = 0;
-let failed = 0;
+  let rewrapped = 0;
+  let failed = 0;
 
-for (const row of stale) {
-  // Mirrors `scopeOf` in secret-store.ts, where the provider is folded into the
-  // purpose. If that composition changes, this line changes with it — a script
-  // cannot import the TypeScript module, so both sides carry this note.
-  const aad = Buffer.from(
-    `${ENVELOPE_FORMAT}:${row.hostelId.toString()}:${row.provider}:${row.purpose}`,
-    "utf8",
-  );
+  for (const row of stale) {
+    const aad = Buffer.from(row.aad, "utf8");
 
-  // Try the row's declared key first, then the others. `keyId` is a hint for
-  // ordering, never an authority — it is stored data, and the auth tag decides.
-  const ordered = [
-    ...candidates.filter((one) => one.id === row.keyId),
-    ...candidates.filter((one) => one.id !== row.keyId),
-  ];
+    // Try the row's declared key first, then the others. `keyId` is a hint for
+    // ordering, never an authority — it is stored data, and the auth tag decides.
+    const ordered = [
+      ...candidates.filter((one) => one.id === row.envelope.keyId),
+      ...candidates.filter((one) => one.id !== row.envelope.keyId),
+    ];
 
-  let dataKey = null;
+    let dataKey = null;
 
-  for (const candidate of ordered) {
-    try {
-      const unwrapper = createDecipheriv(
-        ALGORITHM,
-        candidate.key,
-        Buffer.from(row.wrappedKeyIv, "base64"),
-      );
+    for (const candidate of ordered) {
+      try {
+        const unwrapper = createDecipheriv(
+          ALGORITHM,
+          candidate.key,
+          Buffer.from(row.envelope.wrappedKeyIv, "base64"),
+        );
 
-      unwrapper.setAAD(aad);
-      unwrapper.setAuthTag(Buffer.from(row.wrappedKeyTag, "base64"));
+        unwrapper.setAAD(aad);
+        unwrapper.setAuthTag(Buffer.from(row.envelope.wrappedKeyTag, "base64"));
 
-      dataKey = Buffer.concat([
-        unwrapper.update(Buffer.from(row.wrappedKey, "base64")),
-        unwrapper.final(),
-      ]);
-      break;
-    } catch {
-      // Wrong key for this row. Try the next.
+        dataKey = Buffer.concat([
+          unwrapper.update(Buffer.from(row.envelope.wrappedKey, "base64")),
+          unwrapper.final(),
+        ]);
+        break;
+      } catch {
+        // Wrong key for this row. Try the next.
+      }
     }
+
+    if (!dataKey) {
+      failed += 1;
+      log(`  ! ${row.label} is wrapped by ${row.envelope.keyId}, which is not configured. Left untouched.`);
+      continue;
+    }
+
+    const wrapIv = randomBytes(IV_BYTES);
+    const wrapper = createCipheriv(ALGORITHM, target.key, wrapIv);
+
+    wrapper.setAAD(aad);
+
+    const wrappedKey = Buffer.concat([wrapper.update(dataKey), wrapper.final()]);
+
+    dataKey.fill(0);
+
+    if (!dryRun) {
+      await write(row.id, {
+        keyId: target.id,
+        wrappedKey: wrappedKey.toString("base64"),
+        wrappedKeyIv: wrapIv.toString("base64"),
+        wrappedKeyTag: wrapper.getAuthTag().toString("base64"),
+      });
+    }
+
+    rewrapped += 1;
+    log(`  ✓ ${row.label}`);
   }
 
-  if (!dataKey) {
-    failed += 1;
-    log(
-      `  ! ${row.provider} ${row.purpose} for hostel ${row.hostelId} is wrapped by ${row.keyId}, which is not configured. Left untouched.`,
-    );
-    continue;
-  }
-
-  const wrapIv = randomBytes(IV_BYTES);
-  const wrapper = createCipheriv(ALGORITHM, target.key, wrapIv);
-
-  wrapper.setAAD(aad);
-
-  const wrappedKey = Buffer.concat([wrapper.update(dataKey), wrapper.final()]);
-
-  dataKey.fill(0);
-
-  if (!dryRun) {
-    await secrets.updateOne(
-      { _id: row._id },
-      {
-        $set: {
-          keyId: target.id,
-          wrappedKey: wrappedKey.toString("base64"),
-          wrappedKeyIv: wrapIv.toString("base64"),
-          wrappedKeyTag: wrapper.getAuthTag().toString("base64"),
-        },
-      },
-    );
-  }
-
-  rewrapped += 1;
-  log(`  ✓ ${row.provider} ${row.purpose} for hostel ${row.hostelId}`);
+  return { failed, remaining: stale.length - rewrapped, rewrapped };
 }
 
+const secrets = mongoose.connection.db.collection("encryptedsecrets");
+const payoutAccounts = mongoose.connection.db.collection("hostelpayoutaccounts");
+const bookings = mongoose.connection.db.collection("bookings");
+
+// Mirrors `scopeOf` in secret-store.ts, where the provider is folded into the
+// purpose. If that composition changes, this line changes with it — a script
+// cannot import the TypeScript module, so both sides carry this note.
+const secretResult = await rewrapAll(
+  "gateway secret(s)",
+  (await secrets.find({}).toArray()).map((row) => ({
+    aad: `${ENVELOPE_FORMAT}:${row.hostelId.toString()}:${row.provider}:${row.purpose}`,
+    envelope: row,
+    id: row._id,
+    label: `${row.provider} ${row.purpose} for hostel ${row.hostelId}`,
+  })),
+  (id, wrapped) => secrets.updateOne({ _id: id }, { $set: wrapped }),
+);
+
+// Mirrors `scopeFor` in bookings/payout-account.service.ts.
+const payoutResult = await rewrapAll(
+  "payout account number(s)",
+  (await payoutAccounts.find({}).toArray()).map((row) => ({
+    aad: `${ENVELOPE_FORMAT}:${row.hostelId.toString()}:PAYOUT_ACCOUNT_NUMBER`,
+    envelope: row.number,
+    id: row._id,
+    label: `payout account for hostel ${row.hostelId}`,
+  })),
+  (id, wrapped) =>
+    payoutAccounts.updateOne(
+      { _id: id },
+      {
+        $set: Object.fromEntries(
+          Object.entries(wrapped).map(([key, value]) => [`number.${key}`, value]),
+        ),
+      },
+    ),
+);
+
+// Mirrors `refundScope` in bookings/booking.service.ts.
+const refundResult = await rewrapAll(
+  "booking refund account number(s)",
+  (await bookings.find({ "refundAccount.number": { $exists: true } }).toArray()).map((row) => ({
+    aad: `${ENVELOPE_FORMAT}:${row._id.toString()}:BOOKING_REFUND_ACCOUNT`,
+    envelope: row.refundAccount.number,
+    id: row._id,
+    label: `refund account on booking ${row.code}`,
+  })),
+  (id, wrapped) =>
+    bookings.updateOne(
+      { _id: id },
+      {
+        $set: Object.fromEntries(
+          Object.entries(wrapped).map(([key, value]) => [`refundAccount.number.${key}`, value]),
+        ),
+      },
+    ),
+);
+
+const rewrapped = secretResult.rewrapped + payoutResult.rewrapped + refundResult.rewrapped;
+const failed = secretResult.failed + payoutResult.failed + refundResult.failed;
 const remaining = dryRun
-  ? stale.length - rewrapped
-  : await secrets.countDocuments({ keyId: { $ne: target.id } });
+  ? secretResult.remaining + payoutResult.remaining + refundResult.remaining
+  : (await secrets.countDocuments({ keyId: { $ne: target.id } })) +
+    (await payoutAccounts.countDocuments({ "number.keyId": { $ne: target.id } })) +
+    (await bookings.countDocuments({
+      "refundAccount.number": { $exists: true },
+      "refundAccount.number.keyId": { $ne: target.id },
+    }));
 
 console.table([
   { metric: "rewrapped", value: rewrapped },
@@ -191,14 +250,14 @@ console.table([
 
 if (failed > 0) {
   console.warn(
-    "\nSome secrets could not be opened by any configured key. They were NOT deleted.\n" +
+    "\nSome envelopes could not be opened by any configured key. They were NOT deleted.\n" +
       "Find the master key that wrapped them, set it as FINANCE_MASTER_KEY_PREVIOUS, and re-run.\n" +
-      "Until then those hostels cannot take gateway payments.",
+      "Until then those hostels cannot take gateway payments or be paid out.",
   );
 }
 
 if (remaining === 0 && !dryRun) {
-  console.log("\nAll secrets are on the current key. FINANCE_MASTER_KEY_PREVIOUS can now be removed.");
+  console.log("\nEverything is on the current key. FINANCE_MASTER_KEY_PREVIOUS can now be removed.");
 }
 
 await mongoose.disconnect();

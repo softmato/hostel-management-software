@@ -35,6 +35,13 @@ type OperationsConfig = {
   subscriptionDueGraceDays: number;
 };
 
+/** A money-setting edit parked until the superadmin opens the emailed link. */
+type PendingSettingChange = {
+  expiresAt: string;
+  id: string;
+  sentTo: string;
+};
+
 type PlanReminderStep = { bell: boolean; days: number; email: boolean; push: boolean };
 
 type PlanDueReminderSchedule = {
@@ -324,10 +331,32 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
-  const resource = usePortalResource<{ config: OperationsConfig }>(OPERATIONS_ENDPOINT, {
+  const resource = usePortalResource<{
+    config: OperationsConfig;
+    pendingQrChange: PendingSettingChange | null;
+  }>(OPERATIONS_ENDPOINT, {
     errorMessage: "Could not load operations configuration.",
   });
   const config = resource.data?.config ?? null;
+  const pendingQrChange = resource.data?.pendingQrChange ?? null;
+
+  const cancelQrChange = useCallback(async () => {
+    if (!pendingQrChange) return;
+
+    setBusy(true);
+
+    try {
+      await browserApi(`/api/v1/platform/setting-changes/${pendingQrChange.id}`, {
+        method: "DELETE",
+      });
+      setMessage("The QR change was cancelled.");
+      await resource.refreshAsync();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not cancel the QR change.");
+    } finally {
+      setBusy(false);
+    }
+  }, [pendingQrChange, resource]);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -338,7 +367,9 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
       setMessage("");
 
       try {
-        await browserApi(OPERATIONS_ENDPOINT, {
+        const saved = await browserApi<{ pendingQrChange: PendingSettingChange | null }>(
+          OPERATIONS_ENDPOINT,
+          {
           body: JSON.stringify({
             collectionQrLabel: field(form, "collectionQrLabel"),
             collectionQrUrl: field(form, "collectionQrUrl"),
@@ -357,9 +388,18 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
             subscriptionDueGraceDays: Number(field(form, "subscriptionDueGraceDays")),
           }),
           method: "PUT",
-        });
+          },
+        );
 
-        setMessage("Operations configuration saved.");
+        const qrChanged =
+          field(form, "collectionQrUrl") !== (config?.collectionQrUrl ?? "") ||
+          field(form, "collectionQrLabel") !== (config?.collectionQrLabel ?? "");
+
+        setMessage(
+          qrChanged && saved.pendingQrChange
+            ? `Saved. The QR change waits for the confirm link we emailed to ${saved.pendingQrChange.sentTo}.`
+            : "Operations configuration saved.",
+        );
         await resource.refreshAsync();
       } catch (error) {
         setMessage(
@@ -369,7 +409,7 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
         setBusy(false);
       }
     },
-    [resource],
+    [config, resource],
   );
 
   return (
@@ -478,6 +518,24 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
               type="number"
             />
           </fieldset>
+
+          {pendingQrChange ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+              <p className="text-foreground">
+                A QR change is waiting for the confirm link sent to{" "}
+                <span className="font-semibold">{pendingQrChange.sentTo}</span>. It is not live
+                until you open that link.
+              </p>
+              <button
+                className="rounded-md border border-border px-3 py-1.5 text-sm font-semibold text-foreground transition hover:bg-muted disabled:opacity-60"
+                disabled={busy}
+                onClick={() => void cancelQrChange()}
+                type="button"
+              >
+                Cancel change
+              </button>
+            </div>
+          ) : null}
 
           <CollectionQrField
             defaultLabel={config.collectionQrLabel}

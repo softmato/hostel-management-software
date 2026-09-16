@@ -29,6 +29,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { BookButton } from "@/components/bookings/book-button";
 import { HostelMap } from "@/components/maps/hostel-map";
 import { MediaLightbox, type LightboxItem } from "@/components/media-lightbox";
 import {
@@ -43,6 +44,7 @@ import { browserApi } from "@/lib/browser-api";
 import { photosOfKind } from "@/lib/hostel-photos";
 import type { NearbyPlaceType } from "@/lib/maps/types";
 import { cn } from "@/lib/utils";
+import type { BookingAvailabilityView } from "@/modules/bookings/booking-button";
 
 import { Breadcrumbs, PublicShell, StatusPill, formatMoney, humanize } from "./shared";
 import {
@@ -152,6 +154,8 @@ type RoomCard = {
   photos: string[];
   rent: number;
   rooms?: number;
+  /** The room type as stored — what a booking names. `type` is its label. */
+  roomType: string;
   seats: number;
   slug: string;
   type: string;
@@ -338,12 +342,38 @@ export function PublicHostelDetailPage({
         photos: roomPhotos(config.roomType),
         rent: config.monthlyRent,
         rooms: config.rooms,
+        roomType: config.roomType,
         seats: config.vacantBeds,
         slug: roomSlug(config.roomType),
         type: roomTypeLabel(config.roomType),
       })),
     [hostel, roomPhotos],
   );
+
+  // Book states for every room at once. A failed check draws no button, which
+  // is the honest answer: the checkout asks again anyway.
+  const hostelSlug = hostel?.slug ?? "";
+  const [bookingAvailability, setBookingAvailability] = useState<BookingAvailabilityView | null>(null);
+
+  useEffect(() => {
+    if (!hostelSlug) {
+      return;
+    }
+
+    let cancelled = false;
+
+    browserApi<{ availability: BookingAvailabilityView }>(
+      `/api/v1/bookings/availability?hostel=${encodeURIComponent(hostelSlug)}`,
+    )
+      .then((data) => {
+        if (!cancelled) setBookingAvailability(data.availability);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hostelSlug]);
 
   // The food facts ride as chips on the routine header, where they add context
   // to the menu rather than sitting in a card of their own saying "3".
@@ -707,6 +737,8 @@ export function PublicHostelDetailPage({
             })}
           </div>
 
+          <BookButton availability={bookingAvailability} className="mt-5" hostelSlug={hostel.slug} />
+
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {contactPhone ? (
               <a
@@ -843,6 +875,13 @@ export function PublicHostelDetailPage({
                       >
                         See Details <ArrowRight className="size-3.5" />
                       </button>
+                      <BookButton
+                        availability={bookingAvailability}
+                        className="mt-2"
+                        hostelSlug={hostel.slug}
+                        roomType={room.roomType}
+                        variant="card"
+                      />
                     </div>
                   </article>
                 ))}
@@ -1422,6 +1461,13 @@ export function PublicHostelDetailPage({
                       </div>
                     ))}
                 </dl>
+
+                <BookButton
+                  availability={bookingAvailability}
+                  className="mb-2"
+                  hostelSlug={hostel.slug}
+                  roomType={openRoom.roomType}
+                />
 
                 {contactPhone ? (
                   <a

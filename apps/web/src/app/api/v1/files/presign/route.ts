@@ -4,7 +4,11 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
 import { connectToDatabase } from "@/lib/db";
-import { isFileAssetKind, isFinancialAssetKind } from "@/lib/file-asset-kinds";
+import {
+  isFileAssetKind,
+  isFinancialAssetKind,
+  isPlatformOnlyAssetKind,
+} from "@/lib/file-asset-kinds";
 import { validateFileAssetMetadata } from "@/lib/file-assets";
 import { Role } from "@/lib/roles";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
@@ -95,9 +99,13 @@ export async function POST(request: NextRequest) {
 
     await connectToDatabase();
 
-    const hostelId = await resolveAssetHostelId(principal, requestedHostelId);
+    // Booking money belongs to the platform: its proofs are never readable by a
+    // hostel, so they are never scoped to one — whatever the caller asked for.
+    const hostelId = isPlatformOnlyAssetKind(kind)
+      ? null
+      : await resolveAssetHostelId(principal, requestedHostelId);
 
-    if (requestedHostelId && !hostelId) {
+    if (requestedHostelId && !hostelId && !isPlatformOnlyAssetKind(kind)) {
       return errorResponse("Access denied", "FORBIDDEN", 403);
     }
 

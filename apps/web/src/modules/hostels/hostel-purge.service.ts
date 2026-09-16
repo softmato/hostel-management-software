@@ -41,6 +41,7 @@ import { HostelListingImpressionModel } from "@hostel/db/models/HostelListingImp
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { HostelPageViewModel } from "@hostel/db/models/HostelPageView";
 import { HostelPaymentProfileModel } from "@hostel/db/models/HostelPaymentProfile";
+import { HostelPayoutAccountModel } from "@hostel/db/models/HostelPayoutAccount";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { HostelVerificationModel } from "@hostel/db/models/HostelVerification";
@@ -175,6 +176,7 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
     ["HostelMember", HostelMemberModel],
     ["HostelPageView", HostelPageViewModel],
     ["HostelPaymentProfile", HostelPaymentProfileModel],
+    ["HostelPayoutAccount", HostelPayoutAccountModel],
     ["HostelSettings", HostelSettingsModel],
     ["HostelSubscription", HostelSubscriptionModel],
     ["HostelVerification", HostelVerificationModel],
@@ -232,6 +234,12 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
 export const RETAINED_BY_HOSTEL_ID: Record<string, string> = {
   AuditLog:
     "The record that this hostel existed and was erased on purpose. Erasing it would remove the only evidence the purge was authorised.",
+  Booking:
+    "HostelPalika's own money record: a fee a person paid us, under a numbered invoice and receipt. It belongs to the platform's accounts and to the person who booked, not to the hostel, and carries a snapshot of the hostel so it still reads after the hostel is gone.",
+  BookingPayment:
+    "The proof a person sent for a booking fee paid to HostelPalika, and who checked it. Part of the platform's payment trail.",
+  BookingTransfer:
+    "A refund or payout HostelPalika sent, with its transaction id and numbered document. Erasing it would leave money that left our account with no record of where it went.",
 };
 
 /** The models a purge touches by name — what {@link RETAINED_BY_HOSTEL_ID} is checked against. */

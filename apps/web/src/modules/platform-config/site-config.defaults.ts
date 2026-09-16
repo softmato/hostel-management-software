@@ -688,6 +688,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   },
   legal: {
     privacy: { body: "", updatedAt: "" },
+    refund: { body: "", updatedAt: "" },
     terms: { body: "", updatedAt: "" },
   },
   /**

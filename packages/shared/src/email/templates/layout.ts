@@ -1,4 +1,10 @@
-import { formatBsDate, formatBsPeriod, hostelDayParts, isBsPeriod } from "../../calendar/bs";
+import {
+  HOSTEL_UTC_OFFSET_MINUTES,
+  formatBsDate,
+  formatBsPeriod,
+  hostelDayParts,
+  isBsPeriod,
+} from "../../calendar/bs";
 import { PRODUCT_NAME } from "../../index";
 import type { EmailCategory } from "../identity";
 
@@ -215,6 +221,41 @@ export function detailsTable(rows: DetailRow[]) {
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 8px;border-top:1px solid ${COLOR.border};border-bottom:1px solid ${COLOR.border};">${body}</table>`;
 }
 
+export type ComparisonRow = {
+  from: string;
+  label: string;
+  to: string;
+};
+
+/**
+ * Before and after, one row per changed value — for mail that asks somebody
+ * to confirm an edit. The old value is struck through so the new one is the
+ * figure the eye lands on. Everything is escaped here.
+ */
+export function comparisonTable(rows: ComparisonRow[]) {
+  if (rows.length === 0) {
+    return "";
+  }
+
+  const head = `<tr>
+      <td style="padding:0 0 8px;font-family:${FONT};font-size:12px;line-height:16px;color:${COLOR.muted};">Setting</td>
+      <td style="padding:0 0 8px 12px;font-family:${FONT};font-size:12px;line-height:16px;color:${COLOR.muted};">Now</td>
+      <td align="right" style="padding:0 0 8px 12px;font-family:${FONT};font-size:12px;line-height:16px;color:${COLOR.muted};">New</td>
+    </tr>`;
+
+  const body = rows
+    .map(
+      (row) => `<tr>
+        <td style="padding:10px 0;border-top:1px solid ${COLOR.border};font-family:${FONT};font-size:14px;line-height:20px;color:${COLOR.muted};">${escapeHtml(row.label)}</td>
+        <td style="padding:10px 0 10px 12px;border-top:1px solid ${COLOR.border};font-family:${FONT};font-size:14px;line-height:20px;color:${COLOR.muted};text-decoration:line-through;">${escapeHtml(row.from)}</td>
+        <td align="right" style="padding:10px 0 10px 12px;border-top:1px solid ${COLOR.border};font-family:${FONT};font-size:14px;line-height:20px;font-weight:600;color:${COLOR.strong};">${escapeHtml(row.to)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 8px;border-bottom:1px solid ${COLOR.border};">${head}${body}</table>`;
+}
+
 const MONTH_NAMES = [
   "January",
   "February",
@@ -293,4 +334,36 @@ export function emailDate(value: Date | string | null | undefined): string | nul
   const bikramSambat = formatBsDate(date);
 
   return bikramSambat ? `${bikramSambat} (${gregorian})` : gregorian;
+}
+
+/** `3:40 PM` — the clock time an instant shows in Kathmandu. */
+export function emailTime(value: Date | string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = typeof value === "string" ? new Date(value) : value;
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const minutesOfDay =
+    Math.floor((date.getTime() + HOSTEL_UTC_OFFSET_MINUTES * 60_000) / 60_000) % (24 * 60);
+  const hours24 = Math.floor(minutesOfDay / 60);
+  const minutes = String(minutesOfDay % 60).padStart(2, "0");
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+
+  return `${hours12}:${minutes} ${hours24 < 12 ? "AM" : "PM"}`;
+}
+
+/**
+ * `Aswin 1, 2083 BS (17 Sep 2026), 3:40 PM` — for deadlines that are a moment,
+ * not a day: a booking hold, a confirm link. The time is Nepal time, always.
+ */
+export function emailDateTime(value: Date | string | null | undefined): string | null {
+  const day = emailDate(value);
+  const time = emailTime(value);
+
+  return day && time ? `${day}, ${time}` : null;
 }

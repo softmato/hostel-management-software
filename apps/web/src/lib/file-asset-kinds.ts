@@ -41,7 +41,26 @@ export const FILE_ASSET_KINDS = [
    * read path, so only the owner and the platform can open it.
    */
   "REGISTRATION_DOCUMENT",
+  /**
+   * A screenshot of a booking fee paid to HostelPalika, or of a refund or payout
+   * we sent. The money is the platform's, not a hostel's, so this kind is
+   * **never** given a `hostelId` at presign — not even a resident's own hostel —
+   * and takes the default read path: the uploader and platform staff only.
+   */
+  "BOOKING_PAYMENT_PROOF",
+  /**
+   * The screenshot of a booking refund or payout a superadmin sent. A platform
+   * money record, so the same rule: never hostel-scoped, platform staff only.
+   */
+  "BOOKING_TRANSFER_PROOF",
 ] as const;
+
+/** Kinds that must never be scoped to a hostel, whoever uploads them. */
+const PLATFORM_ONLY_KINDS = new Set<FileAssetKind>(["BOOKING_PAYMENT_PROOF", "BOOKING_TRANSFER_PROOF"]);
+
+export function isPlatformOnlyAssetKind(value: unknown): boolean {
+  return isFileAssetKind(value) && PLATFORM_ONLY_KINDS.has(value);
+}
 
 export type FileAssetKind = (typeof FILE_ASSET_KINDS)[number];
 

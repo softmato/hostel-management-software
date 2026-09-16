@@ -73,6 +73,8 @@ const KNOWN_PATHS = new Set([
   "/(resident)/more",
   "/(resident)/notices",
   "/(resident)/payments",
+  /* The person's own bookings, on the root stack. */
+  "/bookings",
   /*
    * The resident's own guardian list, on the root stack. Added with the
    * guardian notifications — a resident told "your guardian accepted" has
@@ -85,6 +87,8 @@ const KNOWN_PATHS = new Set([
    * `actionUrl`, which is the website's billing page.
    */
   "/manage/billing",
+  /* A hostel's booking requests. Where a booking bell sent to the hostel lands (`push-routing.ts`, audience HOSTEL). */
+  "/manage/bookings",
   /*
    * The night-status screen, on the root stack. Reached by a plain tap on the
    * nightly prompt — the notification's own buttons answer it without opening
@@ -196,6 +200,9 @@ const COMPLAINT_PATH = /^\/\(resident\)\/more\/complaints(?:\/([A-Za-z0-9_-]+))?
  */
 const COMMUNITY_POST = /^\/community\/([A-Za-z0-9_-]+)$/;
 
+/** `/booking/<id>` — a booking bell sent to the person who booked (`push-routing.ts`, audience GUEST). */
+const BOOKING_DETAIL = /^\/booking\/([A-Za-z0-9_-]+)$/;
+
 /**
  * Resolves a server-supplied path to something routable.
  *
@@ -239,6 +246,12 @@ export function resolvePushPath(path: unknown): string {
 
   if (communityPost) {
     return `/community/${communityPost[1]}`;
+  }
+
+  const booking = BOOKING_DETAIL.exec(normalized);
+
+  if (booking) {
+    return `/booking/${booking[1]}`;
   }
 
   if (KNOWN_PATHS.has(normalized)) {

@@ -48,6 +48,10 @@ import { renderReceiptDocument } from "./receipt-document";
  */
 
 const PREFIX = {
+  BOOKING_INVOICE: "HH-BKI",
+  BOOKING_PAYOUT: "HH-BPO",
+  BOOKING_RECEIPT: "HH-BKR",
+  BOOKING_REFUND: "HH-BRF",
   SUBSCRIPTION_INVOICE: "HH-INV",
   SUBSCRIPTION_RECEIPT: "HH-TXN",
 } as const;
@@ -62,11 +66,16 @@ const PREFIX = {
  * series together sees columns that line up.
  */
 const WIDTH = {
+  BOOKING_INVOICE: 6,
+  BOOKING_PAYOUT: 8,
+  BOOKING_RECEIPT: 8,
+  BOOKING_REFUND: 8,
   SUBSCRIPTION_INVOICE: 6,
   SUBSCRIPTION_RECEIPT: 8,
 } as const;
 
-type DocumentKind = keyof typeof PREFIX;
+export type PlatformDocumentKind = keyof typeof PREFIX;
+type DocumentKind = PlatformDocumentKind;
 
 /**
  * The next number in a fiscal year's run.
@@ -76,7 +85,7 @@ type DocumentKind = keyof typeof PREFIX;
  * fiscal year creates that year's row without anything having to notice the
  * year turned over.
  */
-async function allocate(kind: DocumentKind, issuedAt: Date): Promise<string> {
+export async function allocate(kind: DocumentKind, issuedAt: Date): Promise<string> {
   const fiscalYear = bsFiscalYear(issuedAt);
 
   if (!fiscalYear) {

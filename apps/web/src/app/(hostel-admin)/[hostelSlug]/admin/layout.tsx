@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { HostelBookingRequestsReminder } from "@/app/_components/hostel-booking-requests-reminder";
 import { HostelPaymentCredentialsReminder } from "@/app/_components/hostel-payment-credentials-reminder";
 import { HostelPhotoReminder } from "@/app/_components/hostel-photo-reminder";
 import { PortalShell } from "@/components/portal-shell";
@@ -43,6 +44,7 @@ export default async function HostelAdminWorkspaceLayout({
         paymentProfileHref={`/${hostelSlug}/admin/payment-setup`}
       />
       <HostelPhotoReminder profileHref={`/${hostelSlug}/admin/profile`} />
+      <HostelBookingRequestsReminder bookingsHref={`/${hostelSlug}/admin/bookings`} />
       {children}
     </PortalShell>
   );

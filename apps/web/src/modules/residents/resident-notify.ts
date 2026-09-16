@@ -1,6 +1,6 @@
 import type { Types } from "mongoose";
 
-import { siteUrl } from "@/lib/site";
+import { outboundUrl } from "@/lib/site";
 import { Role } from "@/lib/roles";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { HostelModel } from "@hostel/db/models/Hostel";
@@ -20,7 +20,7 @@ export type ResidentRecipient = Contact & {
 };
 
 export function appUrl(path: string) {
-  return `${siteUrl()}${path.startsWith("/") ? path : `/${path}`}`;
+  return `${outboundUrl()}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 export async function getHostelName(hostelId: Types.ObjectId | string) {

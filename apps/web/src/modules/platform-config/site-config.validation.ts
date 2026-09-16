@@ -224,6 +224,18 @@ export const legalSchema = z.object({
     body: trimmed.max(20000).default(""),
     updatedAt: trimmed.max(40).default(""),
   }),
+  /**
+   * The booking refund policy (docs/BOOKINGS.md). Blank `body` renders the
+   * shipped policy with the live booking terms filled in. Changing either field
+   * changes the policy version, so a person part-way through a checkout is asked
+   * to accept the new text before they can book.
+   */
+  refund: z
+    .object({
+      body: trimmed.max(20000).default(""),
+      updatedAt: trimmed.max(40).default(""),
+    })
+    .default({ body: "", updatedAt: "" }),
 });
 
 /**
@@ -462,6 +474,8 @@ export const SEO_PAGE_KEYS = [
   "contact",
   "privacy",
   "terms",
+  "refundPolicy",
+  "howBookingWorks",
   "login",
   "signup",
 ] as const;

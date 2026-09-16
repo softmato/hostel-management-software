@@ -57,6 +57,11 @@ import {
 import { uploadPublicFile, uploadPublicText } from "@/lib/public-uploads";
 import { registerHostelApplication } from "@/lib/registration-api";
 import {
+  EMPTY_PAYOUT_ACCOUNT,
+  RegistrationPayoutFields,
+} from "@/components/manage/payout-account-card";
+import { Card, SectionHeader } from "@/components/ui/card";
+import {
   clearRegistrationDraft,
   readRegistrationDraft,
   type RegistrationDrafts,
@@ -309,6 +314,8 @@ function HostelWizard({
   const [submittedName, setSubmittedName] = useState<string | null>(null);
   /** Three description starters, drawn once per visit so they don't reshuffle between steps. */
   const [starters] = useState(() => pickStarters(3));
+  // Booking payouts (docs/BOOKINGS.md item 26). Optional, and not part of the saved draft.
+  const [payout, setPayout] = useState(EMPTY_PAYOUT_ACCOUNT);
 
   // Row keys only; a counter rather than `crypto.randomUUID`, which is not on
   // every Android runtime. Starts past any id a restored draft already holds.
@@ -644,7 +651,10 @@ function HostelWizard({
     setSubmitting(true);
 
     try {
-      const hostel = await registerHostelApplication(buildHostelPayload(form));
+      const hostel = await registerHostelApplication({
+        ...buildHostelPayload(form),
+        payoutAccount: payout.number.trim() ? payout : undefined,
+      });
 
       markSaved();
       void clearRegistrationDraft("hostel", accountId);
@@ -657,7 +667,7 @@ function HostelWizard({
     } finally {
       setSubmitting(false);
     }
-  }, [accountId, busy, form, goTo, markSaved]);
+  }, [accountId, busy, form, goTo, markSaved, payout]);
 
   if (submittedName) {
     return <SubmittedView hostelName={submittedName} />;
@@ -1094,6 +1104,18 @@ function HostelWizard({
           }
           patch={patch}
         />
+      ) : null}
+
+      {onReview ? (
+        <View className="mt-6">
+          <SectionHeader
+            subtitle="Optional. Where we send your share when someone books a bed. You can add it later from Payment setup."
+            title="Booking payouts"
+          />
+          <Card>
+            <RegistrationPayoutFields onChange={setPayout} value={payout} />
+          </Card>
+        </View>
       ) : null}
     </StepFrame>
   );

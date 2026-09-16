@@ -19,6 +19,8 @@ export const SEO_PAGE_ROUTES: Record<SeoPageKey, { label: string; path: string }
   signup: { label: "Sign up", path: "/signup" },
   software: { label: "Hostel management software", path: "/hostel-management-software" },
   terms: { label: "Terms of service", path: "/terms" },
+  refundPolicy: { label: "Refund policy", path: "/refund-policy" },
+  howBookingWorks: { label: "How booking works", path: "/how-booking-works" },
 };
 
 /**
@@ -402,6 +404,16 @@ export const DEFAULT_SEO: SeoConfig = {
       description:
         "The terms for using {siteName} — for people looking for hostels, residents, guardians, hostel owners and their staff.",
       title: "Terms of Service",
+    },
+    refundPolicy: {
+      description:
+        "What a room booking on {siteName} costs, when the booking fee is refunded in full, and how much comes back after the hostel confirms.",
+      title: "Refund Policy",
+    },
+    howBookingWorks: {
+      description:
+        "How booking a hostel bed on {siteName} works: the booking fee, the payment check, how long the hostel has to answer, how long your bed is held and how you move in.",
+      title: "How Booking Works",
     },
   },
   software: {

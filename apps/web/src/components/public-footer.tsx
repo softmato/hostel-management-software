@@ -187,6 +187,12 @@ export function PublicFooter() {
             <Link className="hover:text-primary" href="/terms">
               Terms
             </Link>
+            <Link className="hover:text-primary" href="/refund-policy">
+              Refunds
+            </Link>
+            <Link className="hover:text-primary" href="/how-booking-works">
+              Booking
+            </Link>
           </div>
         </div>
       </div>

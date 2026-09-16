@@ -87,6 +87,22 @@ export function deepLinkForNotification(input: DeepLinkInput): string {
     return PLAN_BILLING_PATH;
   }
 
+  /*
+   * Also ahead of `actionUrl`: a booking row's `actionUrl` is the website's
+   * `/bookings/<id>` or `/hostel-admin/bookings`, neither of them an app route.
+   * `data.audience` is written by `booking-notify.ts` on every booking bell. The
+   * platform's own copies have no app screen — superadmins work on the web.
+   */
+  if (input.category === "BOOKING") {
+    const bookingId = readId(input.data, "bookingId");
+
+    if (input.data?.audience === "HOSTEL") {
+      return "/manage/bookings";
+    }
+
+    return input.data?.audience === "GUEST" && bookingId ? `/booking/${bookingId}` : FALLBACK_PATH;
+  }
+
   // A single leading slash only. `//evil.example` is protocol-relative — it
   // reads as a local path but resolves to another origin, so it must not reach
   // a router or a WebView.

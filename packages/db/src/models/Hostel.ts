@@ -207,6 +207,20 @@ const hostelSchema = new Schema(
       startedAt: { default: null, type: Date },
       startedBy: { default: null, ref: "User", type: Schema.Types.ObjectId },
     },
+    /**
+     * Room bookings on this hostel stopped by the platform (docs/BOOKINGS.md).
+     *
+     * Set automatically when missed answers and hostel cancellations reach the
+     * strike limit, or by a superadmin. Only a superadmin clears it. While
+     * `pausedAt` is set the Book button does not show and no booking is taken.
+     */
+    bookingPause: {
+      pausedAt: { default: null, type: Date },
+      pausedBy: { default: null, ref: "User", type: Schema.Types.ObjectId },
+      reason: { default: null, trim: true, type: String },
+      /** Strikes before this are forgiven: a resumed hostel starts counting again. */
+      resumedAt: { default: null, type: Date },
+    },
   },
   { timestamps: true },
 );

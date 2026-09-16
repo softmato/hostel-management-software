@@ -387,6 +387,13 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   const [prefill, setPrefill] = useState<ResidentPrefill | null>(null);
   const [prefillPhoto, setPrefillPhoto] = useState<PrefillPhoto | null>(null);
   const [prefillOccupancy, setPrefillOccupancy] = useState<PrefillOccupancy | null>(null);
+  /** The confirmed booking this card holds here — registering them closes it (docs/BOOKINGS.md item 8). */
+  const [cardBooking, setCardBooking] = useState<{
+    code: string;
+    guestName: string;
+    holdEndsAt: string | null;
+    roomType: string;
+  } | null>(null);
   /** "identify" asks for the resident ID first; "form" is the actual registration. */
   const [addStep, setAddStep] = useState<"identify" | "form">("identify");
   /** Room type drives the monthly rent, so both are controlled in the form. */ const [
@@ -461,6 +468,12 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
 
       setPrefill(result.prefill);
       setPrefillOccupancy(result.occupancy ?? null);
+      // Beside the lookup, not inside it: a booking check that fails must never stop a registration.
+      browserApi<{ booking: typeof cardBooking }>(
+        `/api/v1/hostel-admin/bookings/card?card=${encodeURIComponent(query)}`,
+      )
+        .then((data) => setCardBooking(data.booking))
+        .catch(() => setCardBooking(null));
       setPrefillPhoto(
         result.photo.hasPhoto
           ? { residentId: result.residentId, updatedAt: result.photo.updatedAt }
@@ -485,6 +498,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     setPrefill(null);
     setPrefillPhoto(null);
     setPrefillOccupancy(null);
+    setCardBooking(null);
     setLookupId("");
     setLookupError("");
   }, []);
@@ -945,6 +959,20 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                   {prefillOccupancy.sameHostel
                     ? `${prefill.resident.firstName} already lives in your hostel. Open their record instead of adding them again.`
                     : `${prefill.resident.firstName} already lives at ${prefillOccupancy.hostelName}. They can't be added here until ${prefillOccupancy.hostelName} moves them out.`}
+                </p>
+              ) : null}
+              {cardBooking && !prefillOccupancy ? (
+                <p className="rounded-xl border border-brand-teal/30 bg-brand-teal/10 px-4 py-3 text-sm text-foreground">
+                  <strong>This card holds booking {cardBooking.code}.</strong> One {cardBooking.roomType} bed is held for{" "}
+                  {cardBooking.guestName}
+                  {cardBooking.holdEndsAt
+                    ? ` until ${new Date(cardBooking.holdEndsAt).toLocaleString("en-GB", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                        timeZone: "Asia/Kathmandu",
+                      })}`
+                    : ""}
+                  . Registering them uses that bed and completes the booking; choosing another room type moves it.
                 </p>
               ) : null}
               <ImportedProfileSummary photo={prefillPhoto} prefill={prefill} />
