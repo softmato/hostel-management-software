@@ -37,7 +37,7 @@ export const OPEN_BOOKING_STATUSES: readonly BookingStatus[] = [
 
 export type BookingAvailability = {
   hostelReason: string | null;
-  rooms: { bookable: boolean; fee: number | null; reason: string | null; roomType: string }[];
+  rooms: { bookable: boolean; fee: number | null; photos: string[]; reason: string | null; roomType: string }[];
 };
 
 export type PolicyRow = { fromDay: number; refund: number; refundPercent: number; throughDay: number };
@@ -60,7 +60,14 @@ export type BookingQuote = {
   policyVersion: string;
   reason: string | null;
   reasonMessage: string | null;
-  room: { bedsPerRoom: number | null; mealInclusion: string | null; monthlyRent: number | null; roomType: string };
+  room: {
+    bedsPerRoom: number | null;
+    mealInclusion: string | null;
+    monthlyRent: number | null;
+    /** This room type's own photos — never the hostel's exterior. */
+    photos: string[];
+    roomType: string;
+  };
   terms: { feePercent: number; holdDays: number; hostelAnswerHours: number };
 };
 
@@ -114,6 +121,7 @@ export type BookingDetail = {
 
 export type BookingSummary = {
   code: string;
+  coverPhotoUrl: string | null;
   createdAt: string;
   fee: number;
   holdEndsAt: string | null;

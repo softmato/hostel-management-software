@@ -1031,6 +1031,74 @@ async function savePayoutAccountFromRegistration(
   }
 }
 
+/**
+ * The hostel's **opening rate card**, written from what the registration form
+ * already collected.
+ *
+ * Without this a hostel publishes, takes its first resident, and every billing
+ * run answers `BED_TYPE_NOT_PRICED` — or falls back to `basis: "MANUAL"`, the
+ * listed rent, with no `feeScheduleId` behind the line. The rate card is the
+ * only thing that prices a resident, so a hostel that goes live without one is
+ * a hostel that cannot bill anybody, and the agent who filed it is not there to
+ * find out.
+ *
+ * `roomConfigurations[].monthlyRent` is the rent per room type and becomes the
+ * card's rates; `pricing.admissionFee`, `securityDeposit` and
+ * `referralAdmissionDiscount` become the joining figures. Rounded to whole
+ * rupees because the card refuses a fraction and the listing schema does not.
+ *
+ * Non-fatal, like the payout account beside it: the hostel is already published
+ * and invoiced by the time this runs, so a refused card is a thing to fix from
+ * the hostel's own Rate Card screen rather than a reason to report a completed
+ * registration as failed. It is logged so the fixing is not guesswork.
+ */
+async function seedOpeningRateCard(
+  hostelId: string,
+  input: Pick<
+    TeamHostelRegistrationInput,
+    "pricing" | "referralAdmissionDiscount" | "roomConfigurations" | "securityDeposit"
+  >,
+  actorId: string,
+) {
+  const rates = input.roomConfigurations
+    .filter((room) => room.roomType.trim() && (room.monthlyRent ?? 0) > 0)
+    .map((room) => ({
+      monthlyAmount: Math.round(room.monthlyRent ?? 0),
+      roomType: room.roomType.trim(),
+    }));
+
+  // An empty card prices nobody and is refused by the schema anyway. A hostel
+  // whose rooms were all filed without a rent keeps the listed-rent fallback.
+  if (rates.length === 0) {
+    return;
+  }
+
+  try {
+    const { createFeeSchedule } = await import("@/modules/finance/fee-schedule.service");
+
+    await createFeeSchedule(
+      hostelId,
+      {
+        admissionFee: Math.round(input.pricing?.admissionFee ?? 0),
+        depositAmount: Math.round(input.securityDeposit ?? 0),
+        effectiveFrom: new Date(),
+        rates,
+        referralAdmissionDiscount: Math.round(input.referralAdmissionDiscount ?? 0),
+      },
+      { hostelIds: [hostelId], role: Role.PLATFORM_AGENT, userId: actorId },
+    );
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "registration_rate_card_skipped",
+        hostelId,
+        level: "warn",
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
+
 export async function registerPublicHostelApplication(
   input: HostelRegistrationInput,
   options: { authUserId?: string } = {},
@@ -1610,6 +1678,7 @@ export async function registerTeamHostelApplication(
   // exist now — not after the next sweep.
   await placeOnMap(hostel._id);
 
+  await seedOpeningRateCard(hostel._id.toString(), input, agent.userId);
   await savePayoutAccountFromRegistration(hostel._id.toString(), input.payoutAccount, agent.userId);
 
   const createdHostel = await findHostelByIdOrThrow(hostel._id.toString());

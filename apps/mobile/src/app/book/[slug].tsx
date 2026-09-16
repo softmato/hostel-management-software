@@ -14,13 +14,16 @@ import { FactRow } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { StackedThumb } from "@/components/ui/stacked-thumb";
 import { EmptyState, FailureState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { APP_NAME } from "@/constants/branding";
+import { API_BASE_URL } from "@/lib/api";
 import { readApiError, readApiErrorCode } from "@/lib/api-contract";
+import { openAssetViewer } from "@/lib/asset-viewer";
 import {
   type BookingAvailability,
   type BookingDetail,
@@ -33,6 +36,7 @@ import {
   sendBookingPayment,
 } from "@/lib/booking-api";
 import { formatMoney } from "@/lib/format";
+import { absoluteMediaUrl } from "@/lib/media";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
 
@@ -67,14 +71,58 @@ function Facts({ rows }: { rows: [string, string | null | undefined][] }) {
   );
 }
 
+/** Absolute URLs for a room's own photos, in order. */
+function roomPhotoUris(photos: readonly string[]) {
+  return photos
+    .map((url) => absoluteMediaUrl(url, API_BASE_URL))
+    .filter((url): url is string => Boolean(url));
+}
+
+/**
+ * The room being booked, in its own photos, under the hostel's cover. Tapping
+ * one opens the app's asset viewer, the same as on the hostel screen — a bed is
+ * worth looking at properly before it is paid for.
+ */
+function RoomPhotos({ photos, roomType }: { photos: string[]; roomType: string }) {
+  if (photos.length === 0) {
+    return null;
+  }
+
+  return (
+    <View className="mt-3 border-t border-border pt-3">
+      <Text variant="caption">{roomType}</Text>
+      <View className="mt-2 flex-row flex-wrap gap-2">
+        {photos.map((uri, index) => (
+          <Pressable
+            accessibilityLabel={`${roomType} photo ${index + 1}`}
+            accessibilityRole="imagebutton"
+            key={uri}
+            onPress={() => openAssetViewer(photos.map((url) => ({ title: roomType, url })), index)}
+          >
+            <Image
+              contentFit="cover"
+              source={{ uri }}
+              style={{ borderRadius: 10, height: 72, width: 72 }}
+              transition={150}
+            />
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function PackageCard({ quote }: { quote: BookingQuote }) {
+  const cover = absoluteMediaUrl(quote.hostel.coverPhotoUrl, API_BASE_URL);
+  const photos = roomPhotoUris(quote.room.photos);
+
   return (
     <Card padding="p-0">
-      {quote.hostel.coverPhotoUrl ? (
+      {cover ? (
         <Image
           accessibilityLabel={quote.hostel.name}
           contentFit="cover"
-          source={{ uri: quote.hostel.coverPhotoUrl }}
+          source={{ uri: cover }}
           style={{ aspectRatio: 16 / 9, borderTopLeftRadius: 16, borderTopRightRadius: 16, width: "100%" }}
         />
       ) : null}
@@ -91,6 +139,7 @@ function PackageCard({ quote }: { quote: BookingQuote }) {
             ]}
           />
         </View>
+        <RoomPhotos photos={photos} roomType={quote.room.roomType} />
         <View className="mt-3 flex-row items-end justify-between border-t border-border pt-3">
           <View>
             <Text className="text-sm font-semibold text-foreground">Booking fee</Text>
@@ -121,15 +170,20 @@ function RoomChooser({ availability, slug }: { availability: BookingAvailability
     <View>
       <SectionHeader title="Choose a room" />
       <Card padding="px-4 py-1">
-        {rooms.map((room) => (
-          <ListRow
-            icon="bed-outline"
-            key={room.roomType}
-            onPress={() => router.setParams({ room: room.roomType, slug })}
-            subtitle={`${formatMoney(room.fee)} booking fee`}
-            title={room.roomType}
-          />
-        ))}
+        {rooms.map((room) => {
+          const photos = roomPhotoUris(room.photos);
+
+          return (
+            <ListRow
+              icon="bed-outline"
+              key={room.roomType}
+              left={photos.length > 0 ? <StackedThumb photos={photos} /> : undefined}
+              onPress={() => router.setParams({ room: room.roomType, slug })}
+              subtitle={`${formatMoney(room.fee)} booking fee`}
+              title={room.roomType}
+            />
+          );
+        })}
       </Card>
     </View>
   );
@@ -311,7 +365,7 @@ function PayStep({ booking, onChange }: { booking: BookingDetail; onChange: (boo
               <Image
                 accessibilityLabel={pay.qr.label}
                 contentFit="contain"
-                source={{ uri: pay.qr.url }}
+                source={{ uri: absoluteMediaUrl(pay.qr.url, API_BASE_URL) ?? pay.qr.url }}
                 style={{ backgroundColor: "#ffffff", borderRadius: 12, height: 220, width: 220 }}
               />
               <Text className="mt-2" variant="caption">

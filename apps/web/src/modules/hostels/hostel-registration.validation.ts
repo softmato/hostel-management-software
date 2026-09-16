@@ -111,6 +111,25 @@ const registrationFields = platformHostelCreateSchema
      * until it is verified, and it can be added later from Payment Setup.
      */
     payoutAccount: payoutAccountInputSchema.optional(),
+    /**
+     * The discount a referred resident gets off the admission fee, and the
+     * refundable deposit taken at joining.
+     *
+     * Neither belongs on the hostel document: they belong to the **rate card**,
+     * which is the only thing that prices a resident
+     * (`finance/fee-schedule.service.ts`). They are collected at registration
+     * because the alternative is a hostel that publishes, takes its first
+     * resident and raises a joining invoice with no deposit line on it — and the
+     * deposit is half of what that resident hands over on day one, since
+     * `raiseAdmissionInvoice` puts the admission fee and the deposit on one
+     * invoice.
+     *
+     * Whole rupees, matching `feeScheduleCreateSchema`: the rate card refuses a
+     * fraction at three separate gates, so accepting one here would only move
+     * the refusal further from the person who typed it.
+     */
+    referralAdmissionDiscount: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    securityDeposit: z.coerce.number().int().min(0).max(1_000_000).optional(),
     /** Beds across the whole building, as stated. */
     totalCapacity: z.coerce.number().int().min(0).max(10_000).optional(),
     yearEstablished: z
@@ -121,7 +140,8 @@ const registrationFields = platformHostelCreateSchema
   });
 
 /**
- * A ROOM photo has to belong to a room type that was actually submitted.
+ * The cross-field checks both desks get: the rate card's arithmetic, and that a
+ * ROOM photo belongs to a room type that was actually submitted.
  *
  * `resolveHostelPhotos` narrows the per-room strip by matching `photo.roomType`
  * against `roomConfigurations[].roomType` exactly. A photo tagged "Four Sharing"
@@ -132,10 +152,29 @@ const registrationFields = platformHostelCreateSchema
  * Checking it here, once, covers both desks and every future caller of the
  * contract; checking it in the form would only cover the form.
  */
-function refineRegistrationPhotos(
-  input: Pick<z.infer<typeof registrationFields>, "photos" | "roomConfigurations">,
+function refineRegistration(
+  input: Pick<
+    z.infer<typeof registrationFields>,
+    "photos" | "pricing" | "referralAdmissionDiscount" | "roomConfigurations"
+  >,
   ctx: z.RefinementCtx,
 ) {
+  /*
+   * A referral discount larger than the fee it comes off would make the joining
+   * invoice negative — money owed *to* somebody for moving in. The rate card
+   * already refuses this (`feeScheduleCreateSchema`), but it refuses it when the
+   * card is written, which on the team path is after the hostel is published and
+   * the plan invoice is raised. Refusing it here keeps the whole registration
+   * one atomic answer.
+   */
+  if ((input.referralAdmissionDiscount ?? 0) > (input.pricing?.admissionFee ?? 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A referral discount cannot be more than the admission fee.",
+      path: ["referralAdmissionDiscount"],
+    });
+  }
+
   const known = new Set(input.roomConfigurations.map((room) => room.roomType));
 
   input.photos.forEach((photo, index) => {
@@ -164,7 +203,7 @@ function refineRegistrationPhotos(
 }
 
 export const hostelRegistrationSchema =
-  registrationFields.superRefine(refineRegistrationPhotos);
+  registrationFields.superRefine(refineRegistration);
 
 export type HostelRegistrationInput = z.infer<typeof hostelRegistrationSchema>;
 export type RegistrationPlanChoice = z.infer<typeof registrationPlanChoiceSchema>;
@@ -215,6 +254,6 @@ export const teamHostelRegistrationSchema = registrationFields
      */
     confirmSecondHostel: z.boolean().optional(),
   })
-  .superRefine(refineRegistrationPhotos);
+  .superRefine(refineRegistration);
 
 export type TeamHostelRegistrationInput = z.infer<typeof teamHostelRegistrationSchema>;

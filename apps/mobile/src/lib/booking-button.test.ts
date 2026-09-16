@@ -8,9 +8,9 @@ import { resolvePushPath } from "@/lib/push-link";
 const open: BookingAvailability = {
   hostelReason: null,
   rooms: [
-    { bookable: true, fee: 700, reason: null, roomType: "Double sharing" },
-    { bookable: false, fee: 1050, reason: "FULL", roomType: "Single" },
-    { bookable: false, fee: null, reason: "NOT_PRICED", roomType: "Triple" },
+    { bookable: true, fee: 700, photos: [], reason: null, roomType: "Double sharing" },
+    { bookable: false, fee: 1050, photos: [], reason: "FULL", roomType: "Single" },
+    { bookable: false, fee: null, photos: [], reason: "NOT_PRICED", roomType: "Triple" },
   ],
 };
 

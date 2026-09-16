@@ -152,6 +152,69 @@ Depends on Phase 1 for the fields to exist.
       newest-first, which buries the row that most needs a call a little deeper
       every time anybody files a new registration
 
+## Phase 8 — The setup data the form still left to the warden
+
+A hostel filed by an agent went live able to take residents and unable to bill
+them. `roomConfigurations[].monthlyRent` is the *listed* rent, not a rate card:
+with no `FeeSchedule` behind it every rent line resolves `basis: "MANUAL"` with
+no `feeScheduleId`, and a room type filed without a rent fails outright with
+`BED_TYPE_NOT_PRICED`. The deposit — half of what a resident hands over on day
+one, since `raiseAdmissionInvoice` puts it on the joining invoice with the
+admission fee — had nowhere to be typed at all.
+
+- [x] 8.1 Contract gains `securityDeposit` and `referralAdmissionDiscount`,
+      whole rupees, with the discount refused when it exceeds
+      `pricing.admissionFee`. The rate card already refuses that, but it refuses
+      it when the card is written — which on this path is *after* the hostel is
+      published and the plan invoice raised, so the refusal has to happen while
+      the agent is still looking at the form
+- [x] 8.2 `registerTeamHostelApplication` opens the hostel's first rate card
+      from what the form collected — rents per room type, admission fee,
+      deposit, referral discount, effective from today. Non-fatal and logged
+      like the payout account beside it: the hostel is live and invoiced by the
+      time it runs, so a refused card is something to fix from the Rate Card
+      screen, not a reason to report a finished registration as failed.
+      `createFeeSchedule` projects the card back onto the listing, so the rate
+      card becomes the single price the moment it is written
+- [x] 8.3 Step 3's "Pricing" card is now the **Rate card**: admission fee,
+      security deposit and referral discount, with what a resident pays on
+      joining totalled beside the rent range. Every room type now *must* carry a
+      rent — blocking, per row, because an unpriced room type is a resident
+      nobody can bill and the agent is standing next to the person who knows the
+      number
+- [x] 8.4 Cook count, which the public form has always collected and this one
+      never did. It sets the plan's cook seats
+- [x] 8.5 The payout account survives a draft restore, and the review step calls
+      out a missing one — bookings stay switched off until a payout account is
+      verified, so a hostel filed without one publishes unable to take a booking.
+      A missing deposit is called out the same way rather than blocked: a hostel
+      is allowed to take none, but "none" and "nobody typed it" look identical
+      afterwards
+
+**Verified** — `hostel-registration.validation.test.ts` is now 14 cases: the
+deposit and discount survive the round trip, a discount larger than the
+admission fee is refused on `referralAdmissionDiscount`, and a discount with no
+admission fee at all is refused. `src/modules/hostels` + the fee-schedule suites
+run 155 green across 11 files; `tsc --noEmit` and eslint are clean on the three
+changed files.
+
+### Still left to the warden after this
+
+Named rather than built, because each is its own piece of work:
+
+- **How residents pay this hostel** — `HostelPaymentProfile` holds the eSewa /
+  Khalti / Fonepay configuration and its signing keys live in
+  `EncryptedSecret`. Merchant credentials are not something a field agent should
+  be typing, so this stays on Payment Setup.
+- **Per-hostel operational settings** — `HostelSettings` (geofence radii,
+  attendance ping times, the night prompt's hour, community feed, per-trade
+  maintenance call-out charges). Every field has a defensible default and none
+  of them stops a hostel operating on day one.
+- **The cook's own account** — `cookCount` sizes the roster; issuing credentials
+  is the Cook Portal's flow.
+
+---
+
 ---
 
 ## The one thing being traded away, stated plainly

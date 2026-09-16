@@ -382,6 +382,7 @@ const FIELD_STEP: Record<string, number> = {
   amount: 7,
   area: 2,
   city: 2,
+  cookCount: 5,
   description: 1,
   documents: 6,
   email: 1,
@@ -396,10 +397,13 @@ const FIELD_STEP: Record<string, number> = {
   phone: 1,
   photos: 4,
   pin: 2,
+  payout: 7,
   plan: 7,
+  referralDiscount: 3,
   rooms: 3,
   routine: 5,
   rules: 6,
+  securityDeposit: 3,
   totalFloors: 1,
   yearEstablished: 1,
 };
@@ -411,6 +415,7 @@ const FIELD_LABEL: Record<string, string> = {
   amount: "Amount collected",
   area: "Area",
   city: "City",
+  cookCount: "Cooks",
   description: "Description",
   documents: "Documents",
   email: "Owner email",
@@ -425,10 +430,13 @@ const FIELD_LABEL: Record<string, string> = {
   phone: "Owner phone",
   photos: "Photos",
   pin: "Map pin",
+  payout: "Payout account",
   plan: "Plan",
+  referralDiscount: "Referral discount",
   rooms: "Room types",
   routine: "Weekly routine",
   rules: "House rules",
+  securityDeposit: "Security deposit",
   totalFloors: "Floors",
   yearEstablished: "Year established",
 };
@@ -747,7 +755,14 @@ export function TeamRegisterHostelPage() {
   });
 
   const [rooms, setRooms] = useState<RoomRow[]>([newRoom()]);
+  /*
+   * The joining figures. They are the rate card's, not the listing's — see
+   * `seedOpeningRateCard` — which is why only the admission fee also shows up in
+   * `pricing` on the payload.
+   */
   const [admissionFee, setAdmissionFee] = useState("");
+  const [securityDeposit, setSecurityDeposit] = useState("");
+  const [referralDiscount, setReferralDiscount] = useState("");
 
   const [photos, setPhotos] = useState<PhotoRow[]>([]);
 
@@ -758,6 +773,8 @@ export function TeamRegisterHostelPage() {
   const [hasVeg, setHasVeg] = useState(true);
   const [hasNonVeg, setHasNonVeg] = useState(true);
   const [mealsPerDay, setMealsPerDay] = useState("3");
+  /** How many cooks the kitchen runs. Feeds the plan's seat caps. */
+  const [cookCount, setCookCount] = useState("1");
   const [foodNotes, setFoodNotes] = useState("");
 
   const [timings, setTimings] =
@@ -1052,12 +1069,15 @@ export function TeamRegisterHostelPage() {
       read<LocationPickerValue>("pin", setPin);
       read<RoomRow[]>("rooms", setRooms);
       read<string>("admissionFee", setAdmissionFee);
+      read<string>("securityDeposit", setSecurityDeposit);
+      read<string>("referralDiscount", setReferralDiscount);
       read<PhotoRow[]>("photos", setPhotos);
       read<string[]>("facilities", setFacilities);
       read<string>("rules", setRules);
       read<boolean>("hasVeg", setHasVeg);
       read<boolean>("hasNonVeg", setHasNonVeg);
       read<string>("mealsPerDay", setMealsPerDay);
+      read<string>("cookCount", setCookCount);
       read<string>("foodNotes", setFoodNotes);
       /*
        * The routine and its timings **merge onto** the defaults rather than
@@ -1086,6 +1106,13 @@ export function TeamRegisterHostelPage() {
       read<DocRow[]>("documents", setDocuments);
       read<string>("planId", setPlanId);
       read<BillingCycle>("cycle", setCycle);
+      /*
+       * The payout account is restored like everything else. An agent who has
+       * read a bank account number off a cheque book and then lost signal should
+       * not have to ask for it twice — and it is no more sensitive than the
+       * government ID already sitting in this draft.
+       */
+      read<typeof EMPTY_PAYOUT_DRAFT>("payout", setPayout);
     } catch {
       // A corrupt draft is discarded rather than diagnosed.
     }
@@ -1109,6 +1136,7 @@ export function TeamRegisterHostelPage() {
           alternatePhone,
           area,
           city,
+          cookCount,
           cycle,
           description,
           documents,
@@ -1123,13 +1151,16 @@ export function TeamRegisterHostelPage() {
           mapLink,
           mealsPerDay,
           ownerName,
+          payout,
           phone,
           photos,
           pin,
           planId,
+          referralDiscount,
           rooms,
           routine,
           rules,
+          securityDeposit,
           step,
           timings,
           totalFloors,
@@ -1160,6 +1191,7 @@ export function TeamRegisterHostelPage() {
     alternatePhone,
     area,
     city,
+    cookCount,
     cycle,
     description,
     documents,
@@ -1174,13 +1206,16 @@ export function TeamRegisterHostelPage() {
     mapLink,
     mealsPerDay,
     ownerName,
+    payout,
     phone,
     photos,
     pin,
     planId,
+    referralDiscount,
     rooms,
     routine,
     rules,
+    securityDeposit,
     step,
     timings,
     totalFloors,
@@ -1197,7 +1232,9 @@ export function TeamRegisterHostelPage() {
         // sit beside a phone number the server is going to refuse.
         return !blocking.some((check) => check.step === key);
       case 3:
-        return validRooms.length > 0;
+        return (
+          validRooms.length > 0 && !blocking.some((check) => check.step === 3)
+        );
       case 4:
         return photos.some((photo) => photo.url && !photo.uploading);
       case 5:
@@ -1262,6 +1299,26 @@ export function TeamRegisterHostelPage() {
         message: "Add at least one room type with a number of rooms.",
         valid: validRooms.length > 0,
       },
+      /*
+       * Every room type needs a rent, because the rents *are* the rate card
+       * (`seedOpeningRateCard`). A room type filed without one is a room type no
+       * billing run can price: the resident in it is either refused with
+       * BED_TYPE_NOT_PRICED or billed off the listing with nothing behind the
+       * line. The agent is sitting with the owner and can ask.
+       */
+      ...validRooms
+        .filter((room) => !(numberValue(room.monthlyRent) ?? 0))
+        .map((room) => ({
+          field: `room:${room.id}:monthlyRent`,
+          message: "Enter the monthly rent — residents are billed from it.",
+          valid: false,
+        })),
+      {
+        field: "referralDiscount",
+        message: "A referral discount cannot be more than the admission fee.",
+        valid:
+          (numberValue(referralDiscount) ?? 0) <= (numberValue(admissionFee) ?? 0),
+      },
       { field: "plan", message: "Pick the plan the owner is buying.", valid: Boolean(plan) },
     ];
 
@@ -1269,7 +1326,7 @@ export function TeamRegisterHostelPage() {
       .filter((check) => !check.valid)
       .map((check) => ({
         ...check,
-        label: FIELD_LABEL[check.field],
+        label: labelOf(check.field),
         step: stepOfField(check.field),
       }));
   })();
@@ -1328,6 +1385,23 @@ export function TeamRegisterHostelPage() {
         valid: idProofReady,
       },
       { field: "email", label: "The owner's email", step: 1, valid: Boolean(email.trim()) },
+      {
+        // Not blocking: a hostel is allowed to take no deposit. But an unstated
+        // deposit and a zero deposit look identical afterwards, and the joining
+        // invoice a resident is handed is short by whatever nobody typed.
+        field: "securityDeposit",
+        label: "The security deposit — a joining invoice without one is short",
+        step: 3,
+        valid: Boolean(securityDeposit.trim()),
+      },
+      {
+        // Bookings stay switched off until a payout account is verified, so a
+        // hostel filed without one publishes unable to take a booking.
+        field: "payout",
+        label: "Where booking payouts go — bookings stay off until it is set",
+        step: 7,
+        valid: Boolean(payoutAccountPayload(payout)),
+      },
     ];
 
     return checks.filter((check) => !check.valid);
@@ -1686,6 +1760,7 @@ export function TeamRegisterHostelPage() {
       },
       capacitySummary: capacity,
       contact: { email: email.trim() || undefined, phone: phone.trim() },
+      cookCount: numberValue(cookCount),
       description: description.trim() || undefined,
       documents: documents.flatMap((doc) => submittedDocuments(doc.type, [doc])),
       facilities,
@@ -1746,6 +1821,13 @@ export function TeamRegisterHostelPage() {
         monthlyRentMax: rentRange?.max,
         monthlyRentMin: rentRange?.min,
       },
+      /*
+       * The other two joining figures. They are not on `pricing` because they
+       * are not listing fields — they belong to the rate card the server opens
+       * from this payload, and the listing projection reads the card, not this.
+       */
+      referralAdmissionDiscount: numberValue(referralDiscount),
+      securityDeposit: numberValue(securityDeposit),
       roomConfigurations,
       roomTypes: roomTypeNames,
       rules: rules
@@ -1795,6 +1877,14 @@ export function TeamRegisterHostelPage() {
         return { field: "rooms" };
       case "pricing":
         return { field: second === "admissionFee" ? "admissionFee" : "rooms" };
+      case "securityDeposit":
+        return { field: "securityDeposit" };
+      case "referralAdmissionDiscount":
+        return { field: "referralDiscount" };
+      case "cookCount":
+        return { field: "cookCount" };
+      case "payoutAccount":
+        return { field: "payout" };
       case "food":
         return { field: second === "notes" ? "foodNotes" : "mealsPerDay" };
       case "foodRoutine": {
@@ -2475,9 +2565,16 @@ export function TeamRegisterHostelPage() {
                 </dl>
               </Card>
 
-              <Card subtitle="What a resident pays on top of rent." title="Pricing">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Admission fee" name="admissionFee">
+              <Card
+                subtitle="The rents above plus these figures become the hostel's rate card — what every resident is billed from, from today."
+                title="Rate card"
+              >
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field
+                    hint="Charged once, when a resident joins."
+                    label="Admission fee"
+                    name="admissionFee"
+                  >
                     <input
                       className="input-field w-full"
                       inputMode="numeric"
@@ -2485,19 +2582,57 @@ export function TeamRegisterHostelPage() {
                       value={admissionFee}
                     />
                   </Field>
-                  <div className="self-end rounded-lg border border-border bg-muted/30 p-3 text-sm">
-                    <p className="text-[11px] text-muted-foreground">
+                  <Field
+                    hint="Refundable. On the same joining invoice as the admission fee."
+                    label="Security deposit"
+                    name="securityDeposit"
+                  >
+                    <input
+                      className="input-field w-full"
+                      inputMode="numeric"
+                      onChange={(event) => setSecurityDeposit(event.target.value)}
+                      value={securityDeposit}
+                    />
+                  </Field>
+                  <Field
+                    hint="Comes off the admission fee for a referred resident. Never off the rent."
+                    label="Referral discount"
+                    name="referralDiscount"
+                  >
+                    <input
+                      className="input-field w-full"
+                      inputMode="numeric"
+                      onChange={(event) => setReferralDiscount(event.target.value)}
+                      value={referralDiscount}
+                    />
+                  </Field>
+                </div>
+
+                <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">
                       Rent range on the listing
-                    </p>
-                    <p className="font-bold tabular-nums text-foreground">
+                    </dt>
+                    <dd className="font-bold tabular-nums text-foreground">
                       {rentRange
                         ? rentRange.min === rentRange.max
                           ? rupees(rentRange.min)
                           : `${rupees(rentRange.min)} – ${rupees(rentRange.max)}`
                         : "Add rents above"}
-                    </p>
+                    </dd>
                   </div>
-                </div>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">
+                      A resident pays on joining
+                    </dt>
+                    <dd className="font-bold tabular-nums text-foreground">
+                      {rupees(
+                        (numberValue(admissionFee) ?? 0) +
+                          (numberValue(securityDeposit) ?? 0),
+                      )}
+                    </dd>
+                  </div>
+                </dl>
               </Card>
             </>
           ) : null}
@@ -2646,6 +2781,18 @@ export function TeamRegisterHostelPage() {
                       inputMode="numeric"
                       onChange={(event) => setMealsPerDay(event.target.value)}
                       value={mealsPerDay}
+                    />
+                  </Field>
+                  <Field
+                    hint="How many cooks the kitchen runs. Sets the plan's cook seats."
+                    label="Cooks"
+                    name="cookCount"
+                  >
+                    <input
+                      className="input-field w-full"
+                      inputMode="numeric"
+                      onChange={(event) => setCookCount(event.target.value)}
+                      value={cookCount}
                     />
                   </Field>
                   <div className="sm:col-span-2">

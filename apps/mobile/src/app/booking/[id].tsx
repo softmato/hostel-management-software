@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback } from "react";
 import { View } from "react-native";
@@ -16,7 +17,9 @@ import { useAppSelector } from "@/hooks/redux";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { APP_NAME } from "@/constants/branding";
+import { API_BASE_URL } from "@/lib/api";
 import { readApiError, readApiErrorCode } from "@/lib/api-contract";
+import { absoluteMediaUrl } from "@/lib/media";
 import {
   type BookingDetail,
   bookingDocumentUrl,
@@ -141,11 +144,22 @@ export default function BookingScreen() {
     Boolean(paper.number),
   );
 
+  const cover = absoluteMediaUrl(data.coverPhotoUrl, API_BASE_URL);
+
   return (
     <Screen header={header} onRefresh={booking.refresh} refreshing={booking.refreshing} scroll>
       <View className="gap-6">
         <Card>
-          <View className="flex-row items-start justify-between gap-3">
+          <View className="flex-row items-start gap-3">
+            {cover ? (
+              <Image
+                accessibilityLabel={data.hostel.name}
+                contentFit="cover"
+                source={{ uri: cover }}
+                style={{ borderRadius: 12, height: 64, width: 64 }}
+                transition={150}
+              />
+            ) : null}
             <View className="flex-1">
               <Text variant="caption">Booking {data.code}</Text>
               <Text className="mt-1 text-xl font-bold text-foreground">{data.statusLabel}</Text>

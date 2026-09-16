@@ -33,6 +33,49 @@ const base = {
   rules: [],
 };
 
+describe("hostelRegistrationSchema — the rate card figures", () => {
+  it("keeps the deposit and the referral discount a form sends", () => {
+    const parsed = hostelRegistrationSchema.parse({
+      ...base,
+      photos: [],
+      pricing: { admissionFee: 2000 },
+      referralAdmissionDiscount: 500,
+      securityDeposit: 5000,
+    });
+
+    expect(parsed.securityDeposit).toBe(5000);
+    expect(parsed.referralAdmissionDiscount).toBe(500);
+  });
+
+  /*
+   * The same rule `feeScheduleCreateSchema` enforces, checked here because on
+   * the team path the card is opened *after* the hostel is published and the
+   * plan invoice is raised — a refusal at that point is a hostel that went live
+   * with no rate card and nobody watching the log.
+   */
+  it("refuses a referral discount larger than the admission fee", () => {
+    const result = hostelRegistrationSchema.safeParse({
+      ...base,
+      photos: [],
+      pricing: { admissionFee: 2000 },
+      referralAdmissionDiscount: 5000,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].path).toEqual(["referralAdmissionDiscount"]);
+  });
+
+  it("refuses a discount when no admission fee was stated at all", () => {
+    const result = hostelRegistrationSchema.safeParse({
+      ...base,
+      photos: [],
+      referralAdmissionDiscount: 500,
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("hostelRegistrationSchema — photos", () => {
   it("keeps the kind and room type a categorised upload sends", () => {
     const parsed = hostelRegistrationSchema.parse({

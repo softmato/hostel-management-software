@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useCallback } from "react";
 import { View } from "react-native";
@@ -12,7 +13,9 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState, FailureState } from "@/components/ui/states";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
+import { API_BASE_URL } from "@/lib/api";
 import { type BookingSummary, isOpenBooking, listMyBookings } from "@/lib/booking-api";
+import { absoluteMediaUrl } from "@/lib/media";
 
 /**
  * My bookings — docs/BOOKINGS.md item 23. Open ones first (they have a next
@@ -62,16 +65,30 @@ export default function MyBookingsScreen() {
       <View>
         <SectionHeader title={title} />
         <Card padding="px-4 py-1">
-          {rows.map((booking) => (
-            <ListRow
-              icon="bed-outline"
-              key={booking.id}
-              onPress={() => router.push({ params: { id: booking.id }, pathname: "/booking/[id]" })}
-              right={<Badge label={booking.statusLabel} tone={isOpenBooking(booking.status) ? "success" : "neutral"} />}
-              subtitle={`${booking.roomType} · ${booking.code} · ${dates.date(booking.createdAt)}`}
-              title={booking.hostelName}
-            />
-          ))}
+          {rows.map((booking) => {
+            const cover = absoluteMediaUrl(booking.coverPhotoUrl, API_BASE_URL);
+
+            return (
+              <ListRow
+                icon="bed-outline"
+                key={booking.id}
+                left={
+                  cover ? (
+                    <Image
+                      contentFit="cover"
+                      source={{ uri: cover }}
+                      style={{ borderRadius: 10, height: 44, width: 44 }}
+                      transition={150}
+                    />
+                  ) : undefined
+                }
+                onPress={() => router.push({ params: { id: booking.id }, pathname: "/booking/[id]" })}
+                right={<Badge label={booking.statusLabel} tone={isOpenBooking(booking.status) ? "success" : "neutral"} />}
+                subtitle={`${booking.roomType} · ${booking.code} · ${dates.date(booking.createdAt)}`}
+                title={booking.hostelName}
+              />
+            );
+          })}
         </Card>
       </View>
     ) : null;
