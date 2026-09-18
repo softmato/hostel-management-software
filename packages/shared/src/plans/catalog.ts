@@ -265,6 +265,18 @@ export function bestDiscountPercent(catalog: PlansCatalog, cycle: BillingCycle) 
   return Math.max(0, ...catalog.plans.map((plan) => discountPercent(plan, cycle)));
 }
 
+/**
+ * The same badge in rupees, for when a percentage is the wrong unit.
+ *
+ * During an event the cycle discounts are zero — the event is the discount —
+ * so `bestDiscountPercent` above honestly reads 0 and "Save up to 0%" is all it
+ * can say. The saving is real and large; it is just not a *cycle* saving. So
+ * the toggle quotes the biggest one on offer as money instead.
+ */
+export function bestSaving(catalog: PlansCatalog, cycle: BillingCycle) {
+  return Math.max(0, ...catalog.plans.map((plan) => savingFor(plan, cycle)));
+}
+
 /** Rupees, grouped the way a price is read rather than the way it is stored. */
 export function formatPlanRate(rupees: number) {
   return `NPR ${rupees.toLocaleString("en-IN")}`;

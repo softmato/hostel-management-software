@@ -29,6 +29,7 @@ import type {
 export {
   bestDiscountPercent,
   bestEventPercent,
+  bestSaving,
   billingCycles,
   cardServicesForPlan,
   cycleMonths,

@@ -15,6 +15,7 @@ import { PlanMark } from "./plan-mark";
 import {
   bestDiscountPercent,
   bestEventPercent,
+  bestSaving,
   billingCycles,
   cardServicesForPlan,
   cycleTotal,
@@ -241,11 +242,15 @@ export function BillingToggle({
           {catalog.event.label} — {eventPercent}% off
         </span>
       ) : null}
-      {/* Never on monthly: a saving on screen while monthly is selected is
-          advertising a discount the reader is not currently getting. Keyed on
-          the cycle so the figure re-enters when it changes, rather than
-          silently becoming a different number. */}
-      {cycle !== "monthly" ? (
+      {/* Never on monthly outside an event: a saving on screen while monthly is
+          selected is advertising a discount the reader is not currently
+          getting. Keyed on the cycle so the figure re-enters when it changes,
+          rather than silently becoming a different number.
+
+          In rupees during an event, because the event zeroes the cycle
+          discounts — the offer is the discount — and a percentage badge would
+          have nothing left to quote but "0%". */}
+      {eventPercent > 0 || cycle !== "monthly" ? (
         <motion.span
           animate={{ opacity: 1, scale: 1 }}
           className="rounded-full bg-brand-teal/10 px-3 py-1 text-xs font-semibold text-brand-teal"
@@ -253,7 +258,13 @@ export function BillingToggle({
           key={cycle}
           transition={{ duration: 0.22, ease: EASE }}
         >
-          Save up to {bestDiscountPercent(catalog, cycle)}%
+          {eventPercent > 0 ? (
+            <>
+              Save up to <Money rupees={bestSaving(catalog, cycle)} />
+            </>
+          ) : (
+            `Save up to ${bestDiscountPercent(catalog, cycle)}%`
+          )}
         </motion.span>
       ) : null}
     </div>

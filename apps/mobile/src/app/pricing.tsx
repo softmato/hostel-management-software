@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   bestDiscountPercent,
   bestEventPercent,
+  bestSaving,
   billingCycles,
   cardServicesForPlan,
   cycleTotal,
@@ -120,12 +121,16 @@ export default function PricingScreen() {
               }))}
               value={cycle}
             />
-            {/* Never on monthly: a saving on screen while monthly is selected
-                advertises a discount the reader is not currently getting. */}
-            {cycle !== "monthly" && bestDiscount > 0 ? (
+            {/* Never on monthly outside an event: a saving on screen while
+                monthly is selected advertises a discount the reader is not
+                currently getting. In rupees during one, because the event
+                zeroes the cycle discounts and a percentage would read "0%". */}
+            {eventPercent > 0 || (cycle !== "monthly" && bestDiscount > 0) ? (
               <View className="self-center rounded-full bg-brand-soft px-3 py-1">
                 <Text className="text-xs font-semibold text-primary" variant={null}>
-                  Save up to {bestDiscount}%
+                  {eventPercent > 0
+                    ? `Save up to ${money(bestSaving(catalog, cycle))}`
+                    : `Save up to ${bestDiscount}%`}
                 </Text>
               </View>
             ) : null}
