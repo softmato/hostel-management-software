@@ -91,3 +91,26 @@ export const feeScheduleListQuerySchema = z.object({
 
 export type FeeScheduleCreateInput = z.infer<typeof feeScheduleCreateSchema>;
 export type FeeScheduleCloseInput = z.infer<typeof feeScheduleCloseSchema>;
+
+/**
+ * A month at reduced rent — the festival discount.
+ *
+ * `percentOff` starts at 1, not 0: absence of a row is how "full rent" is said,
+ * and a zero-percent discount is a row that claims something was decided when
+ * nothing was. 100 is allowed, because a free month after a flood is a real
+ * decision, and the billing run already knows how to skip a resident who owes
+ * nothing rather than write a zero invoice.
+ */
+export const rentConcessionSaveSchema = z.object({
+  hostelId: objectIdSchema.optional(),
+  percentOff: z
+    .number()
+    .int("Use a whole percent.")
+    .min(1, "Use at least 1%. Delete the discount to charge full rent.")
+    .max(100),
+  period: periodSchema,
+  /** Named on the resident's own invoice line, so it is words, not a code. */
+  reason: z.string().trim().max(60).optional(),
+});
+
+export type RentConcessionSaveInput = z.infer<typeof rentConcessionSaveSchema>;

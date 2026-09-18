@@ -211,6 +211,68 @@ export async function applyCreditToInvoice(input: {
   return created ? applied : 0;
 }
 
+/**
+ * The credit a **festival discount** left behind on an invoice already paid.
+ *
+ * ## Why this one is replaced rather than appended
+ *
+ * Every other entry in this ledger is append-only and keyed by the thing that
+ * caused it, because every other cause happens once: an overpayment arrives, a
+ * credit is consumed. A discount is different — it is a *decision*, and a warden
+ * who sets Kartik to 50% and then to 40% has corrected one decision, not made
+ * two. Appended, that would credit the resident 4,000 and then a further 3,200
+ * for a single 8,000 rent.
+ *
+ * So the entry keyed `concession:{invoiceId}` is pulled and re-pushed. That is
+ * the one place in this module where an entry is rewritten, and it is safe for the
+ * same reason the recomputation below is: `amount` is rebuilt from the entries
+ * afterwards, so the balance cannot drift out of step with what caused it.
+ *
+ * `amount: 0` removes the entry and credits nothing — the shape a discount being
+ * withdrawn takes.
+ */
+export async function setConcessionCredit(input: {
+  amount: number;
+  hostelId: Types.ObjectId | string;
+  invoiceId: Types.ObjectId | string;
+  note: string;
+  residentId: Types.ObjectId | string;
+}): Promise<number> {
+  await connectToDatabase();
+
+  assertWholeRupees(input.amount, "concession credit");
+
+  const idempotencyKey = `concession:${input.invoiceId.toString()}`;
+
+  await CreditBalanceModel.updateOne(
+    { hostelId: input.hostelId, residentId: input.residentId },
+    { $pull: { entries: { idempotencyKey } } },
+  );
+
+  if (input.amount > 0) {
+    await CreditBalanceModel.updateOne(
+      { hostelId: input.hostelId, residentId: input.residentId },
+      {
+        $push: {
+          entries: {
+            amount: input.amount,
+            eventId: null,
+            idempotencyKey,
+            invoiceId: input.invoiceId,
+            kind: "EARNED",
+            note: input.note,
+            occurredAt: new Date(),
+          },
+        },
+        $setOnInsert: { hostelId: input.hostelId, residentId: input.residentId },
+      },
+      { upsert: true },
+    );
+  }
+
+  return recomputeCreditBalance(input.hostelId, input.residentId);
+}
+
 export async function getCreditAmount(
   hostelId: Types.ObjectId | string,
   residentId: Types.ObjectId | string,

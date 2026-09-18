@@ -2,6 +2,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import {
+  BadgeCheck,
+  CalendarClock,
+  Hash,
+  Landmark,
+  MessageSquareText,
+  Store,
+  UserRound,
+  Wallet,
+} from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -220,6 +230,7 @@ export default function ManagePaymentSetupScreen() {
           <SectionHeader subtitle="What residents see on the pay screen" title="Paid to" />
           <Card>
             <Input
+              leading={<Store color={colors.mutedForeground} size={18} />}
               onChangeText={(displayName) => edit({ displayName })}
               placeholder="Hostel or owner name"
               value={form.displayName}
@@ -283,12 +294,14 @@ export default function ManagePaymentSetupScreen() {
               <Input
                 hint="Filled from your QR automatically. Correct it only if it came back wrong."
                 label="Name on the QR"
+                leading={<BadgeCheck color={colors.mutedForeground} size={18} />}
                 onChangeText={(qrPayeeName) => edit({ qrPayeeName })}
                 value={form.qrPayeeName}
               />
               <Input
                 keyboardType="numbers-and-punctuation"
                 label="Number on the QR"
+                leading={<Hash color={colors.mutedForeground} size={18} />}
                 onChangeText={(qrPayeeNumber) => edit({ qrPayeeNumber })}
                 value={form.qrPayeeNumber}
               />
@@ -319,12 +332,14 @@ export default function ManagePaymentSetupScreen() {
             </View>
             <Input
               label="Account name"
+              leading={<UserRound color={colors.mutedForeground} size={18} />}
               onChangeText={(bankAccountName) => edit({ bankAccountName })}
               value={form.bankAccountName}
             />
             <Input
               keyboardType="numbers-and-punctuation"
               label="Account number"
+              leading={<Landmark color={colors.mutedForeground} size={18} />}
               onChangeText={(bankAccountNumber) => edit({ bankAccountNumber })}
               value={form.bankAccountNumber}
             />
@@ -376,6 +391,7 @@ export default function ManagePaymentSetupScreen() {
               hint="Zero means every cash entry needs a second approver."
               keyboardType="number-pad"
               label="Cash approval needed above (NPR)"
+              leading={<Wallet color={colors.mutedForeground} size={18} />}
               onChangeText={(cashApprovalThreshold) => edit({ cashApprovalThreshold })}
               value={form.cashApprovalThreshold}
             />
@@ -383,12 +399,23 @@ export default function ManagePaymentSetupScreen() {
               hint="1–90 days."
               keyboardType="number-pad"
               label="Remind me to upload a statement every"
+              leading={<CalendarClock color={colors.mutedForeground} size={18} />}
               onChangeText={(statementCadenceDays) => edit({ statementCadenceDays })}
               value={form.statementCadenceDays}
             />
             <Input
               hint="Shown under the pay options."
               label="Note for residents"
+              leading={
+                /*
+                 * Top-aligned, unlike every other glyph here: the field is a
+                 * textarea, so its row stretches and a centred mark would float
+                 * halfway down an empty box.
+                 */
+                <View className="pt-3">
+                  <MessageSquareText color={colors.mutedForeground} size={18} />
+                </View>
+              }
               multiline
               onChangeText={(paymentInstructions) => edit({ paymentInstructions })}
               style={{ height: 96 }}

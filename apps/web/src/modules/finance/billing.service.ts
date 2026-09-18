@@ -18,6 +18,7 @@ import type {
   ListedRoomRates,
 } from "@/modules/finance/fee-schedule.service";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import { getRentConcession } from "@/modules/finance/rent-concession.service";
 import { paidBeforeJoining } from "@/modules/finance/paid-till";
 import { sumAmounts } from "@/modules/finance/money";
 import { allocateReferenceCode } from "@/modules/finance/reference-sequence.service";
@@ -154,6 +155,8 @@ type BillingPlan = {
   amount: number;
   bedType: string | null;
   basis: string;
+  /** "Dashain · 50% off", or null at full rent. Goes on the invoice line. */
+  concessionNote: string | null;
   feeScheduleId: Types.ObjectId | null;
   prorationBasis: string | null;
   resident: BillableResidentRow;
@@ -171,6 +174,15 @@ export function planBillingCycle(
   schedule: FeeScheduleRecord | null,
   period: string,
   listed: ListedRoomRates = new Map(),
+  /**
+   * The month's festival discount, if the hostel set one (see
+   * `rent-concession.service`). Passed in rather than read here so the whole
+   * pass stays synchronous and testable, and so it is read once per run.
+   */
+  concession: { percentOff: number; reason: string | null } = {
+    percentOff: 0,
+    reason: null,
+  },
 ): { failures: BillingFailure[]; plans: BillingPlan[]; skipped: BillingSkip[] } {
   const failures: BillingFailure[] = [];
   const plans: BillingPlan[] = [];
@@ -187,7 +199,12 @@ export function planBillingCycle(
     }
 
     try {
-      const charge = resolveMonthlyCharge(resident, schedule, listed);
+      const charge = resolveMonthlyCharge(
+        resident,
+        schedule,
+        listed,
+        concession.percentOff,
+      );
       const invoiceAmount = computeInvoiceAmount(
         charge.amount,
         resident.moveInDate,
@@ -210,6 +227,7 @@ export function planBillingCycle(
         amount: invoiceAmount.amount,
         basis: charge.basis,
         bedType: charge.bedType,
+        concessionNote: concessionNote(charge.concessionPercent, concession.reason),
         feeScheduleId: charge.feeScheduleId,
         prorationBasis: invoiceAmount.prorationBasis,
         resident,
@@ -228,6 +246,22 @@ export function planBillingCycle(
   }
 
   return { failures, plans, skipped };
+}
+
+/**
+ * What the discount is called on the resident's own bill.
+ *
+ * Snapshotted onto the line like every other figure here, so the row can be
+ * deleted afterwards and a bill from Dashain still explains itself. The reason
+ * leads when the hostel gave one, because "Dashain" answers the question and
+ * "50% off" only restates the arithmetic the amount already shows.
+ */
+function concessionNote(percentOff: number, reason: string | null) {
+  if (percentOff <= 0) {
+    return null;
+  }
+
+  return reason ? `${reason} · ${percentOff}% off` : `${percentOff}% off`;
 }
 
 function skipReasonFor(
@@ -294,9 +328,10 @@ export async function runBillingCycle(
     throw new FinanceServiceError("Hostel was not found.", "HOSTEL_SCOPE_REQUIRED");
   }
 
-  const [residents, schedule] = await Promise.all([
+  const [residents, schedule, concession] = await Promise.all([
     findBillableResidents(input.hostelId, input.period, input.residentIds),
     getEffectiveSchedule(input.hostelId, input.period),
+    getRentConcession(input.hostelId, input.period),
   ]);
 
   const listed = listedRoomRates(hostel.roomConfigurations);
@@ -306,6 +341,7 @@ export async function runBillingCycle(
     schedule,
     input.period,
     listed,
+    concession,
   );
 
   /*
@@ -382,7 +418,9 @@ export async function runBillingCycle(
              * a resident reads on their own bill; the description is snapshotted
              * at issue time precisely so it stays legible without a lookup.
              */
-            description: `Monthly rent — ${formatBsPeriod(input.period) || input.period}`,
+            description: plan.concessionNote
+              ? `Monthly rent — ${formatBsPeriod(input.period) || input.period} · ${plan.concessionNote}`
+              : `Monthly rent — ${formatBsPeriod(input.period) || input.period}`,
             feeScheduleId: plan.feeScheduleId,
             prorationBasis: plan.prorationBasis ?? undefined,
           },

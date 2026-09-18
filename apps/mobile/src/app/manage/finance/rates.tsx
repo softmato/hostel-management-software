@@ -1,4 +1,11 @@
 import { router } from "expo-router";
+import {
+  BedDouble,
+  CalendarDays,
+  DoorOpen,
+  ShieldCheck,
+  Users,
+} from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import { Alert, View } from "react-native";
 
@@ -10,6 +17,7 @@ import { Chip } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import {
@@ -61,6 +69,16 @@ function roomTypeKey(value: string | null | undefined) {
 
 export default function ManageRatesScreen() {
   const dates = useDates();
+  /*
+   * The glyphs below are drawn in `mutedForeground`, not in the brand.
+   *
+   * A field marker is an aid to scanning a column of near-identical boxes — a
+   * rent, a fee, a discount and a deposit all read as "a number in NPR" until
+   * something distinguishes them. Painting them green would make four pieces of
+   * decoration the loudest thing on the screen and compete with the one control
+   * that is actually the accent, which is the footer's Save.
+   */
+  const { colors } = useAppTheme();
   /*
    * Saving and deleting are both on screen at once — the footer's "Save rates"
    * and the ghost "Delete these upcoming rates" under the card — so the flag has
@@ -319,6 +337,16 @@ export default function ManageRatesScreen() {
                 key={option.roomType}
                 keyboardType="number-pad"
                 label={option.roomType}
+                /*
+                 * The same glyph for every room type, deliberately. A door for
+                 * "Single" and a bunk for "Six Sharing" would be a second,
+                 * silent statement about how many people share a room — derived
+                 * from free text the hostel typed, wrong the first time a hostel
+                 * calls a room "Deluxe", and contradicting the label right
+                 * beside it. The mark says "this box is a rent"; the label says
+                 * which room.
+                 */
+                leading={<BedDouble color={colors.mutedForeground} size={18} />}
                 onChangeText={(value) => editRates({ [option.roomType]: value })}
                 placeholder="NPR"
                 value={rates[option.roomType] ?? ""}
@@ -338,6 +366,7 @@ export default function ManageRatesScreen() {
             <Input
               keyboardType="number-pad"
               label="Admission fee"
+              leading={<DoorOpen color={colors.mutedForeground} size={18} />}
               onChangeText={(admissionFee) => editForm({ admissionFee })}
               placeholder="NPR"
               value={form.admissionFee ?? ""}
@@ -346,6 +375,7 @@ export default function ManageRatesScreen() {
               hint="Comes off the admission fee when someone arrives on a resident's referral code. Never off the rent."
               keyboardType="number-pad"
               label="Referral discount"
+              leading={<Users color={colors.mutedForeground} size={18} />}
               onChangeText={(referralAdmissionDiscount) => editForm({ referralAdmissionDiscount })}
               placeholder="NPR"
               value={form.referralAdmissionDiscount ?? ""}
@@ -353,6 +383,7 @@ export default function ManageRatesScreen() {
             <Input
               keyboardType="number-pad"
               label="Deposit"
+              leading={<ShieldCheck color={colors.mutedForeground} size={18} />}
               onChangeText={(depositAmount) => editForm({ depositAmount })}
               placeholder="NPR"
               value={form.depositAmount ?? ""}
@@ -377,6 +408,7 @@ export default function ManageRatesScreen() {
                   : undefined
               }
               keyboardType="numbers-and-punctuation"
+              leading={<CalendarDays color={colors.mutedForeground} size={18} />}
               onChangeText={(effectiveFrom) => editForm({ effectiveFrom })}
               placeholder="YYYY-MM-DD"
               value={form.effectiveFrom ?? ""}

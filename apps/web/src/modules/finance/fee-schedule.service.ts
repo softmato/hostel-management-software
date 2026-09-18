@@ -77,10 +77,15 @@ export type BillableResident = {
 export type ChargeBasis = "OVERRIDE" | "SCHEDULE" | "MANUAL";
 
 export type ResolvedCharge = {
+  /** What is charged — **after** any month discount. */
   amount: number;
   basis: ChargeBasis;
   bedType: BedType | null;
+  /** Percent taken off for this month, 0 when the month is at full rent. */
+  concessionPercent: number;
   feeScheduleId: Types.ObjectId | null;
+  /** The rent before the month discount. Equal to `amount` when there is none. */
+  fullAmount: number;
 };
 
 /**
@@ -256,6 +261,46 @@ export function resolveMonthlyCharge(
   resident: BillableResident,
   schedule: FeeScheduleRecord | null,
   listed: ListedRoomRates = new Map(),
+  concessionPercent = 0,
+): ResolvedCharge {
+  const charge = resolveRentBeforeConcession(resident, schedule, listed);
+
+  return concessionPercent > 0
+    ? {
+        ...charge,
+        amount: discountRent(charge.amount, concessionPercent),
+        concessionPercent,
+      }
+    : charge;
+}
+
+/**
+ * A month's rent with the festival discount taken off, in whole rupees.
+ *
+ * The discount is **floored**, so the resident never pays more than the stated
+ * share of a rent that does not divide: 50% of 8,001 takes off 4,000 and charges
+ * 4,001. Rounding the charge instead would put the odd rupee on the resident's
+ * side of a concession the hostel announced as a favour, and no hostel has ever
+ * wanted to explain that rupee.
+ *
+ * Applied to the rent **before** proration, on purpose. A resident who moves in
+ * mid-Dashain gets the discount on the days they are there, which is what both
+ * halves separately promise; prorating a discounted rent and discounting a
+ * prorated rent differ only by rounding, and this order keeps one whole-rupee
+ * step instead of two.
+ */
+export function discountRent(monthlyCharge: number, percentOff: number) {
+  if (percentOff <= 0) {
+    return monthlyCharge;
+  }
+
+  return monthlyCharge - Math.floor((monthlyCharge * percentOff) / 100);
+}
+
+function resolveRentBeforeConcession(
+  resident: BillableResident,
+  schedule: FeeScheduleRecord | null,
+  listed: ListedRoomRates = new Map(),
 ): ResolvedCharge {
   // A per-resident override wins outright, and does not need a schedule: this
   // covers the long-staying resident on an old rate and the negotiated discount
@@ -266,7 +311,9 @@ export function resolveMonthlyCharge(
       amount: assertWholeRupees(resident.monthlyFee, "monthly fee override"),
       basis: "OVERRIDE",
       bedType: resolveBedType(resident),
+      concessionPercent: 0,
       feeScheduleId: null,
+      fullAmount: assertWholeRupees(resident.monthlyFee, "monthly fee override"),
     };
   }
 
@@ -278,7 +325,9 @@ export function resolveMonthlyCharge(
       amount: assertWholeRupees(rate.monthlyAmount, "scheduled rate"),
       basis: "SCHEDULE",
       bedType,
+      concessionPercent: 0,
       feeScheduleId: schedule?._id ?? null,
+      fullAmount: assertWholeRupees(rate.monthlyAmount, "scheduled rate"),
     };
   }
 
@@ -308,7 +357,9 @@ export function resolveMonthlyCharge(
       amount: assertWholeRupees(listedRent, "listed room rate"),
       basis: "MANUAL",
       bedType,
+      concessionPercent: 0,
       feeScheduleId: null,
+      fullAmount: assertWholeRupees(listedRent, "listed room rate"),
     };
   }
 

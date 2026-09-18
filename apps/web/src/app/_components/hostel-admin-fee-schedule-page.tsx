@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Coins, Layers } from "lucide-react";
+import { CalendarClock, Coins, Layers, PartyPopper, Trash2 } from "lucide-react";
 import { memo, useCallback, useMemo, useState, type FormEvent } from "react";
 
 import {
@@ -92,6 +92,32 @@ function roomTypeKey(value: string | null | undefined) {
 }
 
 const SCHEDULES_ENDPOINT = hostelAdminEndpoints.feeSchedules;
+const CONCESSIONS_ENDPOINT = hostelAdminEndpoints.rentConcessions;
+
+/**
+ * A month the hostel has put on reduced rent — Dashain at half fee.
+ *
+ * `standing` comes from the server, and `past` is the one that matters on screen:
+ * those months are already invoiced and their bills carry the figure they were
+ * issued with, so a discount added to them now changes nothing. Saying that is
+ * better than refusing the save for a reason nobody can check.
+ */
+/** What a save or a delete did to bills that had already gone out. */
+type ConcessionBackfill = {
+  discounted: number;
+  invoicesChanged: number;
+  invoicesKept: number;
+  refundedAsCredit: number;
+};
+
+type RentConcession = {
+  _id: string;
+  label: string;
+  percentOff: number;
+  period: string;
+  reason: string | null;
+  standing: "current" | "past" | "upcoming";
+};
 
 /**
  * A rate card boundary, named in the calendar the card actually turns over in.
@@ -146,6 +172,268 @@ function periodStartDate(period: string) {
     return "";
   }
 }
+
+/**
+ * Months at reduced rent, on top of the rate card rather than inside it.
+ *
+ * ## Why this is not another rate card
+ *
+ * A hostel that takes half fee in Dashain has not changed what a bed costs. Said
+ * through the card above it would mean three cards — Aswin at the real rents,
+ * Kartik at half, Mangsir back again — and the real rents would then live in two
+ * rows that agree only by accident, which is the drift the card's versioning
+ * exists to prevent. Here the card is untouched and one row says "this month,
+ * 50% off, everybody".
+ *
+ * ## A percentage, because that is how it is announced
+ *
+ * Not a rupee figure. The hostel says "half fee", and one percentage then applies
+ * correctly to a single room and a dormitory bed at once — and to a resident on a
+ * negotiated rate, who is also owed the festival the rest of the building gets.
+ *
+ * ## The month is picked, not typed
+ *
+ * `MonthField`, for the same reason the rate card uses it: the month is a Bikram
+ * Sambat one, and an owner who means Kartik should not have to work out which
+ * Gregorian fortnight that is. Editing is a save over the same month — there is
+ * one discount per month by index, so "make it 40" is a correction, not a row.
+ */
+/**
+ * What happened to bills that were already out, in one sentence.
+ *
+ * Says nothing when nothing was billed yet — that is the ordinary, healthy case
+ * (the discount was set before the month's run) and a line reading "0 bills
+ * changed" would make it look like a failure.
+ *
+ * `invoicesKept` is named whenever it is non-zero, because it is the only outcome
+ * an owner might otherwise be surprised by: bills with money already settled
+ * against them keep their discount rather than being put back up.
+ */
+function describeApplied(applied: ConcessionBackfill, verb: "reduced" | "restored") {
+  if (applied.invoicesChanged === 0 && applied.invoicesKept === 0) {
+    return verb === "reduced"
+      ? "No bills have gone out for that month yet, so the billing run will charge the reduced rent directly."
+      : "No bills had gone out for that month.";
+  }
+
+  const parts = [
+    `${applied.invoicesChanged} ${applied.invoicesChanged === 1 ? "bill" : "bills"} already issued for that month ${verb === "reduced" ? "reduced" : "put back to full rent"}.`,
+  ];
+
+  if (applied.refundedAsCredit > 0) {
+    parts.push(
+      `${currency(applied.refundedAsCredit)} had already been paid and is now credit against next month.`,
+    );
+  }
+
+  if (applied.invoicesKept > 0) {
+    parts.push(
+      `${applied.invoicesKept} ${applied.invoicesKept === 1 ? "bill keeps its" : "bills keep their"} discount because money is already settled against ${applied.invoicesKept === 1 ? "it" : "them"}.`,
+    );
+  }
+
+  return parts.join(" ");
+}
+
+const MonthDiscounts = memo(function MonthDiscounts() {
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const resource = usePortalResource<{ concessions: RentConcession[] }>(
+    CONCESSIONS_ENDPOINT,
+    { errorMessage: "Could not load the month discounts." },
+  );
+
+  const concessions = useMemo(
+    () => resource.data?.concessions ?? [],
+    [resource.data],
+  );
+
+  const save = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const percentOff = Number(field(form, "percentOff"));
+
+      if (!Number.isInteger(percentOff) || percentOff < 1 || percentOff > 100) {
+        setMessage("Enter a whole percent between 1 and 100.");
+        return;
+      }
+
+      setSaving(true);
+      setMessage("");
+
+      try {
+        const saved = await browserApi<{
+          concession: RentConcession & { applied: ConcessionBackfill };
+        }>(CONCESSIONS_ENDPOINT, {
+          body: JSON.stringify({
+            percentOff,
+            period: field(form, "period"),
+            reason: field(form, "reason") || undefined,
+          }),
+          method: "POST",
+        });
+        /*
+         * The count, not a promise. A month that is already billed has its bills
+         * corrected right here, and "saved" alone left an owner to open the Money
+         * tab and work out whether anything had happened — which is the whole
+         * reason a discount decided after the 1st used to feel broken.
+         */
+        setMessage(`Saved. ${describeApplied(saved.concession.applied, "reduced")}`);
+        await resource.refreshAsync();
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Could not save the discount.",
+        );
+      } finally {
+        setSaving(false);
+      }
+    },
+    [resource],
+  );
+
+  const remove = useCallback(
+    async (row: RentConcession) => {
+      const confirmed = window.confirm(
+        `Charge full rent in ${row.label} again? Bills already issued for that month keep the discount they were issued with.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setSaving(true);
+      setMessage("");
+
+      try {
+        const removed = await browserApi<{ restored: ConcessionBackfill }>(
+          `${CONCESSIONS_ENDPOINT}/${row._id}`,
+          { method: "DELETE" },
+        );
+        setMessage(
+          `${row.label} is back to full rent. ${describeApplied(removed.restored, "restored")}`,
+        );
+        await resource.refreshAsync();
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Could not remove the discount.",
+        );
+      } finally {
+        setSaving(false);
+      }
+    },
+    [resource],
+  );
+
+  return (
+    <Panel title="Festival discounts">
+      <Message value={message} />
+
+      <form className="grid gap-4" onSubmit={save}>
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <PartyPopper aria-hidden="true" className="size-4" />
+          A percentage off every resident&rsquo;s rent, for one month only. The rates
+          above do not change &mdash; Dashain at 50% is half of whatever each room
+          type already costs.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <MonthField
+            defaultValue={monthStartPeriod(1)}
+            hint="Nepali month. Saving over a month that already has a discount replaces it."
+            label="Month"
+            name="period"
+          />
+          <Input
+            hint="1&ndash;100. Use 50 for half fee."
+            label="Off the rent (%)"
+            max="100"
+            min="1"
+            name="percentOff"
+            step="1"
+            type="number"
+          />
+          <Input
+            hint="Printed on the resident's bill beside the amount."
+            label="Reason"
+            name="reason"
+            placeholder="Dashain"
+          />
+          <div className="flex items-end">
+            <button
+              className="h-11 w-full rounded-md bg-role-admin px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+              disabled={saving}
+              type="submit"
+            >
+              {saving ? "Saving…" : "Save discount"}
+            </button>
+          </div>
+        </div>
+      </form>
+
+      <div className="mt-5">
+        {resource.state === "loading" ? <LoadingRows /> : null}
+        {resource.state === "ready" && concessions.length === 0 ? (
+          <EmptyState label="No month is discounted. Every month is charged at the rates above." />
+        ) : null}
+        {concessions.length > 0 ? (
+          <DataTable className="min-w-[560px]">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <Th>Month</Th>
+                <Th align="right">Off the rent</Th>
+                <Th>Reason</Th>
+                <Th>Status</Th>
+                <Th align="right">&nbsp;</Th>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {concessions.map((row) => (
+                <TableRow key={row._id}>
+                  <TableCell className="whitespace-nowrap font-semibold text-foreground">
+                    {row.label}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold text-foreground">
+                    {row.percentOff}%
+                  </TableCell>
+                  <TableCell>
+                    {row.reason ?? <span className="text-muted-foreground">&mdash;</span>}
+                  </TableCell>
+                  <TableCell>
+                    {row.standing === "past" ? (
+                      /*
+                       * Not an error, and not hidden. The month is billed and its
+                       * invoices carry what they were issued with, so the row is
+                       * history — labelling it is the honest half of allowing a
+                       * discount to be set on a month that has closed.
+                       */
+                      <SoftBadge tone="slate">Already billed</SoftBadge>
+                    ) : row.standing === "current" ? (
+                      <SoftBadge tone="green">This month</SoftBadge>
+                    ) : (
+                      <SoftBadge tone="amber">Upcoming</SoftBadge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <button
+                      aria-label={`Remove the ${row.label} discount`}
+                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
+                      disabled={saving}
+                      onClick={() => void remove(row)}
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                    </button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </DataTable>
+        ) : null}
+      </div>
+    </Panel>
+  );
+});
 
 export const HostelAdminFeeSchedulePageContent = memo(
   function HostelAdminFeeSchedulePageContent() {
@@ -483,6 +771,8 @@ export const HostelAdminFeeSchedulePageContent = memo(
                 </div>
               </form>
             </Panel>
+
+            <MonthDiscounts />
 
             <Panel title="Past rates">
               {pastSchedules.length === 0 ? (

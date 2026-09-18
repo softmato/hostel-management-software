@@ -16,6 +16,7 @@ import { fromBs } from "@hostel/shared/calendar/bs";
 
 const mocks = vi.hoisted(() => ({
   allocateReferenceCode: vi.fn(),
+  concessionFindOne: vi.fn(),
   audit: vi.fn(),
   eventCount: vi.fn(),
   hostelFind: vi.fn(),
@@ -71,6 +72,15 @@ vi.mock("@hostel/db/models/FeeSchedule", () => ({
   FeeScheduleModel: { findOne: mocks.scheduleFindOne },
 }));
 
+/*
+ * The month discount — the festival month at reduced rent. At the model like the
+ * rate card beside it, so the percentage is really applied rather than promised
+ * by a stub. `null` is every month a hostel has not discounted.
+ */
+vi.mock("@hostel/db/models/RentConcession", () => ({
+  RentConcessionModel: { findOne: mocks.concessionFindOne },
+}));
+
 import {
   findBillableResidents,
   periodOf,
@@ -115,6 +125,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.hostelFindOne.mockReturnValue(lean({ referencePrefix: "RUP" }));
   mocks.scheduleFindOne.mockReturnValue(lean(schedule));
+  mocks.concessionFindOne.mockReturnValue(lean(null));
   mocks.residentFind.mockReturnValue(lean([resident()]));
   mocks.invoiceFind.mockReturnValue(lean([]));
   mocks.allocateReferenceCode.mockResolvedValue("RUP-0001-K");

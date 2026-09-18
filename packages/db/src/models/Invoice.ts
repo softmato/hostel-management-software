@@ -62,6 +62,22 @@ const invoiceLineSchema = new Schema(
     feeScheduleId: { ref: "FeeSchedule", type: Schema.Types.ObjectId },
     /** e.g. "18/31 days" — the resident-facing explanation of a part month. */
     prorationBasis: { type: String, trim: true },
+    /**
+     * Present only on the negative line a **festival discount** puts on an
+     * already-issued invoice — see `rent-concession.service`.
+     *
+     * It exists to make that one line *findable*. A discount decided after the
+     * month was billed is a correction to a bill that has already gone out, and
+     * a warden who changes 50% to 40% must move that line rather than add a
+     * second one. `basis: "CREDIT"` cannot tell the two apart: an applied credit
+     * from an earlier overpayment is also a negative CREDIT line, and matching on
+     * the description would break the first time the wording changed.
+     *
+     * The percentage is stored, not just the flag, because it is the number the
+     * line's own words quote. Nothing re-derives the amount from it — the amount
+     * is the snapshot, as everywhere else here.
+     */
+    concessionPercent: { max: 100, min: 1, type: Number },
   },
   { _id: false },
 );

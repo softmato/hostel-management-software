@@ -47,6 +47,8 @@ export const hostelAdminEndpoints = {
   cookPortal: "/api/v1/hostel-admin/cook-portal",
   /** The rate card, full history newest first. Never edited — only succeeded. */
   feeSchedules: "/api/v1/hostel-admin/finance/fee-schedules",
+  /** Months at reduced rent — the festival discount, on top of the card above. */
+  rentConcessions: "/api/v1/hostel-admin/finance/rent-concessions",
   dashboardReport: "/api/v1/hostel-admin/reports/dashboard",
   foodRoutine: "/api/v1/hostel-admin/food/routine",
   foodPhotos: "/api/v1/hostel-admin/food/photos",

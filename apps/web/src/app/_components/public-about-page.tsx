@@ -21,8 +21,17 @@ import { resolveContentPage } from "@/lib/site-content";
  * entry — so an owner editing them sees the same editor either way.
  */
 export function PublicAboutPage() {
-  const { content, identity } = useSiteConfig();
+  const { content, identity, seo } = useSiteConfig();
   const page = resolveContentPage(content.about, identity);
+
+  // "Palika" is an everyday Nepali word, so a search engine reads
+  // "hostelpalika" as a misspelling of "hostel palika" and answers that instead.
+  // The spellings are already declared as `alternateName` on the Organization
+  // record, but that is markup — nothing a reader or a text query can match.
+  // This is the one place the site writes them out, from the same owned list.
+  const otherSpellings = seo.alternateNames.filter(
+    (name) => name.toLowerCase() !== identity.siteName.toLowerCase(),
+  );
 
   return (
     <PublicShell active="about">
@@ -34,6 +43,20 @@ export function PublicAboutPage() {
         />
 
         <ContentIntro paragraphs={page.intro} />
+
+        {otherSpellings.length > 0 ? (
+          <section className="mb-14">
+            <h2 className="mb-3 font-heading text-2xl font-bold text-foreground">
+              The name
+            </h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {identity.siteName} is one word, from <em>hostel</em> and{" "}
+              <em>palika</em>, the Nepali word for a municipality. It is also written{" "}
+              {new Intl.ListFormat("en", { type: "disjunction" }).format(otherSpellings)}
+              . Every one of those is this site.
+            </p>
+          </section>
+        ) : null}
 
         <h2 className="mb-8 font-heading text-2xl font-bold text-foreground">
           Our Values

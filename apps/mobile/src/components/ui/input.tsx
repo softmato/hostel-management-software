@@ -64,6 +64,20 @@ type InputProps = Omit<TextInputProps, "className"> & {
   error?: string | null;
   hint?: string;
   label?: string;
+  /**
+   * Drawn inside the field, ahead of the text — the same slot {@link Select}
+   * already has, and named the same so a form built from both lines up.
+   *
+   * A node rather than an icon name, because the marks these forms need are not
+   * all one set: `finance/payment-setup` puts a `<WalletMark>` (an image on a
+   * white tile) beside an account number while the rest of the form takes a
+   * lucide glyph. Size it for a 48dp field — about 18 to 22 points.
+   *
+   * It is decoration, so it carries no label: the field's own `label` is what a
+   * screen reader reads, and an icon that announced itself would make every row
+   * say its own name twice.
+   */
+  leading?: ReactNode;
   /** Renders the show/hide toggle and starts masked. */
   secure?: boolean;
   /**
@@ -103,6 +117,7 @@ export function Input({
   error,
   hint,
   label,
+  leading,
   multiline = false,
   secure = false,
   onBlur,
@@ -145,6 +160,14 @@ export function Input({
         } ${borderTone}`}
         style={multiline ? { minHeight: FIELD_HEIGHT } : undefined}
       >
+        {/*
+          Above the input, not inside it. A leading node in the same row keeps the
+          48dp height and the text simply starts after it — which is why this is a
+          row with `gap-2` rather than left padding on the `TextInput`: padding
+          would put the caret under the glyph on an empty field.
+        */}
+        {leading ?? null}
+
         <TextInput
           className={`flex-1 text-base text-foreground ${multiline ? "" : "h-full"}`}
           multiline={multiline}

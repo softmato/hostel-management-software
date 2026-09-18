@@ -94,6 +94,8 @@ import {
   getResident,
   getResidentLedger,
   listFeeSchedules,
+  listRentConcessions,
+  type RentConcession,
   listGateways,
   listManagedInquiries,
   listManagedMaintenance,
@@ -414,23 +416,28 @@ async function loadReports(month: string): Promise<AdminReportsData> {
 /* -------------------------------------------------------------------------- */
 
 export type AdminFinanceData = {
+  /** Months at reduced rent — the festival discount. `null` when refused. */
+  concessions: RentConcession[] | null;
   gateways: GatewayConfig[] | null;
   profile: PaymentProfile | null;
   schedules: FeeSchedule[] | null;
 };
 
 async function loadFinance(): Promise<AdminFinanceData> {
-  const [schedules, profile, gateways] = await Promise.all([
+  const [schedules, concessions, profile, gateways] = await Promise.all([
     listFeeSchedules()
       .then((data) => data.schedules)
       .catch(() => null),
+    // Behind the same capability as the rates it discounts, so it fails with
+    // them rather than alone — the screen's Rates block already says why.
+    listRentConcessions().catch(() => null),
     getPaymentProfile().catch(() => null),
     // The one read that needs `managePaymentProfile` rather than `viewPayments`
     // — it lists merchant codes and which keys are installed.
     listGateways().catch(() => null),
   ]);
 
-  return { gateways, profile, schedules };
+  return { concessions, gateways, profile, schedules };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -742,6 +749,12 @@ export function prefetchAdminRoute(href: string) {
       prefetchAdminQuery(adminQuery.planBilling());
       return;
     case "/manage/finance":
+    /*
+     * The festival-discount screen reads `adminQuery.finance()` too — the same
+     * key, because the discounts arrive with the rates they sit on top of. So
+     * warming either warms both, exactly as the two rate-card views do below.
+     */
+    case "/manage/finance/month-discounts":
       prefetchAdminQuery(adminQuery.finance());
       return;
     /*

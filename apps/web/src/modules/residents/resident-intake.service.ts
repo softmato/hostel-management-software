@@ -12,10 +12,12 @@ import {
 import { normalizeBedType } from "@/modules/finance/bed-type";
 import {
   computeInvoiceAmount,
+  discountRent,
   type FeeScheduleRecord,
   getEffectiveSchedule,
   rateForRoomType,
 } from "@/modules/finance/fee-schedule.service";
+import { getRentConcession } from "@/modules/finance/rent-concession.service";
 import { allocateReferenceCode } from "@/modules/finance/reference-sequence.service";
 import { isActiveReferralCode } from "@/modules/referrals/referral.service";
 import { HostelModel } from "@hostel/db/models/Hostel";
@@ -168,6 +170,14 @@ export function periodOfDate(date: Date) {
  * type nobody has costed. Each of those is a real intake somebody will do.
  */
 export function quoteIntake(input: {
+  /**
+   * Percent off the move-in month's rent, if the hostel has discounted it (see
+   * `rent-concession.service`). Quoted here because the warden reads this figure
+   * out to the resident before they agree to it, and the billing run will charge
+   * the discounted one — a quote naming a different number than the bill is the
+   * argument this whole module exists to prevent.
+   */
+  concessionPercent?: number;
   hostel: HostelPricing | null;
   moveInDate?: Date | null;
   referralCode?: string | null;
@@ -231,7 +241,12 @@ export function quoteIntake(input: {
     currency: input.hostel?.pricing?.currency ?? "NPR",
     depositAmount: input.schedule?.depositAmount ?? 0,
     feeScheduleId: input.schedule?._id?.toString() ?? null,
-    firstMonth: quoteFirstMonth(monthlyRent, input.moveInDate),
+    firstMonth: quoteFirstMonth(
+      monthlyRent === null
+        ? null
+        : discountRent(monthlyRent, input.concessionPercent ?? 0),
+      input.moveInDate,
+    ),
     monthlyRent,
     referral: {
       applied: discount > 0,
@@ -342,17 +357,19 @@ export async function getIntakeQuote(
 
   const moveInDate = input.moveInDate ? hostelCalendarDay(input.moveInDate) : hostelToday();
 
-  const [hostel, schedule, referralCodeActive] = await Promise.all([
+  const [hostel, schedule, concession, referralCodeActive] = await Promise.all([
     HostelModel.findById(hostelId)
       .select("pricing roomConfigurations")
       .lean<HostelPricing | null>(),
     getEffectiveSchedule(hostelId, periodOfDate(moveInDate)),
+    getRentConcession(hostelId, periodOfDate(moveInDate)),
     input.referralCode?.trim()
       ? isActiveReferralCode(input.referralCode, new Types.ObjectId(hostelId.toString()))
       : Promise.resolve(false),
   ]);
 
   return quoteIntake({
+    concessionPercent: concession.percentOff,
     hostel,
     moveInDate,
     referralCode: input.referralCode,

@@ -115,6 +115,23 @@ Rules every page follows:
      `X-Robots-Tag: noindex` so the JSON never becomes a result. The home page was already fine: its
      hostels are server-rendered.
 
+9. ☑ **Brand queries — the favicon and the name** — 2026-09-18, from an audit of what Google
+   actually returns for `hostelpalika`, `hostelpalika.com` and `softmato`.
+
+   - **A globe instead of the logo.** `app/favicon.ico` held four sizes and Next declares the
+     largest, so every page said `sizes="64x64"`. Google's favicon rule is a square that is a
+     multiple of 48px; 64 is not one, so it ignored the icon and drew the generic globe.
+     softmato.com ships 16/32/**48** and its logo shows — that was the only difference between the
+     two heads. The 64 entry is stripped, the file is 16/32/48, and the tag now says
+     `sizes="48x48"`. The URL is unchanged, so Google picks it up on its next crawl of the home page
+     rather than starting a new icon history.
+   - **"Palika" is an everyday Nepali word.** `hostelpalika` is answered with "results for hostel
+     palika" and nothing of ours; only `hostelpalika.com` finds the site. The spellings were
+     declared as `alternateName` on the Organization and WebSite records — markup a query cannot
+     match — and the word "palika" appeared in visible text nowhere on the site, on any page. The
+     `/about` page now carries a short **The name** section that writes the spellings out in prose,
+     built from the same `seo.alternateNames` list so there is still one place to edit them.
+
 ## Waiting on the Play listing
 
 Held back until `com.softmato.hostelpalika` is live on Google Play, so nothing links to a store page
@@ -162,3 +179,14 @@ Sequence matters; each step unlocks the next.
 7. Record one short walkthrough per feature and upload it on the service's Plans & Pricing entry —
    the service pages already have a slot for it.
 8. Publish real guides only when they are written; `/blog` stays `noindex` until then.
+9. **softmato.com still calls this product HostelHub** (`D:\company`). `/products` links to
+   `/products/hostelhub`, that page is titled "HostelHub · Softmato", and neither page links to
+   `hostelpalika.com` once. softmato.com is the one domain Google already trusts for this company,
+   and what it currently tells Google is that the product is called something else. Rename the page
+   and its route to HostelPalika, keep a 308 from `/products/hostelhub`, and link
+   `https://hostelpalika.com` from both the product page and the products index. This is the
+   largest single signal available and it costs one deploy of the other repo.
+10. Nothing external points here at all: `sameAs` is absent from the Organization record because
+    every field in Website Config → Social is blank, the Play listing is still in review, and the
+    directories in item 6 were never done. Until some of that exists, `hostelpalika` stays a
+    spelling Google corrects rather than a brand it knows.

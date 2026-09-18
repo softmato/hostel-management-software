@@ -23,6 +23,8 @@ export const FINANCE_ERROR_STATUS = {
   FEE_SCHEDULE_MONTH_LOCKED: 409,
   /** The card has already priced an invoice, so it cannot be deleted. */
   FEE_SCHEDULE_IN_USE: 409,
+  /** No month discount with that id under this hostel. */
+  RENT_CONCESSION_NOT_FOUND: 404,
   /** A non-void invoice already exists for the period. */
   INVOICE_ALREADY_BILLED: 409,
   /** No such invoice **that this principal may see** — same answer either way. */

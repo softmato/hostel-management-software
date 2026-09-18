@@ -30,6 +30,7 @@ const SHRAWAN = "2083-04";
 const bhadra = (day: number) => fromBs({ day, month: 5, year: 2083 });
 
 const mocks = vi.hoisted(() => ({
+  concessionFindOne: vi.fn(),
   findCurrentResident: vi.fn(),
   findResidentAvatars: vi.fn(),
   hostelFindById: vi.fn(),
@@ -81,6 +82,16 @@ vi.mock("@hostel/db/models/FeeSchedule", () => ({
 
 vi.mock("@hostel/db/models/Hostel", () => ({
   HostelModel: { findById: mocks.hostelFindById },
+}));
+
+/*
+ * The month discount the matrix now projects with. Mocked at the model for the
+ * same reason the rate card is: `discountRent` is arithmetic worth running, and a
+ * stub of the service would leave these tests asserting a mock's opinion of half
+ * rent. `null` is the ordinary month — full rent, no row.
+ */
+vi.mock("@hostel/db/models/RentConcession", () => ({
+  RentConcessionModel: { findOne: mocks.concessionFindOne },
 }));
 
 vi.mock("@hostel/db/models/Invoice", () => ({
@@ -137,6 +148,7 @@ beforeEach(() => {
   mocks.invoiceFind.mockReturnValue(lean([]));
   mocks.hostelFindById.mockReturnValue(lean(null));
   mocks.scheduleFindOne.mockReturnValue(lean(null));
+  mocks.concessionFindOne.mockReturnValue(lean(null));
   mocks.receiptFind.mockReturnValue(lean([]));
   mocks.residentFind.mockReturnValue(lean([]));
 });

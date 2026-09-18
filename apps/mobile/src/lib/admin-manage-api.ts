@@ -2105,6 +2105,86 @@ export async function closeFeeSchedule(id: string, effectiveTo: string) {
   await api.post(`/hostel-admin/finance/fee-schedules/${id}/close`, { effectiveTo });
 }
 
+/* -------------------------------------------------------------------------- */
+/* Festival discounts                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A month at reduced rent, sitting on top of the rate card.
+ *
+ * Not a rate card of its own, and that is the whole shape of it: the rents above
+ * are unchanged, and this says "in Kartik, take 50% off everybody". Said through
+ * the card instead it would take three cards to express one festival, with the
+ * real rents then living in two rows that agree only by accident.
+ *
+ * `standing` is the server's, like a schedule's. `past` months are already
+ * invoiced and their bills carry the figure they were issued with — so a discount
+ * on one changes no money, and the screen says so rather than refusing the save.
+ */
+/**
+ * What a save or a delete did to bills that had **already gone out** for that
+ * month — see `rent-concession-backfill` on the server.
+ *
+ * All zeroes is the healthy case, not a failure: it means the month has not been
+ * billed yet, so the run will charge the reduced rent directly and there was
+ * nothing to correct.
+ */
+export type ConcessionBackfill = {
+  /** Rupees taken off, or put back. */
+  discounted: number;
+  invoicesChanged: number;
+  /** Left at their discount because money is already settled against them. */
+  invoicesKept: number;
+  /** Already paid, so handed back as credit against next month. */
+  refundedAsCredit: number;
+};
+
+export type RentConcession = {
+  _id: string;
+  /** "Kartik 2083" — the month as an owner reads it. */
+  label: string;
+  percentOff: number;
+  /** BS period key, `2083-06`. */
+  period: string;
+  reason: string | null;
+  standing: "current" | "past" | "upcoming";
+};
+
+export async function listRentConcessions() {
+  const response = await api.get<ApiEnvelope<{ concessions: RentConcession[] }>>(
+    "/hostel-admin/finance/rent-concessions",
+  );
+
+  return unwrap(response).concessions ?? [];
+}
+
+/**
+ * `POST /hostel-admin/finance/rent-concessions` — set or replace one month.
+ *
+ * An upsert keyed on the month, so there is no edit endpoint and no id to hold:
+ * "Dashain at 50, no — 40" is a correction to one fact. Invoices already issued
+ * are untouched either way, because each carries the amount it was computed from.
+ */
+export async function saveRentConcession(input: {
+  percentOff: number;
+  period: string;
+  reason?: string;
+}) {
+  const response = await api.post<
+    ApiEnvelope<{ concession: RentConcession & { applied: ConcessionBackfill } }>
+  >("/hostel-admin/finance/rent-concessions", input);
+
+  return unwrap(response).concession;
+}
+
+export async function deleteRentConcession(id: string) {
+  const response = await api.delete<
+    ApiEnvelope<{ deletedId: string; restored: ConcessionBackfill }>
+  >(`/hostel-admin/finance/rent-concessions/${encodeURIComponent(id)}`);
+
+  return unwrap(response);
+}
+
 /** `GET .../billing-runs?period=` — what the period looks like now. Reads never bill. */
 export type BillingPeriodSummary = {
   invoiceCount: number;

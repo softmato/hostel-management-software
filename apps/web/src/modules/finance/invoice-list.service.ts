@@ -15,6 +15,7 @@ import type {
   ListedRoomRates,
 } from "@/modules/finance/fee-schedule.service";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import { getRentConcession } from "@/modules/finance/rent-concession.service";
 import {
   listRecentInvoices,
   listResidentInvoices,
@@ -385,6 +386,14 @@ function priceUnbilled(
   schedule: FeeScheduleRecord | null,
   listed: ListedRoomRates,
   period: string,
+  /**
+   * The month's festival discount. Projected here for the same reason the rest
+   * of this function exists: the figure a warden reads beside an unbilled row has
+   * to be the figure the run will charge, and a Dashain month at half rent that
+   * showed the full rent here would make every unbilled row on the busiest screen
+   * in the portal wrong by half.
+   */
+  concessionPercent = 0,
 ): NotBilled {
   if (paidBeforeJoining(resident.paidTill, period)) {
     return { amount: 0, reason: "PAID_BEFORE_JOINING" };
@@ -402,6 +411,7 @@ function priceUnbilled(
       },
       schedule,
       listed,
+      concessionPercent,
     );
 
     const invoiceAmount = computeInvoiceAmount(
@@ -560,11 +570,12 @@ export async function getInvoiceMatrix(
    * once per row: the matrix is the most-opened screen in the portal and a
    * per-resident schedule lookup would be forty round trips to say "not billed".
    */
-  const [schedule, hostel] = await Promise.all([
+  const [schedule, hostel, concession] = await Promise.all([
     getEffectiveSchedule(hostelId, period),
     HostelModel.findById(hostelId)
       .select("roomConfigurations")
       .lean<{ roomConfigurations?: { monthlyRent?: number; roomType: string }[] } | null>(),
+    getRentConcession(hostelId, period),
   ]);
 
   const listed = listedRoomRates(hostel?.roomConfigurations);
@@ -608,7 +619,9 @@ export async function getInvoiceMatrix(
 
     return {
       displayStatus: invoice?.status ?? "NOT_BILLED",
-      notBilled: invoice ? null : priceUnbilled(resident, schedule, listed, period),
+      notBilled: invoice
+        ? null
+        : priceUnbilled(resident, schedule, listed, period, concession.percentOff),
       payment: invoice ? toPortalInvoice(invoice) : null,
       resident: {
         fullName: `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim(),
