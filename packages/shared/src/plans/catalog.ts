@@ -37,11 +37,18 @@ export type PlanTierLike = {
   ctaHref: string;
   ctaLabel: string;
   description: string;
+  /** Percent off `monthly` while an event runs. Ignored outside one. */
+  eventDiscountPercent: number;
   featured: boolean;
   /** Percent off six months bought one month at a time. */
   halfYearlyDiscountPercent: number;
   id: string;
   listingTier: PlanListingTierLike | null;
+  /**
+   * The price before an event rewrote `monthly` — stamped by `sellingCatalog`,
+   * never authored and never stored. Absent means the plan is at list price.
+   */
+  listMonthly?: number;
   /** `null` means no ceiling, which is not the same fact as a cap of zero. */
   maxResidents: number | null;
   /** Rupees per month when billed monthly. Every other figure derives from it. */
@@ -72,12 +79,38 @@ export type PlanServiceLike = {
 };
 
 /**
- * Only the four parts the arithmetic reads. The stored section carries a `page`
+ * ## The event switch
+ *
+ * The catalogue runs in one of two modes. `standard` is the ordinary flow —
+ * three prices, two cycle discounts, nothing else. `event` is a dated sale: it
+ * takes `eventDiscountPercent` off each plan's monthly price until the end of
+ * the BS month named in `endsOn`, and every figure derived from `monthly` — the
+ * six-month total, the annual total, the saving pill, the price a hostel is
+ * actually invoiced — follows it, because they were all already derived from
+ * `monthly` and nothing else.
+ *
+ * `endsOn` is a BS period key (`"2083-06"`), inclusive, so the comparison is a
+ * string compare against the current period rather than timezone arithmetic —
+ * which is also why this file still imports nothing.
+ */
+export type PlanEventLike = {
+  /** BS period key, inclusive. The event stops at the end of this month. */
+  endsOn: string;
+  /** What the badge on the cards calls it. */
+  label: string;
+  mode: "standard" | "event";
+  /** One line under the badge. Blank shows nothing. */
+  note: string;
+};
+
+/**
+ * Only the parts the arithmetic reads. The stored section carries a `page`
  * block as well — headings and the closing pitch — which nothing here needs, so
  * asking for it would be asking a caller for something to be ignored.
  */
 export type PlansCatalog = {
   cycleLabels: { annual: string; halfYearly: string; monthly: string };
+  event: PlanEventLike;
   modules: PlanModuleLike[];
   plans: PlanTierLike[];
   services: PlanServiceLike[];
@@ -132,9 +165,95 @@ export function monthlyRateFor(plan: PlanTierLike, cycle: BillingCycle) {
   return Math.round(cycleTotal(plan, cycle) / cycleMonths(cycle));
 }
 
+/**
+ * The plan's list price a month — what it costs outside an event.
+ *
+ * Every comparison a card draws is drawn against this, so an event and a cycle
+ * discount stack into one honest "was / now" instead of two.
+ */
+export function listMonthly(plan: PlanTierLike) {
+  return plan.listMonthly ?? plan.monthly;
+}
+
 /** Rupees kept by paying the span up front instead of month by month. */
 export function savingFor(plan: PlanTierLike, cycle: BillingCycle) {
-  return plan.monthly * cycleMonths(cycle) - cycleTotal(plan, cycle);
+  return listMonthly(plan) * cycleMonths(cycle) - cycleTotal(plan, cycle);
+}
+
+/** True while the catalogue is in event mode and `period` is inside its window. */
+export function eventRuns(catalog: PlansCatalog, period: string) {
+  // Optional on purpose: a catalogue from before this field existed is standard
+  // mode, not a crash in the middle of pricing somebody's plan.
+  const { endsOn = "", mode = "standard" } = catalog.event ?? {};
+
+  // Zero-padded `YYYY-MM` sorts as a date, so the window is a string compare.
+  return mode === "event" && endsOn !== "" && period <= endsOn;
+}
+
+/** Percent off this plan's monthly price, once the event is known to be running. */
+function eventPercent(plan: PlanTierLike) {
+  return Math.min(90, Math.max(0, plan.eventDiscountPercent));
+}
+
+/**
+ * One plan at its offer price — **the event discount instead of the cycle
+ * discounts, never both.**
+ *
+ * The cycle discounts go to zero here on purpose. A plan already 60% off is not
+ * also 17% off for paying a year up front; stacking them would quote a third
+ * number nobody set, and a card advertising "60% off" beside "save 17%" is two
+ * offers where the hostel was given one. During an event the event *is* the
+ * discount, and the six-month and annual prices are simply the offer price
+ * times six and twelve.
+ *
+ * A plan with no event discount is left alone — it is not in the sale, so it
+ * keeps the cycle discounts it has always had.
+ */
+export function sellingPlan<Plan extends PlanTierLike>(plan: Plan): Plan {
+  const percent = eventPercent(plan);
+
+  if (percent <= 0) {
+    return plan;
+  }
+
+  return {
+    ...plan,
+    annualDiscountPercent: 0,
+    halfYearlyDiscountPercent: 0,
+    listMonthly: plan.monthly,
+    monthly: Math.round(plan.monthly * (1 - percent / 100)),
+  };
+}
+
+/**
+ * The catalogue as it is actually sold in `period`.
+ *
+ * A running event rewrites each plan through {@link sellingPlan} and keeps the
+ * old monthly figure in `listMonthly`. Everything downstream — `cycleTotal`,
+ * `monthlyRateFor`, `savingFor`, the price `pricePlan` invoices — already
+ * derives from `monthly` and the cycle percentages, so rewriting those three
+ * fields is the whole feature: nothing else learns that events exist. Outside
+ * the window the same object comes back untouched, which is what keeps standard
+ * mode the standard flow.
+ *
+ * It runs on the **server** — once in the public site-config projection and
+ * once in `pricePlan` — so a phone with a wrong clock cannot extend a sale.
+ */
+export function sellingCatalog<Catalog extends PlansCatalog>(
+  catalog: Catalog,
+  period: string,
+): Catalog {
+  if (!eventRuns(catalog, period)) {
+    return catalog;
+  }
+
+  return { ...catalog, plans: catalog.plans.map(sellingPlan) } as Catalog;
+}
+
+
+/** The best event discount on offer, for one badge the whole page can wear. */
+export function bestEventPercent(catalog: PlansCatalog) {
+  return Math.max(0, ...catalog.plans.map((plan) => (plan.listMonthly ? eventPercent(plan) : 0)));
 }
 
 /**

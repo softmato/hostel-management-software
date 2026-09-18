@@ -341,6 +341,8 @@ const planTierSchema = z.object({
   ctaHref: trimmed.max(200).default("/register-hostel"),
   ctaLabel: trimmed.min(1, "A plan's button needs a label.").max(40),
   description: trimmed.max(240).default(""),
+  /** Percent off `monthly` while the catalogue is in event mode. Ignored in standard mode. */
+  eventDiscountPercent: z.number().min(0).max(90).default(0),
   /** The highlighted card. One only — the admin screen enforces it. */
   featured: z.boolean().default(false),
   /** Percent off six months bought one month at a time. */
@@ -348,6 +350,12 @@ const planTierSchema = z.object({
   id: trimmed.min(1).max(40),
   /** The badge this plan wears in the public directory. `null` on free tiers. */
   listingTier: planListingTierSchema.nullable().default(null),
+  /**
+   * Never authored and never saved — `sellingCatalog` stamps it on the way out
+   * of the public projection so a card can strike through the pre-event price.
+   * It is declared here only because this schema is also the wire type.
+   */
+  listMonthly: z.number().min(0).max(10_000_000).optional(),
   maxResidents: cap,
   /** Rupees per month when billed monthly. Every other figure derives from it. */
   monthly: z.number().min(0).max(10_000_000).default(0),
@@ -412,6 +420,25 @@ export const plansSchema = z.object({
       monthly: trimmed.min(1).max(30).default("Monthly"),
     })
     .default({ annual: "Annual", halfYearly: "6 months", monthly: "Monthly" }),
+  /**
+   * The mode switch. `standard` is the catalogue exactly as it has always been
+   * — nothing below this field is read. `event` runs a dated sale on top of the
+   * same prices; see `PlanEventLike` in the shared catalogue for what it does
+   * to the arithmetic. Switching back to `standard` restores the standard
+   * prices untouched, because an event never edits them.
+   */
+  event: z
+    .object({
+      /** BS period key, inclusive — the offer stops at the end of this month. */
+      endsOn: trimmed
+        .regex(/^\d{4}-\d{2}$/, "Use a Bikram Sambat month, like 2083-06.")
+        .or(z.literal(""))
+        .default(""),
+      label: trimmed.max(40).default("Festival offer"),
+      mode: z.enum(["standard", "event"]).default("standard"),
+      note: trimmed.max(200).default(""),
+    })
+    .default({ endsOn: "", label: "Festival offer", mode: "standard", note: "" }),
   modules: z.array(planModuleSchema).max(24).default([]),
   /** The page's own headings and closing call to action. */
   page: z

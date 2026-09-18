@@ -2,6 +2,8 @@ import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { getPublicPlatformStats } from "@/modules/reports/platform-highlights.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
+import { currentBsPeriod } from "@hostel/shared/calendar/bs";
+import { sellingCatalog } from "@hostel/shared/plans/catalog";
 import { PlatformSettingModel } from "@hostel/db/models/PlatformSetting";
 
 import { DEFAULT_SITE_CONFIG } from "./site-config.defaults";
@@ -157,9 +159,12 @@ export async function getPublicSiteConfig() {
     identity: config.identity,
     legal: config.legal,
     locations: config.locations.filter((location) => location.enabled),
-    // The whole Plans & Pricing catalogue. Public by definition — it is the
-    // page — and read by the website's pricing, service and badge routes.
-    plans: config.plans,
+    // The whole Plans & Pricing catalogue, priced as it is actually sold right
+    // now: in standard mode this is the stored section untouched, and during a
+    // running event each plan carries its offer price with the list price kept
+    // beside it. Public by definition — it is the page — and read by the
+    // website's pricing, service and badge routes, and by the phone.
+    plans: sellingCatalog(config.plans, currentBsPeriod()),
     // Titles, descriptions, verification tags and the search landing pages.
     // Nothing private: every field ends up in a page head or on a public page.
     seo: config.seo,

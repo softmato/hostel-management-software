@@ -17,8 +17,13 @@ import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { ReceiptCounterModel } from "@hostel/db/models/ReceiptCounter";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
-import { hostelDayEnd } from "@hostel/shared/calendar/bs";
-import { cycleMonths, cycleTotal, getPlan } from "@hostel/shared/plans/catalog";
+import { currentBsPeriod, hostelDayEnd } from "@hostel/shared/calendar/bs";
+import {
+  cycleMonths,
+  cycleTotal,
+  getPlan,
+  sellingCatalog,
+} from "@hostel/shared/plans/catalog";
 import type { BillingCycle } from "@hostel/shared/plans/catalog";
 
 /**
@@ -158,7 +163,11 @@ async function allocateNumber(
  * may change underneath it.
  */
 export async function pricePlan(planId: string, cycle: BillingCycle) {
-  const catalog = await getSiteConfigSection("plans");
+  // The catalogue as it is sold today, not as it is stored: a running event is
+  // the price the cards quote, so it has to be the price the invoice carries.
+  // Snapshotting happens immediately after, so the offer survives the event
+  // ending — an agreement struck during it is not repriced when it stops.
+  const catalog = sellingCatalog(await getSiteConfigSection("plans"), currentBsPeriod());
   const plan = getPlan(catalog, planId);
 
   if (!plan) {

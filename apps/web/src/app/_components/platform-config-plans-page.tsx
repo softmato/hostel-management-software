@@ -10,6 +10,7 @@ import {
   ToggleSwitch,
 } from "@/app/_components/portal-dashboard-ui";
 import { useSiteConfig } from "@/components/site-config-provider";
+import { currentBsPeriod, formatBsPeriod } from "@hostel/shared/calendar/bs";
 import { CONTENT_ICON_SLUGS, contentIcon } from "@/lib/site-content";
 import { cn } from "@/lib/utils";
 
@@ -24,9 +25,12 @@ import {
 } from "./plans-cards";
 import {
   cycleTotal,
+  eventRuns,
   monthlyRateFor,
   orphanedServices,
   savingFor,
+  sellingCatalog,
+  sellingPlan,
   servicesByModule,
   type BillingCycle,
   type PlanModule,
@@ -79,6 +83,15 @@ export const PlatformConfigPlansPageContent = memo(
     const catalog = valueFor("plans");
     const [cycle, setCycle] = useState<BillingCycle>("annual");
     const [tab, setTab] = useState("catalogue");
+
+    /*
+     * The preview is priced the way a visitor's page is priced — through the
+     * same `sellingCatalog` the public projection runs — so switching the mode
+     * to Event shows the offer on the cards rather than leaving the owner to
+     * imagine it. Every control still writes into `catalog`, never into this:
+     * an event discounts prices, it never edits them.
+     */
+    const sold = useMemo(() => sellingCatalog(catalog, currentBsPeriod()), [catalog]);
 
     const patch = useCallback(
       (changes: Partial<PlansConfig>) => setValue("plans", { ...catalog, ...changes }),
@@ -160,14 +173,14 @@ export const PlatformConfigPlansPageContent = memo(
             <div className="text-center">
               <PlansHeading catalog={catalog} editor={editor} />
               <BillingToggle
-                catalog={catalog}
+                catalog={sold}
                 cycle={cycle}
                 editor={editor}
                 onCycleChange={setCycle}
               />
             </div>
 
-            <PlanCards animate={false} catalog={catalog} cycle={cycle} editor={editor} />
+            <PlanCards animate={false} catalog={sold} cycle={cycle} editor={editor} />
 
             <PlansFootnote catalog={catalog} editor={editor} identity={identity} />
 
@@ -185,6 +198,7 @@ export const PlatformConfigPlansPageContent = memo(
           tabs={[
             { count: catalog.services.length, key: "catalogue", label: "Catalogue" },
             { count: catalog.plans.length, key: "pricing", label: "Pricing" },
+            { key: "offer", label: "Offer" },
             { key: "links", label: "Links" },
           ]}
           value={tab}
@@ -195,6 +209,9 @@ export const PlatformConfigPlansPageContent = memo(
         ) : null}
         {tab === "pricing" ? (
           <PricingTab catalog={catalog} onPatch={patch} onPatchPlan={patchPlan} />
+        ) : null}
+        {tab === "offer" ? (
+          <OfferTab catalog={catalog} onPatch={patch} onPatchPlan={patchPlan} />
         ) : null}
         {tab === "links" ? (
           <LinksTab catalog={catalog} onPatch={patch} onPatchPlan={patchPlan} />
@@ -692,6 +709,7 @@ function PricingTab({
           ctaHref: "/register-hostel",
           ctaLabel: "Get started",
           description: "",
+          eventDiscountPercent: 0,
           featured: false,
           halfYearlyDiscountPercent: 0,
           id,
@@ -862,6 +880,174 @@ function PlanPricingRow({
       </div>
 
       <BadgeEditor onPatch={onPatch} plan={plan} />
+    </section>
+  );
+}
+
+/**
+ * ## Offer — the mode switch, and nothing else
+ *
+ * Two modes, one toggle. **Standard** is the catalogue exactly as the Pricing
+ * tab leaves it; nothing on this tab is read while it is on. **Event** runs a
+ * dated sale *on top of* those prices — it takes a percentage off each plan's
+ * monthly figure until the end of the month named here, and the six-month and
+ * annual prices follow, because they were already derived from the monthly one.
+ *
+ * The standard prices are never touched. Switching back to Standard restores
+ * them exactly, which is the whole reason the offer is a percentage stored
+ * beside the price rather than a second set of prices to keep in step.
+ */
+function OfferTab({
+  catalog,
+  onPatch,
+  onPatchPlan,
+}: {
+  catalog: PlansConfig;
+  onPatch: (changes: Partial<PlansConfig>) => void;
+  onPatchPlan: (planId: string, changes: Partial<PlanTier>) => void;
+}) {
+  const { event } = catalog;
+  const running = eventRuns(catalog, currentBsPeriod());
+  const patchEvent = (changes: Partial<PlansConfig["event"]>) =>
+    onPatch({ event: { ...event, ...changes } });
+
+  return (
+    <div className="space-y-3">
+      <ConfigPanel
+        description="Standard runs the prices set on the Pricing tab. Event takes a percentage off each of them until the month you name, and the six-month and annual prices follow on their own. Switching back to Standard restores the full prices — an event never edits them."
+        title="Plan mode"
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/10 p-3">
+            <div>
+              <p className="text-[12.5px] font-semibold text-foreground">
+                {event.mode === "event" ? "Event plan" : "Standard plan"}
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {event.mode === "standard"
+                  ? "Full prices. The fields below are ignored."
+                  : running
+                    ? `Running now — offer prices are live on the page, through ${formatBsPeriod(event.endsOn)}.`
+                    : event.endsOn === ""
+                      ? "Not running: no month is set, so the offer has no end and is not applied."
+                      : `Not running: ${formatBsPeriod(event.endsOn)} has passed. Full prices are live.`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {running ? <SoftBadge tone="green">Live</SoftBadge> : null}
+              <ToggleSwitch
+                checked={event.mode === "event"}
+                label="Event plan"
+                onChange={(on) => patchEvent({ mode: on ? "event" : "standard" })}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-2.5 sm:grid-cols-3">
+            <TextField
+              hint="Bikram Sambat month, like 2083-06. The offer stops at the end of it."
+              label="Runs until"
+              onChange={(endsOn) => patchEvent({ endsOn: endsOn.trim() })}
+              placeholder="2083-06"
+              value={event.endsOn}
+            />
+            <TextField
+              hint="The words on the badge above the cards."
+              label="Badge"
+              onChange={(label) => patchEvent({ label })}
+              placeholder="Festival offer"
+              value={event.label}
+            />
+            <TextField
+              hint="One line under it. Blank shows nothing."
+              label="Note"
+              onChange={(note) => patchEvent({ note })}
+              placeholder="Dashain and Tihar, on us."
+              value={event.note}
+            />
+          </div>
+        </div>
+      </ConfigPanel>
+
+      <ConfigPanel
+        description="A percentage off each plan's monthly price, and the only discount that applies while the event runs — the six-month and annual discounts are set aside, so a hostel is given one offer rather than two stacked on each other. Six months and a year are simply the offer price times six and twelve."
+        title="Discount per plan"
+      >
+        <div className="space-y-2.5">
+          {catalog.plans.map((plan) => (
+            <EventDiscount
+              catalog={catalog}
+              key={plan.id}
+              onChange={(eventDiscountPercent) =>
+                onPatchPlan(plan.id, { eventDiscountPercent })
+              }
+              plan={plan}
+            />
+          ))}
+
+          {catalog.plans.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              Add a plan on the Pricing tab first.
+            </p>
+          ) : null}
+        </div>
+      </ConfigPanel>
+    </div>
+  );
+}
+
+/** One plan's event discount, with the three prices it produces printed under it. */
+function EventDiscount({
+  catalog,
+  onChange,
+  plan,
+}: {
+  catalog: PlansConfig;
+  onChange: (percent: number) => void;
+  plan: PlanTier;
+}) {
+  const money = (rupees: number) => `NPR ${rupees.toLocaleString("en-IN")}`;
+  const percent = plan.eventDiscountPercent;
+  // Priced through the very function the projection prices with, so the
+  // sentence under this field and the card in the preview above cannot quote
+  // different numbers — including the part where the cycle discounts drop away.
+  const offer = sellingPlan(plan);
+
+  return (
+    <section className="rounded-lg border border-border/70 bg-muted/10 p-3">
+      <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-heading text-[13.5px] font-bold text-foreground">
+          {plan.name}
+        </h3>
+        <span className="font-mono text-[10.5px] text-muted-foreground/70">
+          {money(plan.monthly)} a month
+        </span>
+      </header>
+
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        <NumberField
+          label="Event discount"
+          max={90}
+          onChange={(next) => onChange(next ?? 0)}
+          suffix="%"
+          value={percent}
+        />
+        <p className="self-center text-[11px] text-muted-foreground">
+          {percent > 0 ? (
+            <>
+              <span className="font-semibold text-foreground">
+                {money(offer.monthly)}
+              </span>{" "}
+              a month during the event — six months{" "}
+              {money(cycleTotal(offer, "halfYearly"))}, one year{" "}
+              {money(cycleTotal(offer, "annual"))}. The {catalog.cycleLabels.halfYearly}{" "}
+              and {catalog.cycleLabels.annual} discounts do not apply on top.
+            </>
+          ) : (
+            "No discount, so this plan stays at its full price during the event."
+          )}
+        </p>
+      </div>
     </section>
   );
 }

@@ -33,6 +33,7 @@ const PLAN_TIERS: PlansConfig["plans"] = [
     ctaLabel: "Start with Go",
     description: "A single hostel with room to grow into.",
     featured: false,
+    eventDiscountPercent: 0,
     halfYearlyDiscountPercent: 8,
     id: "go",
     listingTier: null,
@@ -47,6 +48,7 @@ const PLAN_TIERS: PlansConfig["plans"] = [
     ctaLabel: "Get Pro",
     description: "A full house, or two floors of one.",
     featured: true,
+    eventDiscountPercent: 0,
     halfYearlyDiscountPercent: 7,
     id: "pro",
     listingTier: {
@@ -66,6 +68,7 @@ const PLAN_TIERS: PlansConfig["plans"] = [
     ctaLabel: "Upgrade to Max",
     description: "Large hostels and multi-property operators.",
     featured: false,
+    eventDiscountPercent: 0,
     halfYearlyDiscountPercent: 5,
     id: "max",
     listingTier: {
@@ -469,6 +472,9 @@ const PLAN_SERVICES: PlanServiceSeed[] = [
 
 export const DEFAULT_PLANS: PlansConfig = {
   cycleLabels: { annual: "Annual", halfYearly: "6 months", monthly: "Monthly" },
+  // Standard out of the box. An event is switched on in Platform → Website
+  // Config → Plans & Pricing when there is one to run.
+  event: { endsOn: "", label: "Festival offer", mode: "standard", note: "" },
   modules: PLAN_MODULES,
   page: {
     ctaBody:

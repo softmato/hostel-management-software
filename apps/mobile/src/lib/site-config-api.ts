@@ -224,6 +224,7 @@ export const FALLBACK_SITE_CONFIG: MobileSiteConfig = {
    */
   plans: {
     cycleLabels: { annual: "Annual", halfYearly: "6 months", monthly: "Monthly" },
+    event: { endsOn: "", label: "", mode: "standard", note: "" },
     modules: [],
     page: {
       ctaBody: "",

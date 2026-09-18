@@ -28,11 +28,13 @@ import type {
 
 export {
   bestDiscountPercent,
+  bestEventPercent,
   billingCycles,
   cardServicesForPlan,
   cycleMonths,
   cycleTotal,
   discountPercent,
+  eventRuns,
   formatPlanRate,
   getListingTier,
   getPlan,
@@ -40,6 +42,7 @@ export {
   getServiceModule,
   listingTierHref,
   listingTiers,
+  listMonthly,
   monthlyRateFor,
   newServicesForPlan,
   orphanedServices,
@@ -49,6 +52,8 @@ export {
   residentRangeLabel,
   savingFor,
   serviceHref,
+  sellingCatalog,
+  sellingPlan,
   servicesByModule,
   type BillingCycle,
 } from "@hostel/shared/plans/catalog";

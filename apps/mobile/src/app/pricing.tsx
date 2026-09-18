@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
   bestDiscountPercent,
+  bestEventPercent,
   billingCycles,
   cardServicesForPlan,
   cycleTotal,
@@ -78,6 +79,9 @@ export default function PricingScreen() {
 
   const empty = catalog.plans.length === 0;
   const bestDiscount = bestDiscountPercent(catalog, cycle);
+  // Only ever above zero while an event is actually running: the server stamps
+  // the offer price onto the catalogue, so the phone has nothing to decide.
+  const eventPercent = bestEventPercent(catalog);
 
   return (
     <Screen
@@ -124,6 +128,23 @@ export default function PricingScreen() {
                   Save up to {bestDiscount}%
                 </Text>
               </View>
+            ) : null}
+            {/* The event rides every cycle, so unlike the pill above it this one
+                shows on monthly too. */}
+            {eventPercent > 0 ? (
+              <View className="self-center rounded-full bg-primary px-3 py-1">
+                <Text
+                  className="text-xs font-bold text-primary-foreground"
+                  variant={null}
+                >
+                  {catalog.event.label} — {eventPercent}% off
+                </Text>
+              </View>
+            ) : null}
+            {eventPercent > 0 && catalog.event.note ? (
+              <Text className="text-center text-xs text-muted-foreground" variant={null}>
+                {catalog.event.note}
+              </Text>
             ) : null}
           </View>
         )}
@@ -209,6 +230,10 @@ function PlanCard({
   const { colors } = useAppTheme();
   const below = planBelow(catalog, plan.id);
   const tier = plan.listingTier;
+  // One "was" figure, never two: an event and a cycle discount both come off
+  // the same list price, so that list price is what gets struck through.
+  const struck = plan.listMonthly ?? (cycle === "monthly" ? null : plan.monthly);
+  const saving = savingFor(plan, cycle);
 
   return (
     <View className={plan.featured ? "pt-3" : ""}>
@@ -249,13 +274,13 @@ function PlanCard({
               currencyClassName="text-lg text-foreground"
               rupees={monthlyRateFor(plan, cycle)}
             />
-            {cycle !== "monthly" ? (
+            {struck === null ? null : (
               <Money
                 className="text-base font-semibold text-muted-foreground line-through"
                 currencyClassName="text-xs text-muted-foreground"
-                rupees={plan.monthly}
+                rupees={struck}
               />
-            ) : null}
+            )}
           </View>
 
           <Text className="text-sm text-foreground" variant={null}>
@@ -266,10 +291,10 @@ function PlanCard({
                 )}, paid once.`}
           </Text>
 
-          {cycle !== "monthly" ? (
+          {saving > 0 ? (
             <View className="rounded-full bg-brand-soft px-2.5 py-1">
               <Text className="text-xs font-semibold text-primary" variant={null}>
-                Save {money(savingFor(plan, cycle))}
+                Save {money(saving)}
               </Text>
             </View>
           ) : null}

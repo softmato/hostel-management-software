@@ -14,6 +14,7 @@ import { TIER_TONE } from "./listing-tier-tone";
 import { PlanMark } from "./plan-mark";
 import {
   bestDiscountPercent,
+  bestEventPercent,
   billingCycles,
   cardServicesForPlan,
   cycleTotal,
@@ -185,8 +186,10 @@ export function BillingToggle({
   editor?: PlansEditor;
   onCycleChange: (next: BillingCycle) => void;
 }) {
+  const eventPercent = bestEventPercent(catalog);
+
   return (
-    <div className="mt-7 flex items-center justify-center gap-3">
+    <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
       <div
         aria-label="Billing period"
         className="inline-flex rounded-full border border-border bg-surface p-1 shadow-sm"
@@ -229,6 +232,15 @@ export function BillingToggle({
           );
         })}
       </div>
+      {/* The event badge sits on every cycle, because the offer is on every
+          cycle — unlike the cycle saving beside it, which is only true off
+          monthly. It shows at all only while an event is actually running: the
+          projection stamps `listMonthly` when it is, and nothing else does. */}
+      {eventPercent > 0 ? (
+        <span className="rounded-full bg-brand-teal px-3 py-1 text-xs font-bold text-white">
+          {catalog.event.label} — {eventPercent}% off
+        </span>
+      ) : null}
       {/* Never on monthly: a saving on screen while monthly is selected is
           advertising a discount the reader is not currently getting. Keyed on
           the cycle so the figure re-enters when it changes, rather than
@@ -370,6 +382,15 @@ export function PlanCard({
 }) {
   const rate = monthlyRateFor(plan, cycle);
   const services = cardServicesForPlan(catalog, plan.id);
+  /*
+   * One "was" figure, never two. An event and a cycle discount both come off
+   * the same list price, so the struck number is that list price whenever
+   * either is in play — printing the event price struck as well would put two
+   * crossed-out numbers on a card and leave the reader deciding which counts.
+   */
+  const struck =
+    plan.listMonthly ?? (cycle === "monthly" ? null : plan.monthly);
+  const saving = savingFor(plan, cycle);
   const patch = (changes: Partial<PlanTier>) => editor?.onPatchPlan(plan.id, changes);
 
   return (
@@ -468,14 +489,14 @@ export function PlanCard({
           <Money rupees={rate} />
         </motion.span>
 
-        {cycle !== "monthly" ? (
+        {struck !== null ? (
           <motion.span
             animate={{ opacity: 1 }}
             className="text-base font-semibold text-muted-foreground/50 line-through"
             initial={{ opacity: 0 }}
             transition={{ duration: 0.25, ease: EASE }}
           >
-            <Money rupees={plan.monthly} />
+            <Money rupees={struck} />
           </motion.span>
         ) : null}
       </div>
@@ -498,12 +519,10 @@ export function PlanCard({
           CSS. It reflows the button and the list below it rather than moving
           them, so nothing is left holding a transform. */}
       <div
-        aria-hidden={cycle === "monthly"}
+        aria-hidden={saving <= 0}
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none",
-          cycle === "monthly"
-            ? "grid-rows-[0fr] opacity-0"
-            : "grid-rows-[1fr] opacity-100",
+          saving <= 0 ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
         )}
       >
         <div className="overflow-hidden">
@@ -512,7 +531,7 @@ export function PlanCard({
                 whitespace text nodes between its children, so the amount welds
                 onto the word before it and the pill reads as one long token. */}
             <span className="inline-block rounded-full bg-brand-teal/10 px-2.5 py-1 text-xs font-semibold text-brand-teal">
-              Save <Money rupees={savingFor(plan, cycle)} />
+              Save <Money rupees={saving} />
             </span>
           </p>
         </div>
