@@ -7,15 +7,19 @@ import type { PaymentMonth } from "@/lib/payment-months";
 /**
  * The month strip, and the line that names the month it selected.
  *
- * ## The chip is Gregorian, the line follows the portal's calendar
+ * ## The chip names the period, the line follows the portal's calendar
  *
- * A chip has room for `Aug` and a year and nothing else, and a Gregorian month
- * runs through two Nepali ones. So the strip stays AD, which is what a phone's
- * own clock and every bank statement agree on, whatever the calendar setting
- * says. The month is *named* underneath, where there is room for it, and that
- * line is the one the setting moves: `August 2026`, or `Shrawan 2083` for a
- * hostel keeping its books in Bikram Sambat — one month, the one the period
- * mostly falls in, because two names under one lit chip read as two selections.
+ * A chip has room for a month and a year and nothing else, so it carries the
+ * period key's own name — `Aswin`, `2083` — because a period **is** a Bikram
+ * Sambat month. This paragraph used to say the opposite, that the strip stayed
+ * Gregorian, and it was written when that was true; after periods became BS the
+ * builder went on reading Gregorian month names off a BS key and drew Aswin 2083
+ * as `Jun / 2083`. See `lib/payment-months.ts`.
+ *
+ * The month is *named* underneath, where there is room for it, and that line is
+ * the one the calendar setting moves: `Aswin 2083 BS`, or the Gregorian month the
+ * period mostly falls in for a hostel keeping its books in AD — one month, not
+ * both, because two names under one lit chip read as two selections.
  *
  * That line is not decoration. It is the only place on the screen that says
  * which of the reader's own months the chip they just tapped corresponds to, and

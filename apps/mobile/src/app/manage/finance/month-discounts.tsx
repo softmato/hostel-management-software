@@ -10,8 +10,8 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
+import { PaymentMonthStrip } from "@/components/payment-months";
 import { Screen } from "@/components/ui/screen";
-import { Select } from "@/components/ui/select";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
@@ -28,8 +28,8 @@ import { type AdminFinanceData, adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { openConfirm } from "@/lib/confirm";
 import { formatMoney, nepalPeriodKey } from "@/lib/format";
+import { monthWindow } from "@/lib/payment-months";
 import { toastError, toastSuccess } from "@/lib/toast";
-import { addBsMonths } from "@hostel/calendar/bs";
 
 /**
  * Festival discounts — a month at reduced rent, on top of the rates.
@@ -43,14 +43,22 @@ import { addBsMonths } from "@hostel/calendar/bs";
  * never shows a rupee figure: it shows a month, a percentage and a word, and the
  * rents stay where an owner already knows to look for them.
  *
- * ## The month is a picker, the percentage is typed, and both have a shortcut
+ * ## The month is the app's own month strip
  *
- * `Select` rather than the `YYYY-MM-DD` box `finance/rates` uses, because the
- * thing being named here is a **Bikram Sambat month** and nothing else — there is
- * no day to pick, and asking an owner who means Kartik to work out which
- * Gregorian fortnight that is was the defect the web picker was rewritten to
- * remove. The chips under the percentage are the three answers hostels actually
- * give; the box is there for the fourth.
+ * `<PaymentMonthStrip>` — the same control the Money tab picks a month with, fed
+ * by `monthWindow` instead of the server's billed-period roll-up. Not the
+ * `YYYY-MM-DD` box `finance/rates` uses, because the thing being named here is a
+ * **Bikram Sambat month** and nothing else, and not a `Select` either: that was
+ * the first attempt and it was wrong twice over. Its list ran downwards from a
+ * year ahead and its rows were labelled by month name alone, so during Aswin the
+ * top row read *Aswin* and set Aswin of the following year — the row came back
+ * badged **Upcoming** and the badge was the only honest thing on the screen.
+ *
+ * The strip is what the rest of the app already uses and it does not have that
+ * hole: the year is on the chip, the current month is lit and first, and the line
+ * underneath names the selection in the reader's own calendar. The chips under
+ * the percentage are the three answers hostels actually give; the box is there
+ * for the fourth.
  *
  * ## A row already billed is labelled, not hidden
  *
@@ -64,10 +72,6 @@ import { addBsMonths } from "@hostel/calendar/bs";
  * the form with it — no second endpoint, no draft state, and no way to end up
  * with two answers for one Kartik.
  */
-
-/** How far ahead and behind the month picker reaches. Two years of choices. */
-const MONTHS_AHEAD = 12;
-const MONTHS_BACK = 12;
 
 /** The three a hostel actually announces. The box takes anything else. */
 const QUICK_PERCENTS = [25, 50, 100];
@@ -127,29 +131,27 @@ export default function ManageMonthDiscountsScreen() {
   const concessions = finance.data?.concessions ?? null;
 
   const [busy, setBusy] = useState<"delete" | "save" | null>(null);
-  const [period, setPeriod] = useState(() => addBsMonths(nepalPeriodKey(), 1));
+  /*
+   * This month, not the next one.
+   *
+   * `finance/rates` defaults to next month because rates *cannot* start in the
+   * current one — `FEE_SCHEDULE_MONTH_LOCKED` refuses it. A discount has no such
+   * rule and the common case is the opposite: the festival is now, the bills are
+   * already out, and the correction is what this screen is for.
+   */
+  const [period, setPeriod] = useState(() => nepalPeriodKey());
   const [percentOff, setPercentOff] = useState("");
   const [reason, setReason] = useState("");
   /** The row whose sheet is open. Null is "no sheet". */
   const [acting, setActing] = useState<RentConcession | null>(null);
 
-  const months = useMemo(() => {
-    const now = nepalPeriodKey();
-
-    return Array.from(
-      { length: MONTHS_AHEAD + MONTHS_BACK + 1 },
-      (_, offset) => addBsMonths(now, MONTHS_AHEAD - offset),
-    ).map((value) => ({
-      /*
-       * Both calendars, from the shared formatter the rest of the app reads
-       * months through. A picker that said only "Kartik" would be the one place
-       * in the product an owner could not cross-check against a Gregorian date.
-       */
-      description: dates.periodYear(value),
-      label: dates.periodMonth(value),
-      value,
-    }));
-  }, [dates]);
+  /*
+   * This month, the year ahead and the year behind — the window, not the
+   * server's billed periods. `paymentMonths` is right for the Money tab, which
+   * can only show a month it has invoices for; a discount is most often set on a
+   * month nothing has been billed for yet.
+   */
+  const months = useMemo(() => monthWindow(), []);
 
   /** The discount already on the month in the picker, if any. */
   const existing = useMemo(
@@ -267,17 +269,18 @@ export default function ManageMonthDiscountsScreen() {
           <SectionHeader subtitle="Off every resident's rent" title="The month" />
           <Card className="gap-3">
             {/*
-              No glyph on this one. `Select`'s mark slot is per *option*, so a
-              calendar here would be twenty-five identical calendars in the sheet
-              — and the trigger already says it opens something with a chevron.
+              The strip bleeds to the card's edges on purpose: it pads itself with
+              `px-5` so its chips line up with every other strip in the app, and a
+              second padding from the card would inset it by ten points more than
+              the Money tab's.
             */}
-            <Select
-              label="Month"
-              onChange={setPeriod}
-              options={months}
-              sheetTitle="Which month?"
-              value={period}
-            />
+            <View className="-mx-4">
+              <PaymentMonthStrip
+                months={months}
+                onSelect={setPeriod}
+                value={period}
+              />
+            </View>
             <Input
               /*
                * The rate card is never touched by this, and the hint is where an
