@@ -7,6 +7,10 @@ import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { setConcessionCredit } from "@/modules/finance/credit-balance.service";
 import { discountRent } from "@/modules/finance/fee-schedule.service";
 import { recomputeInvoiceBalance } from "@/modules/finance/payment-event.service";
+import {
+  type ConcessionChange,
+  notifyRentConcession,
+} from "@/modules/finance/rent-concession-notify";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 
@@ -46,6 +50,23 @@ import { InvoiceModel } from "@hostel/db/models/Invoice";
  * 1,000 over. That excess is written as credit against their next month rather
  * than left as an invisible negative — a refund is a decision for a human, and
  * credit is the part the system can do by itself.
+ *
+ * ## Nothing is reissued, because nothing was ever a file
+ *
+ * A resident's invoice has no stored document — the invoice screens read the
+ * `Invoice` row, so the corrected total is what they see the moment this runs.
+ * There is no PDF to regenerate and no old copy to chase.
+ *
+ * **Receipts are not touched, and must not be.** A receipt asserts that the
+ * hostel *received* a specific amount on a specific day, and a discount does not
+ * change what was received — the 5,000 that arrived on Kartik 3 arrived. Voiding
+ * or reissuing it would make the hostel's own record of money it holds disagree
+ * with its bank statement, which is the one thing `Receipt`'s immutability
+ * exists to prevent. Where the payment now exceeds the bill, the difference
+ * appears as credit; the receipt for it stays exactly as issued.
+ *
+ * What *is* sent is a notification, because the resident is holding a bill that
+ * no longer matches ours — see `rent-concession-notify`.
  *
  * ## Withdrawing a discount only unwinds bills nobody has paid
  *
@@ -142,6 +163,15 @@ export async function applyConcessionToIssuedInvoices(input: {
     : `${input.percentOff}% off`;
 
   const result = { ...EMPTY };
+  /*
+   * Gathered, then sent once at the end — not inside the loop.
+   *
+   * A notification per iteration would interleave writes to the notification
+   * collection with writes to the ledger, so a failure halfway through would
+   * leave some residents told about a correction and the rest of the month
+   * uncorrected. The money is finished before anybody is told about it.
+   */
+  const changes: ConcessionChange[] = [];
 
   for (const invoice of invoices) {
     const document = invoice as unknown as {
@@ -245,6 +275,12 @@ export async function applyConcessionToIssuedInvoices(input: {
     });
 
     result.refundedAsCredit += excess;
+    changes.push({
+      after,
+      before,
+      credited: excess,
+      residentId: document.residentId,
+    });
 
     /*
      * Audited per invoice, not once per run. The chained finance log is keyed on
@@ -272,6 +308,20 @@ export async function applyConcessionToIssuedInvoices(input: {
       });
     }
   }
+
+  /*
+   * Only when something moved. A discount set before the month's run reaches this
+   * function with no invoices to correct, and there is nothing to tell a resident
+   * whose bill has not been issued yet — theirs will arrive with the discount
+   * already on it. This is the same silence `notifyRateCardChanged` keeps for a
+   * hostel's first rate card.
+   */
+  await notifyRentConcession({
+    changes,
+    hostelId: input.hostelId,
+    monthName,
+    note: input.percentOff === 0 ? null : note,
+  });
 
   return result;
 }

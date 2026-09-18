@@ -15,6 +15,7 @@ const KARTIK = "2083-06";
 
 const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
+  notify: vi.fn(),
   balanceFindOne: vi.fn(),
   invoiceFind: vi.fn(),
   recomputeInvoiceBalance: vi.fn(),
@@ -29,6 +30,15 @@ vi.mock("@/modules/finance/audit-finance", () => ({
 
 vi.mock("@/modules/finance/credit-balance.service", () => ({
   setConcessionCredit: mocks.setConcessionCredit,
+}));
+
+/*
+ * Who gets told is its own subject and has its own module. What matters here is
+ * that it is handed the *per-resident* move — a resident whose bill did not
+ * change must not be in the list — so the calls are asserted, not the messages.
+ */
+vi.mock("@/modules/finance/rent-concession-notify", () => ({
+  notifyRentConcession: mocks.notify,
 }));
 
 /*
@@ -229,6 +239,30 @@ describe("money that has already been paid", () => {
     expect(result.refundedAsCredit).toBe(1_000);
   });
 
+  it("tells the resident the new total and the credit it produced", async () => {
+    const bill = invoice([rentOf(8_000)]);
+    mocks.invoiceFind.mockResolvedValue([bill]);
+    settled(5_000);
+
+    await applyConcessionToIssuedInvoices({
+      hostelId,
+      percentOff: 50,
+      period: KARTIK,
+      reason: "Dashain",
+    });
+
+    // The bill they are holding says 8,000 and ours now says 4,000 — both
+    // numbers have to reach them, or a resident pays what the paper asked for.
+    expect(mocks.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: [
+          { after: 4_000, before: 8_000, credited: 1_000, residentId: bill.residentId },
+        ],
+        note: "Dashain · 50% off",
+      }),
+    );
+  });
+
   it("turns a fully paid month into credit for the whole discount", async () => {
     const bill = invoice([rentOf(8_000)]);
     mocks.invoiceFind.mockResolvedValue([bill]);
@@ -325,5 +359,8 @@ describe("a month with no bills yet", () => {
       refundedAsCredit: 0,
     });
     expect(mocks.setConcessionCredit).not.toHaveBeenCalled();
+    // Nobody is told, because nobody is holding a bill for that month yet —
+    // their invoice will arrive with the discount already on it.
+    expect(mocks.notify).not.toHaveBeenCalled();
   });
 });
