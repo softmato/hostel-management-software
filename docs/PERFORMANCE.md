@@ -139,9 +139,11 @@ list falls behind the code.
 dashboard or the Atlas UI, which are yours. Phase 3's impression decision is a
 product call and `public/hostels` waits on it.
 
-**Carried over, unchanged.** `hostel-purge.test.ts` still fails on `main` for the
-reason recorded in the previous log: `RentConcession` is not in the purge
-registry. It is the only failing web test and it is not from this work.
+**Carried over — now closed, by the user.** `hostel-purge.test.ts` passes.
+`RentConcession` was added to the purge registry in `6c810ed`; those two lines
+were not part of this work. Worth recording that this settles the erase-or-retain
+question by **erasing**: deleting a hostel now deletes its rent concessions along
+with everything else the registry covers.
 
 **The Phase 1 ordering still holds.** None of the above has been measured against
 a stopwatch, because the ~500 ms Frankfurt hop is still in every number and would
@@ -263,14 +265,26 @@ Vercel's `bom1` is the same AWS region, which takes the function↔database hop 
 - [x] `vercel.json` → `"regions": ["bom1"]`.
       — done, in `apps/web/vercel.json` (the repo has no root one). Ships with
       the redeploy; it does nothing until then.
-- [ ] Redeploy, watch logs. (Nothing to un-pause — the crons were left running
+- [x] Redeploy, watch logs. (Nothing to un-pause — the crons were left running
       by the 2026-09-19 decision above.) Two things to watch for in the build
       log: `bom1` being accepted, and the first request confirming the new
       cluster. This deploy also carries every code change in Phases 1–5, so it is
       the point where the ISR overage stops and the ~8 GB of bundle saving starts
       counting.
-- [ ] Re-run `compare:clusters` against the old cluster once traffic is on the
+      — done 2026-09-20, commit `6c810ed`, auto-deployed from the push.
+- [x] Re-run `compare:clusters` against the old cluster once traffic is on the
       new one, to confirm nothing is still writing to Frankfurt.
+      — **done, and Frankfurt is cold.** Counts alone could not show this, so the
+      check was the newest `createdAt` on each side of the collections that move
+      on ordinary traffic:
+
+      | Collection           | `hostelpalika` | `hostelhub`  |
+      | -------------------- | -------------- | ------------ |
+      | `pushtickets`        | 85 @ **17:15:33** | 85 @ 16:45:30 |
+      | `nightstatusprompts` | 98 @ **17:15:33** | 98 @ 16:45:30 |
+
+      Frankfurt's last write was 16:45. Mumbai took the 17:15 cron tick. The
+      deployment is connected to the new cluster.
       — **already drifting, measured 2026-09-20 before the redeploy**, which is
       the window working exactly as this document predicted:
 
@@ -292,7 +306,33 @@ Vercel's `bom1` is the same AWS region, which takes the function↔database hop 
       what is already there rather than reconciling, so on a populated target it
       duplicates all 2,329 documents. If the post-deploy compare shows a
       collection that matters, that needs a targeted backfill written for it.
-- [ ] Delete the Frankfurt cluster — after a few days, not immediately.
+      — not needed. Both drifted collections healed themselves exactly as
+      predicted: the two unanswered prompts re-fired against Mumbai and a new
+      push ticket was written there, so nothing is worth recovering.
+
+      > **`pushtickets` was never comparable in the first place.** It is a work
+      > queue, not a history: a row is one Expo ticket id awaiting its delivery
+      > receipt, and it is deleted the moment the receipt is read or the ~1-day
+      > receipt window closes. The count rises on sends and falls on sweeps, so
+      > the two clusters will never agree on it for long and are not supposed to.
+      > The one row Frankfurt kept means one push whose delivery outcome goes
+      > unchecked — **not** one push that failed to arrive; the message left
+      > before the row existed. Nothing here touches FCM credentials, which live
+      > in Firebase and Expo rather than Mongo. The collections worth reading a
+      > difference on are the ones that only grow — `sessions`, `invoices`,
+      > `users`, `payments` — and every one of those matched exactly.
+
+      > **Watch the word "identical" here.** Both collections now read 98 and 85
+      > on *both* clusters, and the sets behind those numbers are still different
+      > — Frankfurt keeps the two window rows, Mumbai has two of its own from the
+      > 17:15 tick. A count-and-index compare cannot see that, so the clean exit
+      > is a coincidence rather than proof. It is the right tool for "did the copy
+      > land", and the wrong one for "are these the same rows".
+- [ ] Delete the Frankfurt cluster — after a few days, not immediately. Nothing
+      has written to it since 16:45 on 2026-09-20; leave it cold until there is
+      no doubt, then drop it. **It is also the only copy of production from
+      before the cutover** — see the no-backup ceiling below, which the move did
+      not lift.
 
 **Writes between the dump and the env switch are lost.** Run it at a Nepal
 low-traffic hour.
@@ -357,24 +397,50 @@ and authed responses are per-user and cannot be CDN-cached.
 - [x] `lib/api-response.ts` — export a `PUBLIC_CACHE` init:
       `{ headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=600" } }`
       — done; `successResponse` already accepted a `ResponseInit`.
-- [~] Apply it to `public/hostels`, `public/hostels/[slug]`, `public/search`,
+- [x] Apply it to `public/hostels`, `public/hostels/[slug]`, `public/search`,
       `public/service-providers`, `public/site-config`.
-      — **three of the five are in**: `public/hostels/[slug]`,
-      `public/service-providers` and `public/site-config`.
-
-      `public/hostels` is held by the impression decision immediately below.
+      — **four are cached**: `public/hostels`, `public/hostels/[slug]`,
+      `public/service-providers` and `public/site-config`. `public/hostels` went
+      last, once the impression decision below unblocked it.
 
       **`public/search` must never get this, and the line above was wrong to list
       it.** The route is `public/search/parse`: a `POST` that reads and writes a
       per-visitor LLM quota cookie. A shared cache entry would hand one visitor's
       remaining quota to the next, and a `POST` is not CDN-cacheable regardless.
       The item is closed, not pending.
-- [ ] Decide the listing-impression tradeoff. `public/hostels/route.ts` records
+- [x] Decide the listing-impression tradeoff. `public/hostels/route.ts` records
       search appearances in `afterResponse`, and a CDN hit never reaches the
       function, so the owner's performance report will undercount. Either move
       impressions to a client beacon or accept the undercount — **this is a
       product decision, not a technical one.** Do not ship the header until it
       is made.
+
+      **Decided: the beacon.** The deciding argument was not accuracy in the
+      abstract but *which way the error moves*. A cached listing undercounts by a
+      fraction that grows with traffic — at `s-maxage=60`, a hundred people
+      searching in one minute produce one appearance — so the owner's "Seen in
+      search" tile would have become least trustworthy exactly when it started to
+      matter. A blocked beacon undercounts by a roughly constant fraction
+      instead. Wrong-but-stable beats wrong-and-drifting on a number somebody
+      reads month over month.
+
+      It was also the cheap option, because **the tile beside it already works
+      this way**: "Page views" is not counted inside the page read either — the
+      detail page posts to `public/hostels/[slug]/views` after it renders. Search
+      appearances were the odd one out.
+
+      Built as `POST /api/v1/public/hostels/impressions`, rate-limited, capped at
+      the listing's own page size so one call cannot claim the whole platform.
+      Fired from the two places that fetch a list — `useHostels` on the website
+      and `listPublicHostels` in the app — both fire-and-forget and silent on
+      failure. In the web `queryFn` rather than an effect, so a repaint from the
+      TanStack cache is not counted as a new appearance.
+
+      Three tests in `platform-hostel-routes.test.ts` hold the two halves
+      together: the listing sends `s-maxage` **and** does not count, the beacon
+      does count, and an oversized beacon is refused. Either half passing alone
+      is the failure — a cached list that still counts drifts, and a beacon
+      nobody records loses the figure entirely.
 
 ---
 

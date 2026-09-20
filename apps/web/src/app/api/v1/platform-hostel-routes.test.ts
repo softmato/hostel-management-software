@@ -15,6 +15,7 @@ const routeMocks = vi.hoisted(() => ({
   listPlatformHostels: vi.fn(),
   listPublicHostels: vi.fn(),
   loadApiPrincipal: vi.fn(),
+  recordListingAppearances: vi.fn(),
   publishPlatformHostel: vi.fn(),
   shouldPromptAfterInquiry: vi.fn(),
   rejectPlatformHostel: vi.fn(),
@@ -58,7 +59,7 @@ vi.mock("@/modules/hostels/hostel.service", () => ({
 }));
 
 vi.mock("@/modules/hostels/hostel-impression.service", () => ({
-  recordListingAppearances: vi.fn(),
+  recordListingAppearances: routeMocks.recordListingAppearances,
 }));
 
 vi.mock("@/modules/hostels/hostel-inquiry.service", () => ({
@@ -88,6 +89,7 @@ import * as platformUnpublishRoute from "@/app/api/v1/platform/hostels/[id]/unpu
 import * as platformHostelsRoute from "@/app/api/v1/platform/hostels/route";
 import * as publicInquiryRoute from "@/app/api/v1/public/hostels/[slug]/inquiries/route";
 import * as publicDetailRoute from "@/app/api/v1/public/hostels/[slug]/route";
+import * as publicImpressionsRoute from "@/app/api/v1/public/hostels/impressions/route";
 import * as publicHostelsRoute from "@/app/api/v1/public/hostels/route";
 
 const principal = {
@@ -397,6 +399,48 @@ describe("platform hostel routes", () => {
       roomType: "single",
       type: "GIRLS",
     });
+  });
+
+  /*
+   * The two halves of one decision: the listing is CDN-cached, so it must not
+   * count, and the beacon must. Asserted together because either one alone
+   * passing is the failure — a cached list that still counts drifts, and a
+   * beacon nobody records loses the owner's "Seen in search" figure entirely.
+   */
+  it("serves the listing from the CDN and does not count appearances there", async () => {
+    routeMocks.listPublicHostels.mockResolvedValue({
+      hostels: [{ id: "hostel-1", name: "Sunrise Hostel", slug: "sunrise-hostel" }],
+    });
+
+    const response = await publicHostelsRoute.GET(getRequest("/api/v1/public/hostels"));
+
+    expect(response.headers.get("cache-control")).toContain("s-maxage");
+    expect(routeMocks.recordListingAppearances).not.toHaveBeenCalled();
+  });
+
+  it("records appearances from the beacon instead", async () => {
+    const response = await publicImpressionsRoute.POST(
+      jsonRequest("/api/v1/public/hostels/impressions", {
+        hostelIds: ["hostel-1", "hostel-2"],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.recordListingAppearances).toHaveBeenCalledWith([
+      "hostel-1",
+      "hostel-2",
+    ]);
+  });
+
+  it("refuses a beacon claiming more hostels than a page can hold", async () => {
+    const response = await publicImpressionsRoute.POST(
+      jsonRequest("/api/v1/public/hostels/impressions", {
+        hostelIds: Array.from({ length: 61 }, (_, index) => `hostel-${index}`),
+      }),
+    );
+
+    expect(response.status).toBe(422);
+    expect(routeMocks.recordListingAppearances).not.toHaveBeenCalled();
   });
 
   it("loads public hostel detail by slug", async () => {

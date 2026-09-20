@@ -142,15 +142,38 @@ for (const name of names) {
   );
 }
 
+/*
+ * The summary is deliberately a finding rather than an instruction.
+ *
+ * It used to say "DO NOT switch MONGODB_URI", which was right for exactly one
+ * run — the one before the cutover. This script's second job is the run *after*
+ * it, comparing the live cluster against the one traffic just left, and there a
+ * difference is the expected result: it is the window between the copy and the
+ * redeploy, made visible. Reading "DO NOT switch" at that point means reaching
+ * for an alarm about something that has already happened and is already known.
+ *
+ * The exit code still carries the verdict, so anything scripting this keeps
+ * working: non-zero means the two clusters are not identical, which is all this
+ * can honestly claim without knowing which direction the traffic is flowing.
+ */
 if (problems.length === 0) {
-  console.log("\nClusters match. Safe to switch MONGODB_URI.");
+  console.log(`\n${source.dbName} and ${target.dbName} are identical.`);
+  console.log("Before the cutover, that means it is safe to switch MONGODB_URI.");
   process.exit(0);
 }
 
-console.log(`\n${problems.length} problem(s) — DO NOT switch MONGODB_URI:\n`);
+console.log(`\n${problems.length} difference(s), ${source.dbName} -> ${target.dbName}:\n`);
 
 for (const problem of problems) {
   console.log(`  - ${problem}`);
 }
+
+console.log(
+  "\nBefore the cutover this blocks the switch. After it, these are rows the old",
+);
+console.log(
+  "cluster took while traffic was still pointed at it — decide per collection",
+);
+console.log("whether any of them are worth recovering.");
 
 process.exit(1);

@@ -167,6 +167,18 @@ export const platformHostelListQuerySchema = z.object({
     .optional(),
 });
 
+/**
+ * The listing beacon's body.
+ *
+ * Capped at the page size the listing endpoint itself returns, so a caller
+ * cannot claim an appearance for every hostel on the platform in one request.
+ * Unknown and duplicate ids are dropped by `recordListingAppearances` rather
+ * than rejected here — a stale id in a client's list is not a bad request.
+ */
+export const publicListingImpressionSchema = z.object({
+  hostelIds: z.array(z.string()).min(1).max(60),
+});
+
 export const hostelRejectSchema = z.object({
   reason: z.string().trim().min(3).max(1000),
 });

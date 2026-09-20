@@ -210,7 +210,25 @@ export async function listPublicHostels(filters: HostelFilters = {}) {
     { params: definedParams(filters) },
   );
 
-  return unwrap(response).hostels;
+  const hostels = unwrap(response).hostels;
+
+  /*
+   * Report the search appearances this list represents.
+   *
+   * The listing endpoint is CDN-cached, so the server cannot count them any
+   * more — a cached response never reaches it. Fire-and-forget and silent on
+   * failure: a hostel owner's "Seen in search" figure is never worth failing a
+   * browse on. The website does the same thing in `useHostels`.
+   */
+  const hostelIds = hostels.map((hostel) => hostel.id).filter(Boolean);
+
+  if (hostelIds.length > 0) {
+    void publicApi
+      .post("/public/hostels/impressions", { hostelIds: hostelIds.slice(0, 60) })
+      .catch(() => undefined);
+  }
+
+  return hostels;
 }
 
 export async function getPublicHostel(slug: string) {

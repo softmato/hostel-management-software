@@ -7,9 +7,15 @@ import { HostelListingImpressionModel } from "@hostel/db/models/HostelListingImp
 /**
  * Search appearances — how often a hostel's card was in a public result list.
  *
- * Counted where the list is served (`GET /public/hostels`), which is the browse
- * and search surface for both the app and the website. The server-rendered home
- * page is not counted: it is cached, so a render is not a person seeing it.
+ * Reported by the client after a result list renders — the website through
+ * `useHostels`, the app through `listPublicHostels` — and received by
+ * `POST /public/hostels/impressions`.
+ *
+ * **Not counted where the list is served**, which is where it used to be. That
+ * endpoint is CDN-cached now, and a cached response never reaches the function,
+ * so counting there would have missed every cached visitor and grown wronger
+ * with traffic. Same reason the server-rendered home page is not counted: a
+ * cached render is not a person seeing it.
  */
 
 export async function recordListingAppearances(

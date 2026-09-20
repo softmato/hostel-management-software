@@ -1,8 +1,10 @@
 import type { NextRequest } from "next/server";
 
-import { afterResponse } from "@/lib/after-response";
-import { handleRouteError, successResponse } from "@/lib/api-response";
-import { recordListingAppearances } from "@/modules/hostels/hostel-impression.service";
+import {
+  PUBLIC_CACHE,
+  handleRouteError,
+  successResponse,
+} from "@/lib/api-response";
 import { listPublicHostels } from "@/modules/hostels/hostel.service";
 import { publicHostelListQuerySchema } from "@/modules/hostels/hostel.validation";
 
@@ -15,13 +17,16 @@ export async function GET(request: NextRequest) {
     );
     const result = await listPublicHostels(query);
 
-    // Every card in this list is one search appearance for its hostel — the
-    // number the owner's performance report shows beside page views.
-    afterResponse(() =>
-      recordListingAppearances(result.hostels.map((hostel) => hostel.id)),
-    );
-
-    return successResponse(result, "Public hostels loaded");
+    /*
+     * Search appearances are **not** counted here any more.
+     *
+     * They used to be, in an `afterResponse`. That was correct right up until
+     * this response got a cache header: a CDN hit never runs this function, so
+     * the count would have quietly missed every cached visitor. The client
+     * reports them to `POST /public/hostels/impressions` instead — the same
+     * split `POST /public/hostels/[slug]/views` already uses for page views.
+     */
+    return successResponse(result, "Public hostels loaded", PUBLIC_CACHE);
   } catch (error) {
     return handleRouteError(error);
   }

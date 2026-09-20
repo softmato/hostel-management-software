@@ -62,15 +62,43 @@ function toSearchString(params: PublicHostelQueryParams) {
   return search.toString();
 }
 
+/**
+ * Tells the server these hostels were shown in a result list.
+ *
+ * Fire-and-forget, and swallowing its own failure: a hostel owner's statistic
+ * is never worth a broken listing page. In the `queryFn` rather than an effect,
+ * so it fires once per actual network fetch — a repaint from the TanStack cache
+ * is not a new appearance.
+ */
+function reportListingImpressions(hostels: PublicHostel[]) {
+  const hostelIds = hostels.map((hostel) => hostel.id).filter(Boolean);
+
+  if (hostelIds.length === 0) {
+    return;
+  }
+
+  void browserApi("/api/v1/public/hostels/impressions", {
+    body: JSON.stringify({ hostelIds: hostelIds.slice(0, 60) }),
+    method: "POST",
+  }).catch(() => {
+    // Analytics must never break the page.
+  });
+}
+
 /** Public hostel listing (server state via TanStack Query). */
 export function useHostels(params: PublicHostelQueryParams = {}) {
   const qs = toSearchString(params);
 
   return useQuery({
-    queryFn: () =>
-      browserApi<{ hostels: PublicHostel[] }>(
+    queryFn: async () => {
+      const result = await browserApi<{ hostels: PublicHostel[] }>(
         `/api/v1/public/hostels${qs ? `?${qs}` : ""}`,
-      ),
+      );
+
+      reportListingImpressions(result.hostels);
+
+      return result;
+    },
     queryKey: ["public-hostels", qs],
   });
 }
