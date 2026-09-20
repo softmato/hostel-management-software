@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export function GET() {
   return successResponse(
     {
-      service: "hostelhub-web",
+      service: "hostelpalika-web",
       status: "ok",
     },
     "API is healthy",

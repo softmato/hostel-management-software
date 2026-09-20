@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   verifyAccessToken: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({
-  ACCESS_TOKEN_COOKIE: "hostelhub_access_token",
+vi.mock("@/lib/auth", async () => ({
+  ...(await vi.importActual("@/lib/auth-cookies")),
   getBearerToken: (header: string | null) =>
     header?.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : null,
   verifyAccessToken: mocks.verifyAccessToken,
@@ -39,7 +39,7 @@ const HOSTEL_A = "64f0f0f0f0f0f0f0f0f0f0a1";
 const HOSTEL_B = "64f0f0f0f0f0f0f0f0f0f0a2";
 
 function request() {
-  return new NextRequest("https://hostelhub.local/api/v1/hostel-admin/profile", {
+  return new NextRequest("https://hostelpalika.local/api/v1/hostel-admin/profile", {
     headers: { authorization: "Bearer token" },
   });
 }

@@ -52,6 +52,6 @@ export const useNotificationHoldStore = create<NotificationHoldStore>()(
       },
       ids: [],
     }),
-    { name: "hostelhub-notification-hold", partialize: (state) => ({ ids: state.ids }) },
+    { name: "hostelpalika-notification-hold", partialize: (state) => ({ ids: state.ids }) },
   ),
 );

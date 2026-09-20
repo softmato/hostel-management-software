@@ -76,6 +76,7 @@ import { SiteName } from "@/components/site-config-provider";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { useConfirm } from "@/app/_components/confirm-dialog";
 import { useHasResidentIdCard } from "@/lib/use-resident-id-card";
+import { readRenamedStorage } from "@/lib/storage-rename";
 
 type MealInclusion = "Included" | "Not Included" | "Optional";
 
@@ -145,8 +146,14 @@ export type OwnerApplication = {
   verificationStatus: string;
 };
 
-const DRAFT_STORAGE_PREFIX = "hostelhub:hostel-registration-draft:";
-const SUBMITTED_STORAGE_PREFIX = "hostelhub:hostel-submitted:";
+const DRAFT_STORAGE_PREFIX = "hostelpalika:hostel-registration-draft:";
+const SUBMITTED_STORAGE_PREFIX = "hostelpalika:hostel-submitted:";
+/* Pre-rename spellings. Read through `readRenamedStorage`, which moves a value
+ * up to the new key the first time it sees one — a draft here is somebody's
+ * unfinished registration, and a submitted marker is what stops them being
+ * shown a blank form for a hostel they already filed. */
+const LEGACY_DRAFT_STORAGE_PREFIX = "hostelhub:hostel-registration-draft:";
+const LEGACY_SUBMITTED_STORAGE_PREFIX = "hostelhub:hostel-submitted:";
 
 function draftStorageKey(accountKey: string) {
   return `${DRAFT_STORAGE_PREFIX}${accountKey}`;
@@ -154,6 +161,22 @@ function draftStorageKey(accountKey: string) {
 
 function submittedStorageKey(accountKey: string) {
   return `${SUBMITTED_STORAGE_PREFIX}${accountKey}`;
+}
+
+function readDraft(accountKey: string) {
+  return readRenamedStorage(
+    window.localStorage,
+    draftStorageKey(accountKey),
+    `${LEGACY_DRAFT_STORAGE_PREFIX}${accountKey}`,
+  );
+}
+
+function readSubmittedMarker(accountKey: string) {
+  return readRenamedStorage(
+    window.localStorage,
+    submittedStorageKey(accountKey),
+    `${LEGACY_SUBMITTED_STORAGE_PREFIX}${accountKey}`,
+  );
 }
 
 type SubmittedMarker = {
@@ -484,7 +507,7 @@ export function PublicHostelRegistrationPage() {
       const restoreFromMarker = () => {
         if (cancelled || typeof window === "undefined") return;
         try {
-          const rawMarker = window.localStorage.getItem(submittedStorageKey(accountKey));
+          const rawMarker = readSubmittedMarker(accountKey);
           if (rawMarker) {
             setExistingApplication(
               markerToApplication(JSON.parse(rawMarker) as SubmittedMarker),
@@ -515,7 +538,7 @@ export function PublicHostelRegistrationPage() {
       draftHydratedRef.current = true;
 
       try {
-        const raw = window.localStorage.getItem(draftStorageKey(accountKey));
+        const raw = readDraft(accountKey);
         if (!raw) return;
         const draft = JSON.parse(raw) as Partial<DraftData>;
 

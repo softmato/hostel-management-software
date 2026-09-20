@@ -14,6 +14,7 @@ import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
 import { listStoreProducts, type StoreProductQuery } from "@/lib/store-api";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * One department, on its own screen.
@@ -55,6 +56,12 @@ export default function StoreCategoryScreen() {
   const { add, addingProductId, setQuantity } = useAddToCart();
 
   const query = search.trim();
+  // Cached only when the box is empty — see `store-queries.ts`.
+  const productsQuery = storeQuery.products({
+    category: String(slug),
+    pageSize: 40,
+    sort,
+  });
   const products = useResource(
     useCallback(
       () =>
@@ -66,7 +73,10 @@ export default function StoreCategoryScreen() {
         }),
       [query, slug, sort],
     ),
-    { topics: [REALTIME_TOPIC.STORE] },
+    {
+      ...(query ? {} : { cacheKey: productsQuery.key }),
+      topics: [REALTIME_TOPIC.STORE],
+    },
   );
 
   const category = products.data?.category ?? null;

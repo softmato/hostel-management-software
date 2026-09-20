@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
 
     // The bucket follows the access level, not the caller: a PRIVATE asset must
     // land somewhere with no public base URL. The previous form read one env var
-    // with a hardcoded `?? "hostelhub-uploads"` fallback, which on a
+    // with a hardcoded `?? "hostelpalika-uploads"` fallback, which on a
     // misconfigured deployment presigned an upload to a bucket that did not
     // exist and failed at the PUT rather than here.
     const resolvedAccessLevel = accessLevel ?? "PRIVATE";

@@ -37,7 +37,7 @@ import * as resetPasswordRoute from "@/app/api/v1/auth/reset-password/route";
 import * as verifyEmailRoute from "@/app/api/v1/auth/verify-email/route";
 
 function jsonRequest(path: string, body: unknown, headers?: Record<string, string>) {
-  return new NextRequest(`https://hostelhub.local${path}`, {
+  return new NextRequest(`https://hostelpalika.local${path}`, {
     body: JSON.stringify(body),
     headers: {
       "content-type": "application/json",

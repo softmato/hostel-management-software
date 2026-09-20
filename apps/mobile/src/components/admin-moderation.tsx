@@ -1,18 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useCallback } from "react";
+
 import { Pressable, View } from "react-native";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
+
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
-import { type AdminModeratedPost, getAdminCommunityModeration } from "@/lib/admin-api";
+import { type AdminModeratedPost } from "@/lib/admin-api";
 import { openAssetViewer } from "@/lib/asset-viewer";
 import { communityMediaUrl } from "@/lib/community-api";
 import { useDates } from "@/hooks/use-dates";
+import { adminQuery } from "@/lib/admin-queries";
 
 /**
  * What a hostel's staff can do to their own community space, on a phone.
@@ -50,11 +51,15 @@ import { useDates } from "@/hooks/use-dates";
  * tab a badge rather than a screen. Null and zero are deliberately different:
  * null hides the control, zero shows it unbadged.
  */
+const FLAGGED = adminQuery.moderation("flagged");
+
 export function useReportedCount() {
-  const queue = useResource(
-    useCallback(() => getAdminCommunityModeration("flagged"), []),
-    { topics: [REALTIME_TOPIC.COMMUNITY] },
-  );
+  // The same key the moderation screen itself reads, so opening it from this
+  // badge paints the queue that was already counted.
+  const queue = useResource(FLAGGED.load, {
+    cacheKey: FLAGGED.key,
+    topics: FLAGGED.topics,
+  });
 
   return queue.error ? null : (queue.data?.summary.flagged ?? null);
 }

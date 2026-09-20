@@ -2,13 +2,26 @@ import type { NextRequest, NextResponse } from "next/server";
 
 import {
   ACCESS_TOKEN_COOKIE,
+  LEGACY_ACCESS_TOKEN_COOKIES,
   LEGACY_REFRESH_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
   accessTokenTtlSeconds,
+  readRefreshTokenCookieValue,
   refreshTokenTtlSeconds,
 } from "@/lib/auth";
 
 const LEGACY_REFRESH_COOKIE_PATH = "/api";
+
+/**
+ * The pre-rename cookies that sat at "/", alongside their replacements.
+ *
+ * `LEGACY_REFRESH_TOKEN_COOKIE` is deliberately not in here: it lives at "/api"
+ * and is cleared at that path instead, below.
+ */
+const RENAMED_ROOT_PATH_COOKIES = [
+  ...LEGACY_ACCESS_TOKEN_COOKIES,
+  "hostelhub_refresh",
+] as const;
 
 function cookieOptions(maxAge: number, path = "/") {
   return {
@@ -21,10 +34,7 @@ function cookieOptions(maxAge: number, path = "/") {
 }
 
 export function readRefreshTokenCookie(request: NextRequest) {
-  return (
-    request.cookies.get(REFRESH_TOKEN_COOKIE)?.value ??
-    request.cookies.get(LEGACY_REFRESH_TOKEN_COOKIE)?.value
-  );
+  return readRefreshTokenCookieValue(request.cookies);
 }
 
 /**
@@ -55,12 +65,27 @@ export function applySessionCookies(
     );
   }
 
+  // The pre-rename pair goes the moment a new one is written, so a browser
+  // never carries both. Left in place they would outlive the session they
+  // belong to and keep being offered to `readAccessTokenCookie` as a fallback
+  // long after they stopped being valid.
+  for (const name of RENAMED_ROOT_PATH_COOKIES) {
+    response.cookies.set(name, "", cookieOptions(0));
+  }
+
   return response;
 }
 
 export function clearSessionCookies(response: NextResponse) {
   response.cookies.set(ACCESS_TOKEN_COOKIE, "", cookieOptions(0));
   response.cookies.set(REFRESH_TOKEN_COOKIE, "", cookieOptions(0));
+
+  // Signing out has to reach every spelling, or the next request reads a
+  // pre-rename cookie through the fallback and the person is still signed in.
+  for (const name of RENAMED_ROOT_PATH_COOKIES) {
+    response.cookies.set(name, "", cookieOptions(0));
+  }
+
   response.cookies.set(
     LEGACY_REFRESH_TOKEN_COOKIE,
     "",

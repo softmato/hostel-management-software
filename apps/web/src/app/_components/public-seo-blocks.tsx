@@ -2,9 +2,15 @@ import { ArrowRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
-import { PLATFORM_NAME, PLATFORM_VENDOR, PLATFORM_VENDOR_URL } from "@hostel/shared/brand/brand";
+import {
+  PLATFORM_NAME,
+  PLATFORM_VENDOR,
+  PLATFORM_VENDOR_URL,
+} from "@hostel/shared/brand/brand";
 
 import { cn } from "@/lib/utils";
+
+import { StarsCtaCard } from "./stars-cta-card";
 
 /**
  * The pieces the search landing pages share — location pages, the software
@@ -49,11 +55,20 @@ export function SeoChip({
   );
 }
 
-export function SeoCrumbs({ items }: { items: Array<{ name: string; path: string }> }) {
+export function SeoCrumbs({
+  className,
+  items,
+}: {
+  className?: string;
+  items: Array<{ name: string; path: string }>;
+}) {
   return (
     <nav
       aria-label="Breadcrumb"
-      className="mb-8 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-muted-foreground"
+      className={cn(
+        "mb-8 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-muted-foreground",
+        className,
+      )}
     >
       {items.map((crumb, index) => (
         <span className="flex items-center gap-2" key={crumb.path}>
@@ -95,11 +110,16 @@ export function SeoFaq({
           <details className="group px-5 py-4" key={entry.question} open={index === 0}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-foreground">
               {entry.question}
-              <span aria-hidden className="text-lg text-primary transition group-open:rotate-45">
+              <span
+                aria-hidden
+                className="text-lg text-primary transition group-open:rotate-45"
+              >
                 +
               </span>
             </summary>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{entry.answer}</p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              {entry.answer}
+            </p>
           </details>
         ))}
       </div>
@@ -109,25 +129,25 @@ export function SeoFaq({
 
 export function OwnerCallout({ body, title }: { body: string; title: string }) {
   return (
-    <div className="rounded-2xl bg-primary p-6 text-primary-foreground sm:p-8">
+    <StarsCtaCard contentClassName="p-6 text-white sm:p-8">
       <h2 className="font-heading text-xl font-bold">{title}</h2>
-      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-primary-foreground/90">{body}</p>
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-emerald-50/90">{body}</p>
       <div className="mt-5 flex flex-wrap gap-3">
         <Link
-          className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-bold text-primary transition hover:bg-white/90"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-bold text-primary transition hover:bg-emerald-50"
           href="/register-hostel"
         >
           List your hostel
           <ArrowRight className="size-4" />
         </Link>
         <Link
-          className="inline-flex items-center rounded-lg border border-white/40 px-4 py-2 text-sm font-semibold transition hover:bg-white/10"
+          className="inline-flex items-center rounded-lg border border-white/50 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
           href="/plans-pricing"
         >
           See plans & pricing
         </Link>
       </div>
-    </div>
+    </StarsCtaCard>
   );
 }
 
@@ -143,9 +163,7 @@ export function SoftmatoCredit({ className }: { className?: string }) {
       rel="noopener"
       target="_blank"
     >
-      <span>
-        {PLATFORM_NAME} is a product of
-      </span>
+      <span>{PLATFORM_NAME} is a product of</span>
       <Image
         alt={PLATFORM_VENDOR}
         className="h-10 w-auto"

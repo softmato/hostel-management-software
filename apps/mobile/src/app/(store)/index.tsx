@@ -16,9 +16,10 @@ import { Grid } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
+
 import { useResource } from "@/hooks/use-resource";
-import { getStoreHome, listStoreProducts } from "@/lib/store-api";
+import { listStoreProducts } from "@/lib/store-api";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * The shop.
@@ -78,8 +79,10 @@ export default function StoreShopScreen() {
   const cart = useStoreCart();
   const { add, addingProductId, setQuantity } = useAddToCart();
 
-  const home = useResource(useCallback(() => getStoreHome(), []), {
-    topics: [REALTIME_TOPIC.STORE],
+  const homeQuery = storeQuery.home();
+  const home = useResource(homeQuery.load, {
+    cacheKey: homeQuery.key,
+    topics: homeQuery.topics,
   });
 
   /*
@@ -88,18 +91,15 @@ export default function StoreShopScreen() {
    * filter. `recommended` is the server's own default ordering, which is what an
    * unfiltered shop front should show.
    */
-  const shelf = useResource(
-    useCallback(
-      () =>
-        listStoreProducts({
-          ...(category ? { category } : {}),
-          pageSize: 24,
-          sort: "recommended",
-        }),
-      [category],
-    ),
-    { topics: [REALTIME_TOPIC.STORE] },
-  );
+  const shelfQuery = storeQuery.products({
+    ...(category ? { category } : {}),
+    pageSize: 24,
+    sort: "recommended",
+  });
+  const shelf = useResource(shelfQuery.load, {
+    cacheKey: shelfQuery.key,
+    topics: shelfQuery.topics,
+  });
 
   /*
    * A second resource rather than a filter over the first. `useResource` refetches

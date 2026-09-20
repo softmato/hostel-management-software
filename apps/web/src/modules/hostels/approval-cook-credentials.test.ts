@@ -136,7 +136,7 @@ describe("hostel approval issues cook credentials", () => {
     mocks.provisionCookAccount.mockResolvedValue({
       cookName: "Sunrise Hostel Cook",
       credentials: {
-        email: "cook@sunrise-hostel.hostelhub.local",
+        email: "cook@sunrise-hostel.hostelpalika.local",
         temporaryPassword: "cook-secret-pw",
       },
       settings: {},
@@ -186,7 +186,7 @@ describe("hostel approval issues cook credentials", () => {
 
     const email = mocks.sendEmail.mock.calls[0][0];
     expect(email.to).toBe("owner@example.com");
-    expect(email.html).toContain("cook@sunrise-hostel.hostelhub.local");
+    expect(email.html).toContain("cook@sunrise-hostel.hostelpalika.local");
     expect(email.html).toContain("cook-secret-pw");
     expect(email.html).toContain("Cook portal access");
   });

@@ -41,13 +41,13 @@
  */
 
 /** Must match `SOUND_MESSAGE` in `public/sw.js`. */
-export const NOTIFICATION_SOUND_MESSAGE = "hostelhub:play-notification-sound";
+export const NOTIFICATION_SOUND_MESSAGE = "hostelpalika:play-notification-sound";
 
 export type NotificationSoundResult = "already" | "failed" | "played";
 
 const SOUND_URL = "/sounds/water-drop.mp3";
-const CLAIMS_KEY = "hostelhub:notification-sound-claims";
-const LOCK_NAME = "hostelhub:notification-sound";
+const CLAIMS_KEY = "hostelpalika:notification-sound-claims";
+const LOCK_NAME = "hostelpalika:notification-sound";
 
 /**
  * Long enough to cover a push the push service delivered well behind the

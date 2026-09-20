@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
 import type { NextRequest } from "next/server";
 
-import { ACCESS_TOKEN_COOKIE, getBearerToken, verifyAccessToken } from "@/lib/auth";
+import { getBearerToken, readAccessTokenCookie, verifyAccessToken } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import { HOSTEL_STAFF_ROLES, PLATFORM_ROLES, assertAllowedRole } from "@/lib/permissions";
 import { assertHostelAccess } from "@/lib/tenant";
@@ -52,7 +52,7 @@ function isRole(value: unknown): value is Role {
 }
 
 function cookieAccessToken(request: NextRequest) {
-  return request.cookies.get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+  return readAccessTokenCookie(request.cookies) ?? null;
 }
 
 export async function loadApiPrincipal(request: NextRequest) {

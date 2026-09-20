@@ -136,7 +136,9 @@ vi.mock("@hostel/db/models/NightStatus", () => ({
   NightStatusModel: { aggregate: mocks.countByFieldAggregate },
 }));
 
-const { getHostelAdminDashboardReport } = await import("@/modules/reports/report.service");
+const { getHostelAdminDashboardReport, resetHostelAdminDashboardCache } = await import(
+  "@/modules/reports/report.service",
+);
 
 const hostelId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a1");
 const residentA = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c1");
@@ -162,6 +164,9 @@ function currentPeriod() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The report is memoised per hostel scope; every case here asks the same
+  // scope, so without this the second one reads the first one's answer.
+  resetHostelAdminDashboardCache();
   mocks.collectionTotals.mockResolvedValue({ dueAmount: 0, paidAmount: 0 });
   mocks.countableResidentIds.mockResolvedValue([residentA, residentB]);
   mocks.countByFieldAggregate.mockReturnValue({ exec: () => Promise.resolve([]) });

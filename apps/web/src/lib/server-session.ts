@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { ACCESS_TOKEN_COOKIE } from "@/lib/auth-cookies";
+import { readAccessTokenCookie } from "@/lib/auth-cookies";
 import { verifyAccessToken } from "@/lib/auth";
 import { Role } from "@/lib/roles";
 
@@ -14,7 +14,7 @@ import { Role } from "@/lib/roles";
  */
 export async function sessionRole(): Promise<Role | null> {
   const store = await cookies();
-  const token = store.get(ACCESS_TOKEN_COOKIE)?.value;
+  const token = readAccessTokenCookie(store);
 
   if (!token) {
     return null;

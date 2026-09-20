@@ -1,6 +1,10 @@
 import type { NextRequest } from "next/server";
 
-import { handleRouteError, successResponse } from "@/lib/api-response";
+import {
+  PUBLIC_CACHE,
+  handleRouteError,
+  successResponse,
+} from "@/lib/api-response";
 import { listPublicServiceProviders } from "@/modules/service-providers/service-provider.service";
 import { publicServiceProviderListQuerySchema } from "@/modules/service-providers/service-provider.validation";
 
@@ -17,7 +21,7 @@ export async function GET(request: NextRequest) {
     );
     const result = await listPublicServiceProviders(query);
 
-    return successResponse(result, "Service providers loaded");
+    return successResponse(result, "Service providers loaded", PUBLIC_CACHE);
   } catch (error) {
     return handleRouteError(error);
   }

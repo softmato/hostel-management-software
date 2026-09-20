@@ -7,6 +7,7 @@ import { checkAuthWithRefresh } from "@/lib/auth-check";
 import { cn } from "@/lib/utils";
 import { disableBrowserPush } from "@/lib/web-push-client";
 import { type SessionUser, useSessionStore } from "@/stores/session-store";
+import { signOutRequest } from "@/lib/sign-out";
 import {
   ResidentIdentityCenter,
   requestResidentProfileForm,
@@ -135,10 +136,7 @@ export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {
        */
       await disableBrowserPush().catch(() => false);
 
-      await fetch("/api/v1/auth/logout", {
-        credentials: "include",
-        method: "POST",
-      });
+      await signOutRequest();
     } finally {
       window.location.assign("/login");
     }

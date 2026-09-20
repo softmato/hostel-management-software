@@ -17,12 +17,11 @@ import { Screen } from "@/components/ui/screen";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
+
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import {
-  getCart,
   removeFromCart,
   setCartQuantity,
   type CartLine,
@@ -30,6 +29,7 @@ import {
 } from "@/lib/store-api";
 import { freeDeliveryNote, freeDeliveryProgress, limitNote, rupees, stepperBounds } from "@/lib/store-format";
 import { toastError } from "@/lib/toast";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * The basket.
@@ -58,8 +58,10 @@ export default function StoreCartScreen() {
   const [busyProductId, setBusyProductId] = useState<string | null>(null);
   const storeCart = useStoreCart();
 
-  const cart = useResource(useCallback(() => getCart(), []), {
-    topics: [REALTIME_TOPIC.STORE],
+  const cartQuery = storeQuery.cart();
+  const cart = useResource(cartQuery.load, {
+    cacheKey: cartQuery.key,
+    topics: cartQuery.topics,
   });
 
   const { setData } = cart;

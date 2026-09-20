@@ -19,7 +19,7 @@ describe("mobile auth contract", () => {
   });
 
   it("reads refresh tokens from JSON bodies for mobile refresh/logout", async () => {
-    const request = new Request("https://hostelhub.local/api/v1/auth/refresh", {
+    const request = new Request("https://hostelpalika.local/api/v1/auth/refresh", {
       body: JSON.stringify({ refreshToken: " refresh-token-value " }),
       headers: {
         "content-type": "application/json",
@@ -31,14 +31,14 @@ describe("mobile auth contract", () => {
   });
 
   it("ignores missing or blank refresh-token bodies", async () => {
-    const missingRequest = new Request("https://hostelhub.local/api/v1/auth/refresh", {
+    const missingRequest = new Request("https://hostelpalika.local/api/v1/auth/refresh", {
       body: JSON.stringify({}),
       headers: {
         "content-type": "application/json",
       },
       method: "POST",
     });
-    const blankRequest = new Request("https://hostelhub.local/api/v1/auth/refresh", {
+    const blankRequest = new Request("https://hostelpalika.local/api/v1/auth/refresh", {
       body: JSON.stringify({ refreshToken: "   " }),
       headers: {
         "content-type": "application/json",

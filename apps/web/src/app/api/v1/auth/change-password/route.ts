@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { rateLimitAuthAttempts } from "@/lib/rate-limit";
-import { ACCESS_TOKEN_COOKIE, getBearerToken, verifyAccessToken } from "@/lib/auth";
+import { getBearerToken, readAccessTokenCookie, verifyAccessToken } from "@/lib/auth";
 import { shouldExposeRefreshToken } from "@/lib/mobile-auth";
 import { applySessionCookies } from "@/lib/session-cookies";
 import { AuthServiceError, changePassword } from "@/modules/auth/auth.service";
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
     const accessToken =
       getBearerToken(request.headers.get("authorization")) ??
-      request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+      readAccessTokenCookie(request.cookies);
 
     if (!accessToken) {
       return errorResponse("Access token is missing.", "UNAUTHENTICATED", 401);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import { browserApi } from "@/lib/browser-api";
 import type { LoadState } from "@/app/_components/core-portal-shared";
@@ -47,6 +47,56 @@ export function resourceKey(url: string) {
   return ["portal-resource", url] as const;
 }
 
+/**
+ * Which endpoints each portal page actually read, keyed by pathname.
+ *
+ * Hover prefetching needs to know what a destination will fetch before it is
+ * opened. A declared href → endpoint table would have to be written out for
+ * every nav item and would silently rot the first time a page changed what it
+ * reads, so this learns it instead: a page that has been opened once in this
+ * tab prefetches correctly for the rest of the session, which is exactly the
+ * session where somebody navigates the portal repeatedly.
+ *
+ * In-memory on purpose — it is a hint, and a wrong or missing hint costs
+ * nothing but the fetch that would have happened anyway.
+ */
+const pageEndpoints = new Map<string, Set<string>>();
+
+function rememberEndpoint(url: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const forPath = pageEndpoints.get(window.location.pathname) ?? new Set<string>();
+
+  forPath.add(url);
+  pageEndpoints.set(window.location.pathname, forPath);
+}
+
+/**
+ * Warms the cache for a nav destination. Call it on `onMouseEnter` — mouse
+ * travel to a sidebar link is 200–400ms, so the response is usually in hand
+ * before the click lands.
+ */
+export function usePrefetchPortalHref() {
+  const client = useQueryClient();
+
+  return useCallback(
+    (href: string) => {
+      const path = href.split("?")[0] ?? href;
+
+      for (const url of pageEndpoints.get(path) ?? []) {
+        void client.prefetchQuery({
+          queryFn: () => browserApi(url),
+          queryKey: resourceKey(url),
+          staleTime: 30_000,
+        });
+      }
+    },
+    [client],
+  );
+}
+
 function errorText(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -69,6 +119,12 @@ export function usePortalResource<T>(
     queryFn: () => browserApi<T>(url as string),
     queryKey: resourceKey(url ?? "idle"),
   });
+
+  useEffect(() => {
+    if (url) {
+      rememberEndpoint(url);
+    }
+  }, [url]);
 
   const { refetch } = query;
   const refreshAsync = useCallback(async () => {

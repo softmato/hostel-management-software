@@ -476,6 +476,37 @@ export async function getPlatformPaymentsOverview() {
   };
 }
 
+/**
+ * The admin dashboard is three sequential waves of queries — the countable
+ * resident ids, then nine parallel counts, then the statement nudge — and it is
+ * the first thing every staff member loads. A short memo removes all of it on a
+ * hit, for a fraction of the diff a `$facet` rewrite would cost.
+ *
+ * Keyed on the **resolved** hostel scope rather than `query.hostelId`, because
+ * that is what the numbers are derived from: a principal who omits the query
+ * parameter gets every hostel they may see, and two principals with different
+ * access must never share an entry.
+ *
+ * ponytail: per Fluid instance and unbounded between expiries — it holds one
+ * small object per active hostel scope, pruned on read.
+ */
+const DASHBOARD_CACHE_MS = 30 * 1000;
+
+const dashboardCache = new Map<
+  string,
+  { at: number; value: Awaited<ReturnType<typeof buildHostelAdminDashboardReport>> }
+>();
+
+/**
+ * Empties the memo. Production never needs this — entries expire on their own —
+ * but a test that asserts on the queries the report makes must be able to start
+ * from a cold cache, or the second case in a file silently asserts against the
+ * first one's answer.
+ */
+export function resetHostelAdminDashboardCache() {
+  dashboardCache.clear();
+}
+
 export async function getHostelAdminDashboardReport(
   query: ReportQuery,
   principal: ApiPrincipal,
@@ -487,6 +518,36 @@ export async function getHostelAdminDashboardReport(
   // the view stats query needs the plain list either way.
   const scopedHostelIds =
     scoped.hostelId instanceof Types.ObjectId ? [scoped.hostelId] : scoped.hostelId.$in;
+
+  const cacheKey = scopedHostelIds
+    .map((id) => id.toString())
+    .sort()
+    .join(",");
+  const now = Date.now();
+
+  for (const [key, entry] of dashboardCache) {
+    if (now - entry.at >= DASHBOARD_CACHE_MS) {
+      dashboardCache.delete(key);
+    }
+  }
+
+  const hit = dashboardCache.get(cacheKey);
+
+  if (hit) {
+    return hit.value;
+  }
+
+  const value = await buildHostelAdminDashboardReport(scoped, scopedHostelIds);
+
+  dashboardCache.set(cacheKey, { at: Date.now(), value });
+
+  return value;
+}
+
+async function buildHostelAdminDashboardReport(
+  scoped: ReturnType<typeof hostelFilter>,
+  scopedHostelIds: Types.ObjectId[],
+) {
 
   /**
    * Two corrections to what `monthlyDues` and `paidAmount` used to mean.

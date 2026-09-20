@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
@@ -12,11 +12,12 @@ import { Segmented } from "@/components/ui/segmented";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
+
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { listStoreOrders, type StoreOrder } from "@/lib/store-api";
+import { type StoreOrder } from "@/lib/store-api";
 import { orderTone, rupees } from "@/lib/store-format";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * Everything this hostel has ordered.
@@ -40,10 +41,11 @@ export default function StoreOrdersScreen() {
 
   const [filter, setFilter] = useState<"open" | "all">("open");
 
-  const orders = useResource(
-    useCallback(() => listStoreOrders({ pageSize: 50, status: filter }), [filter]),
-    { topics: [REALTIME_TOPIC.STORE] },
-  );
+  const ordersQuery = storeQuery.orders(filter);
+  const orders = useResource(ordersQuery.load, {
+    cacheKey: ordersQuery.key,
+    topics: ordersQuery.topics,
+  });
 
   const groups = useMemo(() => groupByDay(orders.data?.orders ?? []), [orders.data]);
 

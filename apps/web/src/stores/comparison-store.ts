@@ -36,6 +36,6 @@ export const useComparisonStore = create<ComparisonStore>()(
         return true;
       },
     }),
-    { name: "hostelhub-compare-tray" },
+    { name: "hostelpalika-compare-tray" },
   ),
 );

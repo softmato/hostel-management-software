@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { InlineText } from "./inline-text";
 import { TIER_TONE } from "./listing-tier-tone";
 import { PlanMark } from "./plan-mark";
+import { StarsCtaCard } from "./stars-cta-card";
 import {
   bestDiscountPercent,
   bestEventPercent,
@@ -316,9 +317,7 @@ function PlanLine({
   href: string | null;
   muted?: boolean;
 }) {
-  const tone = muted
-    ? "font-medium text-foreground/80"
-    : "font-semibold text-foreground";
+  const tone = muted ? "font-medium text-foreground/80" : "font-semibold text-foreground";
   const body = (
     <>
       <Check
@@ -399,8 +398,7 @@ export function PlanCard({
    * either is in play — printing the event price struck as well would put two
    * crossed-out numbers on a card and leave the reader deciding which counts.
    */
-  const struck =
-    plan.listMonthly ?? (cycle === "monthly" ? null : plan.monthly);
+  const struck = plan.listMonthly ?? (cycle === "monthly" ? null : plan.monthly);
   const saving = savingFor(plan, cycle);
   const patch = (changes: Partial<PlanTier>) => editor?.onPatchPlan(plan.id, changes);
 
@@ -456,7 +454,8 @@ export function PlanCard({
               <Label
                 editor={editor}
                 onChange={(label) =>
-                  plan.listingTier && patch({ listingTier: { ...plan.listingTier, label } })
+                  plan.listingTier &&
+                  patch({ listingTier: { ...plan.listingTier, label } })
                 }
                 placeholder="Badge"
                 value={plan.listingTier.label}
@@ -700,7 +699,13 @@ export function PlanCards({
       <div className={className}>
         {catalog.plans.map((plan) => (
           <div className="flex" key={plan.id}>
-            <PlanCard catalog={catalog} cycle={cycle} editor={editor} plan={plan} reduced />
+            <PlanCard
+              catalog={catalog}
+              cycle={cycle}
+              editor={editor}
+              plan={plan}
+              reduced
+            />
           </div>
         ))}
       </div>
@@ -835,12 +840,10 @@ export function PlansClosingCta({
     return null;
   }
 
-  const className =
-    "mt-20 flex flex-col items-center gap-5 rounded-2xl border border-brand-teal/25 bg-brand-teal/5 p-8 text-center md:flex-row md:justify-between md:text-left";
   const body = (
     <>
       <div>
-        <h2 className="font-heading text-lg font-bold text-foreground">
+        <h2 className="font-heading text-lg font-bold text-white">
           <Label
             editor={editor}
             onChange={(next) => editor?.onPatchPage({ ctaTitle: next })}
@@ -848,7 +851,7 @@ export function PlansClosingCta({
             value={renderCopy(ctaTitle, identity, editor)}
           />
         </h2>
-        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+        <p className="mt-1 max-w-xl text-sm text-emerald-50/85">
           <Label
             editor={editor}
             multiline
@@ -859,7 +862,7 @@ export function PlansClosingCta({
         </p>
       </div>
       {editor ? (
-        <span className="inline-flex shrink-0 items-center rounded-xl bg-brand-teal px-6 py-3 text-sm font-semibold text-white shadow-sm">
+        <span className="inline-flex shrink-0 items-center rounded-xl bg-white px-6 py-3 text-sm font-semibold text-brand-teal shadow-sm">
           <Label
             editor={editor}
             onChange={(next) => editor.onPatchPage({ ctaLabel: next })}
@@ -869,7 +872,7 @@ export function PlansClosingCta({
         </span>
       ) : (
         <Link
-          className="inline-flex shrink-0 items-center rounded-xl bg-brand-teal px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+          className="inline-flex shrink-0 items-center rounded-xl bg-white px-6 py-3 text-sm font-semibold text-brand-teal shadow-sm transition hover:bg-emerald-50"
           href={ctaHref || "/contact"}
         >
           {fillPlaceholders(ctaLabel, identity)}
@@ -879,18 +882,27 @@ export function PlansClosingCta({
   );
 
   if (!animate) {
-    return <section className={className}>{body}</section>;
+    return (
+      <StarsCtaCard
+        className="mt-20"
+        contentClassName="flex flex-col items-center gap-5 p-8 text-center md:flex-row md:justify-between md:text-left"
+      >
+        {body}
+      </StarsCtaCard>
+    );
   }
 
   return (
     <motion.section
-      className={className}
+      className="mt-20"
       initial="hidden"
       variants={item}
       viewport={{ amount: 0.3, once: true }}
       whileInView="show"
     >
-      {body}
+      <StarsCtaCard contentClassName="flex flex-col items-center gap-5 p-8 text-center md:flex-row md:justify-between md:text-left">
+        {body}
+      </StarsCtaCard>
     </motion.section>
   );
 }

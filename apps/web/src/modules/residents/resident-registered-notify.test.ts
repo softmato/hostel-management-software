@@ -22,7 +22,7 @@ vi.mock("@/modules/notifications/notification.service", () => ({
 }));
 
 vi.mock("@/modules/residents/resident-notify", () => ({
-  appUrl: (path: string) => `https://hostelhub.test${path}`,
+  appUrl: (path: string) => `https://hostelpalika.test${path}`,
   getHostelName: mocks.hostelName,
   resolveHostelStaffUserIds: mocks.staffUserIds,
   resolveResidentContact: mocks.residentContact,

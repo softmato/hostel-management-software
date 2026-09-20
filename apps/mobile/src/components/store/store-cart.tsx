@@ -9,17 +9,16 @@ import {
   type ReactNode,
 } from "react";
 
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import {
   addToCart,
-  getCart,
   removeFromCart,
   setCartQuantity,
   type CartResult,
 } from "@/lib/store-api";
 import { toastError } from "@/lib/toast";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * One cart count for the whole store group.
@@ -71,12 +70,12 @@ type StoreCartContextValue = {
 const StoreCartContext = createContext<StoreCartContextValue | null>(null);
 
 export function StoreCartProvider({ children }: { children: ReactNode }) {
-  const cart = useResource(
-    useCallback(() => getCart(), []),
-    {
-      topics: [REALTIME_TOPIC.STORE],
-    },
-  );
+  // Same key as `(store)/cart.tsx`: the badge and the screen are one question.
+  const cartQuery = storeQuery.cart();
+  const cart = useResource(cartQuery.load, {
+    cacheKey: cartQuery.key,
+    topics: cartQuery.topics,
+  });
 
   const { refresh, setData } = cart;
 
@@ -174,7 +173,6 @@ export function useStoreCart(): StoreCartContextValue {
     }
   );
 }
-
 
 /**
  * Adding to the basket, for every screen that can do it.

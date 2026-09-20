@@ -1,6 +1,10 @@
 import type { NextRequest } from "next/server";
 
-import { handleRouteError, successResponse } from "@/lib/api-response";
+import {
+  PUBLIC_CACHE,
+  handleRouteError,
+  successResponse,
+} from "@/lib/api-response";
 import { getPublicHostelBySlug } from "@/modules/hostels/hostel.service";
 
 type RouteContext = {
@@ -16,7 +20,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const { slug } = await context.params;
     const result = await getPublicHostelBySlug(slug);
 
-    return successResponse(result, "Public hostel loaded");
+    return successResponse(result, "Public hostel loaded", PUBLIC_CACHE);
   } catch (error) {
     return handleRouteError(error);
   }

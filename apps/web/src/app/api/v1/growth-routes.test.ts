@@ -149,7 +149,7 @@ function request(
     method?: "GET" | "POST" | "PATCH";
   } = {},
 ) {
-  return new NextRequest(`https://hostelhub.local${path}`, {
+  return new NextRequest(`https://hostelpalika.local${path}`, {
     body: options.body ? JSON.stringify(options.body) : undefined,
     headers: options.body ? { "content-type": "application/json" } : {},
     method: options.method ?? "GET",

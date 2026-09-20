@@ -139,7 +139,7 @@ describe("cook login identity", () => {
   it("keeps the whole address short enough to type on a kitchen phone", async () => {
     const email = await mintCookLogin("sunrise-boys-hostel-kathmandu", async () => false);
 
-    // The address this replaced was `cook@sunrise-boys-hostel-kathmandu.hostelhub.local`.
+    // The address this replaced was `cook@sunrise-boys-hostel-kathmandu.hostelpalika.local`.
     expect(email).toBe("sunr@cook.local");
     expect(email.length).toBeLessThan(20);
   });

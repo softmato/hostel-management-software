@@ -29,6 +29,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PublicPushOptIn } from "@/components/public-push-optin";
 import { useSessionStore, type SessionUser } from "@/stores/session-store";
+import { signOutRequest } from "@/lib/sign-out";
 
 type PublicHeaderProps = {
   active?:
@@ -209,7 +210,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
   }, []);
 
   async function handleLogout() {
-    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+    await signOutRequest();
     setUser(null);
     setMenuOpen(false);
     router.push("/");
@@ -217,12 +218,12 @@ export function PublicHeader({ active }: PublicHeaderProps) {
 
   return (
     <header
-      className={cn(
-        "fixed top-0 left-0 right-0 z-50 w-full transition-all duration-300",
-        scrolled ? "bg-surface/80 backdrop-blur-lg" : "bg-transparent",
-      )}
+      data-scrolled={scrolled ? "" : undefined}
+      className={cn("fixed top-0 left-0 right-0 z-50 w-full transition-all duration-300")}
     >
-      <div className="flex h-16 w-full items-center justify-between gap-2 px-4 md:px-8">
+      <div aria-hidden="true" className="public-header-veil" />
+
+      <div className="relative z-10 flex h-16 w-full items-center justify-between gap-2 px-4 md:px-8">
         <Link
           href="/"
           aria-label={PLATFORM_NAME}

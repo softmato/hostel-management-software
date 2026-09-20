@@ -15,7 +15,7 @@ describe("normalizeActivationCode", () => {
 describe("parseScannedCode", () => {
   it("pulls the code out of the activation URL the QR actually encodes", () => {
     expect(
-      parseScannedCode("https://hostelhub.com.np/resident-activation?code=AB12CD34"),
+      parseScannedCode("https://hostelpalika.com.np/resident-activation?code=AB12CD34"),
     ).toBe("AB12CD34");
   });
 

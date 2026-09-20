@@ -180,7 +180,7 @@ describe("hostel profile service", () => {
   it("emails every superadmin when a locked change is requested", async () => {
     profileMocks.hostelFindOne.mockReturnValueOnce(leanResult(hostelRecord()));
     profileMocks.userFind.mockReturnValueOnce(
-      leanResult([{ email: "boss@hostelhub.test" }, { email: "ops@hostelhub.test" }]),
+      leanResult([{ email: "boss@hostelpalika.test" }, { email: "ops@hostelpalika.test" }]),
     );
 
     const result = await requestHostelProfileChange(

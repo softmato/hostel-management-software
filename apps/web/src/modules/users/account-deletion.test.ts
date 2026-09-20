@@ -69,7 +69,7 @@ vi.mock("@/modules/notifications/notification.service", () => ({
 }));
 
 vi.mock("@/modules/residents/resident-notify", () => ({
-  appUrl: (path: string) => `https://hostelhub.local${path}`,
+  appUrl: (path: string) => `https://hostelpalika.local${path}`,
   sendNotificationEmail: mocks.sendNotificationEmail,
 }));
 
@@ -291,13 +291,13 @@ describe("account deletion — hostel owner request", () => {
 
   it("emails the platform owner, not the requester", async () => {
     mocks.userFind.mockReturnValue(
-      selectResult([{ _id: new Types.ObjectId(), email: "owner@hostelhub.test" }]),
+      selectResult([{ _id: new Types.ObjectId(), email: "owner@hostelpalika.test" }]),
     );
 
     await requestAccountDeletion(input, principal(Role.HOSTEL_ADMIN));
 
     const recipients = mocks.sendNotificationEmail.mock.calls.map((call) => call[0].to);
-    expect(recipients).toEqual(["owner@hostelhub.test"]);
+    expect(recipients).toEqual(["owner@hostelpalika.test"]);
   });
 });
 

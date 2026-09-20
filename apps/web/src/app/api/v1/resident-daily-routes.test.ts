@@ -108,7 +108,7 @@ function request(
     mobile?: boolean;
   } = {},
 ) {
-  return new NextRequest(`https://hostelhub.local${path}`, {
+  return new NextRequest(`https://hostelpalika.local${path}`, {
     body: options.body ? JSON.stringify(options.body) : undefined,
     headers: {
       ...(options.body ? { "content-type": "application/json" } : {}),

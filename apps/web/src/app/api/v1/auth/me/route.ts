@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
-import { ACCESS_TOKEN_COOKIE, getBearerToken } from "@/lib/auth";
+import { getBearerToken, readAccessTokenCookie } from "@/lib/auth";
 import { AuthServiceError, getCurrentUser } from "@/modules/auth/auth.service";
 
 export const runtime = "nodejs";
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   try {
     const accessToken =
       getBearerToken(request.headers.get("authorization")) ??
-      request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+      readAccessTokenCookie(request.cookies);
 
     if (!accessToken) {
       return errorResponse("Access token is missing.", "UNAUTHENTICATED", 401);

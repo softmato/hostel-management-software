@@ -17,7 +17,7 @@ import {
  * would cost every cached answer rather than the oldest few.
  */
 
-const STORAGE_KEY = "hostelhub:query-cache:v1";
+const STORAGE_KEY = "hostelpalika:query-cache:v1";
 const WRITE_DELAY_MS = 1_000;
 const MAX_CHARS = 1_500_000;
 

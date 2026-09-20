@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 
 import { useAddToCart, useStoreCart } from "@/components/store/store-cart";
@@ -20,8 +20,9 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { useSystemInsets } from "@/hooks/use-system-insets";
-import { getStoreProduct } from "@/lib/store-api";
+
 import { discountPercent, rupees, stepperBounds } from "@/lib/store-format";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * One product.
@@ -57,9 +58,11 @@ export default function StoreProductScreen() {
 
   const [quantity, setQuantity] = useState(1);
 
-  const resource = useResource(
-    useCallback(() => getStoreProduct(String(id)), [id]),
-  );
+  const productQuery = storeQuery.product(String(id));
+  const resource = useResource(productQuery.load, {
+    cacheKey: productQuery.key,
+    topics: productQuery.topics,
+  });
 
   const product = resource.data?.product;
 

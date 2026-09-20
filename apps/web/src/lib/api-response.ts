@@ -16,6 +16,20 @@ export type ApiError = {
   details?: unknown;
 };
 
+/**
+ * Response init for public, per-visitor-identical payloads. Sends them to
+ * Vercel's CDN cache, whose reads and writes are free and unmetered, instead of
+ * `export const revalidate`, which uses the metered ISR cache for the same
+ * behaviour. `s-maxage` is shared-cache only, so a browser still revalidates.
+ * Never put this on an authed route — the response would be served to the next
+ * visitor.
+ */
+export const PUBLIC_CACHE: ResponseInit = {
+  headers: {
+    "Cache-Control": "public, s-maxage=60, stale-while-revalidate=600",
+  },
+};
+
 export function successResponse<T>(
   data: T,
   message = "Request successful",

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
+import { cache } from "react";
 
-import { ACCESS_TOKEN_COOKIE } from "@/lib/auth-cookies";
+import { readAccessTokenCookie } from "@/lib/auth-cookies";
 import { isAuthBypassEnabled } from "@/lib/auth-bypass";
 import { verifyAccessToken } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
@@ -34,10 +35,15 @@ async function previewHostels(): Promise<WorkspaceHostel[]> {
  * The hostels the signed-in staff member may open a workspace for. Returns an
  * empty list when there is no valid session — callers redirect to login rather
  * than leaking whether a slug exists.
+ *
+ * Wrapped in React's `cache` because the admin layout asks twice per render —
+ * once through `canAccessWorkspace`, once through `workspaceHostelName` — and
+ * each ask was its own identical `Hostel.find`. Per-request only, so a session
+ * change on the next request is still seen.
  */
-export async function listWorkspaceHostels(): Promise<WorkspaceHostel[]> {
+export const listWorkspaceHostels = cache(async (): Promise<WorkspaceHostel[]> => {
   const store = await cookies();
-  const token = store.get(ACCESS_TOKEN_COOKIE)?.value;
+  const token = readAccessTokenCookie(store);
 
   let hostelIds: string[] = [];
 
@@ -70,7 +76,7 @@ export async function listWorkspaceHostels(): Promise<WorkspaceHostel[]> {
     name: hostel.name,
     slug: hostel.slug,
   }));
-}
+});
 
 /** The slug the portal should open by default for this staff member. */
 export async function defaultWorkspaceSlug(): Promise<string | null> {

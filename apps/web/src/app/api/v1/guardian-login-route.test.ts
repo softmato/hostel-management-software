@@ -8,6 +8,7 @@ vi.mock("@/modules/guardian/guardian.service", () => ({
 }));
 
 import * as guardianLoginRoute from "@/app/api/v1/guardian/login/route";
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/auth-cookies";
 
 /**
  * The access-code route is the only way to present a guardian's code-and-phone
@@ -16,7 +17,7 @@ import * as guardianLoginRoute from "@/app/api/v1/guardian/login/route";
  * reachable from a phone.
  */
 function request(body: unknown, headers: Record<string, string> = {}) {
-  return new NextRequest("https://hostelhub.local/api/v1/guardian/login", {
+  return new NextRequest("https://hostelpalika.local/api/v1/guardian/login", {
     body: JSON.stringify(body),
     headers: { "content-type": "application/json", ...headers },
     method: "POST",
@@ -91,7 +92,7 @@ describe("POST /api/v1/guardian/login", () => {
       request(validBody, { "x-forwarded-for": "203.0.113.12" }),
     );
 
-    expect(response.cookies.get("hostelhub_access_token")?.value).toBe("access-token");
-    expect(response.cookies.get("hostelhub_refresh")?.value).toBe("refresh-token");
+    expect(response.cookies.get(ACCESS_TOKEN_COOKIE)?.value).toBe("access-token");
+    expect(response.cookies.get(REFRESH_TOKEN_COOKIE)?.value).toBe("refresh-token");
   });
 });

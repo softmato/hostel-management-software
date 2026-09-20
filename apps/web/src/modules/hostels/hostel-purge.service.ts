@@ -78,6 +78,7 @@ import { ReconciliationRunModel } from "@hostel/db/models/ReconciliationRun";
 import { ReferralModel } from "@hostel/db/models/Referral";
 import { ReferralCodeModel } from "@hostel/db/models/ReferralCode";
 import { ReferralRewardModel } from "@hostel/db/models/ReferralReward";
+import { RentConcessionModel } from "@hostel/db/models/RentConcession";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { ResidentDocumentModel } from "@hostel/db/models/ResidentDocument";
 import { ReviewModerationLogModel } from "@hostel/db/models/ReviewModerationLog";
@@ -212,6 +213,7 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
     ["Referral", ReferralModel],
     ["ReferralCode", ReferralCodeModel],
     ["ReferralReward", ReferralRewardModel],
+    ["RentConcession", RentConcessionModel],
     ["Resident", ResidentModel],
     ["ResidentDocument", ResidentDocumentModel],
     ["ReviewModerationLog", ReviewModerationLogModel],

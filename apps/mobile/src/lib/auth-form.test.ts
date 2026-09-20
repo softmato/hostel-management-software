@@ -88,7 +88,7 @@ describe("normalizeOtpCode", () => {
 
 describe("extractResetToken", () => {
   it("takes the token out of the emailed link", () => {
-    expect(extractResetToken(`https://hostelhub.test/reset-password?token=${token}`)).toBe(
+    expect(extractResetToken(`https://hostelpalika.test/reset-password?token=${token}`)).toBe(
       token,
     );
   });
@@ -110,7 +110,7 @@ describe("extractResetToken", () => {
   });
 
   it("refuses a URL that carries no token rather than posting the URL", () => {
-    expect(extractResetToken("https://hostelhub.test/reset-password")).toBeNull();
+    expect(extractResetToken("https://hostelpalika.test/reset-password")).toBeNull();
   });
 
   it("refuses anything shorter than the server's 20-character floor", () => {

@@ -37,6 +37,7 @@
     "audit:test-data": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/audit-test-data.mjs",
     "purge:test-data": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/purge-test-data.mjs",
     "check:duplicate-resident-emails": "node scripts/find-duplicate-resident-emails.mjs",
+    "compare:clusters": "node scripts/compare-clusters.mjs",
     "migrate:r2-buckets": "node scripts/migrate-r2-buckets.mjs",
     "deploy:check": "next build",
     "seed:community": "node scripts/seed-community-posts.mjs",
@@ -53,11 +54,13 @@
     "check:team-registration": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-team-registration.mjs",
     "dev:mint-session": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-mint-session.mjs",
     "check:softmato": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-softmato.mjs",
-    "repair:plan-trial": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/repair-plan-trial.mjs"
+    "repair:plan-trial": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/repair-plan-trial.mjs",
+    "migrate:cluster": "node scripts/migrate-cluster.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",
     "@aws-sdk/s3-request-presigner": "^3.1084.0",
+    "@floating-ui/react": "^0.27.20",
     "@hostel/db": "*",
     "@hostel/shared": "*",
     "@lottiefiles/dotlottie-react": "^0.19.16",
@@ -76,6 +79,7 @@
     "lenis": "^1.3.23",
     "lucide-react": "^1.21.0",
     "mongoose": "^9.7.1",
+    "motion": "^13.4.0",
     "nepali-date-converter": "^3.4.0",
     "next": "16.2.9",
     "next-themes": "^0.4.6",

@@ -12,8 +12,8 @@ vi.mock("@/modules/auth/temporary-credential.service", () => ({
   isTemporaryCredentialActive: authMocks.isTemporaryCredentialActive,
 }));
 
-vi.mock("@/lib/auth", () => ({
-  ACCESS_TOKEN_COOKIE: "hostelhub_access_token",
+vi.mock("@/lib/auth", async () => ({
+  ...(await vi.importActual("@/lib/auth-cookies")),
   getBearerToken: (authorizationHeader: string | null) =>
     authorizationHeader?.startsWith("Bearer ")
       ? authorizationHeader.slice("Bearer ".length).trim()
@@ -29,7 +29,7 @@ import {
 } from "@/lib/api-auth";
 
 function bearerRequest() {
-  return new NextRequest("https://hostelhub.local/api/v1/protected", {
+  return new NextRequest("https://hostelpalika.local/api/v1/protected", {
     headers: { authorization: "Bearer access-token" },
   });
 }
@@ -49,7 +49,7 @@ describe("api auth guards", () => {
       tokenType: "access",
     });
 
-    const request = new NextRequest("https://hostelhub.local/api/v1/protected", {
+    const request = new NextRequest("https://hostelpalika.local/api/v1/protected", {
       headers: {
         authorization: "Bearer access-token",
       },
@@ -71,7 +71,7 @@ describe("api auth guards", () => {
       tokenType: "access",
     });
 
-    const request = new NextRequest("https://hostelhub.local/api/v1/platform", {
+    const request = new NextRequest("https://hostelpalika.local/api/v1/platform", {
       headers: {
         authorization: "Bearer access-token",
       },

@@ -3,6 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 import { HTML_LIMITED_BOT_UA_RE } from "next/dist/shared/lib/router/utils/html-bots";
+import {
+  PDF_LIB_PACKAGE,
+  PDF_LIB_ROUTES,
+  XLSX_PACKAGE,
+  XLSX_ROUTES,
+} from "./src/lib/output-tracing";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, "../..");
@@ -167,9 +173,30 @@ const nextConfig: NextConfig = {
       "../mobile/**/*",
       "./src/**/*.test.ts",
       "./src/**/*.test.tsx",
+      /*
+       * The two document libraries, handed back below to the routes that render
+       * a document. Same allowlist shape as the canvas binary above and for the
+       * same reason: `pdf-lib` is reached from `modules/finance/evidence.ts`,
+       * which most of the authed surface pulls in transitively, so excluding it
+       * per-route would go stale the first time somebody imported the finance
+       * service somewhere new. See `src/lib/output-tracing.ts` — and the test
+       * beside it, which fails when a route reaches one of these without being
+       * on its list.
+       */
+      ...PDF_LIB_PACKAGE,
+      ...XLSX_PACKAGE,
     ],
   },
   outputFileTracingIncludes: {
+    ...Object.fromEntries(PDF_LIB_ROUTES.map((route) => [route, PDF_LIB_PACKAGE])),
+    ...Object.fromEntries(
+      XLSX_ROUTES.map((route) => [
+        route,
+        // Every xlsx route also renders documents, and a later key would
+        // otherwise replace the pdf-lib entry rather than add to it.
+        [...XLSX_PACKAGE, ...PDF_LIB_PACKAGE],
+      ]),
+    ),
     "/api/v1/files/**": SHARP_NATIVE,
     "/api/v1/hostel-admin/finance/**": SHARP_NATIVE,
     "/api/v1/public/files/**": SHARP_NATIVE,

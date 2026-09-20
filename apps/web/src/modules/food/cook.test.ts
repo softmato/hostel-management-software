@@ -207,7 +207,7 @@ describe("cook portal setup", () => {
     const result = await updateCookPortal({ enabled: true }, staffPrincipal);
 
     expect(result.credentialsIssued).toBe(true);
-    // The old address was `cook@<full-hostel-slug>.hostelhub.local`. Anything
+    // The old address was `cook@<full-hostel-slug>.hostelpalika.local`. Anything
     // that long is retyped wrong on a kitchen phone, so the stem is capped at
     // four letters and the suffix is a domain nobody has to spell out.
     expect(result.credentials?.email).toMatch(/^sunr[a-z0-9]*@cook\.local$/);

@@ -1,7 +1,12 @@
 import { jwtVerify } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/auth-cookies";
+import {
+  ACCESS_TOKEN_COOKIE,
+  hasSessionCookie,
+  readAccessTokenCookie,
+  readRefreshTokenCookieValue,
+} from "@/lib/auth-cookies";
 import { applySessionCookies } from "@/lib/session-cookies";
 import { isAuthBypassEnabled } from "@/lib/auth-bypass";
 import { landingPathForRole, protectedRouteRuleForPath } from "@/lib/route-access";
@@ -90,7 +95,7 @@ export async function proxy(request: NextRequest) {
   const refuse = (error?: string) =>
     rule.refuseTo === "home" ? redirectHome(request) : redirectToLogin(request, error);
 
-  let role = await roleFromAccessToken(request.cookies.get(ACCESS_TOKEN_COOKIE)?.value);
+  let role = await roleFromAccessToken(readAccessTokenCookie(request.cookies));
   let refreshed: { accessToken: string; refreshToken: string | null } | null = null;
 
   /*
@@ -104,9 +109,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (!role) {
-    return request.cookies.has(ACCESS_TOKEN_COOKIE) || request.cookies.has(REFRESH_TOKEN_COOKIE)
-      ? refuse("session_expired")
-      : refuse();
+    return hasSessionCookie(request.cookies) ? refuse("session_expired") : refuse();
   }
 
   const withSession = (response: NextResponse) =>
@@ -160,8 +163,8 @@ function isSoftSessionPath(pathname: string) {
 
 async function keepSessionAlive(request: NextRequest) {
   if (
-    !request.cookies.has(REFRESH_TOKEN_COOKIE) ||
-    (await roleFromAccessToken(request.cookies.get(ACCESS_TOKEN_COOKIE)?.value))
+    !readRefreshTokenCookieValue(request.cookies) ||
+    (await roleFromAccessToken(readAccessTokenCookie(request.cookies)))
   ) {
     return NextResponse.next();
   }
@@ -199,7 +202,7 @@ async function roleFromAccessToken(token: string | undefined) {
 }
 
 async function refreshFromCookie(request: NextRequest) {
-  const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+  const refreshToken = readRefreshTokenCookieValue(request.cookies);
 
   if (!refreshToken) {
     return null;

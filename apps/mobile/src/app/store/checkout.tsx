@@ -15,9 +15,10 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
-import { getCheckout, placeStoreOrder, type StoreDelivery } from "@/lib/store-api";
+import { placeStoreOrder, type StoreDelivery } from "@/lib/store-api";
 import { rupees } from "@/lib/store-format";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * Where it goes, what it costs, and the one button that commits it.
@@ -48,7 +49,11 @@ export default function StoreCheckoutScreen() {
   const [placing, setPlacing] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof StoreDelivery, string>>>({});
 
-  const checkout = useResource(useCallback(() => getCheckout(), []));
+  const checkoutQuery = storeQuery.checkout();
+  const checkout = useResource(checkoutQuery.load, {
+    cacheKey: checkoutQuery.key,
+    topics: checkoutQuery.topics,
+  });
 
   /*
    * The form is **derived**, not seeded.

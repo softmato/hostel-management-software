@@ -15,6 +15,7 @@ import {
   type PlansConfig,
 } from "./plans-catalog";
 import { PublicShell } from "./shared";
+import { StarsCtaCard } from "./stars-cta-card";
 
 /**
  * One service, explained.
@@ -94,11 +95,7 @@ export function PublicServiceDetailPage({
             label="What"
           />
           <Explainer body={service.how} heading="How it works" label="How" />
-          <Explainer
-            body={service.why}
-            heading="Why it is built this way"
-            label="Why"
-          />
+          <Explainer body={service.why} heading="Why it is built this way" label="Why" />
         </div>
 
         <PlanMatrix catalog={catalog} service={service} />
@@ -131,20 +128,23 @@ export function PublicServiceDetailPage({
           </section>
         ) : null}
 
-        <section className="mt-16 flex flex-col items-center gap-5 rounded-2xl border border-brand-teal/25 bg-brand-teal/5 p-8 text-center md:flex-row md:justify-between md:text-left">
-          <p className="text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground">{service.name}</span> comes
-            with the {plan?.name ?? catalog.plans[0]?.name ?? "entry"} plan and every plan
+        <StarsCtaCard
+          className="mt-16"
+          contentClassName="flex flex-col items-center gap-5 p-8 text-center md:flex-row md:justify-between md:text-left"
+        >
+          <p className="text-sm text-emerald-50/85">
+            <span className="font-semibold text-white">{service.name}</span> comes with
+            the {plan?.name ?? catalog.plans[0]?.name ?? "entry"} plan and every plan
             above it.
           </p>
           <Link
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-white px-6 py-3 text-sm font-semibold text-brand-teal shadow-sm transition hover:bg-emerald-50"
             href="/register-hostel"
           >
             Register your hostel
             <ArrowRight className="size-4" />
           </Link>
-        </section>
+        </StarsCtaCard>
       </div>
     </PublicShell>
   );

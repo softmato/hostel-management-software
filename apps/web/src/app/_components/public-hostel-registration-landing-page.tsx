@@ -2,6 +2,7 @@
 
 import { ArrowRight, Building2, ChevronRight, type LucideIcon } from "lucide-react";
 import {
+  AnimatePresence,
   animate,
   motion,
   useInView,
@@ -24,24 +25,15 @@ import {
 } from "@/app/_components/public-hostel-registration-page";
 import { MOCKUPS, type Mockup } from "@/app/_components/portal-mockups";
 import { PublicShell } from "@/app/_components/shared";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/animate-ui/components/animate/tooltip";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { contentIcon, resolveContentPage } from "@/lib/site-content";
 import { useSessionStore } from "@/stores/session-store";
-
-const SYMBOLS = "0SCB87675HJGS##&";
-
-function scrambleWord(targetWord: string) {
-  const steps: string[] = [];
-  for (let i = 0; i <= targetWord.length; i++) {
-    let frame = "";
-    for (let j = 0; j < targetWord.length; j++) {
-      if (j < i) frame += targetWord[j];
-      else frame += SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
-    }
-    steps.push(frame);
-  }
-  return steps;
-}
 
 const fadeUp: Variants = {
   hidden: { opacity: 0, y: 30 },
@@ -82,6 +74,29 @@ const heroSlides: { image: Mockup; label: string }[] = [
   { image: MOCKUPS.appCommunity, label: "Your public hostel page" },
   { image: MOCKUPS.appMap, label: "Found on the map" },
 ];
+
+const TRUSTED_HOSTELS = [
+  {
+    initials: "EL",
+    name: "Education Light Hostel",
+    tone: "from-amber-400 to-rose-500",
+  },
+  {
+    initials: "GS",
+    name: "Green Stay Hostel, Kathmandu",
+    tone: "from-teal-500 to-emerald-700",
+  },
+  {
+    initials: "HV",
+    name: "Himalayan View Hostel, Pokhara",
+    tone: "from-sky-500 to-indigo-700",
+  },
+  {
+    initials: "NB",
+    name: "New Baneshwor Boys Hostel",
+    tone: "from-violet-500 to-fuchsia-700",
+  },
+] as const;
 
 /**
  * Presentation only. The features' **titles and descriptions** live in the
@@ -149,6 +164,40 @@ function CountUp({ text }: { text: string }) {
   );
 }
 
+function TrustedHostels() {
+  return (
+    <TooltipProvider>
+      <div className="mt-9 flex items-center gap-3" aria-label="Trusted hostels">
+        <div className="flex -space-x-2">
+          {TRUSTED_HOSTELS.map((hostel) => (
+            <Tooltip key={hostel.name}>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label={hostel.name}
+                  className={cn(
+                    "flex size-10 items-center justify-center rounded-full border-2 border-background bg-gradient-to-br text-[10px] font-extrabold text-white shadow-sm transition-transform hover:z-10 hover:-translate-y-1 focus:z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/50",
+                    hostel.tone,
+                  )}
+                  type="button"
+                >
+                  {hostel.initials}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="bg-foreground text-background">
+                {hostel.name}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+        <p className="text-sm font-medium leading-snug text-muted-foreground">
+          Trusted by hostel owners
+          <br className="sm:hidden" /> across Nepal
+        </p>
+      </div>
+    </TooltipProvider>
+  );
+}
+
 /** The signed-in owner's most recent hostel application, if they have one. */
 async function fetchOwnerApplication(): Promise<OwnerApplication | null> {
   try {
@@ -175,9 +224,7 @@ export function PublicHostelRegistrationLandingPage() {
     title: section.title,
   }));
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [displayedWord, setDisplayedWord] = useState(siteName);
   const [showBottomCta, setShowBottomCta] = useState(false);
-  const [bordersDone, setBordersDone] = useState(false);
   const featureRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll();
   const router = useRouter();
@@ -228,23 +275,6 @@ export function PublicHostelRegistrationLandingPage() {
   }, []);
 
   useEffect(() => {
-    const doScramble = () => {
-      const steps = scrambleWord(siteName);
-      steps.forEach((step, index) => {
-        setTimeout(() => setDisplayedWord(step), index * 80);
-      });
-    };
-
-    const scrambleTimeout = setTimeout(doScramble, 600);
-    const scrambleInterval = setInterval(doScramble, 10000);
-
-    return () => {
-      clearTimeout(scrambleTimeout);
-      clearInterval(scrambleInterval);
-    };
-  }, [siteName]);
-
-  useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => setShowBottomCta(entry.isIntersecting),
       { threshold: 0 },
@@ -273,172 +303,117 @@ export function PublicHostelRegistrationLandingPage() {
   return (
     <PublicShell active="register-hostel">
       <div className="relative overflow-hidden -mt-16">
-        {/* Animated borders — grow from all 4 sides for 3s, then fade out */}
-        <motion.div
-          className="pointer-events-none fixed inset-0 z-50"
-          initial={{ opacity: 1 }}
-          animate={{ opacity: bordersDone ? 0 : 1 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-        >
-          <motion.div
-            className="absolute top-0 left-0 h-1 bg-gradient-to-r from-brand-teal to-cyan-500"
-            initial={{ width: "0%" }}
-            animate={{ width: "100%" }}
-            transition={{ duration: 3, ease: "easeOut" }}
-          />
-          <motion.div
-            className="absolute bottom-0 right-0 h-1 bg-gradient-to-l from-brand-teal to-cyan-500"
-            initial={{ width: "0%" }}
-            animate={{ width: "100%" }}
-            transition={{ duration: 3, ease: "easeOut" }}
-          />
-          <motion.div
-            className="absolute left-0 top-0 w-1 bg-gradient-to-b from-brand-teal to-cyan-500"
-            initial={{ height: "0%" }}
-            animate={{ height: "100%" }}
-            transition={{ duration: 3, ease: "easeOut" }}
-            onAnimationComplete={() => setBordersDone(true)}
-          />
-          <motion.div
-            className="absolute right-0 top-0 w-1 bg-gradient-to-b from-brand-teal to-cyan-500"
-            initial={{ height: "0%" }}
-            animate={{ height: "100%" }}
-            transition={{ duration: 3, ease: "easeOut" }}
-          />
-        </motion.div>
-
-        <div className="pointer-events-none absolute -inset-1 opacity-30 dark:opacity-10">
-          <div className="absolute -left-40 -top-40 size-80 rounded-full bg-brand-teal blur-3xl" />
-          <div className="absolute -right-40 -top-20 size-96 rounded-full bg-cyan-400 blur-3xl" />
+        <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-35 dark:opacity-10">
+          <div className="absolute -left-52 -top-52 size-[34rem] rounded-full bg-brand-teal/35 blur-3xl" />
+          <div className="absolute right-[-12rem] top-8 size-[46rem] rounded-full border-[70px] border-brand-teal/10" />
+          <div className="absolute right-[-7rem] top-24 size-[34rem] rounded-full bg-cyan-300/20 blur-3xl" />
         </div>
 
         {/* Hero */}
-        <section className="relative mx-auto max-w-[1200px] px-6 pt-28 pb-16 md:pt-40 md:pb-24">
+        <section className="relative mx-auto grid max-w-[1380px] gap-8 px-6 pb-14 pt-28 sm:px-8 md:px-10 md:pb-20 md:pt-36 lg:min-h-[700px] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-10 lg:px-14 lg:py-20 xl:px-16">
           <motion.div
-            className="mx-auto max-w-4xl text-center"
+            className="relative z-10 max-w-xl lg:mx-0"
             initial="hidden"
             animate="visible"
             variants={stagger}
           >
             <motion.div
-              className="mb-6 inline-flex items-center gap-2 rounded-full border border-brand-teal/20 bg-brand-teal/5 px-4 py-1.5 text-xs font-semibold text-brand-teal"
+              className="mb-6 inline-flex items-center gap-2 rounded-full bg-brand-teal/10 px-4 py-2 text-xs font-bold text-brand-teal"
               variants={fadeUp}
               custom={0}
             >
-              <Building2 className="size-3.5" />
-              For Hostel Owners & Operators
+              <span className="size-1.5 rounded-full bg-brand-teal" />
+              Smart Hostel Management
             </motion.div>
             <motion.h1
-              className="text-[2.1rem] font-extrabold leading-tight text-foreground sm:text-5xl md:text-6xl md:leading-[1.12]"
+              className="max-w-[620px] text-[2.35rem] font-bold leading-[1.08] tracking-[-0.035em] text-foreground sm:text-[3.4rem] md:text-[3.8rem] lg:text-[4rem]"
               variants={fadeUp}
               custom={1}
             >
-              Become a Partner at{" "}
-              <span className="inline-block bg-gradient-to-r from-brand-teal to-cyan-500 bg-clip-text font-mono tracking-tight text-transparent">
-                {displayedWord}
+              <span className="block">Become a Partner</span>
+              <span className="mt-1 block bg-gradient-to-r from-brand-teal to-emerald-400 bg-clip-text text-transparent sm:mt-2">
+                with {siteName}
               </span>
             </motion.h1>
             <motion.p
-              className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground md:text-lg"
+              className="mt-6 max-w-[34rem] text-base leading-relaxed text-muted-foreground md:text-lg"
               variants={fadeUp}
               custom={2}
             >
-              {page.intro[0]}
+              The all-in-one hostel management app designed to make your daily operations
+              simpler, smarter and more efficient.
             </motion.p>
 
-            {/* Register button at top */}
+            {/* The calls to action copy the compact reference treatment. */}
             <motion.div
-              className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row"
+              className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center"
               variants={fadeUp}
               custom={3}
             >
               <Link
                 href="/register-hostel/form"
-                className="inline-flex h-13 items-center gap-2 rounded-xl bg-brand-teal px-7 text-sm font-bold text-white shadow-lg shadow-brand-teal/25 transition hover:brightness-110 md:h-14 md:text-base md:px-8"
+                className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-brand-teal px-7 text-sm font-bold text-white shadow-lg shadow-brand-teal/25 transition hover:brightness-110 md:h-14 md:text-base md:px-8"
               >
-                Get Started
+                Get Started Free
                 <ArrowRight className="size-4" />
               </Link>
               <Link
-                href="/hostels"
-                className="inline-flex h-13 items-center gap-1 rounded-xl border border-border px-7 text-sm font-semibold text-foreground transition hover:bg-muted md:h-14 md:text-base md:px-8"
+                href="#hostel-product-tour"
+                className="inline-flex h-13 items-center justify-center gap-2 rounded-full border border-border bg-background/75 px-7 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted md:h-14 md:text-base md:px-8"
               >
-                Browse Hostels
-                <ChevronRight className="size-4" />
+                <span className="flex size-5 items-center justify-center rounded-full bg-brand-teal/10 text-[9px] text-brand-teal">
+                  ▶
+                </span>
+                Watch Demo
               </Link>
+            </motion.div>
+
+            <motion.div variants={fadeUp} custom={4}>
+              <TrustedHostels />
             </motion.div>
           </motion.div>
 
-          {/* Image slideshow */}
+          {/* An unframed, automatically changing product view. */}
           <motion.div
-            className="mx-auto mt-16 max-w-4xl"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
+            className="relative mx-auto w-full max-w-3xl lg:mr-0"
+            initial={{ opacity: 0, x: 24, scale: 0.97 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
             transition={{ delay: 0.6, duration: 0.8 }}
+            id="hostel-product-tour"
           >
-            <div className="relative h-[20rem] overflow-hidden rounded-2xl border border-border bg-muted/30 shadow-xl sm:h-[26rem] md:h-[32rem]">
-              <motion.div
-                key={currentSlide}
-                className="absolute inset-0 px-4 pb-6 pt-14 sm:px-12 sm:pb-12"
-                initial={{ opacity: 0, scale: 1.03 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.6 }}
-              >
-                <span className="absolute left-1/2 top-4 -translate-x-1/2 whitespace-nowrap rounded-full border border-border bg-background/90 px-3 py-1 text-xs font-semibold text-foreground">
-                  {heroSlides[currentSlide].label}
-                </span>
-                <div className="relative size-full">
+            <div className="pointer-events-none absolute inset-x-12 bottom-6 top-10 rounded-[50%] bg-brand-teal/10 blur-3xl" />
+            <div className="relative h-[22rem] sm:h-[29rem] lg:h-[34rem]">
+              <AnimatePresence initial={false} mode="wait">
+                <motion.div
+                  className="absolute inset-0"
+                  key={heroSlides[currentSlide].image.src}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.35, ease: "easeInOut" }}
+                >
                   <Image
                     alt={heroSlides[currentSlide].image.alt}
                     className="object-contain"
                     fill
                     priority={currentSlide === 0}
-                    sizes="(min-width: 896px) 800px, 100vw"
+                    sizes="(min-width: 1024px) 700px, 100vw"
                     src={heroSlides[currentSlide].image.src}
                   />
-                </div>
-              </motion.div>
-
-              {/* Slide navigation arrows */}
-              <button
-                onClick={() =>
-                  setCurrentSlide((prev) =>
-                    prev === 0 ? heroSlides.length - 1 : prev - 1,
-                  )
-                }
-                className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-brand-teal p-2 text-white shadow-lg transition hover:brightness-110"
-                type="button"
-              >
-                <ChevronRight className="size-5 rotate-180" />
-              </button>
-              <button
-                onClick={() => setCurrentSlide((prev) => (prev + 1) % heroSlides.length)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-brand-teal p-2 text-white shadow-lg transition hover:brightness-110"
-                type="button"
-              >
-                <ChevronRight className="size-5" />
-              </button>
-
-              {/* Slide indicators */}
-              <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-2">
-                {heroSlides.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setCurrentSlide(i)}
-                    className={`size-2 rounded-full transition ${i === currentSlide ? "bg-brand-teal w-6" : "bg-border hover:bg-muted-foreground/40"}`}
-                    type="button"
-                  />
-                ))}
-              </div>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+            <div className="sr-only" aria-live="polite">
+              Showing {heroSlides[currentSlide].label}
             </div>
           </motion.div>
         </section>
 
         {/* Stats: real counts first, then the growth claims an owner is sold on */}
         {platformStats.length > 0 || stats.length > 0 ? (
-          <section className="relative overflow-hidden border-y border-border bg-muted/30">
+          <section className="relative z-10 -mt-10 overflow-hidden bg-muted/30 md:-mt-16">
             <div className="pointer-events-none absolute -left-24 top-1/2 size-72 -translate-y-1/2 rounded-full bg-brand-teal/10 blur-3xl" />
-            <div className="relative mx-auto max-w-[1200px] px-6 py-14 md:py-20">
+            <div className="relative mx-auto max-w-[1200px] px-6 pb-14 pt-10 md:pb-20 md:pt-14">
               {platformStats.length > 0 ? (
                 <div className={cn(stats.length > 0 && "mb-14")}>
                   <p className="flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-brand-teal">
@@ -469,7 +444,8 @@ export function PublicHostelRegistrationLandingPage() {
                     Get your hostel more popular
                   </h2>
                   <p className="mx-auto mt-2 max-w-xl text-center text-sm text-muted-foreground md:text-base">
-                    What changes when students can find you and residents pay from their phone.
+                    What changes when students can find you and residents pay from their
+                    phone.
                   </p>
                   <motion.div
                     className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4"
@@ -502,7 +478,10 @@ export function PublicHostelRegistrationLandingPage() {
         ) : null}
 
         {/* Features with scroll-triggered images */}
-        <section ref={featureRef} className="mx-auto max-w-[1200px] px-6 py-20 md:py-28">
+        <section
+          ref={featureRef}
+          className="mx-auto max-w-[1200px] px-5 py-16 sm:px-6 md:py-28"
+        >
           <motion.div
             className="mb-14 text-center"
             initial="hidden"
@@ -526,14 +505,14 @@ export function PublicHostelRegistrationLandingPage() {
             </motion.p>
           </motion.div>
 
-          <div className="space-y-20 md:space-y-28">
+          <div className="space-y-14 md:space-y-28">
             {features.map((feature, idx) => {
               const isEven = idx % 2 === 0;
 
               return (
                 <motion.div
                   key={feature.title}
-                  className={`flex flex-col items-center gap-8 md:flex-row ${isEven ? "" : "md:flex-row-reverse"}`}
+                  className={`flex flex-col items-center gap-6 md:gap-8 md:flex-row ${isEven ? "" : "md:flex-row-reverse"}`}
                   initial="hidden"
                   whileInView="visible"
                   viewport={{ once: true, margin: "-120px" }}
@@ -579,24 +558,19 @@ export function PublicHostelRegistrationLandingPage() {
                     ) : null}
                   </motion.div>
 
-                  {/* Image side - scroll triggered fade */}
-                  <motion.div
-                    className="flex-1"
-                    initial={{ opacity: 0, x: isEven ? 40 : -40, scale: 0.95 }}
-                    whileInView={{ opacity: 1, x: 0, scale: 1 }}
-                    viewport={{ once: true, margin: "-100px" }}
-                    transition={{ duration: 0.7, ease: "easeOut" }}
-                  >
-                    <div className="relative h-64 w-full sm:h-80 md:h-96">
+                  {/* Keeping the product view static avoids an off-screen image
+                      remaining transparent on smaller devices. */}
+                  <div className="w-full flex-1">
+                    <div className="relative h-60 w-full overflow-hidden rounded-3xl border border-border/70 bg-background/70 p-2 shadow-sm sm:h-80 md:h-96 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                       <Image
                         alt={feature.image.alt}
-                        className="object-contain"
+                        className="object-contain p-2 md:p-0"
                         fill
-                        sizes="(min-width: 768px) 576px, 100vw"
+                        sizes="(min-width: 768px) 576px, calc(100vw - 2.5rem)"
                         src={feature.image.src}
                       />
                     </div>
-                  </motion.div>
+                  </div>
                 </motion.div>
               );
             })}

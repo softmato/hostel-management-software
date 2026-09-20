@@ -14,6 +14,7 @@ import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useResource } from "@/hooks/use-resource";
 import { getStoreShelves, type StoreShelf } from "@/lib/store-api";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * Departments, as a shelf each.
@@ -57,9 +58,15 @@ export default function StoreDepartmentsScreen() {
   const { add, addingProductId, setQuantity } = useAddToCart();
 
   const query = search.trim();
+  // Cached only when the box is empty — see `store-queries.ts` on why a key per
+  // keystroke is the wrong trade.
+  const shelvesQuery = storeQuery.shelves();
   const shelves = useResource(
     useCallback(() => getStoreShelves(query || undefined), [query]),
-    { topics: [REALTIME_TOPIC.STORE] },
+    {
+      ...(query ? {} : { cacheKey: shelvesQuery.key }),
+      topics: [REALTIME_TOPIC.STORE],
+    },
   );
 
   /*

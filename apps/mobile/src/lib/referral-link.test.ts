@@ -8,7 +8,7 @@ import {
 
 describe("parseReferralLink", () => {
   it("reads the link the resident portal actually shares", () => {
-    expect(parseReferralLink("https://hostelhub.com.np/inquiry?ref=SITA24")).toBe(
+    expect(parseReferralLink("https://hostelpalika.com.np/inquiry?ref=SITA24")).toBe(
       "SITA24",
     );
   });
@@ -18,7 +18,7 @@ describe("parseReferralLink", () => {
   });
 
   it("reads a /ref/ path on a web host too", () => {
-    expect(parseReferralLink("https://hostelhub.com.np/ref/SITA24")).toBe("SITA24");
+    expect(parseReferralLink("https://hostelpalika.com.np/ref/SITA24")).toBe("SITA24");
   });
 
   it("finds the code after other parameters, and stops at the next one", () => {

@@ -105,7 +105,7 @@ const staffPrincipal = {
 };
 
 function jsonRequest(path: string, body: unknown) {
-  return new NextRequest(`https://hostelhub.local${path}`, {
+  return new NextRequest(`https://hostelpalika.local${path}`, {
     body: JSON.stringify(body),
     headers: {
       "content-type": "application/json",
@@ -115,13 +115,13 @@ function jsonRequest(path: string, body: unknown) {
 }
 
 function getRequest(path: string) {
-  return new NextRequest(`https://hostelhub.local${path}`, {
+  return new NextRequest(`https://hostelpalika.local${path}`, {
     method: "GET",
   });
 }
 
 function patchRequest(path: string, body?: unknown) {
-  return new NextRequest(`https://hostelhub.local${path}`, {
+  return new NextRequest(`https://hostelpalika.local${path}`, {
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     method: "PATCH",
@@ -129,7 +129,7 @@ function patchRequest(path: string, body?: unknown) {
 }
 
 function deleteRequest(path: string) {
-  return new NextRequest(`https://hostelhub.local${path}`, {
+  return new NextRequest(`https://hostelpalika.local${path}`, {
     method: "DELETE",
   });
 }

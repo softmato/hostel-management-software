@@ -24,6 +24,7 @@
     "web:generate:vapid": "npm --prefix apps/web run generate:vapid",
     "web:recover:admin": "npm --prefix apps/web run recover:admin",
     "web:check:private-documents": "npm --prefix apps/web run check:private-documents",
+    "web:compare:clusters": "npm --prefix apps/web run compare:clusters --",
     "web:backfill:resident-accounts": "npm --prefix apps/web run backfill:resident-accounts",
     "web:backfill:fileasset-hostel": "npm --prefix apps/web run backfill:fileasset-hostel",
     "web:backfill:card-avatars": "npm --prefix apps/web run backfill:card-avatars",
@@ -48,7 +49,8 @@
     "mobile:build:preview": "npm --prefix apps/mobile run build:preview",
     "web:send:test-emails": "npm --prefix apps/web run send:test-emails --",
     "web:seed:store": "npm --prefix apps/web run seed:store",
-    "web:seed:store:clean": "npm --prefix apps/web run seed:store:clean"
+    "web:seed:store:clean": "npm --prefix apps/web run seed:store:clean",
+    "web:migrate:cluster": "npm --prefix apps/web run migrate:cluster --"
   },
   "devDependencies": {
     "turbo": "^2.5.0"

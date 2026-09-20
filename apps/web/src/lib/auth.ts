@@ -5,8 +5,13 @@ import { jwtVerify, SignJWT, type JWTPayload } from "jose";
 
 export {
   ACCESS_TOKEN_COOKIE,
+  LEGACY_ACCESS_TOKEN_COOKIES,
   LEGACY_REFRESH_TOKEN_COOKIE,
+  LEGACY_REFRESH_TOKEN_COOKIES,
   REFRESH_TOKEN_COOKIE,
+  hasSessionCookie,
+  readAccessTokenCookie,
+  readRefreshTokenCookieValue,
 } from "@/lib/auth-cookies";
 import { Role } from "@/lib/roles";
 

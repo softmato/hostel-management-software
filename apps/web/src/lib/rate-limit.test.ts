@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rateLimitPublicForm, resetPublicFormRateLimitForTests } from "@/lib/rate-limit";
 
 function request(ip = "203.0.113.10") {
-  return new NextRequest("https://hostelhub.local/api/v1/public/test", {
+  return new NextRequest("https://hostelpalika.local/api/v1/public/test", {
     headers: {
       "user-agent": "vitest",
       "x-forwarded-for": ip,

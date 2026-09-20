@@ -66,6 +66,7 @@ import type {
   PortalNavLeaf,
   PortalSearchEntry,
 } from "@/lib/portal-nav";
+import { usePrefetchPortalHref } from "@/lib/portal-query";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { cn } from "@/lib/utils";
 
@@ -272,6 +273,7 @@ export function PortalShell({
   workspaceName,
 }: PortalShellProps) {
   const pathname = usePathname();
+  const prefetchHref = usePrefetchPortalHref();
   const { identity } = useSiteConfig();
   // Admin-configured branding wins; the prop is only an explicit override.
   const portalName = portalNameProp ?? identity.siteName;
@@ -366,6 +368,10 @@ export function PortalShell({
         href={item.href}
         key={item.href}
         onClick={onNavigate}
+        // Next prefetches the route payload on its own; this warms the data the
+        // destination will ask for, so the page paints filled instead of empty.
+        onFocus={() => prefetchHref(item.href)}
+        onMouseEnter={() => prefetchHref(item.href)}
         title={collapsed ? item.label : undefined}
       >
         {child ? null : (

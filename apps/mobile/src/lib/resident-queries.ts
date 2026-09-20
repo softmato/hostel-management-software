@@ -62,6 +62,7 @@ import {
   type ResidentNoticeList,
   type ResidentProfile,
 } from "@/lib/resident-api";
+import { getEmergencyContacts, getResidentSosAlerts } from "@/lib/safety-api";
 
 /** A resident-portal question. Shape and reasoning live in `query-cache.ts`. */
 export type ResidentQuery<T> = Query<T>;
@@ -136,6 +137,25 @@ export const residentQuery = {
 
   more: (): ResidentQuery<ResidentMore> =>
     define("resident:more", [REALTIME_TOPIC.SAFETY], () => loadMore()),
+
+  /**
+   * Who the SOS screen would call, and what this resident has already raised.
+   *
+   * Two keys because they are two questions with different lifetimes — the
+   * contacts are a near-static list, the alerts change the moment staff settle
+   * one — but the same topic: `triggerSOS` and `updateSOSAlertStatus` both
+   * publish `safety`, which is what keeps the alert list honest without the
+   * screen watching its own countdown.
+   */
+  emergencyContacts: (): ResidentQuery<
+    Awaited<ReturnType<typeof getEmergencyContacts>>
+  > =>
+    define("resident:emergency-contacts", [REALTIME_TOPIC.SAFETY], () =>
+      getEmergencyContacts(),
+    ),
+
+  sosAlerts: (): ResidentQuery<Awaited<ReturnType<typeof getResidentSosAlerts>>> =>
+    define("resident:sos-alerts", [REALTIME_TOPIC.SAFETY], () => getResidentSosAlerts()),
 
   /**
    * **Page 1 only, and the key says so.** The notices screen pages by appending

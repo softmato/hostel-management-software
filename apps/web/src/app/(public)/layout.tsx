@@ -10,9 +10,11 @@ import { DEFAULT_SITE_CONFIG } from "@/modules/platform-config/site-config.defau
  * group re-provides it only so the public tree stays correct if it is ever
  * rendered on its own, and adds the site-wide announcement banner.
  * Revalidated rather than static, so a save in the admin portal shows up
- * without a redeploy.
+ * without a redeploy. 600s, not 60s: every access past the window regenerates
+ * the page and bills an ISR write, and the site config changes far less often
+ * than once a minute.
  */
-export const revalidate = 60;
+export const revalidate = 600;
 
 export default async function PublicLayout({
   children,

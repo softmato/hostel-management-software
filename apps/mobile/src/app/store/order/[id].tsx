@@ -15,11 +15,12 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { REALTIME_TOPIC } from "@/constants/topics";
+
 import { readApiError } from "@/lib/api-contract";
-import { cancelStoreOrder, getStoreOrder, type StoreOrder } from "@/lib/store-api";
+import { cancelStoreOrder, type StoreOrder } from "@/lib/store-api";
 import { orderTone, rupees } from "@/lib/store-format";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { storeQuery } from "@/lib/store-queries";
 
 /**
  * One order, and where it has got to.
@@ -46,10 +47,11 @@ export default function StoreOrderScreen() {
   const { colors } = useAppTheme();
   const [cancelling, setCancelling] = useState(false);
 
-  const resource = useResource(
-    useCallback(() => getStoreOrder(String(id)), [id]),
-    { topics: [REALTIME_TOPIC.STORE] },
-  );
+  const orderQuery = storeQuery.order(String(id));
+  const resource = useResource(orderQuery.load, {
+    cacheKey: orderQuery.key,
+    topics: orderQuery.topics,
+  });
 
   const { setData } = resource;
 

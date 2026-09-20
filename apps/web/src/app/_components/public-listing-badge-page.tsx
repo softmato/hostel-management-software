@@ -18,6 +18,7 @@ import {
   type PlansConfig,
 } from "./plans-catalog";
 import { PublicShell } from "./shared";
+import { StarsCtaCard } from "./stars-cta-card";
 
 /**
  * One directory badge, explained.
@@ -164,17 +165,20 @@ export function PublicListingBadgePage({
           </section>
         ) : null}
 
-        <section className="mt-16 flex flex-col items-center gap-5 rounded-2xl border border-brand-teal/25 bg-brand-teal/5 p-8 text-center md:flex-row md:justify-between md:text-left">
-          <p className="text-sm text-muted-foreground">
+        <StarsCtaCard
+          className="mt-16"
+          contentClassName="flex flex-col items-center gap-5 p-8 text-center md:flex-row md:justify-between md:text-left"
+        >
+          <p className="text-sm text-emerald-50/85">
             The badge comes with {plan.name}, along with everything else on the plan.
           </p>
           <Link
-            className="inline-flex shrink-0 items-center rounded-xl bg-brand-teal px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+            className="inline-flex shrink-0 items-center rounded-xl bg-white px-6 py-3 text-sm font-semibold text-brand-teal shadow-sm transition hover:bg-emerald-50"
             href={{ pathname: plan.ctaHref, query: { plan: plan.id } }}
           >
             {plan.ctaLabel}
           </Link>
-        </section>
+        </StarsCtaCard>
       </div>
     </PublicShell>
   );

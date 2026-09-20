@@ -49,6 +49,7 @@ import { acceptAttribute } from "@/lib/uploads/accepts";
 import { uploadRegistrationDocument } from "@/lib/uploads/registration-document";
 import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
+import { readRenamedStorage } from "@/lib/storage-rename";
 import type { TeamOwnerEmailStatus } from "@/modules/hostels/hostel.service";
 import { DescriptionSuggestions } from "./description-suggestions";
 import { billingCycles, bestDiscountPercent, cycleTotal, type BillingCycle } from "./plans-catalog";
@@ -181,7 +182,10 @@ function titleCase(value: string) {
   return value.charAt(0) + value.slice(1).toLowerCase();
 }
 
-const DRAFT_KEY = "hostelhub:team-registration-draft";
+const DRAFT_KEY = "hostelpalika:team-registration-draft";
+/* Pre-rename spelling, moved up on first read: this holds an agent's
+ * unfinished registration and nothing else has a copy of it. */
+const LEGACY_DRAFT_KEY = "hostelhub:team-registration-draft";
 
 /**
  * Bumped whenever a stored draft can no longer be read at face value.
@@ -1038,7 +1042,7 @@ export function TeamRegisterHostelPage() {
    */
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(DRAFT_KEY);
+      const saved = readRenamedStorage(localStorage, DRAFT_KEY, LEGACY_DRAFT_KEY);
 
       if (!saved) {
         return;

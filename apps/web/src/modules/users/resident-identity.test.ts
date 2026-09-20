@@ -72,11 +72,11 @@ describe("normalizeResidentId", () => {
   });
 
   it("extracts the id from a scanned share URL", () => {
-    expect(normalizeResidentId("https://hostelhub.test/resident-id/HH-4K7M-9XQ2")).toBe(
+    expect(normalizeResidentId("https://hostelpalika.test/resident-id/HH-4K7M-9XQ2")).toBe(
       "HH-4K7M-9XQ2",
     );
     expect(
-      normalizeResidentId("https://hostelhub.test/resident-id/HH-4K7M-9XQ2?utm=qr"),
+      normalizeResidentId("https://hostelpalika.test/resident-id/HH-4K7M-9XQ2?utm=qr"),
     ).toBe("HH-4K7M-9XQ2");
   });
 

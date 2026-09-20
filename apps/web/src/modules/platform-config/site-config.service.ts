@@ -49,7 +49,31 @@ function coerceSection<Section extends SiteConfigSection>(
   return parsed.data as SiteConfig[Section];
 }
 
+/**
+ * Every request of every route in every portal reads the site config, so a
+ * plain per-request `react.cache` still means one `PlatformSetting.find` per
+ * page view. This memo is per Fluid instance, not shared across them, so the
+ * hit rate is good rather than guaranteed — which is fine for a read that
+ * falls back to a database query on a miss.
+ *
+ * The window is the staleness a platform admin sees after saving a section on
+ * an instance other than the one they are talking to; `invalidateSiteConfigCache`
+ * covers the common case of the same instance.
+ */
+const CACHE_MS = 60 * 1000;
+
+let cachedConfig: { at: number; config: SiteConfig } | null = null;
+
+/** Drops the memo so the next read sees a just-saved section. */
+export function invalidateSiteConfigCache() {
+  cachedConfig = null;
+}
+
 export async function getSiteConfig(): Promise<SiteConfig> {
+  if (cachedConfig && Date.now() - cachedConfig.at < CACHE_MS) {
+    return cachedConfig.config;
+  }
+
   await connectToDatabase();
 
   const stored = (await PlatformSettingModel.find({
@@ -120,6 +144,8 @@ export async function updateSiteConfigSection(
     { key: section, updatedBy: principal.userId, value: parsed.data },
     { new: true, setDefaultsOnInsert: true, upsert: true },
   );
+
+  invalidateSiteConfigCache();
 
   await AuditLogModel.create({
     action: "PLATFORM_SITE_CONFIG_UPDATED",

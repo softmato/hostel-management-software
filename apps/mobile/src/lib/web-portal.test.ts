@@ -10,11 +10,11 @@ describe("webPortalUrl", () => {
    * form on mobile would 404 for every hostel.
    */
   it("builds the tenant-scoped path, not the legacy /hostel-admin one", () => {
-    expect(webPortalUrl("https://hostelhub.test", "green-view-hostel", "finance")).toBe(
-      "https://hostelhub.test/green-view-hostel/admin/payments",
+    expect(webPortalUrl("https://hostelpalika.test", "green-view-hostel", "finance")).toBe(
+      "https://hostelpalika.test/green-view-hostel/admin/payments",
     );
     expect(
-      webPortalUrl("https://hostelhub.test", "green-view-hostel", "finance"),
+      webPortalUrl("https://hostelpalika.test", "green-view-hostel", "finance"),
     ).not.toContain("/hostel-admin/");
   });
 
@@ -29,10 +29,10 @@ describe("webPortalUrl", () => {
     const keys = Object.keys(WEB_PORTAL_PATHS) as WebPortalKey[];
 
     for (const key of keys) {
-      const url = webPortalUrl("https://hostelhub.test", "sunrise", key);
+      const url = webPortalUrl("https://hostelpalika.test", "sunrise", key);
 
       expect(url.slice("https://".length)).not.toContain("//");
-      expect(url.startsWith("https://hostelhub.test/sunrise/admin")).toBe(true);
+      expect(url.startsWith("https://hostelpalika.test/sunrise/admin")).toBe(true);
     }
   });
 });

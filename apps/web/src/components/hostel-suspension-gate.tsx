@@ -9,6 +9,7 @@ import { Role } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { disableBrowserPush } from "@/lib/web-push-client";
 import { type HostelSuspension, useSessionStore } from "@/stores/session-store";
+import { signOutRequest } from "@/lib/sign-out";
 
 /**
  * A hostel's plan suspension, as every portal tied to that hostel shows it.
@@ -161,7 +162,7 @@ export function HostelSuspendedScreen({
     try {
       // Same order as `PortalAccount`: the push subscription goes before the session.
       await disableBrowserPush().catch(() => false);
-      await fetch("/api/v1/auth/logout", { credentials: "include", method: "POST" });
+      await signOutRequest();
     } finally {
       window.location.assign("/login");
     }

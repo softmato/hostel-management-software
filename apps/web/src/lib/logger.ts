@@ -62,7 +62,7 @@ function write(
     level,
     message,
     metadata: normalizeMeta(meta),
-    service: "hostelhub-web",
+    service: "hostelpalika-web",
     timestamp: new Date().toISOString(),
   };
 

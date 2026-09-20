@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Linking, Pressable, Switch, View } from "react-native";
 
 import { SosOverlay } from "@/components/sos-overlay";
@@ -12,15 +12,13 @@ import { RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
+
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { useSos } from "@/hooks/use-sos";
 import {
   type EmergencyContact,
-  getEmergencyContacts,
-  getResidentSosAlerts,
   type SosAlert,
 } from "@/lib/safety-api";
 import {
@@ -30,6 +28,7 @@ import {
   sosMessagePayload,
   validateSosMessage,
 } from "@/lib/sos";
+import { residentQuery } from "@/lib/resident-queries";
 
 /**
  * The considered half of SOS: a note, who hears about it, and the numbers to
@@ -135,8 +134,10 @@ export default function SosScreen() {
   const sos = useSos();
   // The numbers on this screen are maintained by the hostel, so `safety` is the
   // only way they change while a resident is looking at them.
-  const contacts = useResource(useCallback(() => getEmergencyContacts(), []), {
-    topics: [REALTIME_TOPIC.SAFETY],
+  const contactsQuery = residentQuery.emergencyContacts();
+  const contacts = useResource(contactsQuery.load, {
+    cacheKey: contactsQuery.key,
+    topics: contactsQuery.topics,
   });
   /*
     Same topic, which is what keeps this list honest without an effect watching
@@ -144,8 +145,10 @@ export default function SosScreen() {
     `safety` change on the hostel channel, so an alert this resident just raised
     — and a settlement a warden just made — arrive here on their own.
   */
-  const alerts = useResource(useCallback(() => getResidentSosAlerts(), []), {
-    topics: [REALTIME_TOPIC.SAFETY],
+  const alertsQuery = residentQuery.sosAlerts();
+  const alerts = useResource(alertsQuery.load, {
+    cacheKey: alertsQuery.key,
+    topics: alertsQuery.topics,
   });
 
   const [message, setMessage] = useState("");

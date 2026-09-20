@@ -26,7 +26,7 @@ import { toast } from "@/stores/toast-store";
  * only closes it for this tab.
  */
 
-const LATER_KEY = "hostelhub:residency-invite-later";
+const LATER_KEY = "hostelpalika:residency-invite-later";
 
 function laterFor(residentId: string) {
   try {
