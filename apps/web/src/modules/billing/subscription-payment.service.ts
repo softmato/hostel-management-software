@@ -497,13 +497,41 @@ async function applySettlement(
 ): Promise<{ dueBy: Date | null } | null> {
   const subscription = await HostelSubscriptionModel.findById(
     invoice.subscriptionId,
-  ).lean<{ _id: Types.ObjectId; cycleMonths?: number | null; source?: string } | null>();
+  ).lean<{
+    _id: Types.ObjectId;
+    cycle?: string | null;
+    cycleMonths?: number | null;
+    planId?: string | null;
+    source?: string;
+  } | null>();
 
   if (!subscription) {
     return null;
   }
 
   if (outstanding <= 0) {
+    /*
+     * A renewal bought on a different plan or cycle (`raiseRenewalInvoice`)
+     * becomes the hostel's plan now that it is paid — not when it was raised,
+     * so an abandoned checkout never changed anything. Every other invoice was
+     * raised from the subscription's own plan, and this is a no-op for it.
+     */
+    if (invoice.planId !== subscription.planId || invoice.cycle !== subscription.cycle) {
+      await HostelSubscriptionModel.updateOne(
+        { _id: subscription._id },
+        {
+          $set: {
+            cycle: invoice.cycle,
+            cycleMonths: invoice.cycleMonths,
+            cycleTotal: invoice.amount,
+            monthlyRate: Math.round(invoice.amount / (invoice.cycleMonths || 1)),
+            planId: invoice.planId,
+            planName: invoice.planName,
+          },
+        },
+      );
+    }
+
     /*
      * The plan runs from the day the hostel went live. A team hostel went live
      * the day it was filed and its period is already running — `startPlanPeriod`

@@ -24,7 +24,9 @@ export default function HostelAdminLayout({
       workspaceName="Hostel Workspace"
     >
       <HostelSubscriptionDueBanner />
-      <HostelPaymentCredentialsReminder paymentProfileHref="/hostel-admin/payment-setup" />
+      <div className="sticky -top-4 z-30 -mt-4 mb-4 flex flex-col gap-2 bg-background pt-4 empty:hidden">
+        <HostelPaymentCredentialsReminder paymentProfileHref="/hostel-admin/payment-setup" />
+      </div>
       {children}
     </PortalShell>
   );

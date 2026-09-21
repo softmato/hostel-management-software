@@ -117,7 +117,7 @@ export function HostelPaymentCredentialsReminder({
 
   return (
     <div
-      className={`sticky top-0 z-30 flex flex-wrap items-center gap-3 border-b px-4 py-2.5 text-sm ${
+      className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 text-sm ${
         blocking
           ? "border-destructive/25 bg-destructive/10 text-destructive"
           : "border-role-admin/20 bg-role-admin-soft text-role-admin"

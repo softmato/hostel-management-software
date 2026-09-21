@@ -56,7 +56,7 @@ export function HostelPhotoReminder({ profileHref }: { profileHref: string }) {
   }
 
   return (
-    <div className="sticky top-0 z-30 flex flex-wrap items-center gap-3 border-b border-role-admin/20 bg-role-admin-soft px-4 py-2.5 text-sm text-role-admin">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-role-admin/20 bg-role-admin-soft px-4 py-2.5 text-sm text-role-admin">
       <ImagePlus className="size-4 shrink-0" />
       <p className="min-w-0 flex-1">
         Your hostel has no photos yet — please upload at least the exterior and interior

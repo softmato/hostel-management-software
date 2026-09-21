@@ -68,7 +68,7 @@ function parseDurationSeconds(value: string | undefined, fallbackSeconds: number
   return amount * timeUnitSeconds[unit];
 }
 
-function jwtSecret(name: "JWT_ACCESS_SECRET" | "JWT_REFRESH_SECRET") {
+export function jwtSecret(name: "JWT_ACCESS_SECRET" | "JWT_REFRESH_SECRET") {
   const value = process.env[name];
 
   if (!value) {

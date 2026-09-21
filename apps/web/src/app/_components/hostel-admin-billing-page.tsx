@@ -1,20 +1,32 @@
 "use client";
 
 import {
-  BookOpen,
+  ArrowUpCircle,
   CalendarClock,
   Download,
-  ExternalLink,
   FileText,
   Loader2,
   Receipt,
+  RefreshCw,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { billingCycles, cycleTotal, planRank, type BillingCycle } from "@hostel/shared/plans/catalog";
+
 import { PayPlanPanel } from "@/app/_components/hostel-admin-pay-plan";
+import { useSiteConfig } from "@/components/site-config-provider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { browserApi } from "@/lib/browser-api";
 import { downloadFile } from "@/lib/downloads/downloader";
+import { useInvalidateResources } from "@/lib/portal-query";
 import { cn } from "@/lib/utils";
+import { toast } from "@/stores/toast-store";
 import type {
   BillingHistory,
   BillingInvoiceRow,
@@ -97,19 +109,26 @@ const shortDate = (value: string | null) =>
 
 export function HostelAdminBillingPageContent() {
   const [history, setHistory] = useState<BillingHistory | null>(null);
+  const [hostelCode, setHostelCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  // Bumped after a renewal is raised, so the plan card and invoices re-read.
+  const [version, setVersion] = useState(0);
+  const invalidate = useInvalidateResources();
 
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       try {
-        const result = await browserApi<{ history: BillingHistory }>(
+        const result = await browserApi<{ history: BillingHistory; hostelCode?: string }>(
           "/api/v1/hostel-admin/billing",
         );
 
-        if (!cancelled) setHistory(result.history);
+        if (!cancelled) {
+          setHistory(result.history);
+          setHostelCode(result.hostelCode ?? "");
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Could not load billing.");
@@ -122,7 +141,7 @@ export function HostelAdminBillingPageContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [version]);
 
   return (
     <div className="space-y-8">
@@ -136,18 +155,11 @@ export function HostelAdminBillingPageContent() {
             cannot be reached.
           </p>
         </div>
-
-        {history?.docsUrl ? (
-          <a
-            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-brand-teal/40 hover:text-foreground"
-            href={history.docsUrl}
-            rel="noreferrer noopener"
-            target="_blank"
-          >
-            <BookOpen className="size-4" />
-            Payment documentation
-            <ExternalLink className="size-3.5" />
-          </a>
+        {hostelCode ? (
+          <p className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+            Hostel ID{" "}
+            <strong className="select-all font-mono text-sm text-foreground">{hostelCode}</strong>
+          </p>
         ) : null}
       </header>
 
@@ -164,7 +176,15 @@ export function HostelAdminBillingPageContent() {
         </p>
       ) : null}
 
-      {history?.plan ? <PlanCard plan={history.plan} /> : null}
+      {history?.plan ? (
+        <PlanCard
+          onRaised={() => {
+            setVersion((current) => current + 1);
+            invalidate("/api/v1/hostel-admin/billing/pay-instructions");
+          }}
+          plan={history.plan}
+        />
+      ) : null}
 
       {/*
         Above the paperwork, below the plan. An owner who opens this page while
@@ -230,10 +250,149 @@ export function HostelAdminBillingPageContent() {
  * has actually gone wrong, and it says so in words rather than by turning a
  * card a colour.
  */
-function PlanCard({ plan }: { plan: BillingPlan }) {
+/** Inside this many days, the card offers to pay for the next period. */
+const RENEW_WITHIN_DAYS = 7;
+
+async function raiseRenewal(planId: string, cycle: string) {
+  const result = await browserApi<{ reused: boolean }>("/api/v1/hostel-admin/billing/renew", {
+    body: JSON.stringify({ cycle, planId }),
+    method: "POST",
+  });
+
+  toast.success({
+    description: result.reused
+      ? "You already have an open plan invoice — pay that one below."
+      : "Pay it below. Your plan is extended the moment it is paid.",
+    title: result.reused ? "Invoice already open" : "Invoice ready",
+  });
+}
+
+function failed(error: unknown) {
+  toast.error({
+    description: error instanceof Error ? error.message : "Try again.",
+    title: "Could not raise the invoice",
+  });
+}
+
+/**
+ * The bigger plans, priced at the chosen cycle. Paying one switches the hostel
+ * onto it and adds that cycle after the period already paid for.
+ */
+function UpgradeDialog({
+  current,
+  cycle: initialCycle,
+  onClose,
+  onRaised,
+}: {
+  current: string;
+  cycle: string | null;
+  onClose: () => void;
+  onRaised: () => void;
+}) {
+  const { plans: catalog } = useSiteConfig();
+  const [cycle, setCycle] = useState<BillingCycle>(
+    (["monthly", "halfYearly", "annual"] as const).find((id) => id === initialCycle) ?? "monthly",
+  );
+  const [busy, setBusy] = useState("");
+  const higher = catalog.plans.filter(
+    (plan) => planRank(catalog, plan.id) > planRank(catalog, current),
+  );
+
+  async function choose(planId: string) {
+    setBusy(planId);
+
+    try {
+      await raiseRenewal(planId, cycle);
+      onRaised();
+      onClose();
+    } catch (error) {
+      failed(error);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <Dialog onOpenChange={(open) => (open ? undefined : onClose())} open>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Upgrade your plan</DialogTitle>
+          <DialogDescription>
+            The new plan starts when it is paid, and its time is added after your current period.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+          {billingCycles(catalog).map((option) => (
+            <button
+              className={cn(
+                "rounded-md py-1.5 text-xs font-semibold transition",
+                cycle === option.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
+              )}
+              key={option.id}
+              onClick={() => setCycle(option.id)}
+              type="button"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <ul className="space-y-2">
+          {higher.map((plan) => (
+            <li
+              className="flex items-center justify-between gap-3 rounded-xl border border-border p-3"
+              key={plan.id}
+            >
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground">{plan.name}</p>
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  {rupees(cycleTotal(plan, cycle))}
+                </p>
+              </div>
+              <button
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand-teal px-3 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-60"
+                disabled={Boolean(busy)}
+                onClick={() => void choose(plan.id)}
+                type="button"
+              >
+                {busy === plan.id ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Choose
+              </button>
+            </li>
+          ))}
+        </ul>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PlanCard({ onRaised, plan }: { onRaised: () => void; plan: BillingPlan }) {
+  const { plans: catalog } = useSiteConfig();
+  const [upgrading, setUpgrading] = useState(false);
+  const [renewing, setRenewing] = useState(false);
   const days = plan.daysRemaining;
   const expiring = days !== null && days <= 14;
   const expired = days === 0;
+  // Nothing may be owed: with an invoice open, that invoice is what gets paid.
+  const clear = plan.amountDue <= 0 && Boolean(plan.planId);
+  const canRenew = clear && Boolean(plan.cycle) && days !== null && days <= RENEW_WITHIN_DAYS;
+  const canUpgrade =
+    clear &&
+    days !== null &&
+    days > 0 &&
+    catalog.plans.some((tier) => planRank(catalog, tier.id) > planRank(catalog, plan.planId ?? ""));
+
+  async function renew() {
+    setRenewing(true);
+
+    try {
+      await raiseRenewal(plan.planId ?? "", plan.cycle ?? "");
+      onRaised();
+    } catch (error) {
+      failed(error);
+    } finally {
+      setRenewing(false);
+    }
+  }
 
   return (
     <section
@@ -310,7 +469,46 @@ function PlanCard({ plan }: { plan: BillingPlan }) {
             Balance due by {shortDate(plan.dueBy)}
           </span>
         ) : null}
+
+        {canRenew || canUpgrade ? (
+          <div className="ml-auto flex flex-wrap gap-2">
+            {canUpgrade ? (
+              <button
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand-teal/40 px-3 text-xs font-bold text-brand-teal transition hover:bg-brand-teal/10"
+                onClick={() => setUpgrading(true)}
+                type="button"
+              >
+                <ArrowUpCircle className="size-3.5" />
+                Upgrade plan
+              </button>
+            ) : null}
+            {canRenew ? (
+              <button
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-teal px-3 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-60"
+                disabled={renewing}
+                onClick={() => void renew()}
+                type="button"
+              >
+                {renewing ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
+                Pay for this plan
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
+
+      {upgrading ? (
+        <UpgradeDialog
+          current={plan.planId ?? ""}
+          cycle={plan.cycle}
+          onClose={() => setUpgrading(false)}
+          onRaised={onRaised}
+        />
+      ) : null}
     </section>
   );
 }

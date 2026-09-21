@@ -9,6 +9,7 @@ import type { PublicSiteConfig } from "@/components/site-config-provider";
 import { fillPlaceholders } from "@/lib/site-content";
 import { cn } from "@/lib/utils";
 
+import { GetPlanButton } from "./get-plan-button";
 import { InlineText } from "./inline-text";
 import { TIER_TONE } from "./listing-tier-tone";
 import { PlanMark } from "./plan-mark";
@@ -391,6 +392,12 @@ export function PlanCard({
   reduced: boolean | null;
 }) {
   const rate = monthlyRateFor(plan, cycle);
+  const ctaClass = cn(
+    "inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition",
+    plan.featured
+      ? "bg-brand-teal text-white shadow-sm hover:brightness-110"
+      : "border border-brand-teal/40 text-brand-teal hover:bg-brand-teal/10",
+  );
   const services = cardServicesForPlan(catalog, plan.id);
   /*
    * One "was" figure, never two. An event and a cycle discount both come off
@@ -564,16 +571,16 @@ export function PlanCard({
               value={plan.ctaLabel}
             />
           </span>
+        ) : plan.ctaHref.startsWith("/register-hostel") ? (
+          <GetPlanButton
+            className={ctaClass}
+            cycle={cycle}
+            label={plan.ctaLabel}
+            planId={plan.id}
+            registerHref={plan.ctaHref}
+          />
         ) : (
-          <Link
-            className={cn(
-              "inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition",
-              plan.featured
-                ? "bg-brand-teal text-white shadow-sm hover:brightness-110"
-                : "border border-brand-teal/40 text-brand-teal hover:bg-brand-teal/10",
-            )}
-            href={{ pathname: plan.ctaHref, query: { plan: plan.id } }}
-          >
+          <Link className={ctaClass} href={{ pathname: plan.ctaHref, query: { plan: plan.id } }}>
             {plan.ctaLabel}
           </Link>
         )}

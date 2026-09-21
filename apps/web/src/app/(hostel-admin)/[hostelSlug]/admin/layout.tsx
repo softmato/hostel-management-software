@@ -40,10 +40,14 @@ export default async function HostelAdminWorkspaceLayout({
       tone="admin"
       workspaceName={(await workspaceHostelName(hostelSlug)) ?? "Hostel Workspace"}
     >
-      <HostelPaymentCredentialsReminder
-        paymentProfileHref={`/${hostelSlug}/admin/payment-setup`}
-      />
-      <HostelPhotoReminder profileHref={`/${hostelSlug}/admin/profile`} />
+      {/* One opaque sticky stack: two separately sticky, tinted bars pinned to
+          the same `top-0` and let the page scroll through them. */}
+      <div className="sticky -top-4 z-30 -mt-4 mb-4 flex flex-col gap-2 bg-background pt-4 empty:hidden">
+        <HostelPaymentCredentialsReminder
+          paymentProfileHref={`/${hostelSlug}/admin/payment-setup`}
+        />
+        <HostelPhotoReminder profileHref={`/${hostelSlug}/admin/profile`} />
+      </div>
       <HostelBookingRequestsReminder bookingsHref={`/${hostelSlug}/admin/bookings`} />
       {children}
     </PortalShell>

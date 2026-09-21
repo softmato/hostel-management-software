@@ -155,7 +155,7 @@ function otpRateLimitMax() {
   return Number(process.env.OTP_RATE_LIMIT_MAX ?? 5);
 }
 
-function otpResendCooldownMs() {
+export function otpResendCooldownMs() {
   return Number(process.env.OTP_RESEND_COOLDOWN_SECONDS ?? 60) * 1000;
 }
 
@@ -299,7 +299,11 @@ export async function issueSessionForUser(
 }
 
 export async function requestOtpChallenge(
-  input: OtpRequestInput,
+  // `plan-checkout` is not accepted by the public OTP route — only the plan
+  // checkout, after matching the email to a hostel, asks for one.
+  input: Omit<OtpRequestInput, "purpose"> & {
+    purpose: OtpRequestInput["purpose"] | "plan-checkout";
+  },
   context?: RequestContext,
 ) {
   await connectToDatabase();

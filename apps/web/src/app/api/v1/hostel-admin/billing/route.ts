@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { requireHostelStaffPrincipal } from "@/lib/api-auth";
 import { handleRouteError, successResponse } from "@/lib/api-response";
+import { hostelCode } from "@/lib/hostel-code";
 import { getBillingHistory } from "@/modules/billing/billing-history.service";
 import { getSubscriptionState } from "@/modules/billing/subscription.service";
 
@@ -36,7 +37,8 @@ export async function GET(request: NextRequest) {
       getSubscriptionState(hostelId),
     ]);
 
-    return successResponse({ history, state }, "Billing loaded");
+    // The ID the pricing page's "Get plan" checkout asks for.
+    return successResponse({ history, hostelCode: hostelCode(hostelId), state }, "Billing loaded");
   } catch (error) {
     return handleRouteError(error);
   }

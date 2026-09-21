@@ -325,6 +325,12 @@ export const HostelAdminDashboardPageContent = memo(
                       {hostel.contact.phone}
                     </a>
                   ) : null}
+                  {hostel.hostelCode ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/20 px-2.5 py-1.5 text-muted-foreground">
+                      Hostel ID
+                      <strong className="select-all font-mono text-foreground">{hostel.hostelCode}</strong>
+                    </span>
+                  ) : null}
                   {hostel.contact?.email ? (
                     <a
                       className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground transition hover:bg-muted"

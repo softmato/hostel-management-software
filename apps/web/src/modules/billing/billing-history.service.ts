@@ -120,6 +120,8 @@ export interface BillingPlan {
   amountDue: number;
   /** Settled so far against that same invoice. */
   amountPaid: number;
+  /** `monthly` / `halfYearly` / `annual` — what "Pay for this plan" renews at. */
+  cycle: string | null;
   cycleLabel: string | null;
   /**
    * The last instant the plan covers — the end of a Nepal day. Null until the
@@ -347,6 +349,7 @@ export async function getBillingHistory(
           activatedAt: subscription.activatedAt?.toISOString() ?? null,
           amountDue: openDue,
           amountPaid: openPaid,
+          cycle: subscription.cycle ?? null,
           cycleLabel: subscription.cycle
             ? (CYCLE_LABELS[subscription.cycle] ?? subscription.cycle)
             : null,

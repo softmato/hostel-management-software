@@ -25,6 +25,7 @@ import {
 import type { ApiPrincipal } from "@/lib/api-auth";
 import type { z } from "zod";
 import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
+import { hostelCode } from "@/lib/hostel-code";
 
 type HostelAdminProfileQuery = z.infer<typeof hostelAdminProfileQuerySchema>;
 type HostelAdminProfileUpdateInput = z.infer<typeof hostelAdminProfileUpdateSchema>;
@@ -47,7 +48,9 @@ export async function getHostelAdminProfile(
   const hostel = await findScopedHostel(principal, query.hostelId);
 
   return {
-    hostel: serializeHostel(hostel),
+    // The Hostel ID the pricing page's "Get plan" checkout asks for. Only on the
+    // hostel's own profile — `serializeHostel` also feeds public reads.
+    hostel: { ...serializeHostel(hostel), hostelCode: hostelCode(String(hostel._id)) },
     /*
      * Whether the rents on this profile came from the rate card. The screen
      * renders them as facts with a link to the rate card when they did, and as

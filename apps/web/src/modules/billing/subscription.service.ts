@@ -435,6 +435,102 @@ export async function getSubscriptionState(hostelId: string) {
 }
 
 /**
+ * An invoice that buys more time for a hostel already on the platform — the
+ * "Get plan" checkout on the pricing page.
+ *
+ * Unlike `selectPlan` + `issueSubscriptionInvoice`, this works on an **active**
+ * plan: the chosen plan and cycle are priced onto the invoice alone, and its
+ * period starts where the running one ends, so paying it extends the plan
+ * rather than restarting it. The subscription's own plan fields are only
+ * changed when the invoice is paid in full (`applySettlement`), so an abandoned
+ * checkout leaves the running plan exactly as it was.
+ *
+ * An invoice that is already outstanding is returned instead of raising a
+ * second one: the hostel owes that first, and two open invoices would be two
+ * answers to "what do I pay".
+ */
+export async function raiseRenewalInvoice(
+  hostelId: string,
+  input: { cycle: BillingCycle; planId: string },
+  actorId: string,
+) {
+  await connectToDatabase();
+
+  const subscription = await getOrCreateSubscription(hostelId);
+  const open = await findOpenInvoice(subscription._id);
+
+  if (open) {
+    return { invoice: await ensureInvoiceRaised(open, { required: false }), reused: true };
+  }
+
+  const hostel = await HostelModel.findById(subscription.hostelId)
+    .select("name slug status verificationStatus")
+    .lean<{ name?: string; slug?: string; status?: string; verificationStatus?: string } | null>();
+
+  if (!hostel) {
+    throw new SubscriptionError("Hostel not found.", "HOSTEL_NOT_FOUND", 404);
+  }
+
+  if (hostel.verificationStatus !== "VERIFIED") {
+    throw new SubscriptionError(
+      "This hostel is still being verified, so it cannot buy a plan yet. You will be emailed the moment it is.",
+      "NOT_VERIFIED",
+      409,
+    );
+  }
+
+  const priced = await pricePlan(input.planId, input.cycle);
+  const operations = await getOperationsConfig();
+  const issuedAt = new Date();
+  const period = servicePeriod(priced.cycleMonths, subscription.currentPeriodEnd ?? null, issuedAt);
+  const owner = await resolveBillingContact(subscription.hostelId);
+  const invoiceNumber = await allocateNumber(subscription.hostelId, "SUBSCRIPTION_INVOICE");
+
+  const created = await SubscriptionInvoiceModel.create({
+    agentId: subscription.agentId ?? null,
+    amount: priced.cycleTotal,
+    billedTo: { email: owner.email, hostelName: hostel.name, name: owner.name },
+    cycle: priced.cycle,
+    cycleMonths: priced.cycleMonths,
+    dueAt: graceDeadline(issuedAt, operations.subscriptionDueGraceDays),
+    hostelId: subscription.hostelId,
+    invoiceNumber,
+    issuedAt,
+    periodEnd: period.endsAt,
+    periodStart: period.startsAt,
+    planId: priced.planId,
+    planName: priced.planName,
+    source: "PUBLIC",
+    status: "OPEN",
+    subscriptionId: subscription._id,
+  });
+
+  const invoice = await ensureInvoiceRaised(created.toObject() as InvoiceRecord, {
+    required: false,
+  });
+
+  // A running plan stays ACTIVE while its renewal is open: that is paying
+  // early, not owing (see `plan-due-reminders.service.ts`).
+  if (subscription.status !== "ACTIVE") {
+    await HostelSubscriptionModel.updateOne(
+      { _id: subscription._id },
+      { $set: { status: "AWAITING_PAYMENT" } },
+    );
+  }
+
+  await AuditLogModel.create({
+    action: "SUBSCRIPTION_RENEWAL_INVOICE_ISSUED",
+    actorId,
+    entityId: invoice._id.toString(),
+    entityType: "SubscriptionInvoice",
+    hostelId: subscription.hostelId,
+    metadata: { amount: priced.cycleTotal, cycle: priced.cycle, invoiceNumber, planId: priced.planId },
+  });
+
+  return { invoice, reused: false };
+}
+
+/**
  * The id of the invoice a payment should go against.
  *
  * Raises the obvious error rather than returning null, because every caller is

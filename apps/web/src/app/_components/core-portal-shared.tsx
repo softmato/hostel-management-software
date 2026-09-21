@@ -8,6 +8,8 @@ export type LoadState = "idle" | "loading" | "ready" | "error";
 export type ReportRecord = Record<string, unknown>;
 
 export type Hostel = {
+  /** `HH-3F9A1C2E` — only on the hostel's own profile read. */
+  hostelCode?: string;
   /** Present on the platform approval queue — see listPlatformHostels. */
   applicationStatus?: string;
   /** The plan suspension running on this hostel, if any — see `hostel-suspension.ts`. */
