@@ -118,6 +118,17 @@ export const announcementSchema = z.object({
   tone: z.enum(["info", "success", "warning"]).default("info"),
 });
 
+/**
+ * Where the phone app comes from. The Play link is what Android visitors are
+ * sent to; the APK is a direct download a superadmin uploads (R2, public
+ * bucket) for phones that cannot reach the store. iOS has no app yet — the
+ * website installs as a PWA instead.
+ */
+export const appsSchema = z.object({
+  androidApkUrl: optionalUrl,
+  androidPlayUrl: optionalUrl,
+});
+
 export const socialSchema = z.object({
   facebook: optionalUrl,
   instagram: optionalUrl,
@@ -620,6 +631,7 @@ export type PlansConfig = z.infer<typeof plansSchema>;
 
 export const siteConfigSectionSchemas = {
   announcement: announcementSchema,
+  apps: appsSchema,
   content: contentSchema,
   email: emailSchema,
   facilities: facilitiesSchema,

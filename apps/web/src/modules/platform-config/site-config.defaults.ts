@@ -1,4 +1,4 @@
-import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
+import { PLATFORM_NAME, PLATFORM_PLAY_STORE_URL } from "@hostel/shared/brand/brand";
 
 import { DEFAULT_PLANS } from "./plans.defaults";
 import { DEFAULT_SEO } from "./seo.defaults";
@@ -9,6 +9,7 @@ import type { SiteConfig } from "./site-config.validation";
  * the public site always renders even on a fresh database.
  */
 export const DEFAULT_SITE_CONFIG: SiteConfig = {
+  apps: { androidApkUrl: "", androidPlayUrl: PLATFORM_PLAY_STORE_URL },
   announcement: {
     enabled: false,
     link: "",

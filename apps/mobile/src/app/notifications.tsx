@@ -5,6 +5,7 @@ import { Pressable, ScrollView, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
@@ -17,6 +18,10 @@ import {
   type NotificationTone,
   notificationVisual,
 } from "@/lib/notification-categories";
+import { readApiError } from "@/lib/api-contract";
+import { humanizeEnum } from "@/lib/format";
+import { type NightStatusReasonCode, reasonLabel } from "@/lib/night-status-actions";
+import { collapseNightPrompts } from "@/lib/night-status-notification";
 import { groupNotifications } from "@/lib/notification-groups";
 import { notificationQuery } from "@/lib/notification-queries";
 import {
@@ -29,7 +34,9 @@ import {
 import { opensPlanBilling } from "@/lib/push-link";
 import { setBadgeCount } from "@/lib/push-notifications";
 import { invalidateQuery, readQuery, writeQuery } from "@/lib/query-cache";
+import { setResidentNightStatus } from "@/lib/resident-api";
 import { toastError } from "@/lib/toast";
+import { nightKey } from "@hostel/night/night-window";
 import {
   acknowledgeAllNotifications,
   acknowledgeNotification,
@@ -520,6 +527,8 @@ function NotificationRow({
   const [expanded, setExpanded] = useState(false);
 
   const urgent = notification.priority === "URGENT" || notification.priority === "HIGH";
+  // Its buttons say it is waiting, and an old night's row is waiting on nothing.
+  const isNight = notification.category === "NIGHT_STATUS";
   const unread = !notification.isRead;
   const visual = notificationVisual(notification);
 
@@ -599,7 +608,9 @@ function NotificationRow({
             </Text>
 
             <View className="flex-row flex-wrap items-center gap-2 pt-0.5">
-              {notification.needsAction ? <Badge label="Needs you" tone="warning" /> : null}
+              {notification.needsAction && !isNight ? (
+                <Badge label="Needs you" tone="warning" />
+              ) : null}
               <Badge label={visual.label} />
             </View>
 
@@ -608,7 +619,9 @@ function NotificationRow({
               is a web endpoint this app deliberately does not fire — saying where
               it can be done beats a button that posts blind.
             */}
-            {expanded && notification.needsAction ? (
+            {isNight ? <NightPromptAnswer notification={notification} /> : null}
+
+            {expanded && notification.needsAction && !isNight ? (
               <Text variant="caption">
                 This one is waiting on a decision. It can be actioned from the web portal.
               </Text>
@@ -617,5 +630,107 @@ function NotificationRow({
         </View>
       </View>
     </Pressable>
+  );
+}
+
+const NIGHT_ANSWER_LABELS: Record<string, string> = {
+  INSIDE_HOSTEL: "Inside",
+  MARKED_SAFE: "Safe",
+  OUTSIDE_HOSTEL: "Outside",
+};
+
+/** "Inside", "Outside · At home", "Outside · at Ram's" — `null` while unanswered. */
+function nightAnswerText(notification: AppNotification): string | null {
+  if (notification.actionState !== "COMPLETED") {
+    return null;
+  }
+
+  const answer = (notification.data?.answer ?? {}) as {
+    note?: string;
+    reasonCode?: NightStatusReasonCode;
+    status?: string;
+  };
+  const status = answer.status ?? notification.actionTakenKey ?? "";
+
+  return [
+    NIGHT_ANSWER_LABELS[status] ?? humanizeEnum(status),
+    answer.note || reasonLabel(answer.reasonCode),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * The night question, answerable from the bell — the fallback for a prompt
+ * swiped away in the shade, or a phone with notifications off.
+ *
+ * The server settles this row from every surface — the shade, this row, the
+ * night-status screen, the web, a warden's override — so once answered it shows
+ * the answer however it was given. Only tonight's row takes an answer; an older
+ * one says it went unanswered.
+ */
+function NightPromptAnswer({ notification }: { notification: AppNotification }) {
+  const [given, setGiven] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const answered = given ?? nightAnswerText(notification);
+
+  if (answered) {
+    return (
+      <Text className="text-primary" variant="caption">
+        Answered: {answered}
+      </Text>
+    );
+  }
+
+  if (!notification.needsAction || notification.data?.night !== nightKey()) {
+    return <Text variant="caption">Not answered</Text>;
+  }
+
+  const answer = async (
+    label: string,
+    input: { reasonCode?: NightStatusReasonCode; status: "INSIDE_HOSTEL" | "OUTSIDE_HOSTEL" },
+  ) => {
+    setSaving(label);
+
+    try {
+      await setResidentNightStatus({ ...input, source: "APP" });
+      setGiven(label === "At home" ? "Outside · At home" : label);
+      // Answered here, so the prompts waiting in the shade are done with.
+      void collapseNightPrompts({ keepLatest: false });
+    } catch (caught) {
+      toastError("Could not send your answer", readApiError(caught));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <View className="flex-row flex-wrap gap-2 pt-1">
+      <Button
+        disabled={saving !== null}
+        label="Inside"
+        loading={saving === "Inside"}
+        onPress={() => void answer("Inside", { status: "INSIDE_HOSTEL" })}
+        size="sm"
+      />
+      <Button
+        disabled={saving !== null}
+        label="At home"
+        loading={saving === "At home"}
+        onPress={() =>
+          void answer("At home", { reasonCode: "HOME", status: "OUTSIDE_HOSTEL" })
+        }
+        size="sm"
+        variant="outline"
+      />
+      {/* A reason or a note needs the screen with a real text field. */}
+      <Button
+        disabled={saving !== null}
+        label="Other…"
+        onPress={() => router.push("/night-status")}
+        size="sm"
+        variant="outline"
+      />
+    </View>
   );
 }

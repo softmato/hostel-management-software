@@ -19,6 +19,11 @@
  * silent POST to a route this app has never called. `needsAction` is kept,
  * because "this is waiting on you" is worth showing even when the only place to
  * act is the web portal, and the screen says as much.
+ *
+ * The one exception is the night question (`NIGHT_STATUS`): the app answers it
+ * through its own `setResidentNightStatus`, not the row's blind action, and the
+ * server settles the row from every surface — so `actionState` and
+ * `data.answer` are read for it.
  */
 
 import { api } from "@/lib/api";
@@ -27,6 +32,10 @@ import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
 export type NotificationFilter = "action" | "all" | "unread";
 
 export type AppNotification = {
+  /** `COMPLETED` once acted on. Read only for the night question. */
+  actionState?: "COMPLETED" | "DISMISSED" | "PENDING";
+  /** Which action was taken — the night status, for the night question. */
+  actionTakenKey?: string;
   /** A **web** path (`/kathmandu-boys/admin/…`), not an app route. Not navigated. */
   actionUrl?: string;
   body: string;

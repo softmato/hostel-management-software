@@ -57,6 +57,9 @@ import {
 } from "@/hooks/use-hostel-admin";
 import { useWorkspaceHref } from "@/hooks/use-workspace-href";
 import { browserApi } from "@/lib/browser-api";
+import { downloadCsv } from "@/lib/downloads/downloader";
+import { hostelAdminEndpoints } from "@/lib/hostel-admin-endpoints";
+import { toast } from "@/stores/toast-store";
 import { cn } from "@/lib/utils";
 
 import {
@@ -421,6 +424,52 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     () => contactsQuery.data?.emergencyContacts ?? [],
     [contactsQuery.data],
   );
+
+  const [exporting, setExporting] = useState(false);
+
+  /** Every resident, not the page on screen — the list is paginated server-side. */
+  async function exportResidents() {
+    setExporting(true);
+
+    try {
+      const all: Resident[] = [];
+
+      // ponytail: 100 × 50 pages = 5,000 residents; far past any one hostel.
+      for (let page = 1; page <= 50; page += 1) {
+        const { residents } = await browserApi<{ residents: Resident[] }>(
+          `${hostelAdminEndpoints.residents}?page=${page}&pageSize=100`,
+        );
+
+        all.push(...residents);
+
+        if (residents.length < 100) break;
+      }
+
+      downloadCsv(
+        "residents",
+        [
+          { key: "name", label: "Name" },
+          { key: "phone", label: "Phone" },
+          { key: "email", label: "Email" },
+          { key: "roomType", label: "Room type" },
+          { key: "residentType", label: "Type" },
+          { key: "status", label: "Status" },
+          { key: "moveInDate", label: "Move-in" },
+          { key: "monthlyFee", label: "Monthly fee" },
+          { key: "depositAmount", label: "Deposit" },
+        ],
+        all.map((resident) => ({
+          ...resident,
+          moveInDate: resident.moveInDate?.slice(0, 10) ?? "",
+          name: resident.fullName ?? `${resident.firstName} ${resident.lastName}`.trim(),
+        })),
+      );
+    } catch {
+      toast.error({ title: "Could not export residents." });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const filteredResidents = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -1169,11 +1218,13 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
               </SoftBadge>
               <Button
                 className="ml-auto h-10 gap-2 rounded-xl"
+                disabled={exporting}
+                onClick={() => void exportResidents()}
                 type="button"
                 variant="outline"
               >
                 <Download className="size-4" />
-                Export
+                {exporting ? "Exporting…" : "Export"}
               </Button>
             </div>
           </div>

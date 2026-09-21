@@ -85,5 +85,7 @@ export function LeafletMap({
     };
   }, [center.lat, center.lng, name, nearby]);
 
-  return <div className="h-full w-full" ref={containerRef} />;
+  // `isolate`: Leaflet panes sit at z-index 400 and controls at 1000, which
+  // otherwise escape and paint over the fixed site header on scroll.
+  return <div className="relative isolate z-0 h-full w-full" ref={containerRef} />;
 }

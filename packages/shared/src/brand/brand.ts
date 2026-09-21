@@ -24,6 +24,10 @@ export const PLATFORM_VENDOR = "Softmato";
  */
 export const PLATFORM_SITE_URL = "https://hostelpalika.com";
 
+/** The Android app's Play listing — the package id is fixed by the store. */
+export const PLATFORM_PLAY_STORE_URL =
+  "https://play.google.com/store/apps/details?id=com.softmato.hostelpalika";
+
 /** The parent company's own site — the product links back to it, and search engines are told so. */
 export const PLATFORM_VENDOR_URL = "https://softmato.com";
 

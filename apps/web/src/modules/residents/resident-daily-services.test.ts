@@ -316,6 +316,7 @@ describe("resident daily-use services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     serviceMocks.markReferralConverted.mockResolvedValue({ converted: false });
+    serviceMocks.noticeReadFind.mockReturnValue(queryResult([]));
 
     // Notification plumbing: no stored config, no reachable contacts, no sends.
     serviceMocks.platformSettingFindOne.mockReturnValue(leanResult(null));
@@ -427,7 +428,15 @@ describe("resident daily-use services", () => {
     */
     serviceMocks.invoiceAggregate.mockResolvedValueOnce([invoiceRow()]);
     serviceMocks.invoiceAggregate.mockResolvedValueOnce([invoiceRow()]);
-    serviceMocks.noticeFind.mockReturnValueOnce(queryResult([]));
+    const opened = objectId("64f0f0f0f0f0f0f0f0f0f0c1");
+    const notice = { category: "GENERAL", content: "", isUrgent: true, title: "Water" };
+    serviceMocks.noticeFind.mockReturnValueOnce(
+      queryResult([
+        { ...notice, _id: opened },
+        { ...notice, _id: objectId("64f0f0f0f0f0f0f0f0f0f0c2") },
+      ]),
+    );
+    serviceMocks.noticeReadFind.mockReturnValueOnce(queryResult([{ noticeId: opened }]));
     serviceMocks.foodMenuFindOne.mockReturnValueOnce(queryResult(null));
     serviceMocks.nightStatusFindOne.mockReturnValueOnce(leanResult(null));
     serviceMocks.complaintFind.mockReturnValueOnce(queryResult([]));
@@ -436,6 +445,8 @@ describe("resident daily-use services", () => {
     const result = await getResidentDashboard(residentPrincipal);
 
     expect(result.dashboard.resident.id).toBe(residentId);
+    // Opened on the board → read on home, so its badge clears.
+    expect(result.dashboard.notices.map((row) => row.isRead)).toEqual([true, false]);
     expect(serviceMocks.residentFindOne).toHaveBeenCalledWith(
       expect.objectContaining({ userId: objectId(userId) }),
     );

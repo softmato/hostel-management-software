@@ -1,4 +1,5 @@
 "use client";
+import { downloadCsv } from "@/lib/downloads/downloader";
 
 import { ArrowDownUp, BadgeDollarSign, Download, Hash, Wallet } from "lucide-react";
 import { memo, useMemo, useState } from "react";
@@ -148,7 +149,28 @@ export const HostelAdminTransactionsPageContent = memo(
       <div className="mx-auto max-w-[1448px] space-y-4">
         <PortalPageHeader
           actions={
-            <RoleButton tone="admin" variant="outline">
+            <RoleButton
+              disabled={rows.length === 0}
+              onClick={() =>
+                downloadCsv(
+                  "transactions",
+                  [
+                    { key: "id", label: "Reference" },
+                    { key: "residentName", label: "Resident" },
+                    { key: "period", label: "Period" },
+                    { key: "dueAmount", label: "Due" },
+                    { key: "paidAmount", label: "Paid" },
+                    { key: "settlement", label: "Settlement" },
+                    { key: "paymentMethod", label: "Method" },
+                    { key: "paidDate", label: "Paid on" },
+                    { key: "remarks", label: "Remarks" },
+                  ],
+                  rows,
+                )
+              }
+              tone="admin"
+              variant="outline"
+            >
               <Download className="size-3.5" />
               Export CSV
             </RoleButton>

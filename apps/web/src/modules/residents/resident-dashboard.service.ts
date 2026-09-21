@@ -6,6 +6,7 @@ import { EmergencyContactModel } from "@hostel/db/models/EmergencyContact";
 import { GuardianModel } from "@hostel/db/models/Guardian";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { NoticeModel } from "@hostel/db/models/Notice";
+import { NoticeReadStatusModel } from "@hostel/db/models/NoticeReadStatus";
 import { summarizeResidentComplaints } from "@/modules/complaints/complaint.service";
 import {
   listResidentInvoices,
@@ -108,11 +109,12 @@ function serializePayment(payment: PaymentRecord) {
   };
 }
 
-function serializeNotice(notice: NoticeRecord) {
+function serializeNotice(notice: NoticeRecord, readIds: Set<string>) {
   return {
     category: notice.category,
     content: notice.content,
     id: notice._id.toString(),
+    isRead: readIds.has(notice._id.toString()),
     isUrgent: notice.isUrgent,
     publishedAt: notice.publishedAt?.toISOString(),
     title: notice.title,
@@ -151,8 +153,15 @@ async function loadResidentBase(resident: ResidentRecord) {
       { hostelId: resident.hostelId, residentId: resident._id },
       { limit: 6 },
     ),
+    /*
+     * The same filter as the notice board (`listResidentNotices`). Without it a
+     * scheduled or staff-only notice showed here but never on the board, so the
+     * resident could not open it and its unread badge never cleared.
+     */
     NoticeModel.find({
       hostelId: resident.hostelId,
+      publishedAt: { $lte: new Date() },
+      targetAudience: { $in: ["ALL", "RESIDENTS"] },
       $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
     })
       .sort({ isUrgent: -1, publishedAt: -1 })
@@ -291,6 +300,18 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
     }),
   ]);
 
+  // Keyed by user, as `markNoticeAsRead` writes it — opening a notice clears it here.
+  const readIds = new Set(
+    (
+      await NoticeReadStatusModel.find({
+        noticeId: { $in: notices.map((notice) => notice._id) },
+        userId: new Types.ObjectId(principal.userId),
+      })
+        .select({ noticeId: 1 })
+        .lean<{ noticeId: Types.ObjectId }[]>()
+    ).map((status) => status.noticeId.toString()),
+  );
+
   return {
     dashboard: {
       accommodation: serializeAccommodation(roomType),
@@ -299,7 +320,7 @@ export async function getResidentDashboard(principal: ApiPrincipal) {
       foodMenu: mealsOn(routine, new Date()),
       hostel: serializeHostel(hostel),
       nightStatus,
-      notices: notices.map(serializeNotice),
+      notices: notices.map((notice) => serializeNotice(notice, readIds)),
       resident: serializeResidentSummary(resident),
       sos,
     },

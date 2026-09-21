@@ -14,6 +14,7 @@ import { NightStatusLogModel } from "@hostel/db/models/NightStatusLog";
 import { NightStatusModel } from "@hostel/db/models/NightStatus";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import { SOSAlertModel } from "@hostel/db/models/SOSAlert";
+import { settleNightStatusNotifications } from "@/modules/notifications/notification.service";
 import { fanOutSOSAlert } from "@/modules/safety/safety-notify";
 import {
   NIGHT_HISTORY_LIMIT,
@@ -252,6 +253,12 @@ async function auditSafetyAction(
   });
 }
 
+const SELF_ANSWERS = new Set<NightStatusValue>([
+  "INSIDE_HOSTEL",
+  "MARKED_SAFE",
+  "OUTSIDE_HOSTEL",
+]);
+
 /**
  * The single write path for a night status, whichever surface it came from.
  *
@@ -319,6 +326,18 @@ async function writeNightStatus(
     residentId: resident._id,
     source: input.source,
   });
+
+  /*
+   * An answer settles tonight's bell row. SOS and a warden's reset to
+   * `NOT_VERIFIED` are not answers. Best-effort: the answer is already saved.
+   */
+  if (resident.userId && SELF_ANSWERS.has(input.status)) {
+    await settleNightStatusNotifications(resident.userId.toString(), night, {
+      note: input.note,
+      reasonCode: input.reasonCode,
+      status: input.status,
+    }).catch(() => undefined);
+  }
 
   return status;
 }

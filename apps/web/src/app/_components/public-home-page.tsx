@@ -3,7 +3,6 @@
 import {
   ArrowRight,
   BedDouble,
-  Car,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -322,7 +321,7 @@ function HostelSnapshot({ hostel }: { hostel?: HostelSummary }) {
 function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
   const router = useRouter();
   const pageRef = useRef<HTMLDivElement>(null);
-  const { hero, identity, trustPoints } = useSiteConfig();
+  const { hero, identity, platformStats, trustPoints } = useSiteConfig();
   const [searchVal, setSearchVal] = useState("");
   const [searching, setSearching] = useState(false);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
@@ -453,6 +452,30 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
     );
   }, [comparisonHostels, comparisonStart]);
   const assurancePoints = trustPoints.slice(0, 3);
+  /*
+   * The map band's numbers, counted rather than written: verified listings and
+   * the average rating come from the hostels on this page, residents from the
+   * platform count (which is withheld until it is big enough to say out loud).
+   * A figure with nothing behind it is dropped, not faked.
+   */
+  const bandStats = useMemo(() => {
+    const rated = hostels.filter((hostel) => hostel.reviews > 0);
+    const verified = hostels.filter((hostel) => hostel.verified).length;
+    const residents = platformStats.find((stat) => stat.label.startsWith("Residents"));
+    const average = rated.length
+      ? rated.reduce((sum, hostel) => sum + hostel.rating, 0) / rated.length
+      : 0;
+
+    return [
+      verified > 0
+        ? { Icon: ShieldCheck, label: "Verified Hostels", value: verified.toLocaleString("en-IN") }
+        : null,
+      residents
+        ? { Icon: Users, label: "Residents", value: residents.value.toLocaleString("en-IN") }
+        : null,
+      average > 0 ? { Icon: Star, label: "Average Rating", value: average.toFixed(1) } : null,
+    ].filter((stat) => stat !== null);
+  }, [hostels, platformStats]);
 
   const moveComparison = (direction: -1 | 1) => {
     if (comparisonHostels.length < 2) return;
@@ -895,9 +918,6 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
               <span className="absolute left-[73.5%] top-[13%] flex size-11 items-center justify-center rounded-full bg-brand-teal text-white shadow-[0_8px_18px_rgba(5,105,68,0.28)]">
                 <MapPin className="size-6 fill-brand-teal stroke-white" />
               </span>
-              <span className="absolute bottom-[17%] left-[68%] rounded-full bg-card/95 px-4 py-2 text-xs font-extrabold text-brand-teal shadow-lg backdrop-blur-sm">
-                <Car className="mr-1.5 inline size-4" /> 12 min&nbsp; · &nbsp;3.2 km
-              </span>
               <span className="absolute bottom-8 right-8 inline-flex items-center gap-2 rounded-xl bg-card/95 px-4 py-3 text-xs font-bold text-foreground shadow-lg backdrop-blur-sm">
                 <span className="flex size-6 items-center justify-center rounded-full bg-brand-teal-soft text-brand-teal">
                   <MapPin className="size-3.5 fill-brand-teal" />
@@ -923,31 +943,34 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
               ))}
             </div>
 
+            {heroHostel ? (
             <div className="absolute left-[48%] top-[16%] z-10 hidden w-[310px] lg:block xl:left-[50%]">
               <Link
                 className="group flex gap-3 rounded-xl border border-white/80 bg-card/95 p-3 shadow-[0_14px_32px_rgba(15,77,64,0.16)] backdrop-blur-sm transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_rgba(15,77,64,0.23)]"
-                href={heroHostel ? `/hostels/${heroHostel.slug}` : "/hostels"}
+                href={`/hostels/${heroHostel.slug}`}
               >
                 <span
                   className="size-[72px] shrink-0 -rotate-[5deg] rounded-lg border-4 border-card bg-cover bg-center shadow-md"
-                  style={{ backgroundImage: `url(\"${heroHostel?.image ?? HOME_MEDIA.discovery.local}\")` }}
+                  style={{ backgroundImage: `url(\"${heroHostel.image || HOME_MEDIA.discovery.local}\")` }}
                 />
                 <span className="min-w-0 flex-1 py-0.5">
                   <span className="flex items-start justify-between gap-2">
                     <span className="line-clamp-1 text-xs font-extrabold text-foreground">
-                      {heroHostel?.name ?? "Education Light Hostel"}
+                      {heroHostel.name}
                     </span>
-                    {heroHostel?.verified ? (
+                    {heroHostel.verified ? (
                       <ShieldCheck className="size-3.5 shrink-0 text-brand-teal" />
                     ) : null}
                   </span>
                   <span className="mt-1 flex items-center gap-1 text-[11px] font-bold text-muted-foreground">
                     <Star className="size-3 fill-warning text-warning" />
-                    {heroHostel?.rating.toFixed(1) ?? "4.8"}
-                    <span className="font-medium">({heroHostel?.reviews ?? 124})</span>
+                    {heroHostel.reviews > 0 ? heroHostel.rating.toFixed(1) : "New"}
+                    {heroHostel.reviews > 0 ? (
+                      <span className="font-medium">({heroHostel.reviews})</span>
+                    ) : null}
                   </span>
                   <span className="mt-2 block text-xs font-extrabold text-foreground">
-                    {heroHostel ? formatMoney(heroHostel.price) : "NPR 12,000"}
+                    {formatMoney(heroHostel.price)}
                     <span className="font-medium text-muted-foreground"> / month</span>
                   </span>
                   <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-extrabold text-brand-teal group-hover:underline">
@@ -956,6 +979,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
                 </span>
               </Link>
             </div>
+            ) : null}
 
             <div className="relative z-20 flex min-h-[470px] max-w-[495px] flex-col justify-center px-7 py-10 sm:min-h-[500px] sm:px-10">
               <span className="inline-flex w-fit items-center gap-2 rounded-full border border-brand-teal/10 bg-card/80 px-3 py-1.5 text-[11px] font-bold text-brand-teal shadow-sm backdrop-blur-sm">
@@ -977,12 +1001,9 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
               >
                 Open Map <ArrowRight className="size-4" />
               </Link>
+              {bandStats.length > 0 ? (
               <div className="mt-9 grid grid-cols-3 border-t border-border/70 pt-6">
-                {[
-                  { Icon: ShieldCheck, label: "Verified Hostels", value: "500+" },
-                  { Icon: Users, label: "Happy Students", value: "10,000+" },
-                  { Icon: Star, label: "Average Rating", value: "4.6" },
-                ].map(({ Icon, label, value }, index) => (
+                {bandStats.map(({ Icon, label, value }, index) => (
                   <div
                     className={index === 0 ? "pr-3" : "border-l border-border/70 px-3"}
                     key={label}
@@ -1000,6 +1021,7 @@ function PublicHomePageContent({ hostels }: { hostels: HostelSummary[] }) {
                   </div>
                 ))}
               </div>
+              ) : null}
             </div>
           </div>
         </section>

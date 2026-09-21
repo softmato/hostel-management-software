@@ -1,5 +1,6 @@
 import { toast } from "@/stores/toast-store";
 import { type DownloadItem, useDownloadStore } from "@/stores/download-store";
+import { csvFilename, toCsv } from "@/lib/csv";
 
 /**
  * The universal downloader.
@@ -77,6 +78,21 @@ function saveBlob(blob: Blob, fileName: string) {
   link.click();
 
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Saves rows the screen already holds as a CSV — the Export buttons. No server
+ * round trip: what is exported is exactly what the filters are showing.
+ */
+export function downloadCsv(
+  prefix: string,
+  columns: Array<{ key: string; label: string }>,
+  rows: Array<Record<string, unknown>>,
+) {
+  saveBlob(
+    new Blob([toCsv(columns, rows)], { type: "text/csv;charset=utf-8" }),
+    csvFilename(prefix),
+  );
 }
 
 /**

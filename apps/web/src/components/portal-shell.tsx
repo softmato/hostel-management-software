@@ -66,7 +66,7 @@ import type {
   PortalNavLeaf,
   PortalSearchEntry,
 } from "@/lib/portal-nav";
-import { usePrefetchPortalHref } from "@/lib/portal-query";
+import { usePortalResource, usePrefetchPortalHref } from "@/lib/portal-query";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { cn } from "@/lib/utils";
 
@@ -230,16 +230,34 @@ const toneStyles: Record<
   },
 };
 
-const planCopy: Partial<
-  Record<PortalTone, { cta: string; label: string; renews: string }>
-> = {
-  admin: { cta: "Manage Plan", label: "Premium", renews: "Valid till 25 Dec 2026" },
-  guardian: {
-    cta: "Contact Hostel",
-    label: "Guardian Access",
-    renews: "Linked resident view",
-  },
-};
+type PlanState = {
+  outstanding: number;
+  subscription: {
+    currentPeriodEnd: string | null;
+    dueBy: string | null;
+    planName: string | null;
+    status: string;
+  };
+} | null;
+
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** One line under the plan name: the fact the owner needs, nothing more. */
+function planLine(state: NonNullable<PlanState>) {
+  const { currentPeriodEnd, dueBy, status } = state.subscription;
+
+  if (state.outstanding > 0) {
+    return `Rs ${state.outstanding.toLocaleString("en-IN")} due${dueBy ? ` by ${shortDate(dueBy)}` : ""}`;
+  }
+
+  if (status === "ACTIVE") {
+    return currentPeriodEnd ? `Active till ${shortDate(currentPeriodEnd)}` : "Active";
+  }
+
+  return status === "PENDING_SELECTION" ? "Choose a plan" : "Not active yet";
+}
 
 /**
  * Whether the viewport is at Tailwind's `md` breakpoint (768px) — the point
@@ -278,7 +296,11 @@ export function PortalShell({
   // Admin-configured branding wins; the prop is only an explicit override.
   const portalName = portalNameProp ?? identity.siteName;
   const styles = toneStyles[tone];
-  const plan = planCopy[tone];
+  // Only the hostel workspace buys a plan; the card reads the real subscription.
+  const planResource = usePortalResource<{ state: PlanState }>(
+    tone === "admin" ? "/api/v1/hostel-admin/subscription" : null,
+  );
+  const plan = planResource.data?.state ?? null;
   // The hostel's plan suspension, for the hostel's own portals only.
   const suspension = useHostelSuspension(tone);
   const suspended = suspension?.stage === "SUSPENDED";
@@ -479,25 +501,29 @@ export function PortalShell({
       return null;
     }
 
+    const owing = plan.outstanding > 0;
+
     return (
-      <div className="space-y-2 border-t border-slate-100 p-2 dark:border-border">
-        <div className="rounded-lg border border-slate-100 bg-white p-2 dark:border-border dark:bg-card">
-          <p className="text-[10px] font-medium text-muted-foreground">Current Plan</p>
-          <p className={cn("mt-0.5 text-[12.5px] font-bold", styles.text)}>
-            {plan.label}
-          </p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">{plan.renews}</p>
-          <Button
+      <div className="border-t border-slate-100 p-2 dark:border-border">
+        <Link
+          className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-muted"
+          href="/hostel-admin/billing"
+        >
+          <span
             className={cn(
-              "mt-1.5 h-7 w-full rounded-md border text-[11px] font-semibold",
-              styles.badge,
+              "size-1.5 shrink-0 rounded-full",
+              owing ? "bg-warning" : plan.subscription.status === "ACTIVE" ? "bg-success" : "bg-muted-foreground",
             )}
-            type="button"
-            variant="outline"
-          >
-            {plan.cta}
-          </Button>
-        </div>
+          />
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className={cn("block truncate text-[12px] font-bold", styles.text)}>
+              {plan.subscription.planName ?? "No plan"}
+            </span>
+            <span className={cn("block truncate text-[10px]", owing ? "text-warning" : "text-muted-foreground")}>
+              {planLine(plan)}
+            </span>
+          </span>
+        </Link>
       </div>
     );
   }
@@ -537,7 +563,7 @@ export function PortalShell({
     {/* Viewport-height frame: the brand rail, top bar, and copyright bar stay
         put while only the nav list and the content pane scroll. */}
     <div
-      className="flex h-dvh flex-col overflow-hidden bg-[#f4f7fb] text-foreground dark:bg-background"
+      className="relative flex h-dvh flex-col overflow-hidden bg-[#f4f7fb] text-foreground dark:bg-background"
       inert={suspended}
     >
       <div className="flex min-h-0 flex-1">
@@ -657,7 +683,11 @@ export function PortalShell({
             </div>
           </header>
 
-          <main className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3.5 py-4 md:px-5 md:py-4">
+          {/* `relative` makes this the containing block for absolute children
+              (every `sr-only` file input). Without it they are placed against
+              the page instead, and a long form stretches the document with
+              blank space below the shell. */}
+          <main className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto px-3.5 py-4 md:px-5 md:py-4">
             {suspension && !suspended && tone === "admin" ? (
               <HostelSuspensionNotice suspension={suspension} />
             ) : null}
@@ -673,13 +703,13 @@ export function PortalShell({
             {/* Support moved out of the sidebar card — same entry point, but it
                 sits beside the credit instead of eating nav space. */}
             {tone !== "platform" && (
-              <button
+              <a
                 className="inline-flex items-center gap-1 font-medium text-slate-600 hover:text-foreground dark:text-muted-foreground"
-                type="button"
+                href={identity.supportEmail ? `mailto:${identity.supportEmail}` : "/contact"}
               >
                 <HelpCircle className="size-3" />
-                {tone === "guardian" ? "Contact Hostel" : "Help & Support"}
-              </button>
+                Help &amp; Support
+              </a>
             )}
             <p>
               Made with <span className="text-rose-500">♥</span> in Nepal 🇳🇵

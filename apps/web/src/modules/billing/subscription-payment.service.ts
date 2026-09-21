@@ -19,6 +19,7 @@ import { ensureLocalReceiptNumber } from "@/modules/billing/documents/issue";
 import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
 import { onPaymentSettled } from "@/modules/hostels/hostel-registration.events";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import { creditTeamCommission } from "@/modules/team/team-commission.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
@@ -416,6 +417,12 @@ export async function settlePayment(
     { _id: invoice._id },
     { $set: { status: balance.outstanding <= 0 ? "PAID" : "PARTIAL" } },
   );
+
+  // A team-registered hostel paying its plan in full earns its agent their
+  // commission. Once per hostel, and never able to fail the settlement.
+  if (balance.outstanding <= 0) {
+    await creditTeamCommission(invoice);
+  }
 
   const subscriptionAfter = await applySettlement(
     invoice,

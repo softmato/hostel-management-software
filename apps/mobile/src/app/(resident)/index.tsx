@@ -26,6 +26,7 @@ import { readApiError } from "@/lib/api-contract";
 import { formatDueLabel, humanizeEnum } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 import {
+  markNoticeRead,
   openQuestionCall,
   type ResidentDashboard,
   type RoutineMeal,
@@ -98,11 +99,9 @@ import { toastError } from "@/lib/toast";
  * second request is gone. The absent night status is `NOT_VERIFIED`, which is a
  * real answer, not a missing one.
  *
- * Deliberately **not** ported from the web: its "Unread notices" metric and its
- * "New" badge. `serializeNotice` emits no `isRead` field at all, so
- * `!notice.isRead` is true for every notice and the web marks all of them new.
- * The count comes back the day the serializer carries the flag; until then the
- * `Notices` cell counts the urgent ones, which is a field that does exist.
+ * The `Notices` cell counts unread notices and the hero strip unread urgent
+ * ones, from the dashboard's per-user `isRead`. Opening a notice on the board
+ * marks it read, and refocus refetches, so both clear the moment it is tapped.
  */
 
 export default function ResidentHomeScreen() {
@@ -240,7 +239,8 @@ export default function ResidentHomeScreen() {
   }
 
   const phone = hostel?.contact.phone;
-  const urgentNotices = dashboard.notices.filter((notice) => notice.isUrgent).length;
+  const unreadNotices = dashboard.notices.filter((notice) => !notice.isRead);
+  const urgentNotices = unreadNotices.filter((notice) => notice.isUrgent).length;
 
   return (
     <Screen
@@ -293,7 +293,7 @@ export default function ResidentHomeScreen() {
           onIdCard={() => router.push("/id-card")}
           onNotices={() => router.push("/(resident)/notices")}
           onRaiseIssue={() => router.push("/complaints/new")}
-          urgentNotices={urgentNotices}
+          unreadNotices={unreadNotices.length}
         />
       </View>
 
@@ -411,7 +411,11 @@ function NoticesCard({ notices }: { notices: ResidentDashboard["notices"] }) {
               accessibilityRole="button"
               className="gap-1 rounded-xl border border-border px-3 py-2.5 active:opacity-70"
               key={notice.id}
-              onPress={() => router.push("/(resident)/notices")}
+              onPress={() => {
+                // Its title and first lines are right here — the tap is the read.
+                void markNoticeRead(notice.id).catch(() => undefined);
+                router.push("/(resident)/notices");
+              }}
             >
               <View className="flex-row items-start justify-between gap-2">
                 <Text className="flex-1" numberOfLines={2} variant="label">

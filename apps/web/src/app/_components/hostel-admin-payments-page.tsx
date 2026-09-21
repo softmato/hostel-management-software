@@ -1,4 +1,5 @@
 "use client";
+import { downloadCsv } from "@/lib/downloads/downloader";
 
 import {
   AlertTriangle,
@@ -488,7 +489,35 @@ export const HostelAdminPaymentsPage = memo(function HostelAdminPaymentsPage() {
       <PortalPageHeader
         actions={
           <>
-            <Button className="h-10 gap-2 rounded-xl" type="button" variant="outline">
+            <Button
+              className="h-10 gap-2 rounded-xl"
+              disabled={filteredRows.length === 0}
+              onClick={() =>
+                downloadCsv(
+                  `payments-${month}`,
+                  [
+                    { key: "resident", label: "Resident" },
+                    { key: "roomType", label: "Room type" },
+                    { key: "status", label: "Status" },
+                    { key: "due", label: "Due" },
+                    { key: "paid", label: "Paid" },
+                    { key: "dueDate", label: "Due date" },
+                    { key: "method", label: "Method" },
+                  ],
+                  filteredRows.map((row) => ({
+                    due: row.payment?.dueAmount ?? 0,
+                    dueDate: row.payment?.dueDate?.slice(0, 10) ?? "",
+                    method: row.payment?.paymentMethod ?? "",
+                    paid: row.payment?.paidAmount ?? 0,
+                    resident: row.resident.fullName,
+                    roomType: row.resident.roomType ?? "",
+                    status: row.displayStatus,
+                  })),
+                )
+              }
+              type="button"
+              variant="outline"
+            >
               <Download className="size-4" />
               Export
             </Button>

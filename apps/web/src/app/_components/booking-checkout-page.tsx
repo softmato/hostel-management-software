@@ -272,7 +272,6 @@ function BookingForm({
   const [number, setNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [branch, setBranch] = useState("");
-  const [plannedMoveIn, setPlannedMoveIn] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -293,7 +292,8 @@ function BookingForm({
         body: JSON.stringify({
           acceptPolicy: true,
           hostel: quote.hostel.slug,
-          plannedMoveIn: plannedMoveIn || null,
+          // Bookings start today and hold the bed for `holdDays`; no move-in date for now.
+          plannedMoveIn: null,
           policyVersion: quote.policyVersion,
           refundAccount: { bankName, branch, holderName, method, number },
           roomType: quote.room.roomType,
@@ -318,16 +318,13 @@ function BookingForm({
   return (
     <form className="space-y-6" onSubmit={submit}>
       <Card title="Your details">
-        <Facts rows={[["Name", user.name], ["Email", user.email ?? ""]]} />
-        <label className="mt-4 block text-sm font-semibold text-foreground">
-          When you plan to move in <span className="font-normal text-muted-foreground">(optional)</span>
-          <input
-            className={INPUT}
-            onChange={(event) => setPlannedMoveIn(event.target.value)}
-            type="date"
-            value={plannedMoveIn}
-          />
-        </label>
+        <Facts
+          rows={[
+            ["Name", user.name],
+            ["Email", user.email ?? ""],
+            ["Booking", `From today, valid for ${quote.terms.holdDays} days`],
+          ]}
+        />
       </Card>
 
       <Card title="Refund account">

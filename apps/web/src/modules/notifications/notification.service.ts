@@ -396,6 +396,50 @@ export async function markAllNotificationsRead(principal: ApiPrincipal) {
 }
 
 /**
+ * Settle the night prompt's bell rows once the resident has an answer, from
+ * whichever surface — the shade, the bell, the screen, the web or a warden's
+ * override — so the row shows that answer instead of sitting in "Needs action".
+ *
+ * Tonight's row is rewritten on every answer, not only the first, so it always
+ * shows the current one. An older night's row can no longer be answered and is
+ * dismissed.
+ */
+export async function settleNightStatusNotifications(
+  userId: string,
+  night: string,
+  answer: { note?: string; reasonCode?: string; status: string },
+) {
+  const now = new Date();
+  const mine = {
+    category: "NIGHT_STATUS",
+    kind: "ACTION",
+    userId: normalizeObjectId(userId, "user id"),
+  };
+  const [tonight, older] = await Promise.all([
+    NotificationModel.updateMany(
+      { ...mine, "data.night": night },
+      {
+        $set: {
+          actionState: "COMPLETED",
+          actionTakenAt: now,
+          actionTakenKey: answer.status,
+          "data.answer": answer,
+          readAt: now,
+        },
+      },
+    ),
+    NotificationModel.updateMany(
+      { ...mine, actionState: "PENDING", "data.night": { $ne: night } },
+      { $set: { actionState: "DISMISSED", actionTakenAt: now, readAt: now } },
+    ),
+  ]);
+
+  if (tonight.modifiedCount + older.modifiedCount > 0) {
+    await publishNotificationUpdated(userId, "all");
+  }
+}
+
+/**
  * Record that an ACTION notification has been dealt with.
  *
  * This only moves the notification out of the "Needs action" queue — the actual

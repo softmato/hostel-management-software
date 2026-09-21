@@ -1,3 +1,4 @@
+import { InstallAppBanner } from "@/components/install-app-banner";
 import { JsonLd } from "@/components/json-ld";
 import { SiteAnnouncementBanner } from "@/components/site-announcement-banner";
 import { SiteConfigProvider } from "@/components/site-config-provider";
@@ -51,6 +52,7 @@ export default async function PublicLayout({
       />
       <SiteAnnouncementBanner />
       {children}
+      <InstallAppBanner />
     </SiteConfigProvider>
   );
 }

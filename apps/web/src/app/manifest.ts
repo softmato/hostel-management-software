@@ -7,11 +7,12 @@ import { loadSeo, resolveSeoPage } from "@/lib/seo-config";
 /**
  * The web app manifest: the name, icons and colour a browser uses for the site.
  *
- * `display: "browser"` on purpose. HostelPalika has a dedicated app, and a
- * standalone manifest would have Chrome offer to install the website as a
- * second, lesser one. When the Play listing is live, add it under
- * `related_applications` with `prefer_related_applications: true` so Chrome
- * points people to the real app instead.
+ * `display: "standalone"` so an iPhone that adds the site to its Home Screen
+ * gets an app-like window — there is no iOS app yet. Android visitors are sent
+ * to the real app by `InstallAppBanner`, which also swallows Chrome's own
+ * install prompt so nobody installs the lesser copy there. When the Play
+ * listing is live, add it under `related_applications` with
+ * `prefer_related_applications: true` as well.
  */
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
   const { fill, seo } = await loadSeo();
@@ -21,7 +22,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     background_color: "#ffffff",
     categories: ["business", "education", "lifestyle"],
     description: home.description,
-    display: "browser",
+    display: "standalone",
     icons: [
       { sizes: "512x512", src: "/icon.png", type: "image/png" },
       { sizes: "180x180", src: "/apple-icon.png", type: "image/png" },

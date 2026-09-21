@@ -168,5 +168,7 @@ export function DraggablePinMap({
     map.flyTo([value.lat, value.lng], Math.max(map.getZoom(), 17), { duration: 0.6 });
   }, [value.lat, value.lng]);
 
-  return <div className="h-full w-full" ref={containerRef} />;
+  // `isolate`: Leaflet panes sit at z-index 400 and controls at 1000, which
+  // otherwise escape and paint over the fixed site header on scroll.
+  return <div className="relative isolate z-0 h-full w-full" ref={containerRef} />;
 }

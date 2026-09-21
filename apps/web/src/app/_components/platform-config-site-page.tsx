@@ -1,6 +1,10 @@
 "use client";
 
-import { memo } from "react";
+import { Loader2, Upload } from "lucide-react";
+import { memo, useState } from "react";
+
+import { browserApi } from "@/lib/browser-api";
+import { sendWithProgress } from "@/lib/uploads/transport";
 
 import {
   ConfigCard,
@@ -10,6 +14,67 @@ import {
   TextField,
   useSiteConfigDraft,
 } from "./platform-config-shared";
+
+/**
+ * Uploads an APK straight to R2 and hands back its public URL. The row is only
+ * live once the section is saved, so a half-finished upload changes nothing.
+ */
+function ApkUploadButton({
+  onError,
+  onUploaded,
+}: {
+  onError: (message: string) => void;
+  onUploaded: (url: string) => void;
+}) {
+  const [percent, setPercent] = useState<number | null>(null);
+
+  async function upload(file: File) {
+    onError("");
+    setPercent(0);
+
+    try {
+      const target = await browserApi<{ contentType: string; uploadUrl: string; url: string }>(
+        "/api/v1/platform/app-apk",
+        { body: JSON.stringify({ fileName: file.name, size: file.size }), method: "POST" },
+      );
+      const result = await sendWithProgress({
+        body: file,
+        headers: { "Content-Type": target.contentType },
+        method: "PUT",
+        onProgress: (progress) => setPercent(progress.percent),
+        url: target.uploadUrl,
+      });
+
+      if (result.status >= 300) throw new Error(`Upload failed (${result.status}).`);
+
+      onUploaded(target.url);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : "Upload failed.");
+    } finally {
+      setPercent(null);
+    }
+  }
+
+  return (
+    <label className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-semibold text-foreground transition hover:border-role-platform">
+        {percent === null ? <Upload className="size-3.5" /> : <Loader2 className="size-3.5 animate-spin" />}
+        {percent === null ? "Upload APK" : `Uploading ${percent}%`}
+        <input
+          accept=".apk,application/vnd.android.package-archive"
+          className="sr-only"
+          disabled={percent !== null}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+
+            if (file) void upload(file);
+
+            event.currentTarget.value = "";
+          }}
+          type="file"
+        />
+    </label>
+  );
+}
 
 export const PlatformConfigSitePageContent = memo(
   function PlatformConfigSitePageContent() {
@@ -30,6 +95,8 @@ export const PlatformConfigSitePageContent = memo(
     const hero = valueFor("hero");
     const stats = valueFor("stats");
     const trustPoints = valueFor("trustPoints");
+    const apps = valueFor("apps");
+    const [apkError, setApkError] = useState("");
 
     return (
       <ConfigPage
@@ -317,6 +384,42 @@ export const PlatformConfigSitePageContent = memo(
                 </div>
               )}
             />
+          </ConfigCard>
+
+          <ConfigCard
+            description="Where the phone app comes from. Android visitors and the team's QR go to the Play listing, or to the APK when one is uploaded. iOS installs the website as an app until the iPhone app ships."
+            dirty={isDirty("apps")}
+            onReset={() => reset("apps")}
+            onSave={() => save("apps")}
+            saving={savingSection === "apps"}
+            title="Mobile App"
+          >
+            <TextField
+              label="Play Store link"
+              onChange={(androidPlayUrl) => setValue("apps", { ...apps, androidPlayUrl })}
+              value={apps.androidPlayUrl}
+            />
+            <div>
+              <div className="flex items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <TextField
+                    label="APK file"
+                    onChange={(androidApkUrl) => setValue("apps", { ...apps, androidApkUrl })}
+                    placeholder="Upload an APK, or paste its link"
+                    value={apps.androidApkUrl}
+                  />
+                </div>
+                <ApkUploadButton
+                  onError={setApkError}
+                  onUploaded={(androidApkUrl) => setValue("apps", { ...apps, androidApkUrl })}
+                />
+              </div>
+              <p className="mt-1 text-[10.5px] text-muted-foreground">
+                Direct download. When set, /get-app downloads this file instead of opening the Play
+                listing. Save after uploading.
+              </p>
+              {apkError ? <p className="mt-1 text-xs text-destructive">{apkError}</p> : null}
+            </div>
           </ConfigCard>
         </div>
       </ConfigPage>

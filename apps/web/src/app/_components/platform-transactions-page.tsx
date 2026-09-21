@@ -1,4 +1,5 @@
 "use client";
+import { downloadCsv } from "@/lib/downloads/downloader";
 
 import {
   ArrowDownUp,
@@ -139,7 +140,20 @@ export const PlatformTransactionsPageContent = memo(
       <div className="mx-auto max-w-[1448px] space-y-4">
         <PortalPageHeader
           actions={
-            <RoleButton tone="platform" variant="outline">
+            <RoleButton
+              disabled={rows.length === 0}
+              onClick={() => downloadCsv("platform-transactions", [
+                  { key: "hostelName", label: "Hostel" },
+                  { key: "month", label: "Period" },
+                  { key: "dueAmount", label: "Due" },
+                  { key: "paidAmount", label: "Paid" },
+                  { key: "status", label: "Status" },
+                  { key: "dueDate", label: "Due date" },
+                  { key: "id", label: "Reference" },
+                ], rows)}
+              tone="platform"
+              variant="outline"
+            >
               <Download className="size-3.5" />
               Export CSV
             </RoleButton>

@@ -133,6 +133,13 @@ export const operationsConfigSchema = z.object({
    */
   collectionQrUrl: z.string().trim().max(500).default(""),
   collectionQrLabel: z.string().trim().max(120).default(""),
+  /**
+   * What a field agent earns on a hostel they registered, as a percent of its
+   * first plan payment — credited to their wallet the moment that payment
+   * clears. Each credit copies the rate it used, so changing this only affects
+   * hostels that pay after the change.
+   */
+  teamCommissionPercent: z.number().min(0).max(100).default(11.12),
   sendComplaintEmails: z.boolean().default(true),
   qrActivationExpiryDays: z.number().int().min(1).max(60).default(7),
   receiptNumberPrefix: z.string().trim().min(1).max(10).default("RCP"),

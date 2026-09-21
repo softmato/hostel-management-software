@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
+import { TeamCommissionPanel } from "./platform-team-commission";
 import { TeamInviteBox } from "./platform-team-invite-box";
 import { TeamMembersTable } from "./platform-team-members-table";
 import {
@@ -80,6 +81,8 @@ export function PlatformTeamPage() {
         members={members}
         onChanged={() => void load()}
       />
+
+      <TeamCommissionPanel />
 
       <div className="app-card overflow-hidden">
         <div className="border-b border-border px-5 py-3">

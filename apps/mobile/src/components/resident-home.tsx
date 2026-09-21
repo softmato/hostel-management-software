@@ -512,10 +512,7 @@ export function ResidentStayHero({
  * - **A destination carries no count at all.** `badge` is omitted, not passed as
  *   zero, for the three shortcuts. A cell with a count and a cell without read
  *   as different kinds of thing at a glance, which is exactly what they are.
- * - **Notices counts the urgent ones, not the unread ones.** `serializeNotice`
- *   emits no `isRead` field, so `!notice.isRead` is true for every notice and
- *   the web marks all of them new. Repeating that here would be repeating a bug;
- *   `isUrgent` is a field the serializer does emit.
+ * - **Notices counts the unread ones**, per user, so opening one clears it.
  * - **Tones are meanings, not decoration**, and no two of them repeat in the
  *   row — four colours are recognised by position after about two uses, which is
  *   the entire reason these cells are tinted. `Notices` wore the warning tone in
@@ -538,15 +535,15 @@ export function ResidentHomeActions({
   onIdCard,
   onNotices,
   onRaiseIssue,
-  urgentNotices,
+  unreadNotices,
 }: {
   /** `tel:` the hostel. Omitted when the listing carries no phone number. */
   onCall?: () => void;
   onIdCard: () => void;
   onNotices: () => void;
   onRaiseIssue: () => void;
-  /** Urgent notices, not unread ones — see the note above. */
-  urgentNotices: number;
+  /** Notices this resident has not opened. */
+  unreadNotices: number;
 }) {
   const { colors } = useAppTheme();
 
@@ -584,7 +581,7 @@ export function ResidentHomeActions({
       tone: "danger",
     },
     {
-      badge: urgentNotices,
+      badge: unreadNotices,
       glyph: colors.success,
       icon: "megaphone-outline",
       key: "notices",

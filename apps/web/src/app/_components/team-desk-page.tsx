@@ -4,6 +4,7 @@ import { AlertTriangle, Building2, Phone, Plus, Users, Wallet } from "lucide-rea
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { GetAppDialog } from "@/components/get-app-dialog";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,24 @@ type Registration = {
   subscriptionStatus: string;
 };
 
+type Wallet = {
+  balance: number;
+  earned: number;
+  paidOut: number;
+  pending: number;
+  ratePercent: number;
+  today: { commission: number; due: number; hostels: number; paid: number };
+};
+
+type WalletEntry = {
+  amount: number;
+  at: string;
+  hostelName: string;
+  id: string;
+  method: string | null;
+  type: "COMMISSION" | "PAYOUT";
+};
+
 type Summary = {
   cashCollected: number;
   collected: number;
@@ -62,7 +81,109 @@ type Summary = {
 };
 
 function rupees(amount: number) {
-  return `Rs ${amount.toLocaleString("en-IN")}`;
+  return `Rs ${amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+function statusLabel(row: Registration) {
+  if (row.subscriptionStatus === "PAST_DUE") {
+    return row.dueBy
+      ? `Due ${new Date(row.dueBy).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+      : "Past due";
+  }
+
+  return row.subscriptionStatus === "ACTIVE" ? "Paid" : row.subscriptionStatus;
+}
+
+function statusTone(status: string) {
+  return status === "ACTIVE"
+    ? "bg-success/10 text-success"
+    : status === "PAST_DUE"
+      ? "bg-warning/10 text-warning"
+      : "bg-muted text-muted-foreground";
+}
+
+function Figure({ label, tone, value }: { label: string; tone?: string; value: string }) {
+  return (
+    <div>
+      <p className={cn("text-sm font-bold tabular-nums sm:text-base", tone ?? "text-foreground")}>
+        {value}
+      </p>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+/**
+ * Today's salary and the wallet it lands in.
+ *
+ * Commission is earned on a hostel's first plan payment, so "today" shows both
+ * halves of that: what the hostels registered today have paid and still owe,
+ * and what actually reached the wallet today.
+ */
+function EarningsRow({ entries, wallet }: { entries: WalletEntry[]; wallet: Wallet | null }) {
+  const rate = wallet ? `${wallet.ratePercent}%` : "—";
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <div className="app-card p-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Today&apos;s salary
+          </p>
+          <span className="rounded-full bg-brand-teal/10 px-2 py-0.5 text-[11px] font-bold text-brand-teal">
+            {rate} commission
+          </span>
+        </div>
+        <p className="mt-2 text-3xl font-bold tabular-nums text-foreground">
+          {rupees(wallet?.today.commission ?? 0)}
+        </p>
+        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 text-center">
+          <Figure label="Hostels added" value={String(wallet?.today.hostels ?? 0)} />
+          <Figure label="Paid" tone="text-success" value={rupees(wallet?.today.paid ?? 0)} />
+          <Figure label="Due" tone="text-warning" value={rupees(wallet?.today.due ?? 0)} />
+        </div>
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          {rate} of each new hostel&apos;s first plan payment, credited when it is paid in full.
+        </p>
+      </div>
+
+      <div className="app-card p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wallet</p>
+        <p className="mt-2 text-3xl font-bold tabular-nums text-foreground">
+          {rupees(wallet?.balance ?? 0)}
+        </p>
+        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 text-center">
+          <Figure label="Earned" value={rupees(wallet?.earned ?? 0)} />
+          <Figure label="Paid to you" value={rupees(wallet?.paidOut ?? 0)} />
+          <Figure label="Once paid" tone="text-muted-foreground" value={rupees(wallet?.pending ?? 0)} />
+        </div>
+        {entries.length > 0 ? (
+          <ul className="mt-3 divide-y divide-border border-t border-border">
+            {entries.slice(0, 4).map((entry) => (
+              <li className="flex items-center justify-between gap-2 py-1.5 text-xs" key={entry.id}>
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {entry.type === "COMMISSION"
+                    ? entry.hostelName || "Commission"
+                    : `Paid out${entry.method ? ` · ${entry.method}` : ""}`}
+                  {" · "}
+                  {new Date(entry.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 font-semibold tabular-nums",
+                    entry.type === "COMMISSION" ? "text-success" : "text-foreground",
+                  )}
+                >
+                  {entry.type === "COMMISSION" ? "+" : "−"}
+                  {rupees(entry.amount)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function Stat({
@@ -104,18 +225,23 @@ function Stat({
 export function TeamDeskPage() {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [entries, setEntries] = useState<WalletEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [list, stats] = await Promise.all([
+        const [list, stats, money] = await Promise.all([
           browserApi<{ registrations: Registration[] }>("/api/v1/team/hostels"),
           browserApi<{ summary: Summary }>("/api/v1/team/summary"),
+          browserApi<{ entries: WalletEntry[]; wallet: Wallet }>("/api/v1/team/wallet"),
         ]);
 
         setRegistrations(list.registrations);
         setSummary(stats.summary);
+        setWallet(money.wallet);
+        setEntries(money.entries);
       } finally {
         setLoading(false);
       }
@@ -133,15 +259,20 @@ export function TeamDeskPage() {
             Every hostel you have registered, and what it still owes.
           </p>
         </div>
-        <Link
-          className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
-          href="/team/register"
-        >
-          <Plus className="size-4" /> Register a hostel
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <GetAppDialog />
+          <Link
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
+            href="/team/register"
+          >
+            <Plus className="size-4" /> Register a hostel
+          </Link>
+        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <EarningsRow entries={entries} wallet={wallet} />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
           icon={Building2}
           label="Registered"
@@ -182,7 +313,61 @@ export function TeamDeskPage() {
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* Phones: one card per hostel, the call and the chase up front. */}
+            <ul className="divide-y divide-border md:hidden">
+              {registrations.map((row) => (
+                <li className="space-y-2 p-4" key={row.hostelId}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-foreground">{row.hostelName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.planName || "—"} · {rupees(row.price)}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold",
+                        statusTone(row.subscriptionStatus),
+                      )}
+                    >
+                      {statusLabel(row)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">
+                      Paid <strong className="text-foreground">{rupees(row.paid)}</strong>
+                    </span>
+                    {row.outstanding > 0 ? (
+                      <span className="font-semibold text-warning">
+                        {rupees(row.outstanding)} due
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    {row.ownerPhone ? (
+                      <a
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal"
+                        href={`tel:${row.ownerPhone}`}
+                      >
+                        <Phone className="size-3.5" />
+                        {row.ownerPhone}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No number on file</span>
+                    )}
+                    <Link
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal"
+                      href={`/team/hostels/${row.hostelId}/residents`}
+                    >
+                      <Users className="size-3.5" />
+                      Residents
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
@@ -270,20 +455,10 @@ export function TeamDeskPage() {
                       <span
                         className={cn(
                           "inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold",
-                          row.subscriptionStatus === "ACTIVE"
-                            ? "bg-success/10 text-success"
-                            : row.subscriptionStatus === "PAST_DUE"
-                              ? "bg-warning/10 text-warning"
-                              : "bg-muted text-muted-foreground",
+                          statusTone(row.subscriptionStatus),
                         )}
                       >
-                        {row.subscriptionStatus === "PAST_DUE"
-                          ? row.dueBy
-                            ? `Due ${new Date(row.dueBy).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
-                            : "Past due"
-                          : row.subscriptionStatus === "ACTIVE"
-                            ? "Paid"
-                            : row.subscriptionStatus}
+                        {statusLabel(row)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -302,6 +477,7 @@ export function TeamDeskPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>

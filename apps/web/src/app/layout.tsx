@@ -49,6 +49,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     applicationName: PLATFORM_NAME,
+    // iPhone has no App Store build yet: Add to Home Screen opens the site
+    // full screen, with its own name under the icon.
+    appleWebApp: { capable: true, statusBarStyle: "default", title: PLATFORM_NAME },
     authors: [{ name: PLATFORM_VENDOR, url: PLATFORM_VENDOR_URL }],
     category: "business",
     creator: PLATFORM_VENDOR,

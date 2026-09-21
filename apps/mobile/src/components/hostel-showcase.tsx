@@ -137,7 +137,7 @@ const TYPE_SCALE = {
 } as const;
 
 const IMAGE_RATIO = 0.44;
-const CARD_HEIGHT = 158;
+const CARD_HEIGHT = 172;
 
 export type HostelShowcaseProps = {
   hostels: PublicHostel[];

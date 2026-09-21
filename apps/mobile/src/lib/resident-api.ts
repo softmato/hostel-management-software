@@ -151,7 +151,7 @@ export type ResidentDashboard = {
   nightStatus: NightStatus;
   notices: Pick<
     ResidentNotice,
-    "category" | "content" | "id" | "isUrgent" | "publishedAt" | "title"
+    "category" | "content" | "id" | "isRead" | "isUrgent" | "publishedAt" | "title"
   >[];
   resident: ResidentSummary;
   /**

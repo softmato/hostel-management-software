@@ -172,6 +172,7 @@ export async function getPublicSiteConfig() {
 
   return {
     announcement: config.announcement,
+    apps: config.apps,
     // Page copy for the prose surfaces, read by the website and the phone alike
     // — see `contentSchema` for why it is configuration rather than component
     // constants.

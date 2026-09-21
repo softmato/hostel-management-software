@@ -66,7 +66,7 @@ type XhrOptions = {
   withCredentials?: boolean;
 };
 
-function sendWithProgress(options: XhrOptions) {
+export function sendWithProgress(options: XhrOptions) {
   return new Promise<{ body: string; status: number }>((resolve, reject) => {
     if (options.signal?.aborted) {
       reject(new UploadCanceledError());

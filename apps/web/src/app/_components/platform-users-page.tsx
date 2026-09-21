@@ -1,10 +1,9 @@
 "use client";
+import { downloadCsv } from "@/lib/downloads/downloader";
 
 import {
   Download,
   MoreVertical,
-  Pencil,
-  QrCode,
   ShieldCheck,
   SlidersHorizontal,
   UserPlus,
@@ -219,13 +218,13 @@ export const PlatformUsersPageContent = memo(function PlatformUsersPageContent()
           <PortalPageHeader
             actions={
               <>
-                <RoleButton tone="platform" variant="outline">
-                  <QrCode className="size-3.5" />
-                  Generate Activation Code
-                </RoleButton>
-                <RoleButton tone="platform">
-                  <UserPlus className="size-3.5" />
-                  Add User
+                {/* Residents join through their hostel's activation codes; the
+                    platform adds people by invitation, on the Team screen. */}
+                <RoleButton asChild tone="platform">
+                  <Link href="/platform/team">
+                    <UserPlus className="size-3.5" />
+                    Add User
+                  </Link>
                 </RoleButton>
               </>
             }
@@ -305,7 +304,28 @@ export const PlatformUsersPageContent = memo(function PlatformUsersPageContent()
               <p className="text-[12.5px] font-semibold text-foreground">
                 Total Users: {data?.total ?? 0}
               </p>
-              <RoleButton tone="platform" variant="outline">
+              <RoleButton
+                disabled={filtered.length === 0}
+                onClick={() =>
+                  downloadCsv(
+                    "users",
+                    [
+                      { key: "name", label: "Name" },
+                      { key: "email", label: "Email" },
+                      { key: "phone", label: "Phone" },
+                      { key: "role", label: "Role" },
+                      { key: "status", label: "Status" },
+                      { key: "hostelName", label: "Hostel" },
+                      { key: "activationStatus", label: "Activation" },
+                      { key: "createdAt", label: "Joined" },
+                      { key: "lastLoginAt", label: "Last login" },
+                    ],
+                    filtered,
+                  )
+                }
+                tone="platform"
+                variant="outline"
+              >
                 <Download className="size-3.5" />
                 Export
               </RoleButton>
@@ -687,16 +707,6 @@ export const PlatformUsersPageContent = memo(function PlatformUsersPageContent()
                   </DetailSection>
                 ) : null}
               </div>
-            </div>
-
-            <div className="flex shrink-0 gap-2 border-t border-border/60 p-3">
-              <button
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-[12px] font-semibold text-foreground shadow-sm transition hover:bg-muted"
-                type="button"
-              >
-                <Pencil className="size-3.5" />
-                Edit User
-              </button>
             </div>
           </aside>
         ) : (
