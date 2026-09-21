@@ -241,6 +241,8 @@ export const config = {
      */
     "/team",
     "/team/:path*",
+    /* Every hostel agreement signed — the team's shared sheet. */
+    "/hostel-registration-track-sheet",
     /* The service provider's assigned-jobs list. */
     "/jobs/:path*",
     "/jobs",

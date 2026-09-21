@@ -5,6 +5,7 @@ import {
   GLOBAL_CHANNEL,
   PLATFORM_CHANNEL,
   REALTIME_EVENT,
+  TRACK_SHEET_CHANNEL,
   hostelChannel,
   userChannel,
   type RealtimeTopic,
@@ -50,15 +51,22 @@ export function isRealtimeConfigured() {
   return pusherClient() !== null;
 }
 
-/** Sign a private-channel subscription for an already-authorised subscriber. */
-export function authorizeRealtimeChannel(socketId: string, channel: string) {
+/**
+ * Sign a subscription for an already-authorised subscriber. A presence channel
+ * also carries who they are, which every other member is shown.
+ */
+export function authorizeRealtimeChannel(
+  socketId: string,
+  channel: string,
+  member?: { user_id: string; user_info: Record<string, unknown> },
+) {
   const pusher = pusherClient();
 
   if (!pusher) {
     return null;
   }
 
-  return pusher.authorizeChannel(socketId, channel);
+  return pusher.authorizeChannel(socketId, channel, member);
 }
 
 type BatchEvent = { channel: string; data: unknown; name: string };
@@ -197,4 +205,9 @@ export async function publishResourceChange(input: {
       name: REALTIME_EVENT.RESOURCE_CHANGED,
     })),
   );
+}
+
+/** Tell everyone on the registration track sheet where a viewer is, or that lines were saved. */
+export async function publishTrackSheet(name: string, data: Record<string, unknown>) {
+  await publish([{ channel: TRACK_SHEET_CHANNEL, data, name }]);
 }

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HostelPalika pamphlet outside</title>
+
+
+<link rel="stylesheet" href="fonts.css">
+<script>(()=>{const h=location.hash;if(!h.startsWith("#bleed"))return;const d=document.documentElement;d.classList.add("bleed");const t=/tile=(\d+),(\d+)/.exec(h);if(t)d.style.transform=`translate(-${t[1]}px,-${t[2]}px)`;document.addEventListener("DOMContentLoaded",()=>{const r=document.querySelector(".ridge");if(r)r.setAttribute("viewBox","0 0 203 123")})})()</script>
+
+<link rel="stylesheet" href="style.css">
+<script src="icons.js"></script>
+<style>
+  .sheet { grid-template-columns: 97mm 100mm 100mm; }
+
+  /* Himalaya ground shared by the back and the cover */
+  .ridge { position: absolute; left: 97mm; bottom: 0; width: 200mm; height: 120mm; z-index: 0; }
+  .panel { z-index: 1; }
+
+  /* ---- A: inside flap ---- */
+  .flap { --bg: linear-gradient(180deg, var(--mint-50) 0%, var(--mint-100) 100%); background: var(--bg); }
+  .flap .disc { position: absolute; width: 92mm; height: 92mm; border-radius: 50%; left: 2mm; top: 46mm;
+    background: radial-gradient(circle at 50% 45%, #fff 0%, rgba(255,255,255,.6) 45%, rgba(255,255,255,0) 70%); }
+  .flap .dots { position: absolute; right: 0; top: 0; width: 40mm; height: 40mm; opacity: .5;
+    background-image: radial-gradient(var(--mint-200) .45mm, transparent .5mm); background-size: 3.2mm 3.2mm;
+    -webkit-mask-image: linear-gradient(225deg, #000 20%, transparent 75%); }
+  .gridtiles { position: absolute; left: 8mm; right: 8mm; top: 139mm; display: grid; grid-template-columns: 1fr 1fr; gap: 2.6mm; }
+  .gt { background: #fff; border-radius: 3.2mm; padding: 2.6mm; display: flex; gap: 2.4mm; align-items: center;
+    box-shadow: 0 .6mm 1.6mm rgba(3,40,22,.08); border: .2mm solid var(--line); }
+  .gt .tile { width: 8.5mm; height: 8.5mm; font-size: 4.6mm; border-radius: 2.4mm; }
+  .gt b { font-size: 8pt; font-weight: 700; line-height: 1.22; letter-spacing: -.01em; }
+
+  /* ---- B: back ---- */
+  .steps { position: absolute; left: 9mm; right: 8mm; top: 39mm; }
+  .step { display: flex; gap: 3.2mm; align-items: flex-start; position: relative; padding-bottom: 4.2mm; }
+  .step .n { width: 7.4mm; height: 7.4mm; border-radius: 50%; flex: none; display: grid; place-items: center;
+    background: var(--brand); color: #fff; font-weight: 800; font-size: 9pt; position: relative; z-index: 1;
+    box-shadow: 0 0 0 1.2mm var(--mint-100); }
+  .step:not(:last-child)::after { content: ""; position: absolute; left: 3.55mm; top: 8mm; bottom: .4mm;
+    border-left: .45mm dashed var(--mint-200); }
+  .step b { display: block; font-size: 10pt; font-weight: 700; padding-top: 1.2mm; letter-spacing: -.01em; }
+  .step span { display: block; font-size: 8pt; color: var(--muted); font-weight: 500; margin-top: .5mm; }
+  .qr { position: absolute; left: 9mm; top: 152mm; width: 29mm; padding: 2.6mm; background: #fff; border-radius: 3.4mm;
+    box-shadow: 0 2mm 5mm rgba(0,0,0,.25); }
+  .qr img { width: 100%; }
+  .qr small { display: block; text-align: center; font-size: 5.6pt; font-weight: 800; letter-spacing: .12em; color: var(--brand); margin-top: 1.4mm; }
+  .contact { position: absolute; left: 43mm; right: 6mm; top: 151mm; color: #fff; }
+  .contact .site { font-size: 12.5pt; font-weight: 800; letter-spacing: -.01em; }
+  .contact .lbl { font-size: 5.8pt; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: #9be8bf; }
+  .contact ul { list-style: none; margin-top: 2.6mm; display: grid; gap: 1.9mm; }
+  .contact li { display: flex; align-items: center; gap: 2mm; font-size: 8.4pt; font-weight: 600; }
+  .contact li [data-i] { width: 5.6mm; height: 5.6mm; padding: 1.2mm; border-radius: 50%; background: rgba(255,255,255,.14); color: #bff3d6; flex: none; }
+  .maker { position: absolute; left: 9mm; right: 8mm; top: 188mm; display: flex; align-items: center; gap: 2.6mm; color: rgba(255,255,255,.82); font-size: 6.4pt; font-weight: 600; }
+  .maker .chip { background: #fff; border-radius: 2mm; padding: .8mm 1.6mm; display: flex; align-items: center; }
+  .maker .chip img { height: 8mm; }
+  .maker b { color: #fff; display: block; font-size: 7.4pt; }
+
+  /* ---- C: cover ---- */
+  .cover-pills { position: absolute; left: 9mm; right: 8mm; top: 190mm; display: flex; gap: 2mm; }
+  .cover-pills .pill { font-size: 7pt; color: #fff; padding: 1.5mm 2.8mm 1.5mm 2.2mm; background: rgba(255,255,255,.12); border: .25mm solid rgba(255,255,255,.28); }
+  .cover-pills [data-i] { font-size: 3.6mm; color: #9be8bf; }
+  html.bleed .ridge { bottom: -3mm; width: 203mm; height: 123mm; }
+  html.bleed .flap::before { inset: -3mm 0 -3mm -3mm; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- Himalaya ground (back + cover) -->
+  <svg class="ridge" viewBox="0 0 200 120" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="gBack" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#3fd68a"/><stop offset=".45" stop-color="#12a95d"/><stop offset="1" stop-color="#0a8a4b"/>
+      </linearGradient>
+      <linearGradient id="gFront" x1="0" y1="0" x2=".35" y2="1">
+        <stop offset="0" stop-color="#0c9451"/><stop offset=".38" stop-color="#066436"/><stop offset="1" stop-color="#022a16"/>
+      </linearGradient>
+      <radialGradient id="gGlow" cx=".72" cy=".42" r=".55">
+        <stop offset="0" stop-color="#3fd68a" stop-opacity=".35"/><stop offset="1" stop-color="#3fd68a" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <path d="M0,50 L9,44 L15,47 L27,33 L33,37 L44,28 L52,35 L61,31 L72,40 L83,29 L93,22 L101,25 L112,12 L119,16 L131,2 L138,8 L146,5 L157,17 L166,11 L178,21 L189,13 L200,19 L203,20.5 L203,123 L0,123 Z" fill="url(#gBack)" opacity=".55"/>
+    <g fill="#fff" opacity=".9">
+      <path d="M127.6,5.6 L131,2 L134.4,5.2 L132.6,4.7 L131.2,6.2 L129.6,4.9 Z"/>
+      <path d="M143.2,6.9 L146,5 L149.6,8.8 L147.8,8.1 L146.3,9.3 L144.8,8 Z"/>
+      <path d="M109.2,15 L112,12 L114.8,13.8 L113.4,13.7 L112.1,15.3 L110.7,14.3 Z"/>
+      <path d="M80.4,31.5 L83,29 L86.2,27.4 L85.6,29.3 L84,30.8 L82.3,30.4 Z" opacity=".7"/>
+    </g>
+    <path d="M0,58 L11,53 L19,56 L31,46 L40,51 L51,43 L61,49 L73,44 L84,50 L96,38 L106,31 L114,34 L126,19 L134,24 L145,13 L156,27 L167,22 L179,31 L190,27 L200,31 L203,32.2 L203,123 L0,123 Z" fill="url(#gFront)"/>
+    <g fill="#000" opacity=".13">
+      <path d="M126,19 L134,24 L128,52 Z"/><path d="M145,13 L156,27 L148,58 Z"/>
+      <path d="M96,38 L106,31 L100,60 Z"/><path d="M51,43 L61,49 L54,66 Z"/><path d="M31,46 L40,51 L33,68 Z"/>
+    </g>
+    <rect x="0" y="0" width="203" height="123" fill="url(#gGlow)"/>
+  </svg>
+
+  <!-- A · INSIDE FLAP -->
+  <section class="panel flap">
+    <div class="dots"></div>
+    <div class="abs" style="left:9mm; top:11mm"><span class="eyebrow">For students &amp; parents</span></div>
+    <h2 class="abs h2" style="left:9mm; top:16.5mm">Looking for<br>a hostel?</h2>
+    <p class="abs lead" style="left:9mm; top:36.5mm; width:74mm">Find a safe hostel near your college.</p>
+    <div class="disc"></div>
+    <img class="phone" src="assets/p_feed.png" style="left:11mm; top:58mm; height:64mm">
+    <img class="phone" src="assets/p_route.png" style="left:55mm; top:61mm; height:62mm">
+    <img class="phone" src="assets/p_pubhome.png" style="left:26.5mm; top:49mm; height:84mm; z-index:2">
+    <span class="tag" style="left:8mm; top:54mm; transform:rotate(-7deg)">Community</span>
+    <span class="tag" style="left:38mm; top:45.5mm">Find hostels</span>
+    <span class="tag" style="left:74mm; top:56.5mm; transform:rotate(7deg)">Map</span>
+    <div class="gridtiles">
+      <div class="gt"><span class="tile"><i data-i="map-pin"></i></span><b>Hostels near you on the map</b></div>
+      <div class="gt"><span class="tile"><i data-i="scale"></i></span><b>Compare rent and photos</b></div>
+      <div class="gt"><span class="tile"><i data-i="message-circle"></i></span><b>Talk with other students</b></div>
+      <div class="gt"><span class="tile"><i data-i="phone"></i></span><b>Call or send an enquiry</b></div>
+    </div>
+    <div class="abs" style="left:8mm; right:8mm; top:179.5mm; text-align:center; font-size:7pt; font-weight:600; color:var(--ink-2)">Free to use. Search <b style="color:var(--ink)">HostelPalika</b></div>
+    <div class="abs" style="left:8mm; right:8mm; top:184.5mm; display:flex; justify-content:center; gap:3mm">
+      <span class="play">
+        <svg viewBox="0 0 24 26"><path d="M1 1 L13 13 L1 25 Z" fill="#4285F4"/><path d="M1 1 L17 9.73 L13 13 Z" fill="#34A853"/><path d="M17 9.73 L23 13 L17 16.27 L13 13 Z" fill="#FBBC04"/><path d="M1 25 L13 13 L17 16.27 Z" fill="#EA4335"/></svg>
+        <span><small>GET IT ON</small><b>Google Play</b></span>
+      </span>
+      <span class="play">
+        <svg viewBox="0 0 24 24" fill="#fff"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+        <span><small>Download on the</small><b>App Store</b></span>
+      </span>
+    </div>
+  </section>
+
+  <!-- B · BACK -->
+  <section class="panel back">
+    <div class="abs" style="left:9mm; top:11mm"><span class="eyebrow">Get started</span></div>
+    <h2 class="abs h2" style="left:9mm; top:16.5mm">Start in<br><span class="g">3 easy steps</span></h2>
+    <div class="steps">
+      <div class="step"><span class="n">1</span><div><b>Call us or scan the code</b></div></div>
+      <div class="step"><span class="n">2</span><div><b>Add your rooms and rent</b></div></div>
+      <div class="step"><span class="n">3</span><div><b>Add your residents</b><span>Bills go out every month on their own.</span></div></div>
+    </div>
+    <img class="phone" src="assets/l_transactions.png" style="left:8mm; top:80mm; width:84mm; filter:drop-shadow(0 3mm 3mm rgba(3,40,22,.25))">
+    <div class="abs card pill" style="left:50%; transform:translateX(-50%); top:121mm; padding:1.8mm 3.4mm 1.8mm 2.6mm; font-size:7.4pt; z-index:2">
+      <i data-i="monitor-smartphone" style="font-size:4mm; color:var(--brand)"></i>Works on phone and computer
+    </div>
+
+    <div class="qr"><img src="qr_site.svg" alt=""><small>SCAN ME</small></div>
+    <div class="contact">
+      <div class="lbl">Visit us</div>
+      <div class="site">hostelpalika.com</div>
+      <ul>
+        <li><i data-i="phone"></i>9819748466</li>
+        <li><i data-i="mail"></i>work@softmato.com</li>
+        <li><i data-i="map-pin"></i>Kathmandu, Nepal</li>
+      </ul>
+    </div>
+    <div class="maker">
+      <span class="chip"><img src="assets/softmato.png" alt=""></span>
+      <span>A product of<b>Softmato Technology Pvt. Ltd.</b></span>
+    </div>
+  </section>
+
+  <!-- C · FRONT COVER -->
+  <section class="panel cover">
+    <img class="abs" src="assets/logo_text.png" style="left:9mm; top:11mm; height:8mm">
+    <div class="abs" style="left:9mm; top:20.6mm; font-size:6.6pt; font-weight:600; color:var(--muted); letter-spacing:.02em">The complete management system for a hostel.</div>
+    <div class="abs pill" style="left:9mm; top:30mm; padding:1.3mm 2.8mm 1.3mm 2.2mm; background:var(--mint-100); color:var(--brand-700); font-size:6.8pt">
+      <i data-i="map-pin" style="font-size:3.4mm"></i>Made for hostels in Nepal
+    </div>
+    <h1 class="abs h1" style="left:9mm; top:38.5mm">Run your hostel<br>from <span class="g">your phone.</span></h1>
+    <p class="abs lead" style="left:9mm; top:61mm; width:62mm">Rooms, residents, rent and food.<br>All in one simple app.</p>
+
+    <img class="phone" src="assets/p_warden.png" style="left:39mm; top:74mm; height:106mm; transform:rotate(4deg)">
+
+    <div class="abs card toast" style="left:6mm; top:112mm; width:53mm; z-index:2">
+      <span class="ic" style="background:#fff; box-shadow:inset 0 0 0 .25mm var(--line)"><img src="assets/logo_mark.png" alt=""></span>
+      <div style="flex:1">
+        <div class="meta"><span>HostelPalika</span><span>now</span></div>
+        <b>Payment due soon</b>
+        <p>Your Bhadra 2083 rent is due in 3 days.</p>
+      </div>
+    </div>
+
+    <div class="abs cal" style="left:11mm; top:141mm; z-index:2; transform:rotate(-5deg)">
+      <span class="ring" style="left:6mm"></span><span class="ring" style="right:6mm"></span>
+      <div class="top"><span class="dev">भदौ</span>BHADRA</div>
+      <div class="day">1</div>
+      <div class="yr">2083 BS</div>
+    </div>
+    <div class="abs" style="left:11mm; top:175.5mm; color:#fff; font-size:7pt; font-weight:700; display:flex; align-items:center; gap:1.2mm; z-index:2">
+      <i data-i="circle-check" style="font-size:3.6mm; color:#9be8bf"></i><span style="line-height:1.25">Bills made<br>automatically</span>
+    </div>
+
+    <div class="cover-pills">
+      <span class="pill"><i data-i="calendar-days"></i>Nepali calendar (BS)</span>
+      <span class="pill"><i data-i="wallet"></i>eSewa · Khalti · Bank</span>
+    </div>
+  </section>
+</div>
+</body>
+</html>

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HostelPalika pamphlet inside</title>
+
+
+<link rel="stylesheet" href="fonts.css">
+<script>(()=>{const h=location.hash;if(!h.startsWith("#bleed"))return;const d=document.documentElement;d.classList.add("bleed");const t=/tile=(\d+),(\d+)/.exec(h);if(t)d.style.transform=`translate(-${t[1]}px,-${t[2]}px)`;document.addEventListener("DOMContentLoaded",()=>{const r=document.querySelector(".ridge");if(r)r.setAttribute("viewBox","0 0 203 123")})})()</script>
+
+<link rel="stylesheet" href="style.css">
+<script src="icons.js"></script>
+<style>
+  .sheet { grid-template-columns: 100mm 100mm 97mm; }
+
+  /* painted header block with rounded bottom corners (the app's own accent header) */
+  .block { position: absolute; left: 5mm; right: 5mm; top: 0; border-radius: 0 0 9mm 9mm;
+    background: linear-gradient(180deg, var(--mint-50) 0%, var(--mint-100) 100%); overflow: hidden; }
+  .block .dots { position: absolute; right: 0; top: 0; width: 42mm; height: 42mm; opacity: .55;
+    background-image: radial-gradient(var(--mint-200) .45mm, transparent .5mm); background-size: 3.2mm 3.2mm;
+    -webkit-mask-image: linear-gradient(225deg, #000 20%, transparent 75%); }
+
+  .feats { position: absolute; left: 9mm; right: 8mm; display: grid; gap: 4.4mm; }
+
+  /* ---- money panel ---- */
+  .money { --bg:
+      radial-gradient(60mm 60mm at 88% 6%, rgba(63,214,138,.30), transparent 70%),
+      radial-gradient(70mm 70mm at 0% 100%, rgba(63,214,138,.14), transparent 70%),
+      linear-gradient(168deg, #0c9451 0%, #076d3b 38%, #04411f 78%, #03301a 100%);
+    background: var(--bg); color: #fff; }
+  .money .rings { position: absolute; left: -30mm; top: 20mm; width: 160mm; height: 120mm;
+    background: repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.06) 0 .22mm, transparent .22mm 6.5mm);
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 25%, transparent 62%); }
+  .node { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 1.8mm;
+    background: #fff; color: var(--ink); border-radius: 99mm; padding: 1.3mm 3mm 1.3mm 1.3mm;
+    font-size: 7.6pt; font-weight: 800; white-space: nowrap; box-shadow: 0 2mm 4mm rgba(0,0,0,.22); z-index: 3; }
+  .node [data-i] { width: 6.4mm; height: 6.4mm; padding: 1.35mm; border-radius: 50%; background: var(--brand); color: #fff; }
+  .node em { font-style: normal; position: absolute; top: -1.6mm; left: -1.2mm; width: 4mm; height: 4mm; border-radius: 50%;
+    background: var(--glow); color: var(--brand-900); font-size: 5.6pt; font-weight: 800; display: grid; place-items: center; }
+  .pays { position: absolute; left: 51mm; right: 8mm; top: 150mm; display: grid; grid-template-columns: 1fr 1fr; gap: 1.8mm; }
+  .note { font-size: 7pt; line-height: 1.35; color: rgba(255,255,255,.78); font-weight: 500; }
+
+  /* ---- people panel ---- */
+  .cols { position: absolute; left: 8mm; right: 7mm; top: 123mm; display: grid; grid-template-columns: 1fr 1fr; gap: 3.6mm; }
+  .cols h4 { font-size: 7pt; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--brand);
+    padding-bottom: 1.8mm; margin-bottom: 2.6mm; border-bottom: .3mm solid var(--line); }
+  .li { display: flex; align-items: center; gap: 2mm; font-size: 7.9pt; font-weight: 700; line-height: 1.2; letter-spacing: -.005em; margin-bottom: 2.9mm; }
+  .li [data-i] { width: 6.6mm; height: 6.6mm; padding: 1.4mm; border-radius: 2mm; background: var(--mint-100); color: var(--brand); flex: none; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- C' · OWNERS & WARDENS -->
+  <section class="panel">
+    <div class="block" style="height:116mm"><div class="dots"></div></div>
+    <div class="abs" style="left:11mm; top:11mm"><span class="eyebrow">For owners &amp; wardens</span></div>
+    <h2 class="abs h2" style="left:11mm; top:16.5mm">Your whole hostel<br><span class="g">in one place</span></h2>
+
+    <img class="phone" src="assets/p_rooms.png" style="left:8.5mm; top:52mm; height:66mm; transform:rotate(-7deg)">
+    <img class="phone" src="assets/p_confirm.png" style="left:58mm; top:52mm; height:66mm; transform:rotate(7deg)">
+    <img class="phone" src="assets/p_residents.png" style="left:28mm; top:41mm; height:81mm; z-index:2">
+    <span class="tag" style="left:9mm; top:47mm; transform:rotate(-7deg)">Rooms</span>
+    <span class="tag" style="left:70mm; top:48mm; transform:rotate(7deg)">New resident</span>
+
+    <div class="feats" style="top:129mm">
+      <div class="feat"><span class="tile"><i data-i="bed-double"></i></span><div><b>Rooms and beds</b><span>See which beds are empty.</span></div></div>
+      <div class="feat"><span class="tile"><i data-i="scan-line"></i></span><div><b>Add a resident in minutes</b><span>Scan their card. No paper forms.</span></div></div>
+      <div class="feat"><span class="tile"><i data-i="receipt"></i></span><div><b>Who paid, who did not</b><span>Every month in one list.</span></div></div>
+      <div class="feat"><span class="tile"><i data-i="megaphone"></i></span><div><b>Notices, food and complaints</b><span>Reach every resident at once.</span></div></div>
+    </div>
+
+    <div class="months" style="color:var(--brand)"><span>Baisakh</span><span>Jestha</span><span>Asar</span><span>Shrawan</span></div>
+  </section>
+
+  <!-- B' · RENT & PAYMENTS -->
+  <section class="panel money">
+    <div class="rings"></div>
+    <div class="abs" style="left:9mm; top:11mm"><span class="eyebrow" style="color:#9be8bf">Rent &amp; payments</span></div>
+    <h2 class="abs h2" style="left:9mm; top:16.5mm; color:#fff">Rent bills go out<br><span style="color:#7ef0b4">by themselves</span></h2>
+    <p class="abs lead" style="left:9mm; top:37mm; width:80mm; color:rgba(255,255,255,.82)">Set your rent once.<br>The app does the rest, every month.</p>
+
+    <!-- monthly cycle -->
+    <svg class="abs" viewBox="0 0 64 64" style="left:18mm; top:49mm; width:64mm; height:64mm">
+      <circle cx="32" cy="32" r="24" fill="none" stroke="rgba(255,255,255,.4)" stroke-width=".45" stroke-dasharray="1.4 1.3"/>
+      <defs><marker id="ah" viewBox="0 0 6 6" refX="4" refY="3" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7ef0b4"/></marker></defs>
+      <g fill="none" stroke="#7ef0b4" stroke-width=".6" stroke-linecap="round" marker-end="url(#ah)">
+        <path d="M42.14,10.25 A24 24 0 0 1 53.75,21.86"/>
+        <path d="M53.75,42.14 A24 24 0 0 1 42.14,53.75"/>
+        <path d="M21.86,53.75 A24 24 0 0 1 10.25,42.14"/>
+        <path d="M10.25,21.86 A24 24 0 0 1 21.86,10.25"/>
+      </g>
+    </svg>
+    <div class="abs cal" style="left:40mm; top:67.5mm; width:20mm; z-index:2">
+      <span class="ring" style="left:4.6mm"></span><span class="ring" style="right:4.6mm"></span>
+      <div class="top" style="font-size:5.8pt"><span class="dev">भदौ</span>BHADRA</div>
+      <div class="day" style="font-size:21pt">1</div>
+      <div class="yr" style="font-size:5.8pt">2083 BS</div>
+    </div>
+    <div class="node" style="left:50mm; top:57mm"><em>1</em><i data-i="receipt"></i>Bill made</div>
+    <div class="node" style="left:76mm; top:81mm"><em>2</em><i data-i="bell-ring"></i>Reminder sent</div>
+    <div class="node" style="left:50mm; top:105mm"><em>3</em><i data-i="wallet"></i>Resident pays</div>
+    <div class="node" style="left:24mm; top:81mm"><em>4</em><i data-i="file-check"></i>Receipt ready</div>
+    <div class="abs" style="left:0; right:0; top:113mm; text-align:center; font-size:7pt; font-weight:700; color:#bff3d6; display:flex; justify-content:center; align-items:center; gap:1.4mm">
+      <i data-i="refresh-cw" style="font-size:3.4mm"></i>Repeats every month · All dates in BS
+    </div>
+
+    <img class="phone" src="assets/p_fee.png" style="left:7mm; top:122mm; height:72mm; filter:drop-shadow(0 3mm 5mm rgba(0,0,0,.4))">
+
+    <div class="abs card toast" style="left:51mm; right:6mm; top:123mm">
+      <span class="ic" style="background:var(--mint-100)"><i data-i="bell-ring" style="font-size:4.4mm; color:var(--brand)"></i></span>
+      <div style="flex:1">
+        <div class="meta"><span>HostelPalika</span><span>now</span></div>
+        <b>Payment due soon</b>
+        <p>Your Bhadra 2083 rent is due in 3 days.</p>
+      </div>
+    </div>
+    <p class="abs note" style="left:51mm; right:7mm; top:141.5mm">Reminders go 7 days and 3 days before, and on the day.</p>
+    <div class="pays">
+      <span class="pay"><i style="background:#60bb46">e</i>eSewa</span>
+      <span class="pay"><i style="background:#5c2d91">K</i>Khalti</span>
+      <span class="pay"><i data-i="landmark"></i>Bank</span>
+      <span class="pay"><i data-i="qr-code"></i>QR</span>
+    </div>
+    <div class="abs" style="left:51mm; right:6mm; top:172mm; font-size:7.8pt; font-weight:700; line-height:1.3; display:flex; gap:1.6mm; align-items:flex-start">
+      <i data-i="circle-check" style="font-size:3.8mm; color:#7ef0b4; flex:none; margin-top:.3mm"></i>Money goes straight to your own account.
+    </div>
+
+    <div class="months" style="color:rgba(255,255,255,.7)"><span class="on" style="background:#fff; color:var(--brand-700)">Bhadra</span><span>Ashwin</span><span>Kartik</span><span>Mangsir</span></div>
+  </section>
+
+  <!-- A' · RESIDENTS & PARENTS -->
+  <section class="panel">
+    <div class="block" style="height:111mm"><div class="dots"></div></div>
+    <div class="abs" style="left:11mm; top:11mm"><span class="eyebrow">Residents &amp; parents</span></div>
+    <h2 class="abs h2" style="left:11mm; top:16.5mm">All they need,<br><span class="g">on their phone</span></h2>
+
+    <img class="phone" src="assets/p_id.png" style="left:5mm; top:50mm; height:60mm; transform:rotate(-8deg)">
+    <img class="phone" src="assets/p_resident.png" style="left:22mm; top:42mm; height:72mm; z-index:2">
+    <img class="phone" src="assets/p_guardian.png" style="left:53mm; top:47mm; height:70mm; z-index:3">
+    <span class="tag" style="left:8mm; top:50mm; transform:rotate(-8deg)">ID card</span>
+    <span class="tag" style="left:30mm; top:40mm">Resident</span>
+    <span class="tag" style="left:66mm; top:44mm">Parent</span>
+
+    <div class="cols">
+      <div>
+        <h4>Residents</h4>
+        <div class="li"><i data-i="wallet"></i>Pay rent on the phone</div>
+        <div class="li"><i data-i="utensils"></i>See today's food</div>
+        <div class="li"><i data-i="id-card"></i>Digital ID card</div>
+        <div class="li"><i data-i="siren"></i>Night check-in and SOS</div>
+      </div>
+      <div>
+        <h4>Parents</h4>
+        <div class="li"><i data-i="receipt"></i>See fees and receipts</div>
+        <div class="li"><i data-i="phone"></i>Call the hostel</div>
+        <div class="li"><i data-i="moon-star"></i>Night check-in updates</div>
+        <div class="li"><i data-i="shield-check"></i>See SOS alerts</div>
+      </div>
+    </div>
+    <div class="abs" style="left:8mm; right:7mm; top:178mm; display:flex; gap:2mm; align-items:center; font-size:7.4pt; font-weight:600; color:var(--ink-2)">
+      <i data-i="users" style="font-size:4mm; color:var(--brand)"></i>Everyone gets their own login.
+    </div>
+
+    <div class="months" style="color:var(--brand)"><span>Poush</span><span>Magh</span><span>Falgun</span><span>Chaitra</span></div>
+  </section>
+</div>
+</body>
+</html>

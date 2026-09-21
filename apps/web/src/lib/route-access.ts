@@ -1,3 +1,4 @@
+import { TEAM_ROLES } from "@/lib/permissions";
 import { Role } from "@/lib/roles";
 
 export type ProtectedRouteRule = {
@@ -79,7 +80,17 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
   {
     prefix: "/team",
     refuseTo: "home",
-    roles: [Role.PLATFORM_AGENT, Role.SUPERADMIN],
+    roles: TEAM_ROLES,
+  },
+  /*
+   * The company-wide record of every hostel agreement signed — outside `/team`
+   * only for its URL. Same people, same refusal: an ordinary account is not
+   * told the page exists.
+   */
+  {
+    prefix: "/hostel-registration-track-sheet",
+    refuseTo: "home",
+    roles: TEAM_ROLES,
   },
   {
     prefix: "/hostel-admin",

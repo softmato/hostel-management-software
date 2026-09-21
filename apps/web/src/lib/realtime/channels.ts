@@ -233,6 +233,21 @@ export const PLATFORM_CHANNEL = "private-platform";
 /** Every signed-in account, regardless of role or portal. */
 export const GLOBAL_CHANNEL = "private-global";
 
+/**
+ * The hostel registration track sheet — a Pusher *presence* channel, so every
+ * viewer knows who else has the page open. Deliberately not offered by
+ * `realtimeChannelsFor`: the portal shell subscribes to everything that returns,
+ * and would show every signed-in superadmin as "on the sheet".
+ */
+export const TRACK_SHEET_CHANNEL = "presence-hostel-registration-track-sheet";
+
+export const TRACK_SHEET_EVENT = {
+  /** A viewer moved onto a line, or off every line. Payload: `{ at, line, userId }`. */
+  FOCUS: "track-sheet:focus",
+  /** Lines were saved. Payload: `{ userId }`. */
+  SAVED: "track-sheet:saved",
+} as const;
+
 /** Endpoints to invalidate for a batch of topics, de-duplicated. */
 export function endpointsForTopics(topics: readonly string[]) {
   const endpoints = new Set<string>();

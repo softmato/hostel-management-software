@@ -69,6 +69,8 @@ type MeResponse =
 const DASHBOARD_ROLES = new Set([
   Role.SUPERADMIN,
   Role.PLATFORM_MODERATOR,
+  // The field team — their desk at `/team`.
+  Role.PLATFORM_AGENT,
   Role.HOSTEL_ADMIN,
   Role.WARDEN,
   Role.RESIDENT,

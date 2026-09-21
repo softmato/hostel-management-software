@@ -385,7 +385,8 @@ export function InitialsAvatar({
 
   return (
     <Avatar className={cn(sizeClass, className)} size={size === "sm" ? "sm" : "lg"}>
-      {image ? <AvatarImage alt="" src={image} /> : null}
+      {/* Google-hosted photos refuse requests that carry a referrer. */}
+      {image ? <AvatarImage alt="" referrerPolicy="no-referrer" src={image} /> : null}
       <AvatarFallback
         className={cn(
           "font-bold",

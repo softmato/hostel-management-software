@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Building2, Phone, Plus, Users, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, FileSpreadsheet, Phone, Plus, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -260,6 +260,15 @@ export function TeamDeskPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* Its own tab: the sheet is a full-screen page, kept open beside the desk. */}
+          <a
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
+            href="/hostel-registration-track-sheet"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <FileSpreadsheet className="size-4" /> Hostel sheet
+          </a>
           <GetAppDialog />
           <Link
             className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"

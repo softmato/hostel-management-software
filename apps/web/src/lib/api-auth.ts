@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 
 import { getBearerToken, readAccessTokenCookie, verifyAccessToken } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
-import { HOSTEL_STAFF_ROLES, PLATFORM_ROLES, assertAllowedRole } from "@/lib/permissions";
+import { HOSTEL_STAFF_ROLES, PLATFORM_ROLES, TEAM_ROLES, assertAllowedRole } from "@/lib/permissions";
 import { assertHostelAccess } from "@/lib/tenant";
 import { Role } from "@/lib/roles";
 import { grantingPermissionKeys } from "@/lib/warden-capability";
@@ -246,7 +246,7 @@ export async function requireSuperadminPrincipal(request: NextRequest) {
 export async function requireTeamPrincipal(request: NextRequest) {
   const principal = await requireApiPrincipal(request);
 
-  assertApiRoles(principal, [Role.PLATFORM_AGENT, Role.SUPERADMIN]);
+  assertApiRoles(principal, TEAM_ROLES);
 
   return principal;
 }

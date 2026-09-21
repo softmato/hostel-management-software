@@ -40,6 +40,7 @@ export default function robots(): MetadataRoute.Robots {
           "/guardian$",
           "/team/",
           "/team$",
+          "/hostel-registration-track-sheet",
           "/pay/",
           "/api/",
         ],

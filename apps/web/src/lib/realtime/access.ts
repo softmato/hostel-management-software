@@ -1,8 +1,9 @@
 import type { ApiPrincipal } from "@/lib/api-auth";
-import { PLATFORM_ROLES } from "@/lib/permissions";
+import { PLATFORM_ROLES, TEAM_ROLES } from "@/lib/permissions";
 import {
   GLOBAL_CHANNEL,
   PLATFORM_CHANNEL,
+  TRACK_SHEET_CHANNEL,
   hostelChannel,
   userChannel,
 } from "@/lib/realtime/channels";
@@ -35,5 +36,10 @@ export function realtimeChannelsFor(principal: ApiPrincipal) {
 }
 
 export function canSubscribeToChannel(principal: ApiPrincipal, channel: string) {
+  // Joined only by the track sheet page itself, behind the same roles as its API.
+  if (channel === TRACK_SHEET_CHANNEL) {
+    return TEAM_ROLES.includes(principal.role);
+  }
+
   return realtimeChannelsFor(principal).includes(channel);
 }

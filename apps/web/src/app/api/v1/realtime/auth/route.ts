@@ -2,8 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { requireApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError } from "@/lib/api-response";
+import { connectToDatabase } from "@/lib/db";
 import { canSubscribeToChannel } from "@/lib/realtime/access";
 import { authorizeRealtimeChannel } from "@/lib/realtime/server";
+import { UserModel } from "@hostel/db/models/User";
 
 export const runtime = "nodejs";
 
@@ -34,7 +36,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden channel" }, { status: 403 });
     }
 
-    const auth = authorizeRealtimeChannel(socketId, channel);
+    // A presence channel shows every member who else is there, by name and photo.
+    let member;
+
+    if (channel.startsWith("presence-")) {
+      await connectToDatabase();
+
+      const user = await UserModel.findById(principal.userId)
+        .select("name email image")
+        .lean<{ email?: string; image?: string | null; name?: string } | null>();
+
+      member = {
+        user_id: principal.userId,
+        user_info: {
+          email: user?.email ?? "",
+          image: user?.image ?? null,
+          name: user?.name ?? "Team member",
+        },
+      };
+    }
+
+    const auth = authorizeRealtimeChannel(socketId, channel, member);
 
     if (!auth) {
       return NextResponse.json({ error: "Realtime is not configured" }, { status: 503 });

@@ -65,6 +65,7 @@ export const PDF_LIB_ROUTES = [
   "/api/v1/platform/subscriptions/documents/**",
   "/api/v1/public/hostel-applications/**",
   "/api/v1/public/hostels/**",
+  "/api/v1/public/plan-checkout/**",
   "/api/v1/resident/finance/checkout/**",
   "/api/v1/resident/finance/evidence/**",
   "/api/v1/resident/finance/invoices/**",

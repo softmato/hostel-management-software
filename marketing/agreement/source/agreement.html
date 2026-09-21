@@ -1,0 +1,179 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Hostel Registration &amp; Service Agreement - Softmato</title>
+<style>
+  /* Printed onto letterhead.pdf by build.py — nothing here paints a background. */
+  @page { size: 595.32pt 841.92pt; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --green: #4e8a2e; --ink: #1f2a1b; --soft: #5b6657; --rule: #9aa596; }
+  body { font-family: Calibri, Carlito, "Segoe UI", sans-serif; color: var(--ink); font-size: 8.8pt; line-height: 1.34; }
+  .page { position: relative; width: 595.32pt; height: 841.92pt; padding: 184pt 50pt 0 50pt; page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  /* Keeps text off the letterhead's green swoosh (edge measured from the PDF, +12pt clearance). */
+  .swoosh { float: right; width: 145pt; height: 96pt; margin-right: 0;
+    shape-outside: polygon(4pt 0, 145pt 0, 145pt 96pt, 134pt 88pt, 92pt 64pt, 55pt 40pt, 24pt 16pt); }
+
+  .kicker { font-size: 8pt; font-weight: 700; letter-spacing: .06em; color: var(--green); }
+  h1 { font-size: 15.5pt; line-height: 1.2; color: var(--green); font-weight: 700; margin-top: 2pt; }
+  .sub { font-size: 8.6pt; color: var(--soft); margin-top: 1pt; }
+  .ref { margin-top: 6pt; font-size: 8.9pt; }
+  .ref b { font-weight: 700; }
+  .blank { display: inline-block; border-bottom: .6pt solid var(--rule); height: 9pt; vertical-align: baseline; }
+  .intro { margin-top: 9pt; }
+
+  .sec { clear: both; margin-top: 8pt; }
+  .sec h2 { font-size: 7.8pt; font-weight: 700; letter-spacing: .08em; color: var(--green);
+    border-bottom: .8pt solid var(--green); padding-bottom: 1.5pt; margin-bottom: 2pt; }
+  .rows { display: grid; grid-template-columns: 90pt 1fr 78pt 1.22fr; column-gap: 8pt; }
+  .rows > * { height: 17.5pt; display: flex; align-items: flex-end; padding-bottom: 2pt; }
+  .rows .l { font-weight: 700; }
+  .rows .f { border-bottom: .6pt solid var(--rule); }
+  .rows .wide { grid-column: 2 / 5; }
+  .rows .opts { gap: 7pt; border-bottom: none; white-space: nowrap; }
+  .box { display: inline-block; width: 7.5pt; height: 7.5pt; border: .8pt solid var(--ink); border-radius: 1pt;
+    margin-right: 3pt; vertical-align: -1pt; }
+
+  .clauses { margin-top: 10pt; }
+  .clauses p { text-align: justify; margin-bottom: 3.8pt; }
+  .clauses p b { color: var(--green); font-weight: 700; }
+  .clauses p strong { font-weight: 700; }
+
+  .pagefoot { position: absolute; left: 50pt; right: 50pt; top: 752pt; display: flex; justify-content: space-between;
+    font-size: 8pt; color: var(--soft); }
+
+  /* follows the clauses: a blank gap above the signatures is room to add terms after signing */
+  .sign { margin-top: 50pt; display: grid; grid-template-columns: 1fr 1fr; column-gap: 40pt; }
+  .sign .line { border-top: .8pt solid var(--ink); padding-top: 3pt; }
+  .sign h3 { font-size: 9pt; font-weight: 700; margin-bottom: 1pt; }
+  .sign .r { text-align: center; }
+  .sign div.row { display: flex; gap: 4pt; line-height: 1.55; }
+  .sign div.row span.blank { flex: 1; }
+  .sign .note { font-size: 7.8pt; color: var(--soft); }
+</style>
+</head>
+<body>
+
+<!-- ============================== PAGE 1 ============================== -->
+<section class="page">
+  <div class="swoosh"></div>
+  <div class="kicker">AGREEMENT</div>
+  <h1>Hostel Registration &amp; Service Agreement</h1>
+  <div class="sub">HostelPalika — hostel management software and online listing</div>
+  <div class="ref"><b>Ref. No.:</b> SMT/HP/2026/<span class="blank" style="width:58pt"></span>
+    &nbsp;&nbsp;&nbsp;<b>Date:</b> <span class="blank" style="width:92pt"></span></div>
+  <p class="intro">This Agreement is made between <strong>Softmato Technology Private Limited</strong>, Mid-Baneshwor,
+    Kathmandu, the company that owns and runs HostelPalika (the <strong>“Company”</strong>), and the hostel owner named
+    below (the <strong>“Owner”</strong>), for the hostel named below (the <strong>“Hostel”</strong>).</p>
+
+  <div class="sec">
+    <h2>OWNER</h2>
+    <div class="rows">
+      <span class="l">Full Name:</span><span class="f"></span><span class="l">Citizenship No.:</span><span class="f"></span>
+      <span class="l">Phone:</span><span class="f"></span><span class="l">Email:</span><span class="f"></span>
+      <span class="l">Permanent Address:</span><span class="f"></span><span class="l">PAN No. (if any):</span><span class="f"></span>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>HOSTEL</h2>
+    <div class="rows">
+      <span class="l">Hostel Name:</span><span class="f"></span><span class="l">Hostel Type:</span>
+        <span class="f opts"><span><i class="box"></i>Boys</span><span><i class="box"></i>Girls</span><span><i class="box"></i>Co-living</span></span>
+      <span class="l">Hostel Address:</span><span class="f"></span><span class="l">Total Beds:</span><span class="f"></span>
+      <span class="l">Local Body Reg. No.:</span><span class="f"></span><span class="l">PAN / VAT No.:</span><span class="f"></span>
+      <span class="l">Registered by:</span><span class="f"></span><span class="l">Staff ID No.:</span><span class="f"></span>
+    </div>
+  </div>
+
+  <div class="clauses">
+    <p><b>1. Service.</b> The Company gives the Hostel access to HostelPalika — the web portal and mobile app for rooms,
+      residents, rent and payments, food, attendance, notices and complaints — and a public listing page on
+      hostelpalika.com. The features and limits of the chosen plan (residents, warden and cook logins) are those
+      published on hostelpalika.com on the day of payment.</p>
+    <p><b>2. Plan Period.</b> The plan starts on the day the Hostel goes live on HostelPalika and runs for the chosen billing period, counted in Bikram Sambat months. Each renewal starts a new period at the price
+      published at the time of renewal. A price change never affects a period already paid for.</p>
+    <p><b>3. Fees and Payment.</b> Each period is paid in advance. Each invoice is due by the end of the third (3rd) day after it is
+      issued. The Owner shall pay only
+      to the Company — through the payment link in the invoice email, or the Company’s official QR or bank account — and
+      the Company issues an official receipt for every payment. <strong>The Company is not responsible for money handed to
+      any person without an official Company receipt.</strong> Amounts are in Nepali Rupees; any tax required by law is
+      shown on the invoice.</p>
+    <p><b>4. Reminders and Suspension.</b> The Company sends reminders by email and app notification before and after a
+      due date. If a due stays unpaid, the Company may send a written suspension notice; three (3) days after that notice
+      the Hostel’s access to the portal and app is paused, except the billing page. Paying the balance in full restores
+      access automatically. No data is deleted during a suspension.</p>
+    <p><b>5. Refunds.</b> Plan fees are not refunded once a period has started, including for unused days. A payment made
+      twice or charged in error is refunded in full, and if the Company ends this Agreement without fault of the Owner,
+      the unused full months of a prepaid plan are refunded. Refunds go to the account the payment came from. A payment
+      dispute must be raised within fourteen (14) days of the payment.</p>
+    <p><b>6. Residents’ Money.</b> Rent, deposits and fees that residents pay the Hostel through HostelPalika (eSewa,
+      Khalti, bank or QR) go straight to the Hostel’s own account. The Company does not collect, hold or refund this
+      money. The Hostel sets its own fees and refund rules and is responsible for its own accounts and taxes.</p>
+  </div>
+
+  <div class="pagefoot"><span>Owner’s initials: <span class="blank" style="width:70pt"></span></span><span>Page 1 of 2</span></div>
+</section>
+
+<!-- ============================== PAGE 2 ============================== -->
+<section class="page">
+  <div class="swoosh"></div>
+  <div class="clauses" style="margin-top:0">
+    <p><b>7. Online Bookings.</b> If the Hostel accepts online bookings, the guest pays the booking fee to the Company. The
+      Hostel shall confirm or decline each booking within 24 hours and keep the bed free for the hold period. The part of
+      the fee not refunded to the guest is shared (currently 60% Hostel, 40% Company) and paid to the
+      Hostel’s verified payout account. The fee, hold period, share and refund steps are those published on
+      hostelpalika.com on the day of booking. Repeated missed or cancelled bookings pause bookings for the Hostel.</p>
+    <p><b>8. Owner’s Responsibilities.</b> The Owner shall hold every registration and licence the law requires to run
+      the Hostel; keep the listing true and current (real photos, prices and vacancies); not refuse residents for caste,
+      religion or ethnicity; keep logins private and answer for every action taken from the Hostel’s accounts, including
+      wardens’ and cooks’; and not use the platform unlawfully or for spam.</p>
+    <p><b>9. Resident Data.</b> The Hostel shall collect residents’ and guardians’ details, ID documents and photos with
+      their consent, as required by the Individual Privacy Act, 2075. The Company uses this data only to provide the
+      service, keeps ID documents in private storage, never sells it, and shares it only with the service providers
+      needed to run the platform or when the law requires.</p>
+    <p><b>10. Ownership.</b> The Hostel’s data belongs to the Hostel. On written request made before, or within thirty (30)
+      days after, closing the account, the Company provides a copy of the Hostel’s resident and payment records; after
+      that it may delete the data, except records the law requires it to keep. The HostelPalika software, name and brand
+      belong to the Company.</p>
+    <p><b>11. Service and Support.</b> The Company shall run the platform with reasonable care, fix faults promptly and
+      give support by phone and email. Features may change, but no main feature of a plan is removed during a paid period
+      without notice. The Company is not responsible for failures of internet, power, mobile networks, app stores or
+      payment services.</p>
+    <p><b>12. Liability.</b> The Company is not liable for disputes between the Hostel and its residents, guardians, staff
+      or service providers, or for loss from wrong information the Hostel enters. Its total liability is limited to the
+      plan fees paid in the twelve (12) months before a claim.</p>
+    <p><b>13. Termination.</b> The Owner may end this Agreement by not renewing, or by written notice to
+      work@softmato.com. The Company may suspend or end it by written notice for non-payment, false information, unlawful
+      activity or serious breach. Amounts due remain payable.</p>
+    <p><b>14. Other Terms.</b> Each party shall keep the other’s non-public information confidential. The HostelPalika
+      Terms and Privacy Policy on hostelpalika.com also apply; where they differ, this Agreement prevails. Notices sent to
+      the email addresses in this Agreement are valid. Changes to this Agreement must be in writing and signed by both
+      parties.</p>
+    <p><b>15. Governing Law.</b> This Agreement is governed by the laws of Nepal. Disputes shall first be settled
+      mutually, failing which they shall be resolved under the jurisdiction of Kathmandu.</p>
+    <p><b>16. Declaration.</b> The Owner confirms being above 18 years of age and the owner or authorised operator of the
+      Hostel, that the details given are true, and having read and understood this Agreement and signing it voluntarily.</p>
+  </div>
+
+  <div class="sign">
+    <div class="line">
+      <h3>Owner’s Signature</h3>
+      <div class="row">Name: <span class="blank"></span></div>
+      <div class="row">Date: <span class="blank"></span></div>
+      <div class="note">Hostel stamp (if any)</div>
+    </div>
+    <div class="line r">
+      <h3>For Softmato Technology Private Limited</h3>
+      <div>Jiwan Mijhar (Founder) &nbsp;&amp;&nbsp; Siddhant Yadav (Founder)</div>
+      <div>Signature &amp; Company Stamp &nbsp; Date: <span class="blank" style="width:70pt"></span></div>
+    </div>
+  </div>
+
+  <div class="pagefoot"><span></span><span>Page 2 of 2</span></div>
+</section>
+
+</body>
+</html>

@@ -9,6 +9,12 @@ export const HOSTEL_STAFF_ROLES = [Role.HOSTEL_ADMIN, Role.WARDEN];
 
 export const PLATFORM_ROLES = [Role.SUPERADMIN, Role.PLATFORM_MODERATOR];
 
+/**
+ * The field team's desk and the company-wide sheets it works from: agents, and
+ * the superadmins who invite them. `PLATFORM_MODERATOR` is deliberately absent.
+ */
+export const TEAM_ROLES = [Role.PLATFORM_AGENT, Role.SUPERADMIN];
+
 export const AUTHENTICATED_ROLES = [
   ...PLATFORM_ROLES,
   ...HOSTEL_STAFF_ROLES,

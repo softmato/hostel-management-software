@@ -53,6 +53,11 @@ export const PLATFORM_DOCUMENT_KINDS = [
   "BOOKING_REFUND",
   /** The advice for a hostel's share of a booking fee we sent. `HH-BPO-2083/84-00000011`. */
   "BOOKING_PAYOUT",
+  /**
+   * The reference on an agreement we signed with a hostel. `SMT/HP/2026/007`.
+   * One run for good, not per year, so its `fiscalYear` is always `LIFETIME`.
+   */
+  "HOSTEL_AGREEMENT",
 ] as const;
 
 const platformDocumentSequenceSchema = new Schema(
