@@ -8,13 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
+import { SkeletonCard } from "@/components/ui/skeleton";
 import { StarRating } from "@/components/ui/star-rating";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError, readApiErrorCode } from "@/lib/api-contract";
-import { getResidentProfile, type ResidentProfile } from "@/lib/resident-api";
+import type { ResidentProfile } from "@/lib/resident-api";
+import { residentQuery } from "@/lib/resident-queries";
 import { submitResidentReview } from "@/lib/review-api";
 import {
   canReview,
@@ -60,16 +62,21 @@ import { toastError, toastSuccess } from "@/lib/toast";
  */
 
 export default function ReviewScreen() {
-  const profile = useResource<ResidentProfile>(
-    useCallback(() => getResidentProfile(), []),
-  );
+  const query = residentQuery.profile();
+  const profile = useResource<ResidentProfile>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const header = <AppBar showBack title="Review your hostel" />;
 
   if (profile.loading) {
     return (
       <Screen header={header}>
-        <LoadingState />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={2} />
+        </View>
       </Screen>
     );
   }

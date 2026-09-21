@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -28,11 +28,11 @@ import {
   type SelfReportableStatus,
 } from "@/lib/night-status";
 import {
-  getResidentNightStatus,
   type NightStatus,
   type NightStatusView,
   setResidentNightStatus,
 } from "@/lib/resident-api";
+import { residentQuery } from "@/lib/resident-queries";
 import type { SosAlert } from "@/lib/safety-api";
 import { toastError, toastSuccess } from "@/lib/toast";
 
@@ -78,17 +78,21 @@ export default function NightStatusScreen() {
     says whether staff have closed it — and the row alone can never say, because
     `writeNightStatus` upserts one per resident and expires nothing.
   */
-  const resource = useResource<NightStatusView>(
-    useCallback(() => getResidentNightStatus(), []),
-    { topics: [REALTIME_TOPIC.SAFETY] },
-  );
+  const query = residentQuery.nightStatus();
+  const resource = useResource<NightStatusView>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const header = <AppBar showBack title="Night status" />;
 
   if (resource.loading) {
     return (
       <Screen header={header}>
-        <LoadingState />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={2} />
+        </View>
       </Screen>
     );
   }

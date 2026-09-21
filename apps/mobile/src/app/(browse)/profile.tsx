@@ -18,7 +18,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
 import { useSiteConfig } from "@/hooks/use-site-config";
 import { endSession } from "@/lib/auth-session";
-import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
+import type { ProviderApplication } from "@/lib/provider-api";
+import { providerQuery } from "@/lib/provider-queries";
 import { isApplicationInFlight } from "@/lib/provider-status";
 import { toastInfo } from "@/lib/toast";
 import { setThemePreference } from "@/store/slices/uiSlice";
@@ -82,11 +83,18 @@ export default function BrowseProfileScreen() {
    * also what "never applied" answers. Both mean "draw nothing", so a flaky
    * lookup costs a banner rather than an error on a menu screen.
    */
+  /*
+   * Keyed only when signed in: the `null` a signed-out shell renders is a
+   * placeholder, not an answer, and writing it to the shared entry would hand
+   * the provider card an empty application on the first frame after sign-in.
+   */
+  const query = providerQuery.application();
   const application = useResource<ProviderApplication | null>(
     useCallback(
-      () => (account ? getOwnProvider().catch(() => null) : Promise.resolve(null)),
-      [account],
+      () => (account ? query.load().catch(() => null) : Promise.resolve(null)),
+      [account, query],
     ),
+    { cacheKey: account ? query.key : undefined, topics: query.topics },
   );
 
   const { features, identity, social } = config;

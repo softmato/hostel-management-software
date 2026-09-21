@@ -1,5 +1,4 @@
 import { router } from "expo-router";
-import { useCallback } from "react";
 import { View } from "react-native";
 
 import { PortalBrandHeader } from "@/components/portal-shared";
@@ -9,11 +8,10 @@ import { Screen } from "@/components/ui/screen";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import { listProviderJobs, type ProviderJob } from "@/lib/provider-api";
+import type { ProviderJob } from "@/lib/provider-api";
 import {
   completedJobCount,
   isOpenJob,
@@ -22,6 +20,7 @@ import {
   sortProviderJobs,
   urgentJobCount,
 } from "@/lib/provider-jobs";
+import { providerQuery } from "@/lib/provider-queries";
 
 /**
  * The jobs a hostel assigned to this provider, open work first.
@@ -65,8 +64,10 @@ import {
 export default function ProviderJobsScreen() {
   const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
-  const jobs = useResource<ProviderJob[]>(useCallback(() => listProviderJobs(), []), {
-    topics: [REALTIME_TOPIC.MAINTENANCE],
+  const query = providerQuery.jobs();
+  const jobs = useResource<ProviderJob[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
   });
 
   /*

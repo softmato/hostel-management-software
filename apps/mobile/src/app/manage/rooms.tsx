@@ -14,7 +14,8 @@ import { Chip, StatTile } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
-import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard, SkeletonTiles } from "@/components/ui/skeleton";
+import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
@@ -151,16 +152,23 @@ export default function ManageRoomsScreen() {
   );
   const photos = useMemo(() => hostel.data?.photos ?? [], [hostel.data]);
 
-  const { reload } = hostel;
+  const { refresh, setData } = hostel;
 
   const save = useCallback(
     async (next: RoomConfiguration[], message: string) => {
       setSaving(true);
 
       try {
-        await updateManagedHostel({ roomConfigurations: next });
+        /*
+          `updateManagedHostel` answers with the hostel it just wrote, and this
+          resource *is* that hostel — so the saved room types are on screen with
+          no second round trip behind a refresh spinner. The photo handlers
+          below still re-read, because their endpoints answer with nothing.
+        */
+        const saved = await updateManagedHostel({ roomConfigurations: next });
+
+        setData(() => saved);
         toastSuccess(message);
-        await reload();
 
         return true;
       } catch (error) {
@@ -174,7 +182,7 @@ export default function ManageRoomsScreen() {
         setSaving(false);
       }
     },
-    [reload],
+    [refresh],
   );
 
   const submit = useCallback(async () => {
@@ -342,10 +350,10 @@ export default function ManageRoomsScreen() {
         );
       } finally {
         setUploadingFor("");
-        await reload();
+        await refresh();
       }
     },
-    [reload],
+    [refresh],
   );
 
   /**
@@ -370,7 +378,7 @@ export default function ManageRoomsScreen() {
           try {
             await deleteHostelPhoto(photoId);
             toastSuccess("Photo removed");
-            await reload();
+            await refresh();
           } catch (error) {
             toastError("Could not remove", readApiError(error));
           }
@@ -378,13 +386,16 @@ export default function ManageRoomsScreen() {
         title: "Remove this photo?",
       });
     },
-    [reload],
+    [refresh],
   );
 
   if (hostel.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Rooms" />}>
-        <LoadingState label="Reading your room types" />
+        <View className="gap-4 pt-1">
+          <SkeletonTiles />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

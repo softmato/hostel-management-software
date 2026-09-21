@@ -142,10 +142,17 @@ export default function GuardiansScreen() {
       <PermissionSheet
         link={editing}
         onClose={() => setEditing(null)}
-        onChanged={guardians.refresh}
+        onChanged={(accessId, permissions) =>
+          guardians.setData(
+            (current) =>
+              current?.map((row) =>
+                row.accessId === accessId ? { ...row, permissions } : row,
+              ) ?? current,
+          )
+        }
         onRevoked={() => {
           setEditing(null);
-          void guardians.reload();
+          void guardians.refresh();
         }}
       />
     </Screen>
@@ -215,7 +222,8 @@ function PermissionSheet({
   onRevoked,
 }: {
   link: GuardianLink | null;
-  onChanged: () => void;
+  /** The server's settled permissions, for the row this sheet is editing. */
+  onChanged: (accessId: string, permissions: GuardianPermissions) => void;
   onClose: () => void;
   onRevoked: () => void;
 }) {
@@ -251,9 +259,10 @@ function PermissionSheet({
       try {
         const stored = await updateGuardianPermissions(accessId, { [key]: next });
 
-        // Settle on the server's answer, not ours.
+        // Settle on the server's answer, not ours — and hand the list the same
+        // answer, so the row behind this sheet moves without re-reading it.
         setDraft({ accessId, permissions: stored });
-        onChanged();
+        onChanged(accessId, stored);
       } catch (caught) {
         setDraft({ accessId, permissions });
         toastError("That did not save", readApiError(caught));

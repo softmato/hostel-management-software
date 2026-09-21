@@ -15,7 +15,8 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
@@ -275,7 +276,10 @@ export default function ManageRatesScreen() {
   if (schedules.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Rates" />}>
-        <LoadingState label="Reading your rates" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

@@ -11,7 +11,8 @@ import { Chip } from "@/components/ui/layout";
 import { ListRow } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { Sheet } from "@/components/ui/sheet";
-import { ErrorState, LoadingState, PermissionCard } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useResource } from "@/hooks/use-resource";
 import { saveFoodRoutine } from "@/lib/admin-manage-api";
@@ -185,7 +186,7 @@ export default function ManageFoodScreen() {
 
       toastSuccess("Menu saved", "Residents and the cook see it immediately.");
       setDraft(null);
-      await food.reload();
+      await food.refresh();
     } catch (error) {
       toastError("Could not save", readApiError(error, "The menu did not save."));
     } finally {
@@ -196,7 +197,10 @@ export default function ManageFoodScreen() {
   if (food.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Food" />}>
-        <LoadingState label="Reading this week's menu" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

@@ -12,7 +12,12 @@ import { Screen } from "@/components/ui/screen";
 import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
-import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
+import {
+  Skeleton,
+  SkeletonRows,
+  SkeletonTiles,
+} from "@/components/ui/skeleton";
+import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -93,7 +98,7 @@ export default function ManageReferralsScreen() {
   const summary = referrals.data?.summary ?? null;
   const leaders = referrals.data?.topReferrers ?? [];
 
-  const { reload } = referrals;
+  const { refresh } = referrals;
 
   const openReferral = useCallback((referral: ManagedReferral) => {
     setOpen(referral);
@@ -118,13 +123,13 @@ export default function ManageReferralsScreen() {
       });
       toastSuccess("Confirmed", "The reward is now recorded against the referrer.");
       setOpen(null);
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not confirm", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [amount, notes, open, reload, rewardType]);
+  }, [amount, notes, open, refresh, rewardType]);
 
   const saveReward = useCallback(async () => {
     if (!open) {
@@ -144,18 +149,22 @@ export default function ManageReferralsScreen() {
         rewardStatus === "PAID" ? "Marked paid" : `Reward ${humanizeEnum(rewardStatus).toLowerCase()}`,
       );
       setOpen(null);
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not save", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [amount, notes, open, reload, rewardStatus, rewardType]);
+  }, [amount, notes, open, refresh, rewardStatus, rewardType]);
 
   if (referrals.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Referrals" />}>
-        <LoadingState label="Reading who brought whom" />
+        <View className="gap-4 pt-1">
+          <SkeletonTiles />
+          <Skeleton height={40} radius={20} />
+          <SkeletonRows rows={3} />
+        </View>
       </Screen>
     );
   }

@@ -15,7 +15,8 @@ import { Chip, FactRow } from "@/components/ui/layout";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { WalletMark } from "@/components/ui/wallet-mark";
 import { useAppSelector } from "@/hooks/redux";
@@ -25,7 +26,6 @@ import { useResource } from "@/hooks/use-resource";
 import {
   createResident,
   getIntakeQuote,
-  getManagedHostel,
   type IntakeQuote,
   lookupResidentProfile,
   type ManagedHostel,
@@ -36,6 +36,7 @@ import {
   type ResidentPrefillPhoto,
   type ResidentType,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { residentCardPhotoSource } from "@/lib/admin-scan-api";
 import { type CardBooking, findCardBooking } from "@/lib/admin-bookings-api";
 import { readApiError, readApiErrorCode } from "@/lib/api-contract";
@@ -133,7 +134,11 @@ type Identity =
   | { kind: "manual" };
 
 export default function NewResidentScreen() {
-  const hostel = useResource<ManagedHostel>(useCallback(() => getManagedHostel(), []));
+  const query = adminQuery.managedHostel();
+  const hostel = useResource<ManagedHostel>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [step, setStep] = useState<Step>("identify");
   const [identity, setIdentity] = useState<Identity | null>(null);
@@ -493,7 +498,10 @@ export default function NewResidentScreen() {
   if (hostel.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="New resident" />}>
-        <LoadingState label="Checking which beds are free" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

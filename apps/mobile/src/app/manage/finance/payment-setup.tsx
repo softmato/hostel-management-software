@@ -20,7 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { WalletMark } from "@/components/ui/wallet-mark";
 import { useAppSelector } from "@/hooks/redux";
@@ -112,7 +113,7 @@ export default function ManagePaymentSetupScreen() {
     [seeded],
   );
 
-  const { reload } = resource;
+  const { setData } = resource;
 
   const pickQr = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -140,29 +141,33 @@ export default function ManagePaymentSetupScreen() {
         label: "Payment QR",
       });
 
-      await updatePaymentProfile({ staticQrAssetId: assetId });
+      // The PATCH answers with the profile it wrote, and this resource is that
+      // profile — so the new QR is on screen without asking for it again.
+      const profile = await updatePaymentProfile({ staticQrAssetId: assetId });
+
+      setData(() => profile);
       toastSuccess("QR saved");
-      await reload();
     } catch (error) {
       toastError("That QR did not upload", readApiError(error));
     } finally {
       setQrBusy(null);
     }
-  }, [reload]);
+  }, [setData]);
 
   const removeQr = useCallback(async () => {
     setQrBusy("remove");
 
     try {
-      await updatePaymentProfile({ staticQrAssetId: null });
+      const profile = await updatePaymentProfile({ staticQrAssetId: null });
+
+      setData(() => profile);
       toastSuccess("QR removed");
-      await reload();
     } catch (error) {
       toastError("Could not remove it", readApiError(error));
     } finally {
       setQrBusy(null);
     }
-  }, [reload]);
+  }, [setData]);
 
   const save = useCallback(async () => {
     setBusy(true);
@@ -202,7 +207,10 @@ export default function ManagePaymentSetupScreen() {
   if (resource.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Reading your payment setup" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

@@ -87,6 +87,7 @@ import {
   getMaintenanceSettings,
   getPlanBilling,
   getManagedHostel,
+  getReconciliation,
   getMoveInChecklist,
   getMoveOutChecklist,
   getPaymentProfile,
@@ -124,7 +125,13 @@ import {
   type ResidentGuardian,
   type ResidentLedger,
   type StatementImport,
+  type ReconciliationView,
 } from "@/lib/admin-manage-api";
+import { type ResidentScan, scanResident } from "@/lib/admin-scan-api";
+import {
+  type ExistingResidentsView,
+  getExistingResidents,
+} from "@/lib/existing-residents-api";
 import { nepalPeriodKey } from "@/lib/format";
 import { defineQuery, prefetchQuery, type Query } from "@/lib/query-cache";
 /*
@@ -475,6 +482,28 @@ export const adminQuery = {
       () => getAdminAlerts(),
     ),
 
+  /**
+   * When the night prompt is sent, read by the roll-call screen's own card.
+   *
+   * `admin:settings` carries the same object inside a larger payload, and this
+   * is deliberately its own entry: roll-call needs one field of it and must not
+   * pull the whole settings screen's read to get it.
+   */
+  attendanceSettings: (): AdminQuery<AttendanceSettings> =>
+    define("admin:attendance-settings", [REALTIME_TOPIC.HOSTELS], () =>
+      getAttendanceSettings(),
+    ),
+
+  /** Every resident already living here at the moment this hostel joined. */
+  existingResidents: (): AdminQuery<ExistingResidentsView> =>
+    define("admin:existing-residents", [REALTIME_TOPIC.RESIDENTS], () =>
+      getExistingResidents(),
+    ),
+
+  /** The gateway list behind each provider's setup screen. */
+  gateways: (): AdminQuery<GatewayConfig[]> =>
+    define("admin:gateways", [REALTIME_TOPIC.PAYMENTS], () => listGateways()),
+
   hostel: (): AdminQuery<AdminHostel | null> =>
     define("admin:hostel", [REALTIME_TOPIC.HOSTELS], () =>
       getAdminHostel().catch(() => null),
@@ -627,6 +656,24 @@ export const adminQuery = {
 
   settings: (): AdminQuery<AdminSettingsData> =>
     define("admin:settings", [REALTIME_TOPIC.HOSTELS], loadSettings),
+
+  /**
+   * One import's reconciliation, keyed on the import — the screen scrubs
+   * between them and a shared entry would show another statement's matches.
+   */
+  reconciliation: (statementImportId: string): AdminQuery<ReconciliationView> =>
+    define(`admin:reconciliation:${statementImportId}`, [REALTIME_TOPIC.PAYMENTS], () =>
+      getReconciliation(statementImportId),
+    ),
+
+  /**
+   * What a scanned card says about one resident. Keyed on the resident, and
+   * short-lived by nature — the screen is opened from the camera and left.
+   */
+  residentScan: (residentId: string): AdminQuery<ResidentScan> =>
+    define(`admin:resident-scan:${residentId}`, [REALTIME_TOPIC.RESIDENTS], () =>
+      scanResident(residentId),
+    ),
 
   statementImports: (): AdminQuery<StatementImport[]> =>
     define("admin:statement-imports", [REALTIME_TOPIC.PAYMENTS], () =>

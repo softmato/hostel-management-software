@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
 import { Sheet } from "@/components/ui/sheet";
-import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { useDates } from "@/hooks/use-dates";
@@ -121,7 +122,7 @@ export default function ManageWardensScreen() {
   const [busy, setBusy] = useState(false);
 
   const rows = useMemo(() => wardens.data ?? [], [wardens.data]);
-  const { reload } = wardens;
+  const { refresh } = wardens;
 
   const invite = useCallback(async () => {
     const email = draft.email.trim();
@@ -149,13 +150,13 @@ export default function ManageWardensScreen() {
       toastSuccess("Warden invited", "Their sign-in details have been emailed.");
       setInviting(false);
       setDraft(BLANK_DRAFT);
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not invite", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [draft, reload]);
+  }, [draft, refresh]);
 
   const savePermissions = useCallback(async () => {
     if (!editing) {
@@ -168,13 +169,13 @@ export default function ManageWardensScreen() {
       await updateWarden(editing.id, { permissions });
       toastSuccess("Permissions saved");
       setEditing(null);
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not save", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [editing, permissions, reload]);
+  }, [editing, permissions, refresh]);
 
   const setStatus = useCallback(
     async (warden: ManagedWarden, status: "ACTIVE" | "SUSPENDED") => {
@@ -183,14 +184,14 @@ export default function ManageWardensScreen() {
       try {
         await updateWarden(warden.id, { status });
         toastSuccess(status === "ACTIVE" ? "Reactivated" : "Suspended");
-        await reload();
+        await refresh();
       } catch (error) {
         toastError("Could not change that", readApiError(error));
       } finally {
         setBusy(false);
       }
     },
-    [reload],
+    [refresh],
   );
 
   const remove = useCallback(
@@ -206,7 +207,7 @@ export default function ManageWardensScreen() {
                 try {
                   await removeWarden(warden.id);
                   toastSuccess("Removed");
-                  await reload();
+                  await refresh();
                 } catch (error) {
                   toastError("Could not remove", readApiError(error));
                 }
@@ -218,7 +219,7 @@ export default function ManageWardensScreen() {
         ],
       );
     },
-    [reload],
+    [refresh],
   );
 
   const openPermissions = useCallback((warden: ManagedWarden) => {
@@ -237,7 +238,7 @@ export default function ManageWardensScreen() {
   if (wardens.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Wardens" />}>
-        <LoadingState label="Reading your team" />
+        <SkeletonCard rows={4} />
       </Screen>
     );
   }

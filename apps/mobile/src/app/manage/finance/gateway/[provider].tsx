@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { FactRow } from "@/components/ui/layout";
 import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { WalletMark, walletLabel } from "@/components/ui/wallet-mark";
@@ -20,9 +21,9 @@ import {
   type GatewayConfig,
   GATEWAY_PROVIDERS,
   type GatewayProviderName,
-  listGateways,
   saveGateway,
 } from "@/lib/admin-manage-api";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -63,7 +64,11 @@ export default function ManageGatewayScreen() {
   const [enabledDraft, setEnabledDraft] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const gateways = useResource<GatewayConfig[]>(useCallback(() => listGateways(), []));
+  const query = adminQuery.gateways();
+  const gateways = useResource<GatewayConfig[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const entry = useMemo(
     () => (gateways.data ?? []).find((config) => config.provider === provider) ?? null,
@@ -136,7 +141,10 @@ export default function ManageGatewayScreen() {
   if (gateways.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Reading the setup" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

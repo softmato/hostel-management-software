@@ -12,7 +12,6 @@ import { SkeletonCard, SkeletonTiles } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
@@ -27,9 +26,9 @@ import {
 } from "@/lib/attendance";
 import {
   deleteLocationHistory,
-  getResidentAttendance,
   setLocationConsent,
 } from "@/lib/attendance-api";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -70,10 +69,11 @@ import { toastError, toastSuccess } from "@/lib/toast";
  */
 export default function AttendanceScreen() {
   const dates = useDates();
-  const attendance = useResource<ResidentAttendance>(
-    useCallback(() => getResidentAttendance(), []),
-    { topics: [REALTIME_TOPIC.ATTENDANCE] },
-  );
+  const query = residentQuery.attendance();
+  const attendance = useResource<ResidentAttendance>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const [busy, setBusy] = useState(false);
 
@@ -84,14 +84,22 @@ export default function AttendanceScreen() {
       setBusy(true);
 
       try {
-        await setLocationConsent(granted);
+        const saved = await setLocationConsent(granted);
+
+        /*
+          The switch is the whole answer: the POST confirms the consent it was
+          given, and the day list below it is a record of what was already
+          recorded — turning recording off does not rewrite it.
+        */
+        attendance.setData((current) =>
+          current ? { ...current, consentGranted: saved.granted } : current,
+        );
         toastSuccess(
           granted ? "Location recording is on" : "Location recording is off",
           granted
             ? undefined
             : "Nothing new will be recorded. What is already stored stays until you delete it.",
         );
-        await attendance.reload();
       } catch (caught) {
         toastError("That did not save", readApiError(caught));
       } finally {
@@ -113,7 +121,7 @@ export default function AttendanceScreen() {
               try {
                 await deleteLocationHistory();
                 toastSuccess("Your location history was deleted.");
-                await attendance.reload();
+                await attendance.refresh();
               } catch (caught) {
                 toastError("Could not delete that", readApiError(caught));
               }

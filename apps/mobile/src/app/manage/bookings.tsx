@@ -85,7 +85,7 @@ export default function ManageBookingsScreen() {
     } catch (error) {
       toastError("Not done", readApiError(error, "Try again."));
     } finally {
-      list.reload();
+      list.refresh();
     }
   };
 

@@ -5,14 +5,14 @@
 > | Document | Answers |
 > |---|---|
 > | [`docs/FINANCE_CURRENT_STATE.md`](FINANCE_CURRENT_STATE.md) | What exists today, verified from code. |
-> | [`finance_update.md`](../finance_update.md) (repo root) | What to build and why. Source of truth for behaviour and data shape. |
+> | [`FINANCE_TARGET_DESIGN.md`](./FINANCE_TARGET_DESIGN.md) | What to build and why. Source of truth for behaviour and data shape. |
 > | **This document** | How to build it *in this codebase*: file paths, sequencing, migrations, tests, rollback, and the deltas the target doc could not know about. |
 >
 > **This file is also the progress tracker.** §6 is a checklist. Each item is ticked
 > `☐ → ☑` here, in place, only after its code is written *and* its acceptance
 > statement is verified. See "How to work this plan" at the head of §6.
 >
-> Section references written `target §N` point at `finance_update.md`; `current §N`
+> Section references written `target §N` point at `FINANCE_TARGET_DESIGN.md`; `current §N`
 > point at `FINANCE_CURRENT_STATE.md`; unprefixed `§N` are within this document.
 >
 > **One-line summary:** eight blocks, expand → migrate → contract, every block
@@ -239,7 +239,7 @@ there.
 
 ## 3. Deviations from the target doc — all decided
 
-`finance_update.md` declares itself the source of truth for data shape. These four
+`FINANCE_TARGET_DESIGN.md` declares itself the source of truth for data shape. These four
 points needed a ruling. **All four are settled; no item below blocks any block.**
 
 ### 3.1 Money representation ☑ *decided: keep whole NPR rupees, as the target doc specifies*
@@ -3021,5 +3021,5 @@ downstream possible. That is a coherent release on its own.
 ---
 
 *Written 2026-08-06. Companion to `FINANCE_CURRENT_STATE.md` (what is) and
-`finance_update.md` (what should be). Codebase deltas in §1 were verified by reading
+`FINANCE_TARGET_DESIGN.md` (what should be). Codebase deltas in §1 were verified by reading
 the cited files on branch `main`; nothing in §1 is inferred from documentation.*

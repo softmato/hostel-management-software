@@ -25,7 +25,6 @@ import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
 import {
-  getFinanceView,
   receiptPdfUrl,
   type ResidentClaim,
   type ResidentFinanceView,
@@ -33,6 +32,7 @@ import {
 } from "@/lib/finance-api";
 import { formatMoney, humanizeEnum } from "@/lib/format";
 import { invoiceLedger, oneOffLabel, outstanding } from "@/lib/invoice-ledger";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastError } from "@/lib/toast";
 
 /**
@@ -100,9 +100,11 @@ const STRADDLE = 26;
 
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const finance = useResource<ResidentFinanceView>(
-    useCallback(() => getFinanceView(), []),
-  );
+  const query = residentQuery.finance();
+  const finance = useResource<ResidentFinanceView>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const invoice = finance.data?.invoices.find((row) => row.id === id) ?? null;
 

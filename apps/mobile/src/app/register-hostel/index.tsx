@@ -57,6 +57,9 @@ export default function RegisterHostelScreen() {
         account ? listOwnHostelApplications().catch(() => []) : Promise.resolve([]),
       [account],
     ),
+    // Keyed only when signed in — the empty array a signed-out shell renders is
+    // a placeholder, not this account's answer.
+    { cacheKey: account ? "account:hostel-applications" : undefined },
   );
 
   const latest = applications.data?.[0] ?? null;

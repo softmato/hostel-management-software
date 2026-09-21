@@ -14,7 +14,8 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Lottie } from "@/components/ui/lottie";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -25,7 +26,6 @@ import { saveDataUrlToDevice, saveToDevice } from "@/lib/documents";
 import { buildIdCard, hasIdCard, idCardNoun } from "@/lib/id-card";
 import {
   clearIdentityPhoto,
-  getIdentity,
   getIdentityQr,
   type Identity,
   type IdentityQr,
@@ -34,6 +34,7 @@ import {
   setIdentityPhoto,
   setIdentitySharing,
 } from "@/lib/identity-api";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
 
@@ -63,14 +64,21 @@ import { uploadAsset } from "@/lib/uploads";
  */
 
 export default function IdCardScreen() {
-  const identity = useResource<IdentityResponse>(useCallback(() => getIdentity(), []));
+  const identityQuery = residentQuery.identity();
+  const identity = useResource<IdentityResponse>(identityQuery.load, {
+    cacheKey: identityQuery.key,
+    topics: identityQuery.topics,
+  });
 
   const header = <AppBar showBack title="Digital ID" />;
 
   if (identity.loading) {
     return (
       <Screen header={header}>
-        <LoadingState />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonRows rows={3} />
+        </View>
       </Screen>
     );
   }
@@ -152,7 +160,9 @@ function IdCardDetail({
    * `RESIDENT_PROFILE_MISSING` until a profile exists, so it must not be fetched
    * beside the identity on a screen that may have neither.
    */
-  const qr = useResource<IdentityQr>(useCallback(() => getIdentityQr(), []));
+  const qr = useResource<IdentityQr>(useCallback(() => getIdentityQr(), []), {
+    cacheKey: "resident:identity-qr",
+  });
 
   const [face, setFace] = useState<"back" | "front">("front");
   /*

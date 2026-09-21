@@ -29,9 +29,10 @@ import {
 } from "@/lib/home-sections";
 import { locationLabel } from "@/lib/hostel-display";
 import { absoluteMediaUrl } from "@/lib/media";
-import { listPublicHostels, type PublicHostel } from "@/lib/public-api";
+import type { PublicHostel } from "@/lib/public-api";
+import { publicQuery } from "@/lib/public-queries";
 import type { SavedHostel } from "@/lib/saved-hostels";
-import { getSiteConfig, type MobileSiteConfig } from "@/lib/site-config-api";
+import type { MobileSiteConfig } from "@/lib/site-config-api";
 
 /**
  * The public home — the app's landing page, signed in or out.
@@ -134,9 +135,11 @@ export function PublicHome({ browseHref, insideTabs = false }: PublicHomeProps) 
   const nearby = useNearby({ auto: true });
   const saved = useSavedHostels();
 
-  const hostels = useResource<PublicHostel[]>(
-    useCallback(() => listPublicHostels(), []),
-  );
+  const hostelsQuery = publicQuery.hostels();
+  const hostels = useResource<PublicHostel[]>(hostelsQuery.load, {
+    cacheKey: hostelsQuery.key,
+    topics: hostelsQuery.topics,
+  });
 
   /*
    * Its own request, and a failure here is not an error state. The cities row is
@@ -145,7 +148,11 @@ export function PublicHome({ browseHref, insideTabs = false }: PublicHomeProps) 
    * cities the listings themselves name, which is what this row was before it
    * became configurable.
    */
-  const site = useResource<MobileSiteConfig>(useCallback(() => getSiteConfig(), []));
+  const siteQuery = publicQuery.siteConfig();
+  const site = useResource<MobileSiteConfig>(siteQuery.load, {
+    cacheKey: siteQuery.key,
+    topics: siteQuery.topics,
+  });
 
   // Memoised so the slices below are not recomputed on every keystroke in the
   // search field: `?? []` is a fresh array each render.

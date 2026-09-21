@@ -17,7 +17,8 @@ import {
 import { AppBar } from "@/components/ui/app-bar";
 import { Button } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonText } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useSiteConfig } from "@/hooks/use-site-config";
 import { API_BASE_URL } from "@/lib/api";
@@ -215,7 +216,13 @@ function DocumentBody({
 }) {
   return (
     <>
-        {isEmpty && loading ? <LoadingState /> : null}
+        {isEmpty && loading ? (
+          <View className="gap-6">
+            <SkeletonText lines={4} />
+            <SkeletonText lines={5} />
+            <SkeletonText lines={3} />
+          </View>
+        ) : null}
 
         {isEmpty && !loading && error ? (
           <ErrorState message={error} onRetry={refresh} />

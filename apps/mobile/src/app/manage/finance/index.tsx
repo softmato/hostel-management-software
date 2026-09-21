@@ -13,7 +13,8 @@ import { Chip, FactRow } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState, PermissionCard } from "@/components/ui/states";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { ErrorState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { WalletMark, walletLabel } from "@/components/ui/wallet-mark";
 import { useAppSelector } from "@/hooks/redux";
@@ -163,7 +164,7 @@ export default function ManageFinanceScreen() {
   if (finance.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Finance" />}>
-        <LoadingState label="Reading your rates" />
+        <SkeletonRows rows={5} />
       </Screen>
     );
   }

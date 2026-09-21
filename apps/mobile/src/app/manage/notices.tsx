@@ -262,7 +262,7 @@ export default function ManageNoticesScreen() {
     [rows, state],
   );
 
-  const { reload } = notices;
+  const { refresh } = notices;
 
   const submit = useCallback(async () => {
     const title = draft.title.trim();
@@ -316,13 +316,13 @@ export default function ManageNoticesScreen() {
 
       setComposing(false);
       setEditing(null);
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not save", readApiError(error, "The notice did not save."));
     } finally {
       setSaving(false);
     }
-  }, [draft, editing, reload]);
+  }, [draft, editing, refresh]);
 
   const expireNow = useCallback(
     async (notice: ManagedNotice) => {
@@ -337,14 +337,14 @@ export default function ManageNoticesScreen() {
         });
         toastSuccess("Expired", "It no longer shows on anyone's notice board.");
         setEditing(null);
-        await reload();
+        await refresh();
       } catch (error) {
         toastError("Could not expire", readApiError(error));
       } finally {
         setExpiring(null);
       }
     },
-    [reload],
+    [refresh],
   );
 
   /*

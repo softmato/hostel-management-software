@@ -15,7 +15,8 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { FactRow } from "@/components/ui/layout";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
@@ -69,7 +70,10 @@ export default function StoreProductScreen() {
   if (resource.loading) {
     return (
       <Screen>
-        <LoadingState label="Loading the product…" />
+        <View className="gap-4">
+          <Skeleton height={260} radius={16} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

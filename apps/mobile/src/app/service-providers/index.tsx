@@ -12,7 +12,8 @@ import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useResource } from "@/hooks/use-resource";
 import { MOCKUPS } from "@/lib/portal-mockups";
-import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
+import type { ProviderApplication } from "@/lib/provider-api";
+import { providerQuery } from "@/lib/provider-queries";
 import { providerStatusPanelFor } from "@/lib/provider-status";
 
 /**
@@ -42,11 +43,13 @@ export default function ServiceProvidersScreen() {
    * normal answer ("never applied"), not an error, and a failed lookup must not
    * strand someone who has never applied: it falls through to the ordinary CTA.
    */
+  const query = providerQuery.application();
   const application = useResource<ProviderApplication | null>(
     useCallback(
-      () => (account ? getOwnProvider().catch(() => null) : Promise.resolve(null)),
-      [account],
+      () => (account ? query.load().catch(() => null) : Promise.resolve(null)),
+      [account, query],
     ),
+    { cacheKey: account ? query.key : undefined, topics: query.topics },
   );
 
   return (

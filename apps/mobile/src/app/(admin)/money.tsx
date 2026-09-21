@@ -407,7 +407,7 @@ export default function AdminMoneyScreen() {
       });
       toastSuccess("Cash recorded", formatMoney(amount));
       setOpen(null);
-      money.reload();
+      money.refresh();
     } catch (error) {
       toastError("Could not record it", readApiError(error));
     } finally {
@@ -434,7 +434,7 @@ export default function AdminMoneyScreen() {
       await voidInvoice(open.payment.id, voidReason.trim());
       toastSuccess("Voided", "The resident has been told, with your reason.");
       setOpen(null);
-      money.reload();
+      money.refresh();
     } catch (error) {
       toastError("Could not void it", readApiError(error));
     } finally {

@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback } from "react";
 import { Linking, Pressable, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
@@ -8,14 +7,15 @@ import { Badge, StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { formatMoney, humanizeEnum } from "@/lib/format";
-import { getResidentProfile, type ResidentProfile } from "@/lib/resident-api";
+import type { ResidentProfile } from "@/lib/resident-api";
+import { residentQuery } from "@/lib/resident-queries";
 
 /**
  * Who the hostel thinks you are.
@@ -42,23 +42,27 @@ import { getResidentProfile, type ResidentProfile } from "@/lib/resident-api";
 
 export default function ProfileScreen() {
   const dates = useDates();
-  const profile = useResource<ResidentProfile>(
-    useCallback(() => getResidentProfile(), []),
-    /*
-     * Read-only to the resident, and therefore only ever changed by somebody
-     * else — the office correcting a phone number, a bed move, a guardian
-     * invitation accepted. Which is exactly the case a live screen is for: the
-     * resident has no action of their own to trigger a refetch with.
-     */
-    { topics: [REALTIME_TOPIC.RESIDENTS, REALTIME_TOPIC.SAFETY] },
-  );
+  /*
+   * Read-only to the resident, and therefore only ever changed by somebody
+   * else — the office correcting a phone number, a bed move, a guardian
+   * invitation accepted. Which is exactly the case a live screen is for: the
+   * resident has no action of their own to trigger a refetch with.
+   */
+  const query = residentQuery.profile();
+  const profile = useResource<ResidentProfile>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const header = <AppBar showBack title="Profile" />;
 
   if (profile.loading) {
     return (
       <Screen header={header}>
-        <LoadingState />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonRows rows={3} />
+        </View>
       </Screen>
     );
   }

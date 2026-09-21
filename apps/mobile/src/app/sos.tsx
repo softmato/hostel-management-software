@@ -10,7 +10,8 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -129,6 +130,27 @@ function AlertRow({ alert }: { alert: SosAlert }) {
   );
 }
 
+/**
+ * The rows these cards load into, without a card around them — the `<Card>` is
+ * already on the screen, and `SkeletonCard` would draw a second border inside
+ * the first.
+ */
+function ContactRowsSkeleton() {
+  return (
+    <View className="gap-3 py-1">
+      {[0, 1, 2].map((row) => (
+        <View className="flex-row items-center gap-3" key={row}>
+          <Skeleton height={36} radius={18} width={36} />
+          <View className="flex-1 gap-1.5">
+            <Skeleton height={12} width="70%" />
+            <Skeleton height={10} width="40%" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function SosScreen() {
   const { colors } = useAppTheme();
   const sos = useSos();
@@ -177,7 +199,7 @@ export default function SosScreen() {
 
           <Card>
             {contacts.loading ? (
-              <LoadingState />
+              <ContactRowsSkeleton />
             ) : contacts.error ? (
               <ErrorState message={contacts.error} onRetry={contacts.reload} />
             ) : rows.length === 0 ? (
@@ -276,7 +298,7 @@ export default function SosScreen() {
 
             <Card>
               {alerts.loading ? (
-                <LoadingState />
+                <ContactRowsSkeleton />
               ) : (
                 history.map((alert, index) => (
                   <View key={alert.id}>

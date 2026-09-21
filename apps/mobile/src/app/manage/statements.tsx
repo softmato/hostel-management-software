@@ -23,7 +23,6 @@ import { useResource } from "@/hooks/use-resource";
 import {
   approveMatchedStatement,
   assignOrphanPayment,
-  getReconciliation,
   importStatement,
   type ReconciliationView,
   type StatementImport,
@@ -288,11 +287,20 @@ export default function ManageStatementsScreen() {
   const [helping, setHelping] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  /*
+   * Unkeyed with nothing open: the `null` is "no statement picked", not an
+   * answer about one, and it must not be written to any import's entry.
+   */
+  const openQuery = openId ? adminQuery.reconciliation(openId) : null;
   const view = useResource<ReconciliationView | null>(
-    useCallback(() => (openId ? getReconciliation(openId) : Promise.resolve(null)), [openId]),
+    useCallback(
+      () => (openQuery ? openQuery.load() : Promise.resolve(null)),
+      [openQuery],
+    ),
+    { cacheKey: openQuery?.key, topics: openQuery?.topics },
   );
 
-  const { reload } = imports;
+  const { refresh } = imports;
 
   const upload = useCallback(
     async (as: StatementProvider) => {
@@ -345,14 +353,14 @@ export default function ManageStatementsScreen() {
           `${result.matchedCount} tied to bills, ${result.orphanCount} need you.`,
         );
         setOpenId(result.statementImportId);
-        await reload();
+        await refresh();
       } catch (error) {
         toastError("Could not read that", readApiError(error, "The file did not import."));
       } finally {
         setUploading(false);
       }
     },
-    [reload],
+    [refresh],
   );
 
   /** Re-pick the same file against the type the server said it looked like. */
@@ -374,14 +382,14 @@ export default function ManageStatementsScreen() {
     try {
       await approveMatchedStatement(openId);
       toastSuccess("Recorded", "Every tied payment is now against its bill.");
-      await view.reload();
-      await reload();
+      await view.refresh();
+      await refresh();
     } catch (error) {
       toastError("Could not record", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [openId, reload, view]);
+  }, [openId, refresh, view]);
 
   const assign = useCallback(
     async (eventId: string, invoiceId: string, name: string) => {
@@ -392,7 +400,7 @@ export default function ManageStatementsScreen() {
         toastSuccess("Assigned", `That payment is now against ${name}'s bill.`);
         setPending(null);
         setChoice(null);
-        await view.reload();
+        await view.refresh();
       } catch (error) {
         toastError("Could not assign", readApiError(error));
       } finally {
@@ -537,8 +545,8 @@ export default function ManageStatementsScreen() {
             action={
               <Button
                 label="Refresh"
-                loading={imports.loading}
-                onPress={() => void imports.reload()}
+                loading={imports.refreshing}
+                onPress={() => void imports.refresh()}
                 size="sm"
                 variant="ghost"
               />

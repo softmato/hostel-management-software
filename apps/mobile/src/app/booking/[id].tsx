@@ -129,7 +129,7 @@ export default function BookingScreen() {
             readApiError(error, "Try again."),
           );
         } finally {
-          booking.reload();
+          booking.refresh();
         }
       },
       title: "Cancel this booking?",

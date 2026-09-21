@@ -31,12 +31,12 @@ import { API_BASE_URL } from "@/lib/api";
 import { readApiError } from "@/lib/api-contract";
 import { planHandoff } from "@/lib/checkout";
 import {
-  getPayInstructions,
   type PayInstructions,
   type PayMethod,
   startCheckout,
 } from "@/lib/finance-api";
 import { formatDueLabel, formatMoney } from "@/lib/format";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastError } from "@/lib/toast";
 import { openPaymentUrl } from "@/lib/wallet";
 
@@ -100,9 +100,11 @@ export default function PayInvoiceScreen() {
   const { colors } = useAppTheme();
 
   const { id } = useLocalSearchParams<{ id: string }>();
-  const instructions = useResource<PayInstructions>(
-    useCallback(() => getPayInstructions(id), [id]),
-  );
+  const query = residentQuery.payInstructions(id);
+  const instructions = useResource<PayInstructions>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   /** Which alternative method's sheet is up, by `methodKey`. */
   const [openMethod, setOpenMethod] = useState<string | null>(null);

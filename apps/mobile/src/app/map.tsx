@@ -29,9 +29,9 @@ import { formatDistance, locationLabel, priceRange, ratingDisplay } from "@/lib/
 import { absoluteMediaUrl } from "@/lib/media";
 import {
   HOSTEL_TYPE_LABELS,
-  listPublicHostels,
   type PublicHostel,
 } from "@/lib/public-api";
+import { publicQuery } from "@/lib/public-queries";
 import {
   fetchRoadRoute,
   type RoadRoute,
@@ -157,9 +157,11 @@ export default function MapScreen() {
   const map = useRef<MapHandle>(null);
   const saved = useSavedHostels();
 
-  const hostels = useResource<PublicHostel[]>(
-    useCallback(() => listPublicHostels(), []),
-  );
+  const hostelsQuery = publicQuery.hostels();
+  const hostels = useResource<PublicHostel[]>(hostelsQuery.load, {
+    cacheKey: hostelsQuery.key,
+    topics: hostelsQuery.topics,
+  });
 
   const nearby = useNearby({ auto: true });
   const me = nearby.coordinates;

@@ -1,9 +1,8 @@
-import { useCallback } from "react";
 
 import { useResource } from "@/hooks/use-resource";
+import { publicQuery } from "@/lib/public-queries";
 import {
   FALLBACK_SITE_CONFIG,
-  getSiteConfig,
   type MobileSiteConfig,
 } from "@/lib/site-config-api";
 
@@ -23,7 +22,11 @@ import {
  * plans are entirely owner-authored and inventing tiers would be fiction.
  */
 export function useSiteConfig() {
-  const resource = useResource<MobileSiteConfig>(useCallback(() => getSiteConfig(), []));
+  const query = publicQuery.siteConfig();
+  const resource = useResource<MobileSiteConfig>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   return {
     config: resource.data ?? FALLBACK_SITE_CONFIG,

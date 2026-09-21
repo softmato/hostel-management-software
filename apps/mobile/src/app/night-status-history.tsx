@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
@@ -8,7 +8,6 @@ import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -17,7 +16,7 @@ import {
   type NightHistoryEntry,
   nightDetail,
 } from "@/lib/night-status-history";
-import { getResidentNightStatusHistory } from "@/lib/resident-api";
+import { residentQuery } from "@/lib/resident-queries";
 
 /**
  * Your own night status, night by night.
@@ -34,10 +33,11 @@ import { getResidentNightStatusHistory } from "@/lib/resident-api";
 export default function NightStatusHistoryScreen() {
   const dates = useDates();
   const calendar = useAppSelector((state) => state.ui.calendarPreference);
-  const history = useResource<NightHistoryEntry[]>(
-    useCallback(() => getResidentNightStatusHistory(), []),
-    { topics: [REALTIME_TOPIC.SAFETY] },
-  );
+  const query = residentQuery.nightStatusHistory();
+  const history = useResource<NightHistoryEntry[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const entries = history.data;
   const months = useMemo(

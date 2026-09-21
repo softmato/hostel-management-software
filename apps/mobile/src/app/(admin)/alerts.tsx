@@ -12,7 +12,8 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
 import { Segmented } from "@/components/ui/segmented";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { type AlertKind, buildAlertFeed } from "@/lib/admin-alerts";
 
@@ -110,7 +111,10 @@ export default function AdminAlertsScreen() {
   if (alerts.loading) {
     return (
       <Screen header={header} insideTabs>
-        <LoadingState label="Checking what needs you" />
+        <View className="gap-3">
+          <Skeleton height={40} radius={20} />
+          <SkeletonRows rows={4} />
+        </View>
       </Screen>
     );
   }

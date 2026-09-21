@@ -7,7 +7,8 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Badge, StatusPill } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
@@ -17,7 +18,6 @@ import { formatMoney, humanizeEnum } from "@/lib/format";
 import {
   type Referral,
   type ResidentReferral,
-  getResidentReferral,
 } from "@/lib/referral-api";
 import {
   buildReferralShare,
@@ -26,6 +26,7 @@ import {
   referralStatusLabel,
   referralTiles,
 } from "@/lib/referrals";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -55,16 +56,21 @@ import { toastError, toastSuccess } from "@/lib/toast";
  */
 
 export default function ReferralsScreen() {
-  const referral = useResource<ResidentReferral>(
-    useCallback(() => getResidentReferral(), []),
-  );
+  const query = residentQuery.referral();
+  const referral = useResource<ResidentReferral>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const header = <AppBar showBack title="Refer a friend" />;
 
   if (referral.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Getting your code" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={2} />
+        </View>
       </Screen>
     );
   }

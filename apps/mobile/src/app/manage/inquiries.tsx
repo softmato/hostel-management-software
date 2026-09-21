@@ -93,7 +93,7 @@ export default function ManageInquiriesScreen() {
   const counts = useMemo(() => inquiryCounts(rows), [rows]);
   const listed = useMemo(() => inquiriesIn(rows, bucket), [bucket, rows]);
 
-  const { reload } = inquiries;
+  const { refresh } = inquiries;
 
   const move = useCallback(
     async (inquiry: ManagedInquiry, status: InquiryStatus) => {
@@ -107,14 +107,14 @@ export default function ManageInquiriesScreen() {
             ? "It has left the new-inquiry count on Home."
             : undefined,
         );
-        await reload();
+        await refresh();
       } catch (error) {
         toastError("Could not update", readApiError(error, "That did not save."));
       } finally {
         setBusyId(null);
       }
     },
-    [reload],
+    [refresh],
   );
 
   const header = <AppBar accent centerTitle showBack title="Leads" />;

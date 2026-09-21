@@ -13,7 +13,8 @@ import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { PaymentMonthStrip } from "@/components/payment-months";
 import { Screen } from "@/components/ui/screen";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
@@ -175,6 +176,26 @@ export default function ManageMonthDiscountsScreen() {
         period,
         reason: reason.trim() || undefined,
       });
+
+      /*
+        Written into `admin:finance` before the back navigation, because the
+        POST answers with the concession it saved. Without it the list this
+        screen returns to shows the old month until its focus revalidate lands,
+        which reads as the save not having taken.
+      */
+      finance.setData((current) =>
+        current
+          ? {
+              ...current,
+              concessions: [
+                saved,
+                ...(current.concessions ?? []).filter(
+                  (entry) => entry._id !== saved._id,
+                ),
+              ],
+            }
+          : current,
+      );
       toastSuccess(
         `${dates.periodMonth(period)} is ${percent}% off`,
         appliedNote(saved.applied, "reduced") ||
@@ -186,7 +207,7 @@ export default function ManageMonthDiscountsScreen() {
     } finally {
       setBusy(null);
     }
-  }, [dates, percentOff, period, reason]);
+  }, [dates, finance, percentOff, period, reason]);
 
   /** Loads a row into the form. The save then replaces that same month. */
   const edit = useCallback((row: RentConcession) => {
@@ -208,11 +229,27 @@ export default function ManageMonthDiscountsScreen() {
 
           try {
             const removed = await deleteRentConcession(row._id);
+
+            /*
+              The DELETE names the row it removed, so the list closes over the
+              gap immediately. `restored` is about bills, which this payload does
+              not carry — it is the toast's business, not the screen's.
+            */
+            finance.setData((current) =>
+              current
+                ? {
+                    ...current,
+                    concessions:
+                      current.concessions?.filter(
+                        (entry) => entry._id !== removed.deletedId,
+                      ) ?? null,
+                  }
+                : current,
+            );
             toastSuccess(
               `${row.label} is back to full rent`,
               appliedNote(removed.restored, "restored") || undefined,
             );
-            await finance.reload();
           } catch (error) {
             toastError("Could not remove it", readApiError(error));
           } finally {
@@ -238,7 +275,10 @@ export default function ManageMonthDiscountsScreen() {
   if (finance.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Reading your discounts" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonRows rows={3} />
+        </View>
       </Screen>
     );
   }

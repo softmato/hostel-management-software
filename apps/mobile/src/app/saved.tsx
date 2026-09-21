@@ -14,7 +14,8 @@ import { useResource } from "@/hooks/use-resource";
 import { useSavedHostels } from "@/hooks/use-saved";
 import { API_BASE_URL } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/media";
-import { listPublicHostels, type PublicHostel } from "@/lib/public-api";
+import type { PublicHostel } from "@/lib/public-api";
+import { publicQuery } from "@/lib/public-queries";
 import type { SavedHostel } from "@/lib/saved-hostels";
 
 /**
@@ -53,9 +54,11 @@ import type { SavedHostel } from "@/lib/saved-hostels";
 export default function SavedHostelsScreen() {
   const { items, remove, sync } = useSavedHostels();
 
-  const hostels = useResource<PublicHostel[]>(
-    useCallback(() => listPublicHostels(), []),
-  );
+  const query = publicQuery.hostels();
+  const hostels = useResource<PublicHostel[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const all = hostels.data;
 

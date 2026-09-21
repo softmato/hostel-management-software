@@ -17,7 +17,8 @@ import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { useResource } from "@/hooks/use-resource";
@@ -163,24 +164,39 @@ export default function ManageSettingsScreen() {
     [hostel],
   );
 
-  const { reload } = settings;
+  const { refresh, setData } = settings;
+
+  /*
+   * Three of the saves on this screen do not re-ask the server afterwards, and
+   * that is not an optimism: `updateManagedHostel`, `updateCommunitySettings`
+   * and `updateAttendanceSettings` each answer with the object they just wrote,
+   * which is the same object `loadSettings` would fetch back. Writing it
+   * straight into the resource is the authoritative value arriving one round
+   * trip earlier — `use-resource`'s `setData` files it to the cache too, so the
+   * next screen reading `admin:settings` gets it as well.
+   *
+   * The photo handlers below still call `refresh()`, because `addHostelPhoto`
+   * and `deleteHostelPhoto` answer with nothing: the gallery is only knowable
+   * by re-reading the hostel.
+   */
 
   const patch = useCallback(
     async (input: Parameters<typeof updateManagedHostel>[0], message: string) => {
       setSaving(true);
 
       try {
-        await updateManagedHostel(input);
+        const hostel = await updateManagedHostel(input);
+
+        setData((current) => (current ? { ...current, hostel } : current));
         toastSuccess(message);
         setPanel(null);
-        await reload();
       } catch (error) {
         toastError("Could not save", readApiError(error, "That did not save."));
       } finally {
         setSaving(false);
       }
     },
-    [reload],
+    [setData],
   );
 
   const openPanel = useCallback(
@@ -313,10 +329,10 @@ export default function ManageSettingsScreen() {
         toastError("Upload failed", readApiError(error));
       } finally {
         setUploading(null);
-        await reload();
+        await refresh();
       }
     },
-    [gallery.length, hostel?.name, reload],
+    [gallery.length, hostel?.name, refresh],
   );
 
   const removePhoto = useCallback(
@@ -328,7 +344,7 @@ export default function ManageSettingsScreen() {
             void (async () => {
               try {
                 await deleteHostelPhoto(photoId);
-                await reload();
+                await refresh();
               } catch (error) {
                 toastError("Could not remove", readApiError(error));
               }
@@ -339,19 +355,20 @@ export default function ManageSettingsScreen() {
         },
       ]);
     },
-    [reload],
+    [refresh],
   );
 
   const saveCommunity = useCallback(
     async (input: Partial<CommunitySettings>) => {
       try {
-        await updateCommunitySettings(input);
-        await reload();
+        const community = await updateCommunitySettings(input);
+
+        setData((current) => (current ? { ...current, community } : current));
       } catch (error) {
         toastError("Could not change that", readApiError(error));
       }
     },
-    [reload],
+    [setData],
   );
 
   const saveAttendance = useCallback(async () => {
@@ -370,16 +387,17 @@ export default function ManageSettingsScreen() {
     setSaving(true);
 
     try {
-      await updateAttendanceSettings(attendanceDraft);
+      const attendance = await updateAttendanceSettings(attendanceDraft);
+
+      setData((current) => (current ? { ...current, attendance } : current));
       toastSuccess("Attendance settings saved");
       setPanel(null);
-      await reload();
     } catch (error) {
       toastError("Could not save", readApiError(error));
     } finally {
       setSaving(false);
     }
-  }, [attendanceDraft, reload]);
+  }, [attendanceDraft, setData]);
 
   const submitChangeRequest = useCallback(async () => {
     const requestedValue = form.requestedValue?.trim() ?? "";
@@ -409,7 +427,10 @@ export default function ManageSettingsScreen() {
   if (settings.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Settings" />}>
-        <LoadingState label="Reading your hostel" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }
@@ -727,7 +748,7 @@ export default function ManageSettingsScreen() {
                   onChange={(enabled) => {
                     setAttendanceDraft({ ...attendance, enabled });
                     void updateAttendanceSettings({ enabled })
-                      .then(() => reload())
+                      .then(() => refresh())
                       .catch((error: unknown) =>
                         toastError("Could not change that", readApiError(error)),
                       );
@@ -767,7 +788,7 @@ export default function ManageSettingsScreen() {
               title="Night status"
             />
             <NightStatusPromptCard
-              onSaved={reload}
+              onSaved={refresh}
               settings={attendance.nightStatus}
             />
           </View>

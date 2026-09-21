@@ -17,6 +17,7 @@ import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
+import { adminQuery } from "@/lib/admin-queries";
 import { readApiError, readApiErrorDetails } from "@/lib/api-contract";
 import { formatDateIn } from "@/lib/calendar";
 import { openConfirm } from "@/lib/confirm";
@@ -29,7 +30,6 @@ import {
   type ExistingResidentsView,
   type ExistingRowField,
   existingResidentsTemplateUrl,
-  getExistingResidents,
   saveExistingResidents,
   uploadExistingResidentsFile,
 } from "@/lib/existing-residents-api";
@@ -112,7 +112,11 @@ const TITLE = "Existing residents";
 
 export default function ExistingResidentsScreen() {
   const { colors } = useAppTheme();
-  const resource = useResource<ExistingResidentsView>(getExistingResidents);
+  const query = adminQuery.existingResidents();
+  const resource = useResource<ExistingResidentsView>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
   const view = resource.data;
   const setData = resource.setData;
   const setView = useCallback(

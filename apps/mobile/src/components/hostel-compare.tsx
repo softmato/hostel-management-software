@@ -8,7 +8,8 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonText, SkeletonTiles } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useResource } from "@/hooks/use-resource";
@@ -18,9 +19,9 @@ import { absoluteMediaUrl } from "@/lib/media";
 import {
   COMPARE_MIN,
   type ComparedHostel,
-  comparePublicHostels,
   HOSTEL_TYPE_LABELS,
 } from "@/lib/public-api";
+import { publicQuery } from "@/lib/public-queries";
 
 /**
  * Two or three hostels, side by side (docs/mockups/mobile/README.md §3).
@@ -74,15 +75,19 @@ export function HostelCompare({
   const { ids } = useLocalSearchParams<{ ids?: string }>();
   const selected = (ids ?? "").split(",").map((id) => id.trim()).filter(Boolean);
 
+  const query = publicQuery.compare(selected);
   const compared = useResource<ComparedHostel[]>(
     useCallback(
-      () =>
-        selected.length >= COMPARE_MIN
-          ? comparePublicHostels(selected)
-          : Promise.resolve([]),
+      () => (selected.length >= COMPARE_MIN ? query.load() : Promise.resolve([])),
       // eslint-disable-next-line react-hooks/exhaustive-deps -- the array identity changes every render; the joined string is the real key
-      [ids],
+      [ids, query],
     ),
+    // Unkeyed below the minimum: the empty array is a placeholder for "pick one
+    // more", not an answer about these hostels.
+    {
+      cacheKey: selected.length >= COMPARE_MIN ? query.key : undefined,
+      topics: query.topics,
+    },
   );
 
   const header = <AppBar showBack={showBack} title="Compare hostels" />;
@@ -111,7 +116,10 @@ export function HostelCompare({
   if (compared.loading) {
     return (
       <Screen header={header} insideTabs={insideTabs}>
-        <LoadingState label="Loading the comparison" />
+        <View className="gap-4 pt-1">
+          <SkeletonTiles columns={2} height={120} />
+          <SkeletonText lines={6} />
+        </View>
       </Screen>
     );
   }

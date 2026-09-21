@@ -24,7 +24,8 @@ import { Screen } from "@/components/ui/screen";
 import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
-import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
@@ -285,7 +286,7 @@ export default function ManageMaintenanceScreen() {
     );
   }, [open, providers]);
 
-  const { reload } = data;
+  const { refresh } = data;
 
   /** What the confirm step is about to commit the hostel to, or null. */
   const quotedCharge = minimumChargeFor(charges, suggestedCategory);
@@ -379,13 +380,13 @@ export default function ManageMaintenanceScreen() {
       setServiceQuery("");
       setVoiceNote(null);
       setProblemMode("speak");
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not raise it", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [draft, reload, suggestedCategory, suggestedPriority, voiceNote]);
+  }, [draft, refresh, suggestedCategory, suggestedPriority, voiceNote]);
 
   const openCharges = useCallback(() => {
     setChargeDraft(
@@ -433,13 +434,13 @@ export default function ManageMaintenanceScreen() {
       await updateMaintenanceSettings(rows as MaintenanceCharge[]);
       toastSuccess("Charges saved", "They show on the confirm step when you raise a job.");
       setChargesOpen(false);
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not save", readApiError(error, "Only the hostel owner may set these."));
     } finally {
       setBusy(false);
     }
-  }, [chargeDraft, reload]);
+  }, [chargeDraft, refresh]);
 
   const applyStatus = useCallback(async () => {
     if (!open) {
@@ -469,13 +470,13 @@ export default function ManageMaintenanceScreen() {
       setStatusNote("");
       setCostNote("");
       setScheduledOn("");
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not update", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [costNote, open, reload, scheduledOn, statusDraft, statusNote]);
+  }, [costNote, open, refresh, scheduledOn, statusDraft, statusNote]);
 
   /*
    * Which provider chip was tapped. Not `busy`: that flag draws the footer's
@@ -499,7 +500,7 @@ export default function ManageMaintenanceScreen() {
           "It is in their job list now, with the voice note if you recorded one.",
         );
         setOpen(null);
-        await reload();
+        await refresh();
       } catch (error) {
         toastError(
           "Could not assign",
@@ -509,7 +510,7 @@ export default function ManageMaintenanceScreen() {
         setAssigning(null);
       }
     },
-    [open, reload],
+    [open, refresh],
   );
 
   const addComment = useCallback(async () => {
@@ -526,13 +527,13 @@ export default function ManageMaintenanceScreen() {
       });
       setComment("");
       toastSuccess(commentInternal ? "Note added" : "Note left for the provider");
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not add that", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [comment, commentInternal, open, reload]);
+  }, [comment, commentInternal, open, refresh]);
 
   const openRequest = useCallback((request: ManagedMaintenanceRequest) => {
     setOpen(request);
@@ -613,7 +614,7 @@ export default function ManageMaintenanceScreen() {
           value={filter}
         />
 
-        {data.loading ? <LoadingState label="Reading the repair queue" /> : null}
+        {data.loading ? <SkeletonRows rows={4} /> : null}
 
         {data.error ? <ErrorState message={data.error} onRetry={data.reload} /> : null}
 

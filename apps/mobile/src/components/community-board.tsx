@@ -25,7 +25,8 @@ import { CommunityPostCard } from "@/components/community-post-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Sheet, SheetRow } from "@/components/ui/sheet";
 import { Screen, useOwnScroll } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonText } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
@@ -58,7 +59,11 @@ import {
   spaceChips,
   usableAvatarUrl,
 } from "@/lib/community";
-import { listNotifications, type NotificationFeed } from "@/lib/notifications-api";
+import {
+  DEFAULT_NOTIFICATION_FILTER,
+  notificationQuery,
+} from "@/lib/notification-queries";
+import type { NotificationFeed } from "@/lib/notifications-api";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
 
@@ -588,7 +593,7 @@ export function CommunityBoard({
   if (firstPage.loading) {
     return (
       <Screen header={appBar} insideTabs={insideTabs}>
-        <LoadingState label="Loading the community" />
+        <FeedSkeleton />
       </Screen>
     );
   }
@@ -661,6 +666,38 @@ export function CommunityBoard({
   );
 }
 
+/**
+ * What the feed loads into: flat posts split by the same hairline, never cards.
+ *
+ * `SkeletonRows` is the wrong shape here for the one reason that matters about a
+ * skeleton — it draws bordered boxes with page showing between them, and this
+ * list has neither. The placeholder has to reflow into the real thing, not into
+ * something a border away from it.
+ */
+function FeedSkeleton() {
+  return (
+    <View>
+      {[0, 1, 2].map((post, index) => (
+        <View key={post}>
+          {index > 0 ? <FeedDivider /> : null}
+
+          <View className="gap-3 py-4">
+            <View className="flex-row items-center gap-3">
+              <Skeleton height={36} radius={18} width={36} />
+              <View className="flex-1 gap-1.5">
+                <Skeleton height={12} width="45%" />
+                <Skeleton height={10} width="25%" />
+              </View>
+            </View>
+
+            <SkeletonText lines={3} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** Posts sit flat on the page, split by a hairline instead of boxed in cards. */
 function FeedDivider() {
   return <View className="h-px bg-border" />;
@@ -689,14 +726,23 @@ function NotificationBell() {
   const { colors } = useAppTheme();
   const account = useAppSelector((state) => state.auth.account);
 
+  /*
+   * The same entry `<NotificationBell>` and `app/notifications.tsx` read — this
+   * used to be its own unkeyed `filter=unread` request, which is the second
+   * request for one answer that `lib/notification-queries.ts` exists to remove.
+   * The count is over the whole mailbox, not over the page, so the `all` payload
+   * carries everything this dot needs.
+   */
+  const query = notificationQuery.feed(DEFAULT_NOTIFICATION_FILTER);
   const feed = useResource<NotificationFeed>(
     useCallback(
       async () =>
         account
-          ? await listNotifications("unread")
+          ? await query.load()
           : { actionCount: 0, notifications: [], unreadCount: 0 },
-      [account],
+      [account, query],
     ),
+    { cacheKey: account ? query.key : undefined, topics: query.topics },
   );
 
   if (!account) {

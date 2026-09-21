@@ -4,7 +4,8 @@ import { View } from "react-native";
 import { CommunityPostCard } from "@/components/community-post-card";
 import { AppBar } from "@/components/ui/app-bar";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { useResource } from "@/hooks/use-resource";
 import type { CommunityPost, CommunitySpaces } from "@/lib/community-api";
 import { communityQuery } from "@/lib/community-queries";
@@ -60,7 +61,7 @@ export default function CommunityPostScreen() {
   if (post.loading) {
     return (
       <Screen header={header}>
-        <LoadingState />
+        <SkeletonCard rows={4} />
       </Screen>
     );
   }

@@ -201,7 +201,7 @@ export default function PushNoticeScreen() {
   const [edited, setEdited] = useState<Draft | null>(null);
   const draft = edited ?? initial;
   const [saving, setSaving] = useState(false);
-  const { reload } = pushes;
+  const { refresh } = pushes;
 
   const patch = useCallback(
     (next: Partial<Draft>) => {
@@ -285,14 +285,14 @@ export default function PushNoticeScreen() {
         );
       }
 
-      await reload();
+      await refresh();
       router.back();
     } catch (error) {
       toastError("Could not save", readApiError(error, "The push notice did not save."));
     } finally {
       setSaving(false);
     }
-  }, [draft, existing, initial, reload]);
+  }, [draft, existing, initial, refresh]);
 
   const sendNow = useCallback(() => {
     if (!existing) {
@@ -306,14 +306,14 @@ export default function PushNoticeScreen() {
         try {
           await sendNoticePushNow(existing.id);
           toastSuccess("Sent", "Residents have been notified.");
-          await reload();
+          await refresh();
         } catch (error) {
           toastError("Could not send", readApiError(error));
         }
       },
       title: "Send it now?",
     });
-  }, [existing, reload]);
+  }, [existing, refresh]);
 
   const remove = useCallback(() => {
     if (!existing) {
@@ -328,7 +328,7 @@ export default function PushNoticeScreen() {
         try {
           await deleteNoticePush(existing.id);
           toastSuccess("Deleted");
-          await reload();
+          await refresh();
           router.back();
         } catch (error) {
           toastError("Could not delete", readApiError(error));
@@ -336,7 +336,7 @@ export default function PushNoticeScreen() {
       },
       title: "Delete this push notice?",
     });
-  }, [existing, reload]);
+  }, [existing, refresh]);
 
   const header = (
     <View className="bg-background">

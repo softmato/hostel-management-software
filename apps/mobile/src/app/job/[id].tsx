@@ -9,20 +9,20 @@ import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { humanizeEnum } from "@/lib/format";
 import {
-  listProviderJobs,
   type ProviderJob,
   type ProviderJobStatus,
   updateProviderJobStatus,
 } from "@/lib/provider-api";
 import { jobActions, jobAddress } from "@/lib/provider-jobs";
+import { providerQuery } from "@/lib/provider-queries";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 /**
@@ -51,8 +51,10 @@ export default function ProviderJobScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const jobId = params.id ?? "";
 
-  const jobs = useResource<ProviderJob[]>(useCallback(() => listProviderJobs(), []), {
-    topics: [REALTIME_TOPIC.MAINTENANCE],
+  const query = providerQuery.jobs();
+  const jobs = useResource<ProviderJob[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
   });
 
   const [busy, setBusy] = useState<ProviderJobStatus | null>(null);
@@ -63,8 +65,20 @@ export default function ProviderJobScreen() {
 
       try {
         await updateProviderJobStatus(jobId, { status });
+
+        /*
+          The PATCH confirms the status it was given, so the pill moves here
+          rather than one round trip later. `status` is the typed argument this
+          call was made with; the response's own `status` is a bare string, and
+          its `completedAt` is not a field `ProviderJob` carries.
+
+          The list is shared with the provider's home tab on `provider:jobs`, so
+          this repaints both — see `lib/provider-queries.ts`.
+        */
+        jobs.setData((current) =>
+          current?.map((job) => (job.id === jobId ? { ...job, status } : job)) ?? current,
+        );
         toastSuccess(status === "COMPLETED" ? "Marked complete" : "Marked contacted");
-        jobs.refresh();
       } catch (caught) {
         toastError("That didn't go through", readApiError(caught));
       } finally {
@@ -79,7 +93,10 @@ export default function ProviderJobScreen() {
   if (jobs.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Loading the job" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

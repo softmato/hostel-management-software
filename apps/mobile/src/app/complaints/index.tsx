@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
 import { AppBar } from "@/components/ui/app-bar";
@@ -8,18 +8,15 @@ import { Badge, StatusPill } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { FloatingButton } from "@/components/ui/floating-button";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { complaintCategoryLabel, complaintStanding } from "@/lib/complaints";
-import {
-  type Complaint,
-  type ComplaintList,
-  getResidentComplaints,
-} from "@/lib/complaints-api";
+import { type Complaint, type ComplaintList } from "@/lib/complaints-api";
+import { residentQuery } from "@/lib/resident-queries";
 
 /**
  * Everything this resident has raised.
@@ -54,10 +51,11 @@ function rank(complaint: Complaint) {
 }
 
 export default function ComplaintsScreen() {
-  const complaints = useResource<ComplaintList>(
-    useCallback(() => getResidentComplaints(), []),
-    { topics: [REALTIME_TOPIC.COMPLAINTS] },
-  );
+  const query = residentQuery.complaints();
+  const complaints = useResource<ComplaintList>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
   const [showClosed, setShowClosed] = useState(true);
 
   const rows = useMemo(() => {
@@ -91,7 +89,7 @@ export default function ComplaintsScreen() {
   if (complaints.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Loading your complaints" />
+        <SkeletonCard rows={4} />
       </Screen>
     );
   }

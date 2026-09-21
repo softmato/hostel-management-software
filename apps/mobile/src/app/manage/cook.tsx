@@ -102,7 +102,7 @@ export default function ManageCookScreen() {
   const cooks = useMemo(() => roster.data?.cooks ?? [], [roster.data]);
   const live = cooks.filter((cook) => cook.status !== "REMOVED");
   const past = cooks.filter((cook) => cook.status === "REMOVED");
-  const { reload } = roster;
+  const { refresh, setData } = roster;
 
   const openAdd = useCallback(() => {
     setMode("CREDENTIAL");
@@ -149,13 +149,13 @@ export default function ManageCookScreen() {
         toastSuccess("Invitation sent", `${trimmedEmail} has seven days to accept.`);
       }
 
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not add that cook", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [email, mode, name, reload]);
+  }, [email, mode, name, refresh]);
 
   const rotate = useCallback(
     (cook: CookAccount) => {
@@ -178,7 +178,18 @@ export default function ManageCookScreen() {
                     });
                   }
 
-                  await reload();
+                  // The rotated cook comes back with the new credentials; the
+                  // roster row is the same object, so no re-read is needed.
+                  setData((current) =>
+                    current
+                      ? {
+                          ...current,
+                          cooks: current.cooks.map((row) =>
+                            row.id === result.cook.id ? result.cook : row,
+                          ),
+                        }
+                      : current,
+                  );
                 } catch (error) {
                   toastError("Could not rotate", readApiError(error));
                 }
@@ -189,7 +200,7 @@ export default function ManageCookScreen() {
         ],
       );
     },
-    [reload],
+    [setData],
   );
 
   const rename = useCallback(async () => {
@@ -200,16 +211,26 @@ export default function ManageCookScreen() {
     setBusy(true);
 
     try {
-      await updateCook(editing.id, { name: editedName.trim() });
+      // The renamed cook comes back from the PATCH, so the row changes under
+      // the sheet as it closes rather than a refresh later.
+      const { cook } = await updateCook(editing.id, { name: editedName.trim() });
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              cooks: current.cooks.map((row) => (row.id === cook.id ? cook : row)),
+            }
+          : current,
+      );
       toastSuccess("Name saved");
       setEditing(null);
-      await reload();
     } catch (error) {
       toastError("Could not save", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [editedName, editing, reload]);
+  }, [editedName, editing, setData]);
 
   const remove = useCallback(
     (cook: CookAccount) => {
@@ -232,7 +253,7 @@ export default function ManageCookScreen() {
                       ? `Their past work now reads “${removed.historicalName}”.`
                       : undefined,
                   );
-                  await reload();
+                  await refresh();
                 } catch (error) {
                   toastError("Could not remove", readApiError(error));
                 }
@@ -244,7 +265,7 @@ export default function ManageCookScreen() {
         ],
       );
     },
-    [reload],
+    [refresh],
   );
 
   const copy = useCallback(async (value: string, what: string) => {

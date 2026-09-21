@@ -1,5 +1,4 @@
 import { router } from "expo-router";
-import { useCallback } from "react";
 import { View } from "react-native";
 
 import { ProviderStatusCard } from "@/components/provider-status-card";
@@ -8,12 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeader } from "@/components/ui/card";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { humanizeEnum } from "@/lib/format";
-import { getOwnProvider, type ProviderApplication } from "@/lib/provider-api";
+import type { ProviderApplication } from "@/lib/provider-api";
+import { providerQuery } from "@/lib/provider-queries";
 import { providerStatusPanel } from "@/lib/provider-status";
 
 /**
@@ -39,16 +40,21 @@ import { providerStatusPanel } from "@/lib/provider-status";
  */
 export default function ProviderCardScreen() {
   const dates = useDates();
-  const provider = useResource<ProviderApplication | null>(
-    useCallback(() => getOwnProvider(), []),
-  );
+  const query = providerQuery.application();
+  const provider = useResource<ProviderApplication | null>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const header = <AppBar title="My card" />;
 
   if (provider.loading) {
     return (
       <Screen header={header} insideTabs>
-        <LoadingState label="Loading your record" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={4} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

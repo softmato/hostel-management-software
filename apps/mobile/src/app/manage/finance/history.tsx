@@ -6,7 +6,8 @@ import { Card } from "@/components/ui/card";
 import { FactRow } from "@/components/ui/layout";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
@@ -62,7 +63,7 @@ export default function ManageRateHistoryScreen() {
   if (schedules.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Reading past rates" />
+        <SkeletonCard rows={4} />
       </Screen>
     );
   }

@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
-import { EmptyCard, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
+import { EmptyCard, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useResource } from "@/hooks/use-resource";
 import {
@@ -167,7 +168,10 @@ export default function AdminCommunityReportsScreen() {
   if (queue.loading) {
     return (
       <Screen header={header} insideTabs>
-        <LoadingState label="Loading reported posts" />
+        <View className="gap-3">
+          <Skeleton height={40} radius={20} />
+          <SkeletonRows rows={3} />
+        </View>
       </Screen>
     );
   }

@@ -27,7 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
 import { Segmented } from "@/components/ui/segmented";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useSiteConfig } from "@/hooks/use-site-config";
@@ -98,7 +99,13 @@ export default function PricingScreen() {
           title={catalog.page.title}
         />
 
-        {loading ? <LoadingState /> : null}
+        {loading ? (
+          <View className="gap-3">
+            <Skeleton height={40} radius={20} />
+            <SkeletonCard rows={3} />
+            <SkeletonCard rows={3} />
+          </View>
+        ) : null}
 
         {!loading && error && empty ? (
           <ErrorState message={error} onRetry={refresh} />

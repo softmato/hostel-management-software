@@ -17,14 +17,12 @@ import { Screen } from "@/components/ui/screen";
 import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState, FailureState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
 import { downloadToDevice } from "@/lib/documents";
 import {
-  getFinanceView,
   receiptPdfUrl,
   type ResidentFinanceView,
   type ResidentInvoice,
@@ -37,6 +35,7 @@ import {
   certifiedReceipts,
   offerProgramStats,
 } from "@/lib/offer-program";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastError } from "@/lib/toast";
 
 /**
@@ -96,10 +95,11 @@ import { toastError } from "@/lib/toast";
 const STRADDLE = 22;
 
 export default function MyOfferProgramScreen() {
-  const finance = useResource<ResidentFinanceView>(
-    useCallback(() => getFinanceView(), []),
-    { topics: [REALTIME_TOPIC.PAYMENTS] },
-  );
+  const query = residentQuery.finance();
+  const finance = useResource<ResidentFinanceView>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const header = <AppBar showBack title="Certified receipts" />;
 

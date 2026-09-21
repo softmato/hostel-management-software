@@ -42,18 +42,24 @@
  */
 
 import { REALTIME_TOPIC } from "@/constants/topics";
-import { getFinanceView, type ResidentFinanceView } from "@/lib/finance-api";
+import type { ResidentAttendance } from "@/lib/attendance";
+import { getResidentAttendance } from "@/lib/attendance-api";
+import { getResidentComplaints, type ComplaintList } from "@/lib/complaints-api";
+import {
+  getFinanceView,
+  getPayInstructions,
+  type PayInstructions,
+  type ResidentFinanceView,
+} from "@/lib/finance-api";
 import { listGuardians } from "@/lib/guardian-access-api";
 import type { GuardianLink } from "@/lib/guardian-access";
-import {
-  defineQuery,
-  prefetchQuery,
-  type Query,
-} from "@/lib/query-cache";
+import { getIdentity, type IdentityResponse } from "@/lib/identity-api";
+import { defineQuery, prefetchQuery, type Query } from "@/lib/query-cache";
 import {
   getResidentDashboard,
   getResidentFood,
   getResidentNightStatus,
+  getResidentNightStatusHistory,
   getResidentNotices,
   getResidentProfile,
   type NightStatusView,
@@ -62,6 +68,8 @@ import {
   type ResidentNoticeList,
   type ResidentProfile,
 } from "@/lib/resident-api";
+import type { NightHistoryEntry } from "@/lib/night-status-history";
+import { getResidentReferral, type ResidentReferral } from "@/lib/referral-api";
 import { getEmergencyContacts, getResidentSosAlerts } from "@/lib/safety-api";
 
 /** A resident-portal question. Shape and reasoning live in `query-cache.ts`. */
@@ -98,6 +106,31 @@ async function loadMore(): Promise<ResidentMore> {
 
 export const residentQuery = {
   /**
+   * Location consent and the attendance history behind it.
+   *
+   * `attendance` rather than `safety`: the pings are published by the
+   * attendance service, and the screen's only other content is the consent
+   * switch, which the resident moves themselves.
+   */
+  attendance: (): ResidentQuery<ResidentAttendance> =>
+    define("resident:attendance", [REALTIME_TOPIC.ATTENDANCE], () =>
+      getResidentAttendance(),
+    ),
+
+  /**
+   * One key for the list and for every complaint opened off it.
+   *
+   * `complaints/[id]` has no endpoint of its own — it finds its row inside this
+   * same payload — so without a shared key opening a complaint re-asked for the
+   * whole list behind a full-screen spinner to render a row the previous screen
+   * already had.
+   */
+  complaints: (): ResidentQuery<ComplaintList> =>
+    define("resident:complaints", [REALTIME_TOPIC.COMPLAINTS], () =>
+      getResidentComplaints(),
+    ),
+
+  /**
    * One payload, five domains — `feeStatus`, `notices`, `complaints`,
    * `foodMenu` and `nightStatus` — so it names all five topics. Each is
    * genuinely published to `private-hostel-<id>`, which a resident's principal
@@ -123,6 +156,10 @@ export const residentQuery = {
    */
   finance: (): ResidentQuery<ResidentFinanceView> =>
     define("resident:finance", [REALTIME_TOPIC.PAYMENTS], () => getFinanceView()),
+
+  /** The ID card, read by both the card and its editor. */
+  identity: (): ResidentQuery<IdentityResponse> =>
+    define("resident:identity", [REALTIME_TOPIC.RESIDENTS], () => getIdentity()),
 
   food: (): ResidentQuery<ResidentFood> =>
     define("resident:food", [REALTIME_TOPIC.FOOD], () => getResidentFood()),
@@ -166,6 +203,38 @@ export const residentQuery = {
    */
   notices: (): ResidentQuery<ResidentNoticeList> =>
     define("resident:notices:1", [REALTIME_TOPIC.NOTICES], () => getResidentNotices()),
+
+  /**
+   * The full night-status view, and the history screen behind it.
+   *
+   * `more` carries a night status too, but only the one field its card draws;
+   * these are the screen's own reads and are keyed separately so that opening
+   * the screen does not overwrite the tab's smaller payload.
+   */
+  nightStatus: (): ResidentQuery<NightStatusView> =>
+    define("resident:night-status", [REALTIME_TOPIC.SAFETY], () =>
+      getResidentNightStatus(),
+    ),
+
+  nightStatusHistory: (): ResidentQuery<NightHistoryEntry[]> =>
+    define("resident:night-history", [REALTIME_TOPIC.SAFETY], () =>
+      getResidentNightStatusHistory(),
+    ),
+
+  /**
+   * How to pay one invoice — read by the pay screen and by the claim form that
+   * prefills its amount from the same answer.
+   *
+   * The invoice is in the key because it changes the answer: a second invoice
+   * sharing this entry would hand the resident another bill's reference code.
+   */
+  payInstructions: (invoiceId: string): ResidentQuery<PayInstructions> =>
+    define(`resident:pay-instructions:${invoiceId}`, [REALTIME_TOPIC.PAYMENTS], () =>
+      getPayInstructions(invoiceId),
+    ),
+
+  referral: (): ResidentQuery<ResidentReferral> =>
+    define("resident:referral", [], () => getResidentReferral()),
 
   profile: (): ResidentQuery<ResidentProfile> =>
     define(

@@ -53,13 +53,13 @@ import {
   useEvidenceReader,
 } from "@/lib/evidence-reader";
 import {
-  getPayInstructions,
   type PayInstructions,
   type PaymentMethod,
   submitClaim,
 } from "@/lib/finance-api";
 import { formatMoney } from "@/lib/format";
 import { formatMegabytes } from "@/lib/public-upload-limits";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastError } from "@/lib/toast";
 import { uploadAsset, type UploadProgress } from "@/lib/uploads";
 
@@ -200,12 +200,13 @@ export default function SubmitClaimScreen() {
   const { colors } = useAppTheme();
   const dates = useDates();
 
-  const instructions = useResource<PayInstructions>(
-    useCallback(() => getPayInstructions(id), [id]),
+  const query = residentQuery.payInstructions(id);
+  const instructions = useResource<PayInstructions>(query.load, {
+    cacheKey: query.key,
     // The amount is prefilled from this, and re-reading it while the resident is
     // mid-form would move the number under their fingers.
-    { refetchOnFocus: false },
-  );
+    refetchOnFocus: false,
+  });
 
   /**
    * Only what the resident has actually typed.

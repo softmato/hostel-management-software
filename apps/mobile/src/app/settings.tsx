@@ -10,7 +10,8 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
@@ -94,6 +95,7 @@ export default function SettingsScreen() {
 
   const deletion = useResource<DeletionStatus>(
     useCallback(() => getDeletionStatus(), []),
+    { cacheKey: "account:deletion-status" },
   );
 
   const openPrivacyPolicy = useCallback(() => {
@@ -194,7 +196,7 @@ export default function SettingsScreen() {
 
         {showPrivacy ? (
           deletion.loading ? (
-            <LoadingState />
+            <SkeletonCard rows={2} />
           ) : deletion.error || !deletion.data ? (
             <ErrorState
               message={deletion.error ?? "Your account settings could not be loaded."}
@@ -253,6 +255,7 @@ export default function SettingsScreen() {
 function NotificationSettings() {
   const resource = useResource<NotificationPreference>(
     useCallback(() => getNotificationPreference(), []),
+    { cacheKey: "account:notification-preference" },
   );
 
   const [saving, setSaving] = useState(false);
@@ -346,7 +349,7 @@ function NotificationSettings() {
     return (
       <View>
         <SectionHeader title="Notifications" />
-        <LoadingState />
+        <SkeletonCard rows={3} />
       </View>
     );
   }

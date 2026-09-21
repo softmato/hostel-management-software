@@ -18,10 +18,7 @@ import { EmptyCard, ErrorState, PermissionCard } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import {
-  type AdminNightStatusRow,
-  overrideNightStatus,
-} from "@/lib/admin-api";
+import { type AdminNightStatusRow, overrideNightStatus } from "@/lib/admin-api";
 import {
   type AdminRollCallData,
   adminQuery,
@@ -30,7 +27,6 @@ import {
 import { readApiError } from "@/lib/api-contract";
 import {
   type AttendanceSettings,
-  getAttendanceSettings,
 } from "@/lib/admin-manage-api";
 import { humanizeEnum } from "@/lib/format";
 import {
@@ -98,9 +94,11 @@ export default function ManageRollCallScreen() {
    * warden notices nobody has answered yet. A failed read (a staff role
    * without settings access) hides the row rather than the board.
    */
-  const promptSettings = useResource<AttendanceSettings>(
-    useCallback(() => getAttendanceSettings(), []),
-  );
+  const promptQuery = adminQuery.attendanceSettings();
+  const promptSettings = useResource<AttendanceSettings>(promptQuery.load, {
+    cacheKey: promptQuery.key,
+    topics: promptQuery.topics,
+  });
   const [editingTime, setEditingTime] = useState(false);
 
   const [segment, setSegment] = useState<RollCallSegment>("unverified");
@@ -330,7 +328,7 @@ export default function ManageRollCallScreen() {
       >
         {promptSettings.data ? (
           <NightStatusPromptCard
-            onSaved={() => void promptSettings.reload()}
+            onSaved={() => void promptSettings.refresh()}
             settings={promptSettings.data.nightStatus}
           />
         ) : null}

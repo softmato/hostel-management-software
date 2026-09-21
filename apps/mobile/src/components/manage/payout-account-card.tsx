@@ -159,7 +159,7 @@ export function PayoutAccountCard() {
           <PayoutAccountFields
             onSaved={() => {
               setEditing(false);
-              account.reload();
+              account.refresh();
             }}
             value={data}
           />

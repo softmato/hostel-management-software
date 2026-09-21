@@ -9,7 +9,8 @@ import { AppBar } from "@/components/ui/app-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useNearby } from "@/hooks/use-nearby";
@@ -24,11 +25,11 @@ import {
   HOSTEL_TYPES,
   type HostelFilters,
   type HostelType,
-  listPublicHostels,
   type PublicHostel,
   ROOM_TYPES,
 } from "@/lib/public-api";
 import { COMPARE_MAX, COMPARE_MIN } from "@/lib/public-api";
+import { publicQuery } from "@/lib/public-queries";
 import { toastInfo } from "@/lib/toast";
 
 /**
@@ -185,9 +186,11 @@ export function HostelBrowser({
   const nearby = useNearby();
   const saved = useSavedHostels();
 
-  const hostels = useResource<PublicHostel[]>(
-    useCallback(() => listPublicHostels(filters), [filters]),
-  );
+  const query = publicQuery.hostels(filters);
+  const hostels = useResource<PublicHostel[]>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
   const activeCount = useMemo(
     () =>
@@ -352,7 +355,10 @@ export function HostelBrowser({
         ) : null}
 
         {hostels.loading ? (
-          <LoadingState label="Finding hostels" />
+          <View className="gap-3">
+            <Skeleton height={250} radius={16} />
+            <Skeleton height={250} radius={16} />
+          </View>
         ) : hostels.error ? (
           <ErrorState message={hostels.error} onRetry={hostels.reload} />
         ) : view === "map" ? (

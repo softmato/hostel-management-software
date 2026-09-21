@@ -530,7 +530,7 @@ export default function CheckoutScreen() {
           setBooking(created);
           router.setParams({ booking: created.id });
         }}
-        onPolicyChanged={quote.reload}
+        onPolicyChanged={quote.refresh}
         quote={data}
       />
     );

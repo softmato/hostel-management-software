@@ -10,10 +10,10 @@ import { Card, SectionHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Screen } from "@/components/ui/screen";
 import { Sheet } from "@/components/ui/sheet";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { VoiceNotePlayer } from "@/components/voice-note-player";
-import { REALTIME_TOPIC } from "@/constants/topics";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
@@ -28,10 +28,11 @@ import {
 } from "@/lib/complaints";
 import {
   type Complaint,
+  type ComplaintList,
   confirmComplaintResolution,
-  getResidentComplaints,
 } from "@/lib/complaints-api";
 import { formatDueLabel } from "@/lib/format";
+import { residentQuery } from "@/lib/resident-queries";
 import { toastSuccess } from "@/lib/toast";
 import { privateAssetSource } from "@/lib/uploads";
 
@@ -54,18 +55,23 @@ import { privateAssetSource } from "@/lib/uploads";
 
 export default function ComplaintDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const complaints = useResource<Complaint[]>(
-    useCallback(async () => (await getResidentComplaints()).complaints, []),
-    { topics: [REALTIME_TOPIC.COMPLAINTS] },
-  );
+  const query = residentQuery.complaints();
+  const complaints = useResource<ComplaintList>(query.load, {
+    cacheKey: query.key,
+    topics: query.topics,
+  });
 
-  const complaint = complaints.data?.find((row) => row.id === id) ?? null;
+  const complaint =
+    complaints.data?.complaints.find((row) => row.id === id) ?? null;
   const header = <AppBar showBack title="Complaint" />;
 
   if (complaints.loading) {
     return (
       <Screen header={header}>
-        <LoadingState />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={2} />
+        </View>
       </Screen>
     );
   }
@@ -95,9 +101,15 @@ export default function ComplaintDetailScreen() {
     <ComplaintDetail
       complaint={complaint}
       onChanged={(next) =>
-        complaints.setData(
-          (current) =>
-            current?.map((row) => (row.id === next.id ? next : row)) ?? current,
+        complaints.setData((current) =>
+          current
+            ? {
+                ...current,
+                complaints: current.complaints.map((row) =>
+                  row.id === next.id ? next : row,
+                ),
+              }
+            : current,
         )
       }
       onRefresh={complaints.refresh}

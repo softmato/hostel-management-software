@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback } from "react";
 import { Linking, Pressable, View } from "react-native";
 
 import { FLOAT_SHADOW, usePortalPaint } from "@/components/portal-shared";
@@ -13,17 +12,18 @@ import { Chip, FactRow, StatTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
+import { adminQuery } from "@/lib/admin-queries";
 import {
   type ResidentScan,
   type ScannedMembership,
   type ScannedProfile,
-  scanResident,
   scannedPhotoSource,
 } from "@/lib/admin-scan-api";
 import {
@@ -88,17 +88,22 @@ export default function ScannedResidentScreen() {
    * stays, because that is somebody deliberately asking again, and the server
    * holds a quiet window over the notification for exactly that case.
    */
-  const scan = useResource<ResidentScan>(
-    useCallback(() => scanResident(residentId), [residentId]),
-    { refetchOnFocus: false },
-  );
+  const query = adminQuery.residentScan(residentId);
+  const scan = useResource<ResidentScan>(query.load, {
+    cacheKey: query.key,
+    refetchOnFocus: false,
+    topics: query.topics,
+  });
 
   const header = <AppBar accent centerTitle showBack title="Resident card" />;
 
   if (scan.loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Reading their card" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={3} />
+        </View>
       </Screen>
     );
   }

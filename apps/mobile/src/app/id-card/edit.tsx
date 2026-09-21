@@ -54,7 +54,6 @@ import {
   type DietaryPreference,
   type EmailCheckStatus,
   type Gender,
-  getIdentity,
   type GovernmentIdType,
   type IdentityResponse,
   identityPhotoSource,
@@ -68,6 +67,7 @@ import {
   readIdentityDraft,
   saveIdentityDraft,
 } from "@/lib/identity-draft";
+import { residentQuery } from "@/lib/resident-queries";
 import { signatureStrokes } from "@/lib/signature";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { uploadAsset } from "@/lib/uploads";
@@ -220,9 +220,11 @@ function useEmailCheck(email: string, enabled: boolean): EmailCheck {
 }
 
 export default function EditIdentityScreen() {
-  const identity = useResource<IdentityResponse>(
-    useCallback(() => getIdentity(), []),
-  );
+  const identityQuery = residentQuery.identity();
+  const identity = useResource<IdentityResponse>(identityQuery.load, {
+    cacheKey: identityQuery.key,
+    topics: identityQuery.topics,
+  });
   const account = useAppSelector((state) => state.auth.account);
   const accountId = account?.id ?? "";
   /** `undefined` while the phone is still being asked for a saved draft. */

@@ -14,7 +14,8 @@ import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
-import { ErrorState, LoadingState } from "@/components/ui/states";
+import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
 import { Toggle } from "@/components/ui/toggle";
 import { useDates } from "@/hooks/use-dates";
@@ -174,7 +175,7 @@ export default function ManageResidentScreen() {
   );
 
 
-  const { reload } = data;
+  const { refresh } = data;
 
   const openPanel = useCallback(
     (next: Panel) => {
@@ -255,14 +256,14 @@ export default function ManageResidentScreen() {
           setPanel(null);
         }
 
-        await reload();
+        await refresh();
       } catch (error) {
         toastError("That did not work", readApiError(error));
       } finally {
         setBusy(false);
       }
     },
-    [reload],
+    [refresh],
   );
 
   const saveFee = useCallback(
@@ -290,13 +291,13 @@ export default function ManageResidentScreen() {
       });
 
       setIssued(result);
-      await reload();
+      await refresh();
     } catch (error) {
       toastError("Could not issue a code", readApiError(error));
     } finally {
       setBusy(false);
     }
-  }, [flags.sendEmail, id, reload]);
+  }, [flags.sendEmail, id, refresh]);
 
   const confirmMoveOut = useCallback(() => {
     Alert.alert(
@@ -336,7 +337,10 @@ export default function ManageResidentScreen() {
   if (data.loading) {
     return (
       <Screen header={<AppBar accent centerTitle showBack title="Resident" />}>
-        <LoadingState label="Reading their record" />
+        <View className="gap-4 pt-1">
+          <SkeletonCard rows={3} />
+          <SkeletonRows rows={3} />
+        </View>
       </Screen>
     );
   }
