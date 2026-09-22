@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Info, Loader2, Mail, ShieldCheck } from "lucide-react";
+import { CalendarClock, CheckCircle2, FileText, Info, Loader2, Mail, Receipt, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
@@ -9,8 +9,14 @@ import { billingCycles, cycleTotal, getPlan, type BillingCycle } from "@hostel/s
 import { useSiteConfig } from "@/components/site-config-provider";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
+import type {
+  BillingInvoiceRow,
+  BillingPaymentRow,
+  BillingPlan,
+} from "@/modules/billing/billing-history.service";
 
 import { CHECKOUT_TOKEN_KEY, CheckoutHandoffButton } from "./checkout-handoff";
+import { Badge } from "./hostel-admin-billing-page";
 import { PublicShell } from "./shared";
 
 type PaymentState = {
@@ -27,9 +33,20 @@ type PaymentState = {
 
 type Invoice = {
   amount: number;
+  cycle: string;
   invoiceNumber: string;
   periodEnd: string | null;
   planName: string;
+};
+
+type History = { invoices: BillingInvoiceRow[]; payments: BillingPaymentRow[]; plan: BillingPlan | null };
+
+/** Where the plan stands once this invoice is paid in full. */
+type AfterPayment = {
+  cycleLabel: string;
+  daysRemaining: number | null;
+  planName: string;
+  runsUntil: string | null;
 };
 
 type Step = "details" | "code" | "pay" | "done";
@@ -85,6 +102,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
   const [payment, setPayment] = useState<PaymentState | null>(null);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [reused, setReused] = useState(false);
+  const [trace, setTrace] = useState<{ after: AfterPayment; history: History } | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -142,7 +160,9 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
         hostelCode,
         step: "verify",
       });
-      const raised = await checkout<PaymentState & { invoice: Invoice; reused: boolean }>({
+      const raised = await checkout<
+        PaymentState & { afterPayment: AfterPayment; history: History; invoice: Invoice; reused: boolean }
+      >({
         cycle,
         planId,
         step: "invoice",
@@ -160,6 +180,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
       setHostel(verified.hostel);
       setInvoice(raised.invoice);
       setReused(raised.reused);
+      setTrace({ after: raised.afterPayment, history: raised.history });
       setPayment(raised);
       setStep(raised.instructions.claim ? "done" : "pay");
     });
@@ -179,204 +200,406 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
   }
 
   const price = cycleTotal(plan, cycle);
+  const cycleLabel = billingCycles(catalog).find((option) => option.id === cycle)?.label ?? cycle;
+  const openRow = trace?.history.invoices.find((row) => row.invoiceNumber === invoice?.invoiceNumber) ?? null;
+  // The open invoice is for something other than what was picked here.
+  const otherPick = Boolean(reused && invoice && (invoice.planName !== plan.name || invoice.cycle !== cycle));
 
   return (
     <PublicShell active="plans-pricing">
-      <div className="mx-auto max-w-lg px-4 pb-20 pt-8 sm:px-6">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Get {plan.name}</h1>
+      <div className={cn("mx-auto px-4 pb-20 pt-8 sm:px-6", trace ? "max-w-5xl" : "max-w-lg")}>
+        {/*
+          An open invoice is paid before any new plan (`raiseRenewalInvoice`),
+          so once one comes back the page is about that invoice, not the pick.
+        */}
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          {reused && invoice
+            ? `Pay your ${invoice.planName} ${openRow?.paid ? "balance" : "invoice"}`
+            : `Get ${plan.name}`}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          For a hostel already on the platform. Paying extends the plan it is on now.
+          {reused && invoice
+            ? `Invoice ${invoice.invoiceNumber} is still open. It is paid before any new plan.`
+            : "For a hostel already on the platform. Paying extends the plan it is on now."}
         </p>
 
-        {/* The plan being bought — the cycle can change until the invoice is raised. */}
-        <div className="app-card mt-6 p-4">
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="font-semibold text-foreground">{plan.name}</p>
-            <p className="text-xl font-bold tabular-nums text-foreground">{rupees(invoice?.amount ?? price)}</p>
-          </div>
-          {step === "details" || step === "code" ? (
-            <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
-              {billingCycles(catalog).map((option) => (
-                <button
-                  className={cn(
-                    "rounded-lg py-1.5 text-xs font-semibold transition",
-                    cycle === option.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
-                  )}
-                  key={option.id}
-                  onClick={() => setCycle(option.id)}
-                  type="button"
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          ) : invoice ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Invoice {invoice.invoiceNumber} · plan runs until {day(invoice.periodEnd)}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="app-card mt-4 p-5">
-          {step === "details" ? (
-            <form className="space-y-4" onSubmit={sendCode}>
-              <label className="block text-sm font-semibold text-foreground">
-                Hostel email
-                <input
-                  autoComplete="email"
-                  className={INPUT}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="owner@yourhostel.com"
-                  required
-                  type="email"
-                  value={email}
-                />
-              </label>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <label className="text-sm font-semibold text-foreground" htmlFor="hostel-id">
-                    Hostel ID
-                  </label>
-                  {/* Hover on desktop, tap (focus) on a phone. */}
-                  <span className="group relative inline-flex">
+        {/* Checkout on the right, the hostel's billing trace on the left; stacked on a phone, pay first. */}
+        <div
+          className={cn(
+            "mt-6",
+            trace && "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:items-start",
+          )}
+        >
+          <div className="lg:col-start-2 lg:row-start-1">
+            {/* The plan being bought — the cycle can change until the invoice is raised. */}
+            <div className="app-card p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="font-semibold text-foreground">
+                  {invoice ? invoice.planName : plan.name}
+                  {openRow ? <span className="font-normal text-muted-foreground"> · {openRow.cycleLabel}</span> : null}
+                </p>
+                <p className="text-xl font-bold tabular-nums text-foreground">{rupees(invoice?.amount ?? price)}</p>
+              </div>
+              {step === "details" || step === "code" ? (
+                <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
+                  {billingCycles(catalog).map((option) => (
                     <button
-                      aria-describedby="hostel-id-help"
-                      aria-label="Where to find your Hostel ID"
-                      className="rounded-full text-muted-foreground transition hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+                      className={cn(
+                        "rounded-lg py-1.5 text-xs font-semibold transition",
+                        cycle === option.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
+                      )}
+                      key={option.id}
+                      onClick={() => setCycle(option.id)}
                       type="button"
                     >
-                      <Info className="size-3.5" />
+                      {option.label}
                     </button>
-                    <span
-                      className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-64 -translate-x-1/2 rounded-lg bg-foreground px-3 py-2 text-xs leading-relaxed text-background opacity-0 shadow-lg transition group-focus-within:opacity-100 group-hover:opacity-100"
-                      id="hostel-id-help"
-                      role="tooltip"
-                    >
-                      It looks like <strong className="font-mono">HH-3F9A1C2E</strong>. Find it on
-                      the top card of the app&apos;s Home screen, or on your web dashboard.
-                    </span>
-                  </span>
+                  ))}
                 </div>
-                <input
-                  autoCapitalize="characters"
-                  className={cn(INPUT, "font-mono uppercase tracking-wide")}
-                  id="hostel-id"
-                  onChange={(event) => setHostelCode(event.target.value)}
-                  placeholder="HH-3F9A1C2E"
-                  required
-                  value={hostelCode}
-                />
-              </div>
-              <button className={PRIMARY} disabled={Boolean(busy)} type="submit">
-                {busy === "send" ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
-                Send verification code
-              </button>
-              <p className="text-center text-xs text-muted-foreground">
-                Not on HostelPalika yet?{" "}
-                <Link className="font-semibold text-brand-teal" href={`/register-hostel?plan=${plan.id}`}>
-                  Register your hostel
-                </Link>
-              </p>
-            </form>
-          ) : null}
-
-          {step === "code" ? (
-            <form className="space-y-4" onSubmit={verify}>
-              <p className="text-sm text-muted-foreground">
-                {resumed ? "We already sent a 6-digit code to " : "We sent a 6-digit code to "}
-                <strong className="text-foreground">{email}</strong>
-                {resumed ? " a moment ago — use that one." : "."}
-              </p>
-              <input
-                aria-label="Verification code"
-                autoComplete="one-time-code"
-                className={cn(INPUT, "text-center font-mono text-2xl tracking-[0.5em]")}
-                inputMode="numeric"
-                maxLength={6}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-                required
-                value={code}
-              />
-              <button className={PRIMARY} disabled={Boolean(busy) || code.length !== 6} type="submit">
-                {busy === "verify" ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-                Verify and continue
-              </button>
-              <div className="flex items-center justify-between text-xs font-semibold">
-                <button
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => setStep("details")}
-                  type="button"
-                >
-                  Use a different email or ID
-                </button>
-                <button
-                  className="text-brand-teal disabled:text-muted-foreground"
-                  disabled={resendIn > 0 || Boolean(busy)}
-                  onClick={requestCode}
-                  type="button"
-                >
-                  {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
-                </button>
-              </div>
-            </form>
-          ) : null}
-
-          {step === "pay" && payment && invoice ? (
-            <div className="space-y-4">
-              <div className="text-sm">
-                <p className="font-semibold text-foreground">
-                  {hostel?.name} <span className="font-mono text-xs text-muted-foreground">{hostel?.code}</span>
-                </p>
-                {payment.plan?.name ? (
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Now on {payment.plan.name}
-                    {payment.plan.currentPeriodEnd ? `, until ${day(payment.plan.currentPeriodEnd)}` : ""}
+              ) : invoice ? (
+                <>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Invoice {invoice.invoiceNumber} · plan runs until {day(invoice.periodEnd)}
                   </p>
-                ) : null}
-              </div>
+                  {openRow && openRow.paid > 0 ? (
+                    <div className="mt-3">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-brand-teal"
+                          style={{ width: `${Math.min(100, (openRow.paid / openRow.amount) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="mt-1.5 flex justify-between text-xs">
+                        <span className="text-muted-foreground">Paid {rupees(openRow.paid)}</span>
+                        <span className="font-semibold text-warning">{rupees(openRow.outstanding)} left</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
 
-              {reused ? (
-                <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
-                  Invoice {invoice.invoiceNumber} for {invoice.planName} is already open, so that is what
-                  you pay now.
-                </p>
+            <div className="app-card mt-4 p-5">
+              {step === "details" ? (
+                <form className="space-y-4" onSubmit={sendCode}>
+                  <label className="block text-sm font-semibold text-foreground">
+                    Hostel email
+                    <input
+                      autoComplete="email"
+                      className={INPUT}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="owner@yourhostel.com"
+                      required
+                      type="email"
+                      value={email}
+                    />
+                  </label>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-sm font-semibold text-foreground" htmlFor="hostel-id">
+                        Hostel ID
+                      </label>
+                      {/* Hover on desktop, tap (focus) on a phone. */}
+                      <span className="group relative inline-flex">
+                        <button
+                          aria-describedby="hostel-id-help"
+                          aria-label="Where to find your Hostel ID"
+                          className="rounded-full text-muted-foreground transition hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+                          type="button"
+                        >
+                          <Info className="size-3.5" />
+                        </button>
+                        <span
+                          className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-64 -translate-x-1/2 rounded-lg bg-foreground px-3 py-2 text-xs leading-relaxed text-background opacity-0 shadow-lg transition group-focus-within:opacity-100 group-hover:opacity-100"
+                          id="hostel-id-help"
+                          role="tooltip"
+                        >
+                          It looks like <strong className="font-mono">HH-3F9A1C2E</strong>. Find it on
+                          the top card of the app&apos;s Home screen, or on your web dashboard.
+                        </span>
+                      </span>
+                    </div>
+                    <input
+                      autoCapitalize="characters"
+                      className={cn(INPUT, "font-mono uppercase tracking-wide")}
+                      id="hostel-id"
+                      onChange={(event) => setHostelCode(event.target.value)}
+                      placeholder="HH-3F9A1C2E"
+                      required
+                      value={hostelCode}
+                    />
+                  </div>
+                  <button className={PRIMARY} disabled={Boolean(busy)} type="submit">
+                    {busy === "send" ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+                    Send verification code
+                  </button>
+                  <p className="text-center text-xs text-muted-foreground">
+                    Not on HostelPalika yet?{" "}
+                    <Link className="font-semibold text-brand-teal" href={`/register-hostel?plan=${plan.id}`}>
+                      Register your hostel
+                    </Link>
+                  </p>
+                </form>
               ) : null}
 
-              <p className="text-2xl font-bold tabular-nums text-foreground">
-                {rupees(payment.instructions.amountDue)}
-              </p>
+              {step === "code" ? (
+                <form className="space-y-4" onSubmit={verify}>
+                  <p className="text-sm text-muted-foreground">
+                    {resumed ? "We already sent a 6-digit code to " : "We sent a 6-digit code to "}
+                    <strong className="text-foreground">{email}</strong>
+                    {resumed ? " a moment ago — use that one." : "."}
+                  </p>
+                  <input
+                    aria-label="Verification code"
+                    autoComplete="one-time-code"
+                    className={cn(INPUT, "text-center font-mono text-2xl tracking-[0.5em]")}
+                    inputMode="numeric"
+                    maxLength={6}
+                    onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+                    required
+                    value={code}
+                  />
+                  <button className={PRIMARY} disabled={Boolean(busy) || code.length !== 6} type="submit">
+                    {busy === "verify" ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                    Verify and continue
+                  </button>
+                  <div className="flex items-center justify-between text-xs font-semibold">
+                    <button
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setStep("details")}
+                      type="button"
+                    >
+                      Use a different email or ID
+                    </button>
+                    <button
+                      className="text-brand-teal disabled:text-muted-foreground"
+                      disabled={resendIn > 0 || Boolean(busy)}
+                      onClick={requestCode}
+                      type="button"
+                    >
+                      {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
+                    </button>
+                  </div>
+                </form>
+              ) : null}
 
-              {payment.online ? (
-                <CheckoutHandoffButton
-                  back="/hostel-admin/billing"
-                  body={{ step: "pay", token }}
-                  className={PRIMARY}
-                  endpoint="/api/v1/public/plan-checkout"
-                  label={`Pay ${rupees(payment.instructions.amountDue)}`}
-                  preparing="Setting up your plan payment"
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Payment is not open right now. Contact us and we will take it for you.
-                </p>
-              )}
+              {step === "pay" && payment && invoice ? (
+                <div className="space-y-4">
+                  {/* Where the plan stands now is in the billing panel beside this. */}
+                  <p className="text-sm font-semibold text-foreground">
+                    {hostel?.name} <span className="font-mono text-xs text-muted-foreground">{hostel?.code}</span>
+                  </p>
+
+                  {otherPick ? (
+                    <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
+                      You picked {plan.name} · {cycleLabel} for {rupees(price)}. {invoice.planName} still has{" "}
+                      {rupees(payment.instructions.amountDue)} left to pay, so that comes first. Get {plan.name}{" "}
+                      once it is cleared.
+                    </p>
+                  ) : null}
+
+                  <p className="text-2xl font-bold tabular-nums text-foreground">
+                    {rupees(payment.instructions.amountDue)}
+                  </p>
+
+                  {payment.online ? (
+                    <CheckoutHandoffButton
+                      back="/hostel-admin/billing"
+                      body={{ step: "pay", token }}
+                      className={PRIMARY}
+                      endpoint="/api/v1/public/plan-checkout"
+                      label={`Pay ${rupees(payment.instructions.amountDue)}`}
+                      preparing="Setting up your plan payment"
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Payment is not open right now. Contact us and we will take it for you.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {step === "done" ? (
+                <div className="py-4 text-center">
+                  <CheckCircle2 className="mx-auto size-10 text-success" />
+                  <p className="mt-3 font-bold text-foreground">We have your payment proof</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Our team checks it within 1–2 working days. Your plan is extended the moment it is
+                    confirmed, and we email you then.
+                  </p>
+                </div>
+              ) : null}
+
+              {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
             </div>
-          ) : null}
+          </div>
 
-          {step === "done" ? (
-            <div className="py-4 text-center">
-              <CheckCircle2 className="mx-auto size-10 text-success" />
-              <p className="mt-3 font-bold text-foreground">We have your payment proof</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Our team checks it within 1–2 working days. Your plan is extended the moment it is
-                confirmed, and we email you then.
-              </p>
-            </div>
+          {trace && invoice && payment ? (
+            <BillingTrace
+              after={trace.after}
+              amountDue={payment.instructions.amountDue}
+              className="lg:col-start-1 lg:row-start-1"
+              history={trace.history}
+            />
           ) : null}
-
-          {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
         </div>
       </div>
     </PublicShell>
+  );
+}
+
+/** The subscription's status in plain words — the enum is never printed. */
+const PLAN_STATUS: Record<string, string> = {
+  ACTIVE: "Active, paid",
+  AWAITING_PAYMENT: "Waiting for payment",
+  CANCELLED: "Cancelled",
+  EXPIRED: "Expired",
+  PAST_DUE: "Live, payment due",
+  PENDING_SELECTION: "No plan chosen",
+  SELECTED: "Plan chosen",
+};
+
+function daysLeft(days: number | null) {
+  if (days === null) return undefined;
+
+  return days === 0 ? "Ended" : `${days} ${days === 1 ? "day" : "days"} left`;
+}
+
+function Fact({ label, note, value }: { label: string; note?: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2 text-sm">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="text-right font-semibold text-foreground">
+        {value}
+        {note ? <span className="block text-xs font-normal text-muted-foreground">{note}</span> : null}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The hostel's billing beside the checkout: where the plan stands now, where it
+ * stands once this is paid, and every invoice and payment behind both. The rows
+ * are `getBillingHistory`'s — the same ones the portal's billing screen reads —
+ * minus the PDF buttons, whose route needs a signed-in owner this page does not have.
+ */
+function BillingTrace({
+  after,
+  amountDue,
+  className,
+  history,
+}: {
+  after: AfterPayment;
+  amountDue: number;
+  className?: string;
+  history: History;
+}) {
+  const { plan } = history;
+  const entries = [
+    ...history.invoices.map((row) => ({
+      amount: row.amount,
+      at: row.issuedAt,
+      icon: FileText,
+      key: `i-${row.invoiceNumber}`,
+      note: `${row.planName} · ${row.cycleLabel}${row.outstanding > 0 ? ` · ${rupees(row.outstanding)} left` : ""}`,
+      status: row.status,
+      title: `Invoice ${row.printedNumber}`,
+    })),
+    ...history.payments.map((row, index) => ({
+      amount: row.amount,
+      at: row.paidAt,
+      icon: Receipt,
+      key: `p-${row.printedNumber ?? index}`,
+      note: row.printedNumber ?? "",
+      status: row.status === "IN_REVIEW" ? "IN REVIEW" : row.status,
+      title:
+        row.method === "CASH"
+          ? "Cash payment"
+          : row.method === "MANUAL"
+            ? "QR payment"
+            : `${row.provider ?? "Online"} payment`,
+    })),
+    // Newest first; a payment still in flight has no date yet and is the newest thing there is.
+  ].sort((a, b) => (b.at ?? "~").localeCompare(a.at ?? "~"));
+
+  return (
+    <aside className={cn("space-y-4", className)}>
+      {plan ? (
+        <section className="app-card p-4">
+          <h2 className="text-sm font-bold text-foreground">Your plan now</h2>
+          <dl className="mt-1 divide-y divide-border">
+            <Fact
+              label="Plan"
+              value={`${plan.planName ?? "—"}${plan.cycleLabel ? ` · ${plan.cycleLabel}` : ""}`}
+            />
+            <Fact label="Status" value={PLAN_STATUS[plan.status] ?? plan.status} />
+            <Fact
+              label="Runs until"
+              note={daysLeft(plan.daysRemaining)}
+              value={day(plan.currentPeriodEnd)}
+            />
+            {plan.amountDue > 0 && plan.dueBy ? (
+              <Fact
+                label="Pay by"
+                note={
+                  plan.daysToDue === 0
+                    ? "Last day to pay"
+                    : plan.daysToDue === null
+                      ? undefined
+                      : `${plan.daysToDue} ${plan.daysToDue === 1 ? "day" : "days"} to pay`
+                }
+                value={day(plan.dueBy)}
+              />
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
+
+      {amountDue > 0 ? (
+        <section className="app-card border-brand-teal/30 p-4">
+          <h2 className="flex items-center gap-2 text-sm font-bold text-foreground">
+            <CalendarClock className="size-4 text-brand-teal" />
+            After you pay {rupees(amountDue)}
+          </h2>
+          <dl className="mt-1 divide-y divide-border">
+            <Fact label="Plan" value={`${after.planName} · ${after.cycleLabel}`} />
+            <Fact label="Status" value={PLAN_STATUS.ACTIVE} />
+            <Fact label="Runs until" note={daysLeft(after.daysRemaining)} value={day(after.runsUntil)} />
+          </dl>
+        </section>
+      ) : null}
+
+      <section>
+        <h2 className="text-sm font-bold text-foreground">Billing history</h2>
+        {entries.length === 0 ? (
+          <p className="mt-2 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+            Nothing billed yet.
+          </p>
+        ) : (
+          <ul className="app-card mt-2 divide-y divide-border">
+            {entries.map((entry) => (
+              <li className="flex items-start gap-3 p-3.5" key={entry.key}>
+                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-brand-teal/10 text-brand-teal">
+                  <entry.icon className="size-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-foreground">{entry.title}</p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {day(entry.at)}
+                    {entry.note ? ` · ${entry.note}` : ""}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-bold tabular-nums text-foreground">{rupees(entry.amount)}</p>
+                  <div className="mt-1">
+                    <Badge status={entry.status} />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </aside>
   );
 }

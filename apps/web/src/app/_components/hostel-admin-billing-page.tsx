@@ -684,7 +684,7 @@ function PaymentRow({ payment }: { payment: BillingPaymentRow }) {
   );
 }
 
-function Badge({ status }: { status: string }) {
+export function Badge({ status }: { status: string }) {
   return (
     <span
       className={cn(

@@ -12,6 +12,7 @@ import {
   requestOtpChallenge,
   verifyOtpChallenge,
 } from "@/modules/auth/auth.service";
+import { daysLeftThrough, getBillingHistory } from "@/modules/billing/billing-history.service";
 import {
   getPlanPaymentInstructions,
   submitPlanPaymentClaim,
@@ -286,8 +287,27 @@ export async function runPlanCheckout(
         { cycle: input.cycle, planId: input.planId },
         ownerId,
       );
+      const history = await getBillingHistory(hostelId);
+      /*
+       * Where the plan stands once this invoice is settled in full — the same
+       * rule `startPlanPeriod` applies: a running period that already reaches
+       * the invoice's end is kept, otherwise the plan runs to the invoice's.
+       */
+      const runningEnd = history.plan?.currentPeriodEnd ? new Date(history.plan.currentPeriodEnd) : null;
+      const invoiceEnd = invoice.periodEnd ?? null;
+      const runsUntil =
+        runningEnd && (!invoiceEnd || runningEnd.getTime() >= invoiceEnd.getTime()) ? runningEnd : invoiceEnd;
 
       return {
+        afterPayment: {
+          cycleLabel:
+            history.invoices.find((row) => row.invoiceNumber === invoice.invoiceNumber)?.cycleLabel ??
+            invoice.cycle,
+          daysRemaining: daysLeftThrough(runsUntil),
+          planName: invoice.planName,
+          runsUntil: runsUntil?.toISOString() ?? null,
+        },
+        history: { invoices: history.invoices, payments: history.payments, plan: history.plan },
         invoice: {
           amount: invoice.amount,
           cycle: invoice.cycle,
