@@ -5,6 +5,7 @@ import { join } from "path";
 import { existsSync } from "fs";
 
 import { handleRouteError, successResponse, errorResponse } from "@/lib/api-response";
+import { connectToDatabase } from "@/lib/db";
 import { rateLimitPublicForm } from "@/lib/rate-limit";
 import { generateFileKey, getR2Client, privateBucket, publicBucket } from "@/lib/r2";
 import { issueDocumentClaimToken } from "@/lib/registration-documents";
@@ -56,6 +57,10 @@ export async function POST(request: NextRequest) {
     if (rateLimited) {
       return rateLimited;
     }
+
+    // Before the R2 put, so a database that cannot be reached fails the upload
+    // instead of leaving an object in storage with no FileAsset row pointing at it.
+    await connectToDatabase();
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { loadApiPrincipal } from "@/lib/api-auth";
 import { handleRouteError, errorResponse, successResponse } from "@/lib/api-response";
+import { connectToDatabase } from "@/lib/db";
 import { PLATFORM_ROLES } from "@/lib/permissions";
 import { getPresignedReadUrl } from "@/lib/r2";
 import { isValidDocumentClaimToken } from "@/lib/registration-documents";
@@ -114,6 +115,15 @@ export async function GET(request: NextRequest, context: RouteContext) {
         422,
       );
     }
+
+    /*
+     * Nothing else in this route connects before the lookup below — the
+     * principal is only loaded for private files. A fresh serverless instance
+     * serving only photo redirects would otherwise queue the query in
+     * Mongoose's buffer until it timed out, which is the intermittent 500 on
+     * public listing galleries.
+     */
+    await connectToDatabase();
 
     const fileAsset = await FileAssetModel.findOne({
       _id: assetId,
