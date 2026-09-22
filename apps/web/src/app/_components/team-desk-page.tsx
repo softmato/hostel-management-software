@@ -1,9 +1,10 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Building2, FileSpreadsheet, Phone, Plus, Users, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, FileSpreadsheet, Phone, Plus, QrCode, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { useCheckoutHandoff } from "@/app/_components/checkout-handoff";
 import { GetAppDialog } from "@/components/get-app-dialog";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
@@ -231,6 +232,33 @@ export function TeamDeskPage() {
   const [entries, setEntries] = useState<WalletEntry[]>([]);
   const [paidWaiting, setPaidWaiting] = useState<UnpublishedPrepayment[]>([]);
   const [loading, setLoading] = useState(true);
+  const handoff = useCheckoutHandoff();
+
+  /*
+   * The balance, by Softmato QR on this device — the same checkout the owner's
+   * own Pay opens. No amount is sent: the server charges what is still owed.
+   */
+  function payRemaining(row: Registration) {
+    void handoff.start({
+      back: "/team",
+      endpoint: `/api/v1/team/hostels/${row.hostelId}/checkout`,
+      preparing: "Setting up the remaining payment",
+    });
+  }
+
+  function payButton(row: Registration) {
+    return (
+      <button
+        className="inline-flex items-center gap-1.5 rounded-md bg-brand-teal px-2.5 py-1 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-60"
+        disabled={handoff.busy}
+        onClick={() => payRemaining(row)}
+        type="button"
+      >
+        <QrCode className="size-3.5" />
+        Pay {rupees(row.outstanding)}
+      </button>
+    );
+  }
 
   useEffect(() => {
     async function load() {
@@ -356,11 +384,7 @@ export function TeamDeskPage() {
                     <span className="text-muted-foreground">
                       Paid <strong className="text-foreground">{rupees(row.paid)}</strong>
                     </span>
-                    {row.outstanding > 0 ? (
-                      <span className="font-semibold text-warning">
-                        {rupees(row.outstanding)} due
-                      </span>
-                    ) : null}
+                    {row.outstanding > 0 ? payButton(row) : null}
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     {row.ownerPhone ? (
@@ -450,6 +474,11 @@ export function TeamDeskPage() {
                       )}
                     >
                       {row.outstanding > 0 ? rupees(row.outstanding) : "—"}
+                      {row.outstanding > 0 ? (
+                        <div className="mt-1.5">
+                          {payButton(row)}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       {/* The row exists so somebody rings them. A number that has
@@ -498,6 +527,8 @@ export function TeamDeskPage() {
           </>
         )}
       </div>
+
+      {handoff.overlay}
     </div>
   );
 }

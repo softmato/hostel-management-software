@@ -4,8 +4,8 @@ import { PublicRefundPolicyPage } from "@/app/_components/public-refund-policy-p
 import { staticPageMetadata } from "@/lib/seo-config";
 import { getRefundPolicy } from "@/modules/bookings/booking-policy.service";
 
-// The numbers are superadmin settings; a changed step must reach this page quickly.
-export const revalidate = 60;
+// The numbers are superadmin settings; applying a change revalidates on demand.
+export const revalidate = 3600;
 
 export function generateMetadata(): Promise<Metadata> {
   return staticPageMetadata("refundPolicy");

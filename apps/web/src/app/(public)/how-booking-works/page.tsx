@@ -4,9 +4,9 @@ import { PublicBookingGuidePage } from "@/app/_components/public-booking-guide-p
 import { staticPageMetadata } from "@/lib/seo-config";
 import { getBookingGuide } from "@/modules/bookings/booking-guide.service";
 
-// Every hour and percentage on it is a superadmin setting, the same as the
-// refund policy's: a changed one has to reach this page quickly.
-export const revalidate = 60;
+// Every hour and percentage on it is a superadmin setting; applying a change
+// revalidates on demand (setting-change.service), so the window can be long.
+export const revalidate = 3600;
 
 export function generateMetadata(): Promise<Metadata> {
   return staticPageMetadata("howBookingWorks");

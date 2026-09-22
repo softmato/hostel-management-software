@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import type { NextRequest } from "next/server";
 
 import { requireSuperadminPrincipal } from "@/lib/api-auth";
@@ -19,6 +20,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const { section } = await context.params;
     const body = await request.json();
     const result = await updateSiteConfigSection(section, body, principal);
+    // Public pages cache for an hour; a save must show now, not then.
+    revalidatePath("/", "layout");
 
     // Both sections feed the email `From` header, and the sender caches it for
     // a minute. Dropping the cache here is what makes a rename visible in the

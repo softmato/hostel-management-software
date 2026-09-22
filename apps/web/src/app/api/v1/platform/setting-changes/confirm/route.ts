@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import type { NextRequest } from "next/server";
 
 import { requireSuperadminPrincipal } from "@/lib/api-auth";
@@ -33,6 +34,8 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await confirmSettingChange(body.token, principal);
+    // Booking terms feed the public policy pages, cached for an hour.
+    revalidatePath("/", "layout");
 
     return successResponse(result, `Saved the change to ${result.label}.`);
   } catch (error) {

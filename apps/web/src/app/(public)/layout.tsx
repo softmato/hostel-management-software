@@ -11,11 +11,11 @@ import { DEFAULT_SITE_CONFIG } from "@/modules/platform-config/site-config.defau
  * group re-provides it only so the public tree stays correct if it is ever
  * rendered on its own, and adds the site-wide announcement banner.
  * Revalidated rather than static, so a save in the admin portal shows up
- * without a redeploy. 600s, not 60s: every access past the window regenerates
- * the page and bills an ISR write, and the site config changes far less often
- * than once a minute.
+ * without a redeploy. Saves revalidate on demand (site-config route, setting
+ * changes), so the window only covers data pages like /hostels; each expiry
+ * bills ISR writes, and 600s blew the Hobby quota (233K/200K, 2026-09-22).
  */
-export const revalidate = 600;
+export const revalidate = 3600;
 
 export default async function PublicLayout({
   children,
