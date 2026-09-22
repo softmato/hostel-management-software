@@ -288,7 +288,7 @@ export async function onPlanSuspensionStarted(input: {
  * or worse, the invoice behind it — because a renderer had a bad day would turn
  * a cosmetic problem into a hostel that was never told it owes us money.
  */
-async function attach(
+export async function attach(
   kind: "invoice" | "receipt",
   number: string,
 ): Promise<EmailAttachment[]> {
@@ -388,29 +388,38 @@ export async function onPaymentSettled(input: {
   outstanding: number;
   ownerEmail?: string;
   planName: string;
-  /** Softmato's transaction number — their receipt — when the payment went through them. */
+  /** Softmato's transaction number when the payment went through them. */
   receiptNumber: string | null;
+  /** Our own number for this payment. */
+  receiptRef: string;
 }) {
-  if (!input.ownerEmail) {
+  /*
+   * One payment, one email. Money that went through Softmato is receipted by
+   * Softmato — their mail, their PDF, to the same address — so saying it again
+   * here is the second email. Only money Softmato never saw is receipted here.
+   */
+  if (!input.ownerEmail || input.receiptNumber) {
     return;
   }
 
-  /*
-   * A confirmation, not a receipt: Softmato issues the receipt and emails it
-   * themselves, so nothing is attached here and the owner is told it follows.
-   */
+  const attachments = [
+    ...(await attach("receipt", input.receiptRef)),
+    ...(await attach("invoice", input.invoiceNumber)),
+  ];
+
   await deliver(
     "subscription_receipt",
     input.ownerEmail,
     subscriptionReceiptEmail({
       amount: input.amount,
+      attached: attachments.length > 0,
       dueBy: formatEmailDate(input.dueBy),
       hostelName: input.hostelName,
       invoiceNumber: input.invoiceNumber,
       method: input.method,
       outstanding: input.outstanding,
       planName: input.planName,
-      receiptNumber: input.receiptNumber,
     }),
+    attachments,
   );
 }

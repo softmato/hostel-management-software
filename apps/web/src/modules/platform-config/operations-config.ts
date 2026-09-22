@@ -11,51 +11,6 @@ import { PlatformSettingModel } from "@hostel/db/models/PlatformSetting";
  */
 export const OPERATIONS_CONFIG_KEY = "operations";
 
-/** What goes out at one step of the plan payment reminders. */
-const planReminderChannels = {
-  bell: z.boolean(),
-  email: z.boolean(),
-  push: z.boolean(),
-};
-
-function uniqueDays(steps: { days: number }[]) {
-  return new Set(steps.map((step) => step.days)).size === steps.length;
-}
-
-export const planDueReminderScheduleSchema = z.object({
-  /** Nepal days after the due day. `1` is the morning after. */
-  afterDue: z
-    .array(z.object({ ...planReminderChannels, days: z.number().int().min(1).max(90) }))
-    .max(10)
-    .refine(uniqueDays, { message: "Each day after the due day can be listed once." }),
-  /** Nepal days before the due day. `0` is the due day itself. */
-  beforeDue: z
-    .array(z.object({ ...planReminderChannels, days: z.number().int().min(0).max(30) }))
-    .max(10)
-    .refine(uniqueDays, { message: "Each day before the due day can be listed once." }),
-});
-
-export type PlanDueReminderSchedule = z.infer<typeof planDueReminderScheduleSchema>;
-
-/**
- * The day before and the due day itself, then one, three and seven days late.
- *
- * Push and bell at every step, because they cost the owner a glance. Email only
- * at the first step on each side of the due day: the invoice email already gave
- * the date, so one "due tomorrow" and one "overdue" are what an inbox should get.
- */
-export const DEFAULT_PLAN_DUE_REMINDERS: PlanDueReminderSchedule = {
-  afterDue: [
-    { bell: true, days: 1, email: true, push: true },
-    { bell: true, days: 3, email: false, push: true },
-    { bell: true, days: 7, email: false, push: true },
-  ],
-  beforeDue: [
-    { bell: true, days: 1, email: true, push: true },
-    { bell: true, days: 0, email: false, push: true },
-  ],
-};
-
 export const operationsConfigSchema = z.object({
   /**
    * Ceilings a hostel admin may not exceed in their own settings. Kept here so
@@ -104,15 +59,6 @@ export const operationsConfigSchema = z.object({
    * "how long do I have" should get one answer.
    */
   subscriptionDueGraceDays: z.number().int().min(1).max(180).default(3),
-  /**
-   * When a hostel is reminded about a plan payment that has not arrived, and
-   * how — email to the owner, push and bell to the hostel's admin accounts.
-   *
-   * A commercial term like the window above it, so it is the platform's call
-   * and changes without a deploy. Run by `plan-due-reminders.service.ts` from
-   * the 07:45 payment-reminders cron.
-   */
-  planDueReminders: planDueReminderScheduleSchema.default(DEFAULT_PLAN_DUE_REMINDERS),
   /**
    * The QR a field agent shows an owner who wants to pay by wallet.
    *

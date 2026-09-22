@@ -654,57 +654,41 @@ Every payment button opens the website.
 | Plan invoice | An invoice is raised (`onInvoiceIssued`) | `billing/subscription-invoice` | `billing` | *Pay now*, to the progress page for a self-registered hostel or the billing page for a live one. For a team registration it is *View billing*, because the agent is collecting in person |
 | Listing is live | A field agent files the hostel (`onRegisteredByTeam`) | `hostel/hostel-registered-by-team` | `info` | *Pay now* to `/{slug}/admin/billing` when a balance is left, otherwise *View your listing* |
 | Receipt | Money settles (`onPaymentSettled`) | `billing/subscription-receipt` | `billing` | None; it is paperwork |
-| Payment due | Daily at 07:45, at a before-due step with email on (as shipped: the day before) | `billing/plan-due` → `planDueSoonEmail` | `billing` | *Pay now* |
-| Payment overdue | Daily at 07:45, at an after-due step with email on (as shipped: one day late), **live hostels only** (`PAST_DUE`) | `billing/plan-due` → `planOverdueEmail` | `alert` | *Pay now* |
+| Payment due | 08:00 Nepal, 7 and 5 days before the due day, then every day from 3 days before | `billing/plan-due` → `planDueSoonEmail` | `billing` | *Pay now*, plus the website link in plain text |
+| Payment overdue | 08:00 Nepal, every day until paid, **live hostels only** (`PAST_DUE`) | `billing/plan-due` → `planOverdueEmail` | `alert` | *Pay now*, plus the website link in plain text |
 
 #### Reminder schedule
 
-The platform admin sets it in **Operations configuration → Plan payment
-reminders** (`operations.planDueReminders`): a list of days before the due day
-(`0` is the due day itself), a list of days after it, and for each day whether
-it goes by email, push or bell.
+Four **automatic rows on the superadmin Push tab** (`AUTOMATIC_PUSHES` in
+`platform-push.service.ts`), seeded on first use and sent by the every-minute
+`platform-push` cron. The superadmin can pause and resume them, not cancel them.
 
-| Step | Email | Push | Bell |
-|---|---|---|---|
-| 1 day before | ✓ | ✓ | ✓ |
-| The due day | | ✓ | ✓ |
-| 1 day after | ✓ | ✓ | ✓ |
-| 3 days after | | ✓ | ✓ |
-| 7 days after | | ✓ | ✓ |
+| Row | Time (Nepal) | Days | Push to | Email |
+|---|---|---|---|---|
+| Plan payment · morning | 08:00 | 7 and 5 days before, then every day from 3 days before until paid | hostel admins | owner |
+| Plan payment · evening | 21:00 | every day from 3 days before until paid | hostel admins | |
+| Hostel fee · morning | 08:00 | 7 and 5 days before, then every day from 3 days before until paid | residents | |
+| Hostel fee · evening | 21:00 | every day from 3 days before until paid | residents | |
 
-That is the shipped default. Who gets each channel:
+Plan reminders:
 
-- **Email** goes to the owner.
-- **Push and bell** go to the owner and the hostel's active `HOSTEL_ADMIN`
-  members. Only accounts with the `HOSTEL_ADMIN` role get them, and only for a
-  live hostel: a hostel waiting to go live has no admin portal yet.
-- Push and bell use category `PAYMENT` with `data.type: "PLAN_DUE"`.
-- **Tapping one opens Billing:** `/manage/billing` in the app
-  (`deepLinkForNotification` for the push, `opensPlanBilling` for the bell row)
-  and `/{slug}/admin/billing` on the web (`webLinkForNotification`, and the bell
-  row's `actionUrl`).
-- The bell row is `NORMAL`, not `ACTION`, so it never sits under "Needs you".
-- **Push and bell text states facts only:** the amount, plan, hostel, due day
-  and invoice number. There is no pay link and no pay wording, because the app
-  takes no plan payments.
+- **Push** goes to the owner and the hostel's active `HOSTEL_ADMIN` members,
+  live hostel only. Category `PAYMENT`, `data.type: "PLAN_DUE"`; a tap opens
+  Billing (`/manage/billing` in the app, `/{slug}/admin/billing` on the web).
+- **Push text states facts only** (amount, plan, hostel, due day, invoice):
+  Google Play's payments policy bars in-app messaging that points to another
+  way to pay for business software. The email is where "pay on the website"
+  and the link live.
+- Nothing is sent while a payment claim is `IN_REVIEW`, on the day the invoice
+  was raised, or after the due day unless the hostel is live and owes
+  (`PAST_DUE`). One reminder per hostel per run, about its earliest open bill.
 
-Rules for sending:
+Resident fee reminders (`finance/fee-due-reminders.service.ts`): push only,
+"Please pay your hostel fee for <month>.", to residents with an unpaid bill;
+a tap opens their payments list. The dunning ladder keeps sending the emails
+and bell rows, with `push: false` so a resident is not pushed twice.
 
-- **Skips still apply.** Nothing is sent while a payment claim for the invoice
-  is `IN_REVIEW`. Nothing after the due day is sent unless the hostel is live and
-  owes (`PAST_DUE`). No before-due step is sent on the day the invoice was raised.
-- **Only the latest step.** Each run sends only the latest step whose day has
-  come. A missed morning is made up with that step, never with the steps it
-  skipped, and a step is never sent after a later one. So a skipped step's email
-  is not carried forward to a push-only step.
-- **Claimed before sending.** Each channel of a step is written to
-  `SubscriptionInvoice.reminders.sent` (`{ offset, channel, at }`, where `offset`
-  is Nepal days from the due day) before it goes out.
-- **Retried if it fails.** A channel that fails is removed again, and the next
-  run retries it for as long as its step is still the latest one due.
-
-See `apps/web/src/modules/billing/plan-due-reminders.service.ts`, which runs from
-the Payment reminders cron (`docs/CRON.md` §8).
+A run the cron missed by more than 30 minutes is skipped, not replayed.
 
 ---
 

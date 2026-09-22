@@ -86,3 +86,20 @@ export function nextOccurrence(timing: PushTiming, after: Date): Date | null {
 
   return null;
 }
+
+/**
+ * From this many Nepal days before a bill's due day, its automatic reminder goes
+ * out every morning and every evening until it is paid.
+ */
+export const DAILY_FROM_DAYS = 3;
+
+/**
+ * Whether an automatic run reminds about a bill `daysUntilDue` away — `0` on the
+ * due day, negative once late. **Pure.**
+ *
+ * `earlyDays` are the single heads-ups before the daily stretch (a week and five
+ * days out, on the morning run); from `DAILY_FROM_DAYS` on, every run reminds.
+ */
+export function remindsToday(daysUntilDue: number, earlyDays: readonly number[]) {
+  return daysUntilDue <= DAILY_FROM_DAYS || earlyDays.includes(daysUntilDue);
+}

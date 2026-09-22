@@ -1,3 +1,4 @@
+import { assertPlanRoom } from "@/modules/billing/plan-limits";
 import { Types } from "mongoose";
 import type { z } from "zod";
 
@@ -912,6 +913,8 @@ export async function createResident(
    */
   const heldBooking =
     input.userResidentId && account.userId ? await findHeldBooking(hostelId, account.userId) : null;
+
+  await assertPlanRoom(hostelId, "residents");
 
   // Claim the bed before creating the resident: if the room type is full this
   // throws and no half-registered resident is left behind.

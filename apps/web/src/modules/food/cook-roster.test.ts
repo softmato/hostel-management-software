@@ -1,6 +1,8 @@
 import { Types } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/modules/billing/plan-limits", () => ({ assertPlanRoom: vi.fn() }));
+
 import { Role } from "@/lib/roles";
 import { cookLoginStem, mintCookLogin, previousCookLabel } from "@/modules/food/cook-identity";
 

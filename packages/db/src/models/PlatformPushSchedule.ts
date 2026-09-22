@@ -37,12 +37,30 @@ const platformPushScheduleSchema = new Schema(
     lastRecipients: { default: 0, type: Number },
     lastDevices: { default: 0, type: Number },
     runCount: { default: 0, type: Number },
-    createdBy: { ref: "User", required: true, type: Schema.Types.ObjectId },
+    /**
+     * Set on the platform's own reminders — plan due, hostel fee due — which the
+     * web app files itself (`AUTOMATIC_PUSHES` in `platform-push.service.ts`).
+     * Their audience and text are worked out per recipient at send time; a
+     * superadmin can pause and resume them, never compose or cancel them.
+     */
+    automatic: {
+      enum: ["PLAN_DUE_MORNING", "PLAN_DUE_EVENING", "FEE_DUE_MORNING", "FEE_DUE_EVENING"],
+      type: String,
+    },
+    createdBy: {
+      ref: "User",
+      required(this: { automatic?: string }) {
+        return !this.automatic;
+      },
+      type: Schema.Types.ObjectId,
+    },
   },
   { timestamps: true },
 );
 
 platformPushScheduleSchema.index({ status: 1, nextRunAt: 1 });
+// One row per automatic reminder, however many instances seed at once.
+platformPushScheduleSchema.index({ automatic: 1 }, { sparse: true, unique: true });
 
 export const PlatformPushScheduleModel =
   models.PlatformPushSchedule ||

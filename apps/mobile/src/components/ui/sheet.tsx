@@ -7,6 +7,10 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { Component, type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Pressable, useWindowDimensions, View } from "react-native";
+import {
+  KeyboardAwareScrollView,
+  type KeyboardAwareScrollViewProps,
+} from "react-native-keyboard-controller";
 
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -149,6 +153,19 @@ const MIN_BODY_FRACTION_WITH_FOOTER = 0.66;
 /** The floor for {@link SheetProps.tall}. Just short of the `topInset` cap. */
 const MIN_BODY_FRACTION_TALL = 0.88;
 
+/**
+ * gorhom's scroll view, driven by react-native-keyboard-controller so a focused
+ * field is scrolled clear of the keyboard — the same handling `Screen` uses.
+ *
+ * Under edge-to-edge the Android window never resizes for the keyboard, so the
+ * sheet's own keyboard handling does nothing there: a tall form like "Add an
+ * existing resident" had its lower fields typed into blind. The cast is only
+ * the prop type — `BottomSheetScrollView` is an animated scroll view underneath.
+ */
+const SheetScrollView = BottomSheetScrollView as unknown as NonNullable<
+  KeyboardAwareScrollViewProps["ScrollViewComponent"]
+>;
+
 function renderBackdrop(props: BottomSheetBackdropProps) {
   return (
     <BottomSheetBackdrop
@@ -234,11 +251,10 @@ export function Sheet({
       activeOffsetY={[-8, 8]}
       failOffsetX={[-12, 12]}
       /*
-       * Android's window resizes with the keyboard now
-       * (`softwareKeyboardLayoutMode: "resize"` in app.json), so the sheet is told
-       * to expect that rather than to pan itself — `adjustPan` was what made a
-       * sheet with a text field jump or clip. The confirm-a-complaint sheet is the
-       * one that actually holds a multiline field.
+       * Keeps gorhom from panning the sheet on Android — `adjustPan` was what
+       * made a sheet with a text field jump or clip. The window does not resize
+       * either (edge-to-edge), so `SheetScrollView` is what keeps the focused
+       * field above the keyboard.
        */
       android_keyboardInputMode="adjustResize"
       backdropComponent={renderBackdrop}
@@ -308,7 +324,10 @@ export function Sheet({
               </View>
             ) : null}
 
-            <BottomSheetScrollView
+            <KeyboardAwareScrollView
+              ScrollViewComponent={SheetScrollView}
+              // Room for the field's label and a line under it, not flush to the keys.
+              bottomOffset={24}
               contentContainerStyle={{
                 minHeight:
                   window.height *
@@ -327,7 +346,7 @@ export function Sheet({
               }}
             >
               {frame.children}
-            </BottomSheetScrollView>
+            </KeyboardAwareScrollView>
 
             {frame.footer ? (
               <View

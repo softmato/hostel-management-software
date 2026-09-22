@@ -1,3 +1,4 @@
+import { assertPlanRoom } from "@/modules/billing/plan-limits";
 import { randomBytes } from "node:crypto";
 
 import { Types } from "mongoose";
@@ -396,6 +397,8 @@ export async function listCookAccounts(
 }
 
 async function assertRoomForAnotherCook(hostelId: Types.ObjectId) {
+  await assertPlanRoom(hostelId, "cooks");
+
   const live = await CookAccountModel.countDocuments({
     hostelId,
     status: { $in: ["ACTIVE", "INVITED"] },

@@ -5,6 +5,8 @@ import { NotificationCampaignError as ApiError } from "@/modules/notifications/n
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { Role } from "@/lib/roles";
+import { sendPlanDueReminders } from "@/modules/billing/plan-due-reminders.service";
+import { sendFeeDueReminders } from "@/modules/finance/fee-due-reminders.service";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { NotificationModel } from "@hostel/db/models/Notification";
 import { PlatformPushScheduleModel } from "@hostel/db/models/PlatformPushSchedule";
@@ -67,9 +69,70 @@ type PushLogRecord = {
   };
 };
 
+/**
+ * The platform's own reminders, filed as schedule rows so the superadmin sees
+ * them on the Push tab beside their own, and can pause them.
+ *
+ * Each row's audience and text are worked out per recipient when it runs — who
+ * owes, how much, how many days — so `title` and `body` here are what the list
+ * shows, not what a phone shows. A week and five days before a due day the
+ * morning row reminds once (`earlyDays`); from three days before, both rows
+ * remind every day until the bill is paid (`remindsToday`). The plan's morning
+ * row emails the owner too, so an inbox gets one a day while the push goes twice.
+ */
+export const AUTOMATIC_PUSHES = {
+  PLAN_DUE_MORNING: {
+    audience: "HOSTEL_STAFF",
+    body: "Hostel admins whose plan payment is due or late, and an email to the owner with the website link to pay. 7 and 5 days before the due day, then every day from 3 days before until paid.",
+    earlyDays: [7, 5],
+    email: true,
+    kind: "PLAN_DUE",
+    time: "08:00",
+    title: "Plan payment reminder · morning",
+  },
+  PLAN_DUE_EVENING: {
+    audience: "HOSTEL_STAFF",
+    body: "Hostel admins whose plan payment is due or late. Every day from 3 days before the due day until paid.",
+    earlyDays: [],
+    email: false,
+    kind: "PLAN_DUE",
+    time: "21:00",
+    title: "Plan payment reminder · evening",
+  },
+  FEE_DUE_MORNING: {
+    audience: "RESIDENTS",
+    body: "Residents with an unpaid hostel fee: \"Please pay your hostel fee for <month>.\" 7 and 5 days before the due day, then every day from 3 days before until paid.",
+    earlyDays: [7, 5],
+    email: false,
+    kind: "FEE_DUE",
+    time: "08:00",
+    title: "Hostel fee reminder · morning",
+  },
+  FEE_DUE_EVENING: {
+    audience: "RESIDENTS",
+    body: "Residents with an unpaid hostel fee. Every day from 3 days before the due day until paid.",
+    earlyDays: [],
+    email: false,
+    kind: "FEE_DUE",
+    time: "21:00",
+    title: "Hostel fee reminder · evening",
+  },
+} as const satisfies Record<
+  string,
+  Omit<PushMessage, "urgency"> & {
+    earlyDays: readonly number[];
+    email: boolean;
+    kind: "FEE_DUE" | "PLAN_DUE";
+    time: string;
+  }
+>;
+
+export type AutomaticPushKey = keyof typeof AUTOMATIC_PUSHES;
+
 type ScheduleRecord = PushMessage & {
   _id: Types.ObjectId;
-  createdBy: Types.ObjectId;
+  automatic?: AutomaticPushKey;
+  createdBy?: Types.ObjectId;
   endsOn?: string | null;
   lastDevices?: number;
   lastRecipients?: number;
@@ -148,6 +211,63 @@ async function deliverPush(message: PushMessage, actorId: string, scheduleId?: s
   return serializePush({ _id: log._id as Types.ObjectId, createdAt: now, metadata });
 }
 
+let seeded: Promise<void> | null = null;
+
+/**
+ * Files each automatic row the first time this instance needs it. An existing
+ * row is left exactly as it is — paused stays paused. Two instances seeding at
+ * once meet at the unique index, and the loser's duplicate-key error is the
+ * row already being there.
+ */
+function ensureAutomaticPushes() {
+  seeded ??= Promise.all(
+    (Object.keys(AUTOMATIC_PUSHES) as AutomaticPushKey[]).map((key) => {
+      const { audience, body, time, title } = AUTOMATIC_PUSHES[key];
+      const now = new Date();
+      const timing = { repeat: "DAILY" as const, startsOn: nepalDateOf(now), time };
+
+      return PlatformPushScheduleModel.updateOne(
+        { automatic: key },
+        {
+          $setOnInsert: {
+            ...timing,
+            audience,
+            body,
+            nextRunAt: nextOccurrence(timing, now),
+            status: "ACTIVE",
+            title,
+            urgency: "NORMAL",
+          },
+        },
+        { upsert: true },
+      ).catch((error: { code?: number }) => {
+        if (error?.code !== 11000) {
+          throw error;
+        }
+      });
+    }),
+  ).then(
+    () => undefined,
+    (error: unknown) => {
+      seeded = null;
+      throw error;
+    },
+  );
+
+  return seeded;
+}
+
+/** One run of an automatic row. What it returns is shown on the row. */
+async function deliverAutomatic(key: AutomaticPushKey, now: Date) {
+  const { earlyDays, email, kind } = AUTOMATIC_PUSHES[key];
+  const result =
+    kind === "PLAN_DUE"
+      ? await sendPlanDueReminders({ earlyDays, email, now })
+      : await sendFeeDueReminders({ earlyDays, now });
+
+  return { devices: result.devices, recipients: result.recipients };
+}
+
 /** Sends now, or files a schedule for the cron. */
 export async function sendPlatformPush(input: PlatformPushInput, principal: ApiPrincipal) {
   await connectToDatabase();
@@ -197,16 +317,28 @@ export async function sendPlatformPush(input: PlatformPushInput, principal: ApiP
 
 export async function listPlatformPushes() {
   await connectToDatabase();
+  await ensureAutomaticPushes();
 
-  const [logs, schedules] = await Promise.all([
+  const [logs, schedules, automatic] = await Promise.all([
     AuditLogModel.find({ action: ACTION }).sort({ createdAt: -1 }).limit(20).lean<PushLogRecord[]>(),
-    PlatformPushScheduleModel.find({ status: { $in: ["ACTIVE", "PAUSED"] } })
+    PlatformPushScheduleModel.find({
+      automatic: { $exists: false },
+      status: { $in: ["ACTIVE", "PAUSED"] },
+    })
       .sort({ nextRunAt: 1 })
       .limit(50)
       .lean<ScheduleRecord[]>(),
+    PlatformPushScheduleModel.find({ automatic: { $exists: true } }).lean<ScheduleRecord[]>(),
   ]);
+  const order = Object.keys(AUTOMATIC_PUSHES);
 
-  return { pushes: logs.map(serializePush), schedules: schedules.map(serializeSchedule) };
+  return {
+    automatic: automatic
+      .sort((a, b) => order.indexOf(a.automatic ?? "") - order.indexOf(b.automatic ?? ""))
+      .map(serializeSchedule),
+    pushes: logs.map(serializePush),
+    schedules: schedules.map(serializeSchedule),
+  };
 }
 
 export async function updatePlatformPushSchedule(
@@ -223,6 +355,15 @@ export async function updatePlatformPushSchedule(
 
   if (!schedule || schedule.status === "CANCELLED" || schedule.status === "COMPLETED") {
     throw new ApiError("Schedule not found.", "PUSH_SCHEDULE_NOT_FOUND", 404);
+  }
+
+  // Cancelled, it would never be seeded again — pausing is the off switch.
+  if (schedule.automatic && action === "CANCEL") {
+    throw new ApiError(
+      "An automatic reminder can be paused, not cancelled.",
+      "PUSH_SCHEDULE_AUTOMATIC",
+      422,
+    );
   }
 
   const set: Record<string, unknown> =
@@ -257,6 +398,7 @@ export async function updatePlatformPushSchedule(
  */
 export async function dispatchDuePlatformPushes(now = new Date()) {
   await connectToDatabase();
+  await ensureAutomaticPushes();
 
   const due = await PlatformPushScheduleModel.find({
     nextRunAt: { $lte: now },
@@ -297,11 +439,9 @@ export async function dispatchDuePlatformPushes(now = new Date()) {
     }
 
     try {
-      const push = await deliverPush(
-        schedule,
-        schedule.createdBy.toString(),
-        schedule._id.toString(),
-      );
+      const push = schedule.automatic
+        ? await deliverAutomatic(schedule.automatic, now)
+        : await deliverPush(schedule, String(schedule.createdBy), schedule._id.toString());
 
       await PlatformPushScheduleModel.updateOne(
         { _id: schedule._id },
@@ -337,6 +477,9 @@ function serializePush(log: PushLogRecord) {
 function serializeSchedule(schedule: ScheduleRecord) {
   return {
     audience: schedule.audience,
+    automatic: schedule.automatic ?? null,
+    lastDevices: schedule.lastDevices ?? 0,
+    lastRecipients: schedule.lastRecipients ?? 0,
     body: schedule.body,
     endsOn: schedule.endsOn ?? null,
     id: schedule._id.toString(),

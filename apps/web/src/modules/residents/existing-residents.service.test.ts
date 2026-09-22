@@ -9,6 +9,8 @@
 import { Types } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/modules/billing/plan-limits", () => ({ assertPlanRoom: vi.fn() }));
+
 const mocks = vi.hoisted(() => ({
   allocateReferenceCode: vi.fn(),
   audit: vi.fn(),

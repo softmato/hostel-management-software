@@ -1,3 +1,4 @@
+import { PLATFORM_NAME } from "../../../brand/brand";
 import {
   ctaButton,
   detailsTable,
@@ -6,6 +7,7 @@ import {
   greeting,
   paragraph,
   smallPrint,
+  textLink,
   type EmailContent,
 } from "../layout";
 import { formatRupees } from "./subscription-invoice";
@@ -13,7 +15,8 @@ import { formatRupees } from "./subscription-invoice";
 /**
  * The two reminders about a plan payment that has not arrived: shortly before
  * it is due, and once it is late. `plan-due-reminders.service.ts` decides when;
- * these decide what is said.
+ * these decide what is said. Both say to pay on the website and carry the link,
+ * because the app may not.
  *
  * Both are short on purpose. The owner already has the invoice, figures and
  * all, from the day it was raised, so a reminder only has to say which payment,
@@ -22,6 +25,8 @@ import { formatRupees } from "./subscription-invoice";
 
 type PlanDueInput = {
   amountDue: number;
+  /** The invoice PDF made it onto the email. */
+  attached?: boolean;
   /** Already formatted for reading — see `emailDate`. */
   dueDate: string;
   hostelName: string;
@@ -30,6 +35,13 @@ type PlanDueInput = {
   payUrl: string;
   planName: string;
 };
+
+/** The app takes no plan payments, so the email is where the owner is sent to pay. */
+function payOnWebsite(payUrl: string) {
+  return smallPrint(`Please pay it on the ${PLATFORM_NAME} website: ${textLink(payUrl, payUrl)}`);
+}
+
+const ATTACHED = smallPrint("The invoice is attached to this email as a PDF.");
 
 const ALREADY_PAID =
   "Already paid? Send us the payment proof from your billing page and we will confirm it.";
@@ -70,6 +82,8 @@ export function planDueSoonEmail(
           { label: "Invoice", value: input.invoiceNumber },
         ]),
         ctaButton(input.payUrl, "Pay now"),
+        payOnWebsite(input.payUrl),
+        input.attached ? ATTACHED : "",
         input.live ? "" : smallPrint("Your listing goes live as soon as this is paid."),
         smallPrint(ALREADY_PAID),
       ]
@@ -83,8 +97,7 @@ export function planDueSoonEmail(
 }
 
 /**
- * Sent at each after-due step the platform's schedule emails on — the first one
- * only, as shipped. `alert`, like a resident's overdue fee (EMAIL_SYSTEM.md §0.2), and
+ * Sent each morning a live hostel is late and still owes. `alert`, like a resident's overdue fee (EMAIL_SYSTEM.md §0.2), and
  * red only in its label — the heading and the button stay calm, because the
  * owner is late on a bill, not in trouble.
  */
@@ -104,8 +117,12 @@ export function planOverdueEmail(input: PlanDueInput): EmailContent {
           { label: "Invoice", value: input.invoiceNumber },
         ]),
         ctaButton(input.payUrl, "Pay now"),
+        payOnWebsite(input.payUrl),
+        input.attached ? ATTACHED : "",
         smallPrint(ALREADY_PAID),
-      ].join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
       eyebrow: "Overdue",
       heading: "Your plan payment is overdue",
       preheader: `${formatRupees(input.amountDue)} for ${input.planName} was due ${input.dueDate}.`,

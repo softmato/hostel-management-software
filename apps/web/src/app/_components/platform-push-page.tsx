@@ -31,9 +31,14 @@ type PushRecord = {
 
 type ScheduleRecord = {
   audience: string;
+  /** Set on the platform's own reminders, which can be paused but not cancelled. */
+  automatic: string | null;
   body: string;
   endsOn: string | null;
   id: string;
+  lastDevices: number;
+  lastRecipients: number;
+  lastRunAt: string | null;
   nextRunAt: string | null;
   repeat: Exclude<Repeat, "NOW">;
   runCount: number;
@@ -150,10 +155,12 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
-  const resource = usePortalResource<{ pushes: PushRecord[]; schedules: ScheduleRecord[] }>(
-    ENDPOINT,
-    { errorMessage: "Could not load push notifications." },
-  );
+  const resource = usePortalResource<{
+    automatic: ScheduleRecord[];
+    pushes: PushRecord[];
+    schedules: ScheduleRecord[];
+  }>(ENDPOINT, { errorMessage: "Could not load push notifications." });
+  const automatic = resource.data?.automatic ?? [];
   const pushes = resource.data?.pushes ?? [];
   const schedules = resource.data?.schedules ?? [];
 
@@ -427,6 +434,48 @@ export const PlatformPushPageContent = memo(function PlatformPushPageContent() {
           </div>
         </SectionCard>
       </div>
+
+      <SectionCard title="Automatic">
+        {resource.state === "loading" ? <LoadingRows /> : null}
+        <div className="divide-y divide-border">
+          {automatic.map((schedule) => (
+            <div
+              className="flex flex-wrap items-start justify-between gap-3 py-3"
+              key={schedule.id}
+            >
+              <div className="min-w-0 max-w-3xl">
+                <p className="font-semibold text-foreground">{schedule.title}</p>
+                <p className="mt-0.5 text-[13px] text-muted-foreground">{schedule.body}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {describeSchedule(schedule)} ·{" "}
+                  {schedule.status === "PAUSED"
+                    ? "Paused"
+                    : schedule.nextRunAt
+                      ? `Next ${nepalDateTime(schedule.nextRunAt)}`
+                      : ""}
+                  {schedule.lastRunAt
+                    ? ` · last ${nepalDateTime(schedule.lastRunAt)} to ${schedule.lastRecipients} account(s), ${schedule.lastDevices} device(s)`
+                    : ""}
+                </p>
+              </div>
+              <RoleButton
+                onClick={() =>
+                  changeSchedule(schedule, schedule.status === "PAUSED" ? "RESUME" : "PAUSE")
+                }
+                type="button"
+                variant="outline"
+              >
+                {schedule.status === "PAUSED" ? (
+                  <Play aria-hidden="true" className="size-3.5" />
+                ) : (
+                  <Pause aria-hidden="true" className="size-3.5" />
+                )}
+                {schedule.status === "PAUSED" ? "Resume" : "Pause"}
+              </RoleButton>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
 
       <SectionCard title="Scheduled">
         {resource.state === "loading" ? <LoadingRows /> : null}

@@ -1,3 +1,4 @@
+import { assertPlanRoom } from "@/modules/billing/plan-limits";
 import { Types } from "mongoose";
 import type { z } from "zod";
 
@@ -164,6 +165,8 @@ export async function createHostelWarden(
 
   const hostelId = resolveAdminHostelId(principal, input.hostelId);
   const permissions = input.permissions ?? DEFAULT_WARDEN_PERMISSIONS;
+
+  await assertPlanRoom(hostelId, "wardens");
 
   // Account create/upgrade per ARCHITECTURE.md §3.2 (never duplicates a User).
   // Throws EMAIL_ALREADY_HAS_ROLE (409) if the email belongs to a non-PUBLIC,

@@ -1,12 +1,12 @@
 /**
- * Plan payment reminders — the steps before and after a plan's due day, by
- * email to the owner and by push and bell to the hostel's admins.
+ * Plan payment reminders — a week and five days before the due day on the
+ * morning run, then every morning and evening from three days before until paid;
+ * email to the owner on the morning run, push to the hostel's admins on both.
  *
  * The rules are asserted on the pure decision, and the run is asserted on the
- * things that would go wrong silently: a hostel told twice, a backlog replayed
- * after a missed morning, an owner who sent proof being told they have not
- * paid, a failed send recorded as sent and so never retried, and a push that
- * tells somebody to pay somewhere the app is not allowed to point.
+ * things that would go wrong silently: a hostel told twice in one run, an owner
+ * who sent proof being told they have not paid, an inbox getting the evening
+ * run too, and a push that tells somebody to pay somewhere the app may not point.
  */
 import { Types } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,14 +20,9 @@ import { emailDate, monthName } from "@hostel/shared/email/templates/layout";
 
 const mocks = vi.hoisted(() => ({
   aggregate: vi.fn(),
-  createInApp: vi.fn(),
-  getOperationsConfig: vi.fn(),
   hostelFind: vi.fn(),
   invoiceFind: vi.fn(),
-  invoiceUpdateOne: vi.fn(),
   memberFind: vi.fn(),
-  runCreate: vi.fn(),
-  runUpdateOne: vi.fn(),
   sendEmail: vi.fn(),
   sendPush: vi.fn(),
   subscriptionFind: vi.fn(),
@@ -48,23 +43,14 @@ function query<T>(rows: T) {
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: vi.fn() }));
 vi.mock("@/modules/hostels/hostel-registration.events", () => ({
+  attach: async () => [],
   formatEmailDate: (value: Date) => `DAY(${value.toISOString()})`,
   hostelBillingUrl: (slug: string) => `https://example.test/${slug}/admin/billing`,
   registrationStatusUrl: () => "https://example.test/register-hostel/form",
 }));
-vi.mock("@/modules/notifications/notification.service", () => ({
-  createInAppNotification: mocks.createInApp,
-}));
 vi.mock("@/modules/notifications/push.service", () => ({ sendPushToUsers: mocks.sendPush }));
-vi.mock("@/modules/platform-config/operations-config", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/modules/platform-config/operations-config")>()),
-  getOperationsConfig: mocks.getOperationsConfig,
-}));
-vi.mock("@hostel/db/models/ReconciliationRun", () => ({
-  ReconciliationRunModel: { create: mocks.runCreate, updateOne: mocks.runUpdateOne },
-}));
 vi.mock("@hostel/db/models/SubscriptionInvoice", () => ({
-  SubscriptionInvoiceModel: { find: mocks.invoiceFind, updateOne: mocks.invoiceUpdateOne },
+  SubscriptionInvoiceModel: { find: mocks.invoiceFind },
 }));
 vi.mock("@hostel/db/models/Hostel", () => ({ HostelModel: { find: mocks.hostelFind } }));
 vi.mock("@hostel/db/models/HostelMember", () => ({
@@ -81,188 +67,59 @@ vi.mock("@hostel/shared/email/sender", () => ({ sendEmail: mocks.sendEmail }));
 
 import {
   composePlanDueNotice,
-  nextPlanDueStep,
-  runPlanDueReminders,
-  type PlanReminderSent,
+  planRemindsToday,
+  sendPlanDueReminders,
 } from "@/modules/billing/plan-due-reminders.service";
-import {
-  DEFAULT_PLAN_DUE_REMINDERS,
-  operationsConfigSchema,
-  type PlanDueReminderSchedule,
-} from "@/modules/platform-config/operations-config";
 
-/** 07:45 in Kathmandu, when the job runs. */
+/** 07:45 in Kathmandu. */
 const NOW = new Date("2026-09-15T02:00:00.000Z");
+const MORNING = { earlyDays: [7, 5], email: true, now: NOW };
+const EVENING = { earlyDays: [], email: false, now: NOW };
 
-const ALL = ["email", "push", "bell"] as const;
-
-/** Every channel of `offset` recorded as sent. */
-function sentAt(offset: number, channels: readonly PlanReminderSent["channel"][] = ALL) {
-  return channels.map((channel) => ({ channel, offset }));
-}
-
-function decide(overrides: Partial<Parameters<typeof nextPlanDueStep>[0]> = {}) {
-  return nextPlanDueStep({
+function decide(overrides: Partial<Parameters<typeof planRemindsToday>[0]> = {}) {
+  return planRemindsToday({
     claimInReview: false,
-    daysSinceIssue: 5,
-    daysUntilDue: 1,
+    daysSinceIssue: 10,
+    daysUntilDue: 3,
+    earlyDays: MORNING.earlyDays,
     owingWhileLive: true,
-    schedule: DEFAULT_PLAN_DUE_REMINDERS,
-    sent: [],
     ...overrides,
   });
 }
 
-describe("the shipped schedule", () => {
-  it("is the day before and the due day, then one, three and seven days late", () => {
-    const { planDueReminders } = operationsConfigSchema.parse({});
+describe("which days are reminded", () => {
+  it("reminds 7 and 5 days out on the morning run, and every day from 3 days out", () => {
+    const days = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -30];
 
-    expect(planDueReminders.beforeDue.map((step) => step.days)).toEqual([1, 0]);
-    expect(planDueReminders.afterDue.map((step) => step.days)).toEqual([1, 3, 7]);
-    // Push and bell at every step.
-    expect(
-      [...planDueReminders.beforeDue, ...planDueReminders.afterDue].every(
-        (step) => step.push && step.bell,
-      ),
-    ).toBe(true);
-    // Email only at the first step on each side of the due day.
-    expect(planDueReminders.beforeDue.map((step) => step.email)).toEqual([true, false]);
-    expect(planDueReminders.afterDue.map((step) => step.email)).toEqual([true, false, false]);
+    expect(days.filter((daysUntilDue) => decide({ daysUntilDue }))).toEqual([
+      7, 5, 3, 2, 1, 0, -1, -2, -30,
+    ]);
   });
 
-  it("refuses a day listed twice, and days outside their side of the due day", () => {
-    const step = { bell: true, email: false, push: true };
-    const parse = (planDueReminders: unknown) =>
-      operationsConfigSchema.safeParse({ planDueReminders }).success;
+  it("leaves the early heads-ups to the morning run", () => {
+    const days = [7, 5, 3, 0, -4];
 
-    expect(parse({ afterDue: [], beforeDue: [{ ...step, days: 1 }, { ...step, days: 1 }] })).toBe(
-      false,
-    );
-    expect(parse({ afterDue: [{ ...step, days: 0 }], beforeDue: [] })).toBe(false);
-    expect(parse({ afterDue: [{ ...step, days: 1 }], beforeDue: [{ ...step, days: 0 }] })).toBe(
-      true,
-    );
-  });
-});
-
-describe("which step is owed", () => {
-  it("sends the day-before step on every channel it lists", () => {
-    expect(decide({ daysUntilDue: 1 })).toEqual({ channels: ["email", "push", "bell"], offset: -1 });
-  });
-
-  it("sends the due-day step after the day before went out", () => {
-    expect(decide({ daysUntilDue: 0, sent: sentAt(-1) })).toEqual({
-      channels: ["push", "bell"],
-      offset: 0,
-    });
-  });
-
-  it("says nothing while the first step is further off", () => {
-    expect(decide({ daysUntilDue: 2 })).toBeNull();
-    expect(decide({ daysUntilDue: 14 })).toBeNull();
-  });
-
-  it("sends each channel of a step once", () => {
-    expect(decide({ daysUntilDue: 1, sent: sentAt(-1) })).toBeNull();
-    expect(decide({ daysUntilDue: -2, sent: sentAt(1) })).toBeNull();
-    expect(decide({ daysUntilDue: -30, sent: sentAt(7) })).toBeNull();
-  });
-
-  it("makes up a missed morning with the latest step, never the ones it skipped", () => {
-    // The day-before run was missed: the due-day step goes, and its email-less
-    // channels are all it sends.
-    expect(decide({ daysUntilDue: 0 })).toEqual({ channels: ["push", "bell"], offset: 0 });
-    // Five days late with nothing sent: the three-day step, not one, not three.
-    expect(decide({ daysUntilDue: -5, sent: sentAt(0) })).toEqual({
-      channels: ["push", "bell"],
-      offset: 3,
-    });
-    expect(decide({ daysSinceIssue: 33, daysUntilDue: -30 })).toEqual({
-      channels: ["push", "bell"],
-      offset: 7,
-    });
-  });
-
-  it("tells a live hostel that still owes it is late, from any earlier step", () => {
-    expect(decide({ daysUntilDue: -1, sent: sentAt(0, ["push", "bell"]) })).toEqual({
-      channels: ["email", "push", "bell"],
-      offset: 1,
-    });
-    // Between steps, the last one stays the latest.
-    expect(decide({ daysUntilDue: -2, sent: sentAt(1) })).toBeNull();
-  });
-
-  it("retries a failed channel while its step is still the latest", () => {
-    // The email was taken off the record when it failed; push and bell were not.
-    expect(decide({ daysUntilDue: -2, sent: sentAt(1, ["push", "bell"]) })).toEqual({
-      channels: ["email"],
-      offset: 1,
-    });
-    // Once the next step is due, the failed email is not replayed.
-    expect(decide({ daysUntilDue: -3, sent: sentAt(1, ["push", "bell"]) })).toEqual({
-      channels: ["push", "bell"],
-      offset: 3,
-    });
-  });
-
-  it("never goes back to an earlier step, even after the schedule is edited", () => {
-    const edited: PlanDueReminderSchedule = {
-      afterDue: [
-        { bell: true, days: 1, email: true, push: true },
-        { bell: true, days: 2, email: true, push: true },
-      ],
-      beforeDue: [],
-    };
-
-    expect(decide({ daysUntilDue: -4, schedule: edited, sent: sentAt(3) })).toBeNull();
-  });
-
-  it("does not remind on the day the invoice was sent — the invoice already said it", () => {
-    expect(decide({ daysSinceIssue: 0, daysUntilDue: 1 })).toBeNull();
-    // A one-day deadline: the due-day step the next morning, never the day-before one.
-    expect(decide({ daysSinceIssue: 1, daysUntilDue: 0 })).toEqual({
-      channels: ["push", "bell"],
-      offset: 0,
-    });
-  });
-
-  it("does not send a step whose day came before the invoice existed", () => {
-    const early: PlanDueReminderSchedule = {
-      afterDue: [],
-      beforeDue: [{ bell: true, days: 7, email: true, push: true }],
-    };
-
-    // Raised three days before the due day; the seven-day step never applied.
-    expect(decide({ daysSinceIssue: 1, daysUntilDue: 2, schedule: early })).toBeNull();
+    expect(days.filter((daysUntilDue) => decide({ daysUntilDue, earlyDays: [] }))).toEqual([
+      3, 0, -4,
+    ]);
   });
 
   it("never calls a hostel that is not live late", () => {
-    // A self-registered hostel simply is not published until it pays.
-    expect(decide({ daysUntilDue: -1, owingWhileLive: false })).toBeNull();
-    expect(decide({ daysUntilDue: 1, owingWhileLive: false })).toEqual({
-      channels: ["email", "push", "bell"],
-      offset: -1,
-    });
+    expect(decide({ daysUntilDue: -1, owingWhileLive: false })).toBe(false);
+    expect(decide({ daysUntilDue: 0, owingWhileLive: false })).toBe(true);
   });
 
   it("stays quiet while the owner's payment proof is with us", () => {
-    expect(decide({ claimInReview: true, daysUntilDue: 1 })).toBeNull();
-    expect(decide({ claimInReview: true, daysUntilDue: -2 })).toBeNull();
+    expect(decide({ claimInReview: true })).toBe(false);
   });
 
-  it("sends only the channels the platform switched on", () => {
-    const quiet: PlanDueReminderSchedule = {
-      afterDue: [{ bell: false, days: 1, email: false, push: false }],
-      beforeDue: [{ bell: true, days: 3, email: false, push: false }],
-    };
-
-    expect(decide({ daysUntilDue: 3, schedule: quiet })).toEqual({ channels: ["bell"], offset: -3 });
-    expect(decide({ daysUntilDue: -1, schedule: quiet })).toBeNull();
-    expect(decide({ schedule: { afterDue: [], beforeDue: [] } })).toBeNull();
+  it("does not remind on the day the invoice was sent — the invoice already said it", () => {
+    expect(decide({ daysSinceIssue: 0 })).toBe(false);
+    expect(decide({ daysSinceIssue: 1 })).toBe(true);
   });
 });
 
-describe("the push and bell text", () => {
+describe("the push text", () => {
   const base = {
     hostelName: "Rupa Hostel",
     invoiceNumber: "SUB-2609-0001-4F2A",
@@ -290,7 +147,7 @@ describe("the push and bell text", () => {
   });
 });
 
-describe("runPlanDueReminders", () => {
+describe("sendPlanDueReminders", () => {
   const hostelId = new Types.ObjectId();
   const ownerId = new Types.ObjectId();
   const memberId = new Types.ObjectId();
@@ -318,9 +175,6 @@ describe("runPlanDueReminders", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mocks.getOperationsConfig.mockResolvedValue({ planDueReminders: DEFAULT_PLAN_DUE_REMINDERS });
-    mocks.runCreate.mockResolvedValue({ _id: new Types.ObjectId() });
-    mocks.runUpdateOne.mockResolvedValue({});
     mocks.hostelFind.mockReturnValue(query([hostel()]));
     mocks.memberFind.mockReturnValue(query([{ hostelId, userId: memberId }]));
     mocks.userFind.mockReturnValue(
@@ -331,229 +185,100 @@ describe("runPlanDueReminders", () => {
     );
     mocks.subscriptionFind.mockReturnValue(query([{ _id: subscriptionId }]));
     mocks.aggregate.mockResolvedValue([]);
-    mocks.invoiceUpdateOne.mockResolvedValue({ modifiedCount: 1 });
     mocks.sendEmail.mockResolvedValue({ id: "email-1", sent: true });
-    mocks.createInApp.mockImplementation(async (input: { userId: string }) => ({
-      _id: `row-${input.userId}`,
-    }));
-    mocks.sendPush.mockResolvedValue({ revoked: 0, sent: 1, skipped: false });
+    mocks.sendPush.mockResolvedValue({ revoked: 0, sent: 3, skipped: false });
   });
 
-  it("claims every channel of the step, then emails the owner and tells the admins", async () => {
-    const row = invoice();
-    mocks.invoiceFind.mockReturnValue(query([row]));
+  it("emails the owner the website link and pushes the facts to the admins", async () => {
+    mocks.invoiceFind.mockReturnValue(query([invoice()]));
 
-    const result = await runPlanDueReminders(NOW);
+    const result = await sendPlanDueReminders(MORNING);
 
-    expect(result).toEqual({
-      bell: 1,
-      dueSoon: 1,
-      email: 1,
-      failed: 0,
-      overdue: 0,
-      push: 1,
-      scanned: 1,
-    });
-    expect(mocks.invoiceUpdateOne).toHaveBeenCalledTimes(1);
-    expect(mocks.invoiceUpdateOne).toHaveBeenCalledWith(
-      {
-        _id: row._id,
-        "reminders.sent": {
-          $not: {
-            $elemMatch: {
-              $or: [
-                { offset: { $gt: -1 } },
-                { channel: { $in: ["email", "push", "bell"] }, offset: -1 },
-              ],
-            },
-          },
-        },
-      },
-      {
-        $push: {
-          "reminders.sent": {
-            $each: [
-              { at: NOW, channel: "email", offset: -1 },
-              { at: NOW, channel: "push", offset: -1 },
-              { at: NOW, channel: "bell", offset: -1 },
-            ],
-          },
-        },
-      },
-    );
+    expect(result).toEqual({ devices: 3, emails: 1, recipients: 2 });
 
     const sent = mocks.sendEmail.mock.calls[0]![0];
     expect(sent.to).toBe("sita@example.test");
     expect(sent.subject).toBe("Payment due tomorrow — Pro Plan · Rupa Hostel");
+    expect(sent.html).toContain("Please pay it on the HostelPalika website");
     expect(sent.html).toContain("https://example.test/rupa-hostel/admin/billing");
-    expect(sent.html).toContain("Rs 4,900");
 
-    // A bell row per admin, opening Billing, and never a task left open.
-    expect(mocks.createInApp).toHaveBeenCalledTimes(2);
-    expect(mocks.createInApp.mock.calls.map((call) => call[0].userId)).toEqual([
-      ownerId.toString(),
-      memberId.toString(),
-    ]);
-    expect(mocks.createInApp.mock.calls[0]![0]).toMatchObject({
-      actionUrl: "/rupa-hostel/admin/billing",
-      category: "PAYMENT",
-      data: { hostelSlug: "rupa-hostel", type: "PLAN_DUE" },
-      hostelId: hostelId.toString(),
-      kind: "NORMAL",
-      push: false,
-      title: "Plan payment due tomorrow",
-    });
-
-    // One push for both, each phone given its own row id.
     expect(mocks.sendPush).toHaveBeenCalledTimes(1);
     expect(mocks.sendPush).toHaveBeenCalledWith(
       [ownerId.toString(), memberId.toString()],
       expect.objectContaining({
         category: "PAYMENT",
-        data: expect.objectContaining({ type: "PLAN_DUE" }),
-        dataByUser: {
-          [memberId.toString()]: { notificationId: `row-${memberId.toString()}` },
-          [ownerId.toString()]: { notificationId: `row-${ownerId.toString()}` },
-        },
+        data: expect.objectContaining({ hostelSlug: "rupa-hostel", type: "PLAN_DUE" }),
         title: "Plan payment due tomorrow",
       }),
     );
   });
 
-  it("reminds about what is left, not the whole invoice", async () => {
-    const row = invoice();
-    mocks.invoiceFind.mockReturnValue(query([row]));
-    mocks.aggregate.mockResolvedValue([
-      { _id: { invoiceId: row._id, status: "SETTLED" }, total: 1400 },
-    ]);
+  it("sends the evening push without another email", async () => {
+    mocks.invoiceFind.mockReturnValue(query([invoice()]));
 
-    await runPlanDueReminders(NOW);
+    const result = await sendPlanDueReminders(EVENING);
 
-    expect(mocks.sendEmail.mock.calls[0]![0].html).toContain("Rs 3,500");
-    expect(mocks.sendPush.mock.calls[0]![1].body).toContain("Rs 3,500");
-  });
-
-  it("makes up a missed morning with the due-day step alone", async () => {
-    mocks.invoiceFind.mockReturnValue(query([invoice({ dueAt: hostelDayEnd(NOW, 0) })]));
-
-    const result = await runPlanDueReminders(NOW);
-
-    expect(result).toMatchObject({ bell: 1, dueSoon: 1, email: 0, push: 1 });
+    expect(result).toEqual({ devices: 3, emails: 0, recipients: 2 });
     expect(mocks.sendEmail).not.toHaveBeenCalled();
-    expect(mocks.sendPush.mock.calls[0]![1].title).toBe("Plan payment due today");
   });
 
-  it("sends the late step to a live hostel that still owes", async () => {
+  it("reminds a hostel once per run, about its earliest bill", async () => {
     mocks.invoiceFind.mockReturnValue(
       query([
-        invoice({
-          dueAt: hostelDayEnd(NOW, -2),
-          reminders: { sent: [...sentAt(-1), ...sentAt(0, ["push", "bell"])] },
-        }),
+        invoice({ dueAt: hostelDayEnd(NOW, 0), invoiceNumber: "SUB-EARLY" }),
+        invoice({ dueAt: hostelDayEnd(NOW, 2), invoiceNumber: "SUB-LATER" }),
       ]),
     );
 
-    const result = await runPlanDueReminders(NOW);
+    await sendPlanDueReminders(MORNING);
 
-    expect(result).toMatchObject({ overdue: 1, push: 1 });
-    expect(mocks.sendEmail.mock.calls[0]![0]).toMatchObject({
-      category: "alert",
-      subject: "Payment overdue — Pro Plan · Rupa Hostel",
-    });
-    expect(mocks.sendPush.mock.calls[0]![1].title).toBe("Plan payment overdue by 2 days");
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
+    expect(mocks.sendPush).toHaveBeenCalledTimes(1);
+    expect(mocks.sendPush.mock.calls[0]![1].title).toBe("Plan payment due today");
   });
 
-  it("does not remind an owner whose payment proof is waiting on review", async () => {
+  it("reminds about what is left, and not at all once it is settled", async () => {
     const row = invoice();
     mocks.invoiceFind.mockReturnValue(query([row]));
     mocks.aggregate.mockResolvedValue([
-      { _id: { invoiceId: row._id, status: "IN_REVIEW" }, total: 4900 },
+      { _id: { invoiceId: row._id, status: "SETTLED" }, total: 900 },
     ]);
 
-    const result = await runPlanDueReminders(NOW);
+    await sendPlanDueReminders(MORNING);
+    expect(mocks.sendPush.mock.calls[0]![1].body).toContain("Rs 4,000");
 
-    expect(result.dueSoon).toBe(0);
-    expect(mocks.invoiceUpdateOne).not.toHaveBeenCalled();
-    expect(mocks.sendEmail).not.toHaveBeenCalled();
-    expect(mocks.sendPush).not.toHaveBeenCalled();
-    expect(mocks.createInApp).not.toHaveBeenCalled();
-  });
+    vi.clearAllMocks();
+    mocks.aggregate.mockResolvedValue([
+      { _id: { invoiceId: row._id, status: "SETTLED" }, total: 4900 },
+    ]);
 
-  it("sends nothing when another run claimed the step first", async () => {
-    mocks.invoiceFind.mockReturnValue(query([invoice()]));
-    mocks.invoiceUpdateOne.mockResolvedValue({ modifiedCount: 0 });
-
-    await runPlanDueReminders(NOW);
-
-    expect(mocks.sendEmail).not.toHaveBeenCalled();
-    expect(mocks.sendPush).not.toHaveBeenCalled();
-    expect(mocks.createInApp).not.toHaveBeenCalled();
-  });
-
-  it("takes only the failed channel off the record, so the next run tries it again", async () => {
-    const row = invoice();
-    mocks.invoiceFind.mockReturnValue(query([row]));
-    mocks.sendEmail.mockResolvedValue({ reason: "send_failed", sent: false });
-
-    const result = await runPlanDueReminders(NOW);
-
-    expect(result).toMatchObject({ bell: 1, dueSoon: 1, email: 0, failed: 1, push: 1 });
-    expect(mocks.invoiceUpdateOne).toHaveBeenLastCalledWith(
-      { _id: row._id },
-      { $pull: { "reminders.sent": { at: NOW, channel: { $in: ["email"] }, offset: -1 } } },
-    );
+    expect(await sendPlanDueReminders(MORNING)).toEqual({ devices: 0, emails: 0, recipients: 0 });
   });
 
   it("emails a hostel that is not live yet, and pushes nothing to it", async () => {
     mocks.hostelFind.mockReturnValue(query([hostel("PENDING")]));
-    const row = invoice();
-    mocks.invoiceFind.mockReturnValue(query([row]));
+    mocks.invoiceFind.mockReturnValue(query([invoice()]));
 
-    const result = await runPlanDueReminders(NOW);
+    const result = await sendPlanDueReminders(MORNING);
 
-    expect(result).toMatchObject({ bell: 0, email: 1, push: 0 });
+    expect(result).toEqual({ devices: 0, emails: 1, recipients: 0 });
     expect(mocks.memberFind).not.toHaveBeenCalled();
-    expect(mocks.createInApp).not.toHaveBeenCalled();
     expect(mocks.sendPush).not.toHaveBeenCalled();
-    // Push and bell are left unclaimed, not recorded as sent.
-    expect(mocks.invoiceUpdateOne.mock.calls[0]![1]).toEqual({
-      $push: { "reminders.sent": { $each: [{ at: NOW, channel: "email", offset: -1 }] } },
-    });
 
     const html = mocks.sendEmail.mock.calls[0]![0].html as string;
     expect(html).toContain("https://example.test/register-hostel/form");
     expect(html).toContain("Your listing goes live as soon as this is paid.");
   });
 
-  it("pushes only to accounts that can open Billing", async () => {
-    mocks.memberFind.mockReturnValue(query([]));
-    mocks.userFind.mockReturnValue(
-      query([{ _id: ownerId, email: "sita@example.test", name: "Sita", role: "PUBLIC" }]),
+  it("sends a live hostel that still owes the overdue email every morning", async () => {
+    mocks.invoiceFind.mockReturnValue(query([invoice({ dueAt: hostelDayEnd(NOW, -12) })]));
+
+    await sendPlanDueReminders(MORNING);
+
+    expect(mocks.sendEmail.mock.calls[0]![0].subject).toBe(
+      "Payment overdue — Pro Plan · Rupa Hostel",
     );
-    mocks.invoiceFind.mockReturnValue(query([invoice()]));
-
-    const result = await runPlanDueReminders(NOW);
-
-    expect(result).toMatchObject({ bell: 0, email: 1, push: 0 });
-    expect(mocks.sendPush).not.toHaveBeenCalled();
-  });
-
-  it("follows the schedule the platform saved", async () => {
-    mocks.getOperationsConfig.mockResolvedValue({
-      planDueReminders: {
-        afterDue: [],
-        beforeDue: [{ bell: false, days: 1, email: false, push: true }],
-      },
-    });
-    mocks.invoiceFind.mockReturnValue(query([invoice()]));
-
-    const result = await runPlanDueReminders(NOW);
-
-    expect(result).toMatchObject({ bell: 0, email: 0, push: 1 });
-    expect(mocks.sendEmail).not.toHaveBeenCalled();
-    expect(mocks.createInApp).not.toHaveBeenCalled();
-    // With no bell rows there are no row ids to hand the phones.
-    expect(mocks.sendPush.mock.calls[0]![1].dataByUser).toEqual({});
+    expect(mocks.sendPush.mock.calls[0]![1].title).toBe("Plan payment overdue by 12 days");
   });
 });
 

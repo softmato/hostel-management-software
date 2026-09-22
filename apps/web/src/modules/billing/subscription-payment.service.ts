@@ -387,6 +387,7 @@ export async function settlePayment(
     planName: invoice.planName,
     // Softmato's number, when it has one: the receipt the owner is sent is theirs.
     receiptNumber: payment.softmatoTransactionNo ?? null,
+    receiptRef: receiptNumber,
   });
 
   await AuditLogModel.create({

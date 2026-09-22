@@ -328,7 +328,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
 
   return (
     <PublicShell active="plans-pricing">
-      <div className={cn("mx-auto px-4 pb-20 pt-8 sm:px-6", trace ? "max-w-5xl" : "max-w-md sm:pt-14")}>
+      <div className={cn("mx-auto px-4 pb-20 pt-8 sm:px-6", trace ? "max-w-6xl" : "max-w-md sm:pt-14")}>
         {/*
           An open invoice is paid before any new plan (`raiseRenewalInvoice`),
           so once one comes back the page is about that invoice, not the pick.
@@ -352,7 +352,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
         <div
           className={cn(
             "mt-6",
-            trace && "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:items-start",
+            trace && "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:items-start",
           )}
         >
           <div className="lg:col-start-2 lg:row-start-1">
@@ -538,7 +538,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                     the annual. Re-priced on the server; the figures here are the same function.
                   */}
                   {invoice.months && !invoice.monthsLocked ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3">
                       <label className="block text-sm font-semibold text-foreground">
                         Plan
                         <select

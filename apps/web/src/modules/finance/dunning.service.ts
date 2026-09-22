@@ -511,6 +511,9 @@ async function deliver(input: {
         category: "PAYMENT",
         data: { invoiceId: invoice._id.toString() },
         hostelId: hostelKey,
+        // The bell row only: the resident's push is the automatic fee reminder
+        // (`fee-due-reminders.service`), which would otherwise land beside it.
+        push: false,
         title: overdue
           ? "Payment overdue"
           : reminderStage === "TODAY"

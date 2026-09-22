@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Plus, QrCode, SlidersHorizontal, Upload, X } from "lucide-react";
+import { Loader2, QrCode, SlidersHorizontal, Upload, X } from "lucide-react";
 import Image from "next/image";
 import { memo, useCallback, useState, type FormEvent } from "react";
 
@@ -26,7 +26,6 @@ type OperationsConfig = {
   maxInsideZoneRadiusMeters: number;
   maxNearbyZoneRadiusMeters: number;
   paymentReminderDaysBefore: number;
-  planDueReminders: PlanDueReminderSchedule;
   qrActivationExpiryDays: number;
   receiptNumberPrefix: string;
   sendComplaintEmails: boolean;
@@ -42,175 +41,7 @@ type PendingSettingChange = {
   sentTo: string;
 };
 
-type PlanReminderStep = { bell: boolean; days: number; email: boolean; push: boolean };
-
-type PlanDueReminderSchedule = {
-  afterDue: PlanReminderStep[];
-  beforeDue: PlanReminderStep[];
-};
-
 const OPERATIONS_ENDPOINT = "/api/v1/platform/operations-config";
-
-const REMINDER_CHANNELS = [
-  { key: "email", label: "Email" },
-  { key: "push", label: "Push" },
-  { key: "bell", label: "Bell" },
-] as const;
-
-/** Mirrors `planDueReminderScheduleSchema`, so the form stops where the server would. */
-const MAX_REMINDER_STEPS = 10;
-
-function PlanReminderSteps({
-  max,
-  min,
-  onChange,
-  side,
-  steps,
-}: {
-  max: number;
-  min: number;
-  onChange: (steps: PlanReminderStep[]) => void;
-  side: "after" | "before";
-  steps: PlanReminderStep[];
-}) {
-  const days = steps.map((step) => step.days);
-  const repeated = new Set(days).size !== days.length;
-
-  function update(index: number, patch: Partial<PlanReminderStep>) {
-    onChange(steps.map((step, at) => (at === index ? { ...step, ...patch } : step)));
-  }
-
-  function add() {
-    let next = min;
-
-    while (days.includes(next) && next < max) {
-      next += 1;
-    }
-
-    onChange([...steps, { bell: true, days: next, email: false, push: true }]);
-  }
-
-  return (
-    <div className="grid content-start gap-2">
-      <p className="text-sm font-semibold text-foreground">
-        {side === "before" ? "Before the due day" : "After the due day"}
-      </p>
-
-      {steps.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No reminders.</p>
-      ) : (
-        <ul className="grid gap-2">
-          {steps.map((step, index) => (
-            <li
-              className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-border px-3 py-2"
-              key={index}
-            >
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  aria-label={side === "before" ? "Days before the due day" : "Days after the due day"}
-                  className="h-9 w-16 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-role-platform"
-                  max={max}
-                  min={min}
-                  onChange={(event) =>
-                    update(index, {
-                      days: event.target.value === "" ? Number.NaN : Number(event.target.value),
-                    })
-                  }
-                  required
-                  type="number"
-                  value={Number.isNaN(step.days) ? "" : step.days}
-                />
-                <span className="text-muted-foreground">
-                  {side === "before"
-                    ? step.days === 0
-                      ? "days before — the due day"
-                      : "days before"
-                    : "days after"}
-                </span>
-              </label>
-
-              <div className="flex items-center gap-3">
-                {REMINDER_CHANNELS.map((channel) => (
-                  <label className="flex items-center gap-1.5 text-sm" key={channel.key}>
-                    <input
-                      checked={step[channel.key]}
-                      className="size-4 accent-role-platform"
-                      onChange={(event) => update(index, { [channel.key]: event.target.checked })}
-                      type="checkbox"
-                    />
-                    {channel.label}
-                  </label>
-                ))}
-              </div>
-
-              <button
-                aria-label="Remove this reminder"
-                className="ml-auto inline-flex items-center rounded-md p-1.5 text-muted-foreground transition hover:text-destructive"
-                onClick={() => onChange(steps.filter((_, at) => at !== index))}
-                type="button"
-              >
-                <X className="size-4" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {repeated ? (
-        <p className="text-xs text-destructive">Each day can be listed once.</p>
-      ) : null}
-
-      <button
-        className="inline-flex w-fit items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground transition hover:border-role-platform disabled:opacity-60"
-        disabled={steps.length >= MAX_REMINDER_STEPS}
-        onClick={add}
-        type="button"
-      >
-        <Plus className="size-3.5" /> Add a day
-      </button>
-    </div>
-  );
-}
-
-/**
- * When a hostel is reminded about an unpaid plan invoice, and how. Posted as one
- * JSON value, earliest step first on each side.
- */
-function PlanReminderScheduleField({ defaultValue }: { defaultValue: PlanDueReminderSchedule }) {
-  const [beforeDue, setBeforeDue] = useState(defaultValue.beforeDue);
-  const [afterDue, setAfterDue] = useState(defaultValue.afterDue);
-
-  // Sorted only in what is posted, so a row does not jump while its day is typed.
-  const value = JSON.stringify({
-    afterDue: [...afterDue].sort((a, b) => a.days - b.days),
-    beforeDue: [...beforeDue].sort((a, b) => b.days - a.days),
-  });
-
-  return (
-    <fieldset className="grid gap-4 rounded-lg border border-border p-3 lg:grid-cols-2">
-      <legend className="px-1 text-xs font-semibold text-muted-foreground">
-        Plan payment reminders
-      </legend>
-
-      <input name="planDueReminders" type="hidden" value={value} />
-
-      <PlanReminderSteps
-        max={30}
-        min={0}
-        onChange={setBeforeDue}
-        side="before"
-        steps={beforeDue}
-      />
-      <PlanReminderSteps max={90} min={1} onChange={setAfterDue} side="after" steps={afterDue} />
-
-      <p className="text-[11px] text-muted-foreground lg:col-span-2">
-        Sent at 07:45 Nepal time. Email goes to the owner; push and bell go to the hostel&apos;s
-        admins and open Billing. After a missed morning only the latest day is sent. After the
-        due day, only live hostels that still owe are reminded.
-      </p>
-    </fieldset>
-  );
-}
 
 /**
  * The merchant QR a field agent holds up for an owner to scan.
@@ -379,7 +210,6 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
             maxInsideZoneRadiusMeters: Number(field(form, "maxInsideZoneRadiusMeters")),
             maxNearbyZoneRadiusMeters: Number(field(form, "maxNearbyZoneRadiusMeters")),
             paymentReminderDaysBefore: Number(field(form, "paymentReminderDaysBefore")),
-            planDueReminders: JSON.parse(field(form, "planDueReminders")) as unknown,
             qrActivationExpiryDays: Number(field(form, "qrActivationExpiryDays")),
             receiptNumberPrefix: field(form, "receiptNumberPrefix"),
             sendComplaintEmails: field(form, "sendComplaintEmails") === "true",
@@ -483,8 +313,6 @@ export const PlatformOperationsPanel = memo(function PlatformOperationsPanel() {
               type="number"
             />
           </div>
-
-          <PlanReminderScheduleField defaultValue={config.planDueReminders} />
 
           <fieldset className="grid gap-4 rounded-lg border border-border p-3 sm:grid-cols-3">
             <legend className="px-1 text-xs font-semibold text-muted-foreground">

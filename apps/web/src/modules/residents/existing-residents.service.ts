@@ -1,3 +1,4 @@
+import { assertPlanRoom } from "@/modules/billing/plan-limits";
 import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
@@ -536,6 +537,8 @@ export async function addExistingResidents(
         { check },
       );
     }
+
+    if (check.toAdd > 0) await assertPlanRoom(hostelId, "residents", check.toAdd);
 
     const residentIds = new Map<string, Types.ObjectId>();
     const addedNow: { rent: number | null; residentId: Types.ObjectId }[] = [];

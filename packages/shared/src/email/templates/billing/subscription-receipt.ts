@@ -20,29 +20,22 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 /**
- * Money received against a plan invoice, and what it switched on.
- *
- * **Not a receipt.** Softmato — the parent company — issues every receipt and
- * emails it itself; this confirms the payment in the product's own words and
- * says the receipt follows, quoting Softmato's number when it is known. Two
- * documents claiming to be the receipt for one payment is the mismatch this
- * exists to avoid.
+ * Money received against a plan invoice, and what it switched on — for money
+ * Softmato never saw. A payment that went through Softmato is receipted by
+ * their own email, so this one is not sent for it (`onPaymentSettled`).
  *
  * When `outstanding` is above zero the email says so plainly rather than
- * congratulating somebody who still owes money. That case only arises on a
- * team-collected payment, where the hostel is already live and the balance is
- * a due.
+ * congratulating somebody who still owes money.
  */
 export function subscriptionReceiptEmail(input: {
   amount: number;
+  attached?: boolean;
   dueBy?: string | null;
   hostelName: string;
   invoiceNumber: string;
   method: string;
   outstanding: number;
   planName: string;
-  /** Softmato's receipt (transaction) number, when there is one. */
-  receiptNumber: string | null;
 }): EmailContent {
   const settled = input.outstanding <= 0;
   const methodLabel = METHOD_LABELS[input.method] ?? input.method;
@@ -60,7 +53,6 @@ export function subscriptionReceiptEmail(input: {
         detailsTable([
           { emphasis: true, label: "Amount received", value: formatRupees(input.amount) },
           { label: "Paid by", value: methodLabel },
-          ...(input.receiptNumber ? [{ label: "Receipt", value: input.receiptNumber }] : []),
           { label: "Invoice", value: input.invoiceNumber },
           ...(settled
             ? []
@@ -75,13 +67,15 @@ export function subscriptionReceiptEmail(input: {
             : "Your listing stays live while you pay the balance.",
         ),
         smallPrint(
-          "Softmato, our parent company, issues your official receipt. We will email it to you shortly.",
+          input.attached
+            ? "Your receipt and invoice are attached to this email."
+            : "You can download your receipt from your billing page.",
         ),
       ].join("\n"),
       eyebrow: "Payment received",
       heading: settled ? "Payment received" : "Part payment received",
       preheader: settled
-        ? `${formatRupees(input.amount)} received for ${input.planName}. Your receipt follows shortly.`
+        ? `${formatRupees(input.amount)} received for ${input.planName}.`
         : `${formatRupees(input.amount)} received. ${formatRupees(input.outstanding)} is still due.`,
     }),
   };
