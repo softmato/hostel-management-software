@@ -3,6 +3,7 @@ import "server-only";
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
+import { softmatoDocumentNumbers } from "@/modules/billing/balance-document";
 import { fetchInvoiceDetail } from "@/modules/billing/billing-gateway";
 import { settlePayment } from "@/modules/billing/subscription-payment.service";
 import { paisaToRupees } from "@/modules/billing/softmato/money";
@@ -63,6 +64,7 @@ export async function reconcileInvoiceFromSoftmato(
     _id: Types.ObjectId;
     amount: number;
     hostelId: Types.ObjectId;
+    softmatoBalanceInvoices?: { no: string }[];
     softmatoInvoiceNo?: string | null;
     status: string;
     subscriptionId: Types.ObjectId;
@@ -72,7 +74,11 @@ export async function reconcileInvoiceFromSoftmato(
   if (invoice.status === "VOID") return { kind: "nothing_new" };
   if (!invoice.softmatoInvoiceNo) return { kind: "no_document" };
 
-  const detail = await fetchInvoiceDetail(invoice.softmatoInvoiceNo).catch(() => null);
+  // The original first, then any balance documents raised for part of it.
+  const details = await Promise.all(
+    softmatoDocumentNumbers(invoice).map((no) => fetchInvoiceDetail(no).catch(() => null)),
+  );
+  const detail = details[0];
 
   if (!detail) return { kind: "no_document" };
 
@@ -85,7 +91,7 @@ export async function reconcileInvoiceFromSoftmato(
   if (detail.payments) {
     let settled = 0;
 
-    for (const payment of detail.payments) {
+    for (const payment of details.flatMap((each) => each?.payments ?? [])) {
       const result = await recordSoftmatoPayment(
         invoice,
         payment.transaction_id,

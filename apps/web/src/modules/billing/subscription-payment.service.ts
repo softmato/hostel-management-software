@@ -15,6 +15,7 @@ import {
   startPlanPeriod,
   type InvoiceRecord as SubscriptionInvoiceRecord,
 } from "@/modules/billing/subscription.service";
+import { checkoutDocumentFor } from "@/modules/billing/balance-document";
 import { ensureLocalReceiptNumber } from "@/modules/billing/documents/issue";
 import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
 import { unlessSoftmatoDown } from "@/modules/billing/softmato/outage";
@@ -81,10 +82,10 @@ async function loadInvoice(invoiceId: string) {
  * that could choose its own price would be the vulnerability the API is shaped
  * to prevent.
  *
- * A part-paid invoice therefore cannot be finished online against the same
- * document. The team desk collects partials in cash; if that ever needs an
- * online tail, the balance gets its own invoice rather than a checkout that
- * quietly underpays this one.
+ * A part-paid invoice is still finished online, for exactly the balance:
+ * Softmato charges a document's own due, so `checkoutDocumentFor` picks the
+ * original when their due is ours and raises a balance document when it is
+ * not. Settling still lands on this invoice.
  *
  * ## A session is minted per attempt, never stored
  *
@@ -120,14 +121,6 @@ export async function openSubscriptionCheckout(
     throw new SubscriptionError(
       "This invoice is already settled in full.",
       "ALREADY_SETTLED",
-      409,
-    );
-  }
-
-  if (outstanding !== loaded.amount) {
-    throw new SubscriptionError(
-      "Part of this invoice has already been paid, so it cannot be settled online. Ask the platform team to raise the balance as its own invoice.",
-      "PARTIALLY_PAID_ONLINE",
       409,
     );
   }
@@ -170,7 +163,7 @@ export async function openSubscriptionCheckout(
         invoice: raised,
         session: await openCheckoutSession({
           invoiceNumber: raised.invoiceNumber,
-          softmatoInvoiceId: raised.softmatoInvoiceId,
+          softmatoInvoiceId: await checkoutDocumentFor(raised, outstanding),
         }),
       };
     },

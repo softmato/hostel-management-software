@@ -3,6 +3,7 @@ import "server-only";
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
+import { softmatoDocumentNumbers } from "@/modules/billing/balance-document";
 import { fetchInvoiceDetail } from "@/modules/billing/billing-gateway";
 import { resolveOwnedHostel } from "@/modules/billing/subscription-access";
 import { reconcileInvoiceFromSoftmato } from "@/modules/billing/subscription-reconcile.service";
@@ -85,6 +86,7 @@ export async function readReturnState(
     _id: Types.ObjectId;
     hostelId: Types.ObjectId;
     planName: string;
+    softmatoBalanceInvoices?: { no: string }[];
     softmatoInvoiceNo?: string | null;
   } | null>();
 
@@ -110,14 +112,19 @@ export async function readReturnState(
     return { kind: "unknown" };
   }
 
-  if (!invoice.softmatoInvoiceNo) {
+  /*
+   * The newest document is the one just checked out: a balance document when
+   * part was paid where Softmato never saw it, the original otherwise. The
+   * original stays open on their side once a balance document settles it.
+   */
+  const documentNo = softmatoDocumentNumbers(invoice).at(-1);
+
+  if (!documentNo) {
     return { invoiceNumber, kind: "pending_document" };
   }
 
   step("confirm");
-  const detail = await fetchInvoiceDetail(invoice.softmatoInvoiceNo).catch(
-    () => null,
-  );
+  const detail = await fetchInvoiceDetail(documentNo).catch(() => null);
 
   if (!detail) return { invoiceNumber, kind: "pending_document" };
 

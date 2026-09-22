@@ -73,8 +73,12 @@ export async function applyWebhook(
    * were actually sent is what keeps this from depending on a mapping that
    * could go stale.
    */
+  // The original document, or a balance document raised for part of it.
   const invoice = await SubscriptionInvoiceModel.findOne({
-    softmatoInvoiceNo: payload.invoice_id,
+    $or: [
+      { softmatoInvoiceNo: payload.invoice_id },
+      { "softmatoBalanceInvoices.no": payload.invoice_id },
+    ],
   }).lean<{
     _id: Types.ObjectId;
     hostelId: Types.ObjectId;

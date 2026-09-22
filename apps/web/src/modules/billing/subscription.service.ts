@@ -2,7 +2,7 @@ import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
-import { issueInvoiceDocument } from "@/modules/billing/billing-gateway";
+import { issueInvoiceDocument, type EnsureInvoiceInput } from "@/modules/billing/billing-gateway";
 import { isSoftmatoDown } from "@/modules/billing/softmato/client";
 import { rememberTask } from "@/modules/billing/softmato/outage";
 import { servicePeriod } from "@/modules/billing/softmato/invoice";
@@ -104,6 +104,8 @@ export type InvoiceRecord = {
   planName: string;
   softmatoInvoiceId?: string | null;
   softmatoInvoiceNo?: string | null;
+  /** Documents for the balance alone. See the model. */
+  softmatoBalanceInvoices?: { amount: number; id: string; no: string }[];
   source?: "PUBLIC" | "TEAM";
   status: string;
   subscriptionId: Types.ObjectId;
@@ -814,6 +816,62 @@ export async function issueSubscriptionInvoice(
 /* ── Raising the document on Softmato ───────────────────────────── */
 
 /**
+ * What the Softmato document for this invoice says: who is billed, the line,
+ * the plan block and the service period. Shared by the invoice itself and by
+ * a balance document (`balance-document.ts`), which differs only in amount and
+ * number.
+ */
+export async function invoiceDocumentInput(invoice: InvoiceRecord): Promise<EnsureInvoiceInput> {
+  const subscription = await HostelSubscriptionModel.findById(
+    invoice.subscriptionId,
+  ).lean<SubscriptionRecord | null>();
+
+  const catalog = await getSiteConfigSection("plans");
+  // The stored pair when the invoice has one, so a retry prints the dates the
+  // hostel was already given rather than recomputing them from a later day.
+  const period =
+    invoice.periodStart && invoice.periodEnd
+      ? { endsAt: invoice.periodEnd, startsAt: invoice.periodStart }
+      : servicePeriod(
+          invoice.cycleMonths,
+          subscription?.currentPeriodEnd ?? null,
+          invoice.issuedAt ?? new Date(),
+        );
+
+  return {
+    amount: invoice.amount,
+    customer: {
+      hostelId: invoice.hostelId.toString(),
+      name: invoice.billedTo?.hostelName || invoice.billedTo?.name || "Hostel",
+      ...(invoice.billedTo?.email ? { email: invoice.billedTo.email } : {}),
+    },
+    /*
+     * The line as it prints on the document. The cycle label comes from the
+     * catalogue rather than the enum so the invoice reads the way the pricing
+     * page reads — "6 months", not "halfYearly".
+     */
+    description: `${invoice.planName} — ${catalog.cycleLabels[invoice.cycle] ?? invoice.cycle}`,
+    dueAt: invoice.dueAt ?? null,
+    invoiceNumber: invoice.invoiceNumber,
+    /*
+     * The plan in our own words, rendered beside the amount on the checkout
+     * page and under the line items on the invoice. Built defensively: every
+     * string in it comes from a catalogue a platform owner edits in a form,
+     * and Softmato refuses a block that quotes a price. See
+     * `softmato/presentation.ts` for why a dropped bullet beats a `422`.
+     */
+    presentation: buildPresentation({
+      cycleLabel: catalog.cycleLabels[invoice.cycle] ?? invoice.cycle,
+      cycleMonths: invoice.cycleMonths,
+      plan: catalog.plans.find((tier) => tier.id === invoice.planId) ?? null,
+      planName: invoice.planName,
+    }),
+    serviceEndsAt: period.endsAt,
+    serviceStartsAt: period.startsAt,
+  };
+}
+
+/**
  * Makes sure this invoice has a statutory document behind it, and returns it.
  *
  * Idempotent twice over. It returns early when the handles are already stored,
@@ -840,54 +898,10 @@ export async function ensureInvoiceRaised(
 ): Promise<InvoiceRecord> {
   if (invoice.softmatoInvoiceId && invoice.softmatoInvoiceNo) return invoice;
 
-  const subscription = await HostelSubscriptionModel.findById(
-    invoice.subscriptionId,
-  ).lean<SubscriptionRecord | null>();
-
-  const catalog = await getSiteConfigSection("plans");
-  // The stored pair when the invoice has one, so a retry prints the dates the
-  // hostel was already given rather than recomputing them from a later day.
-  const period =
-    invoice.periodStart && invoice.periodEnd
-      ? { endsAt: invoice.periodEnd, startsAt: invoice.periodStart }
-      : servicePeriod(
-          invoice.cycleMonths,
-          subscription?.currentPeriodEnd ?? null,
-          invoice.issuedAt ?? new Date(),
-        );
+  const input = await invoiceDocumentInput(invoice);
 
   try {
-    const raised = await issueInvoiceDocument({
-      amount: invoice.amount,
-      customer: {
-        hostelId: invoice.hostelId.toString(),
-        name: invoice.billedTo?.hostelName || invoice.billedTo?.name || "Hostel",
-        ...(invoice.billedTo?.email ? { email: invoice.billedTo.email } : {}),
-      },
-      /*
-       * The line as it prints on the document. The cycle label comes from the
-       * catalogue rather than the enum so the invoice reads the way the pricing
-       * page reads — "6 months", not "halfYearly".
-       */
-      description: `${invoice.planName} — ${catalog.cycleLabels[invoice.cycle] ?? invoice.cycle}`,
-      dueAt: invoice.dueAt ?? null,
-      invoiceNumber: invoice.invoiceNumber,
-      /*
-       * The plan in our own words, rendered beside the amount on the checkout
-       * page and under the line items on the invoice. Built defensively: every
-       * string in it comes from a catalogue a platform owner edits in a form,
-       * and Softmato refuses a block that quotes a price. See
-       * `softmato/presentation.ts` for why a dropped bullet beats a `422`.
-       */
-      presentation: buildPresentation({
-        cycleLabel: catalog.cycleLabels[invoice.cycle] ?? invoice.cycle,
-        cycleMonths: invoice.cycleMonths,
-        plan: catalog.plans.find((tier) => tier.id === invoice.planId) ?? null,
-        planName: invoice.planName,
-      }),
-      serviceEndsAt: period.endsAt,
-      serviceStartsAt: period.startsAt,
-    });
+    const raised = await issueInvoiceDocument(input);
 
     await SubscriptionInvoiceModel.updateOne(
       { _id: invoice._id },

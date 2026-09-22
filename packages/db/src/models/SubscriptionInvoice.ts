@@ -132,6 +132,27 @@ const subscriptionInvoiceSchema = new Schema(
      */
     documentUrl: { default: null, trim: true, type: String },
 
+    /**
+     * Softmato documents for exactly the balance, raised when part of this
+     * invoice was paid where Softmato never saw it (a proof confirmed here), so
+     * their due on the original document is not ours. Checkout reads its
+     * amount from the document, so the balance gets its own; settling still
+     * lands on this invoice. External ref `hh-sub:<ours>-B<rupees>`, so a retry
+     * for the same balance gets the same document back. Kept as a list so a
+     * webhook for an earlier balance still finds its invoice.
+     */
+    softmatoBalanceInvoices: {
+      default: [],
+      type: [
+        {
+          _id: false,
+          amount: { required: true, type: Number },
+          id: { required: true, trim: true, type: String },
+          no: { required: true, trim: true, type: String },
+        },
+      ],
+    },
+
     /* ── The document we issued ourselves, when they could not ────────── */
 
     /**
@@ -214,6 +235,8 @@ subscriptionInvoiceSchema.index(
     unique: true,
   },
 );
+
+subscriptionInvoiceSchema.index({ "softmatoBalanceInvoices.no": 1 }, { sparse: true });
 
 export const SubscriptionInvoiceModel =
   models.SubscriptionInvoice ||
