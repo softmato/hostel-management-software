@@ -157,6 +157,35 @@ export function cycleTotal(plan: PlanTierLike, cycle: BillingCycle) {
 }
 
 /**
+ * What `months` months cost, for any count from 1 to 12.
+ *
+ * Priced at the best cycle the count reaches: 1–5 at the monthly price, 6–11
+ * at the six-month offer's own rate a month, 12 at the annual price. So seven
+ * months is the six-month rate times seven — a longer stay never costs more a
+ * month than a shorter one.
+ */
+export function monthsTotal(plan: PlanTierLike, months: number) {
+  if (months >= 12) return Math.round((cycleTotal(plan, "annual") / 12) * months);
+  if (months >= 6) return Math.round((cycleTotal(plan, "halfYearly") / 6) * months);
+
+  return cycleTotal(plan, "monthly") * months;
+}
+
+/** The cycle whose rate `monthsTotal` charges for this many months. */
+export function cycleForMonths(months: number): BillingCycle {
+  return months >= 12 ? "annual" : months >= 6 ? "halfYearly" : "monthly";
+}
+
+/** `Monthly`, `6 months`, `Annual` for the three cycles; `7 months` for anything else. */
+export function monthsLabel(catalog: Pick<PlansCatalog, "cycleLabels">, months: number) {
+  if (months === 1) return catalog.cycleLabels.monthly;
+  if (months === 6) return catalog.cycleLabels.halfYearly;
+  if (months === 12) return catalog.cycleLabels.annual;
+
+  return `${months} months`;
+}
+
+/**
  * Rupees a month on the chosen cycle — every price on the cards is shown per
  * month, so three cycles are compared on one number rather than on three
  * numbers over three different spans.

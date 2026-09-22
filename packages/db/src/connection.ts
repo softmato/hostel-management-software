@@ -32,9 +32,17 @@ export async function connectToDatabase() {
     throw new Error("MONGODB_URI (or DATABASE_URL) is required to connect to MongoDB.");
   }
 
-  cached.promise ??= mongoose.connect(uri, {
-    bufferCommands: false,
-  });
+  /*
+   * A failed connect is forgotten, not cached. Kept, one refused handshake would
+   * be replayed to every later request on this warm instance until it recycled —
+   * a single blip in the Atlas proxy became a run of 500s across unrelated routes.
+   */
+  cached.promise ??= mongoose
+    .connect(uri, { bufferCommands: false })
+    .catch((error: unknown) => {
+      cached.promise = null;
+      throw error;
+    });
 
   cached.conn = await cached.promise;
   return cached.conn;

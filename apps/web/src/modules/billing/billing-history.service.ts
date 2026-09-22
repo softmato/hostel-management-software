@@ -15,6 +15,7 @@ import {
   SubscriptionPaymentModel,
 } from "@hostel/db/models/SubscriptionPayment";
 import { hostelDaysBetween } from "@hostel/shared/calendar/bs";
+import { monthsLabel } from "@hostel/shared/plans/catalog";
 
 /**
  * Everything a hostel's own billing screen shows: what was billed, what was
@@ -190,11 +191,18 @@ export function daysSpanned(
   return Math.max(1, hostelDaysBetween(start, end) + 1);
 }
 
-const CYCLE_LABELS: Record<string, string> = {
+const CYCLE_LABELS = {
   annual: "Annual",
   halfYearly: "6 months",
   monthly: "Monthly",
 };
+
+/** By the months actually bought — a 7-month invoice is "7 months", not its rate tier. */
+function cycleLabel(cycle: string, months?: number | null) {
+  return months
+    ? monthsLabel({ cycleLabels: CYCLE_LABELS }, months)
+    : (CYCLE_LABELS[cycle as keyof typeof CYCLE_LABELS] ?? cycle);
+}
 
 export async function getBillingHistory(
   hostelId: string,
@@ -207,6 +215,7 @@ export async function getBillingHistory(
     HostelSubscriptionModel.findOne({ hostelId: id }).lean<{
       activatedAt?: Date | null;
       cycle?: string | null;
+      cycleMonths?: number | null;
       currentPeriodEnd?: Date | null;
       cycleTotal?: number | null;
       dueBy?: Date | null;
@@ -223,6 +232,7 @@ export async function getBillingHistory(
           amount: number;
           currency?: string;
           cycle: string;
+          cycleMonths?: number | null;
           documentUrl?: string | null;
           dueAt?: Date | null;
           invoiceNumber: string;
@@ -295,7 +305,7 @@ export async function getBillingHistory(
       return {
         amount: invoice.amount,
         currency: invoice.currency ?? "NPR",
-        cycleLabel: CYCLE_LABELS[invoice.cycle] ?? invoice.cycle,
+        cycleLabel: cycleLabel(invoice.cycle, invoice.cycleMonths),
         /*
          * Built rather than read from the row. `documentUrl` is written when an
          * invoice is raised, so the rows that predate the local renderer carry a
@@ -354,7 +364,7 @@ export async function getBillingHistory(
           amountPaid: openPaid,
           cycle: subscription.cycle ?? null,
           cycleLabel: subscription.cycle
-            ? (CYCLE_LABELS[subscription.cycle] ?? subscription.cycle)
+            ? cycleLabel(subscription.cycle, subscription.cycleMonths)
             : null,
           currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
           daysRemaining: daysLeftThrough(subscription.currentPeriodEnd, now),

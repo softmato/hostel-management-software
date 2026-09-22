@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 
 import { formatBsAdDate } from "@hostel/shared/calendar/bs";
-import { billingCycles, cycleTotal, getPlan, type BillingCycle } from "@hostel/shared/plans/catalog";
+import { billingCycles, cycleTotal, getPlan, monthsTotal, type BillingCycle } from "@hostel/shared/plans/catalog";
 
 import { useSiteConfig } from "@/components/site-config-provider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,9 +37,14 @@ type Invoice = {
   amount: number;
   cycle: string;
   invoiceNumber: string;
+  /** How many months it buys; the picker can change it while `monthsLocked` is false. */
+  months?: number | null;
+  monthsLocked?: boolean;
   periodEnd: string | null;
   planName: string;
 };
+
+const MONTH_CHOICES = Array.from({ length: 12 }, (_, index) => index + 1);
 
 type History = { invoices: BillingInvoiceRow[]; payments: BillingPaymentRow[]; plan: BillingPlan | null };
 
@@ -514,6 +519,40 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                       Another hostel
                     </button>
                   </div>
+
+                  {/*
+                    Any count 1–12 on an invoice nothing has touched: 1–5 at the
+                    monthly price, 6–11 at the six-month rate, 12 at the annual.
+                    Re-priced on the server; the figures here are the same function.
+                  */}
+                  {!reused && invoice.months && !invoice.monthsLocked ? (
+                    <label className="block text-sm font-semibold text-foreground">
+                      Months
+                      <select
+                        className={cn(INPUT, "font-semibold")}
+                        disabled={Boolean(busy)}
+                        onChange={(event) => {
+                          const months = Number(event.target.value);
+
+                          void run("months", async () => {
+                            const result = await checkout<
+                              PaymentState & { afterPayment: AfterPayment | null; history: History; invoice: Invoice | null }
+                            >({ months, step: "months", token });
+
+                            if (hostel) applyCheckout(result, { hostel, reused, token });
+                          });
+                        }}
+                        value={invoice.months}
+                      >
+                        {MONTH_CHOICES.map((months) => (
+                          <option key={months} value={months}>
+                            {months} {months === 1 ? "month" : "months"} · {rupees(monthsTotal(plan, months))}
+                            {months >= 12 ? " · annual rate" : months >= 6 ? " · 6-month rate" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
 
                   {otherPick ? (
                     <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">

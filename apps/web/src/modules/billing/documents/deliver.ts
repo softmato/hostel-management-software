@@ -158,12 +158,19 @@ export async function resolveInvoiceDocument(
 
   // Softmato's invoice is the invoice. The status is the copy's version: paid prints differently.
   if (invoice.softmatoInvoiceNo) {
-    return softmatoDocument("invoice", invoice.softmatoInvoiceNo, String(invoice.status), () =>
+    const theirs = await softmatoDocument("invoice", invoice.softmatoInvoiceNo, String(invoice.status), () =>
       downloadInvoiceFile(invoice.softmatoInvoiceNo as string),
     );
+
+    /*
+     * Their `RESOURCE_NOT_FOUND` for a number we hold means it was raised on a
+     * Softmato from before the live integration and is gone from their ledger.
+     * Ours was numbered alongside it, so the owner gets that rather than a 404.
+     */
+    if (theirs || !invoice.localInvoiceNo) return theirs;
   }
 
-  // Only history printed here before Softmato issued everything.
+  // History printed here before Softmato issued everything, and invoices their ledger has lost.
   const documentNumber = invoice.localInvoiceNo;
 
   if (!documentNumber) return null;

@@ -48,6 +48,27 @@ function safeFileName(name: string) {
   return cleaned || "document";
 }
 
+/**
+ * expo-file-system rejects a non-2xx answer with its own plumbing as the
+ * message — "Call to function 'FileSystemDownloadTask.start' has been rejected
+ * … HTTP 404" — which is what an owner was shown. The status is the useful
+ * part, so it is said in the same words the web downloader uses.
+ */
+function throwReadable(error: unknown): never {
+  const message = error instanceof Error ? error.message : "";
+  const status = /(?:HTTP|status:?)\s*(\d{3})/.exec(message)?.[1];
+
+  if (status === "401" || status === "403") {
+    throw new Error("You are not signed in, or this is not yours to download.");
+  }
+
+  if (status) {
+    throw new Error(`The server could not produce this file (${status}).`);
+  }
+
+  throw new Error("The download failed. Check your connection and try again.");
+}
+
 export async function downloadAndShare({
   fileName,
   url,
@@ -79,7 +100,7 @@ export async function downloadAndShare({
   const file = await File.downloadFileAsync(url, target, {
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
     idempotent: true,
-  });
+  }).catch(throwReadable);
 
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error("Sharing isn't available on this device.");
@@ -150,7 +171,7 @@ export async function downloadAndShareImage({
     target.delete();
   }
 
-  const file = await File.downloadFileAsync(url, target, { headers, idempotent: true });
+  const file = await File.downloadFileAsync(url, target, { headers, idempotent: true }).catch(throwReadable);
 
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error("Sharing isn't available on this device.");
@@ -205,7 +226,7 @@ export async function downloadAndShareCsv({
   const file = await File.downloadFileAsync(url, target, {
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
     idempotent: true,
-  });
+  }).catch(throwReadable);
 
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error("Sharing isn't available on this device.");
@@ -614,7 +635,7 @@ export async function downloadToDevice({
       },
     });
 
-    const downloaded = await task.downloadAsync();
+    const downloaded = await task.downloadAsync().catch(throwReadable);
     const uri = downloaded?.uri ?? target.uri;
 
     // Before anything is saved anywhere — see `assertMatchesExtension`.

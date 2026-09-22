@@ -21,6 +21,8 @@ import { openSubscriptionCheckout } from "@/modules/billing/subscription-payment
 import {
   getSubscriptionState,
   invoiceIdFor,
+  changeOpenInvoiceMonths,
+  invoiceMonthsLocked,
   raiseRenewalInvoice,
   SubscriptionError,
 } from "@/modules/billing/subscription.service";
@@ -69,6 +71,8 @@ export const planCheckoutSchema = z.discriminatedUnion("step", [
     token: z.string().min(1),
   }),
   z.object({ step: z.literal("pay"), token: z.string().min(1) }),
+  /** The pay step's month picker, 1–12, on an invoice nothing has touched yet. */
+  z.object({ months: z.coerce.number().int().min(1).max(12), step: z.literal("months"), token: z.string().min(1) }),
   /** A reload of the pay step: reads, never raises an invoice. */
   z.object({ step: z.literal("resume"), token: z.string().min(1) }),
   z.object({
@@ -187,11 +191,16 @@ async function paymentState(hostelId: string) {
 }
 
 type CheckoutInvoice = {
+  _id: Types.ObjectId;
   amount: number;
   cycle: string;
+  cycleMonths?: number;
   invoiceNumber: string;
   periodEnd?: Date | null;
   planName: string;
+  softmatoInvoiceId?: string | null;
+  source?: string;
+  status: string;
 };
 
 /** The pay step: the invoice, the hostel's billing trace, and where the plan lands once paid. */
@@ -224,6 +233,9 @@ async function checkoutView(hostelId: string, invoice: CheckoutInvoice | null) {
           amount: invoice.amount,
           cycle: invoice.cycle,
           invoiceNumber: invoice.invoiceNumber,
+          // Whether the page may still offer the month picker (see `invoiceMonthsLocked`).
+          monthsLocked: await invoiceMonthsLocked(invoice),
+          months: invoice.cycleMonths ?? null,
           periodEnd: invoice.periodEnd?.toISOString() ?? null,
           planName: invoice.planName,
         }
@@ -335,9 +347,17 @@ export async function runPlanCheckout(
         hostelId,
         { cycle: input.cycle, planId: input.planId },
         ownerId,
+        // Raised on Softmato at Pay, so the months can still change here.
+        { deferDocument: true },
       );
 
       return { reused, ...(await checkoutView(hostelId, invoice)) };
+    }
+
+    case "months": {
+      const { hostelId, ownerId } = await readCheckoutToken(input.token);
+
+      return checkoutView(hostelId, await changeOpenInvoiceMonths(hostelId, input.months, ownerId));
     }
 
     case "resume": {

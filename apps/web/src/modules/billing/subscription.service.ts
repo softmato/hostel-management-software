@@ -22,9 +22,12 @@ import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice"
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
 import { currentBsPeriod, hostelDayEnd } from "@hostel/shared/calendar/bs";
 import {
+  cycleForMonths,
   cycleMonths,
   cycleTotal,
   getPlan,
+  monthsLabel,
+  monthsTotal,
   sellingCatalog,
 } from "@hostel/shared/plans/catalog";
 import type { BillingCycle } from "@hostel/shared/plans/catalog";
@@ -167,7 +170,12 @@ export async function allocateNumber(
  * tomorrow, and neither an agreement already struck nor a document already sent
  * may change underneath it.
  */
-export async function pricePlan(planId: string, cycle: BillingCycle) {
+export async function pricePlan(
+  planId: string,
+  cycle: BillingCycle,
+  /** Any count 1–12 instead of the cycle's own length, priced by `monthsTotal`. */
+  months?: number,
+) {
   // The catalogue as it is sold today, not as it is stored: a running event is
   // the price the cards quote, so it has to be the price the invoice carries.
   // Snapshotting happens immediately after, so the offer survives the event
@@ -183,8 +191,8 @@ export async function pricePlan(planId: string, cycle: BillingCycle) {
     );
   }
 
-  const months = cycleMonths(cycle);
-  const total = cycleTotal(plan, cycle);
+  const bought = months ?? cycleMonths(cycle);
+  const total = months ? monthsTotal(plan, months) : cycleTotal(plan, cycle);
 
   if (total <= 0) {
     throw new SubscriptionError(
@@ -195,8 +203,8 @@ export async function pricePlan(planId: string, cycle: BillingCycle) {
   }
 
   return {
-    cycle,
-    cycleMonths: months,
+    cycle: months ? cycleForMonths(months) : cycle,
+    cycleMonths: bought,
     cycleTotal: total,
     monthlyRate: plan.monthly,
     planId: plan.id,
@@ -456,8 +464,9 @@ export async function getSubscriptionState(hostelId: string) {
  */
 export async function raiseRenewalInvoice(
   hostelId: string,
-  input: { cycle: BillingCycle; planId: string },
+  input: { cycle: BillingCycle; months?: number; planId: string },
   actorId: string,
+  options: { deferDocument?: boolean } = {},
 ) {
   await connectToDatabase();
 
@@ -484,7 +493,7 @@ export async function raiseRenewalInvoice(
     );
   }
 
-  const priced = await pricePlan(input.planId, input.cycle);
+  const priced = await pricePlan(input.planId, input.cycle, input.months);
   const operations = await getOperationsConfig();
   const issuedAt = new Date();
   const period = servicePeriod(priced.cycleMonths, subscription.currentPeriodEnd ?? null, issuedAt);
@@ -510,9 +519,15 @@ export async function raiseRenewalInvoice(
     subscriptionId: subscription._id,
   });
 
-  const invoice = await ensureInvoiceRaised(created.toObject() as InvoiceRecord, {
-    required: false,
-  });
+  /*
+   * The self-serve checkout holds the document back until Pay (which raises it
+   * with `required: true`), so the owner can still change the months first —
+   * Softmato has no void, and every change would otherwise leave an unpaid
+   * document in their ledger.
+   */
+  const invoice = options.deferDocument
+    ? (created.toObject() as InvoiceRecord)
+    : await ensureInvoiceRaised(created.toObject() as InvoiceRecord, { required: false });
 
   // A running plan stays ACTIVE while its renewal is open: that is paying
   // early, not owing (see `plan-due-reminders.service.ts`).
@@ -542,6 +557,78 @@ export async function raiseRenewalInvoice(
  * about to take money and "there is nothing to pay" is a thing the payer needs
  * told, not a null to branch on.
  */
+/**
+ * Whether an open invoice may still be re-priced for a different number of
+ * months: only while nothing can have been paid on it — still `OPEN`, not a
+ * team registration's (the agent sold that one), no Softmato document yet
+ * (Pay raises it), and no payment row of any kind against it.
+ */
+export async function invoiceMonthsLocked(invoice: {
+  _id: Types.ObjectId;
+  softmatoInvoiceId?: string | null;
+  source?: string;
+  status: string;
+}) {
+  return (
+    invoice.status !== "OPEN" ||
+    invoice.source === "TEAM" ||
+    Boolean(invoice.softmatoInvoiceId) ||
+    Boolean(await SubscriptionPaymentModel.exists({ invoiceId: invoice._id }))
+  );
+}
+
+/** The self-serve checkout's month picker: re-prices the open invoice for `months` (1–12). */
+export async function changeOpenInvoiceMonths(hostelId: string, months: number, actorId: string) {
+  await connectToDatabase();
+
+  const subscription = await getOrCreateSubscription(hostelId);
+  const open = await findOpenInvoice(subscription._id);
+
+  if (!open) {
+    throw new SubscriptionError("There is no open invoice to change.", "NO_OPEN_INVOICE", 409);
+  }
+
+  if (await invoiceMonthsLocked(open)) {
+    throw new SubscriptionError(
+      "This invoice can no longer be changed. Pay it as it is.",
+      "INVOICE_LOCKED",
+      409,
+    );
+  }
+
+  const priced = await pricePlan(open.planId, cycleForMonths(months), months);
+  // From where the running plan ends, exactly as it was when the invoice was raised.
+  const period = servicePeriod(
+    priced.cycleMonths,
+    subscription.currentPeriodEnd ?? null,
+    open.issuedAt ?? new Date(),
+  );
+
+  await SubscriptionInvoiceModel.updateOne(
+    { _id: open._id, softmatoInvoiceId: null, status: "OPEN" },
+    {
+      $set: {
+        amount: priced.cycleTotal,
+        cycle: priced.cycle,
+        cycleMonths: priced.cycleMonths,
+        periodEnd: period.endsAt,
+        periodStart: period.startsAt,
+      },
+    },
+  );
+
+  await AuditLogModel.create({
+    action: "SUBSCRIPTION_INVOICE_MONTHS_CHANGED",
+    actorId,
+    entityId: String(open._id),
+    entityType: "SubscriptionInvoice",
+    hostelId: subscription.hostelId,
+    metadata: { amount: priced.cycleTotal, fromMonths: open.cycleMonths, months },
+  });
+
+  return SubscriptionInvoiceModel.findById(open._id).lean<InvoiceRecord | null>();
+}
+
 export async function invoiceIdFor(hostelId: string) {
   await connectToDatabase();
 
@@ -884,7 +971,7 @@ export async function invoiceDocumentInput(invoice: InvoiceRecord): Promise<Ensu
      * catalogue rather than the enum so the invoice reads the way the pricing
      * page reads — "6 months", not "halfYearly".
      */
-    description: `${invoice.planName} — ${catalog.cycleLabels[invoice.cycle] ?? invoice.cycle}`,
+    description: `${invoice.planName} — ${monthsLabel(catalog, invoice.cycleMonths || cycleMonths(invoice.cycle))}`,
     dueAt: invoice.dueAt ?? null,
     invoiceNumber: invoice.invoiceNumber,
     /*
@@ -895,7 +982,7 @@ export async function invoiceDocumentInput(invoice: InvoiceRecord): Promise<Ensu
      * `softmato/presentation.ts` for why a dropped bullet beats a `422`.
      */
     presentation: buildPresentation({
-      cycleLabel: catalog.cycleLabels[invoice.cycle] ?? invoice.cycle,
+      cycleLabel: monthsLabel(catalog, invoice.cycleMonths || cycleMonths(invoice.cycle)),
       cycleMonths: invoice.cycleMonths,
       plan: catalog.plans.find((tier) => tier.id === invoice.planId) ?? null,
       planName: invoice.planName,
