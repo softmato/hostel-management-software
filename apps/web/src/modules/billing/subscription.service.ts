@@ -578,7 +578,13 @@ export async function invoiceMonthsLocked(invoice: {
 }
 
 /** The self-serve checkout's month picker: re-prices the open invoice for `months` (1–12). */
-export async function changeOpenInvoiceMonths(hostelId: string, months: number, actorId: string) {
+export async function changeOpenInvoiceMonths(
+  hostelId: string,
+  months: number,
+  actorId: string,
+  /** Switch the plan too; settlement applies whatever plan the invoice carries. */
+  planId?: string,
+) {
   await connectToDatabase();
 
   const subscription = await getOrCreateSubscription(hostelId);
@@ -596,7 +602,7 @@ export async function changeOpenInvoiceMonths(hostelId: string, months: number, 
     );
   }
 
-  const priced = await pricePlan(open.planId, cycleForMonths(months), months);
+  const priced = await pricePlan(planId ?? open.planId, cycleForMonths(months), months);
   // From where the running plan ends, exactly as it was when the invoice was raised.
   const period = servicePeriod(
     priced.cycleMonths,
@@ -613,6 +619,8 @@ export async function changeOpenInvoiceMonths(hostelId: string, months: number, 
         cycleMonths: priced.cycleMonths,
         periodEnd: period.endsAt,
         periodStart: period.startsAt,
+        planId: priced.planId,
+        planName: priced.planName,
       },
     },
   );
@@ -623,7 +631,7 @@ export async function changeOpenInvoiceMonths(hostelId: string, months: number, 
     entityId: String(open._id),
     entityType: "SubscriptionInvoice",
     hostelId: subscription.hostelId,
-    metadata: { amount: priced.cycleTotal, fromMonths: open.cycleMonths, months },
+    metadata: { amount: priced.cycleTotal, fromMonths: open.cycleMonths, fromPlanId: open.planId, months, planId: priced.planId },
   });
 
   return SubscriptionInvoiceModel.findById(open._id).lean<InvoiceRecord | null>();

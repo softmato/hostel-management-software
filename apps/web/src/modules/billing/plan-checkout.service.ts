@@ -29,6 +29,7 @@ import {
 import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { HostelModel } from "@hostel/db/models/Hostel";
+import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { OtpChallengeModel } from "@hostel/db/models/OtpChallenge";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { UserModel } from "@hostel/db/models/User";
@@ -66,13 +67,19 @@ export const planCheckoutSchema = z.discriminatedUnion("step", [
   }),
   z.object({
     cycle: z.enum(["monthly", "halfYearly", "annual"]),
-    planId: z.string().trim().min(1),
+    /** Absent from the footer's "Pay for your hostel": the hostel's own plan is renewed. */
+    planId: z.string().trim().min(1).optional(),
     step: z.literal("invoice"),
     token: z.string().min(1),
   }),
   z.object({ step: z.literal("pay"), token: z.string().min(1) }),
-  /** The pay step's month picker, 1–12, on an invoice nothing has touched yet. */
-  z.object({ months: z.coerce.number().int().min(1).max(12), step: z.literal("months"), token: z.string().min(1) }),
+  /** The pay step's plan and month pickers, on an invoice nothing has touched yet. */
+  z.object({
+    months: z.coerce.number().int().min(1).max(12),
+    planId: z.string().trim().min(1).optional(),
+    step: z.literal("months"),
+    token: z.string().min(1),
+  }),
   /** A reload of the pay step: reads, never raises an invoice. */
   z.object({ step: z.literal("resume"), token: z.string().min(1) }),
   z.object({
@@ -197,6 +204,7 @@ type CheckoutInvoice = {
   cycleMonths?: number;
   invoiceNumber: string;
   periodEnd?: Date | null;
+  planId: string;
   planName: string;
   softmatoInvoiceId?: string | null;
   source?: string;
@@ -237,6 +245,7 @@ async function checkoutView(hostelId: string, invoice: CheckoutInvoice | null) {
           monthsLocked: await invoiceMonthsLocked(invoice),
           months: invoice.cycleMonths ?? null,
           periodEnd: invoice.periodEnd?.toISOString() ?? null,
+          planId: invoice.planId,
           planName: invoice.planName,
         }
       : null,
@@ -345,7 +354,7 @@ export async function runPlanCheckout(
       const { hostelId, ownerId } = await readCheckoutToken(input.token);
       const { invoice, reused } = await raiseRenewalInvoice(
         hostelId,
-        { cycle: input.cycle, planId: input.planId },
+        { cycle: input.cycle, planId: input.planId ?? (await currentPlanId(hostelId)) },
         ownerId,
         // Raised on Softmato at Pay, so the months can still change here.
         { deferDocument: true },
@@ -357,7 +366,10 @@ export async function runPlanCheckout(
     case "months": {
       const { hostelId, ownerId } = await readCheckoutToken(input.token);
 
-      return checkoutView(hostelId, await changeOpenInvoiceMonths(hostelId, input.months, ownerId));
+      return checkoutView(
+        hostelId,
+        await changeOpenInvoiceMonths(hostelId, input.months, ownerId, input.planId),
+      );
     }
 
     case "resume": {
@@ -412,4 +424,13 @@ export async function runPlanCheckout(
       );
     }
   }
+}
+
+/** The plan the hostel is on, or `""` — which `pricePlan` answers with "choose another one". */
+async function currentPlanId(hostelId: string) {
+  const subscription = await HostelSubscriptionModel.findOne({ hostelId: new Types.ObjectId(hostelId) })
+    .select("planId")
+    .lean<{ planId?: string | null } | null>();
+
+  return subscription?.planId ?? "";
 }

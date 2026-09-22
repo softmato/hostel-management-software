@@ -41,6 +41,7 @@ type Invoice = {
   months?: number | null;
   monthsLocked?: boolean;
   periodEnd: string | null;
+  planId: string;
   planName: string;
 };
 
@@ -263,7 +264,8 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
         PaymentState & { afterPayment: AfterPayment; history: History; invoice: Invoice; reused: boolean }
       >({
         cycle,
-        planId,
+        // None from the footer link: the server renews the plan the hostel is on.
+        planId: plan?.id,
         step: "invoice",
         token: verified.token,
       });
@@ -283,19 +285,6 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
     });
   }
 
-  if (!plan) {
-    return (
-      <PublicShell active="plans-pricing">
-        <div className="mx-auto max-w-md px-5 py-20 text-center">
-          <p className="text-lg font-bold text-foreground">That plan is not available.</p>
-          <Link className="mt-4 inline-block font-semibold text-brand-teal" href="/plans-pricing">
-            See all plans
-          </Link>
-        </div>
-      </PublicShell>
-    );
-  }
-
   // Restoring a checkout from this tab: skeletons, never a flash of the email form.
   if (booting) {
     return (
@@ -309,28 +298,44 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
     );
   }
 
-  const price = cycleTotal(plan, cycle);
+  const price = plan ? cycleTotal(plan, cycle) : 0;
+  // The plan on the invoice, which the pay step can switch.
+  const invoicePlan = invoice ? getPlan(catalog, invoice.planId) : undefined;
   const cycleLabel = billingCycles(catalog).find((option) => option.id === cycle)?.label ?? cycle;
   const openRow = trace?.history.invoices.find((row) => row.invoiceNumber === invoice?.invoiceNumber) ?? null;
   // The open invoice is for something other than what was picked here.
-  const otherPick = Boolean(reused && invoice && (invoice.planName !== plan.name || invoice.cycle !== cycle));
+  const otherPick = Boolean(plan && reused && invoice && (invoice.planName !== plan.name || invoice.cycle !== cycle));
+
+  function reprice(change: { months: number; planId?: string }) {
+    void run("months", async () => {
+      const result = await checkout<
+        PaymentState & { afterPayment: AfterPayment | null; history: History; invoice: Invoice | null }
+      >({ ...change, step: "months", token });
+
+      if (hostel) applyCheckout(result, { hostel, reused, token });
+    });
+  }
 
   return (
     <PublicShell active="plans-pricing">
-      <div className={cn("mx-auto px-4 pb-20 pt-8 sm:px-6", trace ? "max-w-5xl" : "max-w-lg")}>
+      <div className={cn("mx-auto px-4 pb-20 pt-8 sm:px-6", trace ? "max-w-5xl" : "max-w-md sm:pt-14")}>
         {/*
           An open invoice is paid before any new plan (`raiseRenewalInvoice`),
           so once one comes back the page is about that invoice, not the pick.
         */}
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          {reused && invoice
-            ? `Pay your ${invoice.planName} ${openRow?.paid ? "balance" : "invoice"}`
-            : `Get ${plan.name}`}
+        <h1 className={cn("text-2xl font-bold tracking-tight text-foreground", !invoice && "text-center")}>
+          {!invoice
+            ? "Pay for your hostel"
+            : reused
+              ? `Pay your ${invoice.planName} ${openRow?.paid ? "balance" : "invoice"}`
+              : `Get ${invoice.planName}`}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {reused && invoice
-            ? `Invoice ${invoice.invoiceNumber} is still open. It is paid before any new plan.`
-            : "For a hostel already on the platform. Paying extends the plan it is on now."}
+        <p className={cn("mt-1 text-sm text-muted-foreground", !invoice && "text-center")}>
+          {!invoice
+            ? "Enter your hostel's email and ID. You choose the plan after the code."
+            : reused
+              ? `Invoice ${invoice.invoiceNumber} is still open. It is paid before any new plan.`
+              : "Paying extends the plan your hostel is on now."}
         </p>
 
         {/* Checkout on the right, the hostel's billing trace on the left; stacked on a phone, pay first. */}
@@ -341,55 +346,37 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
           )}
         >
           <div className="lg:col-start-2 lg:row-start-1">
-            {/* The plan being bought — the cycle can change until the invoice is raised. */}
-            <div className="app-card p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="font-semibold text-foreground">
-                  {invoice ? invoice.planName : plan.name}
-                  {openRow ? <span className="font-normal text-muted-foreground"> · {openRow.cycleLabel}</span> : null}
-                </p>
-                <p className="text-xl font-bold tabular-nums text-foreground">{rupees(invoice?.amount ?? price)}</p>
-              </div>
-              {step === "details" || step === "code" ? (
-                <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
-                  {billingCycles(catalog).map((option) => (
-                    <button
-                      className={cn(
-                        "rounded-lg py-1.5 text-xs font-semibold transition",
-                        cycle === option.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
-                      )}
-                      key={option.id}
-                      onClick={() => setCycle(option.id)}
-                      type="button"
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              ) : invoice ? (
-                <>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Invoice {invoice.invoiceNumber} · plan runs until {day(invoice.periodEnd)}
+            {/* The invoice being paid. Nothing to show before there is one. */}
+            {invoice ? (
+              <div className="app-card mb-4 p-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="font-semibold text-foreground">
+                    {invoice.planName}
+                    {openRow ? <span className="font-normal text-muted-foreground"> · {openRow.cycleLabel}</span> : null}
                   </p>
-                  {openRow && openRow.paid > 0 ? (
-                    <div className="mt-3">
-                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full bg-brand-teal"
-                          style={{ width: `${Math.min(100, (openRow.paid / openRow.amount) * 100)}%` }}
-                        />
-                      </div>
-                      <div className="mt-1.5 flex justify-between text-xs">
-                        <span className="text-muted-foreground">Paid {rupees(openRow.paid)}</span>
-                        <span className="font-semibold text-warning">{rupees(openRow.outstanding)} left</span>
-                      </div>
+                  <p className="text-xl font-bold tabular-nums text-foreground">{rupees(invoice.amount)}</p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Invoice {invoice.invoiceNumber} · plan runs until {day(invoice.periodEnd)}
+                </p>
+                {openRow && openRow.paid > 0 ? (
+                  <div className="mt-3">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-brand-teal"
+                        style={{ width: `${Math.min(100, (openRow.paid / openRow.amount) * 100)}%` }}
+                      />
                     </div>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
+                    <div className="mt-1.5 flex justify-between text-xs">
+                      <span className="text-muted-foreground">Paid {rupees(openRow.paid)}</span>
+                      <span className="font-semibold text-warning">{rupees(openRow.outstanding)} left</span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
-            <div className="app-card mt-4 p-5">
+            <div className={cn("app-card", invoice ? "p-5" : "mt-6 p-6")}>
               {step === "details" ? (
                 <form className="space-y-4" onSubmit={sendCode}>
                   <label className="block text-sm font-semibold text-foreground">
@@ -445,7 +432,10 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                   </button>
                   <p className="text-center text-xs text-muted-foreground">
                     Not on HostelPalika yet?{" "}
-                    <Link className="font-semibold text-brand-teal" href={`/register-hostel?plan=${plan.id}`}>
+                    <Link
+                      className="font-semibold text-brand-teal"
+                      href={plan ? `/register-hostel?plan=${plan.id}` : "/register-hostel"}
+                    >
                       Register your hostel
                     </Link>
                   </p>
@@ -453,16 +443,23 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
               ) : null}
 
               {step === "code" ? (
-                <form className="space-y-4" onSubmit={verify}>
-                  <p className="text-sm text-muted-foreground">
-                    {resumed ? "We already sent a 6-digit code to " : "We sent a 6-digit code to "}
-                    <strong className="text-foreground">{email}</strong>
-                    {resumed ? " a moment ago — use that one." : "."}
-                  </p>
+                <form className="space-y-5" onSubmit={verify}>
+                  <div className="text-center">
+                    <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-teal/10 text-brand-teal">
+                      <Mail className="size-5" />
+                    </span>
+                    <p className="mt-3 text-lg font-bold text-foreground">Check your email</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {resumed ? "We already sent a 6-digit code to " : "We sent a 6-digit code to "}
+                      <strong className="break-all text-foreground">{email}</strong>
+                      {resumed ? " a moment ago — use that one." : "."}
+                    </p>
+                  </div>
                   <input
                     aria-label="Verification code"
                     autoComplete="one-time-code"
-                    className={cn(INPUT, "text-center font-mono text-2xl tracking-[0.5em]")}
+                    autoFocus
+                    className={cn(INPUT, "h-14 text-center font-mono text-2xl tracking-[0.5em]")}
                     inputMode="numeric"
                     maxLength={6}
                     onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
@@ -473,7 +470,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                     {busy === "verify" ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
                     Verify and continue
                   </button>
-                  <div className="flex items-center justify-between text-xs font-semibold">
+                  <div className="flex items-center justify-between border-t border-border pt-4 text-xs font-semibold">
                     <button
                       className="text-muted-foreground hover:text-foreground"
                       onClick={() => setStep("details")}
@@ -525,39 +522,52 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                     monthly price, 6–11 at the six-month rate, 12 at the annual.
                     Re-priced on the server; the figures here are the same function.
                   */}
+                  {/*
+                    Plan and months are both open on an invoice nothing has touched:
+                    1–5 months at the monthly price, 6–11 at the six-month rate, 12 at
+                    the annual. Re-priced on the server; the figures here are the same function.
+                  */}
                   {!reused && invoice.months && !invoice.monthsLocked ? (
-                    <label className="block text-sm font-semibold text-foreground">
-                      Months
-                      <select
-                        className={cn(INPUT, "font-semibold")}
-                        disabled={Boolean(busy)}
-                        onChange={(event) => {
-                          const months = Number(event.target.value);
-
-                          void run("months", async () => {
-                            const result = await checkout<
-                              PaymentState & { afterPayment: AfterPayment | null; history: History; invoice: Invoice | null }
-                            >({ months, step: "months", token });
-
-                            if (hostel) applyCheckout(result, { hostel, reused, token });
-                          });
-                        }}
-                        value={invoice.months}
-                      >
-                        {MONTH_CHOICES.map((months) => (
-                          <option key={months} value={months}>
-                            {months} {months === 1 ? "month" : "months"} · {rupees(monthsTotal(plan, months))}
-                            {months >= 12 ? " · annual rate" : months >= 6 ? " · 6-month rate" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-sm font-semibold text-foreground">
+                        Plan
+                        <select
+                          className={cn(INPUT, "font-semibold")}
+                          disabled={Boolean(busy)}
+                          onChange={(event) => reprice({ months: invoice.months ?? 12, planId: event.target.value })}
+                          value={invoice.planId}
+                        >
+                          {catalog.plans.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-sm font-semibold text-foreground">
+                        Months
+                        <select
+                          className={cn(INPUT, "font-semibold")}
+                          disabled={Boolean(busy)}
+                          onChange={(event) => reprice({ months: Number(event.target.value) })}
+                          value={invoice.months}
+                        >
+                          {MONTH_CHOICES.map((months) => (
+                            <option key={months} value={months}>
+                              {months} {months === 1 ? "month" : "months"}
+                              {invoicePlan ? ` · ${rupees(monthsTotal(invoicePlan, months))}` : ""}
+                              {months >= 12 ? " · annual rate" : months >= 6 ? " · 6-month rate" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
                   ) : null}
 
                   {otherPick ? (
                     <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
-                      You picked {plan.name} · {cycleLabel} for {rupees(price)}. {invoice.planName} still has{" "}
-                      {rupees(payment.instructions.amountDue)} left to pay, so that comes first. Get {plan.name}{" "}
+                      You picked {plan?.name} · {cycleLabel} for {rupees(price)}. {invoice.planName} still has{" "}
+                      {rupees(payment.instructions.amountDue)} left to pay, so that comes first. Get {plan?.name}{" "}
                       once it is cleared.
                     </p>
                   ) : null}

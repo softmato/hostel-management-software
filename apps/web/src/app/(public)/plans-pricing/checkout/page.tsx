@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { PlanCheckoutPage } from "@/app/_components/plan-checkout-page";
 import { NOINDEX } from "@/lib/seo";
 
-export const metadata: Metadata = { robots: NOINDEX, title: "Get a plan" };
+export const metadata: Metadata = { robots: NOINDEX, title: "Pay for your hostel" };
 
 /** "Get plan" for a hostel already on the platform. Per person, so drawn in the browser. */
 export default async function PlanCheckoutRoute({
