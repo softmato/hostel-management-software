@@ -476,6 +476,27 @@ export function formatBsDate(instant: Date | null | undefined): string {
   }
 }
 
+/**
+ * `Kartik 28, 2083 BS (14 Nov 2026)` — BS leads, the AD date beside it. The AD
+ * half is read in Kathmandu time so both halves always name the same day.
+ */
+export function formatBsAdDate(instant: Date | null | undefined): string {
+  const bs = formatBsDate(instant);
+
+  if (!bs || !instant) {
+    return bs;
+  }
+
+  const ad = instant.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kathmandu",
+    year: "numeric",
+  });
+
+  return `${bs} (${ad})`;
+}
+
 /** `Bhadra 19` — inside a section whose heading already names the year. */
 export function formatBsDayMonth(instant: Date | null | undefined): string {
   if (!instant) {

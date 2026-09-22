@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { formatBsAdDate } from "@hostel/shared/calendar/bs";
 import { billingCycles, cycleTotal, planRank, type BillingCycle } from "@hostel/shared/plans/catalog";
 
 import { PayPlanPanel } from "@/app/_components/hostel-admin-pay-plan";
@@ -98,14 +99,8 @@ function grabDocument(url: string, number: string, label: string) {
   });
 }
 
-const shortDate = (value: string | null) =>
-  value
-    ? new Date(value).toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : "—";
+// The platform's calendar is Bikram Sambat.
+const shortDate = (value: string | null) => (value ? formatBsAdDate(new Date(value)) || "—" : "—");
 
 export function HostelAdminBillingPageContent() {
   const [history, setHistory] = useState<BillingHistory | null>(null);

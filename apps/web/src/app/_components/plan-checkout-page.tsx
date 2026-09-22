@@ -2,11 +2,13 @@
 
 import { CalendarClock, CheckCircle2, FileText, Info, Loader2, Mail, Receipt, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 
+import { formatBsAdDate } from "@hostel/shared/calendar/bs";
 import { billingCycles, cycleTotal, getPlan, type BillingCycle } from "@hostel/shared/plans/catalog";
 
 import { useSiteConfig } from "@/components/site-config-provider";
+import { Skeleton } from "@/components/ui/skeleton";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 import type {
@@ -60,15 +62,42 @@ function rupees(amount: number) {
   return `Rs ${amount.toLocaleString("en-IN")}`;
 }
 
+/** Bikram Sambat, the platform's one calendar: `Kartik 28, 2083 BS`. */
 function day(iso: string | null) {
-  return iso
-    ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
-    : "—";
+  return iso ? formatBsAdDate(new Date(iso)) || "—" : "—";
 }
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong. Try again.";
 }
+
+/**
+ * The verified checkout, kept for this tab so a reload lands back on the pay
+ * step instead of the email form. The token inside is what proves the hostel;
+ * it lives an hour, and the server refuses it after that.
+ */
+const CHECKOUT_STATE_KEY = "hostelpalika:plan-checkout";
+
+type SavedCheckout = { cycle: BillingCycle; planId: string; reused: boolean; token: string };
+
+function readSavedCheckout() {
+  try {
+    return sessionStorage.getItem(CHECKOUT_STATE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function forgetSavedCheckout() {
+  try {
+    sessionStorage.removeItem(CHECKOUT_STATE_KEY);
+  } catch {
+    // Nothing kept.
+  }
+}
+
+// Session storage has no change event within a tab; one read per render is all this needs.
+const noSubscribe = () => () => {};
 
 function checkout<T>(body: Record<string, unknown>) {
   return browserApi<T>("/api/v1/public/plan-checkout", {
@@ -105,6 +134,71 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
   const [trace, setTrace] = useState<{ after: AfterPayment; history: History } | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  /*
+   * `undefined` on the server and through hydration, then the stored value —
+   * read during render, so the page shows a skeleton rather than the email
+   * form for a checkout it is about to restore.
+   */
+  const savedRaw = useSyncExternalStore(noSubscribe, readSavedCheckout, () => undefined);
+  const resumable = useMemo(() => {
+    if (!savedRaw) return null;
+
+    try {
+      const saved = JSON.parse(savedRaw) as SavedCheckout;
+
+      return saved.planId === planId && saved.token ? saved : null;
+    } catch {
+      return null;
+    }
+  }, [planId, savedRaw]);
+  const [restoreDone, setRestoreDone] = useState(false);
+  const booting = savedRaw === undefined || (Boolean(resumable) && !restoreDone);
+
+  function applyCheckout(
+    result: PaymentState & {
+      afterPayment: AfterPayment | null;
+      history: History;
+      invoice: Invoice | null;
+    },
+    context: { hostel: { code: string; name: string }; reused: boolean; token: string },
+  ) {
+    setToken(context.token);
+    setHostel(context.hostel);
+    setInvoice(result.invoice);
+    setReused(context.reused);
+    setTrace(result.afterPayment ? { after: result.afterPayment, history: result.history } : null);
+    setPayment(result);
+    setStep(result.instructions.claim ? "done" : "pay");
+  }
+
+  useEffect(() => {
+    if (!resumable) return;
+
+    checkout<
+      PaymentState & {
+        afterPayment: AfterPayment | null;
+        hostel: { code: string; name: string };
+        history: History;
+        invoice: Invoice | null;
+      }
+    >({ step: "resume", token: resumable.token })
+      .then((result) => {
+        // Paid since, or nothing open: start clean rather than show an empty pay step.
+        if (!result.invoice) {
+          forgetSavedCheckout();
+
+          return;
+        }
+
+        setCycle(resumable.cycle);
+        applyCheckout(result, { hostel: result.hostel, reused: resumable.reused, token: resumable.token });
+      })
+      .catch(() => {
+        // Expired or refused: the email form, as for anyone new.
+        forgetSavedCheckout();
+      })
+      .finally(() => setRestoreDone(true));
+  }, [resumable]);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -169,20 +263,18 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
         token: verified.token,
       });
 
-      setToken(verified.token);
-
-      // So the return page can tell a signed-out owner what happened to their money.
+      // So the return page can tell a signed-out owner what happened to their money,
+      // and a reload of this one comes back to the pay step.
       try {
         sessionStorage.setItem(CHECKOUT_TOKEN_KEY, verified.token);
+        sessionStorage.setItem(
+          CHECKOUT_STATE_KEY,
+          JSON.stringify({ cycle, planId, reused: raised.reused, token: verified.token } satisfies SavedCheckout),
+        );
       } catch {
         // Without it the return page asks them to sign in instead.
       }
-      setHostel(verified.hostel);
-      setInvoice(raised.invoice);
-      setReused(raised.reused);
-      setTrace({ after: raised.afterPayment, history: raised.history });
-      setPayment(raised);
-      setStep(raised.instructions.claim ? "done" : "pay");
+      applyCheckout(raised, { hostel: verified.hostel, reused: raised.reused, token: verified.token });
     });
   }
 
@@ -194,6 +286,19 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
           <Link className="mt-4 inline-block font-semibold text-brand-teal" href="/plans-pricing">
             See all plans
           </Link>
+        </div>
+      </PublicShell>
+    );
+  }
+
+  // Restoring a checkout from this tab: skeletons, never a flash of the email form.
+  if (booting) {
+    return (
+      <PublicShell active="plans-pricing">
+        <div aria-busy="true" className="mx-auto max-w-lg space-y-4 px-4 pb-20 pt-8 sm:px-6">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-24 rounded-2xl" />
+          <Skeleton className="h-72 rounded-2xl" />
         </div>
       </PublicShell>
     );
@@ -386,9 +491,29 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
               {step === "pay" && payment && invoice ? (
                 <div className="space-y-4">
                   {/* Where the plan stands now is in the billing panel beside this. */}
-                  <p className="text-sm font-semibold text-foreground">
-                    {hostel?.name} <span className="font-mono text-xs text-muted-foreground">{hostel?.code}</span>
-                  </p>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="text-sm font-semibold text-foreground">
+                      {hostel?.name} <span className="font-mono text-xs text-muted-foreground">{hostel?.code}</span>
+                    </p>
+                    {/* Paying for a different hostel starts over from its email and ID. */}
+                    <button
+                      className="shrink-0 text-xs font-semibold text-brand-teal hover:underline"
+                      onClick={() => {
+                        forgetSavedCheckout();
+                        setToken("");
+                        setHostel(null);
+                        setInvoice(null);
+                        setReused(false);
+                        setTrace(null);
+                        setPayment(null);
+                        setCode("");
+                        setStep("details");
+                      }}
+                      type="button"
+                    >
+                      Another hostel
+                    </button>
+                  </div>
 
                   {otherPick ? (
                     <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">

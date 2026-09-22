@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
 
     const result = await registerTeamHostelApplication(input, {
       name: agent?.name,
+      role: principal.role,
       userId: principal.userId,
     });
 

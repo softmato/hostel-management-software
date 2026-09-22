@@ -33,6 +33,7 @@ import {
 import { downloadFile } from "@/lib/downloads/downloader";
 import { platformEndpoints } from "@/lib/platform-endpoints";
 import { usePortalResource } from "@/lib/portal-query";
+import type { FieldCashRow } from "@/modules/billing/cash-filing.service";
 import type { PlanPaymentClaim } from "@/modules/billing/subscription-claim.service";
 import type {
   PlatformInvoiceRow,
@@ -40,7 +41,9 @@ import type {
   PlatformSubscriptionLedger,
 } from "@/modules/billing/platform-subscriptions.service";
 import { Message } from "./core-portal-shared";
-import { SubscriptionClaimQueue } from "./platform-subscription-claims";
+import { formatBsAdDate } from "@hostel/shared/calendar/bs";
+
+import { FieldCashQueue, SubscriptionClaimQueue } from "./platform-subscription-claims";
 
 /**
  * Plan billing, from the platform's side of the table.
@@ -88,15 +91,8 @@ const PAGE_SIZE = 12;
 function formatDate(value: string | null) {
   if (!value) return "—";
 
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
+  // The platform's calendar is Bikram Sambat, here as everywhere.
+  return formatBsAdDate(new Date(value)) || "—";
 }
 
 /** `SOFTMATO` is a rail, and nobody paid "by Softmato". */
@@ -136,6 +132,10 @@ export const PlatformSubscriptionsPageContent = memo(
     const claimQueue = usePortalResource<{ claims: PlanPaymentClaim[] }>(
       platformEndpoints.subscriptionClaims,
       { errorMessage: "Could not load the manual review queue." },
+    );
+    const cashQueue = usePortalResource<{ cash: FieldCashRow[]; confirmUrl: string }>(
+      platformEndpoints.subscriptionCash,
+      { errorMessage: "Could not load the field cash queue." },
     );
     const { data, message, state } = ledger;
 
@@ -282,7 +282,7 @@ export const PlatformSubscriptionsPageContent = memo(
                       ? invoices.length
                       : item.key === "PAYMENTS"
                         ? payments.length
-                        : claims.length,
+                        : claims.length + (cashQueue.data?.cash.length ?? 0),
                 }))}
                 value={tab}
               />
@@ -305,6 +305,20 @@ export const PlatformSubscriptionsPageContent = memo(
               </FilterBar>
 
               {tab === "REVIEW" ? (
+                <div className="space-y-5">
+                  <section className="space-y-2">
+                    <h3 className="text-[12.5px] font-bold text-foreground">Cash from field agents</h3>
+                    <FieldCashQueue
+                      confirmUrl={cashQueue.data?.confirmUrl ?? "https://admin.softmato.com/cash"}
+                      onChecked={() => {
+                        cashQueue.refresh();
+                        ledger.refresh();
+                      }}
+                      rows={cashQueue.data?.cash ?? []}
+                    />
+                  </section>
+                  <section className="space-y-2">
+                    <h3 className="text-[12.5px] font-bold text-foreground">QR payments with proof</h3>
                 <SubscriptionClaimQueue
                   claims={claimRows}
                   onReviewed={() => {
@@ -319,6 +333,8 @@ export const PlatformSubscriptionsPageContent = memo(
                     ledger.refresh();
                   }}
                 />
+                  </section>
+                </div>
               ) : rows.length === 0 ? (
                 <EmptyState
                   label={

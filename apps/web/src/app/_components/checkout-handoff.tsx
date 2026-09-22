@@ -43,6 +43,8 @@ type Handoff = {
   endpoint: string;
   /** Instead of just closing the overlay, when the payer dismisses a failure. */
   onClose?: () => void;
+  /** The endpoint answered, just before the redirect — to keep anything it returned. */
+  onOpened?: (result: Record<string, unknown>) => void;
   /** The session step, in the payer's terms: "Setting up your plan payment". */
   preparing?: string;
 };
@@ -141,7 +143,7 @@ export function useCheckoutHandoff() {
     setRun({ active: 0, error: "", handoff });
 
     try {
-      const { checkoutUrl } = await browserApi<{ checkoutUrl: string }>(
+      const opened = await browserApi<{ checkoutUrl: string } & Record<string, unknown>>(
         handoff.endpoint,
         {
           body: handoff.body === undefined ? undefined : JSON.stringify(handoff.body),
@@ -154,6 +156,8 @@ export function useCheckoutHandoff() {
         },
       );
 
+      handoff.onOpened?.(opened);
+
       try {
         sessionStorage.setItem(RETURN_TO_KEY, handoff.back ?? window.location.pathname + window.location.search);
       } catch {
@@ -161,7 +165,7 @@ export function useCheckoutHandoff() {
       }
 
       setRun((current) => current && { ...current, active: ORDER.length - 1 });
-      window.location.assign(checkoutUrl);
+      window.location.assign(opened.checkoutUrl);
     } catch (error) {
       setRun(
         (current) =>

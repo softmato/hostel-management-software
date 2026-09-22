@@ -61,6 +61,7 @@ export const PDF_LIB_ROUTES = [
   "/api/v1/platform/hostels/**",
   "/api/v1/platform/payments/**",
   "/api/v1/platform/reports/**",
+  "/api/v1/platform/subscriptions/cash/**",
   "/api/v1/platform/subscriptions/claims/**",
   "/api/v1/platform/subscriptions/documents/**",
   "/api/v1/public/hostel-applications/**",
@@ -73,6 +74,7 @@ export const PDF_LIB_ROUTES = [
   "/api/v1/resident/finance/statement/**",
   "/api/v1/team/email-check/**",
   "/api/v1/team/hostels/**",
+  "/api/v1/team/prepayments/**",
   "/api/v1/webhooks/**",
 ] as const;
 

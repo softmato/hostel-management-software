@@ -52,6 +52,7 @@ import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 import { readRenamedStorage } from "@/lib/storage-rename";
 import type { TeamOwnerEmailStatus } from "@/modules/hostels/hostel.service";
+import type { TeamPrepaymentView } from "@/modules/team/team-prepayment.service";
 import { DescriptionSuggestions } from "./description-suggestions";
 import { billingCycles, bestDiscountPercent, cycleTotal, type BillingCycle } from "./plans-catalog";
 import {
@@ -810,6 +811,18 @@ export function TeamRegisterHostelPage() {
   const [paymentReference, setPaymentReference] = useState("");
   const [payout, setPayout] = useState(EMPTY_PAYOUT_DRAFT);
   const handoff = useCheckoutHandoff();
+  /*
+   * The online payment taken on Plan & payment, before publishing. The id is
+   * kept apart from what the server said about it so a read that fails on a
+   * bad connection cannot drop it from the draft — the money would still be
+   * real, and the publish is what attaches it to the hostel.
+   */
+  const [prepaymentId, setPrepaymentId] = useState("");
+  const [prepaymentRow, setPrepayment] = useState<TeamPrepaymentView | null>(null);
+  const [prepaymentCheck, setPrepaymentCheck] = useState(0);
+  // Only the row the form currently points at; a dropped id shows nothing.
+  const prepayment = prepaymentRow?.id === prepaymentId ? prepaymentRow : null;
+  const paidOnline = prepayment?.status === "PAID" ? prepayment : null;
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -931,9 +944,11 @@ export function TeamRegisterHostelPage() {
   const cycles = billingCycles(catalog);
   const priced = catalog.plans.filter((plan) => plan.monthly > 0);
   const plan = priced.find((entry) => entry.id === planId);
-  const price = plan ? cycleTotal(plan, cycle) : 0;
-  // Online money is Softmato's to confirm, after publishing; only cash is typed in.
-  const collecting = method === "CASH" ? (numberValue(amount) ?? 0) : 0;
+  // Once paid, the price is what was paid: the server invoices that, not today's catalogue.
+  const price = paidOnline ? paidOnline.amount : plan ? cycleTotal(plan, cycle) : 0;
+  // Cash is typed in; online is only ever what Softmato confirmed.
+  const collecting =
+    method === "CASH" ? (numberValue(amount) ?? 0) : (paidOnline?.amount ?? 0);
   const shortfall = Math.max(0, price - collecting);
   const uploading = documents.some((doc) => doc.uploading) || photos.some((p) => p.uploading);
 
@@ -1024,14 +1039,16 @@ export function TeamRegisterHostelPage() {
    * something that exists.
    */
   useEffect(() => {
-    try {
-      const saved = readRenamedStorage(localStorage, DRAFT_KEY, LEGACY_DRAFT_KEY);
+    const params = new URLSearchParams(window.location.search);
+    // Back from Softmato (`prepayment`), or reopened from the desk (`resume`).
+    const returned = params.get("prepayment");
+    const resume = params.get("resume");
 
-      if (!saved) {
-        return;
-      }
+    if (returned || resume) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
 
-      const draft = JSON.parse(saved) as Record<string, unknown>;
+    function restore(draft: Record<string, unknown>) {
       const read = <T,>(key: string, apply: (value: T) => void) => {
         if (draft[key] !== undefined) {
           apply(draft[key] as T);
@@ -1100,10 +1117,79 @@ export function TeamRegisterHostelPage() {
        * government ID already sitting in this draft.
        */
       read<typeof EMPTY_PAYOUT_DRAFT>("payout", setPayout);
+      read<string>("prepaymentId", setPrepaymentId);
+    }
+
+    /*
+     * From the desk: the paid hostel's own copy on the server, not whatever
+     * this browser last held. Kept by id even if that read fails.
+     */
+    if (resume) {
+      void browserApi<{ draft: Record<string, unknown> | null }>(`/api/v1/team/prepayments/${resume}`)
+        .then((row) => restore({ ...(row.draft ?? {}), prepaymentId: resume }))
+        .catch(() => restore({ prepaymentId: resume }));
+
+      return;
+    }
+
+    try {
+      const saved = readRenamedStorage(localStorage, DRAFT_KEY, LEGACY_DRAFT_KEY);
+
+      if (!saved && !returned) {
+        return;
+      }
+
+      const draft = (saved ? JSON.parse(saved) : {}) as Record<string, unknown>;
+
+      /*
+       * Back from Softmato: the return URL names the payment and wins over the
+       * draft — kept even when storage is blocked and the draft is gone, since
+       * that money is real. It is a pointer, not proof: the payment is read
+       * back from the server, which asks Softmato.
+       */
+      if (returned) {
+        draft.prepaymentId = returned;
+      }
+
+      restore(draft);
     } catch {
       // A corrupt draft is discarded rather than diagnosed.
     }
   }, []);
+
+  useEffect(() => {
+    if (!prepaymentId) return;
+
+    let live = true;
+
+    browserApi<TeamPrepaymentView>(`/api/v1/team/prepayments/${prepaymentId}`)
+      .then((row) => {
+        if (!live) return;
+
+        // Replaced, or already on a published hostel: nothing for this form.
+        if (row.status === "SUPERSEDED" || row.status === "CLAIMED") {
+          setPrepaymentId("");
+
+          return;
+        }
+
+        setPrepayment(row);
+
+        // Paid for one plan at one price, so the form is put back on exactly that.
+        if (row.status === "PAID") {
+          setMethod("SOFTMATO");
+          setPlanId(row.planId);
+          setCycle(row.cycle);
+        }
+      })
+      .catch(() => {
+        // Kept by id; the next check, or the publish, reads it again.
+      });
+
+    return () => {
+      live = false;
+    };
+  }, [prepaymentId, prepaymentCheck]);
 
   /*
    * One writer for both the autosave and the button.
@@ -1115,46 +1201,7 @@ export function TeamRegisterHostelPage() {
    */
   function writeDraft() {
     try {
-      localStorage.setItem(
-        DRAFT_KEY,
-        JSON.stringify({
-          address,
-          admissionFee,
-          alternatePhone,
-          area,
-          city,
-          cookCount,
-          cycle,
-          description,
-          documents,
-          email,
-          facilities,
-          foodNotes,
-          hasNonVeg,
-          hasVeg,
-          hostelName,
-          hostelType,
-          landmark,
-          mapLink,
-          mealsPerDay,
-          ownerName,
-          payout,
-          phone,
-          photos,
-          pin,
-          planId,
-          referralDiscount,
-          rooms,
-          routine,
-          rules,
-          securityDeposit,
-          step,
-          timings,
-          totalFloors,
-          version: DRAFT_VERSION,
-          yearEstablished,
-        }),
-      );
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draftSnapshot()));
 
       return true;
     } catch {
@@ -1162,6 +1209,48 @@ export function TeamRegisterHostelPage() {
       // and the button says so rather than claiming a save that did not happen.
       return false;
     }
+  }
+
+  /** The whole form as one object — the browser's draft, and a paid hostel's copy on the server. */
+  function draftSnapshot() {
+    return {
+      address,
+      admissionFee,
+      alternatePhone,
+      area,
+      city,
+      cookCount,
+      cycle,
+      description,
+      documents,
+      email,
+      facilities,
+      foodNotes,
+      hasNonVeg,
+      hasVeg,
+      hostelName,
+      hostelType,
+      landmark,
+      mapLink,
+      mealsPerDay,
+      ownerName,
+      payout,
+      phone,
+      photos,
+      pin,
+      planId,
+      prepaymentId,
+      referralDiscount,
+      rooms,
+      routine,
+      rules,
+      securityDeposit,
+      step,
+      timings,
+      totalFloors,
+      version: DRAFT_VERSION,
+      yearEstablished,
+    };
   }
 
   useEffect(() => {
@@ -1198,6 +1287,7 @@ export function TeamRegisterHostelPage() {
     photos,
     pin,
     planId,
+    prepaymentId,
     referralDiscount,
     rooms,
     routine,
@@ -1600,16 +1690,42 @@ export function TeamRegisterHostelPage() {
    * field is added.
    */
   async function discardDraft() {
-    const confirmed = await confirm({
-      actionLabel: "Discard it",
-      description:
-        "Everything typed into this form is thrown away, including uploads that have not been submitted. The hostel is not affected — nothing has been registered yet.",
-      title: "Start over?",
-      tone: "destructive",
-    });
+    /*
+     * A paid hostel is never thrown away: its form is kept on the payment and
+     * waits on My desk under "Paid, not published" until someone publishes it.
+     */
+    const confirmed = await confirm(
+      paidOnline
+        ? {
+            actionLabel: "Keep it on my desk",
+            description: `${hostelName.trim() || "This hostel"} is paid (${rupees(paidOnline.amount)}), so it is not discarded. The form is kept on My desk under Paid, not published — open it from there to publish.`,
+            title: "Start a new hostel?",
+          }
+        : {
+            actionLabel: "Discard it",
+            description:
+              "Everything typed into this form is thrown away, including uploads that have not been submitted. The hostel is not affected — nothing has been registered yet.",
+            title: "Start over?",
+            tone: "destructive",
+          },
+    );
 
     if (!confirmed) {
       return;
+    }
+
+    if (paidOnline) {
+      try {
+        await browserApi(`/api/v1/team/prepayments/${paidOnline.id}`, {
+          body: JSON.stringify({ draft: draftSnapshot() }),
+          method: "PATCH",
+        });
+      } catch (caught) {
+        // Not cleared unless the server has it: this browser is the only other copy.
+        setError(caught instanceof Error ? caught.message : "Could not keep it on your desk. Try again.");
+
+        return;
+      }
     }
 
     try {
@@ -1789,11 +1905,21 @@ export function TeamRegisterHostelPage() {
       },
       mapLink: mapLink.trim() || undefined,
       name: hostelName.trim(),
-      payment: {
-        amount: collecting,
-        method,
-        reference: paymentReference.trim() || undefined,
-      },
+      /*
+       * Online sends no amount: the server reads it off the payment row. Any
+       * open or paid row goes with it — an unpaid one too, so a payment the
+       * owner finishes after publishing still lands on this hostel.
+       */
+      payment:
+        method === "CASH"
+          ? { amount: collecting, method, reference: paymentReference.trim() || undefined }
+          : {
+              amount: 0,
+              method,
+              ...(prepayment && (prepayment.status === "OPEN" || prepayment.status === "PAID")
+                ? { prepaymentId: prepayment.id }
+                : {}),
+            },
       photos: photos
         .filter((photo) => photo.url && !photo.uploading)
         .map((photo) => ({
@@ -1892,6 +2018,53 @@ export function TeamRegisterHostelPage() {
     }
   }
 
+  /**
+   * Opens Softmato checkout on this device for the owner to scan, before the
+   * hostel exists. Priced and checked on the server; the form only names the
+   * plan. Softmato brings the agent back to `?prepayment=<id>`.
+   */
+  function takeOnlinePayment() {
+    if (!plan) return;
+
+    writeDraft();
+    void handoff.start({
+      back: "/team/register",
+      body: {
+        area: area.trim(),
+        cycle,
+        draft: draftSnapshot(),
+        email: email.trim(),
+        hostelName: hostelName.trim(),
+        ownerName: ownerName.trim(),
+        phone: phone.trim(),
+        planId: plan.id,
+        ...(prepaymentId ? { prepaymentId } : {}),
+      },
+      endpoint: "/api/v1/team/prepayments",
+      /*
+       * Kept before the redirect, in the draft itself: pressing Back on
+       * Softmato's page returns here without the return URL, and a second
+       * press of Take payment must reuse this row rather than open another.
+       */
+      onOpened: (result) => {
+        const id = (result.prepayment as { id?: string } | undefined)?.id;
+
+        if (!id) return;
+
+        setPrepaymentId(id);
+
+        try {
+          const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "{}") as Record<string, unknown>;
+
+          localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...saved, prepaymentId: id }));
+        } catch {
+          // The return URL still carries it.
+        }
+      },
+      preparing: "Setting up the plan payment",
+    });
+  }
+
   async function publish() {
     setError("");
     setSubmitErrors({});
@@ -1940,16 +2113,18 @@ export function TeamRegisterHostelPage() {
       actionLabel: "Publish the hostel",
       description: [
         `${hostelName.trim()} goes live now, on the ${plan?.name} plan at ${rupees(price)}.`,
-        method === "SOFTMATO"
-          ? `Next, Softmato checkout opens on this phone for the owner to pay ${rupees(price)}.`
-          : collecting > 0
-            ? `${rupees(collecting)} cash is filed with Softmato; the owner's receipt follows once it is confirmed.`
-            : "Nothing collected today.",
-        method === "SOFTMATO"
-          ? "Anything they do not pay now stays a due on their dashboard."
-          : shortfall > 0
-            ? `${rupees(shortfall)} becomes a due on the owner's dashboard.`
-            : "Nothing left owing.",
+        paidOnline
+          ? `${rupees(paidOnline.amount)} paid online${paidOnline.reference ? ` (${paidOnline.reference})` : ""} is attached to it.`
+          : method === "SOFTMATO"
+            ? prepayment?.status === "OPEN"
+              ? "The online payment has not arrived. If the owner finishes it, it is added to this hostel by itself."
+              : "Nothing collected today."
+            : collecting > 0
+              ? `${rupees(collecting)} cash is filed with Softmato; the owner's receipt follows once it is confirmed.`
+              : "Nothing collected today.",
+        shortfall > 0
+          ? `${rupees(shortfall)} becomes a due on the owner's dashboard.`
+          : "Nothing left owing.",
         "The owner will be emailed that their hostel is published.",
       ].join(" "),
       title: "Publish this hostel?",
@@ -1982,21 +2157,8 @@ export function TeamRegisterHostelPage() {
 
       // Straight on to the people already living there — the owner is usually
       // still at the counter, which is the easiest moment to fill that list.
-      const residents = `/team/hostels/${result.hostel.id}/residents?published=1`;
-
-      if (method === "SOFTMATO" && price > 0) {
-        // The hostel exists now, so a closed or failed hand-off still moves on.
-        void handoff.start({
-          back: residents,
-          endpoint: `/api/v1/team/hostels/${result.hostel.id}/checkout`,
-          onClose: () => router.push(residents),
-          preparing: "Setting up the plan payment",
-        });
-
-        return;
-      }
-
-      router.push(residents);
+      // Online money was taken on Plan & payment, before this, so nothing opens here.
+      router.push(`/team/hostels/${result.hostel.id}/residents?published=1`);
     } catch (err) {
       setSubmitting(false);
 
@@ -2993,11 +3155,13 @@ export function TeamRegisterHostelPage() {
                     return (
                       <button
                         className={cn(
-                          "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                          "rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed",
                           cycle === option.id
                             ? "bg-surface text-foreground shadow-sm"
-                            : "text-muted-foreground hover:text-foreground",
+                            : "text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground",
                         )}
+                        // Paid for one cycle; a different one would be a different price.
+                        disabled={Boolean(paidOnline)}
                         key={option.id}
                         onClick={() => setCycle(option.id)}
                         type="button"
@@ -3024,11 +3188,12 @@ export function TeamRegisterHostelPage() {
                       return (
                         <button
                           className={cn(
-                            "rounded-xl border p-4 text-left transition",
+                            "rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
                             selected
                               ? "border-brand-teal bg-brand-teal/5 ring-1 ring-brand-teal/30"
                               : "border-border bg-surface hover:border-brand-teal/40",
                           )}
+                          disabled={Boolean(paidOnline) && entry.id !== paidOnline?.planId}
                           key={entry.id}
                           onClick={() => setPlanId(entry.id)}
                           type="button"
@@ -3080,11 +3245,12 @@ export function TeamRegisterHostelPage() {
                   ).map(([value, label, Icon]) => (
                     <button
                       className={cn(
-                        "flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs font-semibold transition",
+                        "flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
                         method === value
                           ? "border-brand-teal bg-brand-teal/10 text-brand-teal"
                           : "border-border text-muted-foreground hover:border-brand-teal/40",
                       )}
+                      disabled={Boolean(paidOnline) && value !== "SOFTMATO"}
                       key={value}
                       onClick={() => setMethod(value)}
                       type="button"
@@ -3095,15 +3261,56 @@ export function TeamRegisterHostelPage() {
                   ))}
                 </div>
 
-                {method === "SOFTMATO" ? (
-                  <p className="mt-4 rounded-lg border border-border bg-muted/30 p-4 text-xs leading-relaxed text-muted-foreground">
-                    <span className="font-semibold text-foreground">
-                      The owner pays on this phone, straight after you publish.
-                    </span>{" "}
-                    Softmato checkout opens here with a Fonepay QR they scan from their
-                    banking app, or their wallet. Softmato confirms the money and the
-                    plan switches on by itself — there is nothing to type in.
-                  </p>
+                {method === "SOFTMATO" && paidOnline ? (
+                  /* Softmato's figures, not the agent's: read-only, and the plan above is locked to them. */
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <Field
+                      hint={`Paid online${paidOnline.provider ? ` by ${paidOnline.provider}` : ""}${paidOnline.paidAt ? `, ${new Date(paidOnline.paidAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}` : ""}.`}
+                      label="Amount collected"
+                      name="amount"
+                    >
+                      <input
+                        className="input-field w-full cursor-not-allowed bg-muted/40 font-semibold tabular-nums"
+                        readOnly
+                        value={rupees(paidOnline.amount)}
+                      />
+                    </Field>
+                    <Field hint="From Softmato's receipt." label="Reference" name="paymentReference">
+                      <input
+                        className="input-field w-full cursor-not-allowed bg-muted/40 font-mono"
+                        readOnly
+                        value={paidOnline.reference ?? "—"}
+                      />
+                    </Field>
+                  </div>
+                ) : method === "SOFTMATO" ? (
+                  <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {prepayment?.status === "OPEN"
+                        ? "Not paid yet. If the owner already paid, check again."
+                        : "Checkout opens on this screen with a QR the owner scans from their banking app or wallet. You come back here once it is paid."}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-60"
+                        disabled={!plan || handoff.busy}
+                        onClick={takeOnlinePayment}
+                        type="button"
+                      >
+                        <QrCode className="size-4" />
+                        {plan ? `Take payment · ${rupees(price)}` : "Pick a plan first"}
+                      </button>
+                      {prepayment?.status === "OPEN" ? (
+                        <button
+                          className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-brand-teal/40"
+                          onClick={() => setPrepaymentCheck((count) => count + 1)}
+                          type="button"
+                        >
+                          Check again
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                 ) : (
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <Field hint="Whole rupees taken in hand." label="Amount collected" name="amount">
@@ -3196,9 +3403,9 @@ export function TeamRegisterHostelPage() {
                       ["Plan", plan ? `${plan.name} · ${rupees(price)}` : "—"],
                       [
                         "Collected",
-                        method === "SOFTMATO"
-                          ? "Online, straight after publishing"
-                          : collecting > 0
+                        paidOnline
+                          ? `${rupees(paidOnline.amount)} · online · ${paidOnline.reference ?? "paid"}`
+                          : method === "CASH" && collecting > 0
                             ? `${rupees(collecting)} · cash`
                             : "Nothing",
                       ],

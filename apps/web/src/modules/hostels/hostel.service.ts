@@ -57,7 +57,13 @@ import {
 } from "@/modules/billing/subscription.service";
 import {
 } from "@/modules/billing/subscription-payment.service";
+import { reconcileInvoiceFromSoftmato } from "@/modules/billing/subscription-reconcile.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import {
+  claimTeamPrepayment,
+  releaseTeamPrepayment,
+  settleTeamPrepayment,
+} from "@/modules/team/team-prepayment.service";
 import {
   onHostelVerified,
   onRegisteredByTeam,
@@ -1375,7 +1381,16 @@ export async function checkTeamOwnerEmail(
     : { status: "OTHER_ROLE", usedBy: null };
 }
 
-export async function assertTeamRegistrationIsNew(input: TeamHostelRegistrationInput) {
+/**
+ * Only the fields it reads, so the pre-publish payment can run the same hard
+ * stops before any money is taken (`app/api/v1/team/prepayments`).
+ */
+export async function assertTeamRegistrationIsNew(
+  input: Pick<TeamHostelRegistrationInput, "confirmSecondHostel" | "name"> & {
+    applicant: { email?: string; phone: string };
+    location: { area: string };
+  },
+) {
   const key = hostelNameKey(input.name);
   const areaPattern = new RegExp(
     `^${input.location.area.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
@@ -1461,7 +1476,7 @@ export async function assertTeamRegistrationIsNew(input: TeamHostelRegistrationI
 
 export async function registerTeamHostelApplication(
   input: TeamHostelRegistrationInput,
-  agent: { name?: string; userId: string },
+  agent: { name?: string; role: string; userId: string },
 ) {
   await connectToDatabase();
 
@@ -1469,18 +1484,38 @@ export async function registerTeamHostelApplication(
   // after `HostelModel.create` is already a live listing with an invoice.
   await assertTeamRegistrationIsNew(input);
 
+  // Taken before the hostel is written, so two publishes cannot both spend it.
+  const prepayment = input.payment.prepaymentId
+    ? await claimTeamPrepayment(input.payment.prepaymentId, agent, input.plan)
+    : null;
+
+  try {
+    return await fileTeamRegistration(input, agent, prepayment);
+  } catch (error) {
+    if (prepayment) await releaseTeamPrepayment(prepayment);
+    throw error;
+  }
+}
+
+async function fileTeamRegistration(
+  input: TeamHostelRegistrationInput,
+  agent: { name?: string; userId: string },
+  prepayment: Awaited<ReturnType<typeof claimTeamPrepayment>> | null,
+) {
   const ownerId = await findOrCreatePublicHostelOwner(input.applicant);
   const claimedDocuments = await claimRegistrationDocuments(input.documents, ownerId);
   const slug = await uniqueSlug(input.name, input.location.area);
 
-  const hostel = await HostelModel.create(
-    hostelDocumentFrom(input, {
+  const hostel = await HostelModel.create({
+    ...hostelDocumentFrom(input, {
       ownerId,
       slug,
       status: "PUBLISHED",
       verificationStatus: "VERIFIED",
     }),
-  );
+    // The id the online payment reserved, so Softmato's customer is this hostel.
+    ...(prepayment ? { _id: prepayment.hostelId } : {}),
+  });
 
   const application = await HostelApplicationModel.create({
     applicantId: ownerId,
@@ -1560,6 +1595,16 @@ export async function registerTeamHostelApplication(
    */
   const invoice = await issueSubscriptionInvoice(hostel._id.toString(), agent.userId, {
     agentId: agent.userId,
+    ...(prepayment
+      ? {
+          prepaid: {
+            amount: prepayment.amount,
+            invoiceNumber: prepayment.invoiceNumber,
+            softmatoInvoiceId: prepayment.softmatoInvoiceId,
+            softmatoInvoiceNo: prepayment.softmatoInvoiceNo,
+          },
+        }
+      : {}),
     requireVerified: false,
     source: "TEAM",
   });
@@ -1573,9 +1618,11 @@ export async function registerTeamHostelApplication(
    */
   await startPlanPeriod(invoice, invoice.issuedAt ?? new Date());
 
-  if (input.payment.amount > 0) {
-    // Cash only (online is paid through Softmato after publishing). Filed with
-    // Softmato as a claim; it books when their admin confirms it.
+  if (prepayment?.paid) {
+    // Paid online on the Plan & payment step; settled in full here.
+    await settleTeamPrepayment(prepayment, invoice, agent.userId);
+  } else if (input.payment.amount > 0) {
+    // Cash, filed with Softmato as a claim; it books when their admin confirms it.
     await fileFieldCash(
       invoice._id.toString(),
       { amount: input.payment.amount, reference: input.payment.reference },
@@ -1603,6 +1650,15 @@ export async function registerTeamHostelApplication(
       { hostelId: hostel._id },
       { $set: { dueBy, status: "PAST_DUE" } },
     );
+
+    /*
+     * An online payment still open at publish: a payment that landed between
+     * the claim and this invoice existing reached no row, so it is read back
+     * now. One that lands later finds this invoice by webhook.
+     */
+    if (prepayment) {
+      await reconcileInvoiceFromSoftmato(invoice._id).catch(() => null);
+    }
   }
 
   /*
@@ -1638,7 +1694,7 @@ export async function registerTeamHostelApplication(
     entityType: "Hostel",
     hostelId: hostel._id,
     metadata: {
-      amountCollected: input.payment.amount,
+      amountCollected: prepayment?.paid ? prepayment.amount : input.payment.amount,
       method: input.payment.method,
       outstanding: state?.outstanding ?? 0,
       planId: input.plan.planId,
@@ -1648,7 +1704,7 @@ export async function registerTeamHostelApplication(
 
   await onRegisteredByTeam({
     agentName: agent.name,
-    amountPaid: input.payment.amount,
+    amountPaid: prepayment?.paid ? prepayment.amount : input.payment.amount,
     dueBy: state?.subscription.dueBy ? new Date(state.subscription.dueBy) : null,
     hostelName: input.name,
     hostelSlug: slug,

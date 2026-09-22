@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ExternalLink, ReceiptText, X } from "lucide-react";
+import { Banknote, Check, ExternalLink, ReceiptText, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 
 import { currency, EmptyState } from "@/app/_components/shared-ui";
@@ -8,7 +8,9 @@ import { RoleButton, SoftBadge } from "@/app/_components/portal-dashboard-ui";
 import { Textarea } from "@/components/ui/textarea";
 import { browserApi } from "@/lib/browser-api";
 import { platformEndpoints } from "@/lib/platform-endpoints";
+import type { FieldCashRow } from "@/modules/billing/cash-filing.service";
 import type { PlanPaymentClaim } from "@/modules/billing/subscription-claim.service";
+import { formatBsAdDate } from "@hostel/shared/calendar/bs";
 
 /**
  * The manual-payment review queue, as a person actually works it.
@@ -232,6 +234,124 @@ function ClaimCard({
           {error}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Cash field agents collected, waiting on a Softmato admin.
+ *
+ * Confirming happens there, on purpose: Softmato's API can file cash but not
+ * confirm it, so the person who counts the money is the one who books it and
+ * the receipt is theirs. This list is where we see what is waiting and how
+ * long for, and "Check now" pulls the answer instead of waiting for the webhook.
+ */
+export function FieldCashQueue({
+  confirmUrl,
+  onChecked,
+  rows,
+}: {
+  confirmUrl: string;
+  onChecked: () => void;
+  rows: FieldCashRow[];
+}) {
+  if (rows.length === 0) {
+    return <EmptyState label="No field cash is waiting to be confirmed." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {rows.map((row) => (
+        <CashCard confirmUrl={confirmUrl} key={row.id} onChecked={onChecked} row={row} />
+      ))}
+    </div>
+  );
+}
+
+const CHECK_WORDS = {
+  filed: "Filed with Softmato — confirm it there.",
+  rejected: "Softmato rejected it. The owner's balance is unchanged.",
+  settled: "Confirmed. The receipt has gone to the owner.",
+  waiting: "Still waiting for a Softmato admin to confirm it.",
+} as const;
+
+function CashCard({
+  confirmUrl,
+  onChecked,
+  row,
+}: {
+  confirmUrl: string;
+  onChecked: () => void;
+  row: FieldCashRow;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function check() {
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const { result } = await browserApi<{ result: keyof typeof CHECK_WORDS }>(
+        platformEndpoints.subscriptionCashCheck(row.id),
+        { method: "POST" },
+      );
+
+      setMessage(CHECK_WORDS[result]);
+      if (result === "settled" || result === "rejected") onChecked();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "That did not go through.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-card p-3">
+      <div className="flex flex-wrap items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-teal/10 text-brand-teal">
+          <Banknote className="size-5" />
+        </span>
+
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-[13.5px] font-bold text-foreground">{row.hostelName}</p>
+            <SoftBadge tone="amber">{row.transactionNo ? "Waiting on Softmato" : "Not filed yet"}</SoftBadge>
+            <span className="text-[11px] text-muted-foreground">
+              {formatBsAdDate(new Date(row.collectedAt))} · {waitingFor(row.collectedAt)}
+            </span>
+          </div>
+          <p className="text-[12.5px] text-foreground">
+            <span className="font-semibold">{currency(row.amount)}</span>
+            <span className="text-muted-foreground"> cash · {row.planName} · collected by {row.collectedBy}</span>
+          </p>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            {row.invoiceNumber}
+            {row.transactionNo ? ` · ${row.transactionNo}` : ""}
+            {row.reference ? ` · slip ${row.reference}` : ""}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <RoleButton disabled={busy} onClick={() => void check()} tone="platform" variant="outline">
+            <RefreshCw className="size-3.5" />
+            {row.transactionNo ? "Check now" : "File now"}
+          </RoleButton>
+          {row.transactionNo ? (
+            <a
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-teal px-3 py-2 text-xs font-bold text-white transition hover:brightness-110"
+              href={confirmUrl}
+              rel="noreferrer noopener"
+              target="_blank"
+            >
+              <ExternalLink className="size-3.5" />
+              Confirm on Softmato
+            </a>
+          ) : null}
+        </div>
+      </div>
+
+      {message ? <p className="mt-2 text-[11.5px] font-semibold text-muted-foreground">{message}</p> : null}
     </div>
   );
 }

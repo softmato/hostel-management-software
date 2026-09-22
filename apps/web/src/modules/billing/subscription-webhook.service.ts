@@ -9,7 +9,9 @@ import { classify } from "@/modules/billing/softmato/transaction";
 import { settlePayment } from "@/modules/billing/subscription-payment.service";
 import { settleBookingFromSoftmato } from "@/modules/bookings/booking-softmato.service";
 import type { BookingRecord } from "@/modules/bookings/booking-views";
+import { markTeamPrepaymentPaid } from "@/modules/team/team-prepayment.service";
 import { BookingModel } from "@hostel/db/models/Booking";
+import { TeamPrepaymentModel } from "@hostel/db/models/TeamPrepayment";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
 
@@ -97,6 +99,27 @@ export async function applyWebhook(
       return outcome === "paid"
         ? { action: "settled", paymentId: String(booking._id) }
         : { action: "recorded", event: `booking_${outcome}` };
+    }
+
+    /*
+     * A team agent's pre-publish payment: no hostel yet, so nothing to settle.
+     * It is marked paid, and the invoice written at publish adopts it — after
+     * which this document is found by the lookup above instead.
+     */
+    const prepayment = await TeamPrepaymentModel.findOne({
+      softmatoInvoiceNo: payload.invoice_id,
+    })
+      .select("_id")
+      .lean<{ _id: Types.ObjectId } | null>();
+
+    if (prepayment) {
+      await markTeamPrepaymentPaid(prepayment._id, {
+        paidAt: new Date(),
+        provider: null,
+        transactionNo: payload.transaction_id,
+      });
+
+      return { action: "recorded", event: "team_prepayment_paid" };
     }
 
     /*

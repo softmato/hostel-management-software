@@ -95,6 +95,14 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+/*
+ * The same window the public layout uses, for every route under this one. A
+ * portal page that is otherwise static — `/team/register` is — was prerendered
+ * once at build and kept that build's site config until the next deploy, so a
+ * plan repriced in Website Config never reached the agent's plan picker.
+ */
+export const revalidate = 600;
+
 export default async function RootLayout({
   children,
 }: Readonly<{

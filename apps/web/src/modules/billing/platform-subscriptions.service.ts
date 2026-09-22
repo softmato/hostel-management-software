@@ -4,7 +4,10 @@ import { Types } from "mongoose";
 
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
-import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
+import {
+  EXCLUDE_CHECKOUT_ATTEMPTS,
+  SubscriptionPaymentModel,
+} from "@hostel/db/models/SubscriptionPayment";
 
 import { connectToDatabase } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
@@ -140,7 +143,7 @@ export async function getPlatformSubscriptionLedger(options: {
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean<InvoiceLean[]>(),
-    SubscriptionPaymentModel.find({})
+    SubscriptionPaymentModel.find(EXCLUDE_CHECKOUT_ATTEMPTS)
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean<PaymentLean[]>(),

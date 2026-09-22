@@ -10,7 +10,10 @@ import {
 } from "@/modules/billing/billing-gateway";
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
-import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
+import {
+  EXCLUDE_CHECKOUT_ATTEMPTS,
+  SubscriptionPaymentModel,
+} from "@hostel/db/models/SubscriptionPayment";
 import { hostelDaysBetween } from "@hostel/shared/calendar/bs";
 
 /**
@@ -230,7 +233,7 @@ export async function getBillingHistory(
           status: string;
         }>
       >(),
-    SubscriptionPaymentModel.find({ hostelId: id })
+    SubscriptionPaymentModel.find({ hostelId: id, ...EXCLUDE_CHECKOUT_ATTEMPTS })
       .sort({ createdAt: -1 })
       .limit(50)
       .lean<

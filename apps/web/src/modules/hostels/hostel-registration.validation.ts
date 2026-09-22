@@ -234,12 +234,23 @@ export const teamHostelRegistrationSchema = registrationFields
        * anything is written rather than halfway through the registration.
        */
       method: z.enum(["SOFTMATO", "CASH"]),
+      /**
+       * The online payment taken on the Plan & payment step, before publishing
+       * (`team-prepayment.service.ts`). Its amount is read from that row on the
+       * server, never from this payload.
+       */
+      prepaymentId: z.string().trim().max(64).optional(),
       /** A slip number the agent wrote down. */
       reference: z.string().trim().max(120).optional(),
-    }).refine((payment) => payment.method === "CASH" || payment.amount === 0, {
-      message: "Online payments are made through Softmato checkout, not typed in.",
-      path: ["amount"],
-    }),
+    })
+      .refine((payment) => payment.method === "CASH" || payment.amount === 0, {
+        message: "Online payments are made through Softmato checkout, not typed in.",
+        path: ["amount"],
+      })
+      .refine((payment) => payment.method === "SOFTMATO" || !payment.prepaymentId, {
+        message: "An online payment cannot be filed as cash.",
+        path: ["prepaymentId"],
+      }),
     /** The team form always names a plan — it is a step in the form. */
     plan: registrationPlanChoiceSchema,
     /**

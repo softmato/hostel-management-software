@@ -1,12 +1,14 @@
 "use client";
 
-import { AlertTriangle, Building2, FileSpreadsheet, Phone, Plus, Users, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, FileSpreadsheet, Phone, Plus, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { GetAppDialog } from "@/components/get-app-dialog";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
+import type { UnpublishedPrepayment } from "@/modules/team/team-prepayment.service";
+import { formatBsAdDate } from "@hostel/shared/calendar/bs";
 
 /**
  * An agent's own desk: what they have filed, and what is still owed on it.
@@ -227,17 +229,22 @@ export function TeamDeskPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [entries, setEntries] = useState<WalletEntry[]>([]);
+  const [paidWaiting, setPaidWaiting] = useState<UnpublishedPrepayment[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [list, stats, money] = await Promise.all([
+        const [list, stats, money, waiting] = await Promise.all([
           browserApi<{ registrations: Registration[] }>("/api/v1/team/hostels"),
           browserApi<{ summary: Summary }>("/api/v1/team/summary"),
           browserApi<{ entries: WalletEntry[]; wallet: Wallet }>("/api/v1/team/wallet"),
+          browserApi<{ prepayments: UnpublishedPrepayment[] }>("/api/v1/team/prepayments").catch(() => ({
+            prepayments: [],
+          })),
         ]);
 
+        setPaidWaiting(waiting.prepayments);
         setRegistrations(list.registrations);
         setSummary(stats.summary);
         setWallet(money.wallet);
@@ -278,6 +285,8 @@ export function TeamDeskPage() {
           </Link>
         </div>
       </div>
+
+      {paidWaiting.length > 0 ? <PaidNotPublished rows={paidWaiting} /> : null}
 
       <EarningsRow entries={entries} wallet={wallet} />
 
@@ -490,5 +499,44 @@ export function TeamDeskPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Hostels the owner has already paid for online that nobody has published.
+ * The money is real, so the form is kept on the payment itself; each row
+ * reopens it exactly as it was left, ready to publish.
+ */
+function PaidNotPublished({ rows }: { rows: UnpublishedPrepayment[] }) {
+  return (
+    <section className="app-card overflow-hidden border-warning/30">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <AlertTriangle className="size-4 text-warning" />
+        <h2 className="text-sm font-bold text-foreground">Paid, not published</h2>
+        <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">{rows.length}</span>
+      </div>
+      <ul className="divide-y divide-border">
+        {rows.map((row) => (
+          <li key={row.id}>
+            <Link
+              className="grid gap-1 px-4 py-3 transition hover:bg-muted/50 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:gap-4"
+              href={`/team/register?resume=${row.id}`}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-foreground">{row.hostelName}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {row.ownerName || "—"} · {row.planName} · paid {row.paidAt ? formatBsAdDate(new Date(row.paidAt)) : "—"}
+                  {row.reference ? ` · ${row.reference}` : ""}
+                </span>
+              </span>
+              <span className="text-sm font-bold tabular-nums text-foreground">{rupees(row.amount)}</span>
+              <span className="inline-flex items-center gap-1 text-sm font-semibold text-brand-teal">
+                Finish &amp; publish <ArrowRight className="size-4" />
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

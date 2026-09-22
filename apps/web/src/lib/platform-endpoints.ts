@@ -61,5 +61,9 @@ export const platformEndpoints = {
   subscriptionClaims: "/api/v1/platform/subscriptions/claims",
   subscriptionClaimReview: (paymentId: string) =>
     `/api/v1/platform/subscriptions/claims/${paymentId}/review`,
+  /** Field cash waiting on a Softmato admin, and the per-row "Check now". */
+  subscriptionCash: "/api/v1/platform/subscriptions/cash",
+  subscriptionCashCheck: (paymentId: string) =>
+    `/api/v1/platform/subscriptions/cash/${paymentId}/check`,
   users: "/api/v1/platform/users",
 } as const;

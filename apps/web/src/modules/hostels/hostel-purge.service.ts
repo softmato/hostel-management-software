@@ -90,6 +90,7 @@ import { StoreCartModel } from "@hostel/db/models/StoreCart";
 import { StoreOrderModel } from "@hostel/db/models/StoreOrder";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
+import { TeamPrepaymentModel } from "@hostel/db/models/TeamPrepayment";
 import { UserModel } from "@hostel/db/models/User";
 
 /**
@@ -225,6 +226,8 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
     ["StoreOrder", StoreOrderModel],
     ["SubscriptionInvoice", SubscriptionInvoiceModel],
     ["SubscriptionPayment", SubscriptionPaymentModel],
+    // A claimed one is the payment behind this hostel's first invoice, so it goes with it.
+    ["TeamPrepayment", TeamPrepaymentModel],
   ] as Array<[string, PurgeableModel]>
 ).map(([name, model]) => ({ model, name }));
 
@@ -242,6 +245,8 @@ export const RETAINED_BY_HOSTEL_ID: Record<string, string> = {
     "The proof a person sent for a booking fee paid to HostelPalika, and who checked it. Part of the platform's payment trail.",
   BookingTransfer:
     "A refund or payout HostelPalika sent, with its transaction id and numbered document. Erasing it would leave money that left our account with no record of where it went.",
+  TeamWalletEntry:
+    "A field agent's commission earned on this hostel, in the ledger their wallet balance is summed from. Erasing it would drop what they earned below payouts already sent to them.",
 };
 
 /** The models a purge touches by name — what {@link RETAINED_BY_HOSTEL_ID} is checked against. */

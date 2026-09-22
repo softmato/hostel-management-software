@@ -55,6 +55,8 @@ export interface OpenCheckoutInput {
   softmatoInvoiceId: string;
   /** Ours, for the return link. */
   invoiceNumber: string;
+  /** Where the payer lands instead of `/checkout/return` — the team form, for a pre-publish payment. */
+  returnUrl?: string;
 }
 
 export async function openSoftmatoCheckout(
@@ -62,6 +64,6 @@ export async function openSoftmatoCheckout(
 ): Promise<CheckoutSession> {
   return softmato().createCheckout({
     invoice_id: input.softmatoInvoiceId,
-    return_url: checkoutReturnUrl({ invoice: input.invoiceNumber }),
+    return_url: input.returnUrl ?? checkoutReturnUrl({ invoice: input.invoiceNumber }),
   });
 }

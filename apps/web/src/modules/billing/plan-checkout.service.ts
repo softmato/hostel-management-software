@@ -28,6 +28,7 @@ import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
 import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { OtpChallengeModel } from "@hostel/db/models/OtpChallenge";
+import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { UserModel } from "@hostel/db/models/User";
 
 /**
@@ -68,6 +69,8 @@ export const planCheckoutSchema = z.discriminatedUnion("step", [
     token: z.string().min(1),
   }),
   z.object({ step: z.literal("pay"), token: z.string().min(1) }),
+  /** A reload of the pay step: reads, never raises an invoice. */
+  z.object({ step: z.literal("resume"), token: z.string().min(1) }),
   z.object({
     claimToken: z.string().min(1),
     fileAssetId: z.string().min(1),
@@ -183,6 +186,52 @@ async function paymentState(hostelId: string) {
   };
 }
 
+type CheckoutInvoice = {
+  amount: number;
+  cycle: string;
+  invoiceNumber: string;
+  periodEnd?: Date | null;
+  planName: string;
+};
+
+/** The pay step: the invoice, the hostel's billing trace, and where the plan lands once paid. */
+async function checkoutView(hostelId: string, invoice: CheckoutInvoice | null) {
+  const history = await getBillingHistory(hostelId);
+  /*
+   * Where the plan stands once this invoice is settled in full — the same
+   * rule `startPlanPeriod` applies: a running period that already reaches
+   * the invoice's end is kept, otherwise the plan runs to the invoice's.
+   */
+  const runningEnd = history.plan?.currentPeriodEnd ? new Date(history.plan.currentPeriodEnd) : null;
+  const invoiceEnd = invoice?.periodEnd ?? null;
+  const runsUntil =
+    runningEnd && (!invoiceEnd || runningEnd.getTime() >= invoiceEnd.getTime()) ? runningEnd : invoiceEnd;
+
+  return {
+    afterPayment: invoice
+      ? {
+          cycleLabel:
+            history.invoices.find((row) => row.invoiceNumber === invoice.invoiceNumber)?.cycleLabel ??
+            invoice.cycle,
+          daysRemaining: daysLeftThrough(runsUntil),
+          planName: invoice.planName,
+          runsUntil: runsUntil?.toISOString() ?? null,
+        }
+      : null,
+    history: { invoices: history.invoices, payments: history.payments, plan: history.plan },
+    invoice: invoice
+      ? {
+          amount: invoice.amount,
+          cycle: invoice.cycle,
+          invoiceNumber: invoice.invoiceNumber,
+          periodEnd: invoice.periodEnd?.toISOString() ?? null,
+          planName: invoice.planName,
+        }
+      : null,
+    ...(await paymentState(hostelId)),
+  };
+}
+
 export async function runPlanCheckout(
   input: PlanCheckoutInput,
   context?: { ipAddress?: string; userAgent?: string },
@@ -287,36 +336,22 @@ export async function runPlanCheckout(
         { cycle: input.cycle, planId: input.planId },
         ownerId,
       );
-      const history = await getBillingHistory(hostelId);
-      /*
-       * Where the plan stands once this invoice is settled in full — the same
-       * rule `startPlanPeriod` applies: a running period that already reaches
-       * the invoice's end is kept, otherwise the plan runs to the invoice's.
-       */
-      const runningEnd = history.plan?.currentPeriodEnd ? new Date(history.plan.currentPeriodEnd) : null;
-      const invoiceEnd = invoice.periodEnd ?? null;
-      const runsUntil =
-        runningEnd && (!invoiceEnd || runningEnd.getTime() >= invoiceEnd.getTime()) ? runningEnd : invoiceEnd;
+
+      return { reused, ...(await checkoutView(hostelId, invoice)) };
+    }
+
+    case "resume": {
+      const { hostelId } = await readCheckoutToken(input.token);
+      const [hostel, open] = await Promise.all([
+        HostelModel.findById(hostelId).select("name").lean<{ name?: string } | null>(),
+        SubscriptionInvoiceModel.findOne({ hostelId, status: { $in: ["OPEN", "PARTIAL"] } })
+          .sort({ createdAt: -1 })
+          .lean<CheckoutInvoice | null>(),
+      ]);
 
       return {
-        afterPayment: {
-          cycleLabel:
-            history.invoices.find((row) => row.invoiceNumber === invoice.invoiceNumber)?.cycleLabel ??
-            invoice.cycle,
-          daysRemaining: daysLeftThrough(runsUntil),
-          planName: invoice.planName,
-          runsUntil: runsUntil?.toISOString() ?? null,
-        },
-        history: { invoices: history.invoices, payments: history.payments, plan: history.plan },
-        invoice: {
-          amount: invoice.amount,
-          cycle: invoice.cycle,
-          invoiceNumber: invoice.invoiceNumber,
-          periodEnd: invoice.periodEnd?.toISOString() ?? null,
-          planName: invoice.planName,
-        },
-        reused,
-        ...(await paymentState(hostelId)),
+        hostel: { code: hostelCode(hostelId), name: hostel?.name ?? "" },
+        ...(await checkoutView(hostelId, open)),
       };
     }
 

@@ -111,6 +111,7 @@ export interface OpenedCheckout {
 
 export async function openCheckoutSession(input: {
   invoiceNumber: string;
+  returnUrl?: string;
   softmatoInvoiceId: string;
 }): Promise<OpenedCheckout> {
   const session = await openSoftmatoCheckout(input);

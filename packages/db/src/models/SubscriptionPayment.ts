@@ -233,3 +233,16 @@ subscriptionPaymentSchema.index(
 export const SubscriptionPaymentModel =
   models.SubscriptionPayment ||
   model("SubscriptionPayment", subscriptionPaymentSchema);
+
+/**
+ * A filter that leaves out checkout **attempts**.
+ *
+ * Every press of Pay writes a `SOFTMATO` row at `PENDING` before the redirect
+ * (`openSubscriptionCheckout`), so an owner who closed the wallet leaves one
+ * behind that stays `PENDING` for good. It is a trace of an attempt, kept for
+ * support, not a payment — so no list of payments shows it. Online money shows
+ * once it has settled; cash and QR claims still show while they wait on a person.
+ */
+export const EXCLUDE_CHECKOUT_ATTEMPTS = {
+  $nor: [{ method: "SOFTMATO", status: { $ne: "SETTLED" } }],
+};

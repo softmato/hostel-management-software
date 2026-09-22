@@ -2,7 +2,11 @@ import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
-import { issueInvoiceDocument, type EnsureInvoiceInput } from "@/modules/billing/billing-gateway";
+import {
+  documentDownloadUrl,
+  issueInvoiceDocument,
+  type EnsureInvoiceInput,
+} from "@/modules/billing/billing-gateway";
 import { isSoftmatoDown } from "@/modules/billing/softmato/client";
 import { rememberTask } from "@/modules/billing/softmato/outage";
 import { servicePeriod } from "@/modules/billing/softmato/invoice";
@@ -137,7 +141,7 @@ type PaymentRecord = {
  * global counter — which, as `ReceiptCounter` notes, would leak the platform's
  * total volume to anyone who read two of their own numbers.
  */
-async function allocateNumber(
+export async function allocateNumber(
   hostelId: Types.ObjectId,
   kind: "SUBSCRIPTION_INVOICE" | "SUBSCRIPTION_RECEIPT",
 ) {
@@ -655,7 +659,23 @@ export async function selectPlan(
 export async function issueSubscriptionInvoice(
   hostelId: string,
   actorId: string,
-  options: { agentId?: string | null; requireVerified?: boolean; source?: "PUBLIC" | "TEAM" } = {},
+  options: {
+    agentId?: string | null;
+    /**
+     * A document the owner already paid before this invoice existed — a team
+     * agent's pre-publish collection (`team-prepayment.service.ts`). Its number
+     * came from this hostel's own sequence and its amount is what was paid, so
+     * the invoice is written onto it rather than raising a second one.
+     */
+    prepaid?: {
+      amount: number;
+      invoiceNumber: string;
+      softmatoInvoiceId: string;
+      softmatoInvoiceNo: string;
+    };
+    requireVerified?: boolean;
+    source?: "PUBLIC" | "TEAM";
+  } = {},
 ) {
   await connectToDatabase();
 
@@ -729,10 +749,10 @@ export async function issueSubscriptionInvoice(
 
   const source = options.source ?? subscription.source ?? "PUBLIC";
   const owner = await resolveBillingContact(subscription.hostelId);
-  const invoiceNumber = await allocateNumber(
-    subscription.hostelId,
-    "SUBSCRIPTION_INVOICE",
-  );
+  const { prepaid } = options;
+  const invoiceNumber =
+    prepaid?.invoiceNumber ?? (await allocateNumber(subscription.hostelId, "SUBSCRIPTION_INVOICE"));
+  const amount = prepaid?.amount ?? subscription.cycleTotal;
 
   /*
    * **Our row first, their document second**, and the order is the whole
@@ -753,7 +773,7 @@ export async function issueSubscriptionInvoice(
    */
   const created = await SubscriptionInvoiceModel.create({
     agentId: options.agentId ?? subscription.agentId ?? null,
-    amount: subscription.cycleTotal,
+    amount,
     billedTo: { email: owner.email, hostelName: hostel.name, name: owner.name },
     cycle: subscription.cycle,
     cycleMonths: subscription.cycleMonths,
@@ -768,6 +788,14 @@ export async function issueSubscriptionInvoice(
     source,
     status: "OPEN",
     subscriptionId: subscription._id,
+    // With both handles set, `ensureInvoiceRaised` below keeps the paid document.
+    ...(prepaid
+      ? {
+          documentUrl: documentDownloadUrl("invoice", invoiceNumber),
+          softmatoInvoiceId: prepaid.softmatoInvoiceId,
+          softmatoInvoiceNo: prepaid.softmatoInvoiceNo,
+        }
+      : {}),
   });
 
   const invoice = await ensureInvoiceRaised(
@@ -787,16 +815,22 @@ export async function issueSubscriptionInvoice(
     entityType: "SubscriptionInvoice",
     hostelId: subscription.hostelId,
     metadata: {
-      amount: subscription.cycleTotal,
+      amount,
       invoiceNumber,
       planId: subscription.planId,
+      prepaid: Boolean(prepaid),
     },
   });
+
+  // Already paid: the settlement that follows sends the one email that is true.
+  if (prepaid) {
+    return invoice;
+  }
 
   const catalog = await getSiteConfigSection("plans");
 
   await onInvoiceIssued({
-    amount: subscription.cycleTotal ?? 0,
+    amount: amount ?? 0,
     cycleLabel: catalog.cycleLabels[subscription.cycle] ?? subscription.cycle,
     documentUrl: invoice.documentUrl ?? null,
     dueAt,
